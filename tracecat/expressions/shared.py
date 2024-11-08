@@ -3,8 +3,6 @@ from dataclasses import dataclass
 from enum import StrEnum, auto
 from typing import Any
 
-from tracecat.dsl.models import ActionStatement
-
 
 class TracecatEnum(StrEnum):
     def __repr__(self) -> str:
@@ -71,9 +69,3 @@ class IterableExpr[T]:
     def __iter__(self) -> Iterator[tuple[str, T]]:
         for item in self.collection:
             yield self.iterator, item
-
-
-def context_locator(
-    stmt: ActionStatement, loc: str, *, ctx: ExprContext = ExprContext.ACTIONS
-) -> str:
-    return f"{ctx}.{stmt.ref} -> {loc}"

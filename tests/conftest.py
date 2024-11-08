@@ -232,7 +232,7 @@ def authed_client_controls(test_config_path: Path):
             return {}
 
     def get_client():
-        url = os.getenv("TRACECAT__PUBLIC_API_URL")
+        url = os.environ["TRACECAT__PUBLIC_API_URL"]
         if cookies_data := _read_config().get("cookies"):
             return httpx.Client(base_url=url, cookies=httpx.Cookies(cookies_data))
         raise ValueError("No cookies found in config")
@@ -256,7 +256,7 @@ def authed_client_controls(test_config_path: Path):
 def test_admin_user(env_sandbox, authed_client_controls):
     # Login
 
-    url = os.getenv("TRACECAT__PUBLIC_API_URL")
+    url = os.environ["TRACECAT__PUBLIC_API_URL"]
     get_client, cfg_write, cfg_read = authed_client_controls
 
     # Login

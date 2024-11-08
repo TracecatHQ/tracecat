@@ -52,6 +52,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^0.2.1",
     "date-fns": "^2.30.0",
+    "fuzzysort": "^3.1.0",
     "install": "^0.13.0",
     "js-cookie": "^3.0.5",
     "lucide-react": "^0.359.0",

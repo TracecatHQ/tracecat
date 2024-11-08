@@ -38,8 +38,8 @@
   },
   "tabs": [
     {
-      "name": "Integrations",
-      "url": "integrations"
+      "name": "Cheatsheets",
+      "url": "cheatsheets"
     },
     {
       "name": "API Reference",
@@ -68,7 +68,18 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
-        "quickstart"
+        "tutorials/1-quickstart",
+        {
+          "group": "Tutorials",
+          "pages": [
+            "tutorials/2-control-flow",
+            "tutorials/3-actions-registry",
+            "tutorials/4-child-workflows",
+            "tutorials/5-triggers",
+            "tutorials/6-custom-integrations",
+            "tutorials/updating"
+          ]
+        }
       ]
     },
     {
@@ -87,31 +98,25 @@
           "pages": [
             "self-hosting/authentication/introduction",
             "self-hosting/authentication/basic",
-            "self-hosting/authentication/google"
+            "self-hosting/authentication/google",
+            "self-hosting/authentication/okta"
           ]
-        },
-        "self-hosting/external-facing-webhooks",
-        "self-hosting/updating"
+        }
       ]
     },
     {
       "group": "Core Features",
       "pages": [
-        "concepts/workflows",
-        "concepts/actions",
-        "concepts/secrets",
-        "concepts/webhooks",
-        "concepts/schedules",
-        "concepts/expressions",
-        "concepts/case-management"
+        "platform/actions",
+        "platform/secrets",
+        "platform/expressions"
       ]
     },
     {
-      "group": "Developer Features",
+      "group": "Cheatsheets",
       "pages": [
-        "concepts/user-defined-functions",
-        "concepts/workflow-definitions",
-        "concepts/command-line-interface"
+        "cheatsheets/functions",
+        "cheatsheets/integrations"
       ]
     },
     {
@@ -210,12 +215,6 @@
               ]
             },
             {
-              "group": "validation",
-              "pages": [
-                "api-reference/reference/validation/validate-workflow"
-              ]
-            },
-            {
               "group": "users",
               "pages": [
                 "api-reference/reference/users/search-user",
@@ -263,184 +262,6 @@
                 "api-reference/reference/auth/oauth:googledatabasecallback",
                 "api-reference/reference/auth/saml:databaselogin",
                 "api-reference/reference/auth/sso-acs"
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "group": "Integrations",
-      "pages": [
-        "integrations/introduction",
-        "integrations/secrets_cheatsheet",
-        "integrations/expressions"
-      ]
-    },
-    {
-      "group": "Schemas",
-      "pages": [
-        {
-          "group": "core",
-          "pages": [
-            "integrations/udfs/core_ai_action",
-            "integrations/udfs/core_http_request",
-            "integrations/udfs/core_open_case",
-            "integrations/udfs/core_send_email_smtp",
-            {
-              "group": "transform",
-              "pages": [
-                "integrations/udfs/core_transform_build_reference_table",
-                "integrations/udfs/core_transform_filter",
-                "integrations/udfs/core_transform_reshape"
-              ]
-            },
-            {
-              "group": "workflow",
-              "pages": [
-                "integrations/udfs/core_workflow_execute"
-              ]
-            }
-          ]
-        },
-        {
-          "group": "etl",
-          "pages": [
-            {
-              "group": "extraction",
-              "pages": [
-                "integrations/udfs/etl_extraction_extract_emails",
-                "integrations/udfs/etl_extraction_extract_ipv4_addresses",
-                "integrations/udfs/etl_extraction_extract_urls"
-              ]
-            }
-          ]
-        },
-        {
-          "group": "example",
-          "pages": [
-            "integrations/udfs/example_add",
-            "integrations/udfs/example_another_function",
-            "integrations/udfs/example_my_function",
-            "integrations/udfs/example_passthrough"
-          ]
-        },
-        {
-          "group": "integrations",
-          "pages": [
-            {
-              "group": "aws",
-              "pages": [
-                {
-                  "group": "guardduty",
-                  "pages": [
-                    "integrations/udfs/integrations_aws_guardduty_list_guardduty_alerts"
-                  ]
-                }
-              ]
-            },
-            {
-              "group": "chat",
-              "pages": [
-                {
-                  "group": "slack",
-                  "pages": [
-                    "integrations/udfs/integrations_chat_slack_list_slack_conversations",
-                    "integrations/udfs/integrations_chat_slack_list_slack_users",
-                    "integrations/udfs/integrations_chat_slack_post_slack_message",
-                    "integrations/udfs/integrations_chat_slack_tag_slack_users"
-                  ]
-                }
-              ]
-            },
-            {
-              "group": "crowdstrike",
-              "pages": [
-                "integrations/udfs/integrations_crowdstrike_list_crowdstrike_alerts",
-                "integrations/udfs/integrations_crowdstrike_list_crowdstrike_detects",
-                "integrations/udfs/integrations_crowdstrike_update_crowdstrike_alert_status",
-                "integrations/udfs/integrations_crowdstrike_update_crowdstrike_detect_status"
-              ]
-            },
-            {
-              "group": "datadog",
-              "pages": [
-                "integrations/udfs/integrations_datadog_list_datadog_alerts"
-              ]
-            },
-            {
-              "group": "elastic",
-              "pages": [
-                "integrations/udfs/integrations_elastic_list_elastic_alerts"
-              ]
-            },
-            {
-              "group": "email",
-              "pages": [
-                {
-                  "group": "resend",
-                  "pages": [
-                    "integrations/udfs/integrations_email_resend_send_email_resend"
-                  ]
-                }
-              ]
-            },
-            {
-              "group": "ldap",
-              "pages": [
-                "integrations/udfs/integrations_ldap_disable_ad_user",
-                "integrations/udfs/integrations_ldap_enable_ad_user",
-                "integrations/udfs/integrations_ldap_find_ldap_users"
-              ]
-            },
-            {
-              "group": "microsoft_defender",
-              "pages": [
-                "integrations/udfs/integrations_microsoft_defender_list_defender_cloud_alerts",
-                "integrations/udfs/integrations_microsoft_defender_list_defender_endpoint_alerts"
-              ]
-            },
-            {
-              "group": "okta",
-              "pages": [
-                "integrations/udfs/integrations_okta_expire_okta_sessions",
-                "integrations/udfs/integrations_okta_find_okta_users",
-                "integrations/udfs/integrations_okta_list_okta_user_events",
-                "integrations/udfs/integrations_okta_suspend_okta_user",
-                "integrations/udfs/integrations_okta_unsuspend_okta_user"
-              ]
-            },
-            {
-              "group": "sentinel_one",
-              "pages": [
-                "integrations/udfs/integrations_sentinel_one_get_sentinel_one_firewall_rule",
-                "integrations/udfs/integrations_sentinel_one_get_sentinelone_agents_by_hostname",
-                "integrations/udfs/integrations_sentinel_one_get_sentinelone_agents_by_username",
-                "integrations/udfs/integrations_sentinel_one_isolate_sentinelone_agent",
-                "integrations/udfs/integrations_sentinel_one_list_sentinelone_alerts",
-                "integrations/udfs/integrations_sentinel_one_unisolate_sentinelone_agent",
-                "integrations/udfs/integrations_sentinel_one_update_sentinel_one_firewall_rule",
-                "integrations/udfs/integrations_sentinel_one_update_sentinelone_alert_status"
-              ]
-            },
-            {
-              "group": "sinks",
-              "pages": [
-                "integrations/udfs/integrations_sinks_write_to_database"
-              ]
-            },
-            {
-              "group": "virustotal",
-              "pages": [
-                "integrations/udfs/integrations_virustotal_analyze_ip_address",
-                "integrations/udfs/integrations_virustotal_analyze_malware_sample",
-                "integrations/udfs/integrations_virustotal_analyze_url"
-              ]
-            },
-            {
-              "group": "wiz",
-              "pages": [
-                "integrations/udfs/integrations_wiz_list_wiz_alerts"
               ]
             }
           ]

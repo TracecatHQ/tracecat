@@ -1,4 +1,5 @@
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from tracecat.expressions import patterns
@@ -8,7 +9,7 @@ from tracecat.expressions.parser.validator import ExprValidator
 from tracecat.expressions.shared import ExprContext, ExprType
 from tracecat.types.exceptions import TracecatExpressionError
 
-OperandType = dict[str, Any]
+OperandType = Mapping[str, Any]
 
 
 class Expression:
@@ -62,6 +63,10 @@ class Expression:
         # 1) Parse the expression into AST
         try:
             parse_tree = self._parser.parse(self._expr)
+            if parse_tree is None:
+                raise TracecatExpressionError(
+                    f"Parser returned None for expression `{self._expr}`"
+                )
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
@@ -93,8 +98,15 @@ class TemplateExpression:
         **kwargs,
     ) -> None:
         match = pattern.match(template)
-        if (expr := match.group("expr")) is None:
-            raise TracecatExpressionError(f"Invalid template expression: {template!r}")
+        if match is None:
+            raise TracecatExpressionError(
+                f"Template expression {template!r} does not match expected pattern. "
+            )
+        expr = match.group("expr")
+        if expr is None:
+            raise TracecatExpressionError(
+                f"Template expression {template!r} matched pattern but contained no expression. "
+            )
         self.expr = Expression(
             expr, operand=operand, include=include, exclude=exclude, **kwargs
         )

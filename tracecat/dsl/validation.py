@@ -1,22 +1,18 @@
 from __future__ import annotations
 
-import re
-from typing import Any
-
 from pydantic import BaseModel, ConfigDict, ValidationError
 from temporalio import activity
 
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.models import TriggerInputs
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
-from tracecat.types.validation import ValidationResult
-
-LIST_PATTERN = re.compile(r"list\[(?P<inner>(\$)?[a-zA-Z]+)\]")
+from tracecat.validation.models import ValidationResult
 
 
 def validate_trigger_inputs(
     dsl: DSLInput,
-    payload: dict[str, Any] | None = None,
+    payload: TriggerInputs | None = None,
     *,
     raise_exceptions: bool = False,
     model_name: str = "TriggerInputsValidator",
@@ -35,24 +31,26 @@ def validate_trigger_inputs(
         field_name: ExpectedField.model_validate(field_schema)
         for field_name, field_schema in dsl.entrypoint.expects.items()
     }
-    validator = create_expectation_model(expects_schema, model_name=model_name)
-    try:
-        validator(**payload)
-    except ValidationError as e:
-        if raise_exceptions:
-            raise
-        return ValidationResult(
-            status="error",
-            msg=f"Validation error in trigger inputs ({e.title}). Please refer to the schema for more details.",
-            detail={"errors": e.errors()},
-        )
+    if isinstance(payload, dict):
+        # NOTE: We only validate dict payloads for now
+        validator = create_expectation_model(expects_schema, model_name=model_name)
+        try:
+            validator(**payload)
+        except ValidationError as e:
+            if raise_exceptions:
+                raise
+            return ValidationResult(
+                status="error",
+                msg=f"Validation error in trigger inputs ({e.title}). Please refer to the schema for more details.",
+                detail={"errors": e.errors()},
+            )
     return ValidationResult(status="success", msg="Trigger inputs are valid.")
 
 
 class ValidateTriggerInputsActivityInputs(BaseModel):
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
     dsl: DSLInput
-    trigger_inputs: dict[str, Any]
+    trigger_inputs: TriggerInputs
 
 
 @activity.defn

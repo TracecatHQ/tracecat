@@ -9,8 +9,8 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-from tracecat.dsl.models import ActionStatement, ArgsT, RunActionInput
-from tracecat.expressions.shared import context_locator
+from tracecat.dsl.common import context_locator
+from tracecat.dsl.models import ActionStatement, DSLTaskErrorInfo, RunActionInput
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.registry.client import RegistryClient
@@ -19,7 +19,7 @@ from tracecat.types.exceptions import RegistryActionError
 
 
 def _contextualize_message(
-    task: ActionStatement[ArgsT],
+    task: ActionStatement,
     msg: str | BaseException,
     *,
     attempt: int,
@@ -30,7 +30,7 @@ def _contextualize_message(
 
 class ValidateActionActivityInput(BaseModel):
     role: Role
-    task: ActionStatement[ArgsT]
+    task: ActionStatement
 
 
 class DSLActivities:
@@ -40,7 +40,7 @@ class DSLActivities:
         raise RuntimeError("This class should not be instantiated")
 
     @classmethod
-    def load(cls) -> list[Callable[[RunActionInput[ArgsT]], Any]]:
+    def load(cls) -> list[Callable[[RunActionInput], Any]]:
         """Load and return all UDFs in the class."""
         return [
             getattr(cls, method_name)
@@ -68,7 +68,7 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def run_action_activity(input: RunActionInput[ArgsT]) -> Any:
+    async def run_action_activity(input: RunActionInput) -> Any:
         """Run an action.
         Goals:
         - Think of this as a controller activity that will orchestrate the execution of the action.
@@ -110,16 +110,30 @@ class DSLActivities:
         except RegistryActionError as e:
             # We only expect RegistryActionError to be raised from the registry client
             kind = e.__class__.__name__
-            msg = _contextualize_message(task, e, attempt=attempt)
+            msg = str(e)
+            err_locator = _contextualize_message(task, msg, attempt=attempt)
             act_logger.error(
                 "Application exception occurred", error=msg, detail=e.detail
             )
-            raise ApplicationError(msg, e.detail, type=kind) from e
+            err_info = DSLTaskErrorInfo(
+                ref=task.ref,
+                message=msg,
+                type=kind,
+                attempt=attempt,
+            )
+            raise ApplicationError(err_locator, err_info, type=kind) from e
         except ApplicationError as e:
             # Unexpected application error - depends
             act_logger.error("ApplicationError occurred", error=e)
+            err_info = DSLTaskErrorInfo(
+                ref=task.ref,
+                message=str(e),
+                type=e.type or e.__class__.__name__,
+                attempt=attempt,
+            )
             raise ApplicationError(
                 _contextualize_message(task, e.message, attempt=attempt),
+                err_info,
                 non_retryable=e.non_retryable,
                 type=e.type,
             ) from e
@@ -128,8 +142,16 @@ class DSLActivities:
             kind = e.__class__.__name__
             raw_msg = f"{kind} occurred:\n{e}"
             act_logger.error(raw_msg)
+
+            err_info = DSLTaskErrorInfo(
+                ref=task.ref,
+                message=raw_msg,
+                type=kind,
+                attempt=attempt,
+            )
             raise ApplicationError(
                 _contextualize_message(task, raw_msg, attempt=attempt),
+                err_info,
                 type=kind,
                 non_retryable=True,
             ) from e

@@ -1,6 +1,7 @@
 """Use this in worker to execute actions."""
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, cast
 
 import httpx
 import orjson
@@ -11,7 +12,6 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
-    ArgsT,
     RegistryActionRead,
     RegistryActionValidateResponse,
 )
@@ -22,10 +22,10 @@ from tracecat.types.exceptions import RegistryActionError, RegistryError
 class _RegistryHTTPClient(AuthenticatedServiceClient):
     """Async httpx client for the registry service."""
 
-    def __init__(self, role: Role | None = None, *args, **kwargs):
+    def __init__(self, role: Role | None = None, *args: Any, **kwargs: Any) -> None:
         self._registry_base_url = config.TRACECAT__API_URL
-        super().__init__(*args, role=role, base_url=self._registry_base_url, **kwargs)
-        self.params = self.params.add("workspace_id", str(role.workspace_id))
+        super().__init__(role, *args, base_url=self._registry_base_url, **kwargs)
+        self.params = self.params.add("workspace_id", str(self.role.workspace_id))
 
 
 class RegistryClient:
@@ -41,7 +41,7 @@ class RegistryClient:
 
     """Execution"""
 
-    async def call_action(self, input: RunActionInput[ArgsT]) -> httpx.Response:
+    async def call_action(self, input: RunActionInput) -> Any:
         """
         Call an action in the registry asynchronously.
 
@@ -120,7 +120,7 @@ class RegistryClient:
     """Validation"""
 
     async def validate_action(
-        self, *, action_name: str, args: dict[str, Any]
+        self, *, action_name: str, args: Mapping[str, Any]
     ) -> RegistryActionValidateResponse:
         """Validate an action."""
         try:
@@ -153,7 +153,7 @@ class RegistryClient:
             async with _RegistryHTTPClient(self.role) as client:
                 response = await client.get(self._repos_endpoint)
             response.raise_for_status()
-            return response.json()
+            return cast(list[str], response.json())
         except httpx.HTTPStatusError as e:
             raise RegistryError(
                 f"Failed to list registries: HTTP {e.response.status_code}"
@@ -198,7 +198,7 @@ class RegistryClient:
             code: str,
             module_name: str,
             validate_keys: list[str] | None = None,
-        ):
+        ) -> dict[str, Any]:
             """Use this only for testing purposes."""
             if config.TRACECAT__APP_ENV != "development":
                 # Unreachable
@@ -207,7 +207,7 @@ class RegistryClient:
                 async with _RegistryHTTPClient(role=self.role) as client:
                     response = await client.post(
                         "/test-registry",
-                        params={"workspace_id": self.role.workspace_id},
+                        params={"workspace_id": str(self.role.workspace_id)},
                         json={
                             "version": version,
                             "code": code,
@@ -216,7 +216,7 @@ class RegistryClient:
                         },
                     )
                 response.raise_for_status()
-                return response.json()
+                return cast(dict[str, Any], response.json())
             except httpx.HTTPStatusError as e:
                 raise RegistryError(
                     f"Failed to register test module: HTTP {e.response.status_code}"

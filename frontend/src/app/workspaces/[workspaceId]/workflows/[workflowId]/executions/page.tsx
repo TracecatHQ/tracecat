@@ -12,7 +12,6 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -28,8 +27,8 @@ import { WorkflowExecutionNav } from "@/components/executions/nav"
 export default function WorkflowExecutionsPage() {
   const { workflowId } = useWorkflow()
   return (
-    <div className="flex h-screen flex-col overflow-auto">
-      <div className="flex-1 space-y-8">
+    <div className="h-[calc(100vh-4rem)]">
+      <div className="h-full">
         {workflowId ? (
           <WorkflowExecutionsViewLayout
             workflowId={workflowId}
@@ -93,15 +92,15 @@ function WorkflowExecutionsViewLayout({
   return (
     <TooltipProvider delayDuration={0}>
       <ResizablePanelGroup
-        className="h-full"
         direction="horizontal"
+        className="h-full"
         onLayout={(sizes: number[]) => {
-          document.cookie = `rworkflow-executions:eact-resizable-panels:layout=${JSON.stringify(
+          document.cookie = `workflow-executions:react-resizable-panels:layout=${JSON.stringify(
             sizes
           )}`
         }}
       >
-        {/* All executions */}
+        {/* Panel 1: All executions */}
         <ResizablePanel
           ref={sidePanelRef}
           defaultSize={defaultLayout[0]}
@@ -111,65 +110,73 @@ function WorkflowExecutionsViewLayout({
           maxSize={20}
           onCollapse={handleCollapse}
           onExpand={handleExpand}
-          className={cn("flex h-full flex-col p-2", isCollapsed && "min-w-14")}
+          className={cn(isCollapsed && "min-w-14")}
         >
-          <ScrollArea className="overflow-auto">
-            <SectionHead
-              text="Workflow Runs"
-              icon={<ListVideoIcon className="mr-2 size-4" strokeWidth={2} />}
-            />
-            <WorkflowExecutionNav
-              executions={workflowExecutions}
-              executionId={executionId}
-              setExecutionId={setExecutionId}
-              setSelectedEvent={setSelectedEvent}
-            />
-          </ScrollArea>
+          <div className="flex h-full flex-col overflow-hidden p-2">
+            <div className="flex-none">
+              <SectionHead
+                text="Workflow Runs"
+                icon={<ListVideoIcon className="mr-2 size-4" strokeWidth={2} />}
+              />
+            </div>
+            <div className="flex-1 overflow-auto">
+              <WorkflowExecutionNav
+                executions={workflowExecutions}
+                executionId={executionId}
+                setExecutionId={setExecutionId}
+                setSelectedEvent={setSelectedEvent}
+              />
+            </div>
+          </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
 
-        {/* For items that should align at the end of the side nav */}
+        {/* Panel 2: Event History */}
         <ResizablePanel
           defaultSize={defaultLayout[1]}
           minSize={15}
-          className={cn("flex h-full flex-col p-2", isCollapsed && "min-w-14")}
+          className={cn(isCollapsed && "min-w-14")}
         >
-          <ScrollArea className="overflow-auto">
-            <SectionHead
-              text="Event History"
-              icon={<History className="mr-2 size-4" strokeWidth={2} />}
-            />
-            {executionId ? (
-              <WorkflowExecutionEventHistory
-                executionId={executionId}
-                selectedEvent={selectedEvent}
-                setSelectedEvent={setSelectedEvent}
+          <div className="flex h-full flex-col overflow-hidden p-2">
+            <div className="flex-none">
+              <SectionHead
+                text="Event History"
+                icon={<History className="mr-2 size-4" strokeWidth={2} />}
               />
-            ) : (
-              <span className="flex justify-center p-4 text-center text-xs text-muted-foreground">
-                Select a Workflow Execution.
-              </span>
-            )}
-          </ScrollArea>
+            </div>
+            <div className="flex-1 overflow-auto">
+              {executionId ? (
+                <WorkflowExecutionEventHistory
+                  executionId={executionId}
+                  selectedEvent={selectedEvent}
+                  setSelectedEvent={setSelectedEvent}
+                />
+              ) : (
+                <span className="flex justify-center p-4 text-center text-xs text-muted-foreground">
+                  Select a Workflow Execution.
+                </span>
+              )}
+            </div>
+          </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
+
+        {/* Panel 3: Event Details */}
         <ResizablePanel
           defaultSize={defaultLayout[2]}
           minSize={25}
           className="grow"
         >
-          <div className="flex h-full flex-col">
-            <ScrollArea className="w-full">
+          <div className="flex h-full flex-col overflow-hidden">
+            <div className="flex-1 overflow-auto">
               {selectedEvent ? (
                 <WorkflowExecutionEventDetailView event={selectedEvent} />
               ) : (
-                <div className="flex size-full items-center justify-center">
-                  <span className="text-center text-xs text-muted-foreground">
-                    Select an Event.
-                  </span>
-                </div>
+                <span className="flex justify-center p-4 text-center text-xs text-muted-foreground">
+                  Select an Event.
+                </span>
               )}
-            </ScrollArea>
+            </div>
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

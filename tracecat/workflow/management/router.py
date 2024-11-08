@@ -20,20 +20,18 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat import validation
 from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
+from tracecat.dsl.models import DSLConfig
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.types.api import (
-    ActionResponse,
-    UpsertWebhookParams,
-    WebhookResponse,
-)
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
+from tracecat.validation.service import validate_dsl
+from tracecat.webhooks.models import UpsertWebhookParams, WebhookResponse
+from tracecat.workflow.actions.models import ActionRead
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import (
@@ -180,7 +178,7 @@ async def get_workflow(
 
     actions = workflow.actions or []
     actions_responses = {
-        action.id: ActionResponse(**action.model_dump()) for action in actions
+        action.id: ActionRead(**action.model_dump()) for action in actions
     }
     # Add webhook/schedules
     return WorkflowResponse(
@@ -188,7 +186,6 @@ async def get_workflow(
         owner_id=workflow.owner_id,
         title=workflow.title,
         description=workflow.description,
-        icon_url=workflow.icon_url,
         status=workflow.status,
         version=workflow.version,
         expects=workflow.expects,
@@ -196,10 +193,10 @@ async def get_workflow(
         entrypoint=workflow.entrypoint,
         object=workflow.object,
         static_inputs=workflow.static_inputs,
-        config=workflow.config,
+        config=DSLConfig(**workflow.config),
         actions=actions_responses,
         webhook=WebhookResponse(**workflow.webhook.model_dump()),
-        schedules=workflow.schedules,
+        schedules=workflow.schedules or [],
     )
 
 
@@ -298,7 +295,7 @@ async def commit_workflow(
         # When we're here, we've verified that the workflow DSL is structurally sound
         # Now, we have to ensure that the arguments are sound
 
-        if val_errors := await validation.validate_dsl(session=session, dsl=dsl):
+        if val_errors := await validate_dsl(session=session, dsl=dsl):
             logger.warning("Validation errors", errors=val_errors)
             return CommitWorkflowResponse(
                 workflow_id=workflow_id,
@@ -448,10 +445,9 @@ async def create_webhook(
 
     webhook = Webhook(
         owner_id=role.workspace_id,
-        entrypoint_ref=params.entrypoint_ref,
         method=params.method or "POST",
         workflow_id=workflow_id,
-    )
+    )  # type: ignore
     session.add(webhook)
     await session.commit()
     await session.refresh(webhook)

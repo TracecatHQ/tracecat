@@ -1189,7 +1189,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/ActionMetadataResponse'
+                  $ref: '#/components/schemas/ActionReadMinimal'
                 title: Response Actions-List Actions
         '422':
           description: Validation Error
@@ -1218,14 +1218,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateActionParams'
+              $ref: '#/components/schemas/ActionCreate'
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ActionMetadataResponse'
+                $ref: '#/components/schemas/ActionReadMinimal'
         '422':
           description: Validation Error
           content:
@@ -1267,7 +1267,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ActionResponse'
+                $ref: '#/components/schemas/ActionRead'
         '422':
           description: Validation Error
           content:
@@ -1301,14 +1301,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateActionParams'
+              $ref: '#/components/schemas/ActionUpdate'
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ActionResponse'
+                $ref: '#/components/schemas/ActionRead'
         '422':
           description: Validation Error
           content:
@@ -1869,49 +1869,6 @@ paths:
                 items:
                   $ref: '#/components/schemas/Schedule'
                 title: Response Schedules-Search Schedules
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /validate-workflow:
-    post:
-      tags:
-      - validation
-      summary: Validate Workflow
-      description: 'Validate a workflow.
-
-
-        This deploys the workflow and updates its version. If a YAML file is provided,
-        it will override the workflow in the database.'
-      operationId: validation-validate_workflow
-      security:
-      - APIKeyCookie: []
-      parameters:
-      - name: workspace_id
-        in: query
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Workspace Id
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/Body_validation-validate_workflow'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/RegistryActionValidateResponse'
-                title: Response Validation-Validate Workflow
         '422':
           description: Validation Error
           content:
@@ -2924,13 +2881,14 @@ components:
           title: Start Delay
           description: Delay before starting the action in seconds.
           default: 0.0
+        join_strategy:
+          allOf:
+          - $ref: '#/components/schemas/JoinStrategy'
+          default: all
       type: object
       title: ActionControlFlow
-    ActionMetadataResponse:
+    ActionCreate:
       properties:
-        id:
-          type: string
-          title: Id
         workflow_id:
           type: string
           title: Workflow Id
@@ -2940,26 +2898,13 @@ components:
         title:
           type: string
           title: Title
-        description:
-          type: string
-          title: Description
-        status:
-          type: string
-          title: Status
-        key:
-          type: string
-          title: Key
       type: object
       required:
-      - id
       - workflow_id
       - type
       - title
-      - description
-      - status
-      - key
-      title: ActionMetadataResponse
-    ActionResponse:
+      title: ActionCreate
+    ActionRead:
       properties:
         id:
           type: string
@@ -2993,7 +2938,40 @@ components:
       - status
       - inputs
       - key
-      title: ActionResponse
+      title: ActionRead
+    ActionReadMinimal:
+      properties:
+        id:
+          type: string
+          title: Id
+        workflow_id:
+          type: string
+          title: Workflow Id
+        type:
+          type: string
+          title: Type
+        title:
+          type: string
+          title: Title
+        description:
+          type: string
+          title: Description
+        status:
+          type: string
+          title: Status
+        key:
+          type: string
+          title: Key
+      type: object
+      required:
+      - id
+      - workflow_id
+      - type
+      - title
+      - description
+      - status
+      - key
+      title: ActionReadMinimal
     ActionRetryPolicy:
       properties:
         max_attempts:
@@ -3066,6 +3044,12 @@ components:
           title: Start Delay
           description: Delay before starting the action in seconds.
           default: 0.0
+        join_strategy:
+          allOf:
+          - $ref: '#/components/schemas/JoinStrategy'
+          description: The strategy to use when joining on this task. By default,
+            all branches must complete successfully before the join task can complete.
+          default: all
       type: object
       required:
       - ref
@@ -3121,6 +3105,12 @@ components:
           title: Start Delay
           description: Delay before starting the action in seconds.
           default: 0.0
+        join_strategy:
+          allOf:
+          - $ref: '#/components/schemas/JoinStrategy'
+          description: The strategy to use when joining on this task. By default,
+            all branches must complete successfully before the join task can complete.
+          default: all
       type: object
       required:
       - ref
@@ -3175,6 +3165,12 @@ components:
           title: Start Delay
           description: Delay before starting the action in seconds.
           default: 0.0
+        join_strategy:
+          allOf:
+          - $ref: '#/components/schemas/JoinStrategy'
+          description: The strategy to use when joining on this task. By default,
+            all branches must complete successfully before the join task can complete.
+          default: all
       type: object
       required:
       - ref
@@ -3198,6 +3194,34 @@ components:
       - action
       - args
       title: ActionStep
+    ActionUpdate:
+      properties:
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+        inputs:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Inputs
+        control_flow:
+          anyOf:
+          - $ref: '#/components/schemas/ActionControlFlow'
+          - type: 'null'
+      type: object
+      title: ActionUpdate
     Body_auth-reset_forgot_password:
       properties:
         email:
@@ -3249,20 +3273,6 @@ components:
       required:
       - token
       title: Body_auth-verify:verify
-    Body_validation-validate_workflow:
-      properties:
-        definition:
-          type: string
-          format: binary
-          title: Definition
-        payload:
-          type: string
-          format: binary
-          title: Payload
-      type: object
-      required:
-      - definition
-      title: Body_validation-validate_workflow
     Body_workflows-create_workflow:
       properties:
         title:
@@ -3315,23 +3325,6 @@ components:
       - status
       - message
       title: CommitWorkflowResponse
-    CreateActionParams:
-      properties:
-        workflow_id:
-          type: string
-          title: Workflow Id
-        type:
-          type: string
-          title: Type
-        title:
-          type: string
-          title: Title
-      type: object
-      required:
-      - workflow_id
-      - type
-      - title
-      title: CreateActionParams
     CreateWorkflowExecutionParams:
       properties:
         workflow_id:
@@ -3665,6 +3658,10 @@ components:
           type: number
           title: Start Delay
           default: 0.0
+        join_strategy:
+          allOf:
+          - $ref: '#/components/schemas/JoinStrategy'
+          default: all
       type: object
       required:
       - event_id
@@ -3785,6 +3782,12 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    JoinStrategy:
+      type: string
+      enum:
+      - any
+      - all
+      title: JoinStrategy
     OAuth2AuthorizeResponse:
       properties:
         authorization_url:
@@ -4098,6 +4101,11 @@ components:
           - {}
           - type: 'null'
           title: Detail
+        action_ref:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Action Ref
       type: object
       required:
       - ok
@@ -4844,34 +4852,6 @@ components:
       - type
       - ref
       title: Trigger
-    UpdateActionParams:
-      properties:
-        title:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Title
-        description:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Description
-        status:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Status
-        inputs:
-          anyOf:
-          - type: object
-          - type: 'null'
-          title: Inputs
-        control_flow:
-          anyOf:
-          - $ref: '#/components/schemas/ActionControlFlow'
-          - type: 'null'
-      type: object
-      title: UpdateActionParams
     UpdateWorkflowParams:
       properties:
         title:
@@ -5387,7 +5367,7 @@ components:
           title: Status
         actions:
           additionalProperties:
-            $ref: '#/components/schemas/ActionResponse'
+            $ref: '#/components/schemas/ActionRead'
           type: object
           title: Actions
         object:

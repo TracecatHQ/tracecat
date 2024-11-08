@@ -10,6 +10,7 @@ import ReactFlow, {
   addEdge,
   Background,
   Connection,
+  ConnectionLineType,
   Controls,
   Edge,
   FitViewOptions,
@@ -39,6 +40,10 @@ import { createAction, updateWorkflowGraphObject } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
+import actionNode, {
+  ActionNodeData,
+  ActionNodeType,
+} from "@/components/workbench/canvas/action-node"
 import selectorNode, {
   SelectorNodeType,
   SelectorTypename,
@@ -48,10 +53,6 @@ import triggerNode, {
   TriggerNodeType,
   TriggerTypename,
 } from "@/components/workbench/canvas/trigger-node"
-import udfNode, {
-  UDFNodeData,
-  UDFNodeType,
-} from "@/components/workbench/canvas/udf-node"
 
 const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
 const defaultNodeWidth = 172
@@ -118,14 +119,14 @@ function getLayoutedElements(
 }
 
 export type NodeTypename = "udf" | "trigger"
-export type NodeType = UDFNodeType | TriggerNodeType | SelectorNodeType
-export type NodeData = UDFNodeData | TriggerNodeData
+export type NodeType = ActionNodeType | TriggerNodeType | SelectorNodeType
+export type NodeData = ActionNodeData | TriggerNodeData
 
 export const invincibleNodeTypes: readonly string[] = [TriggerTypename]
 export const ephemeralNodeTypes: readonly string[] = [SelectorTypename]
 
 const nodeTypes = {
-  udf: udfNode,
+  udf: actionNode,
   trigger: triggerNode,
   selector: selectorNode,
 }
@@ -136,9 +137,8 @@ const defaultEdgeOptions = {
     type: MarkerType.ArrowClosed,
   },
   style: { strokeWidth: 2 },
-  // Increase the radius of the smoothstep curve
   pathOptions: {
-    borderRadius: 100, // Adjust this value to increase or decrease the curve radius
+    borderRadius: 20,
   },
 }
 
@@ -174,7 +174,7 @@ export async function createNewNode(
       newNode = {
         id: actionId,
         ...common,
-      } as UDFNodeType
+      } as ActionNodeType
 
       return newNode
     default:
@@ -186,6 +186,7 @@ export async function createNewNode(
 export function WorkflowCanvas() {
   const containerRef = useRef<HTMLDivElement>(null)
   const connectingNodeId = useRef<string | null>(null)
+  const connectingHandleId = useRef<string | null>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [reactFlowInstance, setReactFlowInstance] =
@@ -264,6 +265,7 @@ export function WorkflowCanvas() {
       params: OnConnectStartParams
     ) => {
       connectingNodeId.current = params.nodeId
+      connectingHandleId.current = params.handleId
       setIsConnecting(true)
     },
     []
@@ -281,8 +283,6 @@ export function WorkflowCanvas() {
         )
 
         if (targetIsPane) {
-          // we need to remove the wrapper bounds, in order to get the correct position
-          // const bounds = containerRef.current!.getBoundingClientRect()
           const x = (event as MouseEvent).clientX - defaultNodeWidth / 2
           const y = (event as MouseEvent).clientY - defaultNodeHeight / 2
           const id = getId()
@@ -295,15 +295,20 @@ export function WorkflowCanvas() {
           } as Node
 
           setNodes((nds) => nds.concat(newNode))
+
           const edge = {
             id,
             source: connectingNodeId.current,
             target: id,
+            ...(connectingHandleId.current && {
+              sourceHandle: connectingHandleId.current,
+            }),
           } as Edge
           setEdges((eds) => eds.concat(edge))
         }
       } finally {
         console.log("Cleaning up connect end")
+        connectingHandleId.current = null
         setSilhouettePosition(null)
         setIsConnecting(false)
       }
@@ -532,6 +537,7 @@ export function WorkflowCanvas() {
         maxZoom={1}
         minZoom={0.25}
         panOnScroll
+        connectionLineType={ConnectionLineType.SmoothStep}
       >
         <Background />
         <Controls className="rounded-sm" fitViewOptions={fitViewOptions} />

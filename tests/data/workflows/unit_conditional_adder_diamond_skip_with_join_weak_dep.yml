@@ -63,3 +63,4 @@ actions:
     depends_on:
       - b
       - c
+    join_strategy: any

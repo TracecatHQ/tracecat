@@ -17,6 +17,17 @@ class SkipStrategy(StrEnum):
     PROPAGATE = auto()
 
 
-class TaskMarker(StrEnum):
-    SKIP = auto()
-    TERMINATED = auto()
+class JoinStrategy(StrEnum):
+    ANY = "any"
+    ALL = "all"
+
+
+class EdgeMarker(StrEnum):
+    PENDING = "pending"
+    VISITED = "visited"
+    SKIPPED = "skipped"
+
+
+class EdgeType(StrEnum):
+    SUCCESS = "success"
+    ERROR = "error"

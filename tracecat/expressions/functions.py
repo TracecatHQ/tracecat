@@ -299,6 +299,7 @@ BUILTIN_TYPE_MAPPING = {
     "float": float,
     "str": str,
     "bool": _bool,
+    "datetime": to_datetime,
     # TODO: Perhaps support for URLs for files?
 }
 

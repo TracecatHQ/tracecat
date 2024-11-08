@@ -98,7 +98,7 @@ export function CreateOrgSecretDialog({
       {children}
       <DialogContent className={className}>
         <DialogHeader>
-          <DialogTitle>Create new secret</DialogTitle>
+          <DialogTitle>Create new organization secret</DialogTitle>
           <div className="flex text-sm leading-relaxed text-muted-foreground">
             <span>
               Create a secret that can have multiple key-value credential pairs.

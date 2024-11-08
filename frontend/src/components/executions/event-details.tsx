@@ -139,15 +139,24 @@ export function WorkflowExecutionEventDetailView({
 }
 
 export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
-  const { event_group } = event
-  const formattedEventType = parseEventType(event.event_type)
+  const { event_group, role, event_type, event_id } = event
+  const {
+    udf_key,
+    action_title,
+    action_description,
+    retry_policy,
+    action_input,
+    join_strategy,
+    start_delay,
+  } = event_group || {}
+  const formattedEventType = parseEventType(event_type)
   const eventTimeDate = new Date(event.event_time)
-  const { max_attempts, timeout } = event_group?.retry_policy || {}
+  const { max_attempts, timeout } = retry_policy || {}
   return (
     <div className="my-4 flex flex-col space-y-2 px-4">
       <div className="flex w-full items-center space-x-4">
-        {event_group?.udf_key ? (
-          getIcon(event_group.udf_key, {
+        {udf_key ? (
+          getIcon(udf_key, {
             className: "size-10 p-2",
             flairsize: "md",
           })
@@ -158,7 +167,7 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
           <div className="flex flex-col">
             <div className="text-md flex w-full items-center justify-between font-medium leading-none">
               <div className="flex w-full">
-                {event_group?.action_title || formattedEventType}
+                {action_title || formattedEventType}
               </div>
             </div>
           </div>
@@ -170,28 +179,25 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
           text={formattedEventType}
           className={cn(
             "bg-gray-100/80",
-            ERROR_EVENT_TYPES.includes(event.event_type) && "bg-rose-100",
-            event.event_type == "WORKFLOW_EXECUTION_STARTED" &&
-              "bg-emerald-100",
-            event.event_type == "WORKFLOW_EXECUTION_COMPLETED" &&
-              "bg-emerald-200",
-            event.event_type == "ACTIVITY_TASK_SCHEDULED" && "bg-amber-100",
-            event.event_type == "ACTIVITY_TASK_STARTED" && "bg-sky-200/70",
-            event.event_type == "ACTIVITY_TASK_COMPLETED" && "bg-sky-200/70",
-            event.event_type == "START_CHILD_WORKFLOW_EXECUTION_INITIATED" &&
+            ERROR_EVENT_TYPES.includes(event_type) && "bg-rose-100",
+            event_type == "WORKFLOW_EXECUTION_STARTED" && "bg-emerald-100",
+            event_type == "WORKFLOW_EXECUTION_COMPLETED" && "bg-emerald-200",
+            event_type == "ACTIVITY_TASK_SCHEDULED" && "bg-amber-100",
+            event_type == "ACTIVITY_TASK_STARTED" && "bg-sky-200/70",
+            event_type == "ACTIVITY_TASK_COMPLETED" && "bg-sky-200/70",
+            event_type == "START_CHILD_WORKFLOW_EXECUTION_INITIATED" &&
               "bg-amber-100",
-            event.event_type == "CHILD_WORKFLOW_EXECUTION_STARTED" &&
+            event_type == "CHILD_WORKFLOW_EXECUTION_STARTED" &&
               "bg-violet-200/70",
-            event.event_type == "CHILD_WORKFLOW_EXECUTION_COMPLETED" &&
+            event_type == "CHILD_WORKFLOW_EXECUTION_COMPLETED" &&
               "bg-violet-200/70",
-            event.event_type == "CHILD_WORKFLOW_EXECUTION_FAILED" &&
-              "bg-rose-200"
+            event_type == "CHILD_WORKFLOW_EXECUTION_FAILED" && "bg-rose-200"
           )}
         />
       </div>
       <div className="space-x-2">
         <Label className="w-24 text-xs text-muted-foreground">Event ID</Label>
-        <DescriptorBadge text={event.event_id.toString()} />
+        <DescriptorBadge text={event_id.toString()} />
       </div>
       <div className="space-x-2">
         <Label className="w-24 text-xs text-muted-foreground">Event Time</Label>
@@ -205,37 +211,37 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
         />
       </div>
       <div className="space-x-2">
-        {event.role?.type && (
+        {role?.type && (
           <>
             <Label className="w-24 text-xs text-muted-foreground">
               Triggered By
             </Label>
-            <DescriptorBadge text={event.role?.type} className="capitalize" />
+            <DescriptorBadge text={role.type} className="capitalize" />
           </>
         )}
       </div>
       {/* Action event group fields */}
       <div className="space-x-2">
-        {event_group?.udf_key && (
+        {udf_key && (
           <>
             <Label className="w-24 text-xs text-muted-foreground">
               Action Type
             </Label>
             <DescriptorBadge
-              text={event_group.udf_key}
+              text={udf_key}
               className="font-mono font-semibold tracking-tight"
             />
           </>
         )}
       </div>
       <div className="space-x-2">
-        {event_group?.udf_key && (
+        {udf_key && (
           <>
             <Label className="w-24 text-xs text-muted-foreground">
               Description
             </Label>
             <DescriptorBadge
-              text={event_group.action_description || "No description"}
+              text={action_description || "No description"}
               className="font-semibold"
             />
           </>
@@ -243,7 +249,7 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
       </div>
 
       {/* Retry policy */}
-      {event_group?.retry_policy && (
+      {retry_policy && (
         <div className="space-x-2">
           <Label className="w-24 text-xs text-muted-foreground">
             Retry Policy
@@ -256,24 +262,32 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
       )}
 
       {/* Start delay */}
-      {event_group?.start_delay !== undefined &&
-        event_group.start_delay > 0 && (
-          <div className="space-x-2">
-            <Label className="w-24 text-xs text-muted-foreground">
-              Start Delay
-            </Label>
-            <DescriptorBadge
-              className="font-mono"
-              text={`${event_group.start_delay.toFixed(1)}s`}
-            />
-          </div>
-        )}
-
-      {isRunActionInput_Output(event_group?.action_input) && (
-        <ActionEventGeneralInfo input={event_group.action_input} />
+      {start_delay !== undefined && start_delay > 0 && (
+        <div className="space-x-2">
+          <Label className="w-24 text-xs text-muted-foreground">
+            Start Delay
+          </Label>
+          <DescriptorBadge
+            className="font-mono"
+            text={`${start_delay.toFixed(1)}s`}
+          />
+        </div>
       )}
-      {isDSLRunArgs(event_group?.action_input) && (
-        <ChildWorkflowEventGeneralInfo input={event_group.action_input} />
+
+      {/* Join policy */}
+      {join_strategy && (
+        <div className="space-x-2">
+          <Label className="w-24 text-xs text-muted-foreground">
+            Join Strategy
+          </Label>
+          <DescriptorBadge className="font-mono" text={join_strategy} />
+        </div>
+      )}
+      {isRunActionInput_Output(action_input) && (
+        <ActionEventGeneralInfo input={action_input} />
+      )}
+      {isDSLRunArgs(action_input) && (
+        <ChildWorkflowEventGeneralInfo input={action_input} />
       )}
     </div>
   )
@@ -306,16 +320,22 @@ function ChildWorkflowEventGeneralInfo({ input }: { input: DSLRunArgs }) {
   )
 }
 
-function ActionEventGeneralInfo({ input }: { input: RunActionInput_Output }) {
+function ActionEventGeneralInfo({
+  input: {
+    task: { depends_on, run_if, for_each },
+  },
+}: {
+  input: RunActionInput_Output
+}) {
   return (
     <div>
       <div className="space-x-2">
-        {input.task.depends_on && input.task.depends_on.length > 0 && (
+        {depends_on && depends_on.length > 0 && (
           <>
             <Label className="w-24 text-xs text-muted-foreground">
-              Dependencies
+              Dependencies ({depends_on.length})
             </Label>
-            {input.task.depends_on?.map((dep) => (
+            {depends_on.map((dep) => (
               <DescriptorBadge
                 key={dep}
                 text={dep}
@@ -326,32 +346,31 @@ function ActionEventGeneralInfo({ input }: { input: RunActionInput_Output }) {
         )}
       </div>
       <div className="space-x-2">
-        {input.task.run_if && (
+        {run_if && (
           <>
             <Label className="w-24 text-xs text-muted-foreground">Run If</Label>
             <DescriptorBadge
-              text={input.task.run_if}
+              text={run_if}
               className="font-mono font-semibold tracking-tight"
             />
           </>
         )}
       </div>
       <div className="space-x-2">
-        {input.task.for_each && (
+        {for_each && (
           <>
             <Label className="w-24 text-xs text-muted-foreground">
               For Each
             </Label>
-            {(Array.isArray(input.task.for_each)
-              ? input.task.for_each
-              : [input.task.for_each ?? []]
-            ).map((dep, index) => (
-              <DescriptorBadge
-                key={`${dep}-${index}`}
-                text={dep}
-                className="font-mono font-semibold"
-              />
-            ))}
+            {(Array.isArray(for_each) ? for_each : [for_each ?? []]).map(
+              (dep, index) => (
+                <DescriptorBadge
+                  key={`${dep}-${index}`}
+                  text={dep}
+                  className="font-mono font-semibold"
+                />
+              )
+            )}
           </>
         )}
       </div>

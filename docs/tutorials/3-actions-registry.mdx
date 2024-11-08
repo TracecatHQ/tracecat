@@ -1,0 +1,75 @@
+---
+title: Actions Registry
+description: Learn how to use pre-built integrations in your workflows.
+---
+
+## Goals
+
+By the end of this tutorial, you will learn:
+
+- How to create new actions from **Action Templates** in the **Actions Registry**
+- How to use **Action Templates** to create more powerful integrations
+- How to update an existing **Action Template** across all workflows directly in the UI
+
+## Prerequisites
+
+- Completed the [Quickstart](/tutorials/quickstart) tutorial
+- Completed the [Control Flow](/tutorials/control-flow) tutorial
+
+## Tutorial
+
+<Steps>
+    <Step title="Check out the Actions Registry">
+        Go to the **Actions Registry** by clicking on the **Registry** tab back in the workflows view.
+        ![Actions Registry](/img/tutorials/actions-registry/actions-registry.png)
+
+        Actions are registered at the organization level and can be used across all workflows and workspaces.
+    </Step>
+    <Step title="Clone existing Action Template">
+        Let's create a new action called `Is URL malicious`.
+        First, clone the existing `Search URL with VirusTotal` action template.
+    </Step>
+    <Step title="Edit the new action">
+        Edit the action to get the VirusTotal report, check if the URL is malicious, and return a single boolean value.
+        Copy the following configuration into the YAML editor:
+
+        ```yaml
+        ```
+    </Step>
+    <Step title="Replace actions in workflow">
+        Replace the `Search URL with VirusTotal` and `Extract VirusTotal report` actions with the new `Is URL malicious` action.
+    </Step>
+    <Step title="Update action result references">
+        We need to update the `List VirusTotal comments on URL` action to use the new `Is URL malicious` action.
+
+        ```yaml
+        ${{ ACTIONS.is_url_malicious.result }}
+        ```
+    </Step>
+    <Step title="Run the workflow">
+        Click on the **Run** button to execute the workflow.
+        The results will be the same as the previous tutorial.
+    </Step>
+</Steps>
+
+## Why use Action Templates?
+
+Action templates allow you to:
+
+- Define explicit input and output schemas for your integrations
+- Combine actions into reusable pieces of tradecraft that aren't just API calls
+- Build integrations that are easier to edit across workflows
+- Declutter your workflows with fewer filler actions
+
+## Best Practices
+
+- **Action templates** should contain logic for only one integration.
+- **Action templates** should be simple and contain at most three actions.
+- **Action templates** should be used to normalize input and output data between actions.
+- **Action templates** are not mini-workflows.
+
+## Next Steps
+
+- Learn how to combine smaller workflows into a single workflow. View the tutorial [here](/tutorials/4-child-workflows).
+- Learn how to receive external events (e.g. from your SIEM) and configure schedules to trigger workflows. View the tutorial [here](/tutorials/5-triggers).
+- Learn how to sync custom Python integrations from GitHub. View the tutorial [here](/tutorials/6-custom-integrations).

@@ -16,7 +16,7 @@ from tracecat.expressions.shared import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, 
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.exceptions import TracecatExpressionError
-from tracecat.types.validation import ExprValidationResult
+from tracecat.validation.models import ExprValidationResult
 
 T = TypeVar("T")
 
@@ -60,7 +60,7 @@ class ExprValidator(Visitor):
 
     def add(
         self,
-        status: Literal["success", "error", "pending"],
+        status: Literal["success", "error"],
         msg: str = "",
         type: ExprType = ExprType.GENERIC,
     ) -> None:
@@ -79,9 +79,9 @@ class ExprValidator(Visitor):
         return [res for res in self.results() if res.status == "error"]
 
     def visit_with_locator(
-        self, tree: Tree, loc: str, exclude: set[ExprType] | None = None
+        self, tree: Tree, loc: str | None = None, exclude: set[ExprType] | None = None
     ) -> Any:
-        self._loc = loc
+        self._loc = loc or self._loc
         self._exclude = exclude or set()
         return self.visit(tree)
 

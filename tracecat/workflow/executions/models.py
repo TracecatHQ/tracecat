@@ -14,7 +14,13 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat import identifiers
 from tracecat.dsl.common import DSLRunArgs
-from tracecat.dsl.models import ActionRetryPolicy, DSLContext, RunActionInput
+from tracecat.dsl.enums import JoinStrategy
+from tracecat.dsl.models import (
+    ActionRetryPolicy,
+    DSLContext,
+    RunActionInput,
+    TriggerInputs,
+)
 from tracecat.types.auth import Role
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
@@ -123,6 +129,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
     current_attempt: int | None = None
     retry_policy: ActionRetryPolicy = Field(default_factory=ActionRetryPolicy)
     start_delay: float = 0.0
+    join_strategy: JoinStrategy = JoinStrategy.ALL
 
     @staticmethod
     def from_scheduled_activity(
@@ -167,6 +174,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
             action_input=action_input,
             retry_policy=action_retry_policy,
             start_delay=task.start_delay,
+            join_strategy=task.join_strategy,
         )
 
     @staticmethod
@@ -252,7 +260,7 @@ class EventHistoryResponse(BaseModel, Generic[EventInput]):
 
 class CreateWorkflowExecutionParams(BaseModel):
     workflow_id: identifiers.WorkflowID
-    inputs: dict[str, Any] | None = None
+    inputs: TriggerInputs | None = None
 
 
 class CreateWorkflowExecutionResponse(TypedDict):

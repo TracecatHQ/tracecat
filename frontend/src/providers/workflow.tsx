@@ -3,6 +3,7 @@
 import React, {
   createContext,
   ReactNode,
+  SetStateAction,
   useCallback,
   useContext,
   useEffect,
@@ -12,6 +13,7 @@ import { useParams } from "next/navigation"
 import {
   ApiError,
   CommitWorkflowResponse,
+  RegistryActionValidateResponse,
   UpdateWorkflowParams,
   WorkflowResponse,
   workflowsCommitWorkflow,
@@ -42,6 +44,10 @@ type WorkflowContextType = {
     unknown
   >
   updateWorkflow: MutateFunction<void, ApiError, UpdateWorkflowParams, unknown>
+  validationErrors: RegistryActionValidateResponse[] | null
+  setValidationErrors: React.Dispatch<
+    SetStateAction<RegistryActionValidateResponse[] | null>
+  >
 }
 type TracecatErrorMessage = {
   type?: string
@@ -61,6 +67,9 @@ export function WorkflowProvider({
 }) {
   const queryClient = useQueryClient()
   const { workflowId } = useParams<{ workflowId: string }>()
+  const [validationErrors, setValidationErrors] = useState<
+    RegistryActionValidateResponse[] | null
+  >(null)
 
   // Queries
   const {
@@ -181,6 +190,8 @@ export function WorkflowProvider({
         setIsOnline,
         commitWorkflow,
         updateWorkflow,
+        validationErrors,
+        setValidationErrors,
       }}
     >
       {children}

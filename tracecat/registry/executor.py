@@ -6,13 +6,14 @@ NOTE: This is only used in the API server, not the worker
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Any, cast
 
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
+from tracecat.dsl.common import context_locator, create_default_dsl_context
 from tracecat.dsl.models import (
     ActionStatement,
     DSLContext,
@@ -24,10 +25,10 @@ from tracecat.expressions.eval import (
     extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.expressions.shared import ExprContext, ExprContextType, context_locator
+from tracecat.expressions.shared import ExprContext, ExprContextType
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
-from tracecat.registry.actions.models import ArgsClsT, ArgsT, BoundRegistryAction
+from tracecat.registry.actions.models import ArgsClsT, BoundRegistryAction
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -35,6 +36,8 @@ from tracecat.secrets.secrets_manager import env_sandbox
 from tracecat.types.exceptions import TracecatException
 
 """All these methods are used in the registry executor, not on the worker"""
+
+type ArgsT = Mapping[str, Any]
 
 
 async def _run_action_direct(
@@ -253,7 +256,9 @@ async def run_action_from_input(input: RunActionInput[ArgsT]) -> Any:
     else:
         args = evaluate_templated_args(task, context_with_secrets)
         result = await run_single_action(
-            action_name=action_name, args=args, context=context_with_secrets
+            action_name=action_name,
+            args=args,
+            context=cast(dict[str, Any], context_with_secrets),
         )
 
     if mask_values:
@@ -266,7 +271,7 @@ async def run_action_from_input(input: RunActionInput[ArgsT]) -> Any:
 """Utilities"""
 
 
-def evaluate_templated_args(task: ActionStatement[ArgsT], context: DSLContext) -> ArgsT:
+def evaluate_templated_args(task: ActionStatement, context: DSLContext) -> ArgsT:
     return cast(ArgsT, eval_templated_object(task.args, operand=context))
 
 
@@ -278,7 +283,7 @@ def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") 
 
 
 def iter_for_each(
-    task: ActionStatement[ArgsT],
+    task: ActionStatement,
     context: DSLContext,
     *,
     assign_context: ExprContext = ExprContext.LOCAL_VARS,
@@ -286,6 +291,8 @@ def iter_for_each(
 ) -> Iterator[ArgsT]:
     """Yield patched contexts for each loop iteration."""
     # Evaluate the loop expression
+    if not task.for_each:
+        raise ValueError("No loop expression found")
     iterators = get_iterables_from_expression(expr=task.for_each, operand=context)
 
     # Assert that all length of the iterables are the same
@@ -304,12 +311,12 @@ def iter_for_each(
             context.copy()
             if patch
             # XXX: ENV is the only context that should be shared
-            else DSLContext.create_default()
+            else create_default_dsl_context()
         )
         logger.trace("Context before patch", patched_context=patched_context)
         for iterator_path, iterator_value in items:
             patch_object(
-                patched_context,
+                cast(dict[str, Any], patched_context),
                 path=assign_context + iterator_path,
                 value=iterator_value,
             )

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.dependencies import OrgUserOrServiceRole
+from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.models import RunActionInput
@@ -19,7 +20,7 @@ from tracecat.registry.actions.models import (
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.types.exceptions import RegistryError
-from tracecat.validation import vadliate_registry_action_args
+from tracecat.validation.service import validate_registry_action_args
 
 router = APIRouter(prefix="/registry/actions", tags=["registry-actions"])
 
@@ -32,7 +33,11 @@ async def list_registry_actions(
     """List all actions in a registry."""
     service = RegistryActionsService(session, role)
     actions = await service.list_actions()
-    return [RegistryActionRead.from_database(action) for action in actions]
+
+    async with GatheringTaskGroup[RegistryActionRead]() as tg:
+        for action in actions:
+            tg.create_task(service.read_action_with_implicit_secrets(action))
+    return tg.results()
 
 
 @router.get(
@@ -47,7 +52,7 @@ async def get_registry_action(
     service = RegistryActionsService(session, role)
     try:
         action = await service.get_action(action_name=action_name)
-        return RegistryActionRead.from_database(action)
+        return await service.read_action_with_implicit_secrets(action)
     except RegistryError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
@@ -60,7 +65,7 @@ async def create_registry_action(
     service = RegistryActionsService(session, role)
     try:
         action = await service.create_action(params)
-        return RegistryActionRead.from_database(action)
+        return await service.read_action_with_implicit_secrets(action)
     except IntegrityError as e:
         msg = str(e)
         if "duplicate key value" in msg:
@@ -101,7 +106,7 @@ async def delete_registry_action(
         logger.error("Error getting action", action_name=action_name, error=e)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     if action.origin == DEFAULT_REGISTRY_ORIGIN:
-        logger.error(
+        logger.warning(
             "Attempted to delete default action",
             action_name=action_name,
             origin=action.origin,
@@ -146,12 +151,12 @@ async def validate_registry_action(
 ) -> RegistryActionValidateResponse:
     """Validate a registry action."""
     try:
-        result = await vadliate_registry_action_args(
+        result = await validate_registry_action_args(
             session=session, action_name=action_name, args=params.args
         )
 
         if result.status == "error":
-            logger.error(
+            logger.warning(
                 "Error validating UDF args", message=result.msg, details=result.detail
             )
         return RegistryActionValidateResponse.from_validation_result(result)

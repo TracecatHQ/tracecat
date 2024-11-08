@@ -71,3 +71,7 @@ class RegistryValidationError(RegistryError):
 
 class RegistryNotFound(RegistryError):
     """Exception raised when a registry is not found."""
+
+
+class TaskUnreachable(TracecatException):
+    """Raised when a task is unreachable."""

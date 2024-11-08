@@ -3,16 +3,10 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
-from collections import defaultdict
-from collections.abc import (
-    Awaitable,
-    Callable,
-    Coroutine,
-    Generator,
-    Iterable,
-)
+import uuid
+from collections.abc import Coroutine, Generator, Iterable
 from datetime import timedelta
-from typing import Any, TypedDict
+from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -36,22 +30,29 @@ with workflow.unsafe.imports_passed_through():
         DSLActivities,
         ValidateActionActivityInput,
     )
-    from tracecat.dsl.common import DSLInput, DSLRunArgs, ExecuteChildWorkflowArgs
-    from tracecat.dsl.enums import FailStrategy, LoopStrategy, SkipStrategy, TaskMarker
+    from tracecat.dsl.common import (
+        DSLInput,
+        DSLRunArgs,
+        ExecuteChildWorkflowArgs,
+        dsl_execution_error_from_exception,
+    )
+    from tracecat.dsl.constants import CHILD_WORKFLOW_EXECUTE_ACTION
+    from tracecat.dsl.enums import FailStrategy, LoopStrategy
     from tracecat.dsl.models import (
         ActionStatement,
-        ArgsT,
         DSLConfig,
         DSLContext,
         DSLEnvironment,
+        DSLExecutionError,
         DSLNodeResult,
         RunActionInput,
+        TriggerInputs,
     )
+    from tracecat.dsl.scheduler import DSLScheduler
     from tracecat.dsl.validation import (
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
     )
-    from tracecat.expressions.core import TemplateExpression
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.expressions.shared import ExprContext
     from tracecat.logger import logger
@@ -64,37 +65,13 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
         TracecatValidationError,
     )
-    from tracecat.types.validation import ValidationResult
+    from tracecat.validation.models import ValidationResult
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
     from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
     from tracecat.workflow.schedules.models import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
-
-
-class DSLExecutionError(TypedDict, total=False):
-    """A proxy for an exception.
-
-    This is the object that gets returned in place of an exception returned when
-    using `asyncio.gather(..., return_exceptions=True)`, as Exception types aren't serializable."""
-
-    is_error: bool
-    """A flag to indicate that this object is an error."""
-
-    type: str
-    """The type of the exception. e.g. `ValueError`"""
-
-    message: str
-    """The message of the exception."""
-
-    @staticmethod
-    def from_exception(e: BaseException) -> DSLExecutionError:
-        return DSLExecutionError(
-            is_error=True,
-            type=e.__class__.__name__,
-            message=str(e),
-        )
 
 
 non_retryable_error_types = [
@@ -130,160 +107,6 @@ retry_policies = {
         non_retryable_error_types=non_retryable_error_types,
     ),
 }
-
-
-class DSLScheduler:
-    """Manage only scheduling of tasks in a topological-like order."""
-
-    _queue_wait_timeout = 1
-    skip_strategy: SkipStrategy
-    """Decide how to handle tasks that are marked for skipping."""
-
-    def __init__(
-        self,
-        *,
-        activity_coro: Callable[[ActionStatement[ArgsT]], Coroutine[Any, Any, None]],
-        dsl: DSLInput,
-        skip_strategy: SkipStrategy = SkipStrategy.PROPAGATE,
-    ):
-        self.dsl = dsl
-        self.tasks: dict[str, ActionStatement[ArgsT]] = {}
-        self.adj: dict[str, set[str]] = defaultdict(set)
-        self.indegrees: dict[str, int] = {}
-        self.queue: asyncio.Queue[str] = asyncio.Queue()
-        # self.running_tasks: dict[str, asyncio.Task[None]] = {}
-        self.completed_tasks: set[str] = set()
-        # Tasks can be marked for termination.
-        # This is useful for tasks that are
-        self.marked_tasks: dict[str, TaskMarker] = {}
-        self.skip_strategy = skip_strategy
-        self.task_exceptions: dict[str, BaseException] = {}
-
-        self.executor = activity_coro
-        self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
-
-        for task in dsl.actions:
-            self.tasks[task.ref] = task
-            self.indegrees[task.ref] = len(task.depends_on)
-            for dep in task.depends_on:
-                self.adj[dep].add(task.ref)
-
-    async def _dynamic_task(self, task_ref: str) -> None:
-        """Dynamic task execution.
-
-        Tasks
-        -----
-        1. Run the task
-        2. Manage the indegrees of the tasks
-        """
-        task = self.tasks[task_ref]
-        try:
-            await self.executor(task)
-
-            # For now, tasks that were marked to skip also join this set
-            self.completed_tasks.add(task_ref)
-            self.logger.info("Task completed", task_ref=task_ref)
-
-            # Update child indegrees
-            # ----------------------
-            # Treat a skipped task as completed, update as usual.
-            # Any child task whose indegree reaches 0 must check if all its parent
-            # dependencies we skipped. if ALL parents were skipped, then the child
-            # task is also marked for skipping. If ANY parent was not skipped, then
-            # the child task is added to the queue.
-
-            # The intuition here is that if you have a task that becomes unreachable,
-            # then some of its children will also become unreachable. A node becomes unreachable
-            # if there is no one successful oath that leads to it.
-
-            # This allows us to have diamond-shaped graphs where some branches can be skipped
-            # but at the join point, if any parent was not skipped, then the child can still be executed.
-            async with asyncio.TaskGroup() as tg:
-                for next_task_ref in self.adj[task_ref]:
-                    self.indegrees[next_task_ref] -= 1
-                    if self.indegrees[next_task_ref] == 0:
-                        if (
-                            self.skip_strategy == SkipStrategy.PROPAGATE
-                            and self.task_is_reachable(next_task_ref)
-                        ):
-                            self.mark_task(next_task_ref, TaskMarker.SKIP)
-                        tg.create_task(self.queue.put(next_task_ref))
-        except ActivityError as e:
-            self.logger.error(
-                "Activity error in DSLScheduler",
-                task_ref=task_ref,
-                msg=e.message,
-                retry_state=e.retry_state,
-            )
-            self.task_exceptions[task_ref] = e
-        except ApplicationError as e:
-            self.logger.error(
-                "Application error in DSLScheduler",
-                task_ref=task_ref,
-                msg=e.message,
-                non_retryable=e.non_retryable,
-            )
-            self.task_exceptions[task_ref] = e
-        except Exception as e:
-            self.logger.error(
-                "Unexpected error in DSLScheduler", task_ref=task_ref, error=e
-            )
-            self.task_exceptions[task_ref] = e
-
-    async def dynamic_start(self) -> None:
-        """Run the scheduler in dynamic mode."""
-        self.queue.put_nowait(self.dsl.entrypoint.ref)
-        while not self.task_exceptions and (
-            not self.queue.empty() or len(self.completed_tasks) < len(self.tasks)
-        ):
-            self.logger.trace(
-                "Waiting for tasks.",
-                qsize=self.queue.qsize(),
-                n_completed=len(self.completed_tasks),
-                n_tasks=len(self.tasks),
-            )
-            try:
-                task_ref = await asyncio.wait_for(
-                    self.queue.get(), timeout=self._queue_wait_timeout
-                )
-            except TimeoutError:
-                continue
-
-            asyncio.create_task(self._dynamic_task(task_ref))
-        if self.task_exceptions:
-            self.logger.error(
-                "DSLScheduler got task exceptions, stopping...",
-                n_exceptions=len(self.task_exceptions),
-                exceptions=self.task_exceptions,
-                n_completed=len(self.completed_tasks),
-                n_tasks=len(self.tasks),
-            )
-            raise ApplicationError(
-                "Task exceptions occurred", *self.task_exceptions.values()
-            )
-        self.logger.info("All tasks completed")
-
-    def mark_task(self, task_ref: str, marker: TaskMarker) -> None:
-        self.marked_tasks[task_ref] = marker
-
-    def task_is_reachable(self, task_ref: str) -> bool:
-        """Check whether a task is reachable by checking if all its dependencies were skipped."""
-        return all(
-            self.marked_tasks.get(parent) == TaskMarker.SKIP
-            for parent in self.tasks[task_ref].depends_on
-        )
-
-    async def _static_task(self, task_ref: str) -> None:
-        raise NotImplementedError
-
-    async def static_start(self) -> None:
-        raise NotImplementedError
-
-    def start(self) -> Awaitable[None]:
-        if self.dsl.config.scheduler == "dynamic":
-            return self.dynamic_start()
-        else:
-            return self.static_start()
 
 
 @workflow.defn
@@ -408,7 +231,7 @@ class DSLWorkflow:
         self.run_context = RunContext(
             wf_id=args.wf_id,
             wf_exec_id=wf_info.workflow_id,
-            wf_run_id=wf_info.run_id,
+            wf_run_id=uuid.UUID(wf_info.run_id, version=4),
             environment=self.runtime_config.environment,
         )
         ctx_run.set(self.run_context)
@@ -421,7 +244,11 @@ class DSLWorkflow:
             timeout=self.start_to_close_timeout,
         )
 
-        self.scheduler = DSLScheduler(activity_coro=self.execute_task, dsl=self.dsl)
+        self.scheduler = DSLScheduler(
+            executor=self.execute_task,  # type: ignore
+            dsl=self.dsl,
+            context=self.context,
+        )
         try:
             await self.scheduler.start()
         except ApplicationError as e:
@@ -452,7 +279,7 @@ class DSLWorkflow:
                 type=e.__class__.__name__,
             ) from e
 
-    async def execute_task(self, task: ActionStatement[ArgsT]) -> None:
+    async def execute_task(self, task: ActionStatement) -> Any:
         """Purely execute a task and manage the results.
 
         Preflight checks
@@ -462,71 +289,74 @@ class DSLWorkflow:
         3. If there's an ActionTest, skip execution and return the patched result.
             - Note that we still schedule the task for execution, but we don't actually run it.
         """
-        with self.logger.contextualize(task_ref=task.ref):
-            if self._should_skip_execution(task):
-                self._mark_task(task.ref, TaskMarker.SKIP)
-                return
 
-            try:
-                logger.info("Begin task execution", task_ref=task.ref)
-                # Check for a child workflow
-                if self._should_execute_child_workflow(task):
-                    # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
-                    # 1. Prepare the child workflow
-                    logger.trace("Preparing child workflow")
-                    child_run_args = await self._prepare_child_workflow(task)
-                    logger.trace(
-                        "Child workflow prepared", child_run_args=child_run_args
-                    )
-                    # This is the original child runtime args, preset by the DSL
-                    # In contrast, task.args are the runtime args that the parent workflow provided
-                    action_result = await self._execute_child_workflow(
-                        task=task, child_run_args=child_run_args
-                    )
-
-                else:
-                    # Below this point, we're executing the task
-                    logger.trace(
-                        "Running action",
-                        task_ref=task.ref,
-                        runtime_config=self.runtime_config,
-                    )
-                    action_result = await self._run_action(task)
-
-                self.context[ExprContext.ACTIONS][task.ref] = DSLNodeResult(
-                    result=action_result,
-                    result_typename=type(action_result).__name__,
+        logger.info("Begin task execution", task_ref=task.ref)
+        task_result = DSLNodeResult(result=None, result_typename=type(None).__name__)
+        try:
+            if self._should_execute_child_workflow(task):
+                # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
+                # 1. Prepare the child workflow
+                logger.trace("Preparing child workflow")
+                child_run_args = await self._prepare_child_workflow(task)
+                logger.trace("Child workflow prepared", child_run_args=child_run_args)
+                # This is the original child runtime args, preset by the DSL
+                # In contrast, task.args are the runtime args that the parent workflow provided
+                action_result = await self._execute_child_workflow(
+                    task=task, child_run_args=child_run_args
                 )
-            except ActivityError as e:
-                logger.error("Activity execution failed", error=e.message)
-                raise ApplicationError(
-                    e.message, non_retryable=True, type=e.__class__.__name__
-                ) from e
-            except ChildWorkflowError as e:
-                logger.error("Child workflow execution failed", error=e.message)
-                raise ApplicationError(
-                    e.message, non_retryable=True, type=e.__class__.__name__
-                ) from e
-            except FailureError as e:
-                logger.error("Workflow execution failed", error=e.message)
-                raise ApplicationError(
-                    e.message, non_retryable=True, type=e.__class__.__name__
-                ) from e
-            except ValidationError as e:
-                logger.error("Runtime validation error", error=e.errors())
-                raise e
-            except Exception as e:
-                msg = f"Task execution failed with unexpected error: {e}"
-                logger.error(
-                    "Activity execution failed with unexpected error", error=msg
+
+            else:
+                # Below this point, we're executing the task
+                logger.trace(
+                    "Running action",
+                    task_ref=task.ref,
+                    runtime_config=self.runtime_config,
                 )
-                raise ApplicationError(
-                    msg, non_retryable=True, type=e.__class__.__name__
-                ) from e
+                action_result = await self._run_action(task)
+            logger.trace("Action completed successfully", action_result=action_result)
+            task_result.update(
+                result=action_result, result_typename=type(action_result).__name__
+            )
+        # NOTE: By the time we receive an exception, we've exhausted all retry attempts
+        except (ActivityError, ChildWorkflowError, FailureError) as e:
+            # These are deterministic and expected errors that
+            err_type = e.__class__.__name__
+            msg = self.ERROR_TYPE_TO_MESSAGE[err_type]
+            logger.error(msg, error=e.message)
+            match cause := e.cause:
+                case ApplicationError(details=[err_info, *_]):
+                    task_result.update(
+                        error=err_info, error_typename=cause.type or err_type
+                    )
+                case _:
+                    task_result.update(error=e.message, error_typename=err_type)
+            raise ApplicationError(e.message, non_retryable=True, type=err_type) from e
+        except ValidationError as e:
+            logger.error("Runtime validation error", error=e.errors())
+            task_result.update(
+                error=e.errors(), error_typename=ValidationError.__name__
+            )
+            raise e
+        except Exception as e:
+            err_type = e.__class__.__name__
+            msg = f"Task execution failed with unexpected error: {e}"
+            logger.error("Activity execution failed with unexpected error", error=msg)
+            task_result.update(error=msg, error_typename=err_type)
+            raise ApplicationError(msg, non_retryable=True, type=err_type) from e
+        finally:
+            logger.debug("Setting action result", task_result=task_result)
+            self.context[ExprContext.ACTIONS][task.ref] = task_result  # type: ignore
+
+    ERROR_TYPE_TO_MESSAGE = {
+        ActivityError.__name__: "Activity execution failed",
+        ChildWorkflowError.__name__: "Child workflow execution failed",
+        FailureError.__name__: "Workflow execution failed",
+        ValidationError.__name__: "Runtime validation error",
+    }
 
     async def _execute_child_workflow(
         self,
-        task: ActionStatement[ExecuteChildWorkflowArgs],
+        task: ActionStatement,
         child_run_args: DSLRunArgs,
     ) -> Any:
         self.logger.debug("Execute child workflow", child_run_args=child_run_args)
@@ -547,6 +377,8 @@ class DSLWorkflow:
                 evaluated_args=args,
             )
 
+            if child_run_args.dsl is None:
+                raise ValueError("Child run args must have a DSL")
             # Always set the trigger inputs in the child run args
             child_run_args.trigger_inputs = args.get("trigger_inputs")
 
@@ -567,7 +399,7 @@ class DSLWorkflow:
     async def _execute_child_workflow_loop(
         self,
         *,
-        task: ActionStatement[ExecuteChildWorkflowArgs],
+        task: ActionStatement,
         child_run_args: DSLRunArgs,
     ) -> list[Any]:
         loop_strategy = LoopStrategy(
@@ -652,7 +484,7 @@ class DSLWorkflow:
                 coros.append(coro)
             gather_result = await asyncio.gather(*coros, return_exceptions=True)
             result: list[DSLExecutionError | Any] = [
-                DSLExecutionError.from_exception(val)
+                dsl_execution_error_from_exception(val)
                 if isinstance(val, BaseException)
                 else val
                 for val in gather_result
@@ -660,6 +492,7 @@ class DSLWorkflow:
             return result
 
     def _handle_return(self) -> Any:
+        self.logger.debug("Handling return", context=self.context)
         if self.dsl.returns is None:
             # Return the context
             # XXX: Don't return ENV context for now
@@ -688,7 +521,7 @@ class DSLWorkflow:
         )
 
     async def _validate_trigger_inputs(
-        self, trigger_inputs: dict[str, Any]
+        self, trigger_inputs: TriggerInputs
     ) -> ValidationResult:
         """Validate trigger inputs.
 
@@ -734,7 +567,7 @@ class DSLWorkflow:
         )
         return schedule_read.inputs
 
-    async def _validate_action(self, task: ActionStatement[ArgsT]) -> None:
+    async def _validate_action(self, task: ActionStatement) -> None:
         result = await workflow.execute_activity(
             DSLActivities.validate_action_activity,
             arg=ValidateActionActivityInput(role=self.role, task=task),
@@ -749,9 +582,7 @@ class DSLWorkflow:
                 type=TracecatValidationError.__name__,
             )
 
-    async def _prepare_child_workflow(
-        self, task: ActionStatement[ExecuteChildWorkflowArgs]
-    ) -> DSLRunArgs:
+    async def _prepare_child_workflow(self, task: ActionStatement) -> DSLRunArgs:
         """Grab a workflow definition and create child workflow run args"""
 
         await self._validate_action(task)
@@ -790,14 +621,14 @@ class DSLWorkflow:
             runtime_config=runtime_config,
         )
 
-    def _run_action(self, task: ActionStatement[ArgsT]) -> Awaitable[Any]:
+    def _run_action(self, task: ActionStatement) -> Coroutine[Any, Any, Any]:
         arg = RunActionInput(
             task=task,
             role=self.role,
             run_context=self.run_context,
             exec_context=self.context,
         )
-        self.logger.debug("RUN UDF ACTIVITY", arg=arg, task=task)
+        self.logger.debug("RUN UDF ACTIVITY", arg=arg)
 
         return workflow.execute_activity(
             DSLActivities.run_action_activity,
@@ -810,7 +641,7 @@ class DSLWorkflow:
             ),
         )
 
-    def _run_child_workflow(self, run_args: DSLRunArgs) -> Awaitable[Any]:
+    def _run_child_workflow(self, run_args: DSLRunArgs) -> Coroutine[Any, Any, Any]:
         self.logger.info("Running child workflow", run_args=run_args)
         wf_exec_id = identifiers.workflow.exec_id(run_args.wf_id)
         return workflow.execute_child_workflow(
@@ -822,21 +653,5 @@ class DSLWorkflow:
             execution_timeout=self.start_to_close_timeout,
         )
 
-    def _should_skip_execution(self, task: ActionStatement[ArgsT]) -> bool:
-        if self.scheduler.marked_tasks.get(task.ref) == TaskMarker.SKIP:
-            self.logger.info("Task marked for skipping, skipped")
-            return True
-        # Evaluate the `run_if` condition
-        if task.run_if is not None:
-            expr = TemplateExpression(task.run_if, operand=self.context)
-            self.logger.debug("`run_if` condition", task_run_if=task.run_if)
-            if not bool(expr.result()):
-                self.logger.info("Task `run_if` condition was not met, skipped")
-                return True
-        return False
-
-    def _mark_task(self, task_ref: str, marker: TaskMarker) -> None:
-        self.scheduler.mark_task(task_ref, marker)
-
-    def _should_execute_child_workflow(self, task: ActionStatement[ArgsT]) -> bool:
-        return task.action == "core.workflow.execute"
+    def _should_execute_child_workflow(self, task: ActionStatement) -> bool:
+        return task.action == CHILD_WORKFLOW_EXECUTE_ACTION

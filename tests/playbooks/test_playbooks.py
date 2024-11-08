@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 import yaml
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel.ext.asyncio.session import AsyncSession
 from temporalio.client import Client
 from temporalio.worker import Worker
 
@@ -20,7 +20,7 @@ from tracecat.expressions.shared import ExprType
 from tracecat.logger import logger
 from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
-from tracecat.validation import validate_dsl
+from tracecat.validation.service import validate_dsl
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -106,6 +106,7 @@ async def test_playbook_validation(
     assert len(validation_results) == 0
 
 
+@pytest.mark.skipif(not os.getenv("GITHUB_ACTIONS"), reason="Only run in CI")
 @pytest.mark.parametrize(
     "file_path, trigger_inputs, expected_actions",
     [

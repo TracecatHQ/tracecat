@@ -2,7 +2,6 @@ import React from "react"
 import { Schedule, WebhookResponse } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import {
-  BellDotIcon,
   CalendarCheck,
   ChevronDownIcon,
   CircleCheckBigIcon,
@@ -13,7 +12,7 @@ import {
   UnplugIcon,
   WebhookIcon,
 } from "lucide-react"
-import { Node, NodeProps, Position } from "reactflow"
+import { Node, NodeProps } from "reactflow"
 
 import { useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
@@ -43,7 +42,7 @@ import {
 } from "@/components/ui/table"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { CustomHandle } from "@/components/workbench/canvas/custom-handle"
+import { TriggerSourceHandle } from "@/components/workbench/canvas/custom-handle"
 
 export interface TriggerNodeData {
   type: "trigger"
@@ -60,7 +59,6 @@ export const TriggerTypename = "trigger" as const
 export default React.memo(function TriggerNode({
   data: { title, isConfigured, type },
   selected,
-  sourcePosition,
 }: NodeProps<TriggerNodeData>) {
   const { workflow } = useWorkflow()
 
@@ -135,7 +133,7 @@ export default React.memo(function TriggerNode({
         </div>
       </div>
       <Separator />
-      <CardContent className="p-4 py-3">
+      <CardContent className="p-4 py-2">
         <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
           <div className="flex items-center space-x-2">
             {isConfigured ? (
@@ -145,17 +143,10 @@ export default React.memo(function TriggerNode({
             )}
             <span className="text-xs capitalize">{"Not configured"}</span>
           </div>
-          <div className="flex items-center justify-end">
-            <BellDotIcon className="mr-2 size-3" />0
-          </div>
         </div>
       </CardContent>
 
-      <CustomHandle
-        type="source"
-        position={sourcePosition ?? Position.Bottom}
-        isConnectable={1}
-      />
+      <TriggerSourceHandle />
     </Card>
   )
 })
