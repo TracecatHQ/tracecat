@@ -273,16 +273,6 @@ export function ActionPanel({
     [methods, handleSave]
   )
 
-  const handleKeyDownPanel = useCallback(
-    async (event: React.KeyboardEvent) => {
-      // Check for Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux)
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        await handleSave(methods.getValues())
-      }
-    },
-    [methods, handleSave]
-  )
-
   if (actionIsLoading) {
     return <CenteredSpinner />
   }
@@ -316,7 +306,6 @@ export function ActionPanel({
     <div
       className="size-full overflow-auto"
       onBlur={onPanelBlur}
-      onKeyDown={handleKeyDownPanel}
       // Need tabIndex to receive blur events
       tabIndex={-1}
     >
