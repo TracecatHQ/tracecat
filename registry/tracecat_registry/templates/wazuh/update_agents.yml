@@ -23,8 +23,6 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_KEY }}
-      description: Fetch a list of outdated agents from the Wazuh server.
-      
     - ref: update_agents
       action: core.http_request
       args:
@@ -32,8 +30,6 @@ definition:
         method: PUT
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_KEY }}
-        body:
+        payload:
           agent_list: ${{ steps.get_outdated_agents.result.data.affected_agents }}
-      description: Upgrade the agents identified as outdated in the previous step.
-
   returns: ${{ steps.update_agents.result }}
