@@ -1599,17 +1599,24 @@ DIVISION_BY_ZERO_ERROR = {
     "message": (
         "There was an error in the registry when calling action 'core.transform.reshape' (500).\n"
         "\n"
-        "[evaluator] Error evaluating expression `1/0`\n"
+        "TracecatExpressionError: Error evaluating expression `1/0`\n"
         "\n"
         "[evaluator] Evaluation failed at node:\n"
+        "```\n"
         "binary_op\n"
         "  literal\t1\n"
         "  /\n"
         "  literal\t0\n"
         "\n"
+        "```\n"
         'Reason: Error trying to process rule "binary_op":\n'
         "\n"
-        "Cannot divide by zero"
+        "Cannot divide by zero\n"
+        "\n"
+        "------------------------------\n"
+        "File: /app/tracecat/expressions/core.py\n"
+        "Function: result\n"
+        "Line: 51"
     ),
     "type": "RegistryActionError",
     "expr_context": "ACTIONS",
