@@ -113,12 +113,16 @@ export function useAction(
   })
   const { mutateAsync: updateAction } = useMutation({
     mutationFn: async (values: ActionUpdate) => {
-      setIsSaving(true)
-      return await actionsUpdateAction({
-        workspaceId,
-        actionId,
-        requestBody: values,
-      })
+      try {
+        setIsSaving(true)
+        return await actionsUpdateAction({
+          workspaceId,
+          actionId,
+          requestBody: values,
+        })
+      } finally {
+        setIsSaving(false)
+      }
     },
     onSuccess: (updatedAction: ActionRead) => {
       setNodes((nds: ActionNodeType[]) =>
@@ -142,10 +146,6 @@ export function useAction(
       queryClient.invalidateQueries({
         queryKey: ["workflow", workflowId],
       })
-      // Add a small delay before clearing the saving state to show feedback
-      setTimeout(() => {
-        setIsSaving(false)
-      }, 1000)
     },
     onError: (error) => {
       console.error("Failed to update action:", error)
@@ -153,7 +153,6 @@ export function useAction(
         title: "Failed to save action",
         description: "Could not update your action. Please try again.",
       })
-      setIsSaving(false)
     },
   })
   return {

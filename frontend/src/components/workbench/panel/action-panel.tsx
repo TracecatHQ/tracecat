@@ -2,11 +2,10 @@
 
 import "react18-json-view/src/style.css"
 
-import React, { useCallback, useEffect, useState } from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 import {
   ActionControlFlow,
   ActionUpdate,
-  ApiError,
   JoinStrategy,
   RegistryActionRead,
   RegistryActionValidateResponse,
@@ -15,7 +14,7 @@ import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import {
   AlertTriangleIcon,
-  CheckCheck,
+  CircleCheckIcon,
   Database,
   Info,
   LayoutListIcon,
@@ -28,7 +27,7 @@ import {
   SquareFunctionIcon,
   ToyBrickIcon,
 } from "lucide-react"
-import { Controller, FormProvider, useForm } from "react-hook-form"
+import { Controller, FormProvider, useForm, useWatch } from "react-hook-form"
 import { type Node } from "reactflow"
 import YAML from "yaml"
 
@@ -90,7 +89,7 @@ type ActionFormSchema = {
   title?: string
   description?: string
   inputs?: string
-  control_flow: {
+  control_flow?: {
     for_each?: string
     run_if?: string
     retry_policy?: string
@@ -115,6 +114,16 @@ const typeToLabel: Record<
     icon: ToyBrickIcon,
   },
 }
+const SAVE_WAIT_DELAY = 1500
+const SAVING_STATE_DURATION = 400
+
+enum SaveState {
+  IDLE = "idle",
+  UNSAVED = "unsaved",
+  SAVING = "saving",
+  SAVED = "saved",
+  ERROR = "error",
+}
 
 export function ActionPanel({
   node,
@@ -125,7 +134,7 @@ export function ActionPanel({
 }) {
   const { workspaceId } = useWorkspace()
   const { validationErrors } = useWorkflow()
-  const { action, actionIsLoading, updateAction, isSaving } = useAction(
+  const { action, actionIsLoading, updateAction } = useAction(
     node.id,
     workspaceId,
     workflowId
@@ -151,21 +160,9 @@ export function ActionPanel({
 
   const [actionValidationErrors, setActionValidationErrors] =
     useState<RegistryActionValidateResponse | null>(null)
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "success">(
-    "idle"
-  )
-
-  useEffect(() => {
-    if (isSaving) {
-      setSaveState("saving")
-    } else {
-      setSaveState("success")
-      const timer = setTimeout(() => {
-        setSaveState("idle")
-      }, 2000)
-      return () => clearTimeout(timer)
-    }
-  }, [isSaving])
+  const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
+  const saveTimeoutRef = useRef<NodeJS.Timeout>()
+  const formValues = useWatch({ control: methods.control })
 
   const handleSave = useCallback(
     async (values: ActionFormSchema) => {
@@ -189,14 +186,14 @@ export function ActionPanel({
           description: "Please see the error window for more details",
         })
       }
-      const options: ControlFlowOptions | undefined = control_flow.options
+      const options: ControlFlowOptions | undefined = control_flow?.options
         ? YAML.parse(control_flow.options)
         : undefined
       const actionControlFlow = {
-        for_each: control_flow.for_each
+        for_each: control_flow?.for_each
           ? YAML.parse(control_flow.for_each)
           : undefined,
-        run_if: control_flow.run_if
+        run_if: control_flow?.run_if
           ? YAML.parse(control_flow.run_if)
           : undefined,
         retry_policy: control_flow?.retry_policy
@@ -210,19 +207,55 @@ export function ActionPanel({
         inputs: actionInputs,
         control_flow: actionControlFlow,
       } as ActionUpdate
-
-      try {
-        await updateAction(params)
-      } catch (error) {
-        if (error instanceof ApiError) {
-          console.error("Application failed to validate action", error.body)
-        } else {
-          console.error("Validation failed, unknown error", error)
-        }
-      }
+      await updateAction(params)
     },
     [workspaceId, registryAction, action]
   )
+
+  useEffect(() => {
+    // If form isn't dirty (hasn't changed), ignore
+    if (!methods.formState.isDirty) {
+      return
+    }
+
+    setSaveState(SaveState.UNSAVED)
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        setSaveState(SaveState.SAVING)
+        await handleSave(formValues)
+        methods.reset(formValues) // Reset dirty state after successful save
+      } catch (error) {
+        console.error("Save failed:", error)
+        setSaveState(SaveState.ERROR)
+      }
+    }, SAVE_WAIT_DELAY)
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [formValues, handleSave])
+
+  // Handle state transitions
+  useEffect(() => {
+    console.log("actionIsLoading", actionIsLoading, "saveState", saveState)
+    if (saveState === SaveState.ERROR) {
+      return
+    }
+    if (actionIsLoading) {
+      setSaveState(SaveState.SAVING)
+    } else if (saveState === SaveState.SAVING) {
+      setTimeout(() => {
+        setSaveState(SaveState.SAVED)
+      }, SAVING_STATE_DURATION)
+    }
+  }, [actionIsLoading, saveState])
 
   const onSubmit = useCallback(
     async (values: ActionFormSchema) => {
@@ -763,23 +796,35 @@ export function ActionPanel({
     </div>
   )
 }
-function SaveStateIcon({
-  saveState,
-}: {
-  saveState: "idle" | "saving" | "success"
-}) {
+function SaveStateIcon({ saveState }: { saveState: SaveState }) {
   return (
     <div
       className={cn(
-        "animate-fade-out absolute right-4 top-4 flex justify-end space-x-2 transition-opacity duration-200",
-        saveState === "idle" && "opacity-0"
+        "absolute right-4 top-4 flex items-center justify-end space-x-2",
+        "transition-all duration-300 ease-in-out",
+        saveState === SaveState.IDLE && "opacity-0"
       )}
     >
-      {saveState === "saving" && (
-        <Loader2Icon className="size-4 animate-spin text-muted-foreground/70" />
+      {saveState === SaveState.UNSAVED && (
+        <span className="text-xs text-muted-foreground">Unsaved</span>
       )}
-      {saveState === "success" && (
-        <CheckCheck className="size-4 text-green-500" />
+      {saveState === SaveState.SAVING && (
+        <>
+          <Loader2Icon className="size-3 animate-spin text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">Saving...</span>
+        </>
+      )}
+      {saveState === SaveState.SAVED && (
+        <>
+          <CircleCheckIcon className="size-4 fill-emerald-500 stroke-white" />
+          <span className="text-xs text-emerald-600">Saved</span>
+        </>
+      )}
+      {saveState === SaveState.ERROR && (
+        <>
+          <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
+          <span className="text-xs text-rose-500">Error</span>
+        </>
       )}
     </div>
   )
