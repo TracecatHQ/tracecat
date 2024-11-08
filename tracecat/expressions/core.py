@@ -35,11 +35,12 @@ class Expression:
     def result(self) -> Any:
         """Evaluate the expression and return the result."""
 
+        # NOTE: These exceptions are the top-level exceptions caught by the workflow engine
         try:
             parse_tree = self._parser.parse(self._expr)
         except TracecatExpressionError as e:
             raise TracecatExpressionError(
-                f"[parser] Error parsing expression `{self._expr}`\n\n{e}",
+                f"Error parsing expression `{self._expr}`\n\n{e}",
                 detail=str(e),
             ) from e
 
@@ -48,7 +49,7 @@ class Expression:
             return visitor.evaluate(parse_tree)
         except TracecatExpressionError as e:
             raise TracecatExpressionError(
-                f"[evaluator] Error evaluating expression `{self._expr}`\n\n{e}",
+                f"Error evaluating expression `{self._expr}`\n\n{e}",
                 detail=str(e),
             ) from e
 
