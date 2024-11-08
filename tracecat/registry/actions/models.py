@@ -484,3 +484,23 @@ class model_converters:
                     f"Unknown implementation type: {action.implementation}"
                 )
         return intf
+
+
+class RegistryActionErrorInfo(BaseModel):
+    """An error that occurred in the registry."""
+
+    action_name: str
+    type: str
+    message: str
+    filename: str
+    function: str
+    lineno: int | None = None
+
+    def __str__(self) -> str:
+        return (
+            f"{self.type}: {self.message}"
+            f"\n\n{'-' * 20}"
+            f"\nFile: {self.filename}"
+            f"\nFunction: {self.function}"
+            f"\nLine: {self.lineno}"
+        )

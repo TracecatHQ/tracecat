@@ -1,3 +1,4 @@
+import traceback
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -12,6 +13,7 @@ from tracecat.logger import logger
 from tracecat.registry import executor
 from tracecat.registry.actions.models import (
     RegistryActionCreate,
+    RegistryActionErrorInfo,
     RegistryActionRead,
     RegistryActionUpdate,
     RegistryActionValidate,
@@ -135,10 +137,28 @@ async def run_registry_action(
     try:
         return await executor.run_action_from_input(input=action_input)
     except Exception as e:
-        act_logger.error("Error running action", action_name=action_name, error=e)
+        # Get the traceback info
+        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
+        error_detail = RegistryActionErrorInfo(
+            action_name=action_name,
+            type=e.__class__.__name__,
+            message=str(e),
+            filename=tb.filename,
+            function=tb.name,
+            lineno=tb.lineno,
+        )
+        act_logger.error(
+            "Error running action",
+            action_name=action_name,
+            type=error_detail.type,
+            message=error_detail.message,
+            filename=error_detail.filename,
+            function=error_detail.function,
+            lineno=error_detail.lineno,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail=error_detail.model_dump(mode="json"),
         ) from e
 
 
