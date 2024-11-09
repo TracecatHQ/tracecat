@@ -37,19 +37,23 @@ async def http_request(
     headers: Annotated[
         dict[str, str],
         Field(description="HTTP request headers"),
-    ] = None,
+    ]
+    | None = None,
     payload: Annotated[
         JSONObjectOrArray,
         Field(description="HTTP request payload"),
-    ] = None,
+    ]
+    | None = None,
     params: Annotated[
         dict[str, Any],
         Field(description="URL query parameters"),
-    ] = None,
+    ]
+    | None = None,
     form_data: Annotated[
         dict[str, Any],
         Field(description="HTTP form encoded data"),
-    ] = None,
+    ]
+    | None = None,
     timeout: Annotated[
         float,
         Field(description="Timeout in seconds"),
@@ -68,11 +72,19 @@ async def http_request(
             description="Verify SSL certificates. Defaults to True, disable at own risk."
         ),
     ] = True,
+    cert: Annotated[
+        list[str],
+        Field(
+            description="Path to an SSL certificate file, or list [cert file, key file], or list [cert file, key file, password]."
+        ),
+    ]
+    | None = None,
 ) -> HTTPResponse:
     """Perform a HTTP request to a given URL."""
 
     try:
         async with httpx.AsyncClient(
+            cert=cert,
             timeout=httpx.Timeout(timeout),
             follow_redirects=follow_redirects,
             max_redirects=max_redirects,
