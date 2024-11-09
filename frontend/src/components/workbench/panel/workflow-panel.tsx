@@ -525,7 +525,7 @@ function VariablesTooltip() {
       </div>
       <div className="rounded-md border bg-muted-foreground/10 p-2">
         <pre className="text-xs text-foreground/70">
-          {"${{ VARS.my_static_key }}"}
+          {"${{ VARS.my_variable }}"}
         </pre>
       </div>
     </div>
