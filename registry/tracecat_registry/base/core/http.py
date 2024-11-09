@@ -118,7 +118,7 @@ async def http_request(
                 secrets.get("SSL_CLIENT_PASSWORD"),
             ]
             # Drop None values
-            cert = tuple([c for c in cert if c is not None])
+            cert = tuple(c for c in cert if c is not None)
 
         async with httpx.AsyncClient(
             cert=cert,
