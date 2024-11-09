@@ -64,7 +64,7 @@ const workflowConfigFormSchema = z.object({
       return z.NEVER
     }
   }),
-  static_inputs: z.string().transform((val, ctx) => {
+  variables: z.string().transform((val, ctx) => {
     try {
       return YAML.parse(val) || {}
     } catch (error) {
@@ -123,9 +123,9 @@ export function WorkflowPanel({
             environment: null,
           })
         : YAML.stringify(workflow.config),
-      static_inputs: isEmptyObjectOrNullish(workflow.static_inputs)
+      variables: isEmptyObjectOrNullish(workflow.variables)
         ? ""
-        : YAML.stringify(workflow.static_inputs),
+        : YAML.stringify(workflow.variables),
       expects: isEmptyObjectOrNullish(workflow.expects)
         ? ""
         : YAML.stringify(workflow.expects),
@@ -195,7 +195,7 @@ export function WorkflowPanel({
                   value="workflow-static-inputs"
                 >
                   <FileInputIcon className="mr-2 size-4" />
-                  <span>Static Inputs</span>
+                  <span>Variables</span>
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -459,7 +459,7 @@ export function WorkflowPanel({
                   <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
                     <div className="flex items-center">
                       <FileInputIcon className="mr-3 size-4" />
-                      <span>Static Inputs</span>
+                      <span>Variables</span>
                     </div>
                   </AccordionTrigger>
                   <AccordionContent>
@@ -477,15 +477,15 @@ export function WorkflowPanel({
                             side="left"
                             sideOffset={20}
                           >
-                            <StaticInputTooltip />
+                            <VariablesTooltip />
                           </HoverCardContent>
                         </HoverCard>
                         <span className="text-xs text-muted-foreground">
-                          Define optional static inputs for the workflow.
+                          Define optional variables for the workflow.
                         </span>
                       </div>
                       <Controller
-                        name="static_inputs"
+                        name="variables"
                         control={methods.control}
                         render={({ field }) => (
                           <CustomEditor
@@ -508,11 +508,11 @@ export function WorkflowPanel({
   )
 }
 
-function StaticInputTooltip() {
+function VariablesTooltip() {
   return (
     <div className="w-full space-y-4">
       <div className="flex w-full items-center justify-between text-muted-foreground ">
-        <span className="font-mono text-sm font-semibold">Static Inputs</span>
+        <span className="font-mono text-sm font-semibold">Variables</span>
         <span className="text-xs text-muted-foreground/80">(optional)</span>
       </div>
       <div className="flex w-full flex-col items-center justify-between space-y-4 text-muted-foreground">
@@ -525,7 +525,7 @@ function StaticInputTooltip() {
       </div>
       <div className="rounded-md border bg-muted-foreground/10 p-2">
         <pre className="text-xs text-foreground/70">
-          {"${{ INPUTS.my_static_key }}"}
+          {"${{ VARS.my_static_key }}"}
         </pre>
       </div>
     </div>

@@ -733,9 +733,9 @@ Activities don't need access to this.`
 
 export const $DSLContext = {
     properties: {
-        INPUTS: {
+        VARS: {
             type: 'object',
-            title: 'Inputs'
+            title: 'Vars'
         },
         ACTIONS: {
             type: 'object',
@@ -834,10 +834,10 @@ export const $DSLInput = {
             type: 'array',
             title: 'Triggers'
         },
-        inputs: {
+        variables: {
             type: 'object',
-            title: 'Inputs',
-            description: 'Static input parameters'
+            title: 'Variables',
+            description: 'Variables for the workflow'
         },
         returns: {
             anyOf: [
@@ -2898,7 +2898,7 @@ export const $UpdateWorkflowParams = {
             ],
             title: 'Icon Url'
         },
-        static_inputs: {
+        variables: {
             anyOf: [
                 {
                     type: 'object'
@@ -2907,7 +2907,7 @@ export const $UpdateWorkflowParams = {
                     type: 'null'
                 }
             ],
-            title: 'Static Inputs'
+            title: 'Variables'
         },
         expects: {
             anyOf: [
@@ -3626,9 +3626,9 @@ export const $WorkflowResponse = {
             ],
             title: 'Entrypoint'
         },
-        static_inputs: {
+        variables: {
             type: 'object',
-            title: 'Static Inputs'
+            title: 'Variables'
         },
         expects: {
             anyOf: [
@@ -3659,7 +3659,7 @@ export const $WorkflowResponse = {
         }
     },
     type: 'object',
-    required: ['id', 'title', 'description', 'status', 'actions', 'object', 'owner_id', 'webhook', 'schedules', 'entrypoint', 'static_inputs', 'returns', 'config'],
+    required: ['id', 'title', 'description', 'status', 'actions', 'object', 'owner_id', 'webhook', 'schedules', 'entrypoint', 'variables', 'returns', 'config'],
     title: 'WorkflowResponse'
 } as const;
 
