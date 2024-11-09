@@ -1,0 +1,29 @@
+type: action
+definition:
+  name: update_cp_xdr_incident
+  namespace: integrations.checkpoint
+  title: Update Check Point Infinity XDR incident
+  description: Update Check Point Infinity XDR incident.
+  display_group: Check Point
+  expects:
+    id:
+      type: int
+      description: 'Must be incident id or display id'
+      default: null
+    status:  
+      type: str
+      description: 'Must be one of the following values: "new", "in progress", "close - handled", "close - prevented", "close - false positive", "close - known activity"'
+      default: null
+  steps:
+    - ref: update_cp_xdr_incident
+      action: core.http_request
+      args:
+        url: https://cloudinfra-gw.portal.checkpoint.com/app/xdr/api/xdr/v1/incidents/${{ inputs.id }}
+        method: PUT
+        timeout: 60
+        headers:
+          accept: application/json
+          Authorization: Bearer ${{ ACTIONS.get_check_point_auth_token.result }}
+        payload:
+          status: ${{ inputs.status }}
+  returns: ${{ steps.update_cp_xdr_incident.result }}
