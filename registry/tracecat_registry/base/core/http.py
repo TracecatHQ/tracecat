@@ -44,7 +44,6 @@ class HTTPResponse(TypedDict):
     namespace="core",
     description="Perform a HTTP request to a given URL.",
     default_title="HTTP Request",
-    display_group="Core",
     secrets=[ssl_secret],
 )
 async def http_request(
