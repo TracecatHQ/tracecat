@@ -1,4 +1,4 @@
-"""Checkpoint authentication."""
+"""Check Point authentication."""
 
 import httpx
 
@@ -8,26 +8,24 @@ checkpoint_secret = RegistrySecret(
     name="checkpoint",
     keys=[
         "CHECKPOINT_AUTH_URL",
-        "CHECKPOINT_API_URL",
         "CHECKPOINT_CLIENT_ID",
         "CHECKPOINT_ACCESS_KEY",
     ],
 )
-"""Checkpoint JWT secret to request an access token.
+"""Check Point JWT secret to request an access token.
 
 - name: `checkpoint`
 - keys:
     - `CHECKPOINT_AUTH_URL`
-    - `CHECKPOINT_API_URL`
     - `CHECKPOINT_CLIENT_ID`
     - `CHECKPOINT_ACCESS_KEY`
 """
 
 
 @registry.register(
-    default_title="Get Checkpoint auth token",
-    description="Get an auth token for Checkpoint API calls.",
-    display_group="Checkpoint",
+    default_title="Get Check Point auth token",
+    description="Get an auth token for Check Point API calls.",
+    display_group="Check Point",
     namespace="integrations.checkpoint",
     secrets=[checkpoint_secret],
 )
@@ -42,4 +40,4 @@ async def get_auth_token() -> str:
             },
         )
         response.raise_for_status()
-        return response.json()["token"]
+        return response.json()['data']['token']
