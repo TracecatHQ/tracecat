@@ -31,14 +31,13 @@ checkpoint_secret = RegistrySecret(
     secrets=[checkpoint_secret],
 )
 async def get_auth_token() -> str:
-    secret = await secrets.get("checkpoint")
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            secret["CHECKPOINT_AUTH_URL"],
+            secrets.get("CHECKPOINT_AUTH_URL"),
             headers={"Content-Type": "application/json"},
             json={
-                "clientId": secret["CHECKPOINT_CLIENT_ID"],
-                "accessKey": secret["CHECKPOINT_ACCESS_KEY"],
+                "clientId": secrets.get("CHECKPOINT_CLIENT_ID"),
+                "accessKey": secrets.get("CHECKPOINT_ACCESS_KEY"),
             },
         )
         response.raise_for_status()

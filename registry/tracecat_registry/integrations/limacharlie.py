@@ -30,14 +30,13 @@ limacharlie_secret = RegistrySecret(
     secrets=[limacharlie_secret],
 )
 async def get_auth_token() -> str:
-    secret = await secrets.get("limacharlie")
     async with httpx.AsyncClient() as client:
         response = await client.get(
             "https://jwt.limacharlie.io",
             params={
-                "uid": secret["LIMACHARLIE_UID"],
-                "secret": secret["LIMACHARLIE_SECRET"],
-                "oid": secret.get("LIMACHARLIE_OID", "-"),
+                "uid": secrets.get("LIMACHARLIE_UID"),
+                "secret": secrets.get("LIMACHARLIE_SECRET"),
+                "oid": secrets.get("LIMACHARLIE_OID", "-"),
             },
         )
         response.raise_for_status()
