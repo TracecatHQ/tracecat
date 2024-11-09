@@ -7,6 +7,8 @@ repos:
     rev: v4.6.0
     hooks:
       - id: check-added-large-files
+        args:
+          - --maxkb=1000
       - id: check-toml
       - id: check-yaml
         args:
@@ -21,6 +23,7 @@ repos:
           - --fix
         exclude: ^alembic/versions/
       - id: ruff-format
+        verbose: true
         exclude: ^alembic/versions/
   - repo: https://github.com/antonbabenko/pre-commit-terraform
     rev: v1.94.1

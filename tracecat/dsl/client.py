@@ -1,4 +1,5 @@
-from temporalio.client import Client, TLSConfig
+from temporalio.client import Client
+from temporalio.service import TLSConfig
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -23,10 +24,17 @@ _client: Client | None = None
 async def connect_to_temporal() -> Client:
     tls_config = False
     if config.TEMPORAL__TLS_ENABLED:
+        if (
+            config.TEMPORAL__TLS_CLIENT_CERT is None
+            or config.TEMPORAL__TLS_CLIENT_PRIVATE_KEY is None
+        ):
+            raise RuntimeError(
+                "TLS is enabled but no client certificate or private key is provided"
+            )
         logger.info("TLS enabled for Temporal")
         tls_config = TLSConfig(
-            client_cert=config.TEMPORAL__TLS_CLIENT_CERT,
-            client_private_key=config.TEMPORAL__TLS_CLIENT_PRIVATE_KEY,
+            client_cert=config.TEMPORAL__TLS_CLIENT_CERT.encode(),
+            client_private_key=config.TEMPORAL__TLS_CLIENT_PRIVATE_KEY.encode(),
         )
 
     client = await Client.connect(

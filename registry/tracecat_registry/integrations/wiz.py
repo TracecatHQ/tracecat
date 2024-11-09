@@ -32,19 +32,19 @@ wiz_secret = RegistrySecret(
 @registry.register(
     default_title="Get Wiz auth token",
     description="Get an auth token for Wiz API calls.",
+    display_group="Wiz",
     namespace="integrations.wiz",
     secrets=[wiz_secret],
 )
 async def get_auth_token() -> str:
-    secret = await secrets.get("wiz")
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            secret["WIZ_AUTH_URL"],
+            secrets.get("WIZ_AUTH_URL"),
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             data={
                 "audience": "wiz-api",
-                "client_id": secret["WIZ_CLIENT_ID"],
-                "client_secret": secret["WIZ_CLIENT_SECRET"],
+                "client_id": secrets.get("WIZ_CLIENT_ID"),
+                "client_secret": secrets.get("WIZ_CLIENT_SECRET"),
                 "grant_type": "client_credentials",
             },
         )

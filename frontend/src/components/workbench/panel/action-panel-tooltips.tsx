@@ -139,7 +139,7 @@ export function RetryPolicyTooltip() {
   )
 }
 
-export function ControlFlowConfigTooltip() {
+export function ControlFlowOptionsTooltip() {
   return (
     <div className="w-full space-y-4">
       <div className="flex w-full items-center justify-between text-muted-foreground ">

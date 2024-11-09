@@ -13,7 +13,7 @@ class ScheduleRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     workflow_id: WorkflowID
-    inputs: dict[str, Any] = Field(..., default_factory=dict)
+    inputs: dict[str, Any] | None = None
     cron: str | None = None
     every: timedelta | None = None
     offset: timedelta | None = None

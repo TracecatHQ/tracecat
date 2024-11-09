@@ -12,8 +12,8 @@ from tracecat.dsl.models import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import OwnerID, WorkflowID, WorkspaceID
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.types.api import WebhookResponse
 from tracecat.types.auth import Role
+from tracecat.webhooks.models import WebhookResponse
 from tracecat.workflow.actions.models import ActionRead
 
 
@@ -74,7 +74,7 @@ class GetWorkflowDefinitionActivityInputs(BaseModel):
     role: Role
     workflow_id: WorkflowID
     version: int | None = None
-    task: ActionStatement[Any] | None = None
+    task: ActionStatement | None = None
 
 
 WorkflowExportFormat = Literal["json", "yaml"]
@@ -116,7 +116,7 @@ class ExternalWorkflowDefinition(BaseModel):
             created_at=defn.created_at,
             updated_at=defn.updated_at,
             version=defn.version,
-            definition=defn.content,
+            definition=DSLInput(**defn.content),
         )
 
 

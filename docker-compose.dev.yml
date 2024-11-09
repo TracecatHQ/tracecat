@@ -21,7 +21,6 @@ services:
       - 8000:8000
     environment:
       # App
-      DUMP_TRACECAT_RESULT: 0
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}
@@ -73,7 +72,6 @@ services:
       dockerfile: Dockerfile.dev
     restart: unless-stopped
     environment:
-      DUMP_TRACECAT_RESULT: 0
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}

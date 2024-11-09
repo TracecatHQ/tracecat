@@ -8,7 +8,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat.contexts import ctx_logger
 from tracecat.dsl.common import AdjDst, DSLEdge, DSLInput, edge_components_from_dep
 from tracecat.dsl.enums import EdgeMarker, EdgeType, JoinStrategy, SkipStrategy
-from tracecat.dsl.models import ActionStatement, ArgsT, DSLContext
+from tracecat.dsl.models import ActionStatement, DSLContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
@@ -151,7 +151,7 @@ class DSLScheduler:
                         "Adding task to queue; mark visited", next_ref=next_ref
                     )
                     tg.create_task(self.queue.put(next_ref))
-        self.logger.warning(
+        self.logger.trace(
             "Queued tasks",
             visited_tasks=list(self.completed_tasks),
             tasks=list(self.tasks.keys()),
@@ -236,7 +236,7 @@ class DSLScheduler:
             tasks=self.tasks,
         )
 
-    def _is_reachable(self, task: ActionStatement[ArgsT]) -> bool:
+    def _is_reachable(self, task: ActionStatement) -> bool:
         """Check whether a task is reachable based on its dependencies' outcomes.
 
         Args:
@@ -299,7 +299,7 @@ class DSLScheduler:
         logger.debug("Marking edge", edge=edge, marker=marker)
         self.edges[edge] = marker
 
-    def _skip_should_propagate(self, task: ActionStatement[ArgsT]) -> bool:
+    def _skip_should_propagate(self, task: ActionStatement) -> bool:
         """Check if a task's skip should propagate to its dependents.
 
         Args:
@@ -318,7 +318,7 @@ class DSLScheduler:
             for dep_ref in deps
         )
 
-    def _task_should_skip(self, task: ActionStatement[ArgsT]) -> bool:
+    def _task_should_skip(self, task: ActionStatement) -> bool:
         """Check if a task should be skipped based on its `run_if` condition.
 
         Args:

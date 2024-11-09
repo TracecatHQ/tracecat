@@ -367,96 +367,6 @@ export const $ActionStatement_Output = {
     title: 'ActionStatement'
 } as const;
 
-export const $ActionStatement_Any_ = {
-    properties: {
-        ref: {
-            type: 'string',
-            pattern: '^[a-z0-9_]+$',
-            title: 'Ref',
-            description: 'Unique reference for the task'
-        },
-        description: {
-            type: 'string',
-            title: 'Description',
-            default: ''
-        },
-        action: {
-            type: 'string',
-            pattern: '^[a-z0-9_.]+$',
-            title: 'Action',
-            description: 'Action type. Equivalent to the UDF key.'
-        },
-        args: {
-            title: 'Args',
-            description: 'Arguments for the action'
-        },
-        depends_on: {
-            items: {
-                type: 'string'
-            },
-            type: 'array',
-            title: 'Depends On',
-            description: 'Task dependencies'
-        },
-        run_if: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Run If',
-            description: 'Condition to run the task'
-        },
-        for_each: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    items: {
-                        type: 'string'
-                    },
-                    type: 'array'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'For Each',
-            description: 'Iterate over a list of items and run the task for each item.'
-        },
-        retry_policy: {
-            allOf: [
-                {
-                    '$ref': '#/components/schemas/ActionRetryPolicy'
-                }
-            ],
-            description: 'Retry policy for the action.'
-        },
-        start_delay: {
-            type: 'number',
-            title: 'Start Delay',
-            description: 'Delay before starting the action in seconds.',
-            default: 0
-        },
-        join_strategy: {
-            allOf: [
-                {
-                    '$ref': '#/components/schemas/JoinStrategy'
-                }
-            ],
-            description: 'The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.',
-            default: 'all'
-        }
-    },
-    type: 'object',
-    required: ['ref', 'action'],
-    title: 'ActionStatement[Any]'
-} as const;
-
 export const $ActionStep = {
     properties: {
         ref: {
@@ -605,24 +515,6 @@ export const $Body_auth_verify_verify = {
     title: 'Body_auth-verify:verify'
 } as const;
 
-export const $Body_validation_validate_workflow = {
-    properties: {
-        definition: {
-            type: 'string',
-            format: 'binary',
-            title: 'Definition'
-        },
-        payload: {
-            type: 'string',
-            format: 'binary',
-            title: 'Payload'
-        }
-    },
-    type: 'object',
-    required: ['definition'],
-    title: 'Body_validation-validate_workflow'
-} as const;
-
 export const $Body_workflows_create_workflow = {
     properties: {
         title: {
@@ -720,13 +612,12 @@ export const $CreateWorkflowExecutionParams = {
         inputs: {
             anyOf: [
                 {
-                    type: 'object'
+                    '$ref': '#/components/schemas/JsonValue'
                 },
                 {
                     type: 'null'
                 }
-            ],
-            title: 'Inputs'
+            ]
         }
     },
     type: 'object',
@@ -851,8 +742,7 @@ export const $DSLContext = {
             title: 'Actions'
         },
         TRIGGER: {
-            type: 'object',
-            title: 'Trigger'
+            '$ref': '#/components/schemas/JsonValue'
         },
         ENV: {
             '$ref': '#/components/schemas/DSLEnvironment'
@@ -996,13 +886,12 @@ export const $DSLRunArgs = {
         trigger_inputs: {
             anyOf: [
                 {
-                    type: 'object'
+                    '$ref': '#/components/schemas/JsonValue'
                 },
                 {
                     type: 'null'
                 }
-            ],
-            title: 'Trigger Inputs'
+            ]
         },
         parent_run_context: {
             anyOf: [
@@ -1324,7 +1213,7 @@ export const $GetWorkflowDefinitionActivityInputs = {
         task: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/ActionStatement_Any_'
+                    '$ref': '#/components/schemas/ActionStatement-Output'
                 },
                 {
                     type: 'null'
@@ -1356,6 +1245,8 @@ export const $JoinStrategy = {
     enum: ['any', 'all'],
     title: 'JoinStrategy'
 } as const;
+
+export const $JsonValue = {} as const;
 
 export const $OAuth2AuthorizeResponse = {
     properties: {

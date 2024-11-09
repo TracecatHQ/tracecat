@@ -1,5 +1,5 @@
 ---
-title: Google OAuth SSO
+title: Google OAuth
 description: Learn how to authenticate into Tracecat using Google OAuth.
 ---
 
@@ -27,7 +27,7 @@ TRACECAT__AUTH_TYPES=google_oauth
     For the local Docker Compose deployment, it'll be `http://localhost`.
     3. Set the **Authorized redirect URIs** to: `<your-domain>/auth/oauth/callback`.
 
-    ![Google OAuth consent screen](/img/google-oauth-consent.png)
+    ![Google OAuth consent screen](/img/secrets/google-oauth-consent.png)
 
   </Step>
   <Step title="Set up credentials in Google">
@@ -35,7 +35,7 @@ TRACECAT__AUTH_TYPES=google_oauth
     1. Under the **OAuth 2.0 Client IDs** section, select the app you created in the previous step.
     2. You will now see the following **Additional Information** on the right hand side of the screen.
 
-    ![Google OAuth client secrets](/img/google-oauth-client-secrets.png)
+    ![Google OAuth client secrets](/img/secrets/google-oauth-client-secrets.png)
 
     3. Copy the **Client ID** and **Client secret** in a secure location for storing secrets.
 

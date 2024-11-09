@@ -144,46 +144,6 @@ export type ActionStatement_Output = {
     join_strategy?: JoinStrategy;
 };
 
-export type ActionStatement_Any_ = {
-    /**
-     * Unique reference for the task
-     */
-    ref: string;
-    description?: string;
-    /**
-     * Action type. Equivalent to the UDF key.
-     */
-    action: string;
-    /**
-     * Arguments for the action
-     */
-    args?: unknown;
-    /**
-     * Task dependencies
-     */
-    depends_on?: Array<(string)>;
-    /**
-     * Condition to run the task
-     */
-    run_if?: string | null;
-    /**
-     * Iterate over a list of items and run the task for each item.
-     */
-    for_each?: string | Array<(string)> | null;
-    /**
-     * Retry policy for the action.
-     */
-    retry_policy?: ActionRetryPolicy;
-    /**
-     * Delay before starting the action in seconds.
-     */
-    start_delay?: number;
-    /**
-     * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
-     */
-    join_strategy?: JoinStrategy;
-};
-
 export type ActionStep = {
     /**
      * The reference of the step
@@ -226,11 +186,6 @@ export type Body_auth_verify_verify = {
     token: string;
 };
 
-export type Body_validation_validate_workflow = {
-    definition: (Blob | File);
-    payload?: (Blob | File);
-};
-
 export type Body_workflows_create_workflow = {
     title?: string | null;
     description?: string | null;
@@ -251,9 +206,7 @@ export type status = 'success' | 'failure';
 
 export type CreateWorkflowExecutionParams = {
     workflow_id: string;
-    inputs?: {
-    [key: string]: unknown;
-} | null;
+    inputs?: JsonValue | null;
 };
 
 export type CreateWorkflowExecutionResponse = {
@@ -314,9 +267,7 @@ export type DSLContext = {
     ACTIONS?: {
         [key: string]: unknown;
     };
-    TRIGGER?: {
-        [key: string]: unknown;
-    };
+    TRIGGER?: JsonValue;
     ENV?: DSLEnvironment;
 };
 
@@ -380,9 +331,7 @@ export type DSLRunArgs = {
     role: Role;
     dsl?: DSLInput | null;
     wf_id: string;
-    trigger_inputs?: {
-    [key: string]: unknown;
-} | null;
+    trigger_inputs?: JsonValue | null;
     parent_run_context?: RunContext | null;
     /**
      * Runtime configuration that can be set on workflow entry. Note that this can override the default config in DSLInput.
@@ -461,7 +410,7 @@ export type GetWorkflowDefinitionActivityInputs = {
     role: Role;
     workflow_id: string;
     version?: number | null;
-    task?: ActionStatement_Any_ | null;
+    task?: ActionStatement_Output | null;
 };
 
 export type HTTPValidationError = {
@@ -469,6 +418,8 @@ export type HTTPValidationError = {
 };
 
 export type JoinStrategy = 'any' | 'all';
+
+export type JsonValue = unknown;
 
 export type OAuth2AuthorizeResponse = {
     authorization_url: string;
@@ -1254,26 +1205,20 @@ export type login = {
 };
 
 export type PublicIncomingWebhookData = {
+    contentType?: string | null;
     path: string;
-    requestBody?: {
-    [key: string]: unknown;
-} | null;
     secret: string;
 };
 
 export type PublicIncomingWebhookResponse = CreateWorkflowExecutionResponse;
 
 export type PublicIncomingWebhookWaitData = {
+    contentType?: string | null;
     path: string;
-    requestBody?: {
-    [key: string]: unknown;
-} | null;
     secret: string;
 };
 
-export type PublicIncomingWebhookWaitResponse = {
-    [key: string]: unknown;
-};
+export type PublicIncomingWebhookWaitResponse = DSLContext;
 
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>;
 
@@ -1619,13 +1564,6 @@ export type SchedulesSearchSchedulesData = {
 
 export type SchedulesSearchSchedulesResponse = Array<Schedule>;
 
-export type ValidationValidateWorkflowData = {
-    formData: Body_validation_validate_workflow;
-    workspaceId: string;
-};
-
-export type ValidationValidateWorkflowResponse = Array<RegistryActionValidateResponse>;
-
 export type UsersSearchUserData = {
     email?: string | null;
 };
@@ -1664,7 +1602,7 @@ export type RegistryRepositoriesUpdateRegistryRepositoryData = {
 export type RegistryRepositoriesUpdateRegistryRepositoryResponse = RegistryRepositoryRead;
 
 export type RegistryRepositoriesDeleteRegistryRepositoryData = {
-    origin: string;
+    id: string;
 };
 
 export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void;
@@ -1825,9 +1763,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: {
-                    [key: string]: unknown;
-                };
+                200: DSLContext;
                 /**
                  * Validation Error
                  */
@@ -2465,21 +2401,6 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/validate-workflow': {
-        post: {
-            req: ValidationValidateWorkflowData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<RegistryActionValidateResponse>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
     '/users/search': {
         get: {
             req: UsersSearchUserData;
@@ -2560,6 +2481,8 @@ export type $OpenApiTs = {
                 422: HTTPValidationError;
             };
         };
+    };
+    '/registry/repos/{id}': {
         delete: {
             req: RegistryRepositoriesDeleteRegistryRepositoryData;
             res: {

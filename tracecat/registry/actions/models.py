@@ -22,12 +22,11 @@ from tracecat_registry import RegistrySecret, RegistryValidationError
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatValidationError
-from tracecat.types.validation import ValidationResult
+from tracecat.types.exceptions import RegistryActionError, TracecatValidationError
+from tracecat.validation.models import ValidationResult
 
-ArgsT = TypeVar("ArgsT", bound=Mapping[str, Any])
 ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
-
+RegistryActionType = Literal["udf", "template"]
 
 """Registry related"""
 
@@ -41,7 +40,7 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
     name: str
     description: str
     namespace: str
-    type: Literal["udf", "template"]
+    type: RegistryActionType
     # Registry details
     origin: str
     # Secrets
@@ -100,7 +99,10 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
                 template_action=self.template_action,
             )
         elif self.type == "udf":
-            module_path = inspect.getmodule(self.fn).__name__
+            module = inspect.getmodule(self.fn)
+            if not module:
+                raise RegistryActionError("UDF module not found")
+            module_path = module.__name__
             function_name = self.fn.__name__
             return RegistryActionUDFImpl(
                 type="udf",
@@ -155,7 +157,7 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
 class ActionStep(BaseModel):
     ref: str = Field(..., description="The reference of the step")
     action: str
-    args: ArgsT
+    args: Mapping[str, Any]
 
 
 class TemplateActionDefinition(BaseModel):
@@ -179,7 +181,7 @@ class TemplateActionDefinition(BaseModel):
 
     # Validate steps
     @model_validator(mode="after")
-    def validate_steps(self) -> TemplateActionDefinition:
+    def validate_steps(self):
         step_refs = [step.ref for step in self.steps]
         unique_step_refs = set(step_refs)
 
@@ -210,11 +212,16 @@ class TemplateAction(BaseModel):
 
     @staticmethod
     def from_db(template_action: RegistryAction) -> TemplateAction:
-        intf = template_action.interface
-        impl = template_action.implementation
+        intf = cast(RegistryActionInterface, template_action.interface)
+        impl = RegistryActionImplValidator.validate_python(
+            template_action.implementation
+        )
+        if impl.type != "template":
+            raise ValueError(
+                f"Invalid implementation type {impl.type!r} for template action"
+            )
         return TemplateAction(
             type="action",
-            origin=template_action.origin,
             definition=TemplateActionDefinition(
                 name=template_action.name,
                 namespace=template_action.namespace,
@@ -222,9 +229,9 @@ class TemplateAction(BaseModel):
                 description=template_action.description,
                 display_group=template_action.display_group,
                 secrets=template_action.secrets,
-                expects=intf.get("expects", {}),
-                returns=intf.get("returns", {}),
-                steps=impl.get("steps", []),
+                expects=intf["expects"],
+                returns=intf["returns"],
+                steps=impl.template_action.definition.steps,
             ),
         )
 
@@ -239,7 +246,7 @@ class RegistryActionBase(BaseModel):
     name: str = Field(..., description="The name of the action")
     description: str = Field(..., description="The description of the action")
     namespace: str = Field(..., description="The namespace of the action")
-    type: Literal["udf", "template"] = Field(..., description="The type of the action")
+    type: RegistryActionType = Field(..., description="The type of the action")
     origin: str = Field(..., description="The origin of the action as a url")
     secrets: list[RegistrySecret] | None = Field(
         None, description="The secrets required by the action"
@@ -275,20 +282,26 @@ class RegistryActionRead(RegistryActionBase):
         return self.implementation.type == "template"
 
     @staticmethod
-    def from_database(action: RegistryAction) -> RegistryActionRead:
+    def from_database(
+        action: RegistryAction, extra_secrets: list[RegistrySecret] | None = None
+    ) -> RegistryActionRead:
+        impl = RegistryActionImplValidator.validate_python(action.implementation)
+        secrets = [RegistrySecret(**secret) for secret in action.secrets or []]
+        if extra_secrets:
+            secrets.extend(extra_secrets)
         return RegistryActionRead(
             repository_id=action.repository_id,
             name=action.name,
             description=action.description,
             namespace=action.namespace,
-            type=action.type,
+            type=cast(RegistryActionType, action.type),
             interface=model_converters.db_to_interface(action),
-            implementation=action.implementation,
+            implementation=impl,
             default_title=action.default_title,
             display_group=action.display_group,
             origin=action.origin,
-            options=action.options,
-            secrets=action.secrets,
+            options=RegistryActionOptions(**action.options),
+            secrets=secrets,
         )
 
 
@@ -318,27 +331,27 @@ class RegistryActionCreate(RegistryActionBase):
 class RegistryActionUpdate(BaseModel):
     """API update model for a registered action."""
 
-    name: str | None = Field(None, description="Update the name of the action")
+    name: str | None = Field(default=None, description="Update the name of the action")
     description: str | None = Field(
-        None, description="Update the description of the action"
+        default=None, description="Update the description of the action"
     )
     secrets: list[RegistrySecret] | None = Field(
-        None, description="Update the secrets of the action"
+        default=None, description="Update the secrets of the action"
     )
     interface: RegistryActionInterface | None = Field(
-        None, description="Update the interface of the action"
+        default=None, description="Update the interface of the action"
     )
     implementation: AnnotatedRegistryActionImpl | None = Field(
-        None, description="Update the implementation of the action"
+        default=None, description="Update the implementation of the action"
     )
     default_title: str | None = Field(
-        None, description="Update the default title of the action"
+        default=None, description="Update the default title of the action"
     )
     display_group: str | None = Field(
-        None, description="Update the display group of the action"
+        default=None, description="Update the display group of the action"
     )
     options: RegistryActionOptions | None = Field(
-        None, description="Update the options of the action"
+        default=None, description="Update the options of the action"
     )
 
     @staticmethod
@@ -446,10 +459,7 @@ class model_converters:
                 returns=impl.template_action.definition.returns,
             )
         else:
-            return RegistryActionInterface(
-                expects=impl.interface.get("expects", {}),
-                returns=impl.interface.get("returns", {}),
-            )
+            return RegistryActionInterface(expects={}, returns={})
 
     @staticmethod
     def db_to_interface(action: RegistryAction) -> RegistryActionInterface:
@@ -474,3 +484,23 @@ class model_converters:
                     f"Unknown implementation type: {action.implementation}"
                 )
         return intf
+
+
+class RegistryActionErrorInfo(BaseModel):
+    """An error that occurred in the registry."""
+
+    action_name: str
+    type: str
+    message: str
+    filename: str
+    function: str
+    lineno: int | None = None
+
+    def __str__(self) -> str:
+        return (
+            f"{self.type}: {self.message}"
+            f"\n\n{'-'*30}"
+            f"\nFile: {self.filename}"
+            f"\nFunction: {self.function}"
+            f"\nLine: {self.lineno}"
+        )

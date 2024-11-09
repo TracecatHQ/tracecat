@@ -26,7 +26,7 @@ FILES=(
     "tracecat/__init__.py"
     "pyproject.toml"
     "docker-compose.yml"
-    "docs/self-hosting/updating.mdx"
+    "docs/tutorials/updating.mdx"
     "docs/self-hosting/deployment-options/docker-compose.mdx"
     "deployments/aws/fargate/variables.tf"
 )

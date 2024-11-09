@@ -1,0 +1,178 @@
+---
+title: Expressions
+description: Reference action results and workflow metadata in your workflows
+---
+
+Expressions are a way to reference data in your workflows.
+To use an expression, you must wrap an [expression context](/platform/expressions#expression-contexts) around:
+
+```yaml
+${{ <expression> }}
+```
+
+Expressions are evaluated into values before the start of each action run.
+Expressions are primarily used within action inputs to reference and manipulate data.
+
+## Expression Contexts
+
+Tracecat comes with five expression context types:
+
+| Prefix    | Expression syntax                   | Description                             |
+| --------- | ----------------------------------- | --------------------------------------- |
+| `ACTIONS` | `ACTIONS.<jsonpath>.result.<field>` | Reference the result of an action       |
+| `TRIGGER` | `TRIGGER.<jsonpath>`                | Reference data from the webhook         |
+| `SECRETS` | `SECRETS.<name>.<key>`              | Reference a secret                      |
+| `FN`      | `FN.<fn_name>(<arg1>, <arg2>, ...)` | Call a function                         |
+| `VARS`    | `VARS.<jsonpath>`                   | Reference fixed workflow variables      |
+
+<Note>
+    We use dot notation and JSONPath to access specific data in a particular context.
+    For example, `ACTIONS.my_action.result.data.items` selects the `items` field from a nested JSON object returned by the `my_action` action.
+</Note>
+
+### Actions
+
+Use the `ACTIONS` prefix to reference the result of an action.
+
+<Accordion icon="book-open" title="Example">
+
+Assume an action `welcome_user` returns the following JSON object:
+
+```json
+{"message": "hello world"}
+```
+
+This expression will return the string `hello world`:
+
+```php
+${{ ACTIONS.welcome_user.result.data.message }}
+```
+</Accordion>
+
+### Trigger
+
+Workflows can be triggered via webhook, manual trigger, or the `Execute Child Workflow` action.
+Use the `TRIGGER` prefix to reference the data from the trigger as a JSON object.
+
+```php
+${{ TRIGGER.<jsonpath> }}
+```
+
+<Accordion icon="book-open" title="Example">
+
+Given a workflow with a live webhook, the following curl command will send the JSON payload `{"data": {"name": "John", "age": 30}}` and trigger the workflow:
+
+```bash
+export WEBHOOK_URL=https://tracecat.com/api/webhooks/<webhook_id>/<secret>
+curl -X POST $WEBHOOK_URL \
+    -H "Content-Type: application/json" \
+    -d '{"data": {"name": "John", "age": 30}}'
+```
+
+The following expression will return the string `John`:
+
+```php
+${{ TRIGGER.data.name }}
+```
+
+</Accordion>
+
+### Secrets
+
+Secrets stored in the secrets manager can be accessed using the `SECRETS` prefix:
+
+```php
+${{ SECRETS.<name>.<key> }}
+```
+
+### Functions
+
+<Note>
+    Check out the functions [cheatsheet](/cheatsheets/functions) for a list of available functions.
+</Note>
+
+Use functions to manipulate data. Functions are called using the `FN` prefix.
+
+<Accordion icon="book-open" title="Example">
+This expression will return the boolean value `true`:
+
+```php!
+${{ FN.contains("a", ["a", "b", "c"]) }}
+```
+</Accordion>
+
+### Variables
+
+<Note>
+    Variables used to be called "static inputs" with the `INPUTS` prefix prior to version 0.14.
+</Note>
+
+Variables are accessed using the `VARS` prefix:
+
+```php
+${{ VARS.<jsonpath> }}
+```
+
+<Accordion icon="book-open" title="Example">
+
+Let's say the workflow has a static input defined with the key `api_url` and the value `https://example.com/api`.
+
+This expression will return the string `https://example.com/api`:
+
+```php
+${{ VARS.api_url }}
+```
+</Accordion>
+
+## Operators
+
+<Note>
+    Check out the operators [cheatsheet](/cheatsheets/functions#operators) for the full list of supported operators.
+</Note>
+
+We support standard operators (`+`, `-`, `*`, `/`) for all Pythonobject types (e.g. `int`, `float`, `str`, `datetime`, `timedelta`, `list`, `dict`).
+
+
+<Accordion icon="book-open" title="Example">
+This expression will return the integer value 3:
+
+```php
+${{ 1 + 2 }}
+```
+
+And the following expression will return the string `hello world`:
+
+```php
+${{ "hello " + "world" }}
+```
+</Accordion>
+
+## Typecasting
+
+We also support casting expressions into different data types with the following syntax:
+
+<CodeGroup>
+```php Inline
+${{ int(<expression>) }}
+```
+
+```php Trailing
+${{ <expression> -> int }}
+```
+</CodeGroup>
+
+Supported typecasts:
+
+| Data Type | Behavior |
+|-----------|----------|
+| int       | Python `int` |
+| float     | Python `float` |
+| str       | Python `str` |
+| datetime  | Custom `datetime` - parses ISO 8601 datetime strings |
+| bool      | Custom `bool` - true for any truthy value, `1`, or upper/lower case `true` |
+
+<Accordion icon="book-open" title="Example">
+
+Given an ISO 8601 datetime string, `${{ "2024-01-01T00:00:00Z" -> datetime }}` and `${{ datetime("2024-01-01T00:00:00Z") }}` will both return the datetime object `2024-01-01 00:00:00`.
+
+</Accordion>

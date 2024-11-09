@@ -22,6 +22,7 @@ import {
   Loader2Icon,
   LucideIcon,
   RepeatIcon,
+  RotateCcwIcon,
   SettingsIcon,
   Shapes,
   SquareFunctionIcon,
@@ -78,7 +79,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { ActionNodeData } from "@/components/workbench/canvas/action-node"
 import {
-  ControlFlowConfigTooltip,
+  ControlFlowOptionsTooltip,
   ForEachTooltip,
   RetryPolicyTooltip,
   RunIfTooltip,
@@ -344,7 +345,7 @@ export function ActionPanel({
               <SaveStateIcon saveState={saveState} />
             </div>
             <div className="flex items-center justify-start">
-              <TabsList className="grid h-8 grid-cols-2 rounded-none bg-transparent p-0">
+              <TabsList className="grid h-8 grid-cols-3 rounded-none bg-transparent p-0">
                 <TabsTrigger
                   className="size-full w-full min-w-[120px] rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                   value="inputs"
@@ -358,6 +359,13 @@ export function ActionPanel({
                 >
                   <RepeatIcon className="mr-2 size-4" />
                   <span>Control Flow</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  className="size-full w-full min-w-[120px] rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  value="retry-policy"
+                >
+                  <RotateCcwIcon className="mr-2 size-4" />
+                  <span>Retry Policy</span>
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -447,7 +455,8 @@ export function ActionPanel({
                   <AccordionContent className="space-y-4">
                     {/* Action secrets */}
                     <div className="space-y-4 px-4">
-                      {registryAction.secrets ? (
+                      {registryAction.secrets &&
+                      registryAction.secrets.length > 0 ? (
                         <div className="text-xs text-muted-foreground">
                           <span>
                             This action requires the following secrets:
@@ -648,6 +657,63 @@ export function ActionPanel({
                         )}
                       />
                     </div>
+                    {/* Other options */}
+                    <div className="flex flex-col space-y-4 px-4">
+                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                        <span>Options</span>
+                      </FormLabel>
+                      <div className="flex items-center">
+                        <HoverCard openDelay={100} closeDelay={100}>
+                          <HoverCardTrigger
+                            asChild
+                            className="hover:border-none"
+                          >
+                            <Info className="mr-1 size-3 stroke-muted-foreground" />
+                          </HoverCardTrigger>
+                          <HoverCardContent
+                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                            side="left"
+                            sideOffset={20}
+                          >
+                            <ControlFlowOptionsTooltip />
+                          </HoverCardContent>
+                        </HoverCard>
+
+                        <span className="text-xs text-muted-foreground">
+                          Define additional control flow options for the action.
+                        </span>
+                      </div>
+                      <Controller
+                        name="control_flow.options"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <CustomEditor
+                            className="h-24 w-full"
+                            defaultLanguage="yaml"
+                            value={field.value}
+                            onChange={field.onChange}
+                          />
+                        )}
+                      />
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </TabsContent>
+            <TabsContent value="retry-policy">
+              <Accordion
+                type="multiple"
+                defaultValue={["action-retry-policy"]}
+                className="pb-10"
+              >
+                <AccordionItem value="action-retry-policy">
+                  <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                    <div className="flex items-center">
+                      <RotateCcwIcon className="mr-3 size-4" />
+                      <span>Retry Policy</span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="space-y-4">
                     {/* Retry Policy */}
                     <div className="flex flex-col space-y-4 px-4">
                       <FormLabel className="flex items-center gap-2 text-xs font-medium">
@@ -676,45 +742,6 @@ export function ActionPanel({
                       </div>
                       <Controller
                         name="control_flow.retry_policy"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <CustomEditor
-                            className="h-24 w-full"
-                            defaultLanguage="yaml"
-                            value={field.value}
-                            onChange={field.onChange}
-                          />
-                        )}
-                      />
-                    </div>
-                    {/* Other options */}
-                    <div className="flex flex-col space-y-4 px-4">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>Options</span>
-                      </FormLabel>
-                      <div className="flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <Info className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <ControlFlowConfigTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
-
-                        <span className="text-xs text-muted-foreground">
-                          Define additional control flow options for the action.
-                        </span>
-                      </div>
-                      <Controller
-                        name="control_flow.options"
                         control={methods.control}
                         render={({ field }) => (
                           <CustomEditor

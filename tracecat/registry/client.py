@@ -1,5 +1,6 @@
 """Use this in worker to execute actions."""
 
+from collections.abc import Mapping
 from typing import Any, cast
 
 import httpx
@@ -11,7 +12,7 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
-    ArgsT,
+    RegistryActionErrorInfo,
     RegistryActionRead,
     RegistryActionValidateResponse,
 )
@@ -41,7 +42,7 @@ class RegistryClient:
 
     """Execution"""
 
-    async def call_action(self, input: RunActionInput[ArgsT]) -> Any:
+    async def call_action(self, input: RunActionInput) -> Any:
         """
         Call an action in the registry asynchronously.
 
@@ -98,7 +99,11 @@ class RegistryClient:
             return orjson.loads(response.content)
         except httpx.HTTPStatusError as e:
             resp = e.response.json()
-            detail = resp.get("detail") or e.response.text
+            if detail := resp.get("detail"):
+                val_detail = RegistryActionErrorInfo(**detail)
+                detail = str(val_detail)
+            else:
+                detail = e.response.text
             logger.error("Registry returned an error", error=e, detail=detail)
             if e.response.status_code / 100 == 5:
                 raise RegistryActionError(
@@ -120,7 +125,7 @@ class RegistryClient:
     """Validation"""
 
     async def validate_action(
-        self, *, action_name: str, args: dict[str, Any]
+        self, *, action_name: str, args: Mapping[str, Any]
     ) -> RegistryActionValidateResponse:
         """Validate an action."""
         try:

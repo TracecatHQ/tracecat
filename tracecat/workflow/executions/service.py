@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-import os
-from collections.abc import AsyncGenerator, Awaitable
+from collections.abc import AsyncGenerator, Awaitable, Coroutine
 from typing import Any
 
 import orjson
 import temporalio.api.common.v1
 from temporalio.api.enums.v1 import EventType
+from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import (
     Client,
     WorkflowExecution,
@@ -17,7 +17,6 @@ from temporalio.client import (
     WorkflowExecutionStatus,
     WorkflowFailureError,
     WorkflowHandle,
-    WorkflowHistory,
     WorkflowHistoryEventFilterType,
 )
 
@@ -25,6 +24,7 @@ from tracecat import config, identifiers
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
+from tracecat.dsl.models import TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.logger import logger
@@ -59,7 +59,7 @@ class WorkflowExecutionsService:
 
     async def query_executions(
         self, query: str | None = None, **kwargs
-    ) -> list[WorkflowExecutionDescription]:
+    ) -> list[WorkflowExecution]:
         # Invoke with async for
         return [
             wf_exec
@@ -126,7 +126,6 @@ class WorkflowExecutionsService:
                             event_group=group,
                             task_id=event.task_id,
                             role=group.action_input.role,
-                            input=group.action_input,
                         )
                     )
                 case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED:
@@ -185,7 +184,6 @@ class WorkflowExecutionsService:
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_STARTED,
                             task_id=event.task_id,
                             role=dsl_run_args.role,
-                            input=dsl_run_args,
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
@@ -305,7 +303,7 @@ class WorkflowExecutionsService:
         wf_exec_id: identifiers.WorkflowExecutionID,
         event_filter_type: WorkflowHistoryEventFilterType = WorkflowHistoryEventFilterType.ALL_EVENT,
         **kwargs,
-    ) -> AsyncGenerator[WorkflowHistory]:
+    ) -> AsyncGenerator[HistoryEvent, Any]:
         """List the event history of a workflow execution."""
 
         handle = self.handle(wf_exec_id)
@@ -319,7 +317,7 @@ class WorkflowExecutionsService:
         dsl: DSLInput,
         *,
         wf_id: identifiers.WorkflowID,
-        payload: dict[str, Any] | None = None,
+        payload: TriggerInputs | None = None,
     ) -> CreateWorkflowExecutionResponse:
         """Create a new workflow execution.
 
@@ -338,8 +336,8 @@ class WorkflowExecutionsService:
         dsl: DSLInput,
         *,
         wf_id: identifiers.WorkflowID,
-        payload: dict[str, Any] | None = None,
-    ) -> Awaitable[DispatchWorkflowResult]:
+        payload: TriggerInputs | None = None,
+    ) -> Coroutine[Any, Any, DispatchWorkflowResult]:
         """Create a new workflow execution.
 
         Note: This method blocks until the workflow execution completes.
@@ -364,7 +362,7 @@ class WorkflowExecutionsService:
         dsl: DSLInput,
         wf_id: identifiers.WorkflowID,
         wf_exec_id: identifiers.WorkflowExecutionID,
-        trigger_inputs: dict[str, Any] | None = None,
+        trigger_inputs: TriggerInputs | None = None,
         **kwargs: Any,
     ) -> DispatchWorkflowResult:
         logger.info(
@@ -391,14 +389,7 @@ class WorkflowExecutionsService:
                 "Unexpected workflow error", role=self.role, wf_exec_id=wf_exec_id, e=e
             )
             raise e
-        # Write result to file for debugging
-        if os.getenv("DUMP_TRACECAT_RESULT", "0") in ("1", "true"):
-            path = config.TRACECAT__EXECUTIONS_DIR / f"{wf_exec_id}.json"
-            path.touch()
-            with path.open("w") as f:
-                json.dump(result, f, indent=2)
-        else:
-            self.logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
+        self.logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
         return DispatchWorkflowResult(wf_id=wf_id, final_context=result)
 
     def cancel_workflow_execution(

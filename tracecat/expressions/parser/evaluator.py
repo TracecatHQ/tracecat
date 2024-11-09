@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Any, TypeVar, override
+from typing import Any, TypeVar
 
 from lark import Token, Transformer, Tree, v_args
 from lark.exceptions import VisitError
@@ -21,18 +21,13 @@ class ExprEvaluator(Transformer):
         self._strict = strict
         self.logger = logger.bind(visitor=self._visitor_name)
 
-    @override
     def evaluate(self, tree: Tree) -> Any:
         try:
             return self.transform(tree)
         except VisitError as e:
             logger.error(e)
             raise TracecatExpressionError(
-                (
-                    "[evaluator] Evaluation failed at node:"
-                    f"\n{tree.pretty()}"
-                    f"\nReason: {e}"
-                ),
+                f"[evaluator] Evaluation failed at node:\n```\n{tree.pretty()}\n```\nReason: {e}",
                 detail=str(e),
             ) from e
 
@@ -141,11 +136,10 @@ class ExprEvaluator(Transformer):
         return jsonpath
 
     @v_args(inline=True)
-    def trigger(self, jsonpath: str):
+    def trigger(self, jsonpath: str | None):
         logger.trace("Visiting trigger:", args=jsonpath)
-        return functions.eval_jsonpath(
-            ExprContext.TRIGGER + jsonpath, self._context, strict=self._strict
-        )
+        expr = ExprContext.TRIGGER + (jsonpath or "")
+        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
 
     @v_args(inline=True)
     def template_action_inputs(self, jsonpath: str):

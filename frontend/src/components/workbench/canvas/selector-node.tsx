@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef } from "react"
+import React, { useCallback, useEffect, useMemo, useRef } from "react"
 import { RegistryActionRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
+import fuzzysort from "fuzzysort"
 import { CloudOffIcon, XIcon } from "lucide-react"
 import { Handle, Node, NodeProps, Position, useNodeId } from "reactflow"
 
@@ -26,23 +27,22 @@ import {
   isEphemeral,
 } from "@/components/workbench/canvas/canvas"
 
-const TOP_LEVEL_GROUP = "__TOP_LEVEL__" as const
-
-const groupByDisplayGroup = (
-  actions: RegistryActionRead[]
-): Record<string, RegistryActionRead[]> => {
-  const groups = {} as Record<string, RegistryActionRead[]>
-  actions.forEach((action) => {
-    const displayGroup = (action.display_group || TOP_LEVEL_GROUP).toString()
-    if (!groups[displayGroup]) {
-      groups[displayGroup] = []
-    }
-    groups[displayGroup].push(action)
-  })
-  return groups
-}
-
 export const SelectorTypename = "selector" as const
+
+const highlight = true
+const SEARCH_KEYS = [
+  "action",
+  "default_title",
+  "display_group",
+] as (keyof RegistryActionRead)[]
+
+function filterActions(actions: RegistryActionRead[], search: string) {
+  const results = fuzzysort.go<RegistryActionRead>(search, actions, {
+    all: true,
+    keys: SEARCH_KEYS,
+  })
+  return results
+}
 
 export interface SelectorNodeData {
   type: "selector"
@@ -84,6 +84,7 @@ export default React.memo(function SelectorNode({
     setNodes((nodes) => nodes.filter((node) => !isEphemeral(node)))
     setEdges((edges) => edges.filter((edge) => edge.target !== id))
   }
+  const [inputValue, setInputValue] = React.useState("")
 
   if (!workflowId || !id) {
     console.error("Workflow or node ID not found")
@@ -91,8 +92,11 @@ export default React.memo(function SelectorNode({
   }
 
   return (
-    <div>
-      <Command className="h-96 w-72 rounded-lg border shadow-sm">
+    <div onWheelCapture={(e) => e.stopPropagation()}>
+      <Command
+        className="h-96 w-72 rounded-lg border shadow-sm"
+        shouldFilter={false}
+      >
         <div className="w-full bg-muted-foreground/5 px-3 py-[2px]">
           <Label className="flex items-center text-xs text-muted-foreground">
             <span className="font-medium">Add a node</span>
@@ -113,6 +117,7 @@ export default React.memo(function SelectorNode({
           ref={inputRef}
           className="!py-0 text-xs"
           placeholder="Start typing to search for an action..."
+          onValueChange={(value) => setInputValue(value)}
           autoFocus
         />
         <CommandList className="border-b">
@@ -121,7 +126,7 @@ export default React.memo(function SelectorNode({
               No results found.
             </span>
           </CommandEmpty>
-          <ActionCommandSelector nodeId={id} />
+          <ActionCommandSelector nodeId={id} inputValue={inputValue} />
         </CommandList>
       </Command>
       <Handle
@@ -136,27 +141,23 @@ export default React.memo(function SelectorNode({
   )
 })
 
-function ActionCommandSelector({ nodeId }: { nodeId: string }) {
+function ActionCommandSelector({
+  nodeId,
+  inputValue,
+}: {
+  nodeId: string
+  inputValue: string
+}) {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useWorkbenchRegistryActions()
   const scrollAreaRef = useRef<HTMLDivElement>(null)
 
+  // Add effect to reset scroll position when search results change
   useEffect(() => {
-    const handleScroll = (event: Event) => {
-      event.stopPropagation()
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTop = 0
     }
-
-    const scrollArea = scrollAreaRef.current
-    if (scrollArea) {
-      scrollArea.addEventListener("wheel", handleScroll)
-    }
-
-    return () => {
-      if (scrollArea) {
-        scrollArea.removeEventListener("wheel", handleScroll)
-      }
-    }
-  }, [])
+  }, [inputValue])
 
   if (!registryActions || registryActionsIsLoading) {
     return <CenteredSpinner />
@@ -170,34 +171,40 @@ function ActionCommandSelector({ nodeId }: { nodeId: string }) {
     )
   }
 
-  const grouped = groupByDisplayGroup(registryActions)
   return (
-    <ScrollArea ref={scrollAreaRef} className="h-full">
-      {Object.entries(grouped)
-        .sort(([groupA], [groupB]) => groupA.localeCompare(groupB))
-        .map(([group, actions], idx) => (
-          <ActionCommandGroup
-            key={`${group}-${idx}`}
-            group={group === TOP_LEVEL_GROUP ? "Core" : group}
-            registryActions={actions}
-            nodeId={nodeId}
-          />
-        ))}
+    <ScrollArea className="h-full" ref={scrollAreaRef}>
+      <ActionCommandGroup
+        group="Suggestions"
+        nodeId={nodeId}
+        registryActions={registryActions}
+        inputValue={inputValue}
+      />
     </ScrollArea>
   )
 }
 
 function ActionCommandGroup({
   group,
-  registryActions: actions,
   nodeId,
+  registryActions,
+  inputValue,
 }: {
   group: string
-  registryActions: RegistryActionRead[]
   nodeId: string
+  registryActions: RegistryActionRead[]
+  inputValue: string
 }) {
   const { workspaceId, workflowId, reactFlow } = useWorkflowBuilder()
   const { getNode, setNodes, setEdges } = reactFlow
+
+  // Move sortedActions and filterResults logic here
+  const sortedActions = useMemo(() => {
+    return [...registryActions].sort((a, b) => a.action.localeCompare(b.action))
+  }, [registryActions])
+
+  const filterResults = useMemo(() => {
+    return filterActions(sortedActions, inputValue)
+  }, [sortedActions, inputValue])
 
   const handleSelect = useCallback(
     async (action: RegistryActionRead) => {
@@ -255,22 +262,83 @@ function ActionCommandGroup({
         return // Abort
       }
     },
-    [getNode, nodeId]
+    [getNode, nodeId, workflowId, workspaceId, setNodes, setEdges]
   )
+
+  // Add ref for the command group
+  const commandGroupRef = useRef<HTMLDivElement>(null)
+
+  // Reset scroll position when filter results change
+  useEffect(() => {
+    if (commandGroupRef.current) {
+      commandGroupRef.current.scrollIntoView({ block: "start" })
+    }
+  }, [filterResults])
+
   return (
-    <CommandGroup heading={group} className="text-xs">
-      {actions.map((action) => (
-        <CommandItem
-          key={action.action}
-          className="text-xs"
-          onSelect={async () => await handleSelect(action)}
-        >
-          {getIcon(action.action, {
-            className: "size-5 mr-2",
-          })}
-          <span className="text-xs">{action.default_title}</span>
-        </CommandItem>
-      ))}
+    <CommandGroup heading={group} className="text-xs" ref={commandGroupRef}>
+      {filterResults.map((result) => {
+        const action = result.obj
+
+        if (highlight) {
+          const highlighted = SEARCH_KEYS.reduce(
+            (acc, key, index) => {
+              const currRes = result[index]
+              acc[key] = currRes.highlight() || String(action[key])
+              return acc
+            },
+            {} as Record<keyof RegistryActionRead, string>
+          )
+
+          return (
+            <CommandItem
+              key={action.action}
+              className="text-xs"
+              onSelect={async () => await handleSelect(action)}
+            >
+              <div className="flex-col">
+                <div className="flex items-center justify-start">
+                  {getIcon(action.action, {
+                    className: "size-5 mr-2",
+                  })}
+                  <span
+                    className="text-xs"
+                    dangerouslySetInnerHTML={{
+                      __html: highlighted.default_title,
+                    }}
+                  />
+                </div>
+                <span
+                  className="text-xs text-muted-foreground"
+                  dangerouslySetInnerHTML={{
+                    __html: highlighted.action,
+                  }}
+                />
+              </div>
+            </CommandItem>
+          )
+        } else {
+          return (
+            <CommandItem
+              key={action.action}
+              className="text-xs"
+              onSelect={async () => await handleSelect(action)}
+            >
+              <div className="flex-col">
+                <div className="flex items-center justify-start">
+                  {getIcon(action.action, {
+                    className: "size-5 mr-2",
+                  })}
+                  <span className="text-xs">{action.default_title}</span>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {action.action}
+                </span>
+              </div>
+            </CommandItem>
+          )
+        }
+      })}
     </CommandGroup>
   )
 }

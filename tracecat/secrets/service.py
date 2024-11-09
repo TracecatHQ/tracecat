@@ -73,7 +73,7 @@ class SecretsService:
         statement = select(Secret).where(Secret.owner_id == self.role.workspace_id)
         if types:
             types_set = set(types)
-            statement = statement.where(Secret.type.in_(types_set))
+            statement = statement.where(Secret.type.in_(types_set))  # type: ignore
         result = await self.session.exec(statement)
         return result.all()
 
