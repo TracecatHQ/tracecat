@@ -2,7 +2,7 @@ title: Reshape with map in loop
 description: Test that we can loop and map inside
 entrypoint:
   ref: a
-inputs:
+variables:
   nested:
     - ["user_1", "user_2", "user_3"]
     - ["user_4", "user_5", "user_6"]
@@ -11,7 +11,7 @@ inputs:
 actions:
   - ref: a
     action: core.transform.reshape
-    for_each: ${{ for var.list in INPUTS.nested }}
+    for_each: ${{ for var.list in VARS.nested }}
     args:
       # We map the list into the template. the `map` function automatically
       # broadcasts the template to each element of the list.

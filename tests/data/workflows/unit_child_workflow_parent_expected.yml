@@ -3,6 +3,6 @@ ACTIONS:
     result: [1001, 1002, 1003, 1004, 1005, 1006, 1007]
     result_typename: "list"
 
-INPUTS:
+VARS:
   data: [1, 2, 3, 4, 5, 6, 7]
 TRIGGER:

@@ -6,7 +6,7 @@ ACTIONS:
       - ["Got user_7!", "Got user_8!", "Got user_9!"]
     result_typename: list
 
-INPUTS:
+VARS:
   nested:
     - ["user_1", "user_2", "user_3"]
     - ["user_4", "user_5", "user_6"]

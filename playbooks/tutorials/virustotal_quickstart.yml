@@ -14,7 +14,7 @@ definition:
   entrypoint:
     expects: {}
     ref: search_url
-  inputs: {}
+  variables: {}
   returns: null
   tests: []
   title: Test virustotal

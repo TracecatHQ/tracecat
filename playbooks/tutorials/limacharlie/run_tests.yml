@@ -18,7 +18,7 @@ definition:
         type: str
         description: The directory path where the payloads are stored.
     ref: upload_emulation_tests
-  inputs:
+  variables:
     api_url: https://api.limacharlie.io/v1
     jwt_url: https://jwt.limacharlie.io
     token_response_key: token
@@ -30,10 +30,10 @@ definition:
       ref: upload_emulation_tests
       for_each: ${{ for var.test_id in TRIGGER.test_ids }}
       args:
-        url: "${{ INPUTS.api_url }}/${{ TRIGGER.sensor_id }}/"
+        url: "${{ VARS.api_url }}/${{ TRIGGER.sensor_id }}/"
         method: GET
-        token_response_key: ${{ INPUTS.token_response_key }}
-        jwt_url: "${{ INPUTS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
+        token_response_key: ${{ VARS.token_response_key }}
+        jwt_url: "${{ VARS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
         payload:
           tasks:
             - "put --payload-name ${{ var.test_id }} --payload-path ${{ TRIGGER.payload_dir_path }}\\${{ var.test_id }}.exe"
@@ -47,10 +47,10 @@ definition:
         - upload_emulation_tests
       for_each: ${{ for var.test_id in TRIGGER.test_ids }}
       args:
-        url: "${{ INPUTS.api_url }}/${{ TRIGGER.sensor_id }}/"
+        url: "${{ VARS.api_url }}/${{ TRIGGER.sensor_id }}/"
         method: GET
-        token_response_key: ${{ INPUTS.token_response_key }}
-        jwt_url: "${{ INPUTS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
+        token_response_key: ${{ VARS.token_response_key }}
+        jwt_url: "${{ VARS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
         payload:
           tasks:
             - "run --shell-command '${{ TRIGGER.payload_dir_path }}\\${{ var.test_id }}.exe'"
@@ -64,8 +64,8 @@ definition:
         - run_emulation_tests
       args:
         value:
-          start: ${{ FN.to_datestring(ENV.workflow.start_time, INPUTS.datetime_format) }}
-          end: ${{ FN.to_datestring(FN.now(), INPUTS.datetime_format) }}
+          start: ${{ FN.to_datestring(ENV.workflow.start_time, VARS.datetime_format) }}
+          end: ${{ FN.to_datestring(FN.now(), VARS.datetime_format) }}
 
     - action: core.http_request
       ref: list_emulation_results
@@ -74,11 +74,11 @@ definition:
       # Filter for results between start of workflow and now
       args:
         url: |
-          ${{ INPUTS.api_url }}/v1/insight/${{ ACTIONS.emulation_times.result.start }}/
+          ${{ VARS.api_url }}/v1/insight/${{ ACTIONS.emulation_times.result.start }}/
           ${{ TRIGGER.sensor_id }}?
           start=${{ ACTIONS.emulation_times.result.start }}&
           end=${{ ACTIONS.emulation_times.result.end }}&
-          event_type=${{ INPUTS.event_type }}
+          event_type=${{ VARS.event_type }}
         method: GET
 
     # TODO: Upload results to records

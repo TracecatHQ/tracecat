@@ -2,7 +2,7 @@ title: Reshape loop
 description: Test that we can loop reshape actions
 entrypoint:
   ref: a
-inputs:
+variables:
   first: 1
   second: 2
   list: [1, 2, 3]
@@ -10,6 +10,6 @@ inputs:
 actions:
   - ref: a
     action: core.transform.reshape
-    for_each: ${{ for var.x in INPUTS.list }}
+    for_each: ${{ for var.x in VARS.list }}
     args:
       value: I received ${{ var.x }} from you

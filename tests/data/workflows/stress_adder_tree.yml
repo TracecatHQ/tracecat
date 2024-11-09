@@ -9,7 +9,7 @@ config:
   scheduler: dynamic
 entrypoint:
   ref: a
-inputs:
+variables:
   value: 1
 
 triggers:
@@ -21,7 +21,7 @@ actions:
   - ref: a
     action: core.transform.reshape
     args:
-      value: ${{ INPUTS.value }}
+      value: ${{ VARS.value }}
 
   - ref: b
     action: example.add

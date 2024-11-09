@@ -2,7 +2,7 @@ title: Reshape data in a loop
 description: Test reshaping data from a list of mappings to a list of key-value pairs
 entrypoint:
   ref: flatten
-inputs:
+variables:
   contacts:
     - name: John Doe
       age: 30
@@ -44,7 +44,7 @@ inputs:
 actions:
   - ref: flatten
     action: core.transform.reshape
-    for_each: ${{ for var.person in INPUTS.contacts }}
+    for_each: ${{ for var.person in VARS.contacts }}
     # Flatten the mapping into a list of key-value pairs
     args:
       value:

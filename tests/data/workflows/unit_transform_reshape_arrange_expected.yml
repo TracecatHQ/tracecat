@@ -12,7 +12,7 @@ ACTIONS:
       contact_phone: 123-456-7890
     result_typename: "dict"
 
-INPUTS:
+VARS:
   details:
     name: John Doe
     age: 30

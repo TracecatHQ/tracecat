@@ -8,7 +8,7 @@ config:
 entrypoint:
   ref: a
 
-inputs:
+variables:
   valid: 1
   value:
     another_valid: 2
@@ -23,7 +23,7 @@ actions:
     action: core.transform.reshape
     args:
       value:
-        valid: ${{ INPUTS.valid }}
+        valid: ${{ VARS.valid }}
 
   - ref: b
     action: example.add
@@ -32,4 +32,4 @@ actions:
     args:
       # This should fail
       lhs: ${{ ACTIONS.a.result.invalid }}
-      rhs: ${{ INPUTS.value.another_valid }}
+      rhs: ${{ VARS.value.another_valid }}

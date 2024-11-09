@@ -2,12 +2,12 @@ title: Parent workflow
 description: Test child workflow
 entrypoint:
   ref: parent
-inputs:
+variables:
   data: [1, 2, 3, 4, 5, 6, 7]
 
 actions:
   - ref: parent
-    for_each: ${{ for var.x in INPUTS.data }}
+    for_each: ${{ for var.x in VARS.data }}
     action: core.workflow.execute
     args:
       workflow_id: <<child_workflow_id>>

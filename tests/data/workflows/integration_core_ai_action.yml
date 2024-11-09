@@ -4,11 +4,11 @@ description: |
   Requires `openai.OPENAI_API_KEY` secret.
 entrypoint:
   ref: tell_me_something_intereesting
-inputs:
+variables:
   prompt: "Please tell me something interesting"
 
 actions:
   - ref: tell_me_something_intereesting
     action: core.ai_action
     args:
-      prompt: ${{ INPUTS.prompt }}
+      prompt: ${{ VARS.prompt }}
