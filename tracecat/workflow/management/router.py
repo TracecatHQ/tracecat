@@ -192,7 +192,7 @@ async def get_workflow(
         returns=workflow.returns,
         entrypoint=workflow.entrypoint,
         object=workflow.object,
-        static_inputs=workflow.static_inputs,
+        variables=workflow.variables,
         config=DSLConfig(**workflow.config),
         actions=actions_responses,
         webhook=WebhookResponse(**workflow.webhook.model_dump()),

@@ -110,10 +110,10 @@ class ExprEvaluator(Transformer):
         )
 
     @v_args(inline=True)
-    def inputs(self, jsonpath: str):
+    def variables(self, jsonpath: str):
         logger.trace("Visiting inputs:", args=jsonpath)
         return functions.eval_jsonpath(
-            ExprContext.INPUTS + jsonpath, self._context, strict=self._strict
+            ExprContext.VARS + jsonpath, self._context, strict=self._strict
         )
 
     @v_args(inline=True)

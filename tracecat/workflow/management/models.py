@@ -34,7 +34,7 @@ class WorkflowResponse(BaseModel):
     webhook: WebhookResponse
     schedules: list[Schedule]
     entrypoint: str | None
-    static_inputs: dict[str, Any]
+    variables: dict[str, Any]
     expects: dict[str, ExpectedField] | None = None
     returns: Any
     config: DSLConfig | None
@@ -48,7 +48,7 @@ class UpdateWorkflowParams(BaseModel):
     version: int | None = None
     entrypoint: str | None = None
     icon_url: str | None = None
-    static_inputs: dict[str, Any] | None = None
+    variables: dict[str, Any] | None = None
     expects: dict[str, ExpectedField] | None = None
     returns: Any | None = None
     config: DSLConfig | None = None

@@ -15,7 +15,7 @@ class ExprContext(TracecatEnum):
     ACTIONS = "ACTIONS"
     SECRETS = "SECRETS"
     FN = "FN"
-    INPUTS = "INPUTS"
+    VARS = "VARS"
     ENV = "ENV"
     TRIGGER = "TRIGGER"
 
@@ -30,7 +30,7 @@ class ExprType(TracecatEnum):
     ACTION = auto()
     SECRET = auto()
     FUNCTION = auto()
-    INPUT = auto()
+    VARS = auto()
     ENV = auto()
     LOCAL_VARS = auto()
     LITERAL = auto()
@@ -45,7 +45,7 @@ VISITOR_NODE_TO_EXPR_TYPE = {
     "actions": ExprType.ACTION,
     "secrets": ExprType.SECRET,
     "function": ExprType.FUNCTION,
-    "inputs": ExprType.INPUT,
+    "variables": ExprType.VARS,
     "env": ExprType.ENV,
     "local_vars": ExprType.LOCAL_VARS,
     "literal": ExprType.LITERAL,

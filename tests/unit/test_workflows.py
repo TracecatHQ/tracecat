@@ -367,7 +367,7 @@ async def test_workflow_multi_environ_secret_manager_correctness(
                 },
             ],
             "description": "Test that a UDF with declared secrets will pull the corresponding secrets given the runtime environment.",
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -501,7 +501,7 @@ async def test_stress_workflow_udf_secret_manager_correctness(
                 },
             ],
             "description": "Stress testing",
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -601,7 +601,7 @@ async def test_stress_workflow_correctness(
                 },
             ],
             "description": "Stress testing",
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.d.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -672,7 +672,7 @@ async def test_workflow_set_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -732,7 +732,7 @@ async def test_workflow_override_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -793,7 +793,7 @@ async def test_workflow_default_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -889,7 +889,7 @@ async def test_child_workflow_success(temporal_cluster, test_role, temporal_clie
                 }
             ],
             "description": "Test child workflow success",
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": "Test child workflow success",
@@ -911,7 +911,7 @@ async def test_child_workflow_success(temporal_cluster, test_role, temporal_clie
                 {
                     "ref": "parent",
                     "action": "core.workflow.execute",
-                    "for_each": "${{ for var.x in INPUTS.data }}",
+                    "for_each": "${{ for var.x in VARS.data }}",
                     "args": {
                         "workflow_id": child_workflow.id,
                         "trigger_inputs": {
@@ -921,7 +921,7 @@ async def test_child_workflow_success(temporal_cluster, test_role, temporal_clie
                     "depends_on": [],
                 },
             ],
-            "inputs": {
+            "variables": {
                 "data": [1, 2, 3, 4, 5, 6, 7],
             },
             "returns": None,
@@ -944,7 +944,7 @@ async def test_child_workflow_success(temporal_cluster, test_role, temporal_clie
                 "result_typename": "list",
             }
         },
-        "INPUTS": {"data": [1, 2, 3, 4, 5, 6, 7]},
+        "VARS": {"data": [1, 2, 3, 4, 5, 6, 7]},
         "TRIGGER": {},
     }
     assert result == expected
@@ -976,7 +976,7 @@ async def test_child_workflow_context_passing(
                 }
             ],
             "description": "Testing child workflow",
-            "inputs": {},
+            "variables": {},
             "returns": None,
             "tests": [],
             "title": "Aug 16, 2024, 13:44:37",
@@ -1020,7 +1020,7 @@ async def test_child_workflow_context_passing(
                     "description": "",
                 },
             ],
-            "inputs": {},
+            "variables": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1055,7 +1055,7 @@ async def test_child_workflow_context_passing(
                             "result_typename": "dict",
                         }
                     },
-                    "INPUTS": {},
+                    "VARS": {},
                     "TRIGGER": {
                         "data_from_parent": "Parent sent child __EXPECTED_DATA__"
                     },
@@ -1063,7 +1063,7 @@ async def test_child_workflow_context_passing(
                 "result_typename": "dict",
             },
         },
-        "INPUTS": {},
+        "VARS": {},
         "TRIGGER": {"data": "__EXPECTED_DATA__"},
     }
     assert result == expected
@@ -1093,7 +1093,7 @@ async def test_single_child_workflow_override_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:child",
@@ -1121,7 +1121,7 @@ async def test_single_child_workflow_override_environment_correct(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
+            "variables": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1142,7 +1142,7 @@ async def test_single_child_workflow_override_environment_correct(
                 "result_typename": "str",
             }
         },
-        "INPUTS": {},
+        "VARS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1171,7 +1171,7 @@ async def test_multiple_child_workflow_override_environment_correct(
                     "description": "",
                 }
             ],
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:child",
@@ -1200,7 +1200,7 @@ async def test_multiple_child_workflow_override_environment_correct(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
+            "variables": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1221,7 +1221,7 @@ async def test_multiple_child_workflow_override_environment_correct(
                 "result_typename": "list",
             }
         },
-        "INPUTS": {},
+        "VARS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1251,7 +1251,7 @@ async def test_single_child_workflow_environment_has_correct_default(
                 }
             ],
             "description": test_description,
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "config": {"environment": "__TESTING_DEFAULT__"},
             "tests": [],
@@ -1279,7 +1279,7 @@ async def test_single_child_workflow_environment_has_correct_default(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
+            "variables": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1300,7 +1300,7 @@ async def test_single_child_workflow_environment_has_correct_default(
                 "result_typename": "str",
             }
         },
-        "INPUTS": {},
+        "VARS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1330,7 +1330,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
                 }
             ],
             "description": test_description,
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "config": {
                 "environment": "__TESTING_DEFAULT__"
@@ -1364,7 +1364,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
+            "variables": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1389,7 +1389,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
                 "result_typename": "list",
             }
         },
-        "INPUTS": {},
+        "VARS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1437,7 +1437,7 @@ async def test_single_child_workflow_get_correct_secret_environment(
                 }
             ],
             "description": test_description,
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "config": {
                 "environment": "__TESTING_DEFAULT__"
@@ -1468,7 +1468,7 @@ async def test_single_child_workflow_get_correct_secret_environment(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
+            "variables": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1492,7 +1492,7 @@ async def test_single_child_workflow_get_correct_secret_environment(
                 "result_typename": "list",
             }
         },
-        "INPUTS": {},
+        "VARS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1527,7 +1527,7 @@ async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_
                 }
             ],
             "description": "Test that a pull-based workflow fetches the latest version",
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:first",
@@ -1576,7 +1576,7 @@ async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_
                 }
             ],
             "description": "Test that a pull-based workflow fetches the latest version",
-            "inputs": {},
+            "variables": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:second",
@@ -1661,7 +1661,7 @@ def _get_test_id(test_case):
                         "depends_on": ["start.error"],  # RUNS
                     },
                 ],
-                "inputs": {},
+                "variables": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "start.error": "${{ ACTIONS.start.error }}",
@@ -1710,7 +1710,7 @@ def _get_test_id(test_case):
                         "depends_on": ["c"],
                     },
                 ],
-                "inputs": {},
+                "variables": {},
                 "returns": {
                     "a": "${{ ACTIONS.a.result }}",
                     "b": "${{ ACTIONS.b.result }}",
@@ -1751,7 +1751,7 @@ def _get_test_id(test_case):
                         "depends_on": ["a.error"],  # RUNS
                     },
                 ],
-                "inputs": {},
+                "variables": {},
                 "returns": {
                     "success": "${{ ACTIONS.success_path.result }}",
                     "error": "${{ ACTIONS.error_path.result }}",
@@ -1788,7 +1788,7 @@ def _get_test_id(test_case):
                         "depends_on": ["a.error"],  # This action should NOT run
                     },
                 ],
-                "inputs": {},
+                "variables": {},
                 "returns": {
                     "success": "${{ ACTIONS.success_path.result }}",
                     "error": "${{ ACTIONS.error_path.result }}",
@@ -1831,7 +1831,7 @@ def _get_test_id(test_case):
                         "depends_on": ["error_path_1"],  # This action should NOT run
                     },
                 ],
-                "inputs": {},
+                "variables": {},
                 "returns": {
                     "success_path": "${{ ACTIONS.success_path.result }}",
                     "error_path_1": "${{ ACTIONS.error_path_1.result }}",
@@ -1865,7 +1865,7 @@ def _get_test_id(test_case):
                         "run_if": "${{ False }}",
                     },
                 ],
-                "inputs": {},
+                "variables": {},
                 "returns": {
                     "a": "${{ ACTIONS.a.result }}",
                     "b": "${{ ACTIONS.b.result }}",
@@ -1897,7 +1897,7 @@ def _get_test_id(test_case):
                         "join_strategy": "any",
                     },
                 ],
-                "inputs": {},
+                "variables": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "join": "${{ ACTIONS.join.result }}",
@@ -1945,7 +1945,7 @@ def _get_test_id(test_case):
                         "join_strategy": "any",
                     },
                 ],
-                "inputs": {},
+                "variables": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "left": "${{ ACTIONS.left.result }}",
@@ -1997,7 +1997,7 @@ def _get_test_id(test_case):
                         "join_strategy": "any",
                     },
                 ],
-                "inputs": {},
+                "variables": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "left": "${{ ACTIONS.left.result }}",

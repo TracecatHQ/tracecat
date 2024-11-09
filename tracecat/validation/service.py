@@ -289,7 +289,7 @@ async def validate_dsl_expressions(
 ) -> list[ExprValidationResult]:
     """Validate the DSL expressions at commit time."""
     validation_context = ExprValidationContext(
-        action_refs={a.ref for a in dsl.actions}, inputs_context=dsl.inputs
+        action_refs={a.ref for a in dsl.actions}, variables_context=dsl.variables
     )
 
     validators = {ExprType.SECRET: secret_validator}

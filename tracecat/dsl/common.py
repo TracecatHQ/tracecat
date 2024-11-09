@@ -66,8 +66,8 @@ class DSLInput(BaseModel):
     actions: list[ActionStatement]
     config: DSLConfig = Field(default_factory=DSLConfig)
     triggers: list[Trigger] = Field(default_factory=list)
-    inputs: dict[str, Any] = Field(
-        default_factory=dict, description="Static input parameters"
+    variables: dict[str, Any] = Field(
+        default_factory=dict, description="Variables for the workflow"
     )
     returns: Any | None = Field(None, description="The action ref or value to return.")
 
@@ -114,25 +114,25 @@ class DSLInput(BaseModel):
             )
         return self
 
-    @field_validator("inputs")
+    @field_validator("variables")
     @classmethod
-    def inputs_cannot_have_expressions(cls, inputs: Any) -> dict[str, Any]:
+    def variables_cannot_have_expressions(cls, variables: Any) -> dict[str, Any]:
         try:
             exceptions = []
-            for loc, value in traverse_leaves(inputs):
+            for loc, value in traverse_leaves(variables):
                 if not isinstance(value, str):
                     continue
                 for match in patterns.TEMPLATE_STRING.finditer(value):
                     template = match.group("template")
                     exceptions.append(
                         TracecatDSLError(
-                            "Static `INPUTS` context cannot contain expressions,"
-                            f" but found {template!r} in INPUTS.{loc}"
+                            "`VARS` context cannot contain expressions,"
+                            f" but found {template!r} in VARS.{loc}"
                         )
                     )
             if exceptions:
-                raise ExceptionGroup("Static `INPUTS` validation failed", exceptions)
-            return inputs
+                raise ExceptionGroup("`VARS` validation failed", exceptions)
+            return variables
         except* TracecatDSLError as eg:
             raise eg
 
@@ -303,13 +303,13 @@ def build_action_statements(
 
 
 def create_default_dsl_context(
-    INPUTS: dict[str, Any] | None = None,
+    VARS: dict[str, Any] | None = None,
     ACTIONS: dict[str, Any] | None = None,
     TRIGGER: dict[str, Any] | None = None,
     ENV: DSLEnvironment | None = None,
 ) -> DSLContext:
     return DSLContext(
-        INPUTS=INPUTS or {},
+        VARS=VARS or {},
         ACTIONS=ACTIONS or {},
         TRIGGER=TRIGGER or {},
         ENV=cast(DSLEnvironment, ENV or {}),
