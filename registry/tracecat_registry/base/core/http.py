@@ -13,8 +13,8 @@ from tracecat_registry import RegistrySecret, logger, registry, secrets
 RequestMethods = Literal["GET", "POST", "PUT", "DELETE"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
 
-http_secret = RegistrySecret(
-    name="http",
+ssl_secret = RegistrySecret(
+    name="ssl",
     optional_keys=["SSL_CLIENT_CERT", "SSL_CLIENT_KEY", "SSL_CLIENT_PASSWORD"],
 )
 """HTTP SSL certificate secrets.
@@ -22,7 +22,7 @@ http_secret = RegistrySecret(
 By default, the HTTP action uses the CA bundle from Certifi.
 This optional secret allows you to specify a custom client-side certificate to use for SSL verification.
 
-- name: `http`
+- name: `ssl`
 - optional keys:
     - `SSL_CLIENT_CERT`
     - `SSL_CLIENT_KEY`
@@ -44,6 +44,8 @@ class HTTPResponse(TypedDict):
     namespace="core",
     description="Perform a HTTP request to a given URL.",
     default_title="HTTP Request",
+    display_group="Core",
+    secrets=[ssl_secret],
 )
 async def http_request(
     url: Annotated[
