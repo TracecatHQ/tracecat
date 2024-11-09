@@ -58,23 +58,19 @@ async def http_request(
     headers: Annotated[
         dict[str, str],
         Field(description="HTTP request headers"),
-    ]
-    | None = None,
+    ] = None,
     payload: Annotated[
         JSONObjectOrArray,
         Field(description="HTTP request payload"),
-    ]
-    | None = None,
+    ] = None,
     params: Annotated[
         dict[str, Any],
         Field(description="URL query parameters"),
-    ]
-    | None = None,
+    ] = None,
     form_data: Annotated[
         dict[str, Any],
         Field(description="HTTP form encoded data"),
-    ]
-    | None = None,
+    ] = None,
     timeout: Annotated[
         float,
         Field(description="Timeout in seconds"),
