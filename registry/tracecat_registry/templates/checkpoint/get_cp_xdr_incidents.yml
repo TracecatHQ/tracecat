@@ -13,7 +13,8 @@ definition:
   steps:
     - ref: get_auth_token
        action: integrations.checkpoint.get_auth_token
- 
+       args: {}
+       
     - ref: get_auth_token
        action: integrations.checkpoint.get_auth_token
  
