@@ -35,12 +35,12 @@ You can quickly copy the reference for an action by clicking the <Icon icon="cop
 There are two types of actions:
 
 - **User-Defined Function (UDF)**: A Python function turned into a referencable action.
-- **Action Template**: A YAML template of referencable actions (UDFs and other action templates) that can be used to create new actions.
+- **Action Template**: A YAML template of referencable actions (UDFs and other action templates). These can also be cloned and edited to create new actions.
 
 ### Action Templates
 
 Action templates are YAML configuration-as-code templates similar to GitHub Actions workflows.
-We recommend using **Action Templates** over Python UDFswhenever possible.
+We recommend using **Action Templates** over Python UDFs whenever possible.
 
     - Templates are easier to maintain and update across workflows
     - Templates, unlike UDFs, can be cloned and editted directly in the UI.
@@ -73,7 +73,7 @@ definition:
   returns: ${{ steps.search_url.result }}
 ```
 
-We open sourced action templates for every pre-built integrations.
+We open sourced action templates for every pre-built integration.
 Check them out in Tracecat's public repository [here](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates).
 
 ### User-Defined Functions
