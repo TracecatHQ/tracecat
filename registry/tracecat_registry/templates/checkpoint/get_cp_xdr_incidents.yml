@@ -22,5 +22,5 @@ definition:
         timeout: 60
         headers:
           accept: application/json
-          Authorization: Bearer ${{ ACTIONS.get_check_point_auth_token.result }}
+          Authorization: Bearer ${{ steps.get_auth_token.result }}
   returns: ${{ steps.get_cp_xdr_incidents.result }}
