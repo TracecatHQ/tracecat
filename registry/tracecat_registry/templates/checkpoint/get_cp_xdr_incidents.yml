@@ -12,13 +12,10 @@ definition:
       default: updatedAt
   steps:
     - ref: get_auth_token
-       action: integrations.checkpoint.get_auth_token
-       args: {}
-       
-    - ref: get_auth_token
-       action: integrations.checkpoint.get_auth_token
- 
-    - ref: get_cp_xdr_incidents
+      action: integrations.checkpoint.get_auth_token
+      args: {}
+
+    - ref: get_xdr_incidents
       action: core.http_request
       args:
         url: https://cloudinfra-gw.portal.checkpoint.com/app/xdr/api/xdr/v1/incidents/
@@ -27,4 +24,4 @@ definition:
         headers:
           accept: application/json
           Authorization: Bearer ${{ steps.get_auth_token.result }}
-  returns: ${{ steps.get_cp_xdr_incidents.result }}
+  returns: ${{ steps.get_xdr_incidents.result }}
