@@ -9,7 +9,6 @@ from pydantic import ValidationError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat import validation
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Action, Webhook, Workflow
@@ -21,6 +20,7 @@ from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
+from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.models import (
     CreateWorkflowFromDSLResponse,
@@ -146,9 +146,7 @@ class WorkflowsManagementService:
             return CreateWorkflowFromDSLResponse(errors=construction_errors)
 
         if not skip_secret_validation:
-            if val_errors := await validation.validate_dsl(
-                session=self.session, dsl=dsl
-            ):
+            if val_errors := await validate_dsl(session=self.session, dsl=dsl):
                 logger.warning("Validation errors", errors=val_errors)
                 return CreateWorkflowFromDSLResponse(
                     errors=[
