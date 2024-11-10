@@ -92,14 +92,19 @@ ${{ SECRETS.<name>.<key> }}
 </Note>
 
 Use functions to manipulate data. Functions are called using the `FN` prefix.
-
-<Accordion icon="book-open" title="Example">
-This expression will return the boolean value `true`:
+For example, the following expression will return the boolean value `true`:
 
 ```php!
 ${{ FN.contains("a", ["a", "b", "c"]) }}
 ```
-</Accordion>
+
+We also support nested function and expression calls.
+For example, the following expression will first evaluate the expression `FN.join(["hello", "world"], " ")` as `hello world`,
+then call `FN.contains` with the arguments `hello world` and `["hello", "world", "tracecat"]`, and finally return the boolean value `true`:
+
+```php
+${{ FN.contains(FN.join(["hello", "world"], " "), ["hello", "world", "tracecat"]) }}
+```
 
 ### Variables
 
