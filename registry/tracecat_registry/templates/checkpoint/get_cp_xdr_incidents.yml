@@ -11,6 +11,9 @@ definition:
       description: Filter by createdAt or updatedAt
       default: updatedAt
   steps:
+    - ref: get_auth_token
+       action: integrations.checkpoint.get_auth_token
+ 
     - ref: get_cp_xdr_incidents
       action: core.http_request
       args:
