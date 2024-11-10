@@ -232,8 +232,8 @@
                 "api-reference/reference/registry-repositories/list-registry-repositories",
                 "api-reference/reference/registry-repositories/create-registry-repository",
                 "api-reference/reference/registry-repositories/get-registry-repository",
-                "api-reference/reference/registry-repositories/delete-registry-repository",
-                "api-reference/reference/registry-repositories/update-registry-repository"
+                "api-reference/reference/registry-repositories/update-registry-repository",
+                "api-reference/reference/registry-repositories/delete-registry-repository"
               ]
             },
             {
