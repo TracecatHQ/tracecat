@@ -40,4 +40,4 @@ async def get_auth_token() -> str:
             },
         )
         response.raise_for_status()
-        return response.json()['data']['token']
+        return response.json()["data"]["token"]
