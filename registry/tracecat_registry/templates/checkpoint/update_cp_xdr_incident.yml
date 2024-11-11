@@ -1,7 +1,7 @@
 type: action
 definition:
   name: update_xdr_incident
-  namespace: integrations.checkpoint
+  namespace: integrations.check_point
   title: Update Check Point Infinity XDR incident
   description: Update Check Point Infinity XDR incident.
   display_group: Check Point
