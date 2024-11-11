@@ -159,6 +159,7 @@ class AuthSandbox:
             optional_secrets=self._optional_secrets,
         )
 
+        # This check only validates required/optional secrets and doesn't validate secret keys
         if len(unique_req_secret_names) != len(defined_req_secret_names):
             missing_secrets = unique_req_secret_names - defined_req_secret_names
             logger.error("Missing secrets", missing_secrets=missing_secrets)
