@@ -11,8 +11,16 @@ SecretKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
 
 class RegistrySecret(BaseModel):
     name: SecretName
+    """The name of the secret."""
+
     keys: list[SecretKey] | None = None
+    """Keys that are required to be set in the environment."""
+
     optional_keys: list[SecretKey] | None = None
+    """Keys that are optional to be set in the environment."""
+
+    optional: bool = False
+    """Indicates if the secret is optional."""
 
     @model_validator(mode="after")
     def validate_keys(cls, v):
