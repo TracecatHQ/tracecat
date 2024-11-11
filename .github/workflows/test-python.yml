@@ -38,6 +38,8 @@ jobs:
     environment: QA
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
