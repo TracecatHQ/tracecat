@@ -1,7 +1,7 @@
 type: action
 definition:
   name: get_xdr_incidents
-  namespace: integrations.checkpoint
+  namespace: integrations.check_point
   title: Get Check Point Infinity XDR incidents for the last 7 days
   description: Retrieve Check Point Infinity XDR incidents for the last 7 days.
   display_group: Check Point
