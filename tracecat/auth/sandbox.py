@@ -136,9 +136,7 @@ class AuthSandbox:
             logger.info("Retrieving secrets", secret_names=unique_secret_names)
 
             secrets = await service.search_secrets(
-                SecretSearch(
-                    names=list(unique_secret_names), environment=self._environment
-                )
+                SecretSearch(names=unique_secret_names, environment=self._environment)
             )
 
         if len(unique_secret_names) != len(secrets):
