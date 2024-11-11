@@ -4,17 +4,17 @@ on:
   push:
     branches: ["main"]
     paths:
-      - tests/**
       - tracecat/**
-      - playbooks/**
+      - registry/**
+      - tests/**
       - pyproject.toml
       - .github/workflows/test-python.yml
   pull_request:
     branches: ["main"]
     paths:
-      - tests/**
       - tracecat/**
-      - playbooks/**
+      - registry/**
+      - tests/**
       - pyproject.toml
       - .github/workflows/test-python.yml
   workflow_dispatch:
@@ -95,12 +95,9 @@ jobs:
         run: nohup temporal server start-dev > temporal.log 2>&1 &
 
       - name: Run unit tests
-        env:
-          LOG_LEVEL: WARNING
-        run: uv run pytest tests/unit --temporal-no-restart --tracecat-no-restart
+        run: uv run pytest tests/unit --temporal-no-restart --tracecat-no-restart -s
 
       - name: Run playbook tests
         env:
-          LOG_LEVEL: WARNING
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
-        run: uv run pytest tests/playbooks --temporal-no-restart --tracecat-no-restart
+        run: uv run pytest tests/playbooks --temporal-no-restart --tracecat-no-restart -s
