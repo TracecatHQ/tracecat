@@ -653,6 +653,7 @@ export type RegistrySecret = {
     name: string;
     keys?: Array<(string)> | null;
     optional_keys?: Array<(string)> | null;
+    optional?: boolean;
 };
 
 /**
