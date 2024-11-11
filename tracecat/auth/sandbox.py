@@ -35,7 +35,7 @@ class AuthSandbox:
         | None = None,  # This can be either 'my_secret.KEY' or 'my_secret'
         target: Literal["env", "context"] = "context",
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
-        optional_secrets: list[str] | None = None,
+        optional_secrets: list[str] | None = None,  # Base secret names only
     ):
         self._role = role or ctx_role.get()
         self._secret_paths: list[str] = secrets or []
@@ -144,9 +144,9 @@ class AuthSandbox:
 
         # Filter out optional secrets
         unique_req_secret_names = {
-            secret.name
-            for secret in secrets
-            if secret.name not in self._optional_secrets
+            secret_name
+            for secret_name in unique_secret_names
+            if secret_name not in self._optional_secrets
         }
         defined_req_secret_names = {
             secret.name
