@@ -2,36 +2,15 @@
 # XXX(WARNING): Do not import __future__ annotations from typing
 # This will cause class types to be resolved as strings
 
-import tempfile
 from typing import Annotated, Any, Literal, TypedDict
 
 import httpx
 from pydantic import Field, UrlConstraints
 
-from tracecat_registry import RegistrySecret, logger, registry, secrets
+from tracecat_registry import logger, registry
 
 RequestMethods = Literal["GET", "POST", "PUT", "DELETE"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
-
-ssl_secret = RegistrySecret(
-    name="ssl",
-    optional_keys=["SSL_CLIENT_CERT", "SSL_CLIENT_KEY", "SSL_CLIENT_PASSWORD"],
-)
-"""HTTP SSL certificate secrets.
-
-By default, the HTTP action uses the CA bundle from Certifi.
-This optional secret allows you to specify a custom client-side certificate to use for SSL verification.
-
-- name: `ssl`
-- optional keys:
-    - `SSL_CLIENT_CERT`
-    - `SSL_CLIENT_KEY`
-    - `SSL_CLIENT_PASSWORD`
-
-Note: `SSL_CLIENT_CERT` and `SSL_CLIENT_KEY` are text fields that contain the certificate and key respectively.
-`SSL_CLIENT_PASSWORD` is optional.
-
-"""
 
 
 class HTTPResponse(TypedDict):
@@ -44,7 +23,6 @@ class HTTPResponse(TypedDict):
     namespace="core",
     description="Perform a HTTP request to a given URL.",
     default_title="HTTP Request",
-    secrets=[ssl_secret],
 )
 async def http_request(
     url: Annotated[
@@ -94,33 +72,7 @@ async def http_request(
     """Perform a HTTP request to a given URL."""
 
     try:
-        cert = None
-        if secrets.get("SSL_CLIENT_CERT"):
-            # Create a temp file for the certificate
-            cert_file_path = None
-            with tempfile.NamedTemporaryFile(delete=False) as cert_file:
-                cert_file.write(secrets.get("SSL_CLIENT_CERT").encode())
-                cert_file.flush()
-                cert_file_path = cert_file.name
-
-            # Create a temp file for the key (if exists)
-            key_file_path = None
-            if secrets.get("SSL_CLIENT_KEY"):
-                with tempfile.NamedTemporaryFile(delete=False) as key_file:
-                    key_file.write(secrets.get("SSL_CLIENT_KEY").encode())
-                    key_file.flush()
-                    key_file_path = key_file.name
-
-            cert = [
-                cert_file_path,
-                key_file_path,
-                secrets.get("SSL_CLIENT_PASSWORD"),
-            ]
-            # Drop None values
-            cert = tuple(c for c in cert if c is not None)
-
         async with httpx.AsyncClient(
-            cert=cert,
             timeout=httpx.Timeout(timeout),
             follow_redirects=follow_redirects,
             max_redirects=max_redirects,
