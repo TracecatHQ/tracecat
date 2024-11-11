@@ -375,3 +375,126 @@ async def test_auth_sandbox_all_secrets_present(
             names={"required_secret", "optional_secret"}, environment="default"
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_auth_sandbox_optional_secret_with_all_keys(
+    mocker: pytest_mock.MockFixture, test_role
+):
+    """Test AuthSandbox when optional secret has all required and optional keys."""
+    from datetime import datetime
+
+    from pydantic import SecretStr
+
+    role = ctx_role.get()
+    assert role is not None
+
+    # Create mock optional secret with all keys
+    optional_secret = BaseSecret(
+        name="optional_secret",
+        owner_id=role.workspace_id,
+        encrypted_keys=encrypt_keyvalues(
+            [
+                SecretKeyValue(key="REQUIRED_KEY1", value=SecretStr("required_value1")),
+                SecretKeyValue(key="REQUIRED_KEY2", value=SecretStr("required_value2")),
+                SecretKeyValue(key="OPTIONAL_KEY1", value=SecretStr("optional_value1")),
+            ],
+            key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"],
+        ),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        tags={},
+    )
+
+    mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
+    mock_secrets_service.search_secrets.return_value = [optional_secret]
+    mocker.patch(
+        "tracecat.auth.sandbox.SecretsService.with_session",
+        return_value=mocker.AsyncMock(
+            __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
+        ),
+    )
+
+    async with AuthSandbox(
+        secrets=["optional_secret"],
+        target="context",
+        optional_secrets=["optional_secret"],
+    ) as sandbox:
+        assert "optional_secret" in sandbox.secrets
+        assert sandbox.secrets["optional_secret"]["REQUIRED_KEY1"] == "required_value1"
+        assert sandbox.secrets["optional_secret"]["REQUIRED_KEY2"] == "required_value2"
+        assert sandbox.secrets["optional_secret"]["OPTIONAL_KEY1"] == "optional_value1"
+
+
+@pytest.mark.asyncio
+async def test_auth_sandbox_missing_optional_secret(
+    mocker: pytest_mock.MockFixture, test_role
+):
+    """Test AuthSandbox when optional secret is completely missing."""
+    role = ctx_role.get()
+    assert role is not None
+
+    mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
+    mock_secrets_service.search_secrets.return_value = []
+    mocker.patch(
+        "tracecat.auth.sandbox.SecretsService.with_session",
+        return_value=mocker.AsyncMock(
+            __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
+        ),
+    )
+
+    # Should not raise error since secret is optional
+    async with AuthSandbox(
+        secrets=["optional_secret"],
+        target="context",
+        optional_secrets=["optional_secret"],
+    ) as sandbox:
+        assert "optional_secret" not in sandbox.secrets
+
+
+@pytest.mark.asyncio
+async def test_auth_sandbox_optional_secret_missing_optional_key(
+    mocker: pytest_mock.MockFixture, test_role
+):
+    """Test AuthSandbox when optional secret has required keys but missing optional keys."""
+    from datetime import datetime
+
+    from pydantic import SecretStr
+
+    role = ctx_role.get()
+    assert role is not None
+
+    # Create mock optional secret with only required keys
+    partial_optional_secret = BaseSecret(
+        name="optional_secret",
+        owner_id=role.workspace_id,
+        encrypted_keys=encrypt_keyvalues(
+            [
+                SecretKeyValue(key="REQUIRED_KEY1", value=SecretStr("required_value1")),
+                SecretKeyValue(key="REQUIRED_KEY2", value=SecretStr("required_value2")),
+            ],
+            key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"],
+        ),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        tags={},
+    )
+
+    mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
+    mock_secrets_service.search_secrets.return_value = [partial_optional_secret]
+    mocker.patch(
+        "tracecat.auth.sandbox.SecretsService.with_session",
+        return_value=mocker.AsyncMock(
+            __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
+        ),
+    )
+
+    async with AuthSandbox(
+        secrets=["optional_secret"],
+        target="context",
+        optional_secrets=["optional_secret"],
+    ) as sandbox:
+        assert "optional_secret" in sandbox.secrets
+        assert sandbox.secrets["optional_secret"]["REQUIRED_KEY1"] == "required_value1"
+        assert sandbox.secrets["optional_secret"]["REQUIRED_KEY2"] == "required_value2"
+        assert "OPTIONAL_KEY1" not in sandbox.secrets["optional_secret"]
