@@ -40,6 +40,7 @@ async def validate_single_secret(
         return []
 
     results: list[SecretValidationResult] = []
+    defined_secret = None
 
     try:
         defined_secret = await secrets_service.get_secret_by_name(
@@ -54,34 +55,39 @@ async def validate_single_secret(
             if isinstance(e, NoResultFound)
             else f"Multiple secrets found when searching for secret {secret_repr}."
         )
-        return [
-            SecretValidationResult(
-                status="error",
-                msg=f"[{action.action}]\n\n{msg}",
-                detail={
-                    "environment": environment,
-                    "secret_name": registry_secret.name,
-                },
-            )
-        ]
+        # If the secret is required, we fail early
+        if not registry_secret.optional:
+            return [
+                SecretValidationResult(
+                    status="error",
+                    msg=f"[{action.action}]\n\n{msg}",
+                    detail={
+                        "environment": environment,
+                        "secret_name": registry_secret.name,
+                    },
+                )
+            ]
+        # If the secret is optional, we just log and move on
     finally:
         checked_keys.add(registry_secret.name)
 
+    # At this point we either have an optional secret, or the secret is defined
     # Validate secret keys
-    decrypted_keys = secrets_service.decrypt_keys(defined_secret.encrypted_keys)
-    defined_keys = {kv.key for kv in decrypted_keys}
-    required_keys = frozenset(registry_secret.keys or ())
-    optional_keys = frozenset(registry_secret.optional_keys or ())
+    if defined_secret:
+        decrypted_keys = secrets_service.decrypt_keys(defined_secret.encrypted_keys)
+        defined_keys = {kv.key for kv in decrypted_keys}
+        required_keys = frozenset(registry_secret.keys or ())
+        optional_keys = frozenset(registry_secret.optional_keys or ())
 
-    final_missing_keys = (required_keys - defined_keys) - optional_keys
+        final_missing_keys = (required_keys - defined_keys) - optional_keys
 
-    if final_missing_keys:
-        results.append(
-            SecretValidationResult(
-                status="error",
-                msg=f"Secret {registry_secret.name!r} is missing required keys: {final_missing_keys}",
+        if final_missing_keys:
+            results.append(
+                SecretValidationResult(
+                    status="error",
+                    msg=f"Secret {registry_secret.name!r} is missing required keys: {final_missing_keys}",
+                )
             )
-        )
 
     return results
 
