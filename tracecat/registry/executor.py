@@ -80,11 +80,17 @@ async def run_single_action(
 
     logger.info("Running regular UDF async", action=action_name)
     secret_names = [secret.name for secret in action.secrets or []]
+    optional_secrets = [
+        secret.name for secret in action.secrets or [] if secret.optional
+    ]
     run_context = ctx_run.get()
     environment = getattr(run_context, "environment", DEFAULT_SECRETS_ENVIRONMENT)
     async with (
         AuthSandbox(
-            secrets=secret_names, target="context", environment=environment
+            secrets=secret_names,
+            target="context",
+            environment=environment,
+            optional_secrets=optional_secrets,
         ) as sandbox,
     ):
         # Flatten the secrets to a dict[str, str]

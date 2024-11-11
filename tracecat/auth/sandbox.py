@@ -35,6 +35,7 @@ class AuthSandbox:
         | None = None,  # This can be either 'my_secret.KEY' or 'my_secret'
         target: Literal["env", "context"] = "context",
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
+        optional_secrets: list[str] | None = None,  # Base secret names only
     ):
         self._role = role or ctx_role.get()
         self._secret_paths: list[str] = secrets or []
@@ -44,6 +45,7 @@ class AuthSandbox:
             raise ValueError("Target env is no longer supported.")
         self._context: dict[str, Any] = {}
         self._environment = environment
+        self._optional_secrets = set(optional_secrets or [])
         try:
             self._encryption_key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
         except KeyError as e:
@@ -131,20 +133,38 @@ class AuthSandbox:
             environment=self._environment,
         )
 
+        # These are a combination of required and optional secrets
         unique_secret_names = {path.split(".")[0] for path in self._secret_paths}
         async with SecretsService.with_session(role=self._role) as service:
             logger.info("Retrieving secrets", secret_names=unique_secret_names)
 
             secrets = await service.search_secrets(
-                SecretSearch(
-                    names=list(unique_secret_names), environment=self._environment
-                )
+                SecretSearch(names=unique_secret_names, environment=self._environment)
             )
 
-        if len(unique_secret_names) != len(secrets):
-            missing_secrets = unique_secret_names - {secret.name for secret in secrets}
+        # Filter out optional secrets
+        unique_req_secret_names = {
+            secret_name
+            for secret_name in unique_secret_names
+            if secret_name not in self._optional_secrets
+        }
+        defined_req_secret_names = {
+            secret.name
+            for secret in secrets
+            if secret.name not in self._optional_secrets
+        }
+        logger.debug(
+            "Retrieved secrets",
+            required_secrets=defined_req_secret_names,
+            optional_secrets=self._optional_secrets,
+        )
+
+        # This check only validates required/optional secrets and doesn't validate secret keys
+        if len(unique_req_secret_names) != len(defined_req_secret_names):
+            missing_secrets = unique_req_secret_names - defined_req_secret_names
+            logger.error("Missing secrets", missing_secrets=missing_secrets)
             raise TracecatCredentialsError(
-                "Failed to retrieve secrets. Please contact support for help.",
+                f"Missing secrets: {', '.join(missing_secrets)}",
                 detail=[
                     {"secret_name": name, "environment": self._environment}
                     for name in missing_secrets
