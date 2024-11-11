@@ -235,3 +235,143 @@ async def test_env_sandbox_sync_in_async():
     assert result == "thread_value"
     # Verify that the environment is reset after exiting the sandbox
     assert secrets_manager.get("THREAD_KEY") is None
+
+
+@pytest.mark.asyncio
+async def test_auth_sandbox_optional_secrets(
+    mocker: pytest_mock.MockFixture, test_role
+):
+    """Test that AuthSandbox handles both required and optional secrets correctly."""
+    from datetime import datetime
+
+    role = ctx_role.get()
+    assert role is not None
+
+    # Create mock secrets
+    required_secret = BaseSecret(
+        name="required_secret",
+        owner_id=role.workspace_id,
+        encrypted_keys=encrypt_keyvalues(
+            [SecretKeyValue(key="REQ_KEY", value="required_value")],
+            key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"],
+        ),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        tags={},
+    )
+
+    # Mock SecretsService to return only the required secret
+    mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
+    mock_secrets_service.search_secrets.return_value = [required_secret]
+    mocker.patch(
+        "tracecat.auth.sandbox.SecretsService.with_session",
+        return_value=mocker.AsyncMock(
+            __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
+        ),
+    )
+
+    # Test with both required and optional secrets
+    async with AuthSandbox(
+        secrets=["required_secret", "optional_secret"],
+        target="context",
+        optional_secrets=["optional_secret"],
+    ) as sandbox:
+        # Required secret should be present
+        assert "required_secret" in sandbox.secrets
+        assert sandbox.secrets["required_secret"]["REQ_KEY"] == "required_value"
+
+        # Optional secret can be missing without raising an error
+        assert "optional_secret" not in sandbox.secrets
+
+    # Verify search was called with both secret names
+    mock_secrets_service.search_secrets.assert_called_once_with(
+        SecretSearch(
+            names={"required_secret", "optional_secret"}, environment="default"
+        )
+    )
+
+    # Test that missing required secret still raises an error
+    mock_secrets_service.search_secrets.return_value = []
+    with pytest.raises(TracecatCredentialsError) as exc_info:
+        async with AuthSandbox(
+            secrets=["required_secret", "optional_secret"],
+            target="context",
+            optional_secrets=["optional_secret"],
+        ):
+            pass
+
+    assert "Missing secrets: required_secret" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_auth_sandbox_all_secrets_present(
+    mocker: pytest_mock.MockFixture, test_role
+):
+    """Test AuthSandbox when both required and optional secrets are available."""
+    from datetime import datetime
+
+    role = ctx_role.get()
+    assert role is not None
+
+    # Create mock secrets for both required and optional
+    required_secret = BaseSecret(
+        name="required_secret",
+        owner_id=role.workspace_id,
+        encrypted_keys=encrypt_keyvalues(
+            [
+                SecretKeyValue(key="REQ_KEY1", value="required_value1"),
+                SecretKeyValue(key="REQ_KEY2", value="required_value2"),
+            ],
+            key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"],
+        ),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        tags={},
+    )
+
+    optional_secret = BaseSecret(
+        name="optional_secret",
+        owner_id=role.workspace_id,
+        encrypted_keys=encrypt_keyvalues(
+            [SecretKeyValue(key="OPT_KEY", value="optional_value")],
+            key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"],
+        ),
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        tags={},
+    )
+
+    # Mock SecretsService to return both secrets
+    mock_secrets_service = mocker.AsyncMock(spec=SecretsService)
+    mock_secrets_service.search_secrets.return_value = [
+        required_secret,
+        optional_secret,
+    ]
+    mocker.patch(
+        "tracecat.auth.sandbox.SecretsService.with_session",
+        return_value=mocker.AsyncMock(
+            __aenter__=mocker.AsyncMock(return_value=mock_secrets_service)
+        ),
+    )
+
+    # Test with both secrets present
+    async with AuthSandbox(
+        secrets=["required_secret", "optional_secret"],
+        target="context",
+        optional_secrets=["optional_secret"],
+    ) as sandbox:
+        # Required secret should be present with all keys
+        assert "required_secret" in sandbox.secrets
+        assert sandbox.secrets["required_secret"]["REQ_KEY1"] == "required_value1"
+        assert sandbox.secrets["required_secret"]["REQ_KEY2"] == "required_value2"
+
+        # Optional secret should also be present when available
+        assert "optional_secret" in sandbox.secrets
+        assert sandbox.secrets["optional_secret"]["OPT_KEY"] == "optional_value"
+
+    # Verify search was called with both secret names
+    mock_secrets_service.search_secrets.assert_called_once_with(
+        SecretSearch(
+            names={"required_secret", "optional_secret"}, environment="default"
+        )
+    )
