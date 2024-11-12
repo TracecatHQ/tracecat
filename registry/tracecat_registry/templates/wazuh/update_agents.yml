@@ -8,7 +8,7 @@ definition:
   secrets:
     - name: wazuh
       keys:
-        - WAZUH_API_KEY
+        - WAZUH_API_TOKEN
       optional_keys: null
   expects:
     wazuh_server_url:
@@ -22,14 +22,14 @@ definition:
         url: ${{ inputs.wazuh_server_url }}/agents/outdated
         method: GET
         headers:
-          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_KEY }}
+          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
     - ref: update_agents
       action: core.http_request
       args:
         url: ${{ inputs.wazuh_server_url }}/agents/upgrade
         method: PUT
         headers:
-          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_KEY }}
+          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
         payload:
           agent_list: ${{ steps.get_outdated_agents.result.data.affected_agents }}
   returns: ${{ steps.update_agents.result }}
