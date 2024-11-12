@@ -43,6 +43,7 @@ class LdapClient:
             host, port=int(port), use_ssl=use_ssl, get_info=ldap3.ALL
         )
         self._ldap_active_directory = is_active_directory
+        self._connection = None
 
     def __enter__(self, *args, **kwargs):
         self.bind()
