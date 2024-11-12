@@ -57,11 +57,11 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
                     align="start"
                     sideOffset={20}
                   >
-                    <div className="flex w-full items-center justify-between text-muted-foreground ">
-                      <span className="font-mono text-sm font-semibold">
+                    <div className="flex w-full items-center justify-between text-muted-foreground">
+                      <span className="break-words font-mono text-sm font-semibold">
                         {row.parameter}
                       </span>
-                      <span className="text-xs text-muted-foreground/80">
+                      <span className="whitespace-nowrap text-xs text-muted-foreground/80">
                         &nbsp;{row.required ? "(required)" : "(optional)"}
                       </span>
                     </div>
@@ -69,7 +69,7 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
                       <span className="text-xs font-semibold text-muted-foreground">
                         Description
                       </span>
-                      <p className="text-xs text-foreground/70">
+                      <p className="break-words text-xs text-foreground/70">
                         {row.description}
                       </p>
                     </div>
@@ -77,7 +77,7 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
                       <span className="text-xs font-semibold text-muted-foreground">
                         Constraints
                       </span>
-                      <p className="text-xs text-foreground/70">
+                      <p className="break-words text-xs text-foreground/70">
                         {row.constraints || "None"}
                       </p>
                     </div>
