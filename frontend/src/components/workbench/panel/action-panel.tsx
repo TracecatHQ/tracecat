@@ -133,7 +133,7 @@ export function ActionPanel({
 }) {
   const { workspaceId } = useWorkspace()
   const { validationErrors } = useWorkflow()
-  const { action, actionIsLoading, updateAction, isSaving } = useAction(
+  const { action, actionIsLoading, updateAction } = useAction(
     node.id,
     workspaceId,
     workflowId
