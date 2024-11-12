@@ -69,7 +69,9 @@ class DSLInput(BaseModel):
     inputs: dict[str, Any] = Field(
         default_factory=dict, description="Static input parameters"
     )
-    returns: Any | None = Field(None, description="The action ref or value to return.")
+    returns: Any | None = Field(
+        default=None, description="The action ref or value to return."
+    )
 
     @model_validator(mode="after")
     def validate_structure(self) -> Self:
