@@ -135,23 +135,6 @@ export function TriggerPanel({
           "trigger-schedules",
         ]}
       >
-        {/* General */}
-        <AccordionItem value="trigger-settings">
-          <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-            <div className="flex items-center">
-              <SettingsIcon className="mr-3 size-4" />
-              <span>General</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent>
-            <div className="my-4 space-y-2 px-4">
-              <GeneralControls
-                entrypointRef={workflow.entrypoint ?? undefined}
-              />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-
         {/* Webhooks */}
         <AccordionItem value="trigger-webhooks">
           <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
@@ -185,35 +168,6 @@ export function TriggerPanel({
           </AccordionContent>
         </AccordionItem>
       </Accordion>
-    </div>
-  )
-}
-
-export function GeneralControls({ entrypointRef }: { entrypointRef?: string }) {
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <Label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Entrypoint</span>
-          {entrypointRef ? (
-            <CopyButton
-              value={entrypointRef}
-              toastMessage="Copied entrypoint ID to clipboard"
-            />
-          ) : (
-            <BanIcon className="size-3 text-muted-foreground" />
-          )}
-        </Label>
-        <div className="rounded-md border shadow-sm">
-          <Input
-            name="entrypointId"
-            className="rounded-md border-none text-xs shadow-none"
-            value={entrypointRef || "No entrypoint"}
-            readOnly
-            disabled
-          />
-        </div>
-      </div>
     </div>
   )
 }
