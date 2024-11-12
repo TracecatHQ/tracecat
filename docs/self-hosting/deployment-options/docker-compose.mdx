@@ -48,12 +48,14 @@ chmod +x env.sh && ./env.sh
 You should see the following instructions after executing `env.sh`.
 
 <Note>
-If you're deploying Tracecat into local docker compose, input:
+You'll be prompted to input the email and password for the super admin user.
+
+Then you'll be prompted to input the following:
 - `y` (yes to production mode)
 - `localhost` (default host)
 - `n` (no to postgres SSL mode).
 
-If you're deploying Tracecat into an external / Cloud VM, input:
+Otherwise, if you're deploying Tracecat into an external / Cloud VM, input:
 - `y` (yes to production mode)
 - `<host-where-tracecat-is-exposed>` (e.g. `localhost:8080`)
 - `n` (no to postgres SSL mode).
@@ -97,18 +99,14 @@ To access the Tracecat GUI, visit `http://localhost`.
 
 ## Login
 
-Every new Tracecat deployment is created with a default admin user.
-This user owns the organization and has super admin rights to every workspace in the Tracecat deployment.
+Every new Tracecat deployment is created with a default super admin user.
+The email and password for this user is configured in the `.env` file, which is created when you run the `env.sh` script.
+This user owns the organization and has admin rights to every workspace in the Tracecat deployment.
 
-We highly recommend changing the default email and password immediately after login.
-See the following warning callout box for details:
+![sign-in](/img/self-hosting/sign-in.png)
 
-<Warning>
-We cannot stress this enough. Don't forget to change the email and password of the default admin user in production!
-
-The login the first time: default email is `admin@domain.com` and the default password is `password`.
-
-</Warning>
+Login to Tracecat using the email and password you configured for this super admin user.
+You can change the email and password for this user in Tracecat settings after logging in.
 
 ## Next Steps
 
