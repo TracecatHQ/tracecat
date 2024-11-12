@@ -41,14 +41,14 @@ paths:
         schema:
           type: string
           title: Secret
-      requestBody:
-        content:
-          application/json:
-            schema:
-              anyOf:
-              - type: object
-              - type: 'null'
-              title: Payload
+      - name: content-type
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Content-Type
       responses:
         '200':
           description: Successful Response
@@ -89,22 +89,21 @@ paths:
         schema:
           type: string
           title: Secret
-      requestBody:
-        content:
-          application/json:
-            schema:
-              anyOf:
-              - type: object
-              - type: 'null'
-              title: Payload
+      - name: content-type
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Content-Type
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                type: object
-                title: Response Public-Incoming Webhook Wait
+                $ref: '#/components/schemas/DSLContext'
         '422':
           description: Validation Error
           content:
@@ -2060,6 +2059,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /registry/repos/{id}:
     delete:
       tags:
       - registry-repositories
@@ -2070,12 +2070,13 @@ paths:
       - APIKeyCookie: []
       - APIKeyHeader: []
       parameters:
-      - name: origin
+      - name: id
         in: path
         required: true
         schema:
           type: string
-          title: Origin
+          format: uuid4
+          title: Id
       responses:
         '204':
           description: Successful Response
@@ -3116,66 +3117,6 @@ components:
       - ref
       - action
       title: ActionStatement
-    ActionStatement_Any_:
-      properties:
-        ref:
-          type: string
-          pattern: ^[a-z0-9_]+$
-          title: Ref
-          description: Unique reference for the task
-        description:
-          type: string
-          title: Description
-          default: ''
-        action:
-          type: string
-          pattern: ^[a-z0-9_.]+$
-          title: Action
-          description: Action type. Equivalent to the UDF key.
-        args:
-          title: Args
-          description: Arguments for the action
-        depends_on:
-          items:
-            type: string
-          type: array
-          title: Depends On
-          description: Task dependencies
-        run_if:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Run If
-          description: Condition to run the task
-        for_each:
-          anyOf:
-          - type: string
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          title: For Each
-          description: Iterate over a list of items and run the task for each item.
-        retry_policy:
-          allOf:
-          - $ref: '#/components/schemas/ActionRetryPolicy'
-          description: Retry policy for the action.
-        start_delay:
-          type: number
-          title: Start Delay
-          description: Delay before starting the action in seconds.
-          default: 0.0
-        join_strategy:
-          allOf:
-          - $ref: '#/components/schemas/JoinStrategy'
-          description: The strategy to use when joining on this task. By default,
-            all branches must complete successfully before the join task can complete.
-          default: all
-      type: object
-      required:
-      - ref
-      - action
-      title: ActionStatement[Any]
     ActionStep:
       properties:
         ref:
@@ -3333,9 +3274,8 @@ components:
           title: Workflow Id
         inputs:
           anyOf:
-          - type: object
+          - $ref: '#/components/schemas/JsonValue'
           - type: 'null'
-          title: Inputs
       type: object
       required:
       - workflow_id
@@ -3437,8 +3377,7 @@ components:
           type: object
           title: Actions
         TRIGGER:
-          type: object
-          title: Trigger
+          $ref: '#/components/schemas/JsonValue'
         ENV:
           $ref: '#/components/schemas/DSLEnvironment'
       type: object
@@ -3545,9 +3484,8 @@ components:
           title: Wf Id
         trigger_inputs:
           anyOf:
-          - type: object
+          - $ref: '#/components/schemas/JsonValue'
           - type: 'null'
-          title: Trigger Inputs
         parent_run_context:
           anyOf:
           - $ref: '#/components/schemas/RunContext'
@@ -3766,7 +3704,7 @@ components:
           title: Version
         task:
           anyOf:
-          - $ref: '#/components/schemas/ActionStatement_Any_'
+          - $ref: '#/components/schemas/ActionStatement-Output'
           - type: 'null'
       type: object
       required:
@@ -3788,6 +3726,7 @@ components:
       - any
       - all
       title: JoinStrategy
+    JsonValue: {}
     OAuth2AuthorizeResponse:
       properties:
         authorization_url:

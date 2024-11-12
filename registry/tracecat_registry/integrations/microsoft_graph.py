@@ -38,16 +38,15 @@ microsoft_graph_secret = RegistrySecret(
     secrets=[microsoft_graph_secret],
 )
 async def get_auth_token() -> str:
-    secret = await secrets.get("microsoft_graph")
-    auth_url = f"https://login.microsoftonline.com/{secret['MICROSOFT_GRAPH_TENANT_ID']}/oauth2/v2.0/token"
+    auth_url = f"https://login.microsoftonline.com/{secrets.get('MICROSOFT_GRAPH_TENANT_ID')}/oauth2/v2.0/token"
     async with httpx.AsyncClient() as client:
         response = await client.post(
             auth_url,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             data={
-                "client_id": secret["MICROSOFT_GRAPH_CLIENT_ID"],
-                "client_secret": secret["MICROSOFT_GRAPH_CLIENT_SECRET"],
-                "scope": secret.get(
+                "client_id": secrets.get("MICROSOFT_GRAPH_CLIENT_ID"),
+                "client_secret": secrets.get("MICROSOFT_GRAPH_CLIENT_SECRET"),
+                "scope": secrets.get(
                     "MICROSOFT_GRAPH_SCOPE", "https://graph.microsoft.com/.default"
                 ),
                 "grant_type": "client_credentials",

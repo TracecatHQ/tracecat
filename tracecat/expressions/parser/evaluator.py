@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Any, TypeVar, override
+from typing import Any, TypeVar
 
 from lark import Token, Transformer, Tree, v_args
 from lark.exceptions import VisitError
@@ -21,18 +21,13 @@ class ExprEvaluator(Transformer):
         self._strict = strict
         self.logger = logger.bind(visitor=self._visitor_name)
 
-    @override
     def evaluate(self, tree: Tree) -> Any:
         try:
             return self.transform(tree)
         except VisitError as e:
             logger.error(e)
             raise TracecatExpressionError(
-                (
-                    "[evaluator] Evaluation failed at node:"
-                    f"\n{tree.pretty()}"
-                    f"\nReason: {e}"
-                ),
+                f"[evaluator] Evaluation failed at node:\n```\n{tree.pretty()}\n```\nReason: {e}",
                 detail=str(e),
             ) from e
 

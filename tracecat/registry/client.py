@@ -12,6 +12,7 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
+    RegistryActionErrorInfo,
     RegistryActionRead,
     RegistryActionValidateResponse,
 )
@@ -98,7 +99,11 @@ class RegistryClient:
             return orjson.loads(response.content)
         except httpx.HTTPStatusError as e:
             resp = e.response.json()
-            detail = resp.get("detail") or e.response.text
+            if detail := resp.get("detail"):
+                val_detail = RegistryActionErrorInfo(**detail)
+                detail = str(val_detail)
+            else:
+                detail = e.response.text
             logger.error("Registry returned an error", error=e, detail=detail)
             if e.response.status_code / 100 == 5:
                 raise RegistryActionError(

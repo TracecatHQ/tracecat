@@ -275,7 +275,7 @@ export type DSLEntrypoint = {
     /**
      * The entrypoint action ref
      */
-    ref: string;
+    ref?: string | null;
     /**
      * Expected trigger input schema. Use this to specify the expected shape of the trigger input.
      */
@@ -653,6 +653,7 @@ export type RegistrySecret = {
     name: string;
     keys?: Array<(string)> | null;
     optional_keys?: Array<(string)> | null;
+    optional?: boolean;
 };
 
 /**

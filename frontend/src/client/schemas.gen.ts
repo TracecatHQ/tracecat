@@ -755,7 +755,14 @@ export const $DSLContext = {
 export const $DSLEntrypoint = {
     properties: {
         ref: {
-            type: 'string',
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Ref',
             description: 'The entrypoint action ref'
         },
@@ -776,7 +783,6 @@ export const $DSLEntrypoint = {
         }
     },
     type: 'object',
-    required: ['ref'],
     title: 'DSLEntrypoint'
 } as const;
 
@@ -1846,6 +1852,11 @@ export const $RegistrySecret = {
                 }
             ],
             title: 'Optional Keys'
+        },
+        optional: {
+            type: 'boolean',
+            title: 'Optional',
+            default: false
         }
     },
     type: 'object',

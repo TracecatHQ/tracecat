@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - tracecat/**
+      - registry/**
+      - tests/**
+      - pyproject.toml
       - .github/workflows/lint-python.yml
 
 jobs:
