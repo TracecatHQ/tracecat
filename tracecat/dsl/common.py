@@ -36,7 +36,7 @@ from tracecat.workflow.actions.models import ActionControlFlow
 
 
 class DSLEntrypoint(BaseModel):
-    ref: str = Field(..., description="The entrypoint action ref")
+    ref: str | None = Field(default=None, description="The entrypoint action ref")
     expects: dict[str, ExpectedField] | None = Field(
         None,
         description=(
