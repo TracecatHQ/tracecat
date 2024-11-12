@@ -8,10 +8,8 @@ import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
-  BanIcon,
   CalendarClockIcon,
   PlusCircleIcon,
-  SettingsIcon,
   WebhookIcon,
 } from "lucide-react"
 import { useForm } from "react-hook-form"
