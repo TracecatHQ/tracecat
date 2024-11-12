@@ -201,7 +201,11 @@ class DSLScheduler:
 
     async def start(self) -> None:
         """Run the scheduler in dynamic mode."""
-        self.queue.put_nowait(self.dsl.entrypoint.ref)
+        # Instead of explicitly setting the entrypoint, we set all zero-indegree
+        # tasks to the queue.
+        for task_ref, indegree in self.indegrees.items():
+            if indegree == 0:
+                self.queue.put_nowait(task_ref)
         while not self.task_exceptions and (
             not self.queue.empty() or len(self.completed_tasks) < len(self.tasks)
         ):

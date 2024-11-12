@@ -84,14 +84,9 @@ class DSLInput(BaseModel):
                 "All action references (the action title in snake case) must be unique."
                 f" Duplicate refs: {duplicates}"
             )
-        valid_actions = tuple(action.ref for action in self.actions)
-        if self.entrypoint.ref not in valid_actions:
-            raise TracecatDSLError(
-                f"Entrypoint reference must be one of the actions {valid_actions!r}"
-            )
         n_entrypoints = sum(1 for action in self.actions if not action.depends_on)
-        if n_entrypoints != 1:
-            raise TracecatDSLError(f"Expected 1 entrypoint, got {n_entrypoints}")
+        if n_entrypoints == 0:
+            raise TracecatDSLError("No entrypoints found")
 
         # Validate that all the refs in depends_on are valid actions
         valid_actions = {a.ref for a in self.actions}
