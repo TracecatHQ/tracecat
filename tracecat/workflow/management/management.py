@@ -114,7 +114,6 @@ class WorkflowsManagementService:
 
         graph = RFGraph.with_defaults(workflow)
         workflow.object = graph.model_dump(by_alias=True, mode="json")
-        workflow.entrypoint = graph.entrypoint.id if graph.entrypoint else None
         self.session.add(workflow)
         await self.session.commit()
         await self.session.refresh(workflow)
@@ -183,9 +182,9 @@ class WorkflowsManagementService:
                 "Workflow has no actions. Please add an action to the workflow before committing."
             )
         graph = RFGraph.from_workflow(workflow)
-        if not graph.logical_entrypoint:
+        if not graph.entrypoints:
             raise TracecatValidationError(
-                "Workflow has no starting action. Please add an action to the workflow before committing."
+                "Workflow has no entrypoints. Please add an action to the workflow before committing."
             )
         graph_actions = graph.action_nodes()
         if len(graph_actions) != len(actions):
@@ -213,14 +212,11 @@ class WorkflowsManagementService:
         return DSLInput(
             title=workflow.title,
             description=workflow.description,
-            entrypoint=DSLEntrypoint(
-                ref=graph.logical_entrypoint.ref, expects=workflow.expects
-            ),
+            entrypoint=DSLEntrypoint(expects=workflow.expects),
             actions=action_statements,
             inputs=workflow.static_inputs,
             config=DSLConfig(**workflow.config),
             returns=workflow.returns,
-            # triggers=workflow.triggers,
         )
 
     async def create_workflow_from_external_definition(
@@ -320,9 +316,6 @@ class WorkflowsManagementService:
         ref2id = {act.ref: act.id for act in actions}
         updated_graph = dsl.to_graph(trigger_node=base_graph.trigger, ref2id=ref2id)
         workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
-        workflow.entrypoint = (
-            updated_graph.entrypoint.id if updated_graph.entrypoint else None
-        )
 
         # Commit the transaction
         await self.session.commit()

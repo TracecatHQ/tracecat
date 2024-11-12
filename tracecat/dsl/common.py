@@ -36,7 +36,7 @@ from tracecat.workflow.actions.models import ActionControlFlow
 
 
 class DSLEntrypoint(BaseModel):
-    ref: str = Field(..., description="The entrypoint action ref")
+    ref: str | None = Field(default=None, description="The entrypoint action ref")
     expects: dict[str, ExpectedField] | None = Field(
         None,
         description=(
@@ -69,7 +69,9 @@ class DSLInput(BaseModel):
     inputs: dict[str, Any] = Field(
         default_factory=dict, description="Static input parameters"
     )
-    returns: Any | None = Field(None, description="The action ref or value to return.")
+    returns: Any | None = Field(
+        default=None, description="The action ref or value to return."
+    )
 
     @model_validator(mode="after")
     def validate_structure(self) -> Self:
@@ -84,14 +86,9 @@ class DSLInput(BaseModel):
                 "All action references (the action title in snake case) must be unique."
                 f" Duplicate refs: {duplicates}"
             )
-        valid_actions = tuple(action.ref for action in self.actions)
-        if self.entrypoint.ref not in valid_actions:
-            raise TracecatDSLError(
-                f"Entrypoint reference must be one of the actions {valid_actions!r}"
-            )
         n_entrypoints = sum(1 for action in self.actions if not action.depends_on)
-        if n_entrypoints != 1:
-            raise TracecatDSLError(f"Expected 1 entrypoint, got {n_entrypoints}")
+        if n_entrypoints == 0:
+            raise TracecatDSLError("No entrypoints found")
 
         # Validate that all the refs in depends_on are valid actions
         valid_actions = {a.ref for a in self.actions}
@@ -183,15 +180,16 @@ class DSLInput(BaseModel):
                 )
                 nodes.append(node)
 
-                for src_ref in action.depends_on:
-                    src_id = ref2id[src_ref]
-                    edges.append(RFEdge(source=src_id, target=dst_id))
+                if not action.depends_on:
+                    # If there are no dependencies, this is an entrypoint
+                    entrypoint_id = ref2id[action.ref]
+                    edges.append(RFEdge(source=trigger_node.id, target=entrypoint_id))
+                else:
+                    # Otherwise, add edges for all dependencies
+                    for src_ref in action.depends_on:
+                        src_id = ref2id[src_ref]
+                        edges.append(RFEdge(source=src_id, target=dst_id))
 
-            entrypoint_id = ref2id[self.entrypoint.ref]
-            # Add trigger edge
-            edges.append(
-                RFEdge(source=trigger_node.id, target=entrypoint_id, label="⚡ Trigger")
-            )
             return RFGraph(nodes=nodes, edges=edges)
         except Exception as e:
             logger.opt(exception=e).error("Error creating graph")
