@@ -180,15 +180,16 @@ class DSLInput(BaseModel):
                 )
                 nodes.append(node)
 
-                for src_ref in action.depends_on:
-                    src_id = ref2id[src_ref]
-                    edges.append(RFEdge(source=src_id, target=dst_id))
+                if not action.depends_on:
+                    # If there are no dependencies, this is an entrypoint
+                    entrypoint_id = ref2id[action.ref]
+                    edges.append(RFEdge(source=trigger_node.id, target=entrypoint_id))
+                else:
+                    # Otherwise, add edges for all dependencies
+                    for src_ref in action.depends_on:
+                        src_id = ref2id[src_ref]
+                        edges.append(RFEdge(source=src_id, target=dst_id))
 
-            entrypoint_id = ref2id[self.entrypoint.ref]
-            # Add trigger edge
-            edges.append(
-                RFEdge(source=trigger_node.id, target=entrypoint_id, label="⚡ Trigger")
-            )
             return RFGraph(nodes=nodes, edges=edges)
         except Exception as e:
             logger.opt(exception=e).error("Error creating graph")
