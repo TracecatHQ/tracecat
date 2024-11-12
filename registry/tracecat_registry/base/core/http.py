@@ -16,6 +16,7 @@ JSONObjectOrArray = dict[str, Any] | list[Any]
 ssl_secret = RegistrySecret(
     name="ssl",
     optional_keys=["SSL_CLIENT_CERT", "SSL_CLIENT_KEY", "SSL_CLIENT_PASSWORD"],
+    optional=True,
 )
 """HTTP SSL certificate secrets.
 

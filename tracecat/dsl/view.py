@@ -15,7 +15,6 @@ from pydantic.alias_generators import to_camel
 
 from tracecat.dsl.enums import EdgeType
 from tracecat.identifiers import action
-from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatValidationError
 
 if TYPE_CHECKING:
@@ -113,7 +112,7 @@ class RFEdge(TSObject):
 
     label: str | None = Field(default=None, description="Edge label")
 
-    source_handle: EdgeType = Field(
+    source_handle: EdgeType | None = Field(
         default=EdgeType.SUCCESS, description="Edge source handle type"
     )
 
@@ -161,23 +160,6 @@ class RFGraph(TSObject):
                 "Trigger node should not have edges in the main graph"
             )
 
-        # Can't have one of the entrypoints as None
-        if (self.logical_entrypoint is None) ^ (self.entrypoint is None):
-            raise TracecatValidationError(
-                "One of the logical and physical entrypoints are None:"
-                f"({self.logical_entrypoint=}) != ({self.entrypoint=})",
-            )
-
-        # Check if the logical entrypoint matches the physical entrypoint
-        if (
-            self.logical_entrypoint
-            and self.entrypoint
-            and self.logical_entrypoint.ref != self.entrypoint.ref
-        ):
-            logger.error(
-                f"Entrypoint doesn't match: {self.logical_entrypoint.ref!r} != {self.entrypoint.ref!r}"
-            )
-            raise TracecatValidationError("Entrypoint doesn't match")
         return self
 
     @property
@@ -217,32 +199,10 @@ class RFGraph(TSObject):
         return indegree
 
     @property
-    def entrypoint(self) -> RFNode[UDFNodeData] | None:
-        """The physical entrypoint of the graph. It is the node with the trigger as the source."""
-        if len(self.action_nodes()) == 0:
-            return None
-        entrypoints = {
-            edge.target for edge in self.edges if edge.source == self.trigger.id
-        }
-        if (n := len(entrypoints)) != 1:
-            raise TracecatValidationError(
-                f"Expected 1 physical entrypoint, got {n}: {entrypoints!r}"
-            )
-        return self.node_map[entrypoints.pop()]
-
-    @property
-    def logical_entrypoint(self) -> UDFNode | None:
-        """The logical entrypoint of the graph. It is the node with no incoming edges when the
-        graph is considered only with `udf` nodes."""
+    def entrypoints(self) -> list[UDFNode]:
+        """Return all entrypoints of the graph."""
         act_nodes = self.action_nodes()
-        if len(act_nodes) == 0:
-            return None
-        entrypoints = [node for node in act_nodes if self.indegree[node.id] == 0]
-        if (n := len(entrypoints)) != 1:
-            raise TracecatValidationError(
-                f"Expected 1 logical entrypoint, got {n}: {entrypoints!r}"
-            )
-        return entrypoints[0]
+        return [node for node in act_nodes if self.indegree[node.id] == 0]
 
     def action_edges(self) -> list[RFEdge]:
         """Return all edges that are not connected to the trigger node."""
