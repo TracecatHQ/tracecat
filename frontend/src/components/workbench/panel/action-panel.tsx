@@ -139,7 +139,8 @@ export function ActionPanel({
     workflowId
   )
   const actionName = node.data.type
-  const { getRegistryAction } = useWorkbenchRegistryActions()
+  const { getRegistryAction, registryActionsIsLoading } =
+    useWorkbenchRegistryActions()
   const registryAction = getRegistryAction(actionName)
   const { for_each, run_if, retry_policy, ...options } =
     action?.control_flow ?? {}
@@ -254,7 +255,7 @@ export function ActionPanel({
     return () => document.removeEventListener("keydown", handleKeyDown)
   }, [methods, onSubmit])
 
-  if (actionIsLoading) {
+  if (actionIsLoading || registryActionsIsLoading) {
     return <CenteredSpinner />
   }
   if (!registryAction) {
