@@ -7,7 +7,7 @@ config:
   scheduler: dynamic
 entrypoint:
   ref: a
-inputs:
+variables:
   another_url: http://api:8000
   value: 1
 

@@ -2,7 +2,7 @@ title: Chained reshape loop
 description: Test that we can chain reshaping for loops back to back
 entrypoint:
   ref: a
-inputs:
+variables:
   first: 1
   second: 2
   list: [1, 2, 3]
@@ -10,13 +10,13 @@ inputs:
 actions:
   - ref: a
     action: core.transform.reshape
-    for_each: ${{ for var.x in INPUTS.list }}
+    for_each: ${{ for var.x in VARS.list }}
     args:
-      value: ${{ FN.add(var.x, INPUTS.first) }}
+      value: ${{ FN.add(var.x, VARS.first) }}
   - ref: b
     action: core.transform.reshape
     depends_on:
       - a
     for_each: ${{ for var.x in ACTIONS.a.result }}
     args:
-      value: ${{ FN.add(INPUTS.second, var.x) }}
+      value: ${{ FN.add(VARS.second, var.x) }}

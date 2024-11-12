@@ -66,20 +66,20 @@ def test_eval_jsonpath():
     [
         ("${{ACTIONS.webhook.result}}", 1),
         ("${{ ACTIONS.webhook.result -> int }}", 1),
-        ("${{ INPUTS.arg1 -> int }}", 1),
-        ("${{ INPUTS.arg1 }}", 1),  # Doesn't cast
-        ("${{ INPUTS.arg2 -> str }}", "2"),
+        ("${{ VARS.arg1 -> int }}", 1),
+        ("${{ VARS.arg1 }}", 1),  # Doesn't cast
+        ("${{ VARS.arg2 -> str }}", "2"),
         ("${{ ACTIONS.webhook.result -> str }}", "1"),
         ("${{ ACTIONS.path_A_first.result.path.nested.value -> int }}", 9999),
         (
-            "${{ FN.add(INPUTS.arg1, ACTIONS.path_A_first.result.path.nested.value) }}",
+            "${{ FN.add(VARS.arg1, ACTIONS.path_A_first.result.path.nested.value) }}",
             10000,
         ),
     ],
 )
 def test_templated_expression_result(expression, expected_result):
     exec_vars = {
-        ExprContext.INPUTS: {
+        ExprContext.VARS: {
             "arg1": 1,
             "arg2": 2,
         },
@@ -109,18 +109,18 @@ def test_templated_expression_result(expression, expected_result):
             1234.5,
         ),
         (
-            "${{ FN.less_than(INPUTS.arg1, INPUTS.arg2) -> bool }}",
+            "${{ FN.less_than(VARS.arg1, VARS.arg2) -> bool }}",
             True,
         ),
         (
-            "${{ FN.is_equal(INPUTS.arg1, ACTIONS.webhook.result) -> bool }}",
+            "${{ FN.is_equal(VARS.arg1, ACTIONS.webhook.result) -> bool }}",
             True,
         ),
     ],
 )
 def test_templated_expression_function(expression, expected_result):
     exec_vars = {
-        ExprContext.INPUTS: {
+        ExprContext.VARS: {
             "arg1": 1,
             "arg2": 2,
         },
@@ -379,7 +379,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("FN.concat(ENV.item, '5')", "ITEM5"),
         ("FN.add(5, 2)", 7),
         ("  FN.is_null(None)   ", True),
-        ("FN.contains('a', INPUTS.my.module.items)", True),
+        ("FN.contains('a', VARS.my.module.items)", True),
         ("FN.length([1, 2, 3])", 3),
         ("FN.join(['A', 'B', 'C'], ',')", "A,B,C"),
         ("FN.join(['A', 'B', 'C'], '@')", "A@B@C"),
@@ -390,7 +390,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
             ["Hey Alice!", "Hey Bob!", "Hey Charlie!"],
         ),
         (
-            "FN.format.map('Hello, {}! You are {}.', ['Alice', 'Bob', 'Charlie'], INPUTS.adjectives)",
+            "FN.format.map('Hello, {}! You are {}.', ['Alice', 'Bob', 'Charlie'], VARS.adjectives)",
             [
                 "Hello, Alice! You are cool.",
                 "Hello, Bob! You are awesome.",
@@ -403,15 +403,15 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ),
         # Ternary expressions
         (
-            "'It contains 1' if FN.contains(1, INPUTS.list) else 'it does not contain 1'",
+            "'It contains 1' if FN.contains(1, VARS.list) else 'it does not contain 1'",
             "It contains 1",
         ),
-        ("True if FN.contains('key1', INPUTS.dict) else False", True),
-        ("True if FN.contains('key2', INPUTS.dict) else False", False),
-        ("True if FN.does_not_contain('key2', INPUTS.dict) else False", True),
-        ("True if FN.does_not_contain('key1', INPUTS.dict) else False", False),
+        ("True if FN.contains('key1', VARS.dict) else False", True),
+        ("True if FN.contains('key2', VARS.dict) else False", False),
+        ("True if FN.does_not_contain('key2', VARS.dict) else False", True),
+        ("True if FN.does_not_contain('key1', VARS.dict) else False", False),
         (
-            "None if FN.does_not_contain('key1', INPUTS.dict) else INPUTS.dict.key1",
+            "None if FN.does_not_contain('key1', VARS.dict) else VARS.dict.key1",
             1,
         ),
         (
@@ -425,7 +425,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("True if TRIGGER.hits2._source.host.ip else False", False),
         # Truthy expressions
         ("TRIGGER.hits2._source.host.ip", None),
-        ("INPUTS.people[4].name", None),
+        ("VARS.people[4].name", None),
         # Typecast expressions
         ("int(5)", 5),
         ("float(5.0)", 5.0),
@@ -466,12 +466,12 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("var.y", "100"),
         ("var.y -> int", 100),
         # Test jsonpath
-        ("INPUTS.people[1].name", "Bob"),
-        ("INPUTS.people[2].age -> str", "50"),
-        ("INPUTS.people[*].age", [30, 40, 50]),
-        ("INPUTS.people[*].name", ["Alice", "Bob", "Charlie"]),
-        ("INPUTS.people[*].gender", ["female", "male"]),
-        # ('INPUTS.["user@tracecat.com"].name', "Bob"), TODO: Add support for object key indexing
+        ("VARS.people[1].name", "Bob"),
+        ("VARS.people[2].age -> str", "50"),
+        ("VARS.people[*].age", [30, 40, 50]),
+        ("VARS.people[*].name", ["Alice", "Bob", "Charlie"]),
+        ("VARS.people[*].gender", ["female", "male"]),
+        # ('VARS.["user@tracecat.com"].name', "Bob"), TODO: Add support for object key indexing
         # Combination
         ("'a' if FN.is_equal(var.y, '100') else 'b'", "a"),
         ("'a' if var.y == '100' else 'b'", "a"),
@@ -503,7 +503,7 @@ def test_expression_parser(expr, expected):
                 "KEY": "SECRET",
             },
         },
-        ExprContext.INPUTS: {
+        ExprContext.VARS: {
             "list": [1, 2, 3],
             "dict": {
                 "key1": 1,
@@ -740,7 +740,7 @@ def assert_validation_result(
                     "url": "${{ int(100) }}",
                 },
                 "test2": "fail 1 ${{ ACTIONS.my_action.invalid }} ",
-                "test3": "fail 2 ${{ int(INPUTS.my_action.invalid_inner) }} ",
+                "test3": "fail 2 ${{ int(VARS.my_action.invalid_inner) }} ",
             },
             [
                 {
@@ -754,7 +754,7 @@ def assert_validation_result(
                     "contains_msg": "invalid",
                 },
                 {
-                    "type": ExprType.INPUT,
+                    "type": ExprType.VARS,
                     "status": "error",
                     "contains_msg": "invalid_inner",
                 },
@@ -763,12 +763,12 @@ def assert_validation_result(
         (
             {
                 "test": {
-                    "data": "INLINE: ${{ INPUTS.invalid }}",
+                    "data": "INLINE: ${{ VARS.invalid }}",
                 },
             },
             [
                 {
-                    "type": ExprType.INPUT,
+                    "type": ExprType.VARS,
                     "status": "error",
                     "contains_msg": "invalid",
                 },
@@ -795,7 +795,7 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
     # The only defined action reference is "my_action"
     validation_context = ExprValidationContext(
         action_refs={"my_action"},
-        inputs_context={"arg": 2},
+        variables_context={"arg": 2},
     )
     validators = get_validators()
 

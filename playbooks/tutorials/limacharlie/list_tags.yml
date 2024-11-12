@@ -5,7 +5,7 @@ definition:
     Requires secret named `limacharlie` with keys `LIMACHARLIE_API_SECRET` and `LIMACHARLIE_OID`
   entrypoint:
     ref: list_tags
-  inputs:
+  variables:
     api_url: https://api.limacharlie.io/v1
     jwt_url: https://jwt.limacharlie.io
     token_response_key: token
@@ -17,9 +17,9 @@ definition:
     - action: core.http_request
       ref: list_tags
       args:
-        url: "${{ INPUTS.api_url }}/tags/${{ SECRETS.limacharlie.LIMACHARLIE_OID }}"
-        token_response_key: ${{ INPUTS.token_response_key }}
-        jwt_url: "${{ INPUTS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
+        url: "${{ VARS.api_url }}/tags/${{ SECRETS.limacharlie.LIMACHARLIE_OID }}"
+        token_response_key: ${{ VARS.token_response_key }}
+        jwt_url: "${{ VARS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
         method: GET
 
     - action: core.http_request
@@ -27,7 +27,7 @@ definition:
       depends_on:
         - list_tags
       args:
-        url: "${{ INPUTS.api_url }}/sensors/${{ SECRETS.limacharlie.LIMACHARLIE_OID }}"
-        token_response_key: ${{ INPUTS.token_response_key }}
-        jwt_url: "${{ INPUTS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
+        url: "${{ VARS.api_url }}/sensors/${{ SECRETS.limacharlie.LIMACHARLIE_OID }}"
+        token_response_key: ${{ VARS.token_response_key }}
+        jwt_url: "${{ VARS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
         method: GET

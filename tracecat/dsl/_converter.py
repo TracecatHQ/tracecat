@@ -59,33 +59,3 @@ pydantic_data_converter = DataConverter(
     payload_converter_class=PydanticPayloadConverter
 )
 """Data converter using Pydantic JSON conversion."""
-
-
-# test = {
-#     "role": {
-#         "type": "service",
-#         "workspace_id": UUID("c0963ef7-8577-4da6-9860-6ea7b4db900b"),
-#         "user_id": UUID("00000000-0000-4444-aaaa-000000000000"),
-#         "service_id": "tracecat-runner",
-#     },
-#     "dsl": {
-#         "title": "test_workflow_override_environment_correct",
-#         "description": "Test that we can set the runtime environment for a workflow. The workflow should use the environment set in the DSL config.",
-#         "entrypoint": {"ref": "a", "expects": {}},
-#         "actions": [
-#             {
-#                 "ref": "a",
-#                 "description": "",
-#                 "action": "core.transform.reshape",
-#                 "args": {"value": "${{ ENV.environment }}"},
-#                 "depends_on": [],
-#             }
-#         ],
-#         "config": {"environment": "__TEST_ENVIRONMENT__"},
-#         "triggers": [],
-#         "inputs": {},
-#         "tests": [],
-#         "returns": "${{ ACTIONS.a.result }}",
-#     },
-#     "wf_id": "wf-00000000000000000000000000000000",
-# }

@@ -13,7 +13,7 @@ definition:
         type: list[str]
         description: List of Atomic Red Team test IDs to run.
     ref: list_sensors_by_tags
-  inputs:
+  variables:
     api_url: https://api.limacharlie.io/v1
     jwt_url: https://jwt.limacharlie.io
     token_response_key: token
@@ -25,10 +25,10 @@ definition:
     - action: core.http_request
       ref: list_sensors_by_tags
       args:
-        url: "{{ INPUTS.api_url }}/tags/{{ SECRETS.limacharlie.LIMACHARLIE_OID }}/{ TRIGGER.tags }"
+        url: "{{ VARS.api_url }}/tags/{{ SECRETS.limacharlie.LIMACHARLIE_OID }}/{ TRIGGER.tags }"
         method: GET
-        token_response_key: ${{ INPUTS.token_response_key }}
-        jwt_url: "{{ INPUTS.jwt_url }}?oid={{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret={{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
+        token_response_key: ${{ VARS.token_response_key }}
+        jwt_url: "{{ VARS.jwt_url }}?oid={{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret={{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
 
     - action: core.transform.reshape
       ref: extract_sensor_ids
@@ -44,13 +44,13 @@ definition:
         - extract_sensor_ids
       for_each: ${{ for var.sensor_id in ACTIONS.extract_sensor_ids.result.sensor_ids }}
       args:
-        url: "${{ INPUTS.api_url }}/${{ var.sensor_id }}/"
+        url: "${{ VARS.api_url }}/${{ var.sensor_id }}/"
         method: GET
-        token_response_key: ${{ INPUTS.token_response_key }}
-        jwt_url: "${{ INPUTS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
+        token_response_key: ${{ VARS.token_response_key }}
+        jwt_url: "${{ VARS.jwt_url }}?oid=${{ SECRETS.limacharlie.LIMACHARLIE_OID }}&secret=${{ SECRETS.limacharlie.LIMACHARLIE_API_SECRET }}"
         payload:
           tasks:
-            - "run --shell-command 'del ${{ INPUTS.payload_dir_path }}\\*.exe'"
+            - "run --shell-command 'del ${{ VARS.payload_dir_path }}\\*.exe'"
         headers:
           Content-Type: application/x-www-form-urlencoded
 
@@ -60,12 +60,12 @@ definition:
         - erase_past_executables
       for_each: ${{ for var.sensor_id in ACTIONS.extract_sensor_ids.result.sensor_ids }}
       args:
-        workflow_id: ${{ INPUTS.child_workflow_id }}
+        workflow_id: ${{ VARS.child_workflow_id }}
         loop_strategy: parallel
         fail_strategy: isolated
-        batch_size: ${{ INPUTS.batch_size }}
+        batch_size: ${{ VARS.batch_size }}
         trigger_inputs:
           sensor_id: ${{ var.sensor_id }}
           investigation_id: ${{ FN.uuid4() }}
           test_ids: ${{ TRIGGER.test_ids }}
-          payload_dir_path: ${{ INPUTS.payload_dir_path }}
+          payload_dir_path: ${{ VARS.payload_dir_path }}

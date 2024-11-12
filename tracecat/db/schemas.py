@@ -243,10 +243,10 @@ class Workflow(Resource, table=True):
         None,
         description="ID of the node directly connected to the trigger.",
     )
-    static_inputs: dict[str, Any] = Field(
+    variables: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),
-        description="Static inputs for the workflow",
+        description="Variables for the workflow",
     )
     expects: dict[str, Any] = Field(
         default_factory=dict,

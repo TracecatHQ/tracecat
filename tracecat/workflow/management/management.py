@@ -217,7 +217,7 @@ class WorkflowsManagementService:
                 ref=graph.logical_entrypoint.ref, expects=workflow.expects
             ),
             actions=action_statements,
-            inputs=workflow.static_inputs,
+            variables=workflow.variables,
             config=DSLConfig(**workflow.config),
             returns=workflow.returns,
             # triggers=workflow.triggers,
@@ -264,7 +264,7 @@ class WorkflowsManagementService:
             "title": dsl.title,
             "description": dsl.description,
             "owner_id": self.role.workspace_id,
-            "static_inputs": dsl.inputs,
+            "variables": dsl.variables,
             "returns": dsl.returns,
             "config": dsl.config.model_dump(),
             "expects": entrypoint.get("expects"),

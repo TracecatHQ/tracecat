@@ -214,7 +214,7 @@ class DSLWorkflow:
         # Prepare user facing context
         self.context = DSLContext(
             ACTIONS={},
-            INPUTS=self.dsl.inputs,
+            VARS=self.dsl.variables,
             TRIGGER=trigger_inputs,
             ENV=DSLEnvironment(
                 workflow={

@@ -163,8 +163,8 @@ class DSLEnvironment(TypedDict, total=False):
 
 
 class DSLContext(TypedDict, total=False):
-    INPUTS: dict[str, Any]
-    """DSL Static Inputs context"""
+    VARS: dict[str, Any]
+    """DSL Variables context"""
 
     ACTIONS: dict[str, Any]
     """DSL Actions context"""

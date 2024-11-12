@@ -20,7 +20,7 @@ binary_op: expression OPERATOR expression
 
 ?context: actions
         | secrets
-        | inputs
+        | variables
         | env
         | local_vars
         | trigger
@@ -33,7 +33,7 @@ arg_list: (expression ("," expression)*)?
 
 actions: "ACTIONS" jsonpath_expression
 secrets: "SECRETS" ATTRIBUTE_PATH
-inputs: "INPUTS" jsonpath_expression
+variables: "VARS" jsonpath_expression
 env: "ENV" jsonpath_expression
 local_vars: "var" jsonpath_expression
 trigger: "TRIGGER" [jsonpath_expression]

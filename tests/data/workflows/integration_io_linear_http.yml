@@ -4,7 +4,7 @@ config:
   scheduler: dynamic
 entrypoint:
   ref: pull_aws_guardduty_findings
-inputs:
+variables:
   uim_url: http://host.docker.internal:8005
   num_days: 1
 
@@ -21,7 +21,7 @@ actions:
     action: core.http_request
     version: "0.1.0"
     args:
-      url: ${{ INPUTS.uim_url }}/cdr/alerts
+      url: ${{ VARS.uim_url }}/cdr/alerts
       method: GET
       params:
         start_date: "2024-05-26T01:33:58.799180Z"
@@ -34,7 +34,7 @@ actions:
     depends_on:
       - pull_aws_guardduty_findings
     args:
-      url: ${{ INPUTS.uim_url }}/notifications
+      url: ${{ VARS.uim_url }}/notifications
       headers:
         Content-Type: application/json
       method: POST

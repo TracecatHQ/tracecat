@@ -25,7 +25,7 @@ class ExprValidationContext(BaseModel):
     """Container for the validation context of an expression tree."""
 
     action_refs: set[str]
-    inputs_context: Any = Field(default_factory=dict)
+    variables_context: Any = Field(default_factory=dict)
     trigger_context: Any = Field(default_factory=dict)
 
 
@@ -164,19 +164,19 @@ class ExprValidator(Visitor):
         )
         self._task_group.create_task(coro)
 
-    def inputs(self, node: Tree):
-        self.logger.trace("Visit input expression", node=node)
+    def variables(self, node: Tree):
+        self.logger.trace("Visit variables expression", node=node)
         jsonpath = get_jsonpath_body_from_context(node).lstrip(".")
         try:
             functions.eval_jsonpath(
                 jsonpath,
-                self._context.inputs_context,
-                context_type=ExprContext.INPUTS,
+                self._context.variables_context,
+                context_type=ExprContext.VARS,
                 strict=self._strict,
             )
-            self.add(status="success", type=ExprType.INPUT)
+            self.add(status="success", type=ExprType.VARS)
         except TracecatExpressionError as e:
-            return self.add(status="error", msg=str(e), type=ExprType.INPUT)
+            return self.add(status="error", msg=str(e), type=ExprType.VARS)
 
     def trigger(self, node: Tree):
         self.logger.trace("Visit trigger expression", node=node)

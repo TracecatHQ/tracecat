@@ -2,7 +2,7 @@ title: Reshape data
 description: Test reshape data
 entrypoint:
   ref: flatten
-inputs:
+variables:
   details:
     name: John Doe
     age: 30
@@ -23,12 +23,12 @@ actions:
     # Flatten the mapping into a list of key-value pairs
     args:
       value:
-        name: ${{ INPUTS.details.name }}
-        age: ${{ INPUTS.details.age }}
-        job_title: ${{ INPUTS.details.job.title }}
-        job_company: ${{ INPUTS.details.job.company }}
-        job_city: ${{ INPUTS.details.job.city }}
-        residence_street_address: ${{ INPUTS.details.residence.street_address }}
-        residence_city: ${{ INPUTS.details.residence.city }}
-        contact_email: ${{ INPUTS.details.contact.email }}
-        contact_phone: ${{ INPUTS.details.contact.phone }}
+        name: ${{ VARS.details.name }}
+        age: ${{ VARS.details.age }}
+        job_title: ${{ VARS.details.job.title }}
+        job_company: ${{ VARS.details.job.company }}
+        job_city: ${{ VARS.details.job.city }}
+        residence_street_address: ${{ VARS.details.residence.street_address }}
+        residence_city: ${{ VARS.details.residence.city }}
+        contact_email: ${{ VARS.details.contact.email }}
+        contact_phone: ${{ VARS.details.contact.phone }}

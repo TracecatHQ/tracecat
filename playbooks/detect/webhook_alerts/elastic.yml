@@ -17,7 +17,7 @@ definition:
     - type: webhook
       ref: receive_elastic_alerts
       entrypoint: deserialize_elastic_alerts
-  inputs:
+  variables:
     child_workflow_id: REPLACE_WITH_CHILD_WORKFLOW_ID
     limit: 10
     batch_size: 10
@@ -35,10 +35,10 @@ definition:
         - deserialize_elastic_alerts
       for_each: ${{ for var.alert in ACTIONS.deserialize_elastic_alerts.result }}
       args:
-        workflow_id: ${{ INPUTS.child_workflow_id }}
+        workflow_id: ${{ VARS.child_workflow_id }}
         loop_strategy: parallel
         fail_strategy: isolated
-        batch_size: ${{ INPUTS.batch_size }}
+        batch_size: ${{ VARS.batch_size }}
         trigger_inputs:
           title: ${{ var.alert.message }}
           integration: Elastic Security

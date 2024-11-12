@@ -2,7 +2,7 @@ title: Filter data
 description: Test to filter data
 entrypoint:
   ref: filter_empty
-inputs: #2D list
+variables: #2D list
   matrix:
     - signal: a
       data: [1, 2, 3]
@@ -22,7 +22,7 @@ actions:
     action: core.transform.filter
     args:
       # List of objects to filter
-      items: ${{ INPUTS.matrix }}
+      items: ${{ VARS.matrix }}
       constraint:
         jsonpath: $.data
         function: not_empty

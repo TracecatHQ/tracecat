@@ -30,7 +30,7 @@ ACTIONS:
         contact_phone: 456-789-0123
     result_typename: "list"
 
-INPUTS:
+VARS:
   contacts:
     - name: John Doe
       age: 30

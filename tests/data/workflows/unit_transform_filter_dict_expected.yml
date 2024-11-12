@@ -11,7 +11,7 @@ ACTIONS:
         data: [10, 11, 12]
     result_typename: list
 
-INPUTS:
+VARS:
   matrix:
     - signal: a
       data: [1, 2, 3]

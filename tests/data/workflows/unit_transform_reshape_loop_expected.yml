@@ -6,7 +6,7 @@ ACTIONS:
       - I received 3 from you
     result_typename: "list"
 
-INPUTS:
+VARS:
   first: 1
   second: 2
   list: [1, 2, 3]

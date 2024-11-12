@@ -5,7 +5,7 @@ ACTIONS:
   b:
     result: 2
     result_typename: "int"
-INPUTS:
+VARS:
   another_url: "http://api:8000"
   value: 1
 TRIGGER:

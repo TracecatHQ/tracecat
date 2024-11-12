@@ -261,7 +261,7 @@ export type DSLConfig_Output = {
 };
 
 export type DSLContext = {
-    INPUTS?: {
+    VARS?: {
         [key: string]: unknown;
     };
     ACTIONS?: {
@@ -316,9 +316,9 @@ export type DSLInput = {
     config?: DSLConfig_Output;
     triggers?: Array<Trigger>;
     /**
-     * Static input parameters
+     * Variables for the workflow
      */
-    inputs?: {
+    variables?: {
         [key: string]: unknown;
     };
     /**
@@ -974,7 +974,7 @@ export type UpdateWorkflowParams = {
     version?: number | null;
     entrypoint?: string | null;
     icon_url?: string | null;
-    static_inputs?: {
+    variables?: {
     [key: string]: unknown;
 } | null;
     expects?: {
@@ -1156,7 +1156,7 @@ export type WorkflowResponse = {
     webhook: WebhookResponse;
     schedules: Array<Schedule>;
     entrypoint: string | null;
-    static_inputs: {
+    variables: {
         [key: string]: unknown;
     };
     expects?: {
