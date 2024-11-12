@@ -115,12 +115,12 @@ variable "domain_name" {
 
 variable "api_cpu" {
   type    = string
-  default = "256"
+  default = "1024"
 }
 
 variable "api_memory" {
   type    = string
-  default = "512"
+  default = "2048"
 }
 
 variable "worker_cpu" {
