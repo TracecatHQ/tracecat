@@ -275,7 +275,7 @@ export type DSLEntrypoint = {
     /**
      * The entrypoint action ref
      */
-    ref: string;
+    ref?: string | null;
     /**
      * Expected trigger input schema. Use this to specify the expected shape of the trigger input.
      */
