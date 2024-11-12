@@ -12,7 +12,7 @@ definition:
       default: updatedAt
   steps:
     - ref: get_auth_token
-      action: integrations.checkpoint.get_auth_token
+      action: integrations.check_point.get_auth_token
       args: {}
 
     - ref: get_xdr_incidents
