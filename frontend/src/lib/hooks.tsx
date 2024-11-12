@@ -81,22 +81,11 @@ export function useLocalStorage<T>(
   return [value, setValue]
 }
 
-export type PanelAction = {
-  action?: ActionRead
-  actionIsLoading: boolean
-  actionError: Error | null
-  updateAction: (values: ActionUpdate) => Promise<ActionRead>
-  queryClient: ReturnType<typeof useQueryClient>
-  queryKeys: {
-    selectedAction: [string, string, string]
-    workflow: [string, string]
-  }
-}
 export function useAction(
   actionId: string,
   workspaceId: string,
   workflowId: string
-): PanelAction & { isSaving: boolean } {
+) {
   const [isSaving, setIsSaving] = useState(false)
   const queryClient = useQueryClient()
   const { setNodes } = useWorkflowBuilder()
