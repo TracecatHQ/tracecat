@@ -15,7 +15,7 @@ import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import {
   AlertTriangleIcon,
-  CheckCheck,
+  CircleCheckIcon,
   Database,
   Info,
   LayoutListIcon,
@@ -23,6 +23,7 @@ import {
   LucideIcon,
   RepeatIcon,
   RotateCcwIcon,
+  SaveIcon,
   SettingsIcon,
   Shapes,
   SquareFunctionIcon,
@@ -70,7 +71,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
 import { CustomEditor } from "@/components/editor"
 import { getIcon } from "@/components/icons"
@@ -116,6 +116,14 @@ const typeToLabel: Record<
   },
 }
 
+enum SaveState {
+  IDLE = "idle",
+  UNSAVED = "unsaved",
+  SAVING = "saving",
+  SAVED = "saved",
+  ERROR = "error",
+}
+
 export function ActionPanel({
   node,
   workflowId,
@@ -131,7 +139,8 @@ export function ActionPanel({
     workflowId
   )
   const actionName = node.data.type
-  const { getRegistryAction } = useWorkbenchRegistryActions()
+  const { getRegistryAction, registryActionsIsLoading } =
+    useWorkbenchRegistryActions()
   const registryAction = getRegistryAction(actionName)
   const { for_each, run_if, retry_policy, ...options } =
     action?.control_flow ?? {}
@@ -149,23 +158,10 @@ export function ActionPanel({
     },
   })
 
-  const [actionValidationErrors, setActionValidationErrors] =
-    useState<RegistryActionValidateResponse | null>(null)
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "success">(
-    "idle"
-  )
-
-  useEffect(() => {
-    if (isSaving) {
-      setSaveState("saving")
-    } else {
-      setSaveState("success")
-      const timer = setTimeout(() => {
-        setSaveState("idle")
-      }, 2000)
-      return () => clearTimeout(timer)
-    }
-  }, [isSaving])
+  const [actionValidationErrors, setActionValidationErrors] = useState<
+    RegistryActionValidateResponse[]
+  >([])
+  const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
 
   const handleSave = useCallback(
     async (values: ActionFormSchema) => {
@@ -173,22 +169,10 @@ export function ActionPanel({
         console.error("Action not found")
         return
       }
+      setSaveState(SaveState.SAVING)
+      setActionValidationErrors([])
       const { inputs, title, description, control_flow } = values
-      let actionInputs: Record<string, unknown>
-      try {
-        actionInputs = inputs ? YAML.parse(inputs) : {}
-      } catch (error) {
-        console.error("Failed to parse inputs", error)
-        setActionValidationErrors({
-          ok: false,
-          message: "Failed to parse action inputs",
-          detail: String(error),
-        })
-        return toast({
-          title: "Couldn't parse action inputs",
-          description: "Please see the error window for more details",
-        })
-      }
+      const actionInputs = inputs ? YAML.parse(inputs) : {}
       const options: ControlFlowOptions | undefined = control_flow.options
         ? YAML.parse(control_flow.options)
         : undefined
@@ -213,44 +197,65 @@ export function ActionPanel({
 
       try {
         await updateAction(params)
+        setTimeout(() => setSaveState(SaveState.SAVED), 300)
       } catch (error) {
         if (error instanceof ApiError) {
           console.error("Application failed to validate action", error.body)
         } else {
           console.error("Validation failed, unknown error", error)
         }
+        setSaveState(SaveState.ERROR)
       }
     },
     [workspaceId, registryAction, action]
   )
 
+  // If the form is dirty, set the save state to unsaved
+  useEffect(() => {
+    if (methods.formState.isDirty) {
+      setSaveState(SaveState.UNSAVED)
+    }
+  }, [methods.formState.isDirty])
+
   const onSubmit = useCallback(
     async (values: ActionFormSchema) => {
-      await handleSave(values)
+      try {
+        await handleSave(values)
+      } catch (error) {
+        console.error("Failed to save action", error)
+        setSaveState(SaveState.ERROR)
+        setActionValidationErrors([
+          {
+            ok: false,
+            message: "Failed to save action",
+            detail: String(error),
+            action_ref: slugify(action?.title ?? ""),
+          },
+        ])
+      }
     },
     [handleSave]
   )
 
-  const onPanelBlur = useCallback(
-    async (event: React.FocusEvent) => {
-      // Save whenever focus changes, regardless of where it's going
-      const values = methods.getValues()
-      await handleSave(values)
-    },
-    [methods, handleSave]
-  )
+  const onPanelBlur = useCallback(methods.handleSubmit(onSubmit), [
+    methods,
+    handleSave,
+  ])
 
-  const handleKeyDownPanel = useCallback(
-    async (event: React.KeyboardEvent) => {
-      // Check for Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux)
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        await handleSave(methods.getValues())
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Save with Cmd+S (Mac) or Ctrl+S (Windows/Linux)
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault()
+        methods.handleSubmit(onSubmit)()
       }
-    },
-    [methods, handleSave]
-  )
+    }
 
-  if (actionIsLoading) {
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [methods, onSubmit])
+
+  if (actionIsLoading || registryActionsIsLoading) {
     return <CenteredSpinner />
   }
   if (!registryAction) {
@@ -275,17 +280,16 @@ export function ActionPanel({
   }
 
   // If there are validation errors, filter out the errors related to this action
-  const finalValErrors = validationErrors
-    ?.filter((error) => error.action_ref === slugify(action.title))
-    .concat(actionValidationErrors || [])
+  const finalValErrors = [
+    ...(actionValidationErrors || []),
+    ...(validationErrors || []),
+  ].filter((error) => error.action_ref === slugify(action.title))
   const ActionIcon = typeToLabel[registryAction.type].icon
   return (
     <div
       className="size-full overflow-auto"
       onBlur={onPanelBlur}
-      onKeyDown={handleKeyDownPanel}
-      // Need tabIndex to receive blur events
-      tabIndex={-1}
+      tabIndex={-1} // Need tabIndex to receive blur events
     >
       <Tabs defaultValue="inputs">
         <FormProvider {...methods}>
@@ -342,6 +346,7 @@ export function ActionPanel({
                   </div>
                 </div>
               </h3>
+
               <SaveStateIcon saveState={saveState} />
             </div>
             <div className="flex items-center justify-start">
@@ -763,24 +768,76 @@ export function ActionPanel({
     </div>
   )
 }
-function SaveStateIcon({
-  saveState,
-}: {
-  saveState: "idle" | "saving" | "success"
-}) {
+function SaveStateIcon({ saveState }: { saveState: SaveState }) {
   return (
     <div
       className={cn(
-        "animate-fade-out absolute right-4 top-4 flex justify-end space-x-2 transition-opacity duration-200",
-        saveState === "idle" && "opacity-0"
+        "absolute right-4 top-4 flex items-center justify-end space-x-2",
+        "transition-all duration-300 ease-in-out",
+        saveState === SaveState.IDLE && "opacity-0"
       )}
     >
-      {saveState === "saving" && (
-        <Loader2Icon className="size-4 animate-spin text-muted-foreground/70" />
+      {saveState === SaveState.UNSAVED && (
+        <>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            strokeLinejoin="round"
+            className="size-3 text-muted-foreground"
+          >
+            <path d="M13 13H8a1 1 0 0 0-1 1v7" />
+            <path d="M14 8h1" />
+            <path d="M17 21v-4" />
+            <path d="m2 2 20 20" />
+            <path d="M20.41 20.41A2 2 0 0 1 19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 .59-1.41" />
+            <path d="M29.5 11.5s5 5 4 5" />
+            <path d="M9 3h6.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V15" />
+          </svg>
+          <span className="text-xs text-muted-foreground">Unsaved</span>
+          <SaveShortcut />
+        </>
       )}
-      {saveState === "success" && (
-        <CheckCheck className="size-4 text-green-500" />
+      {saveState === SaveState.SAVING && (
+        <>
+          <Loader2Icon className="size-3 animate-spin text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">Saving</span>
+        </>
+      )}
+      {saveState === SaveState.SAVED && (
+        <>
+          <CircleCheckIcon className="size-4 fill-emerald-500 stroke-white" />
+          <span className="text-xs text-emerald-600">Saved</span>
+        </>
+      )}
+      {saveState === SaveState.ERROR && (
+        <>
+          <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
+          <span className="text-xs text-rose-500">Error</span>
+        </>
       )}
     </div>
+  )
+}
+
+function SaveShortcut() {
+  return (
+    <span className="my-px ml-auto flex items-center space-x-2">
+      <div className="mx-1 my-0 flex items-center space-x-1 rounded-sm border border-muted-foreground/20 bg-muted-foreground/10 px-px py-0 font-mono text-xs text-muted-foreground/80">
+        <SaveIcon className="size-3 text-muted-foreground/70" />
+        <p>
+          {typeof navigator.userAgent !== "undefined"
+            ? /Mac|iPod|iPhone|iPad/.test(navigator.userAgent)
+              ? "⌘+s"
+              : "ctrl+s"
+            : "ctrl+s"}
+        </p>
+      </div>
+    </span>
   )
 }

@@ -1846,6 +1846,11 @@ export const $RegistrySecret = {
                 }
             ],
             title: 'Optional Keys'
+        },
+        optional: {
+            type: 'boolean',
+            title: 'Optional',
+            default: false
         }
     },
     type: 'object',

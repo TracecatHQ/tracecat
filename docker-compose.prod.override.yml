@@ -1,0 +1,22 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      TRACECAT__APP_ENV: production
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      TRACECAT__APP_ENV: production
+
+  ui:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    environment:
+      NODE_ENV: "production"
+      NEXT_PUBLIC_APP_ENV: "production"
