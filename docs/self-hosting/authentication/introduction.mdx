@@ -5,14 +5,21 @@ description: Learn how to configure authentication with Tracecat.
 
 ## Default Admin User
 
-Every new Tracecat deployment is created with a default admin user.
-This user owns the organization and has admin rights to every workspace in the Tracecat deployment.
+The default admin user owns the organization and has admin rights to every workspace in the Tracecat deployment.
 
 <Note>
-  The default admin user is created on startup given the environment variables `TRACECAT__SETUP_ADMIN_EMAIL` and `TRACECAT__SETUP_ADMIN_PASSWORD`.
+  There are two ways the default admin user is created:
+
+  - If basic auth is enabled, the default admin user is created from the email and password provided in the environment variables.
+  - If OAuth or SAML SSO is enabled, the default admin user is assigned to the first user that logs into the Tracecat instance.
 </Note>
 
 ## Authentication Methods
+
+<Warning>
+  In production, use [OAuth](/self-hosting/authentication/google) or [SAML SSO](/self-hosting/authentication/sso).
+  Basic auth is meant for local development only.
+</Warning>
 
 Tracecat currently supports the following authentication methods:
 
@@ -28,8 +35,7 @@ Choose from a number of authentication methods listed below to get started.
     icon="lock"
     href="/self-hosting/authentication/basic"
   >
-    Email and password authentication comes preconfigured and works
-    out-of-the-box.
+    Email and password authentication.
   </Card>
   <Card
     title="Google OAuth"

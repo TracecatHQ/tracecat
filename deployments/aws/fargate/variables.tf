@@ -273,5 +273,5 @@ variable "tracecat_app_env" {
 
 variable "auth_types" {
   type    = string
-  default = "basic,google_oauth"
+  default = "google_oauth,sso"
 }

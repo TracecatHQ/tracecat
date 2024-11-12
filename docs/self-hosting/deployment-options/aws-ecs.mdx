@@ -3,15 +3,12 @@ title: AWS ECS Fargate
 description: Use Terraform to deploy Tracecat into ECS Fargate.
 ---
 
-## Prerequisites
+<Warning>
+  This stack is meant for production use. `TRACECAT__AUTH_TYPES=google_oauth,sso` is the default configuration.
+  You'll need to configure [Google OAuth](/self-hosting/authentication/google) or [SAML SSO](/self-hosting/authentication/sso) to login.
+</Warning>
 
-- [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
-- `curl`, `openssl`, `docker` to create cryptographic keys used in the Tracecat app
-- AWS credentials. View [AWS Provider docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) for details.
-- A public Route53 hosted zone (save the hosted zone's domain name and ID)
-- To create secrets in Secrets Manager, either:
-  - AWS CLI. View [installation docs](https://aws.amazon.com/cli/).
-  - Access to the AWS Management Console.
+## Prerequisites
 
 <Note>
 The open source Terraform stack deploys Tracecat into AWS with a
@@ -21,6 +18,15 @@ Internal services (e.g. API, worker, databases) are segregrated via private secu
 If your security model requires an internal facing ALB and private hosted zone,
 please reach out to [founders@tracecat.com](mailto:founders@tracecat.com) for help!
 </Note>
+
+
+- [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
+- `curl`, `openssl`, `docker` to create cryptographic keys used in the Tracecat app
+- AWS credentials. View [AWS Provider docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) for details.
+- A public Route53 hosted zone (save the hosted zone's domain name and ID)
+- To create secrets in Secrets Manager, either:
+  - AWS CLI. View [installation docs](https://aws.amazon.com/cli/).
+  - Access to the AWS Management Console.
 
 ## Instructions
 
