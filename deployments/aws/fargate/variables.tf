@@ -89,13 +89,37 @@ variable "tracecat_signing_secret_arn" {
 
 variable "oauth_client_id_arn" {
   type        = string
-  description = "The OAuth client ID (optional)"
+  description = "The ARN of the secret containing the OAuth client ID (optional)"
   default     = null
 }
 
 variable "oauth_client_secret_arn" {
   type        = string
-  description = "The OAuth client secret (optional)"
+  description = "The ARN of the secret containing the OAuth client secret (optional)"
+  default     = null
+}
+
+variable "saml_idp_entity_id_arn" {
+  type        = string
+  description = "The ARN of the secret containing the SAML IDP entity ID (optional)"
+  default     = null
+}
+
+variable "saml_idp_redirect_url_arn" {
+  type        = string
+  description = "The ARN of the secret containing the SAML IDP redirect URL (optional)"
+  default     = null
+}
+
+variable "saml_idp_certificate_arn" {
+  type        = string
+  description = "The ARN of the secret containing the SAML IDP certificate (optional)"
+  default     = null
+}
+
+variable "saml_idp_metadata_url_arn" {
+  type        = string
+  description = "The ARN of the secret containing the SAML IDP metadata URL (optional)"
   default     = null
 }
 

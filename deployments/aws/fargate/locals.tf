@@ -9,6 +9,7 @@ locals {
   # Tracecat common URLs
   public_app_url         = "https://${var.domain_name}"
   public_api_url         = "https://${var.domain_name}/api"
+  saml_acs_url           = "https://${var.domain_name}/api/auth/saml/acs"
   internal_api_url       = "http://api-service:8000" # Service connect DNS name
   temporal_cluster_url   = "temporal-service:7233"
   temporal_cluster_queue = "tracecat-task-queue"
@@ -35,6 +36,7 @@ locals {
       TRACECAT__AUTH_TYPES        = var.auth_types
       TEMPORAL__CLUSTER_URL       = local.temporal_cluster_url
       TEMPORAL__CLUSTER_QUEUE     = local.temporal_cluster_queue
+      SAML_SP_ACS_URL             = local.saml_acs_url
       RUN_MIGRATIONS              = "true"
     }, local.tracecat_db_configs) :
     { name = k, value = tostring(v) }
