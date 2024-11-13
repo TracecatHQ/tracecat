@@ -54,7 +54,6 @@ import {
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
 } from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkspace } from "@/providers/workspace"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
