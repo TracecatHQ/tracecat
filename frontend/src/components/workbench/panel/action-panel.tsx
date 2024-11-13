@@ -30,7 +30,6 @@ import {
   ToyBrickIcon,
 } from "lucide-react"
 import { Controller, FormProvider, useForm } from "react-hook-form"
-import { type Node } from "reactflow"
 import YAML from "yaml"
 
 import { useAction, useWorkbenchRegistryActions } from "@/lib/hooks"
@@ -77,7 +76,6 @@ import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { ActionNodeData } from "@/components/workbench/canvas/action-node"
 import {
   ControlFlowOptionsTooltip,
   ForEachTooltip,
@@ -125,23 +123,24 @@ enum SaveState {
 }
 
 export function ActionPanel({
-  node,
+  actionId,
   workflowId,
 }: {
-  node: Node<ActionNodeData>
+  actionId: string
   workflowId: string
 }) {
   const { workspaceId } = useWorkspace()
   const { validationErrors } = useWorkflow()
   const { action, actionIsLoading, updateAction } = useAction(
-    node.id,
+    actionId,
     workspaceId,
     workflowId
   )
-  const actionName = node.data.type
   const { getRegistryAction, registryActionsIsLoading } =
     useWorkbenchRegistryActions()
-  const registryAction = getRegistryAction(actionName)
+  const registryAction = action?.type
+    ? getRegistryAction(action.type)
+    : undefined
   const { for_each, run_if, retry_policy, ...options } =
     action?.control_flow ?? {}
   const methods = useForm<ActionFormSchema>({
@@ -234,7 +233,7 @@ export function ActionPanel({
         ])
       }
     },
-    [handleSave]
+    [handleSave, action]
   )
 
   const onPanelBlur = useCallback(methods.handleSubmit(onSubmit), [
@@ -253,7 +252,7 @@ export function ActionPanel({
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [methods, onSubmit])
+  }, [methods, onSubmit, action])
 
   if (actionIsLoading || registryActionsIsLoading) {
     return <CenteredSpinner />
@@ -263,7 +262,7 @@ export function ActionPanel({
       <div className="flex h-full items-center justify-center space-x-2 p-4">
         <AlertNotification
           level="error"
-          message={`Could not load action schema '${actionName}'.`}
+          message={`Could not load action schema '${action?.type}'.`}
         />
       </div>
     )
@@ -286,11 +285,7 @@ export function ActionPanel({
   ].filter((error) => error.action_ref === slugify(action.title))
   const ActionIcon = typeToLabel[registryAction.type].icon
   return (
-    <div
-      className="size-full overflow-auto"
-      onBlur={onPanelBlur}
-      tabIndex={-1} // Need tabIndex to receive blur events
-    >
+    <div className="size-full overflow-auto" onBlur={onPanelBlur} tabIndex={0}>
       <Tabs defaultValue="inputs">
         <FormProvider {...methods}>
           <form
@@ -786,8 +781,8 @@ function SaveStateIcon({ saveState }: { saveState: SaveState }) {
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
+            strokeWidth="2"
+            strokeLinecap="round"
             strokeLinejoin="round"
             className="size-3 text-muted-foreground"
           >

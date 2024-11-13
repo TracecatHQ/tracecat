@@ -60,9 +60,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
 
 import { retryHandler, TracecatApiError } from "@/lib/errors"
-import { isEmptyObject } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
-import { ActionNodeType } from "@/components/workbench/canvas/action-node"
 
 export function useLocalStorage<T>(
   key: string,
@@ -88,7 +86,6 @@ export function useAction(
 ) {
   const [isSaving, setIsSaving] = useState(false)
   const queryClient = useQueryClient()
-  const { setNodes } = useWorkflowBuilder()
   const {
     data: action,
     isLoading: actionIsLoading,
@@ -109,22 +106,7 @@ export function useAction(
         requestBody: values,
       })
     },
-    onSuccess: (updatedAction: ActionRead) => {
-      setNodes((nds: ActionNodeType[]) =>
-        nds.map((node: ActionNodeType) => {
-          if (node.id === actionId) {
-            const { title } = updatedAction
-            node.data = {
-              ...node.data,
-              title,
-              isConfigured:
-                updatedAction.inputs !== null ||
-                isEmptyObject(updatedAction.inputs),
-            }
-          }
-          return node
-        })
-      )
+    onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["action"],
       })
