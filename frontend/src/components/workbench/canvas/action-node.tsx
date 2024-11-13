@@ -36,10 +36,19 @@ import {
   ActionTargetHandle,
 } from "@/components/workbench/canvas/custom-handle"
 
+/**
+ * Represents the data structure for an Action Node
+ * @deprecated Previous version contained additional fields that are no longer used.
+ * Extra fields in existing data structures will be ignored.
+ */
 export interface ActionNodeData {
   type: string // alias for key
   isConfigured: boolean
+
+  // Allow any additional properties from legacy data
+  [key: string]: unknown
 }
+
 export type ActionNodeType = Node<ActionNodeData>
 
 export default React.memo(function ActionNode({
