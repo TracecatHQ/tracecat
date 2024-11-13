@@ -74,7 +74,13 @@ jobs:
         run: temporal --version
 
       - name: Run environment setup script
-        run: bash env.sh
+        run: |
+          echo "admin@example.com
+          password123456789
+          password123456789
+          y
+          localhost
+          n" | bash env.sh
 
       - name: Start Docker services
         env:
