@@ -76,8 +76,37 @@ dotenv_replace "TRACECAT__DB_ENCRYPTION_KEY" "$db_fernet_key" "$env_file"
 
 # Prompt user for the admin user
 read -p "Enter the email address for the admin user: " admin_email
-read -s -p "Enter the password for the admin user: " admin_password
-echo  # Add a newline after password input
+
+# Password validation function
+validate_password() {
+    local pass="$1"
+    if [[ ${#pass} -lt 12 ]]; then
+        echo -e "${RED}Password must be at least 12 characters long${NC}"
+        return 1
+    elif [[ ${#pass} -gt 64 ]]; then
+        echo -e "${RED}Password must not exceed 64 characters${NC}"
+        return 1
+    fi
+    return 0
+}
+
+# Password prompt with validation
+while true; do
+    read -s -p "Enter the password for the admin user (min 12 chars): " admin_password
+    echo  # Add a newline after password input
+
+    if validate_password "$admin_password"; then
+        read -s -p "Confirm password: " admin_password_confirm
+        echo  # Add a newline after password confirmation
+
+        if [ "$admin_password" = "$admin_password_confirm" ]; then
+            break
+        else
+            echo -e "${RED}Passwords do not match. Please try again.${NC}"
+        fi
+    fi
+done
+
 dotenv_replace "TRACECAT__SETUP_ADMIN_EMAIL" "$admin_email" "$env_file"
 dotenv_replace "TRACECAT__SETUP_ADMIN_PASSWORD" "$admin_password" "$env_file"
 
