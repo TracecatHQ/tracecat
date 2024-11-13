@@ -5,27 +5,27 @@ description: Learn how to configure authentication with Tracecat.
 
 ## Default Admin User
 
-Every new Tracecat deployment is created with a default admin user.
-This user owns the organization and has super admin rights to every workspace in the Tracecat deployment.
+The default admin user owns the organization and has admin rights to every workspace in the Tracecat deployment.
 
-We highly recommend changing the default email and password immediately after login.
-See the following warning callout box for details:
+<Note>
+  There are two ways the default admin user is created:
 
-<Warning>
-We cannot stress this enough. Don't forget to change the email and password of the default admin user in production!
-
-The login the first time: default email is `admin@domain.com` and the default password is `password`.
-
-</Warning>
-
-![signin-page](/img/signin-page.png)
+  - If basic auth is enabled, the default admin user is created from the email and password provided in the environment variables.
+  - If OAuth or SAML SSO is enabled, the default admin user is assigned to the first user that logs into the Tracecat instance.
+</Note>
 
 ## Authentication Methods
+
+<Warning>
+  In production, use [OAuth](/self-hosting/authentication/google) or [SAML SSO](/self-hosting/authentication/okta).
+  Basic auth is meant for local development only.
+</Warning>
 
 Tracecat currently supports the following authentication methods:
 
 - `basic`: Email and Password
-- `google`: Google OAuth
+- `google_oauth`: Google OAuth
+- `sso`: SAML SSO
 
 Choose from a number of authentication methods listed below to get started.
 
@@ -35,8 +35,7 @@ Choose from a number of authentication methods listed below to get started.
     icon="lock"
     href="/self-hosting/authentication/basic"
   >
-    Email and password authentication comes preconfigured and works
-    out-of-the-box.
+    Email and password authentication.
   </Card>
   <Card
     title="Google OAuth"
@@ -45,13 +44,20 @@ Choose from a number of authentication methods listed below to get started.
   >
     Learn how to authenticate into Tracecat using Google OAuth.
   </Card>
+  <Card
+    title="SAML SSO"
+    icon="key"
+    href="/self-hosting/authentication/sso"
+  >
+    Learn how to authenticate into Tracecat using SAML SSO.
+  </Card>
 </CardGroup>
 
 ## Enable / Disable Authentication Methods
 
 You can enable / disable multiple authentication methods in the `.env` file by modifying the `TRACECAT__AUTH_TYPES` environment variable.
-`TRACECAT__AUTH_TYPES` is a comma separated list of auth method keys: i.e. `basic`, `google_oauth`.
+`TRACECAT__AUTH_TYPES` is a comma separated list of auth method keys: i.e. `basic`, `google_oauth`, `sso`.
 
 ```bash
-TRACECAT__AUTH_TYPES=basic,google_oauth
+TRACECAT__AUTH_TYPES=basic,google_oauth,sso
 ```

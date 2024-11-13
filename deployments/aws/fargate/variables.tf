@@ -89,13 +89,37 @@ variable "tracecat_signing_secret_arn" {
 
 variable "oauth_client_id_arn" {
   type        = string
-  description = "The OAuth client ID (optional)"
+  description = "The ARN of the secret containing the OAuth client ID (optional)"
   default     = null
 }
 
 variable "oauth_client_secret_arn" {
   type        = string
-  description = "The OAuth client secret (optional)"
+  description = "The ARN of the secret containing the OAuth client secret (optional)"
+  default     = null
+}
+
+variable "saml_idp_entity_id_arn" {
+  type        = string
+  description = "The ARN of the secret containing the SAML IDP entity ID (optional)"
+  default     = null
+}
+
+variable "saml_idp_redirect_url_arn" {
+  type        = string
+  description = "The ARN of the secret containing the SAML IDP redirect URL (optional)"
+  default     = null
+}
+
+variable "saml_idp_certificate_arn" {
+  type        = string
+  description = "The ARN of the secret containing the SAML IDP certificate (optional)"
+  default     = null
+}
+
+variable "saml_idp_metadata_url_arn" {
+  type        = string
+  description = "The ARN of the secret containing the SAML IDP metadata URL (optional)"
   default     = null
 }
 
@@ -115,12 +139,12 @@ variable "domain_name" {
 
 variable "api_cpu" {
   type    = string
-  default = "256"
+  default = "1024"
 }
 
 variable "api_memory" {
   type    = string
-  default = "512"
+  default = "2048"
 }
 
 variable "worker_cpu" {
@@ -249,5 +273,5 @@ variable "tracecat_app_env" {
 
 variable "auth_types" {
   type    = string
-  default = "basic,google_oauth"
+  default = "google_oauth,sso"
 }
