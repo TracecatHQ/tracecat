@@ -25,10 +25,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
-import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import {
   ActionSoruceSuccessHandle,
@@ -36,14 +36,19 @@ import {
   ActionTargetHandle,
 } from "@/components/workbench/canvas/custom-handle"
 
+/**
+ * Represents the data structure for an Action Node
+ * @deprecated Previous version contained additional fields that are no longer used.
+ * Extra fields in existing data structures will be ignored.
+ */
 export interface ActionNodeData {
   type: string // alias for key
-  title: string
-  namespace: string
-  status: "online" | "offline"
   isConfigured: boolean
-  numberOfEvents: number
+
+  // Allow any additional properties from legacy data
+  [key: string]: unknown
 }
+
 export type ActionNodeType = Node<ActionNodeData>
 
 export default React.memo(function ActionNode({
@@ -82,72 +87,106 @@ export default React.memo(function ActionNode({
   const edges = useEdges()
   const incomingEdges = edges.filter((edge) => edge.target === id)
 
-  if (actionIsLoading) {
-    return <CenteredSpinner />
-  }
+  // Create a skeleton loading state within the card frame
+  const renderContent = () => {
+    if (actionIsLoading) {
+      return (
+        <>
+          <CardHeader className="p-4">
+            <div className="flex w-full items-center space-x-4">
+              <Skeleton className="size-10 rounded-full" />
+              <div className="flex w-full flex-1 justify-between space-x-12">
+                <div className="flex flex-col space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+                <Skeleton className="size-6" />
+              </div>
+            </div>
+          </CardHeader>
+          <Separator />
+          <CardContent className="p-4 py-2">
+            <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
+              <div className="flex items-center space-x-2">
+                <Skeleton className="size-4" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+            </div>
+          </CardContent>
+        </>
+      )
+    }
 
-  if (!action) {
+    if (!action) {
+      return (
+        <div className="p-4">
+          <AlertNotification
+            variant="warning"
+            title="Could not load action"
+            message="Please try again."
+          />
+        </div>
+      )
+    }
+
     return (
-      <AlertNotification
-        variant="warning"
-        title="Could not load action"
-        message="Please try again."
-      />
+      <>
+        <CardHeader className="p-4">
+          <div className="flex w-full items-center space-x-4">
+            {getIcon(action.type, {
+              className: "size-10 p-2",
+            })}
+
+            <div className="flex w-full flex-1 justify-between space-x-12">
+              <div className="flex flex-col">
+                <CardTitle className="flex w-full items-center space-x-2 text-xs font-medium leading-none">
+                  <span>{action.title}</span>
+                  <CopyButton
+                    value={`\$\{\{ ACTIONS.${slugify(action.title)}.result \}\}`}
+                    toastMessage="Copied action reference to clipboard"
+                    tooltipMessage="Copy action reference"
+                  />
+                </CardTitle>
+                <CardDescription className="mt-2 text-xs text-muted-foreground">
+                  {action.type}
+                </CardDescription>
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="m-0 size-6 p-0">
+                    <ChevronDownIcon className="m-1 size-4 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleDeleteNode}>
+                    <Trash2Icon className="mr-2 size-4 text-red-600" />
+                    <span className="text-xs text-red-600">Delete</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </CardHeader>
+        <Separator />
+        <CardContent className="p-4 py-2">
+          <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
+            <div className="flex items-center space-x-2">
+              {isConfigured ? (
+                <CircleCheckBigIcon className="size-4 text-emerald-500" />
+              ) : (
+                <LayoutListIcon className="size-4 text-gray-400" />
+              )}
+              <span className="text-xs capitalize">{isConfiguredMessage}</span>
+            </div>
+          </div>
+        </CardContent>
+      </>
     )
   }
 
   return (
     <Card className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}>
-      <CardHeader className="p-4">
-        <div className="flex w-full items-center space-x-4">
-          {getIcon(action.type, {
-            className: "size-10 p-2",
-          })}
-
-          <div className="flex w-full flex-1 justify-between space-x-12">
-            <div className="flex flex-col">
-              <CardTitle className="flex w-full items-center space-x-2 text-xs font-medium leading-none">
-                <span>{action.title}</span>
-                <CopyButton
-                  value={`\$\{\{ ACTIONS.${slugify(action.title)}.result \}\}`}
-                  toastMessage="Copied action reference to clipboard"
-                  tooltipMessage="Copy action reference"
-                />
-              </CardTitle>
-              <CardDescription className="mt-2 text-xs text-muted-foreground">
-                {action.type}
-              </CardDescription>
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="m-0 size-6 p-0">
-                  <ChevronDownIcon className="m-1 size-4 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleDeleteNode}>
-                  <Trash2Icon className="mr-2 size-4 text-red-600" />
-                  <span className="text-xs text-red-600">Delete</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </CardHeader>
-      <Separator />
-      <CardContent className="p-4 py-2">
-        <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
-          <div className="flex items-center space-x-2">
-            {isConfigured ? (
-              <CircleCheckBigIcon className="size-4 text-emerald-500" />
-            ) : (
-              <LayoutListIcon className="size-4 text-gray-400" />
-            )}
-            <span className="text-xs capitalize">{isConfiguredMessage}</span>
-          </div>
-        </div>
-      </CardContent>
-
+      {renderContent()}
       <ActionTargetHandle
         join_strategy={action?.control_flow?.join_strategy}
         indegree={incomingEdges.length}

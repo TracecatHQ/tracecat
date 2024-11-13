@@ -186,7 +186,7 @@ class RFGraph(TSObject):
     @cached_property
     def dep_list(self) -> dict[str, set[str]]:
         """Return a dependency list (node IDs) of the graph."""
-        dep_list = defaultdict(set)
+        dep_list: dict[str, set[str]] = defaultdict(set)
         for edge in self.action_edges():
             dep_list[edge.target].add(edge.source)
         return dep_list
