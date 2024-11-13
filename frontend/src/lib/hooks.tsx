@@ -81,22 +81,11 @@ export function useLocalStorage<T>(
   return [value, setValue]
 }
 
-export type PanelAction = {
-  action?: ActionRead
-  actionIsLoading: boolean
-  actionError: Error | null
-  updateAction: (values: ActionUpdate) => Promise<ActionRead>
-  queryClient: ReturnType<typeof useQueryClient>
-  queryKeys: {
-    selectedAction: [string, string, string]
-    workflow: [string, string]
-  }
-}
 export function useAction(
   actionId: string,
   workspaceId: string,
   workflowId: string
-): PanelAction & { isSaving: boolean } {
+) {
   const [isSaving, setIsSaving] = useState(false)
   const queryClient = useQueryClient()
   const { setNodes } = useWorkflowBuilder()
@@ -105,7 +94,7 @@ export function useAction(
     isLoading: actionIsLoading,
     error: actionError,
   } = useQuery<ActionRead, Error>({
-    queryKey: ["selected_action", actionId, workflowId],
+    queryKey: ["action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
       const [, actionId, workflowId] = queryKey as [string, string, string]
       return await actionsGetAction({ workspaceId, actionId, workflowId })
@@ -137,7 +126,7 @@ export function useAction(
         })
       )
       queryClient.invalidateQueries({
-        queryKey: ["selected_action", actionId, workflowId],
+        queryKey: ["action"],
       })
       queryClient.invalidateQueries({
         queryKey: ["workflow", workflowId],
@@ -161,11 +150,6 @@ export function useAction(
     actionIsLoading,
     actionError,
     updateAction,
-    queryClient,
-    queryKeys: {
-      selectedAction: ["selected_action", actionId, workflowId],
-      workflow: ["workflow", workflowId],
-    },
     isSaving,
   }
 }

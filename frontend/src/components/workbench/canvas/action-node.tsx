@@ -28,6 +28,8 @@ import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import {
   ActionSoruceSuccessHandle,
   ActionSourceErrorHandle,
@@ -45,7 +47,7 @@ export interface ActionNodeData {
 export type ActionNodeType = Node<ActionNodeData>
 
 export default React.memo(function ActionNode({
-  data: { title, isConfigured, type: key },
+  data: { isConfigured },
   selected,
   id,
 }: NodeProps<ActionNodeData>) {
@@ -53,7 +55,7 @@ export default React.memo(function ActionNode({
   const { toast } = useToast()
   const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
   // SAFETY: Node only exists if it's in the workflow
-  const { action } = useAction(id, workspaceId, workflowId!)
+  const { action, actionIsLoading } = useAction(id, workspaceId, workflowId!)
 
   const handleDeleteNode = useCallback(async () => {
     try {
@@ -80,26 +82,40 @@ export default React.memo(function ActionNode({
   const edges = useEdges()
   const incomingEdges = edges.filter((edge) => edge.target === id)
 
+  if (actionIsLoading) {
+    return <CenteredSpinner />
+  }
+
+  if (!action) {
+    return (
+      <AlertNotification
+        variant="warning"
+        title="Could not load action"
+        message="Please try again."
+      />
+    )
+  }
+
   return (
     <Card className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}>
       <CardHeader className="p-4">
         <div className="flex w-full items-center space-x-4">
-          {getIcon(key, {
+          {getIcon(action.type, {
             className: "size-10 p-2",
           })}
 
           <div className="flex w-full flex-1 justify-between space-x-12">
             <div className="flex flex-col">
               <CardTitle className="flex w-full items-center space-x-2 text-xs font-medium leading-none">
-                <span>{title}</span>
+                <span>{action.title}</span>
                 <CopyButton
-                  value={`\$\{\{ ACTIONS.${slugify(title)}.result \}\}`}
+                  value={`\$\{\{ ACTIONS.${slugify(action.title)}.result \}\}`}
                   toastMessage="Copied action reference to clipboard"
                   tooltipMessage="Copy action reference"
                 />
               </CardTitle>
               <CardDescription className="mt-2 text-xs text-muted-foreground">
-                {key}
+                {action.type}
               </CardDescription>
             </div>
             <DropdownMenu>
