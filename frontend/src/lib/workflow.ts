@@ -2,6 +2,8 @@ import { ReactFlowInstance } from "reactflow"
 
 import { isEphemeral } from "@/components/workbench/canvas/canvas"
 
+export const CHILD_WORKFLOW_ACTION_TYPE = "core.workflow.execute" as const
+
 /**
  * Prune the graph object to remove ephemeral nodes and edges.
  * @param reactFlowInstance - The React Flow instance.
