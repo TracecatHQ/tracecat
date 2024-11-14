@@ -15,7 +15,13 @@ import {
 
 import "react18-json-view/src/style.css"
 
-import { InfoIcon, TriangleAlert } from "lucide-react"
+import Link from "next/link"
+import { useParams } from "next/navigation"
+import {
+  InfoIcon,
+  SquareArrowOutUpRightIcon,
+  TriangleAlert,
+} from "lucide-react"
 
 import {
   ERROR_EVENT_TYPES,
@@ -26,6 +32,11 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { GenericWorkflowIcon, getIcon } from "@/components/icons"
 
 /**
@@ -148,10 +159,18 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
     action_input,
     join_strategy,
     start_delay,
+    related_wf_exec_id,
   } = event_group || {}
   const formattedEventType = parseEventType(event_type)
   const eventTimeDate = new Date(event.event_time)
   const { max_attempts, timeout } = retry_policy || {}
+
+  // Construct the link within the same workspace to the related workflow execution
+  const { workspaceId } = useParams()
+  const [relatedWorkflowId, relatedExecutionId] =
+    related_wf_exec_id?.split(":") ?? []
+  const relatedWorkflowExecutionLink = `/workspaces/${workspaceId}/workflows/${relatedWorkflowId}/executions/${relatedExecutionId}`
+
   return (
     <div className="my-4 flex flex-col space-y-2 px-4">
       <div className="flex w-full items-center space-x-4">
@@ -194,6 +213,23 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
             event_type == "CHILD_WORKFLOW_EXECUTION_FAILED" && "bg-rose-200"
           )}
         />
+        {event_type.includes("CHILD_WORKFLOW_EXECUTION") && (
+          <Tooltip>
+            <TooltipTrigger>
+              <Badge variant="outline">
+                <Link href={relatedWorkflowExecutionLink}>
+                  <div className="flex items-center gap-1">
+                    <span className="font-normal">Go to workflow run</span>
+                    <SquareArrowOutUpRightIcon className="size-3" />
+                  </div>
+                </Link>
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              <span>{related_wf_exec_id}</span>
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
       <div className="space-x-2">
         <Label className="w-24 text-xs text-muted-foreground">Event ID</Label>

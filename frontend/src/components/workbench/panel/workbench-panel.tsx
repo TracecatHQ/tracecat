@@ -2,13 +2,10 @@ import React from "react"
 import { WorkflowResponse } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { Node } from "reactflow"
 
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
-import { ActionNodeData } from "@/components/workbench/canvas/action-node"
 import { NodeType } from "@/components/workbench/canvas/canvas"
-import { TriggerNodeData } from "@/components/workbench/canvas/trigger-node"
 import { ActionPanel } from "@/components/workbench/panel/action-panel"
 import { TriggerPanel } from "@/components/workbench/panel/trigger-panel"
 import { WorkflowPanel } from "@/components/workbench/panel/workflow-panel"
@@ -58,19 +55,9 @@ function NodePanel({
 }) {
   switch (node.type) {
     case "udf":
-      return (
-        <ActionPanel
-          node={node as Node<ActionNodeData>}
-          workflowId={workflow.id}
-        />
-      )
+      return <ActionPanel actionId={node.id} workflowId={workflow.id} />
     case "trigger":
-      return (
-        <TriggerPanel
-          nodeData={node.data as TriggerNodeData}
-          workflow={workflow}
-        />
-      )
+      return <TriggerPanel workflow={workflow} />
     case "selector":
       // XXX: Unreachable, as we never select the selector node
       return <></>

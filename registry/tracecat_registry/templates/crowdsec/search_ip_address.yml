@@ -8,7 +8,7 @@ definition:
   secrets:
     - name: crowdsec
       keys:
-        - CROWDSEC_API_KEY
+        - CTI_API_KEY
       optional_keys: null
   expects:
     ip_address:
@@ -22,5 +22,5 @@ definition:
         url: https://cti.api.crowdsec.net/v2/smoke/${{ inputs.ip_address }}
         method: GET
         headers:
-          x-api-key: ${{ SECRETS.crowdsec.CROWDSEC_API_KEY }}
+          x-api-key: ${{ SECRETS.crowdsec.CTI_API_KEY }}
   returns: ${{ steps.search_ip_address.result }}

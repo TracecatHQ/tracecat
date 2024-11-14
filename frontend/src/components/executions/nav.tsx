@@ -2,7 +2,6 @@
 
 import React from "react"
 import {
-  EventHistoryResponse,
   WorkflowExecutionResponse,
   workflowExecutionsTerminateWorkflowExecution,
 } from "@/client"
@@ -31,7 +30,8 @@ import NoContent from "@/components/no-content"
 
 import "react18-json-view/src/style.css"
 
-import { useRouter } from "next/navigation"
+import Link from "next/link"
+import { useParams, usePathname, useRouter } from "next/navigation"
 import { useWorkspace } from "@/providers/workspace"
 import { TriangleRightIcon } from "@radix-ui/react-icons"
 
@@ -45,17 +45,13 @@ import { toast } from "@/components/ui/use-toast"
  */
 export function WorkflowExecutionNav({
   executions: workflowExecutions,
-  executionId,
-  setExecutionId,
-  setSelectedEvent,
 }: {
   executions?: WorkflowExecutionResponse[]
-  isCollapsed?: boolean
-  executionId?: string
-  setExecutionId: (id?: string) => void
-  setSelectedEvent: (event?: EventHistoryResponse) => void
 }) {
+  const { executionId } = useParams<{ executionId: string }>()
   const router = useRouter()
+  const pathname = usePathname()
+  const baseUrl = pathname.split("/executions")[0]
   const { workspaceId } = useWorkspace()
   if (!workflowExecutions) {
     return <NoContent message="No workflow executions found." />
@@ -95,24 +91,17 @@ export function WorkflowExecutionNav({
   }
 
   return (
-    <div
-      data-collapsed={false}
-      className="group flex flex-col gap-4 py-2 data-[collapsed=true]:py-2"
-    >
-      <nav className="grid gap-1 px-2 group-[[data-collapsed=true]]:justify-center group-[[data-collapsed=true]]:px-2">
+    <div className="group flex flex-col gap-4 py-2">
+      <nav className="grid gap-1 px-2">
         {workflowExecutions.map((execution, index) => (
           <HoverCard openDelay={10} closeDelay={10} key={index}>
-            <div
-              key={index}
+            <Link
+              href={`${baseUrl}/executions/${execution.id.split(":")[1]}`}
               className={cn(
                 buttonVariants({ variant: "default", size: "sm" }),
                 "justify-start bg-background text-muted-foreground shadow-none hover:cursor-default hover:bg-gray-100",
-                execution.id === executionId && "bg-gray-200"
+                execution.id.split(":")[1] === executionId && "bg-gray-200"
               )}
-              onClick={() => {
-                setSelectedEvent(undefined)
-                setExecutionId(execution.id)
-              }}
             >
               <div className="flex items-center">
                 <WorkflowExecutionStatusIcon
@@ -130,10 +119,11 @@ export function WorkflowExecutionNav({
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <CircleXIcon
-                            className="mr-1 size-4 fill-muted-foreground/70 stroke-white transition-all hover:cursor-pointer hover:fill-rose-500"
-                            onClick={async () =>
+                            className="terminate-button mr-1 size-4 fill-muted-foreground/70 stroke-white transition-all hover:cursor-pointer hover:fill-rose-500"
+                            onClick={async (e) => {
+                              e.stopPropagation()
                               await handleTerminateExecuton(execution.id)
-                            }
+                            }}
                           />
                         </TooltipTrigger>
                         <TooltipContent
@@ -149,7 +139,7 @@ export function WorkflowExecutionNav({
                   </div>
                 </HoverCardTrigger>
               </div>
-            </div>
+            </Link>
             <HoverCardContent
               className="w-100"
               side="right"

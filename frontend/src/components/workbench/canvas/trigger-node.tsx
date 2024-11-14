@@ -32,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -41,7 +42,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { getIcon } from "@/components/icons"
-import { CenteredSpinner } from "@/components/loading/spinner"
 import { TriggerSourceHandle } from "@/components/workbench/canvas/custom-handle"
 
 export interface TriggerNodeData {
@@ -156,7 +156,31 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
     useSchedules(workflowId)
 
   if (schedulesIsLoading) {
-    return <CenteredSpinner />
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="h-8 text-center text-xs" colSpan={2}>
+              <div className="flex items-center justify-center gap-1">
+                <Skeleton className="size-3" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+
+        <TableBody>
+          <TableRow className="items-center text-center text-xs">
+            <TableCell>
+              <div className="flex w-full items-center justify-center gap-2">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="size-2 rounded-full" />
+              </div>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    )
   }
   if (schedulesError || !schedules) {
     return <UnplugIcon className="size-4 text-muted-foreground" />

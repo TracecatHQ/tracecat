@@ -300,7 +300,7 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
   const pathname = usePathname()
   const { workspaceId } = useWorkspace()
   let leafRoute: string = "workflow"
-  if (pathname.endsWith("executions")) {
+  if (pathname.includes("executions")) {
     leafRoute = "executions"
   }
 
