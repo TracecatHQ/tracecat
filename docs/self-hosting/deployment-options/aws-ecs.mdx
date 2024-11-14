@@ -3,15 +3,12 @@ title: AWS ECS Fargate
 description: Use Terraform to deploy Tracecat into ECS Fargate.
 ---
 
-## Prerequisites
+<Warning>
+  This stack is meant for production use. `TRACECAT__AUTH_TYPES=google_oauth,sso` is the default configuration.
+  You'll need to configure [Google OAuth](/self-hosting/authentication/google) or [SAML SSO](/self-hosting/authentication/sso) to login.
+</Warning>
 
-- [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
-- `curl`, `openssl`, `docker` to create cryptographic keys used in the Tracecat app
-- AWS credentials. View [AWS Provider docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) for details.
-- A public Route53 hosted zone (save the hosted zone's domain name and ID)
-- To create secrets in Secrets Manager, either:
-  - AWS CLI. View [installation docs](https://aws.amazon.com/cli/).
-  - Access to the AWS Management Console.
+## Prerequisites
 
 <Note>
 The open source Terraform stack deploys Tracecat into AWS with a
@@ -21,6 +18,15 @@ Internal services (e.g. API, worker, databases) are segregrated via private secu
 If your security model requires an internal facing ALB and private hosted zone,
 please reach out to [founders@tracecat.com](mailto:founders@tracecat.com) for help!
 </Note>
+
+
+- [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
+- `curl`, `openssl`, `docker` to create cryptographic keys used in the Tracecat app
+- AWS credentials. View [AWS Provider docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) for details.
+- A public Route53 hosted zone (save the hosted zone's domain name and ID)
+- To create secrets in Secrets Manager, either:
+  - AWS CLI. View [installation docs](https://aws.amazon.com/cli/).
+  - Access to the AWS Management Console.
 
 ## Instructions
 
@@ -45,11 +51,24 @@ please reach out to [founders@tracecat.com](mailto:founders@tracecat.com) for he
     if you want to run this step manually.
   </Step>
   <Step title="Retrieve secret ARNs">
-    Get and store the ARNs of the three created secrets in a secure place.
+    Store the ARNs of the three created secrets in a secure place.
     You will need these ARNs to pass into the Terraform stack as variables.
 
     You can find the ARNs in the web console:
     ![AWS Secret ARNs](/img/secrets/fargate-secret-arn.png)
+  </Step>
+  <Step title="Configure Google OAuth or SAML SSO">
+    The Terraform stack has two Google OAuth variables or four SAML SSO variables that need to be configured to setup Google OAuth or SAML SSO.
+    The variables are:
+    - `oauth_client_id_arn`
+    - `oauth_client_secret_arn`
+    - `saml_idp_entity_id_arn`
+    - `saml_idp_redirect_url_arn`
+    - `saml_idp_certificate_arn`
+    - `saml_idp_metadata_url_arn`
+
+    These variables are the ARNs of the AWS Secrets Manager secrets that contain the Google OAuth or SAML SSO configuration.
+    Create the secrets in AWS Secrets Manager and take note of the ARNs.
   </Step>
   <Step title="Deploy stack">
     Initialize Terraform and deploy the stack by running the following commands:
@@ -64,6 +83,16 @@ please reach out to [founders@tracecat.com](mailto:founders@tracecat.com) for he
     export TF_VAR_tracecat_db_encryption_key_arn=<secret-arn>
     export TF_VAR_tracecat_service_key_arn=<secret-arn>
     export TF_VAR_tracecat_signing_secret_arn=<secret-arn>
+
+    # Either: Set Google OAuth variables
+    export TF_VAR_oauth_client_id_arn=<secret-arn>
+    export TF_VAR_oauth_client_secret_arn=<secret-arn>
+
+    # Or: Set SAML SSO variables
+    export TF_VAR_saml_idp_entity_id_arn=<secret-arn>
+    export TF_VAR_saml_idp_redirect_url_arn=<secret-arn>
+    export TF_VAR_saml_idp_certificate_arn=<secret-arn>
+    export TF_VAR_saml_idp_metadata_url_arn=<secret-arn>
 
     # Create Terraform stack
     terraform apply
@@ -85,18 +114,7 @@ please reach out to [founders@tracecat.com](mailto:founders@tracecat.com) for he
 
 ## Login
 
-Every new Tracecat deployment is created with a default admin user.
-This user owns the organization and has super admin rights to every workspace in the Tracecat deployment.
-
-We highly recommend changing the default email and password immediately after login.
-See the following warning callout box for details:
-
-<Warning>
-We cannot stress this enough. Don't forget to change the email and password of the default admin user in production!
-
-The login the first time: default email is `admin@domain.com` and the default password is `password`.
-
-</Warning>
+The first user that logs in via Google OAuth or SAML SSO will be created with default admin privileges.
 
 ## Next Steps
 

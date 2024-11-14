@@ -265,15 +265,15 @@ def build_action_statements(
     graph: RFGraph, actions: list[Action]
 ) -> list[ActionStatement]:
     """Convert DB Actions into ActionStatements using the graph."""
-    ref2action = {action.ref: action for action in actions}
+    id2action = {action.id: action for action in actions}
 
     statements = []
     for node in graph.action_nodes():
         dependencies: list[str] = []
-        for dep_node_id in graph.dep_list[node.id]:
-            base_ref = graph.node_map[dep_node_id].ref
+        for dep_act_id in graph.dep_list[node.id]:
+            base_ref = id2action[dep_act_id].ref
             for edge in graph.edges:
-                if edge.source != dep_node_id or edge.target != node.id:
+                if edge.source != dep_act_id or edge.target != node.id:
                     continue
                 if edge.source_handle == EdgeType.ERROR:
                     ref = dep_from_edge_components(base_ref, edge.source_handle)
@@ -282,12 +282,12 @@ def build_action_statements(
                 dependencies.append(ref)
         dependencies = sorted(dependencies)
 
-        action = ref2action[node.ref]
+        action = id2action[node.id]
         control_flow = ActionControlFlow.model_validate(action.control_flow)
         action_stmt = ActionStatement(
             id=action.id,
-            ref=node.ref,
-            action=node.data.type,
+            ref=action.ref,
+            action=action.type,
             args=action.inputs,
             depends_on=dependencies,
             run_if=control_flow.run_if,

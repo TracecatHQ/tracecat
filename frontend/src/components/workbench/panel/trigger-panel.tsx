@@ -7,11 +7,7 @@ import { ApiError, WebhookResponse, WorkflowResponse } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import {
-  CalendarClockIcon,
-  PlusCircleIcon,
-  WebhookIcon,
-} from "lucide-react"
+import { CalendarClockIcon, PlusCircleIcon, WebhookIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
@@ -88,17 +84,9 @@ import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import {
-  TriggerNodeData,
-  TriggerTypename,
-} from "@/components/workbench/canvas/trigger-node"
+import { TriggerTypename } from "@/components/workbench/canvas/trigger-node"
 
-export function TriggerPanel({
-  workflow,
-}: {
-  nodeData: TriggerNodeData
-  workflow: WorkflowResponse
-}) {
+export function TriggerPanel({ workflow }: { workflow: WorkflowResponse }) {
   return (
     <div className="size-full overflow-auto">
       <div className="grid grid-cols-3">

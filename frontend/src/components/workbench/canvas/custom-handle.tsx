@@ -181,7 +181,7 @@ export function ActionSoruceSuccessHandle({
             type={type}
             position={Position.Bottom}
             className={cn(
-              "group !-bottom-8 !left-[45%] !size-8 !-translate-x-1/2 !border-none !bg-transparent",
+              "group !-bottom-8 !size-8 !-translate-x-1/2 !border-none !bg-transparent",
               className
             )}
           >
@@ -207,7 +207,7 @@ export function ActionSourceErrorHandle({
             type={type}
             position={Position.Bottom}
             className={cn(
-              "group !-bottom-8 !left-[55%] !size-8 !-translate-x-1/2 !border-none !bg-transparent",
+              "group !-bottom-8 !left-[56%] !size-8 !-translate-x-1/2 !border-none !bg-transparent",
               className
             )}
           >

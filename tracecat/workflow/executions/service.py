@@ -20,13 +20,19 @@ from temporalio.client import (
     WorkflowHistoryEventFilterType,
 )
 
-from tracecat import config, identifiers
+from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.identifiers.workflow import (
+    WorkflowExecutionID,
+    WorkflowID,
+    WorkflowScheduleID,
+    exec_id,
+)
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
@@ -54,7 +60,7 @@ class WorkflowExecutionsService:
         client = await get_temporal_client()
         return WorkflowExecutionsService(client=client)
 
-    def handle(self, wf_exec_id: identifiers.WorkflowExecutionID) -> WorkflowHandle:
+    def handle(self, wf_exec_id: WorkflowExecutionID) -> WorkflowHandle:
         return self._client.get_workflow_handle(wf_exec_id)
 
     async def query_executions(
@@ -67,12 +73,12 @@ class WorkflowExecutionsService:
         ]
 
     async def get_execution(
-        self, wf_exec_id: identifiers.WorkflowExecutionID
+        self, wf_exec_id: WorkflowExecutionID
     ) -> WorkflowExecutionDescription:
         return await self.handle(wf_exec_id).describe()
 
     async def get_execution_status(
-        self, wf_exec_id: identifiers.WorkflowExecutionID
+        self, wf_exec_id: WorkflowExecutionID
     ) -> WorkflowExecutionStatus | None:
         """Get the status of a workflow execution."""
 
@@ -85,7 +91,7 @@ class WorkflowExecutionsService:
         return await self.query_executions()
 
     async def list_executions_by_workflow_id(
-        self, wf_id: identifiers.WorkflowID
+        self, wf_id: WorkflowID
     ) -> list[WorkflowExecution]:
         """List all workflow executions by workflow ID."""
 
@@ -93,7 +99,7 @@ class WorkflowExecutionsService:
         return await self.query_executions(query=query)
 
     async def get_latest_execution_by_workflow_id(
-        self, wf_id: identifiers.WorkflowID
+        self, wf_id: WorkflowID
     ) -> WorkflowExecution:
         """Get the latest workflow execution by workflow ID."""
 
@@ -102,7 +108,7 @@ class WorkflowExecutionsService:
 
     async def list_workflow_execution_event_history(
         self,
-        wf_exec_id: identifiers.WorkflowExecutionID,
+        wf_exec_id: WorkflowExecutionID,
         event_filter_type: WorkflowHistoryEventFilterType = WorkflowHistoryEventFilterType.ALL_EVENT,
         **kwargs,
     ) -> list[EventHistoryResponse]:
@@ -300,7 +306,7 @@ class WorkflowExecutionsService:
 
     async def iter_list_workflow_execution_event_history(
         self,
-        wf_exec_id: identifiers.WorkflowExecutionID,
+        wf_exec_id: WorkflowExecutionID,
         event_filter_type: WorkflowHistoryEventFilterType = WorkflowHistoryEventFilterType.ALL_EVENT,
         **kwargs,
     ) -> AsyncGenerator[HistoryEvent, Any]:
@@ -316,7 +322,7 @@ class WorkflowExecutionsService:
         self,
         dsl: DSLInput,
         *,
-        wf_id: identifiers.WorkflowID,
+        wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
     ) -> CreateWorkflowExecutionResponse:
         """Create a new workflow execution.
@@ -328,14 +334,14 @@ class WorkflowExecutionsService:
         return CreateWorkflowExecutionResponse(
             message="Workflow execution started",
             wf_id=wf_id,
-            wf_exec_id=identifiers.workflow.exec_id(wf_id),
+            wf_exec_id=exec_id(wf_id),
         )
 
     def create_workflow_execution(
         self,
         dsl: DSLInput,
         *,
-        wf_id: identifiers.WorkflowID,
+        wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
     ) -> Coroutine[Any, Any, DispatchWorkflowResult]:
         """Create a new workflow execution.
@@ -349,7 +355,7 @@ class WorkflowExecutionsService:
                 validation_result.msg, detail=validation_result.detail
             )
 
-        wf_exec_id = identifiers.workflow.exec_id(wf_id)
+        wf_exec_id = exec_id(wf_id)
         return self._dispatch_workflow(
             dsl=dsl,
             wf_id=wf_id,
@@ -360,8 +366,8 @@ class WorkflowExecutionsService:
     async def _dispatch_workflow(
         self,
         dsl: DSLInput,
-        wf_id: identifiers.WorkflowID,
-        wf_exec_id: identifiers.WorkflowExecutionID,
+        wf_id: WorkflowID,
+        wf_exec_id: WorkflowExecutionID,
         trigger_inputs: TriggerInputs | None = None,
         **kwargs: Any,
     ) -> DispatchWorkflowResult:
@@ -394,14 +400,14 @@ class WorkflowExecutionsService:
 
     def cancel_workflow_execution(
         self,
-        wf_exec_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
+        wf_exec_id: WorkflowExecutionID | WorkflowScheduleID,
     ) -> Awaitable[None]:
         """Cancel a workflow execution."""
         return self.handle(wf_exec_id).cancel()
 
     def terminate_workflow_execution(
         self,
-        wf_exec_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
+        wf_exec_id: WorkflowExecutionID | WorkflowScheduleID,
         reason: str | None = None,
     ) -> Awaitable[None]:
         """Terminate a workflow execution."""
