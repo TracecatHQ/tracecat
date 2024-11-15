@@ -171,14 +171,19 @@ def format_string(template: str, *values: Any) -> str:
     return template.format(*values)
 
 
+def strip(x: str, chars: str) -> str:
+    """Removes all leading and trailing characters."""
+    return x.strip(chars)
+
+
 def str_to_b64(x: str) -> str:
     """Encode string to base64."""
-    return base64.b64encode(x.encode()).decode()
+    return base64.urlsafe_b64encode(x.encode()).decode()
 
 
 def b64_to_str(x: str) -> str:
     """Decode base64 string to string."""
-    return base64.b64decode(x).decode()
+    return base64.urlsafe_b64decode(x).decode()
 
 
 def ipv4_in_subnet(ipv4: str, subnet: str) -> bool:
@@ -531,6 +536,7 @@ def or_(a: bool, b: bool) -> bool:
 _FUNCTION_MAPPING = {
     # String transforms
     "slice": slice_str,
+    "strip": strip,
     # Comparison
     "less_than": less_than,
     "less_than_or_equal": less_than_or_equal,

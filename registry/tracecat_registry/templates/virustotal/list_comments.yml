@@ -1,0 +1,23 @@
+type: action
+definition:
+  title: List VirusTotal comments on URL
+  description: Get comments on a URL from the VirusTotal community.
+  display_group: VirusTotal
+  namespace: integrations.virustotal
+  name: list_comments
+  secrets:
+    - name: virustotal
+      keys: ["VIRUSTOTAL_API_KEY"]
+  expects:
+    url:
+      type: str
+      description: The URL to list comments for
+  steps:
+    - ref: list_comments
+      action: core.http_request
+      args:
+        url: https://www.virustotal.com/api/v3/urls/${{ FN.strip(FN.to_base64(inputs.url), "=") }}/comments
+        method: GET
+        headers:
+          x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+  returns: ${{ steps.list_comments.result }}
