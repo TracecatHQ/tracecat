@@ -186,7 +186,10 @@ export default React.memo(function ActionNode({
             </div>
             {isChildWorkflow && (
               <div className="flex justify-end">
-                <Badge variant="outline" className="text-foreground/70">
+                <Badge
+                  variant="outline"
+                  className="text-foreground/70 hover:cursor-pointer hover:bg-muted-foreground/5"
+                >
                   {childWorkflowId ? (
                     <Link
                       href={`/workspaces/${workspaceId}/workflows/${childWorkflowId}`}
