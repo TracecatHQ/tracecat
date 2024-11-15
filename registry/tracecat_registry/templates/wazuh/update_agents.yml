@@ -23,7 +23,7 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
-    - ref: upgrate_agents
+    - ref: upgrade_agents
       action: core.http_request
       args:
         url: ${{ inputs.wazuh_server_url }}/agents/upgrade
