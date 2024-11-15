@@ -6,7 +6,7 @@ definition:
   description: Get threat intel report for an IP address from CrowdSec.
   display_group: CrowdSec
   secrets:
-    - name: cti
+    - name: crowdsec_cti
       keys:
         - CTI_API_KEY
       optional_keys: null
