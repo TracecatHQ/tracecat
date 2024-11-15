@@ -179,15 +179,17 @@ class WorkflowExecutionsService:
                     )
 
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
-                    run_args_data = _extract_first(
-                        event.workflow_execution_started_event_attributes.input
-                    )
+                    attrs = event.workflow_execution_started_event_attributes
+                    run_args_data = _extract_first(attrs.input)
                     dsl_run_args = DSLRunArgs(**run_args_data)
+                    # Empty strings coerce to None
+                    parent_exec_id = attrs.parent_workflow_execution.workflow_id or None
                     events.append(
                         EventHistoryResponse(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_STARTED,
+                            parent_wf_exec_id=parent_exec_id,
                             task_id=event.task_id,
                             role=dsl_run_args.role,
                         )

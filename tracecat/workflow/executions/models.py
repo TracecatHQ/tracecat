@@ -263,6 +263,7 @@ class EventHistoryResponse(BaseModel, Generic[EventInput]):
     failure: EventFailure | None = None
     result: Any | None = None
     role: Role | None = None
+    parent_wf_exec_id: WorkflowExecutionID | None = None
 
 
 class CreateWorkflowExecutionParams(BaseModel):
