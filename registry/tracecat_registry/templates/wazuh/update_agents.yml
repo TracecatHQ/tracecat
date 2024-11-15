@@ -23,7 +23,7 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
-    - ref: update_agents
+    - ref: upgrate_agents
       action: core.http_request
       args:
         url: ${{ inputs.wazuh_server_url }}/agents/upgrade
@@ -31,5 +31,14 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
         payload:
-          agent_list: ${{ steps.get_outdated_agents.result.data.affected_agents }}
+          agent_list: ${{ steps.get_outdated_agents.result.data.affected_items }}
+    - ref: upgrade_result
+      action: core.http_request
+      args:
+        url: ${{ inputs.wazuh_server_url }}/agent/upgrade_result
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
+        payload:
+          agents_list: ${{ steps.upgrate_agents.result.data.affected_items }}
   returns: ${{ steps.update_agents.result }}
