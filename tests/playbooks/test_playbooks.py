@@ -108,11 +108,15 @@ async def test_playbook_validation(
     "file_path, trigger_inputs, expected_actions",
     [
         (
-            "playbooks/tutorials/virustotal_quickstart.yml",
+            "playbooks/tutorials/quickstart.yml",
             {
-                "url_input": "https://crowdstrikebluescreen.com",
+                "url": "https://crowdstrikebluescreen.com",
             },
-            ["search_url"],
+            [
+                "search_url_with_virustotal",
+                "extract_virustotal_report",
+                "list_virustotal_comments_on_url",
+            ],
         ),
     ],
     ids=lambda x: x,
