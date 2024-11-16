@@ -73,6 +73,10 @@ async def http_request(
         dict[str, Any],
         Field(description="HTTP form encoded data"),
     ] = None,
+    auth: Annotated[
+        dict[str, str],
+        Field(description="Basic auth credentials with `username` and `password` keys"),
+    ] = None,
     timeout: Annotated[
         float,
         Field(description="Timeout in seconds"),
@@ -94,34 +98,39 @@ async def http_request(
 ) -> HTTPResponse:
     """Perform a HTTP request to a given URL."""
 
+    basic_auth = None
+    if auth:
+        basic_auth = httpx.BasicAuth(**auth)
+
+    cert = None
+    if secrets.get("SSL_CLIENT_CERT"):
+        # Create a temp file for the certificate
+        cert_file_path = None
+        with tempfile.NamedTemporaryFile(delete=False) as cert_file:
+            cert_file.write(secrets.get("SSL_CLIENT_CERT").encode())
+            cert_file.flush()
+            cert_file_path = cert_file.name
+
+        # Create a temp file for the key (if exists)
+        key_file_path = None
+        if secrets.get("SSL_CLIENT_KEY"):
+            with tempfile.NamedTemporaryFile(delete=False) as key_file:
+                key_file.write(secrets.get("SSL_CLIENT_KEY").encode())
+                key_file.flush()
+                key_file_path = key_file.name
+
+        cert = [
+            cert_file_path,
+            key_file_path,
+            secrets.get("SSL_CLIENT_PASSWORD"),
+        ]
+        # Drop None values
+        cert = tuple(c for c in cert if c is not None)
+
     try:
-        cert = None
-        if secrets.get("SSL_CLIENT_CERT"):
-            # Create a temp file for the certificate
-            cert_file_path = None
-            with tempfile.NamedTemporaryFile(delete=False) as cert_file:
-                cert_file.write(secrets.get("SSL_CLIENT_CERT").encode())
-                cert_file.flush()
-                cert_file_path = cert_file.name
-
-            # Create a temp file for the key (if exists)
-            key_file_path = None
-            if secrets.get("SSL_CLIENT_KEY"):
-                with tempfile.NamedTemporaryFile(delete=False) as key_file:
-                    key_file.write(secrets.get("SSL_CLIENT_KEY").encode())
-                    key_file.flush()
-                    key_file_path = key_file.name
-
-            cert = [
-                cert_file_path,
-                key_file_path,
-                secrets.get("SSL_CLIENT_PASSWORD"),
-            ]
-            # Drop None values
-            cert = tuple(c for c in cert if c is not None)
-
         async with httpx.AsyncClient(
             cert=cert,
+            auth=basic_auth,
             timeout=httpx.Timeout(timeout),
             follow_redirects=follow_redirects,
             max_redirects=max_redirects,
