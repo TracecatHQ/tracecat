@@ -15,6 +15,10 @@ definition:
       type: str
       description: The base URL for the Wazuh server API
       default: null
+    verify_ssl:
+      type: bool
+      description: true or false
+      default: null
   steps:
     - ref: get_outdated_agents
       action: core.http_request
@@ -32,6 +36,7 @@ definition:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
         payload:
           agent_list: ${{ steps.get_outdated_agents.result.data.affected_items }}
+        verify_ssl: ${{ inputs.verify_ssl  }} 
     - ref: upgrade_result
       action: core.http_request
       args:
@@ -40,5 +45,5 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
         payload:
-          agents_list: ${{ steps.upgrate_agents.result.data.affected_items }}
-  returns: ${{ steps.update_agents.result }}
+          agents_list: ${{ steps.upgrade_agents.result.data.affected_items }}
+  returns: ${{ steps.upgrade_result.result }}
