@@ -178,11 +178,21 @@ def strip(x: str, chars: str) -> str:
 
 def str_to_b64(x: str) -> str:
     """Encode string to base64."""
-    return base64.urlsafe_b64encode(x.encode()).decode()
+    return base64.b64encode(x.encode()).decode()
 
 
 def b64_to_str(x: str) -> str:
     """Decode base64 string to string."""
+    return base64.b64decode(x).decode()
+
+
+def str_to_b64url(x: str) -> str:
+    """Encode string to URL-safe base64."""
+    return base64.urlsafe_b64encode(x.encode()).decode()
+
+
+def b64url_to_str(x: str) -> str:
+    """Decode URL-safe base64 string to string."""
     return base64.urlsafe_b64decode(x).decode()
 
 
@@ -601,6 +611,8 @@ _FUNCTION_MAPPING = {
     # Base64
     "to_base64": str_to_b64,
     "from_base64": b64_to_str,
+    "to_base64url": str_to_b64url,
+    "from_base64url": b64url_to_str,
     # Utils
     "lookup": dict_lookup,
     # IP addresses
