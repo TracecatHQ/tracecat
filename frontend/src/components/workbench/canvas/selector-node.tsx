@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef } from "react"
-import { RegistryActionRead } from "@/client"
+import { actionsCreateAction, RegistryActionRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import fuzzysort from "fuzzysort"
 import { CloudOffIcon, XIcon } from "lucide-react"
@@ -18,14 +18,11 @@ import {
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { ActionNodeData } from "@/components/workbench/canvas/action-node"
-import {
-  createNewNode,
-  isEphemeral,
-} from "@/components/workbench/canvas/canvas"
+import { ActionNodeType } from "@/components/workbench/canvas/action-node"
+import { isEphemeral } from "@/components/workbench/canvas/canvas"
 
 export const SelectorTypename = "selector" as const
 
@@ -160,7 +157,24 @@ function ActionCommandSelector({
   }, [inputValue])
 
   if (!registryActions || registryActionsIsLoading) {
-    return <CenteredSpinner />
+    return (
+      <ScrollArea className="h-full" ref={scrollAreaRef}>
+        <CommandGroup heading="Loading Actions..." className="text-xs">
+          {/* Render 5 skeleton items */}
+          {Array.from({ length: 5 }).map((_, index) => (
+            <CommandItem key={index} className="text-xs">
+              <div className="w-full flex-col">
+                <div className="flex items-center justify-start">
+                  <Skeleton className="mr-2 size-5" />
+                  <Skeleton className="h-4 w-32" />
+                </div>
+                <Skeleton className="mt-1 h-3 w-24" />
+              </div>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </ScrollArea>
+    )
   }
   if (registryActionsError) {
     console.error("Failed to load actions", registryActionsError)
@@ -207,30 +221,33 @@ function ActionCommandGroup({
   }, [sortedActions, inputValue])
 
   const handleSelect = useCallback(
-    async (action: RegistryActionRead) => {
+    async (registryAction: RegistryActionRead) => {
       if (!workflowId) {
         return
       }
-      console.log("Selected action:", action)
-      const { position: currPosition } = getNode(
-        nodeId
-      ) as Node<SelectorNodeData>
-      const nodeData = {
-        type: action.action,
-        title: action.default_title || action.action,
-        namespace: action.namespace,
-        status: "offline",
-        isConfigured: false,
-        numberOfEvents: 0,
-      } as ActionNodeData
+      console.log("Selected action:", registryAction)
+      const { position } = getNode(nodeId) as Node<SelectorNodeData>
+
       try {
-        const newNode = await createNewNode(
-          "udf",
-          workflowId,
+        const type = registryAction.action
+        const title = registryAction.default_title || registryAction.action
+        const { id } = await actionsCreateAction({
           workspaceId,
-          nodeData,
-          currPosition
-        )
+          requestBody: {
+            workflow_id: workflowId,
+            type,
+            title,
+          },
+        })
+        const newNode = {
+          id,
+          type: "udf",
+          position,
+          data: {
+            type,
+            isConfigured: false,
+          },
+        } as ActionNodeType
         // Given successful creation, we can now remove the selector node
         // Find the current "selector" node and replace it with the new node
         // XXX: Actually just filter all ephemeral nodes

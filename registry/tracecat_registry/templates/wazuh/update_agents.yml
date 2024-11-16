@@ -1,0 +1,35 @@
+type: action
+definition:
+  name: update_wazuh_agents
+  namespace: integrations.wazuh
+  title: Update Outdated Wazuh Agents
+  description: Identifies outdated Wazuh agents and updates them.
+  display_group: Wazuh
+  secrets:
+    - name: wazuh
+      keys:
+        - WAZUH_API_TOKEN
+      optional_keys: null
+  expects:
+    wazuh_server_url:
+      type: str
+      description: The base URL for the Wazuh server API
+      default: null
+  steps:
+    - ref: get_outdated_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.wazuh_server_url }}/agents/outdated
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
+    - ref: update_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.wazuh_server_url }}/agents/upgrade
+        method: PUT
+        headers:
+          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
+        payload:
+          agent_list: ${{ steps.get_outdated_agents.result.data.affected_agents }}
+  returns: ${{ steps.update_agents.result }}

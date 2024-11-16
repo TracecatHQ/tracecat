@@ -36,7 +36,7 @@ import { useWorkflow } from "@/providers/workflow"
 import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 
-import { createAction, updateWorkflowGraphObject } from "@/lib/workflow"
+import { pruneGraphObject } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
@@ -147,40 +147,6 @@ export function isInvincible<T>(node: Node<T>): boolean {
 }
 export function isEphemeral<T>(node: Node<T>): boolean {
   return ephemeralNodeTypes.includes(node?.type as string)
-}
-
-export async function createNewNode(
-  type: NodeTypename,
-  workflowId: string,
-  workspaceId: string,
-  nodeData: NodeData,
-  newPosition: XYPosition
-): Promise<NodeType> {
-  const common = {
-    type,
-    position: newPosition,
-    data: nodeData,
-  }
-  let newNode: NodeType
-  switch (type) {
-    case "udf":
-      const actionId = await createAction(
-        nodeData.type,
-        nodeData.title,
-        workflowId,
-        workspaceId
-      )
-      // Then create Action node in React Flow
-      newNode = {
-        id: actionId,
-        ...common,
-      } as ActionNodeType
-
-      return newNode
-    default:
-      console.error("Invalid node type")
-      throw new Error("Invalid node type")
-  }
 }
 
 export function WorkflowCanvas() {
@@ -335,60 +301,6 @@ export function WorkflowCanvas() {
     event.dataTransfer.dropEffect = "move"
   }, [])
 
-  // Adding a new node
-  const onDrop = async (event: React.DragEvent) => {
-    event.preventDefault()
-    if (!reactFlowInstance || !workflowId) {
-      return
-    }
-
-    // Limit total number of nodes
-    if (nodes.length >= 50) {
-      toast({
-        title: "Invalid action",
-        description: "Maximum 50 nodes allowed.",
-      })
-      return
-    }
-
-    const nodeTypename = event.dataTransfer.getData(
-      "application/reactflow"
-    ) as NodeTypename
-    console.log("Node Typename:", nodeTypename)
-
-    const rawNodeData = event.dataTransfer.getData("application/json")
-    const nodeData = JSON.parse(rawNodeData) as NodeData
-
-    console.log("Action Node Data:", nodeData)
-
-    const reactFlowNodePosition = reactFlowInstance.screenToFlowPosition({
-      x: event.clientX,
-      y: event.clientY,
-    })
-    try {
-      const newNode = await createNewNode(
-        nodeTypename,
-        workflowId,
-        workspaceId,
-        nodeData,
-        reactFlowNodePosition
-      )
-      // Create Action in database
-      setNodes((prevNodes) =>
-        prevNodes
-          .map((n) => ({ ...n, selected: false }))
-          .concat({ ...newNode, selected: true })
-      )
-    } catch (error) {
-      console.error("An error occurred while creating a new node:", error)
-      toast({
-        title: "Failed to create new node",
-        description:
-          "Could not create new node. Please check the console logs for more information.",
-      })
-    }
-  }
-
   const onNodesDelete = async <T,>(nodesToDelete: Node<T>[]) => {
     if (!workflowId || !reactFlowInstance) {
       return
@@ -410,11 +322,9 @@ export function WorkflowCanvas() {
       setNodes((nds) =>
         nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id))
       )
-      await updateWorkflowGraphObject(
-        workspaceId,
-        workflowId,
-        reactFlowInstance
-      )
+      await updateWorkflow({
+        object: pruneGraphObject(reactFlowInstance),
+      })
       console.log("Nodes deleted successfully")
     } catch (error) {
       console.error("An error occurred while deleting Action nodes:", error)
@@ -500,13 +410,13 @@ export function WorkflowCanvas() {
   // Saving react flow instance state
   useEffect(() => {
     if (workflowId && reactFlowInstance) {
-      updateWorkflowGraphObject(workspaceId, workflowId, reactFlowInstance)
+      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
     }
   }, [edges])
 
   const onNodesDragStop = () => {
     if (workflowId && reactFlowInstance) {
-      updateWorkflowGraphObject(workspaceId, workflowId, reactFlowInstance)
+      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
     }
   }
 
@@ -520,7 +430,6 @@ export function WorkflowCanvas() {
         onConnectEnd={onConnectEnd}
         onPaneMouseMove={onPaneMouseMove}
         onDragOver={onDragOver}
-        onDrop={onDrop}
         onEdgesChange={onEdgesChange}
         onEdgesDelete={onEdgesDelete}
         onInit={setReactFlowInstance}

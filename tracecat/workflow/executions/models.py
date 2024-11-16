@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar, cast
 
 import orjson
 import temporalio.api.common.v1
@@ -12,7 +12,6 @@ from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
-from tracecat import identifiers
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import (
@@ -21,6 +20,7 @@ from tracecat.dsl.models import (
     RunActionInput,
     TriggerInputs,
 )
+from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.types.auth import Role
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
@@ -130,6 +130,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
     retry_policy: ActionRetryPolicy = Field(default_factory=ActionRetryPolicy)
     start_delay: float = 0.0
     join_strategy: JoinStrategy = JoinStrategy.ALL
+    related_wf_exec_id: WorkflowExecutionID | None = None
 
     @staticmethod
     def from_scheduled_activity(
@@ -186,6 +187,11 @@ class EventGroup(BaseModel, Generic[EventInput]):
             != temporalio.api.enums.v1.EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
         ):
             raise ValueError("Event is not a child workflow initiated event.")
+
+        wf_exec_id = cast(
+            WorkflowExecutionID,
+            event.start_child_workflow_execution_initiated_event_attributes.workflow_id,
+        )
         # Load the input data
         input = orjson.loads(
             event.start_child_workflow_execution_initiated_event_attributes.input.payloads[
@@ -204,6 +210,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
             action_title=dsl_run_args.dsl.title,
             action_description=dsl_run_args.dsl.description,
             action_input=dsl_run_args,
+            related_wf_exec_id=wf_exec_id,
         )
 
 
@@ -256,21 +263,22 @@ class EventHistoryResponse(BaseModel, Generic[EventInput]):
     failure: EventFailure | None = None
     result: Any | None = None
     role: Role | None = None
+    parent_wf_exec_id: WorkflowExecutionID | None = None
 
 
 class CreateWorkflowExecutionParams(BaseModel):
-    workflow_id: identifiers.WorkflowID
+    workflow_id: WorkflowID
     inputs: TriggerInputs | None = None
 
 
 class CreateWorkflowExecutionResponse(TypedDict):
     message: str
-    wf_id: identifiers.WorkflowID
-    wf_exec_id: identifiers.WorkflowExecutionID
+    wf_id: WorkflowID
+    wf_exec_id: WorkflowExecutionID
 
 
 class DispatchWorkflowResult(TypedDict):
-    wf_id: identifiers.WorkflowID
+    wf_id: WorkflowID
     final_context: DSLContext
 
 

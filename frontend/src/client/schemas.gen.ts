@@ -1085,6 +1085,18 @@ export const $EventGroup = {
                 }
             ],
             default: 'all'
+        },
+        related_wf_exec_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Related Wf Exec Id'
         }
     },
     type: 'object',
@@ -1149,6 +1161,18 @@ export const $EventHistoryResponse = {
                     type: 'null'
                 }
             ]
+        },
+        parent_wf_exec_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Parent Wf Exec Id'
         }
     },
     type: 'object',

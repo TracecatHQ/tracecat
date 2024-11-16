@@ -379,6 +379,7 @@ export type EventGroup = {
     retry_policy?: ActionRetryPolicy;
     start_delay?: number;
     join_strategy?: JoinStrategy;
+    related_wf_exec_id?: string | null;
 };
 
 export type EventHistoryResponse = {
@@ -393,6 +394,7 @@ export type EventHistoryResponse = {
     failure?: EventFailure | null;
     result?: unknown | null;
     role?: Role | null;
+    parent_wf_exec_id?: string | null;
 };
 
 /**
