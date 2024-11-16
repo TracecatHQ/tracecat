@@ -5,27 +5,27 @@ definition:
     environment: default
   entrypoint:
     expects: {}
-    ref: search_url_with_virustotal
+    ref: search_url
   inputs: {}
   returns: null
   triggers: []
   actions:
   - action: integrations.virustotal.search_url
-    ref: search_url_with_virustotal
+    ref: search_url
     args:
       url: ${{ TRIGGER.url }}
   - action: core.transform.reshape
-    ref: extract_virustotal_report
+    ref: extract_report
     args:
       value:
-        stats: ${{ ACTIONS.search_url_with_virustotal.result.data.data.attributes.last_analysis_stats }}
-        url: ${{ ACTIONS.search_url_with_virustotal.result.data.data.attributes.url }}
+        stats: ${{ ACTIONS.search_url.result.data.data.attributes.last_analysis_stats }}
+        url: ${{ ACTIONS.search_url.result.data.data.attributes.url }}
     depends_on:
-    - search_url_with_virustotal
+    - search_url
   - action: integrations.virustotal.list_comments
-    ref: list_virustotal_comments_on_url
-    run_if: ${{ ACTIONS.extract_virustotal_report.result.stats.malicious > 10 }}
+    ref: list_comments
+    run_if: ${{ ACTIONS.extract_report.result.stats.malicious > 10 }}
     args:
-      url: ${{ ACTIONS.extract_virustotal_report.result.url }}
+      url: ${{ ACTIONS.extract_report.result.url }}
     depends_on:
-    - extract_virustotal_report
+    - extract_report

@@ -113,9 +113,9 @@ async def test_playbook_validation(
                 "url": "https://crowdstrikebluescreen.com",
             },
             [
-                "search_url_with_virustotal",
-                "extract_virustotal_report",
-                "list_virustotal_comments_on_url",
+                "search_url",
+                "extract_report",
+                "list_comments",
             ],
         ),
     ],
