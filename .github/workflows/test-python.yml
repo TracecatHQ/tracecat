@@ -36,6 +36,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: QA
+    strategy:
+      matrix:
+        test_type: [unit, playbook]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -100,13 +103,8 @@ jobs:
       - name: Start Temporal server
         run: nohup temporal server start-dev > temporal.log 2>&1 &
 
-      - name: Run unit tests
-        env:
-          LOG_LEVEL: ERROR
-        run: uv run pytest tests/unit --temporal-no-restart --tracecat-no-restart -s
-
-      - name: Run playbook tests
+      - name: Run tests
         env:
           LOG_LEVEL: ERROR
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
-        run: uv run pytest tests/playbooks --temporal-no-restart --tracecat-no-restart -s
+        run: uv run pytest tests/${{ matrix.test_type }} --temporal-no-restart --tracecat-no-restart -s
