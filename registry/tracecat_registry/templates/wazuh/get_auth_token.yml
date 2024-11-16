@@ -21,7 +21,7 @@ definition:
       description: true or false
       default: null
   steps:
-    - ref: generate_token
+    - ref: get_auth_token
       action: core.http_request
       args:
         url: ${{ inputs.wazuh_server_url }}/security/user/authenticate
@@ -33,4 +33,4 @@ definition:
           Content-Type: application/json
         verify_ssl: ${{ inputs.verify_ssl  }}
   returns:
-    token: ${{ steps.generate_token.result.data.token }}
+    token: ${{ steps.get_auth_token.result.data.token }}
