@@ -3,9 +3,9 @@ from collections.abc import Awaitable, Iterator
 from itertools import chain
 from typing import Any, Literal, TypeVar, override
 
-import jsonpath_ng
 import jsonpath_ng.exceptions
-from lark import Tree, Visitor, v_args
+import jsonpath_ng.ext
+from lark import Token, Tree, Visitor, v_args
 from lark.exceptions import VisitError
 from pydantic import BaseModel, Field
 
@@ -120,9 +120,12 @@ class ExprValidator(Visitor):
         else:
             self.add(status="success", type=ExprType.TYPECAST)
 
-    def actions(self, node: Tree):
-        self.logger.trace("Visit action expression", node=node)
-        jsonpath = get_jsonpath_body_from_context(node).lstrip(".")
+    def actions(self, node: Tree[Token]):
+        token = node.children[0]
+        self.logger.trace("Visit action expression", node=node, child=token)
+        if not isinstance(token, Token):
+            raise ValueError("Expected a string token")
+        jsonpath = token.lstrip(".")
         # ACTIONS.<ref>.<prop> [INDEX] [ATTRIBUTE ACCESS]
         ref, prop, *_ = jsonpath.split(".")
         if ref not in self._context.action_refs:
@@ -144,10 +147,12 @@ class ExprValidator(Visitor):
         else:
             self.add(status="success", type=ExprType.ACTION)
 
-    def secrets(self, node: Tree):
+    def secrets(self, node: Tree[Token]):
         self.logger.trace("Visit secret expression", expr=node)
 
         expr = node.children[0]
+        if not isinstance(expr, Token):
+            raise ValueError("Expected a string token")
         try:
             sec_path = expr.lstrip(".")
             name, key = sec_path.split(".")
@@ -164,9 +169,12 @@ class ExprValidator(Visitor):
         )
         self._task_group.create_task(coro)
 
-    def inputs(self, node: Tree):
+    def inputs(self, node: Tree[Token]):
         self.logger.trace("Visit input expression", node=node)
-        jsonpath = get_jsonpath_body_from_context(node).lstrip(".")
+        token = node.children[0]
+        if not isinstance(token, Token):
+            raise ValueError("Expected a string token")
+        jsonpath = token.lstrip(".")
         try:
             functions.eval_jsonpath(
                 jsonpath,
@@ -190,8 +198,10 @@ class ExprValidator(Visitor):
         self.logger.trace("Visit local vars expression", node=node)
         self.add(status="success", type=ExprType.LOCAL_VARS)
 
-    def function(self, node: Tree):
+    def function(self, node: Tree[Token]):
         fn_name = node.children[0]
+        if not isinstance(fn_name, Token):
+            raise ValueError("Expected a string token")
         is_mapped = fn_name.endswith(".map")
         fn_name = fn_name.rsplit(".", 1)[0] if is_mapped else fn_name
         self.logger.trace(
@@ -242,7 +252,7 @@ class ExprValidator(Visitor):
         )
         self.add(status="success", type=ExprType.TERNARY)
 
-    def typecast(self, node: Tree):
+    def typecast(self, node: Tree[Token]):
         self.logger.trace("Visit typecast expression")
         typename, *children = node.children
         if typename not in functions.BUILTIN_TYPE_MAPPING:
@@ -256,6 +266,8 @@ class ExprValidator(Visitor):
         self.logger.warning("Typecast expression", typename=typename, children=children)
         # If the child is a literal, we can typecast it directly
         child = children[0]
+        if not isinstance(child, Tree):
+            raise ValueError("Expected a tree")
         if child.data == "literal":
             try:
                 functions.cast(child.children[0], typename)
@@ -272,7 +284,7 @@ class ExprValidator(Visitor):
         self.logger.trace("Visit literal expression", value=node.children[0])
         self.add(status="success", type=ExprType.LITERAL)
 
-    def jsonpath_expression(self, node: Tree):
+    def jsonpath_expression(self, node: Tree[Token]):
         self.logger.trace("Visiting jsonpath expression", children=node.children)
         try:
             combined_segments = "".join(node.children)
@@ -283,7 +295,7 @@ class ExprValidator(Visitor):
                 msg="Couldn't combine jsonpath expression segments: " + str(e),
             )
         try:
-            jsonpath_ng.parse("$" + combined_segments)
+            jsonpath_ng.ext.parse("$" + combined_segments)
         except jsonpath_ng.exceptions.JSONPathError as e:
             self.logger.error("Invalid jsonpath body", error=str(e))
             self.add(
@@ -294,9 +306,3 @@ class ExprValidator(Visitor):
     @v_args(inline=True)
     def jsonpath_segment(self, *args):
         self.logger.trace("Visiting jsonpath segment", args=args)
-
-
-def get_jsonpath_body_from_context(node: Tree) -> str:
-    """NOTE: This only is determinstic because our grammar doesn't inline 'jsonpath_expression'"""
-    jsonpath_node = node.children[0]
-    return "".join(jsonpath_node.children)
