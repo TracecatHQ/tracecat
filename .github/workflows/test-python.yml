@@ -38,7 +38,7 @@ jobs:
     environment: QA
     strategy:
       matrix:
-        test_type: [unit, playbook]
+        test_type: [unit, playbooks]
     steps:
       - uses: actions/checkout@v4
         with:
