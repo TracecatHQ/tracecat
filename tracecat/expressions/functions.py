@@ -6,7 +6,7 @@ import ipaddress
 import itertools
 import json
 import re
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from functools import wraps
 from html.parser import HTMLParser
@@ -14,7 +14,7 @@ from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Any, ParamSpec, TypedDict, TypeVar
 from uuid import uuid4
 
-import jsonpath_ng
+import jsonpath_ng.ext
 import orjson
 from jsonpath_ng.exceptions import JsonPathParserError
 
@@ -205,52 +205,6 @@ def ipv6_is_public(ipv6: str) -> bool:
     return IPv6Address(ipv6).is_global
 
 
-def eval_jsonpath(
-    expr: str,
-    operand: dict[str, Any],
-    *,
-    context_type: ExprContext | None = None,
-    strict: bool = False,
-) -> T | None:
-    """Evaluate a jsonpath expression on the target object (operand)."""
-
-    if operand is None or not isinstance(operand, dict | list):
-        logger.error("Invalid operand for jsonpath", operand=operand)
-        raise TracecatExpressionError(
-            "A dict or list operand is required as jsonpath target."
-        )
-    try:
-        # Try to evaluate the expression
-        jsonpath_expr = jsonpath_ng.parse(expr)
-    except JsonPathParserError as e:
-        logger.error(
-            "Invalid jsonpath expression", expr=repr(expr), context_type=context_type
-        )
-        formatted_expr = _expr_with_context(expr, context_type)
-        raise TracecatExpressionError(f"Invalid jsonpath {formatted_expr!r}") from e
-    matches = [found.value for found in jsonpath_expr.find(operand)]
-    if len(matches) == 1:
-        return matches[0]
-    elif len(matches) > 1:
-        # If there are multiple matches, return the list
-        return matches
-    else:
-        # We should only reach this point if the jsonpath didn't match
-        # If there are no matches, raise an error if strict is True
-
-        if strict:
-            # We know that if this function is called, there was a templated field.
-            # Therefore, it means the jsonpath was valid but there was no match.
-            logger.error("Jsonpath no match", expr=repr(expr), operand=operand)
-            formatted_expr = _expr_with_context(expr, context_type)
-            raise TracecatExpressionError(
-                f"Couldn't resolve expression {formatted_expr!r} in the context",
-                detail={"expression": formatted_expr, "operand": operand},
-            )
-        # Return None instead of empty list
-        return None
-
-
 def to_datetime(x: Any) -> datetime:
     """Convert input to datetime object from timestamp, ISO string or existing datetime."""
     if isinstance(x, datetime):
@@ -292,16 +246,6 @@ def custom_chain(*args) -> Any:
 def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
     """Parse newline-delimited JSON string into list of dictionaries."""
     return [orjson.loads(line) for line in x.splitlines()]
-
-
-BUILTIN_TYPE_MAPPING = {
-    "int": int,
-    "float": float,
-    "str": str,
-    "bool": _bool,
-    "datetime": to_datetime,
-    # TODO: Perhaps support for URLs for files?
-}
 
 
 def slice_str(x: str, start_index: int, length: int) -> str:
@@ -527,6 +471,51 @@ def or_(a: bool, b: bool) -> bool:
     """Logical OR operation."""
     return a or b
 
+def eval_jsonpath(
+    expr: str,
+    operand: Mapping[str, Any],
+    *,
+    context_type: ExprContext | None = None,
+    strict: bool = False,
+) -> Any | None:
+    """Evaluate a jsonpath expression on the target object (operand)."""
+
+    if operand is None or not isinstance(operand, dict | list):
+        logger.error("Invalid operand for jsonpath", operand=operand)
+        raise TracecatExpressionError(
+            "A dict or list operand is required as jsonpath target."
+        )
+    try:
+        # Try to evaluate the expression
+        jsonpath_expr = jsonpath_ng.ext.parse(expr)
+    except JsonPathParserError as e:
+        logger.error(
+            "Invalid jsonpath expression", expr=repr(expr), context_type=context_type
+        )
+        formatted_expr = _expr_with_context(expr, context_type)
+        raise TracecatExpressionError(f"Invalid jsonpath {formatted_expr!r}") from e
+    matches = [found.value for found in jsonpath_expr.find(operand)]
+    if len(matches) == 1:
+        return matches[0]
+    elif len(matches) > 1:
+        # If there are multiple matches, return the list
+        return matches
+    else:
+        # We should only reach this point if the jsonpath didn't match
+        # If there are no matches, raise an error if strict is True
+
+        if strict:
+            # We know that if this function is called, there was a templated field.
+            # Therefore, it means the jsonpath was valid but there was no match.
+            logger.error("Jsonpath no match", expr=repr(expr), operand=operand)
+            formatted_expr = _expr_with_context(expr, context_type)
+            raise TracecatExpressionError(
+                f"Couldn't resolve expression {formatted_expr!r} in the context",
+                detail={"expression": formatted_expr, "operand": operand},
+            )
+        # Return None instead of empty list
+        return None
+
 
 _FUNCTION_MAPPING = {
     # String transforms
@@ -645,6 +634,20 @@ def mappable(func: Callable[P, R]) -> Callable[P, R]:
     wrapper.map = broadcast_map
     wrapper.__doc__ = func.__doc__
     return wrapper
+
+
+BUILTIN_TYPE_MAPPING = {
+    "int": int,
+    "float": float,
+    "str": str,
+    "bool": _bool,
+    "datetime": to_datetime,
+    # TODO: Perhaps support for URLs for files?
+}
+"""Built-in type mapping for cast operations."""
+
+
+# Utility functions
 
 
 def cast(x: Any, typename: str) -> Any:
