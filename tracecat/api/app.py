@@ -14,12 +14,7 @@ from tracecat import config
 from tracecat.api.routers.users import router as users_router
 from tracecat.auth.constants import AuthType
 from tracecat.auth.models import UserCreate, UserRead, UserUpdate
-from tracecat.auth.users import (
-    auth_backend,
-    fastapi_users,
-    get_or_create_default_admin_user,
-    list_users,
-)
+from tracecat.auth.users import auth_backend, fastapi_users
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
@@ -114,11 +109,6 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
 
 
 async def setup_defaults(session: AsyncSession, admin_role: Role):
-    users = await list_users(session=session)
-    if len(users) == 0:
-        # Create admin user only if there are no users
-        await get_or_create_default_admin_user()
-
     ws_service = WorkspaceService(session, role=admin_role)
     workspaces = await ws_service.admin_list_workspaces()
     n_workspaces = len(workspaces)

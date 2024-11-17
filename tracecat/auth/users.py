@@ -1,7 +1,6 @@
 import contextlib
-import os
 import uuid
-from collections.abc import AsyncGenerator, Awaitable, Sequence
+from collections.abc import AsyncGenerator, Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
@@ -222,26 +221,7 @@ async def get_user_db_sqlmodel(
     yield SQLModelUserDatabaseAsync(session, User, OAuthAccount)
 
 
-def get_or_create_default_admin_user() -> Awaitable[User]:
-    return get_or_create_user(default_admin_user(), exist_ok=True)
-
-
 async def list_users(*, session: SQLModelAsyncSession) -> Sequence[User]:
     statement = select(User)
     result = await session.exec(statement)
     return result.all()
-
-
-def default_admin_user() -> UserCreate:
-    email = os.getenv("TRACECAT__SETUP_ADMIN_EMAIL") or "admin@domain.com"
-    password = os.getenv("TRACECAT__SETUP_ADMIN_PASSWORD") or "password"
-
-    return UserCreate(
-        email=email,
-        first_name="Root",
-        last_name="User",
-        password=password,
-        is_superuser=True,
-        is_verified=True,
-        role=UserRole.ADMIN,
-    )
