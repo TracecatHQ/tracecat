@@ -471,6 +471,7 @@ def or_(a: bool, b: bool) -> bool:
     """Logical OR operation."""
     return a or b
 
+
 def eval_jsonpath(
     expr: str,
     operand: Mapping[str, Any],
