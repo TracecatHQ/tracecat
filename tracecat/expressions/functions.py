@@ -419,17 +419,17 @@ def union[T: Any](*collections: Sequence[T]) -> list[T]:
     return list(set().union(*collections))
 
 
-def apply[T: Any](item: T | Iterable[T], lambda_expr: str) -> T | list[T]:
+def apply[T: Any](item: T | Iterable[T], python_lambda: str) -> T | list[T]:
     """Apply a Python lambda function to an item or sequence of items."""
-    fn = _build_safe_lambda(lambda_expr)
+    fn = _build_safe_lambda(python_lambda)
     if is_iterable(item, container_only=True):
         return [fn(i) for i in item]
     return fn(item)
 
 
-def filter_[T: Any](items: Sequence[T], lambda_expr: str) -> list[T]:
+def filter_[T: Any](items: Sequence[T], python_lambda: str) -> list[T]:
     """Filter a collection using a Python lambda expression."""
-    fn = _build_safe_lambda(lambda_expr)
+    fn = _build_safe_lambda(python_lambda)
     return list(filter(fn, items))
 
 

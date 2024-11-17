@@ -30,11 +30,11 @@ def reshape(
 )
 def filter(
     items: Annotated[list[Any], Field(..., description="A collection of items.")],
-    lambda_expr: Annotated[
+    python_lambda: Annotated[
         str,
         Field(
             ..., description="A Python lambda function for filtering the collection."
         ),
     ],
 ) -> Any:
-    return functions.filter_(items=items, lambda_expr=lambda_expr)
+    return functions.filter_(items=items, python_lambda=python_lambda)
