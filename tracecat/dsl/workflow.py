@@ -20,6 +20,7 @@ from temporalio.exceptions import (
 with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
+    import jsonpath_ng.ext.parser  # noqa: F401
     import tracecat_registry  # noqa
     from pydantic import ValidationError
 

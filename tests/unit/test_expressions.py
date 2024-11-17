@@ -488,6 +488,45 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("{ 'key1': 1, 'key2': 'value' }", {"key1": 1, "key2": "value"}),
         ("(1 + 10) > 3 -> str", "True"),
         ("True || (1 != 1)", True),
+        # Advanced jsonpath
+        ## Filtering
+        ("INPUTS..name", ["Alice", "Bob", "Charlie", "Bob"]),
+        ("ACTIONS.users[?active == true].name", ["Alice", "Charlie"]),
+        (
+            "ACTIONS.users[?age >= 40]",
+            [
+                {
+                    "name": "Bob",
+                    "age": 40,
+                    "gender": "male",
+                    "active": False,
+                    "contact": {
+                        "email": "bob@example.com",
+                        "phone": "098-765-4321",
+                    },
+                },
+                {
+                    "name": "Charlie",
+                    "age": 50,
+                    "gender": "male",
+                    "active": True,
+                    "contact": {
+                        "email": "charlie@example.com",
+                        "phone": "111-222-3333",
+                    },
+                },
+            ],
+        ),
+        ("ACTIONS.users[?gender == 'female'].name", "Alice"),
+        (
+            "ACTIONS.users[?age >= 30 & age <= 40].name",
+            ["Alice", "Bob"],
+        ),
+        ## Substituting
+        (
+            "ACTIONS.users[?gender == 'male'].contact.email.`sub(/example.com/, example.net)`",
+            ["bob@example.net", "charlie@example.net"],
+        ),
     ],
 )
 def test_expression_parser(expr, expected):
@@ -497,6 +536,38 @@ def test_expression_parser(expr, expected):
                 "bar": 1,
                 "baz": 2,
             },
+            "users": [
+                {
+                    "name": "Alice",
+                    "age": 30,
+                    "gender": "female",
+                    "active": True,
+                    "contact": {
+                        "email": "alice@example.com",
+                        "phone": "123-456-7890",
+                    },
+                },
+                {
+                    "name": "Bob",
+                    "age": 40,
+                    "gender": "male",
+                    "active": False,
+                    "contact": {
+                        "email": "bob@example.com",
+                        "phone": "098-765-4321",
+                    },
+                },
+                {
+                    "name": "Charlie",
+                    "age": 50,
+                    "gender": "male",
+                    "active": True,
+                    "contact": {
+                        "email": "charlie@example.com",
+                        "phone": "111-222-3333",
+                    },
+                },
+            ],
         },
         ExprContext.SECRETS: {
             "secret_test": {
