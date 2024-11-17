@@ -22,7 +22,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tracecat import config
-from tracecat.auth.models import UserCreate, UserRole
+from tracecat.auth.models import UserCreate, UserRole, UserUpdate
 from tracecat.db.adapter import (
     SQLModelAccessTokenDatabaseAsync,
     SQLModelUserDatabaseAsync,
@@ -44,6 +44,15 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self, user: User, request: Request | None = None
     ) -> None:
         self.logger.info(f"User {user.id} has registered.")
+
+        # If the user is the first in the org to sign up, make them a superuser
+        async with get_async_session_context_manager() as session:
+            users = await list_users(session=session)
+            if len(users) == 1:
+                # This is the only user in the org, make them the superuser
+                update_params = UserUpdate(is_superuser=True, role=UserRole.ADMIN)
+                await self.update(user_update=update_params, user=user)
+                self.logger.info("Promoted user to superuser", user=user.email)
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None
