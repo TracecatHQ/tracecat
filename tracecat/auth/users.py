@@ -1,7 +1,7 @@
 import contextlib
 import os
 import uuid
-from collections.abc import AsyncGenerator, Awaitable
+from collections.abc import AsyncGenerator, Awaitable, Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
@@ -226,7 +226,7 @@ def get_or_create_default_admin_user() -> Awaitable[User]:
     return get_or_create_user(default_admin_user(), exist_ok=True)
 
 
-async def list_users(*, session: SQLModelAsyncSession) -> list[User]:
+async def list_users(*, session: SQLModelAsyncSession) -> Sequence[User]:
     statement = select(User)
     result = await session.exec(statement)
     return result.all()
