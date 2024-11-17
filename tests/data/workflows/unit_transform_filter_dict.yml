@@ -23,4 +23,4 @@ actions:
     args:
       # List of objects to filter
       items: ${{ INPUTS.matrix }}
-      lambda_expr: "lambda row: len(row['data']) > 0"
+      python_lambda: "lambda row: len(row['data']) > 0"
