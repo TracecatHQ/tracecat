@@ -23,6 +23,4 @@ actions:
     args:
       # List of objects to filter
       items: ${{ INPUTS.matrix }}
-      constraint:
-        jsonpath: $.data
-        function: not_empty
+      python_lambda: "lambda row: len(row['data']) > 0"

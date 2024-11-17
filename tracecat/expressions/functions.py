@@ -11,7 +11,8 @@ from datetime import datetime, timedelta
 from functools import wraps
 from html.parser import HTMLParser
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
-from typing import Any, ParamSpec, TypedDict, TypeVar
+from typing import Any, ParamSpec, TypeVar
+from typing import cast as type_cast
 from uuid import uuid4
 
 import jsonpath_ng.ext
@@ -23,128 +24,54 @@ from tracecat.expressions.validation import is_iterable
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
-T = TypeVar("T")
-
 
 class SafeEvaluator(ast.NodeVisitor):
-    SAFE_NODES = {
-        ast.arguments,
-        ast.Load,
-        ast.arg,
-        ast.Name,
-        ast.Compare,
-        ast.BinOp,
-        ast.BoolOp,
-        ast.And,
-        ast.Or,
-        ast.UnaryOp,
-        ast.Not,
-        ast.Eq,
-        ast.NotEq,
-        ast.Lt,
-        ast.LtE,
-        ast.Gt,
-        ast.GtE,
-        ast.Constant,
-        ast.In,
-        ast.List,
-        ast.Call,
-        ast.NotIn,
+    RESTRICTED_NODES = {ast.Import, ast.ImportFrom}
+    RESTRICTED_SYMBOLS = {
+        "eval",
+        "import",
+        "from",
+        "os",
+        "sys",
+        "exec",
+        "locals",
+        "globals",
     }
 
-    ALLOWED_FUNCTIONS = {"len"}
-    ALLOWED_SYMBOLS = {"x", "len"}
-
     def visit(self, node):
-        if type(node) not in self.SAFE_NODES:
+        if type(node) in self.RESTRICTED_NODES:
             raise ValueError(
-                f"Unsafe node {type(node).__name__} detected in expression"
+                f"Restricted node {type(node).__name__} detected in expression"
             )
-        if isinstance(node, ast.Call) and node.func.id not in self.ALLOWED_FUNCTIONS:
-            raise ValueError("Only len() function calls are allowed in expression")
-        if isinstance(node, ast.Name) and node.id not in self.ALLOWED_SYMBOLS:
-            raise ValueError("Only variable x is allowed in expression")
+        if (
+            isinstance(node, ast.Call)
+            and (attr := getattr(node.func, "attr", None)) in self.RESTRICTED_SYMBOLS
+        ):
+            raise ValueError(f"Calling restricted functions are not allowed: {attr}")
         self.generic_visit(node)
 
 
-class FunctionConstraint(TypedDict):
-    jsonpath: str | None
-    function: str
-
-
-class OperatorConstraint(TypedDict):
-    jsonpath: str | None
-    operator: str
-    target: Any
-
-
-def custom_filter(
-    items: list[T], constraint: str | list[T] | FunctionConstraint | OperatorConstraint
-) -> list[T]:
-    """Custom collection filter with support for jsonpath, lambda expressions and operators."""
-    logger.warning("Using custom filter function")
-    match constraint:
-        case str():
-            return lambda_filter(collection=items, filter_expr=constraint)
-        case list():
-            cons = set(constraint)
-            return [item for item in items if item in cons]
-        case {"jsonpath": jsonpath, "operator": operator, "target": target}:
-            logger.warning("Using jsonpath filter")
-
-            def op(a, b):
-                return OPERATORS[operator](a, b)
-
-            return [item for item in items if op(eval_jsonpath(jsonpath, item), target)]
-
-        case {"function": func_name, **kwargs}:
-            logger.warning("Using function filter", func_name=func_name, kwargs=kwargs)
-            # Test the function on the jsonpath of each item
-            fn = FUNCTION_MAPPING[func_name]
-
-            match kwargs:
-                case {"jsonpath": jsonpath, **fn_args}:
-                    return [
-                        item
-                        for item in items
-                        if fn(eval_jsonpath(jsonpath, item), **fn_args)
-                    ]
-            return [item for item in items if fn(item)]
-        case _:
-            raise ValueError(
-                f"Invalid constraint type {constraint!r} for filter operation."
-            )
-
-
-def lambda_filter(collection: list[T], filter_expr: str) -> list[T]:
-    """Filter a collection based on a constrained lambda expression."""
+def _build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
+    """Build a safe lambda function from a string expression."""
     # Check if the string has any blacklisted symbols
-    if any(
-        word in filter_expr
-        for word in ("eval", "lambda", "import", "from", "os", "sys", "exec")
-    ):
-        raise ValueError("Expression contains blacklisted symbols")
-    expr_ast = ast.parse(filter_expr, mode="eval").body
+    lambda_expr = lambda_expr.strip()
+    if any(word in lambda_expr for word in SafeEvaluator.RESTRICTED_SYMBOLS):
+        raise ValueError("Expression contains restricted symbols")
+    expr_ast = ast.parse(lambda_expr, mode="eval").body
 
     # Ensure the parsed AST is a comparison or logical expression
-    if not isinstance(expr_ast, ast.Compare | ast.BoolOp | ast.BinOp | ast.UnaryOp):
-        raise ValueError("Expression must be a Comparison")
+    if not isinstance(expr_ast, ast.Lambda):
+        raise ValueError("Expression must be a lambda function")
 
     # Ensure the expression complies with the SafeEvaluator
     SafeEvaluator().visit(expr_ast)
-    # Check the AST for safety
-    lambda_expr_ast = ast.parse(f"lambda x: {filter_expr}", mode="eval").body
 
     # Compile the AST node into a code object
-    code = compile(ast.Expression(lambda_expr_ast), "<string>", "eval")
+    code = compile(ast.Expression(expr_ast), "<string>", "eval")
 
     # Create a function from the code object
     lambda_func = eval(code)
-
-    # Apply the lambda function to filter the collection
-    filtered_collection = list(filter(lambda_func, collection))
-
-    return filtered_collection
+    return type_cast(Callable[[Any], Any], lambda_func)
 
 
 def _bool(x: Any) -> bool:
@@ -263,9 +190,12 @@ def is_null(x: Any) -> bool:
     return x is None
 
 
-def regex_extract(pattern: str, text: str) -> str:
+def regex_extract(pattern: str, text: str) -> str | None:
     """Extract first match of regex pattern from text."""
-    return re.search(pattern, text).group(0)
+    match = re.search(pattern, text)
+    if match:
+        return match.group(0)
+    return None
 
 
 def regex_match(pattern: str, text: str) -> bool:
@@ -472,6 +402,37 @@ def or_(a: bool, b: bool) -> bool:
     return a or b
 
 
+def intersect[T: Any](
+    items: Sequence[T], collection: Sequence[T], jsonpath: str | None = None
+) -> list[T]:
+    """Return the set intersection of two sequences as a list."""
+    col_set = set(collection)
+    if jsonpath:
+        return list(
+            {item for item in items if eval_jsonpath(jsonpath, item) in col_set}
+        )
+    return list({item for item in items if item in collection})
+
+
+def union[T: Any](*collections: Sequence[T]) -> list[T]:
+    """Return the set union of multiple sequences as a list."""
+    return list(set().union(*collections))
+
+
+def apply[T: Any](item: T | Iterable[T], python_lambda: str) -> T | list[T]:
+    """Apply a Python lambda function to an item or sequence of items."""
+    fn = _build_safe_lambda(python_lambda)
+    if is_iterable(item, container_only=True):
+        return [fn(i) for i in item]
+    return fn(item)
+
+
+def filter_[T: Any](items: Sequence[T], python_lambda: str) -> list[T]:
+    """Filter a collection using a Python lambda expression."""
+    fn = _build_safe_lambda(python_lambda)
+    return list(filter(fn, items))
+
+
 def eval_jsonpath(
     expr: str,
     operand: Mapping[str, Any],
@@ -542,6 +503,9 @@ _FUNCTION_MAPPING = {
     "not_empty": not_empty,
     "flatten": flatten,
     "unique": unique_items,
+    # Set operations
+    "intersect": intersect,
+    "union": union,
     # Math
     "add": add,
     "sub": sub,
@@ -554,8 +518,8 @@ _FUNCTION_MAPPING = {
     "join": join_strings,
     "concat": concat_strings,
     "format": format_string,
-    "filter": custom_filter,
-    "jsonpath": eval_jsonpath,
+    "apply": apply,
+    "filter": filter_,
     # Iteration
     "zip": zip_iterables,
     "iter_product": iter_product,
@@ -615,9 +579,10 @@ OPERATORS = {
 
 P = ParamSpec("P")
 R = TypeVar("R")
+F = Callable[P, R]
 
 
-def mappable(func: Callable[P, R]) -> Callable[P, R]:
+def mappable(func: F) -> F:
     @wraps(func)
     def wrapper(*args, **kwargs):
         return func(*args, **kwargs)
@@ -636,6 +601,9 @@ def mappable(func: Callable[P, R]) -> Callable[P, R]:
     wrapper.__doc__ = func.__doc__
     return wrapper
 
+
+FUNCTION_MAPPING = {k: mappable(v) for k, v in _FUNCTION_MAPPING.items()}
+"""Mapping of function names to decorated mappable versions."""
 
 BUILTIN_TYPE_MAPPING = {
     "int": int,
@@ -659,6 +627,3 @@ def cast(x: Any, typename: str) -> Any:
 
 def _expr_with_context(expr: str, context_type: ExprContext | None) -> str:
     return f"{context_type}.{expr}" if context_type else expr
-
-
-FUNCTION_MAPPING = {k: mappable(v) for k, v in _FUNCTION_MAPPING.items()}
