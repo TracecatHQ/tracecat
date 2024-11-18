@@ -74,6 +74,7 @@ def env_sandbox(
         "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
     )
     monkeysession.setattr(config, "TEMPORAL__CLUSTER_URL", "http://localhost:7233")
+    monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
     monkeysession.setattr(
         config,
         "TRACECAT__REMOTE_REPOSITORY_URL",
@@ -254,17 +255,38 @@ def authed_client_controls(test_config_path: Path):
 
 @pytest.fixture(autouse=True, scope="session")
 def test_admin_user(env_sandbox, authed_client_controls):
+    from tracecat.auth.models import UserCreate, UserRole
     # Login
 
     url = os.environ["TRACECAT__PUBLIC_API_URL"]
     get_client, cfg_write, cfg_read = authed_client_controls
+    email = "testing@tracecat.com"
+    password = "1234567890qwer"
+
+    try:
+        with httpx.Client(base_url=url) as client:
+            response = client.post(
+                "/auth/register",
+                json=UserCreate(
+                    email=email,
+                    password=password,
+                    role=UserRole.ADMIN,
+                    first_name="Test",
+                    last_name="User",
+                ).model_dump(mode="json"),
+            )
+            response.raise_for_status()
+        logger.info("Registered test admin user", email=email)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 409:
+            logger.info("Test admin user already registered", email=email)
 
     # Login
     try:
         with httpx.Client(base_url=url) as client:
             response = client.post(
                 "/auth/login",
-                data={"username": "admin@domain.com", "password": "password"},
+                data={"username": email, "password": password},
             )
             response.raise_for_status()
             cfg_write("cookies", dict(response.cookies))
