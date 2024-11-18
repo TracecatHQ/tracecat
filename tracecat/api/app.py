@@ -14,7 +14,12 @@ from tracecat import config
 from tracecat.api.routers.users import router as users_router
 from tracecat.auth.constants import AuthType
 from tracecat.auth.models import UserCreate, UserRead, UserUpdate
-from tracecat.auth.users import auth_backend, fastapi_users
+from tracecat.auth.users import (
+    FastAPIUsersException,
+    InvalidDomainException,
+    auth_backend,
+    fastapi_users,
+)
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
@@ -183,6 +188,23 @@ def validation_exception_handler(request: Request, exc: RequestValidationError):
     )
 
 
+def fastapi_users_auth_exception_handler(request: Request, exc: FastAPIUsersException):
+    msg = str(exc)
+    logger.warning(
+        "Handling FastAPI Users exception",
+        msg=msg,
+        role=ctx_role.get(),
+        params=request.query_params,
+        path=request.url.path,
+    )
+    match exc:
+        case InvalidDomainException():
+            status_code = status.HTTP_400_BAD_REQUEST
+        case _:
+            status_code = status.HTTP_401_UNAUTHORIZED
+    return ORJSONResponse(status_code=status_code, content={"detail": msg})
+
+
 def create_app(**kwargs) -> FastAPI:
     global logger
     if config.TRACECAT__ALLOW_ORIGINS is not None:
@@ -302,6 +324,9 @@ def create_app(**kwargs) -> FastAPI:
     app.add_exception_handler(Exception, generic_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(
+        FastAPIUsersException, fastapi_users_auth_exception_handler
+    )
 
     # Middleware
     app.add_middleware(RequestLoggingMiddleware)

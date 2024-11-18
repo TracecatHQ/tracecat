@@ -4,7 +4,13 @@ from collections.abc import AsyncGenerator, Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
-from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, models
+from fastapi_users import (
+    BaseUserManager,
+    FastAPIUsers,
+    InvalidPasswordException,
+    UUIDIDMixin,
+    models,
+)
 from fastapi_users.authentication import (
     AuthenticationBackend,
     CookieTransport,
@@ -15,7 +21,11 @@ from fastapi_users.authentication.strategy.db import (
     DatabaseStrategy,
 )
 from fastapi_users.db import SQLAlchemyUserDatabase
-from fastapi_users.exceptions import UserAlreadyExists, UserNotExists
+from fastapi_users.exceptions import (
+    FastAPIUsersException,
+    UserAlreadyExists,
+    UserNotExists,
+)
 from fastapi_users.openapi import OpenAPIResponseType
 from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
 from sqlmodel import select
@@ -32,6 +42,10 @@ from tracecat.db.schemas import AccessToken, OAuthAccount, User
 from tracecat.logger import logger
 
 
+class InvalidDomainException(FastAPIUsersException):
+    """Exception raised on registration with an invalid domain."""
+
+
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     reset_password_token_secret = config.USER_AUTH_SECRET
     verification_token_secret = config.USER_AUTH_SECRET
@@ -39,6 +53,21 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     def __init__(self, user_db: SQLAlchemyUserDatabase) -> None:
         super().__init__(user_db)
         self.logger = logger.bind(unit="UserManager")
+
+    async def validate_password(self, password: str, user: User) -> None:
+        if len(password) < config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH:
+            raise InvalidPasswordException(
+                f"Password must be at least {config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH} characters long"
+            )
+
+    async def create(
+        self,
+        user_create: UserCreate,
+        safe: bool = False,
+        request: Request | None = None,
+    ) -> User:
+        validate_email(email=user_create.email)
+        return await super().create(user_create, safe, request)
 
     async def on_after_register(
         self, user: User, request: Request | None = None
@@ -234,3 +263,12 @@ async def list_users(*, session: SQLModelAsyncSession) -> Sequence[User]:
     statement = select(User)
     result = await session.exec(statement)
     return result.all()
+
+
+def validate_email(email: str) -> None:
+    _, domain = email.split("@")
+    if (
+        config.TRACECAT__AUTH_ALLOWED_DOMAINS
+        and domain not in config.TRACECAT__AUTH_ALLOWED_DOMAINS
+    ):
+        raise InvalidDomainException(f"You cannot register with the domain {domain!r}")
