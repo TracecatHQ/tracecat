@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { CreateSecretTooltip } from "@/components/secrets/create-secret-tooltip"
 
 interface CreateOrgSecretDialogProps
   extends PropsWithChildren<
@@ -99,23 +100,8 @@ export function CreateOrgSecretDialog({
       <DialogContent className={className}>
         <DialogHeader>
           <DialogTitle>Create new organization secret</DialogTitle>
-          <div className="flex text-sm leading-relaxed text-muted-foreground">
-            <span>
-              Create a secret that can have multiple key-value credential pairs.
-              You can reference these secrets in your workflows through{" "}
-              <p className="inline-block rounded-sm bg-amber-100 p-[0.75px] font-mono">
-                {"${{ SECRETS.<my_secret>.<key>}}"}
-              </p>
-              {". "}For example, if I have a secret called with key{" "}
-              <p className="inline-block font-mono">GH_ACCESS_TOKEN</p>, I can
-              reference this as{" "}
-              <p className="inline-block rounded-sm bg-amber-100 p-[0.75px] font-mono">
-                {"${{ SECRETS.my_github_secret.GH_ACCESS_TOKEN }}"}
-              </p>
-              {". "}
-            </span>
-          </div>
         </DialogHeader>
+        <CreateSecretTooltip />
         <Form {...methods}>
           <form onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}>
             <div className="space-y-4">
