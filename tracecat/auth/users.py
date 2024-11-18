@@ -1,11 +1,16 @@
 import contextlib
-import os
 import uuid
-from collections.abc import AsyncGenerator, Awaitable
+from collections.abc import AsyncGenerator, Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
-from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, models
+from fastapi_users import (
+    BaseUserManager,
+    FastAPIUsers,
+    InvalidPasswordException,
+    UUIDIDMixin,
+    models,
+)
 from fastapi_users.authentication import (
     AuthenticationBackend,
     CookieTransport,
@@ -16,14 +21,19 @@ from fastapi_users.authentication.strategy.db import (
     DatabaseStrategy,
 )
 from fastapi_users.db import SQLAlchemyUserDatabase
-from fastapi_users.exceptions import UserAlreadyExists, UserNotExists
+from fastapi_users.exceptions import (
+    FastAPIUsersException,
+    UserAlreadyExists,
+    UserNotExists,
+)
 from fastapi_users.openapi import OpenAPIResponseType
+from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tracecat import config
-from tracecat.auth.models import UserCreate, UserRole
+from tracecat.auth.models import UserCreate, UserRole, UserUpdate
 from tracecat.db.adapter import (
     SQLModelAccessTokenDatabaseAsync,
     SQLModelUserDatabaseAsync,
@@ -31,6 +41,10 @@ from tracecat.db.adapter import (
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
 from tracecat.db.schemas import AccessToken, OAuthAccount, User
 from tracecat.logger import logger
+
+
+class InvalidDomainException(FastAPIUsersException):
+    """Exception raised on registration with an invalid domain."""
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
@@ -41,10 +55,34 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         super().__init__(user_db)
         self.logger = logger.bind(unit="UserManager")
 
+    async def validate_password(self, password: str, user: User) -> None:
+        if len(password) < config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH:
+            raise InvalidPasswordException(
+                f"Password must be at least {config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH} characters long"
+            )
+
+    async def create(
+        self,
+        user_create: UserCreate,
+        safe: bool = False,
+        request: Request | None = None,
+    ) -> User:
+        validate_email(email=user_create.email)
+        return await super().create(user_create, safe, request)
+
     async def on_after_register(
         self, user: User, request: Request | None = None
     ) -> None:
         self.logger.info(f"User {user.id} has registered.")
+
+        # If the user is the first in the org to sign up, make them a superuser
+        async with get_async_session_context_manager() as session:
+            users = await list_users(session=session)
+            if len(users) == 1:
+                # This is the only user in the org, make them the superuser
+                update_params = UserUpdate(is_superuser=True, role=UserRole.ADMIN)
+                await self.update(user_update=update_params, user=user)
+                self.logger.info("Promoted user to superuser", user=user.email)
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None
@@ -222,26 +260,18 @@ async def get_user_db_sqlmodel(
     yield SQLModelUserDatabaseAsync(session, User, OAuthAccount)
 
 
-def get_or_create_default_admin_user() -> Awaitable[User]:
-    return get_or_create_user(default_admin_user(), exist_ok=True)
-
-
-async def list_users(*, session: SQLModelAsyncSession) -> list[User]:
+async def list_users(*, session: SQLModelAsyncSession) -> Sequence[User]:
     statement = select(User)
     result = await session.exec(statement)
     return result.all()
 
 
-def default_admin_user() -> UserCreate:
-    email = os.getenv("TRACECAT__SETUP_ADMIN_EMAIL") or "admin@domain.com"
-    password = os.getenv("TRACECAT__SETUP_ADMIN_PASSWORD") or "password"
+def validate_email(email: EmailStr) -> None:
+    # Safety: This is already a validated email, so we can split on the first @
+    _, domain = email.split("@", 1)
 
-    return UserCreate(
-        email=email,
-        first_name="Root",
-        last_name="User",
-        password=password,
-        is_superuser=True,
-        is_verified=True,
-        role=UserRole.ADMIN,
-    )
+    if (
+        config.TRACECAT__AUTH_ALLOWED_DOMAINS
+        and domain not in config.TRACECAT__AUTH_ALLOWED_DOMAINS
+    ):
+        raise InvalidDomainException(f"You cannot register with the domain {domain!r}")

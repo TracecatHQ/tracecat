@@ -11,6 +11,7 @@ import TracecatIcon from "public/icon.png"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
+import { TracecatApiError } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -109,6 +110,43 @@ export function BasicRegistrationForm() {
     } catch (error) {
       if (error instanceof ApiError) {
         console.error("ApiError registering user", error)
+        const apiError = error as TracecatApiError
+
+        // Handle both string and object error details
+        if (typeof apiError.body.detail === "string") {
+          switch (apiError.body.detail) {
+            case "REGISTER_USER_ALREADY_EXISTS":
+              form.setError("email", {
+                message: "User already exists",
+              })
+              break
+            default:
+              form.setError("email", {
+                message: String(apiError.body.detail),
+              })
+          }
+        } else if (
+          typeof apiError.body.detail === "object" &&
+          apiError.body.detail !== null
+        ) {
+          // Handle structured error details
+          // Type assertion to access code and reason properties
+          const detail = apiError.body.detail as {
+            code: string
+            reason: string
+          }
+          switch (detail.code) {
+            case "REGISTER_INVALID_PASSWORD":
+              form.setError("password", {
+                message: detail.reason,
+              })
+              break
+            default:
+              form.setError("email", {
+                message: String(detail.reason || "Unknown error"),
+              })
+          }
+        }
       } else {
         console.error("Error registering user", error)
         throw error

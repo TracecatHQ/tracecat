@@ -15,10 +15,10 @@ from tracecat.api.routers.users import router as users_router
 from tracecat.auth.constants import AuthType
 from tracecat.auth.models import UserCreate, UserRead, UserUpdate
 from tracecat.auth.users import (
+    FastAPIUsersException,
+    InvalidDomainException,
     auth_backend,
     fastapi_users,
-    get_or_create_default_admin_user,
-    list_users,
 )
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
@@ -114,11 +114,6 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
 
 
 async def setup_defaults(session: AsyncSession, admin_role: Role):
-    users = await list_users(session=session)
-    if len(users) == 0:
-        # Create admin user only if there are no users
-        await get_or_create_default_admin_user()
-
     ws_service = WorkspaceService(session, role=admin_role)
     workspaces = await ws_service.admin_list_workspaces()
     n_workspaces = len(workspaces)
@@ -191,6 +186,23 @@ def validation_exception_handler(request: Request, exc: RequestValidationError):
     return ORJSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=exc_str
     )
+
+
+def fastapi_users_auth_exception_handler(request: Request, exc: FastAPIUsersException):
+    msg = str(exc)
+    logger.warning(
+        "Handling FastAPI Users exception",
+        msg=msg,
+        role=ctx_role.get(),
+        params=request.query_params,
+        path=request.url.path,
+    )
+    match exc:
+        case InvalidDomainException():
+            status_code = status.HTTP_400_BAD_REQUEST
+        case _:
+            status_code = status.HTTP_401_UNAUTHORIZED
+    return ORJSONResponse(status_code=status_code, content={"detail": msg})
 
 
 def create_app(**kwargs) -> FastAPI:
@@ -312,6 +324,9 @@ def create_app(**kwargs) -> FastAPI:
     app.add_exception_handler(Exception, generic_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(
+        FastAPIUsersException, fastapi_users_auth_exception_handler
+    )
 
     # Middleware
     app.add_middleware(RequestLoggingMiddleware)

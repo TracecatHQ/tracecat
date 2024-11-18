@@ -85,8 +85,6 @@ jobs:
       - name: Start Docker services
         env:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-          TRACECAT__SETUP_ADMIN_EMAIL: admin@domain.com
-          TRACECAT__SETUP_ADMIN_PASSWORD: password
         run: docker compose -f docker-compose.dev.yml up --build --no-deps -d api worker postgres_db caddy
 
       - name: Verify Tracecat API is running
