@@ -107,9 +107,6 @@ while true; do
     fi
 done
 
-dotenv_replace "TRACECAT__SETUP_ADMIN_EMAIL" "$admin_email" "$env_file"
-dotenv_replace "TRACECAT__SETUP_ADMIN_PASSWORD" "$admin_password" "$env_file"
-
 # Prompt user for environment mode
 while true; do
     read -p "Use production mode? (y/n, default: y): " prod_mode
