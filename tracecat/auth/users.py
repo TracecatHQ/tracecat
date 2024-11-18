@@ -27,6 +27,7 @@ from fastapi_users.exceptions import (
     UserNotExists,
 )
 from fastapi_users.openapi import OpenAPIResponseType
+from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
@@ -265,8 +266,10 @@ async def list_users(*, session: SQLModelAsyncSession) -> Sequence[User]:
     return result.all()
 
 
-def validate_email(email: str) -> None:
-    _, domain = email.split("@")
+def validate_email(email: EmailStr) -> None:
+    # Safety: This is already a validated email, so we can split on the first @
+    _, domain = email.split("@", 1)
+
     if (
         config.TRACECAT__AUTH_ALLOWED_DOMAINS
         and domain not in config.TRACECAT__AUTH_ALLOWED_DOMAINS
