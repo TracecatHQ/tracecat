@@ -85,7 +85,7 @@ async def validate_single_secret(
             results.append(
                 SecretValidationResult(
                     status="error",
-                    msg=f"Secret {registry_secret.name!r} is missing required keys: {final_missing_keys}",
+                    msg=f"Secret {registry_secret.name!r} is missing required keys: {', '.join(final_missing_keys)}",
                 )
             )
 
