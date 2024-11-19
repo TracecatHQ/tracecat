@@ -488,6 +488,100 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("{ 'key1': 1, 'key2': 'value' }", {"key1": 1, "key2": "value"}),
         ("(1 + 10) > 3 -> str", "True"),
         ("True || (1 != 1)", True),
+        # Advanced jsonpath
+        ## Filtering
+        ("INPUTS..name", ["Alice", "Bob", "Charlie", "Bob"]),
+        ("ACTIONS.users[?active == true].name", ["Alice", "Charlie"]),
+        (
+            "ACTIONS.users[?age >= 40]",
+            [
+                {
+                    "name": "Bob",
+                    "age": 40,
+                    "gender": "male",
+                    "active": False,
+                    "contact": {
+                        "email": "bob@example.com",
+                        "phone": "098-765-4321",
+                    },
+                },
+                {
+                    "name": "Charlie",
+                    "age": 50,
+                    "gender": "male",
+                    "active": True,
+                    "contact": {
+                        "email": "charlie@example.com",
+                        "phone": "111-222-3333",
+                    },
+                },
+            ],
+        ),
+        ("ACTIONS.users[?gender == 'female'].name", "Alice"),
+        (
+            "ACTIONS.users[?age >= 30 & age <= 40].name",
+            ["Alice", "Bob"],
+        ),
+        ## Substituting
+        (
+            "ACTIONS.users[?gender == 'male'].contact.email.`sub(/example.com/, example.net)`",
+            ["bob@example.net", "charlie@example.net"],
+        ),
+        # Apply function tests
+        ("FN.apply('hello', 'lambda x: x.upper()')", "HELLO"),
+        (
+            "FN.apply(['hello', 'world'], 'lambda my_string: my_string.upper()')",
+            ["HELLO", "WORLD"],
+        ),
+        ("FN.apply(INPUTS.numbers, '    lambda x: x + 1  ')", [2, 3, 4]),
+        ("FN.apply(INPUTS.text, 'lambda x: x.upper()')", "TEST"),
+        # Filter function tests
+        ("FN.filter(INPUTS.numbers, 'lambda x: x > 1')", [2, 3]),
+        (
+            "FN.filter(INPUTS.people, 'lambda x: x[\"age\"] > 40')",
+            [
+                {
+                    "name": "Charlie",
+                    "age": 50,
+                }
+            ],
+        ),
+        (
+            'FN.filter(INPUTS.people, \'lambda x: x.get("gender") == "male"\')',
+            [
+                {
+                    "name": "Bob",
+                    "age": 40,
+                    "gender": "male",
+                },
+            ],
+        ),
+        (
+            'FN.filter(ACTIONS.users, \'lambda user: user["contact"]["phone"].startswith("1")\')',
+            [
+                {
+                    "name": "Alice",
+                    "age": 30,
+                    "gender": "female",
+                    "active": True,
+                    "contact": {
+                        "email": "alice@example.com",
+                        "phone": "123-456-7890",
+                    },
+                },
+                {
+                    "name": "Charlie",
+                    "age": 50,
+                    "gender": "male",
+                    "active": True,
+                    "contact": {
+                        "email": "charlie@example.com",
+                        "phone": "111-222-3333",
+                    },
+                },
+            ],
+        ),
+        ("FN.filter(['a', 'b', 'c'], 'lambda x: x != \"b\"')", ["a", "c"]),
     ],
 )
 def test_expression_parser(expr, expected):
@@ -497,6 +591,38 @@ def test_expression_parser(expr, expected):
                 "bar": 1,
                 "baz": 2,
             },
+            "users": [
+                {
+                    "name": "Alice",
+                    "age": 30,
+                    "gender": "female",
+                    "active": True,
+                    "contact": {
+                        "email": "alice@example.com",
+                        "phone": "123-456-7890",
+                    },
+                },
+                {
+                    "name": "Bob",
+                    "age": 40,
+                    "gender": "male",
+                    "active": False,
+                    "contact": {
+                        "email": "bob@example.com",
+                        "phone": "098-765-4321",
+                    },
+                },
+                {
+                    "name": "Charlie",
+                    "age": 50,
+                    "gender": "male",
+                    "active": True,
+                    "contact": {
+                        "email": "charlie@example.com",
+                        "phone": "111-222-3333",
+                    },
+                },
+            ],
         },
         ExprContext.SECRETS: {
             "secret_test": {
@@ -533,6 +659,8 @@ def test_expression_parser(expr, expected):
             "user@tracecat.com": {
                 "name": "Bob",
             },
+            "numbers": [1, 2, 3],
+            "text": "test",
         },
         ExprContext.ENV: {
             "item": "ITEM",

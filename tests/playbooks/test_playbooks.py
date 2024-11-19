@@ -74,7 +74,7 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
         # Respond
         "playbooks/respond/notify_users/slack.yml",
         # Quickstart
-        "playbooks/tutorials/virustotal_quickstart.yml",
+        "playbooks/tutorials/quickstart.yml",
     ],
     ids=lambda x: x,
 )
@@ -108,11 +108,15 @@ async def test_playbook_validation(
     "file_path, trigger_inputs, expected_actions",
     [
         (
-            "playbooks/tutorials/virustotal_quickstart.yml",
+            "playbooks/tutorials/quickstart.yml",
             {
-                "url_input": "https://crowdstrikebluescreen.com",
+                "url": "https://crowdstrikebluescreen.com",
             },
-            ["search_url"],
+            [
+                "search_url",
+                "extract_report",
+                "list_comments",
+            ],
         ),
     ],
     ids=lambda x: x,

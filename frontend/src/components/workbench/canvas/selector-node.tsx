@@ -18,9 +18,9 @@ import {
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
-import { CenteredSpinner } from "@/components/loading/spinner"
 import { ActionNodeType } from "@/components/workbench/canvas/action-node"
 import { isEphemeral } from "@/components/workbench/canvas/canvas"
 
@@ -157,7 +157,24 @@ function ActionCommandSelector({
   }, [inputValue])
 
   if (!registryActions || registryActionsIsLoading) {
-    return <CenteredSpinner />
+    return (
+      <ScrollArea className="h-full" ref={scrollAreaRef}>
+        <CommandGroup heading="Loading Actions..." className="text-xs">
+          {/* Render 5 skeleton items */}
+          {Array.from({ length: 5 }).map((_, index) => (
+            <CommandItem key={index} className="text-xs">
+              <div className="w-full flex-col">
+                <div className="flex items-center justify-start">
+                  <Skeleton className="mr-2 size-5" />
+                  <Skeleton className="h-4 w-32" />
+                </div>
+                <Skeleton className="mt-1 h-3 w-24" />
+              </div>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </ScrollArea>
+    )
   }
   if (registryActionsError) {
     console.error("Failed to load actions", registryActionsError)
