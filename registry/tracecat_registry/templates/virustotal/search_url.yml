@@ -16,7 +16,7 @@ definition:
     - ref: search_url
       action: core.http_request
       args:
-        url: https://www.virustotal.com/api/v3/urls/${{ FN.to_base64(inputs.url) }}
+        url: https://www.virustotal.com/api/v3/urls/${{ FN.strip(FN.to_base64url(inputs.url), "=") }}
         method: GET
         headers:
           x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
