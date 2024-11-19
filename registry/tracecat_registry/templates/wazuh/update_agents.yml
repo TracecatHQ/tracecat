@@ -9,27 +9,39 @@ definition:
     - name: wazuh
       keys:
         - WAZUH_API_TOKEN
-      optional_keys: null
+        - WAZUH_API_URL
   expects:
-    wazuh_server_url:
-      type: str
-      description: The base URL for the Wazuh server API
-      default: null
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: True
   steps:
     - ref: get_outdated_agents
       action: core.http_request
       args:
-        url: ${{ inputs.wazuh_server_url }}/agents/outdated
+        url: ${{ SECRETS.wazuh.WAZUH_API_URL }}/agents/outdated
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
-    - ref: update_agents
+        verify_ssl: ${{ inputs.verify_ssl  }}
+    - ref: upgrade_agents
       action: core.http_request
       args:
-        url: ${{ inputs.wazuh_server_url }}/agents/upgrade
+        url: ${{ SECRETS.wazuh.WAZUH_API_URL }}/agents/upgrade
         method: PUT
+        params:
+          agents_list: ${{ FN.join(steps.get_outdated_agents.result.data.data.affected_items[*].id, ",") }}
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
-        payload:
-          agent_list: ${{ steps.get_outdated_agents.result.data.affected_agents }}
-  returns: ${{ steps.update_agents.result }}
+        verify_ssl: ${{ inputs.verify_ssl  }}
+    - ref: upgrade_result
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.wazuh.WAZUH_API_URL }}/agent/upgrade_result
+        method: GET
+        params:
+          agents_list: ${{ FN.join(steps.upgrade_agents.result.data.data.affected_items[*].id, ",") }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.wazuh_token.WAZUH_API_TOKEN }}
+        verify_ssl: ${{ inputs.verify_ssl  }}
+  returns: ${{ steps.upgrade_result.result }}
