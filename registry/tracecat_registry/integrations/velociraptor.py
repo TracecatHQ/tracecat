@@ -2,15 +2,15 @@
 Author: Zane Gittins
 """
 
+import base64
 import json
+from typing import Annotated, Any
+
 import grpc
 import yaml
-import base64
-
-from typing import Annotated, Any
 from pydantic import Field
-from pyvelociraptor import api_pb2
-from pyvelociraptor import api_pb2_grpc
+from pyvelociraptor import api_pb2, api_pb2_grpc
+
 from tracecat_registry import RegistrySecret, registry, secrets
 
 velociraptor_secret = RegistrySecret(
@@ -24,7 +24,7 @@ velociraptor_secret = RegistrySecret(
     - `CONFIGURATION`
 
 Note: The configuration needs to be base64 encoded before adding it as a secret in Tracecat to preserve formatting.
-You can use the following command to do so: `cat api.config.yaml | base64 -w` 
+You can use the following command to do so: `cat api.config.yaml | base64 -w`
 Please see Velociraptor docs for how to create a configuration and enable the server API: https://docs.velociraptor.app/docs/server_automation/server_api/.
 
 Example Usage
@@ -38,6 +38,7 @@ Read results with query:
   }}',flow_id='${{ var.item.collection.flow_id
   }}',artifact='Generic.Client.Info/BasicInformation')
 """
+
 
 @registry.register(
     default_title="Execute Velociraptor query",
@@ -68,29 +69,39 @@ async def run_velociraptor_query(
             description="Query timeout.",
         ),
     ],
-    ) -> dict[str, Any]:
-
+) -> dict[str, Any]:
     data = secrets.get("CONFIGURATION")
-    data = base64.b64decode(data)  # configuration is base64 encoded: "cat api.config.yaml | base64 -w"
+    data = base64.b64decode(
+        data
+    )  # configuration is base64 encoded: "cat api.config.yaml | base64 -w"
     config = yaml.safe_load(data)
 
     creds = grpc.ssl_channel_credentials(
         root_certificates=config["ca_certificate"].encode("utf8"),
         private_key=config["client_private_key"].encode("utf8"),
-        certificate_chain=config["client_cert"].encode("utf8"))
+        certificate_chain=config["client_cert"].encode("utf8"),
+    )
 
-    options = (('grpc.ssl_target_name_override', "VelociraptorServer",),)
-    with grpc.secure_channel(config["api_connection_string"],
-                         creds, options) as channel:
+    options = (
+        (
+            "grpc.ssl_target_name_override",
+            "VelociraptorServer",
+        ),
+    )
+    with grpc.secure_channel(
+        config["api_connection_string"], creds, options
+    ) as channel:
         stub = api_pb2_grpc.APIStub(channel)
         request = api_pb2.VQLCollectorArgs(
             org_id="",
             max_wait=1,
             max_row=max_rows,
-            Query=[api_pb2.VQLRequest(
-                Name="Tracecat",
-                VQL=query,
-            )],
+            Query=[
+                api_pb2.VQLRequest(
+                    Name="Tracecat",
+                    VQL=query,
+                )
+            ],
         )
         result = []
         for response in stub.Query(request, timeout=timeout):
@@ -98,4 +109,3 @@ async def run_velociraptor_query(
                 continue
             result.extend(json.loads(response.Response))
         return result
-            
