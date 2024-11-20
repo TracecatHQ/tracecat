@@ -15,4 +15,4 @@ actions:
   - ref: filter_empty
     action: core.transform.reshape
     args:
-      value: ${{ FN.filter(INPUTS.matrix, 'len(x) > 0') }}
+      value: "${{ FN.filter(INPUTS.matrix, 'lambda row: len(row) > 0') }}"

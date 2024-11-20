@@ -73,6 +73,14 @@ TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION = os.environ.get(
 SESSION_EXPIRE_TIME_SECONDS = int(
     os.environ.get("SESSION_EXPIRE_TIME_SECONDS") or 86400 * 7
 )  # 7 days
+TRACECAT__AUTH_ALLOWED_DOMAINS = set(
+    ((domains := os.getenv("TRACECAT__AUTH_ALLOWED_DOMAINS")) and domains.split(","))
+    or []
+)
+TRACECAT__AUTH_MIN_PASSWORD_LENGTH = int(
+    os.environ.get("TRACECAT__AUTH_MIN_PASSWORD_LENGTH") or 12
+)
+
 
 # OAuth Login Flow
 # Used for both Google OAuth2 and OIDC flows

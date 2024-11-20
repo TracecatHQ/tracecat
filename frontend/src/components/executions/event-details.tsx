@@ -150,7 +150,7 @@ export function WorkflowExecutionEventDetailView({
 }
 
 export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
-  const { event_group, role, event_type, event_id } = event
+  const { event_group, role, event_type, event_id, parent_wf_exec_id } = event
   const {
     udf_key,
     action_title,
@@ -170,6 +170,9 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
   const [relatedWorkflowId, relatedExecutionId] =
     related_wf_exec_id?.split(":") ?? []
   const relatedWorkflowExecutionLink = `/workspaces/${workspaceId}/workflows/${relatedWorkflowId}/executions/${relatedExecutionId}`
+  const [parentWorkflowId, parentExecutionId] =
+    parent_wf_exec_id?.split(":") ?? []
+  const parentWorkflowExecutionLink = `/workspaces/${workspaceId}/workflows/${parentWorkflowId}/executions/${parentExecutionId}`
 
   return (
     <div className="my-4 flex flex-col space-y-2 px-4">
@@ -227,6 +230,25 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
             </TooltipTrigger>
             <TooltipContent>
               <span>{related_wf_exec_id}</span>
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {event_type == "WORKFLOW_EXECUTION_STARTED" && parent_wf_exec_id && (
+          <Tooltip>
+            <TooltipTrigger>
+              <Badge variant="outline">
+                <Link href={parentWorkflowExecutionLink}>
+                  <div className="flex items-center gap-1">
+                    <span className="font-normal">
+                      Go to parent workflow run
+                    </span>
+                    <SquareArrowOutUpRightIcon className="size-3" />
+                  </div>
+                </Link>
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              <span>{parent_wf_exec_id}</span>
             </TooltipContent>
           </Tooltip>
         )}

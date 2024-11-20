@@ -25,7 +25,11 @@ class ExprEvaluator(Transformer):
         try:
             return self.transform(tree)
         except VisitError as e:
-            logger.error(e)
+            logger.error(
+                "Evaluation failed at node",
+                node=e.obj,
+                reason=e.orig_exc,
+            )
             raise TracecatExpressionError(
                 f"[evaluator] Evaluation failed at node:\n```\n{tree.pretty()}\n```\nReason: {e}",
                 detail=str(e),
@@ -98,37 +102,32 @@ class ExprEvaluator(Transformer):
     @v_args(inline=True)
     def actions(self, jsonpath: str):
         logger.trace("Visiting actions:", args=jsonpath)
-        return functions.eval_jsonpath(
-            ExprContext.ACTIONS + jsonpath, self._context, strict=self._strict
-        )
+        expr = ExprContext.ACTIONS + jsonpath
+        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
 
     @v_args(inline=True)
-    def secrets(self, jsonpath: str):
-        logger.trace("Visiting secrets:", jsonpath=jsonpath)
-        return functions.eval_jsonpath(
-            ExprContext.SECRETS + jsonpath, self._context, strict=self._strict
-        )
+    def secrets(self, path: str):
+        logger.trace("Visiting secrets:", path=path)
+        expr = ExprContext.SECRETS + path
+        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
 
     @v_args(inline=True)
     def inputs(self, jsonpath: str):
         logger.trace("Visiting inputs:", args=jsonpath)
-        return functions.eval_jsonpath(
-            ExprContext.INPUTS + jsonpath, self._context, strict=self._strict
-        )
+        expr = ExprContext.INPUTS + jsonpath
+        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
 
     @v_args(inline=True)
     def env(self, jsonpath: str):
         logger.trace("Visiting env:", args=jsonpath)
-        return functions.eval_jsonpath(
-            ExprContext.ENV + jsonpath, self._context, strict=self._strict
-        )
+        expr = ExprContext.ENV + jsonpath
+        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
 
     @v_args(inline=True)
     def local_vars(self, jsonpath: str):
         logger.trace("Visiting local_vars:", args=jsonpath)
-        return functions.eval_jsonpath(
-            ExprContext.LOCAL_VARS + jsonpath, self._context, strict=self._strict
-        )
+        expr = ExprContext.LOCAL_VARS + jsonpath
+        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
 
     @v_args(inline=True)
     def local_vars_assignment(self, jsonpath: str):
@@ -144,20 +143,14 @@ class ExprEvaluator(Transformer):
     @v_args(inline=True)
     def template_action_inputs(self, jsonpath: str):
         logger.trace("Visiting template_action_inputs:", args=jsonpath)
-        return functions.eval_jsonpath(
-            ExprContext.TEMPLATE_ACTION_INPUTS + jsonpath,
-            self._context,
-            strict=self._strict,
-        )
+        expr = ExprContext.TEMPLATE_ACTION_INPUTS + jsonpath
+        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
 
     @v_args(inline=True)
     def template_action_steps(self, jsonpath: str):
         logger.trace("Visiting template_action_steps:", args=jsonpath)
-        return functions.eval_jsonpath(
-            ExprContext.TEMPLATE_ACTION_STEPS + jsonpath,
-            self._context,
-            strict=self._strict,
-        )
+        expr = ExprContext.TEMPLATE_ACTION_STEPS + jsonpath
+        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
 
     @v_args(inline=True)
     def function(self, fn_name: str, fn_args: Sequence[Any]):
@@ -194,15 +187,9 @@ class ExprEvaluator(Transformer):
         logger.trace("Visiting binary_op:", lhs=lhs, op=op, rhs=rhs)
         return functions.OPERATORS[op](lhs, rhs)
 
-    @v_args(inline=True)
-    def jsonpath_expression(self, *args):
-        logger.trace("Visiting jsonpath expression", args=args)
-        return "".join(args)
-
-    @v_args(inline=True)
-    def jsonpath_segment(self, *args):
-        logger.trace("Visiting jsonpath segment", args=args)
-        return "".join(args)
+    def PARTIAL_JSONPATH_EXPR(self, token: Token):
+        logger.trace("Visiting PARTIAL_JSONPATH_EXPR:", value=token.value)
+        return token.value
 
     """Terminals"""
 
