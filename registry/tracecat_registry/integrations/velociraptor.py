@@ -47,7 +47,7 @@ Read results with query:
     secrets=[velociraptor_secret],
 )
 
-async def velocirapor_command(
+async def velociraptor_query(
     query: Annotated[
         str,
         Field(
