@@ -46,7 +46,6 @@ Read results with query:
     namespace="integrations.velociraptor",
     secrets=[velociraptor_secret],
 )
-
 async def velociraptor_query(
     query: Annotated[
         str,
