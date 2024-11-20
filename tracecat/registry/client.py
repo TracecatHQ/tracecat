@@ -99,7 +99,7 @@ class RegistryClient:
             return orjson.loads(response.content)
         except httpx.HTTPStatusError as e:
             resp = e.response.json()
-            if detail := resp.get("detail"):
+            if (detail := resp.get("detail")) and isinstance(detail, Mapping):
                 val_detail = RegistryActionErrorInfo(**detail)
                 detail = str(val_detail)
             else:

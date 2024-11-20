@@ -394,6 +394,7 @@ export type EventHistoryResponse = {
     failure?: EventFailure | null;
     result?: unknown | null;
     role?: Role | null;
+    parent_wf_exec_id?: string | null;
 };
 
 /**

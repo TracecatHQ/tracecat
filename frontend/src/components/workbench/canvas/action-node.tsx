@@ -1,15 +1,19 @@
 import React, { useCallback } from "react"
+import Link from "next/link"
 import { useWorkflowBuilder } from "@/providers/builder"
 import {
   ChevronDownIcon,
   CircleCheckBigIcon,
   LayoutListIcon,
+  SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from "lucide-react"
 import { Node, NodeProps, useEdges } from "reactflow"
 
 import { useAction } from "@/lib/hooks"
 import { cn, slugify } from "@/lib/utils"
+import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -86,6 +90,8 @@ export default React.memo(function ActionNode({
   // Add this to track incoming edges
   const edges = useEdges()
   const incomingEdges = edges.filter((edge) => edge.target === id)
+  const isChildWorkflow = action?.type === CHILD_WORKFLOW_ACTION_TYPE
+  const childWorkflowId = action?.inputs?.workflow_id
 
   // Create a skeleton loading state within the card frame
   const renderContent = () => {
@@ -178,6 +184,27 @@ export default React.memo(function ActionNode({
               )}
               <span className="text-xs capitalize">{isConfiguredMessage}</span>
             </div>
+            {isChildWorkflow && (
+              <div className="flex justify-end">
+                <Badge
+                  variant="outline"
+                  className="text-foreground/70 hover:cursor-pointer hover:bg-muted-foreground/5"
+                >
+                  {childWorkflowId ? (
+                    <Link
+                      href={`/workspaces/${workspaceId}/workflows/${childWorkflowId}`}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span className="font-normal">Open workflow</span>
+                        <SquareArrowOutUpRightIcon className="size-3" />
+                      </div>
+                    </Link>
+                  ) : (
+                    <span className="font-normal">Missing workflow ID</span>
+                  )}
+                </Badge>
+              </div>
+            )}
           </div>
         </CardContent>
       </>

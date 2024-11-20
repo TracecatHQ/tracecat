@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.13.3}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.13.4}
     container_name: api
     restart: unless-stopped
     networks:
@@ -36,13 +36,12 @@ services:
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       TRACECAT__ALLOW_ORIGINS: ${TRACECAT__ALLOW_ORIGINS}
       TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
+      TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS}
+      TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH}
       OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
       RUN_MIGRATIONS: "true"
-      # Initial admin user
-      TRACECAT__SETUP_ADMIN_EMAIL: ${TRACECAT__SETUP_ADMIN_EMAIL}
-      TRACECAT__SETUP_ADMIN_PASSWORD: ${TRACECAT__SETUP_ADMIN_PASSWORD}
       # SAML SSO
       SAML_IDP_ENTITY_ID: ${SAML_IDP_ENTITY_ID}
       SAML_IDP_REDIRECT_URL: ${SAML_IDP_REDIRECT_URL}
@@ -60,7 +59,7 @@ services:
       OLLAMA__API_URL: ${OLLAMA__API_URL}
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.13.3}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.13.4}
     restart: unless-stopped
     networks:
       - core
@@ -84,7 +83,7 @@ services:
     command: ["python", "tracecat/dsl/worker.py"]
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.13.3}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.13.4}
     container_name: ui
     restart: unless-stopped
     networks:
