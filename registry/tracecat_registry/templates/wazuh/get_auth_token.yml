@@ -10,21 +10,18 @@ definition:
       keys:
         - WAZUH_WUI_USERNAME
         - WAZUH_WUI_PASSWORD
+        - WAZUH_WUI_URL
       optional_keys: null
   expects:
-    wazuh_server_url:
-      type: str
-      description: The base URL for the Wazuh server API
-      default: null
     verify_ssl:
       type: bool
-      description: true or false
-      default: null
+      description: If False, disables SSL verification for internal networks.
+      default: true
   steps:
     - ref: get_auth_token
       action: core.http_request
       args:
-        url: ${{ inputs.wazuh_server_url }}/security/user/authenticate
+        url: ${{ SECRETS.wazuh_wui.WAZUH_WUI_URL }}/security/user/authenticate
         auth:
           username: ${{ SECRETS.wazuh_wui.WAZUH_WUI_USERNAME }}
           password: ${{ SECRETS.wazuh_wui.WAZUH_WUI_PASSWORD }}
