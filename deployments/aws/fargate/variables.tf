@@ -55,7 +55,7 @@ variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.13.4"
+  default = "0.14.0"
 }
 
 variable "use_git_commit_sha" {
