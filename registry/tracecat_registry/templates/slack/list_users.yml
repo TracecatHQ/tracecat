@@ -20,5 +20,5 @@ definition:
         sdk_method: users_list
         params:
           team_id: ${{ inputs.team_id }}
-          limit: ${{ inputs.limit }}
+        limit: ${{ inputs.limit }}
   returns: ${{ FN.flatten(steps.list_users.result[*].member) }}

@@ -28,5 +28,5 @@ definition:
           channel: ${{ inputs.channel }}
           latest: ${{ str(FN.to_timestamp(inputs.latest)) }}
           oldest: ${{ str(FN.to_timestamp(inputs.oldest)) }}
-          limit: ${{ inputs.limit }}
+        limit: ${{ inputs.limit }}
   returns: ${{ FN.flatten(steps.list_conversations.result[*].messages) }}
