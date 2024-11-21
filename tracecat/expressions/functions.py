@@ -531,8 +531,15 @@ def eval_jsonpath(
 
 _FUNCTION_MAPPING = {
     # String transforms
+    "capitalize": capitalize,
+    "endswith": endswith,
+    "lowercase": lowercase,
     "slice": slice_str,
+    "split": split,
+    "startswith": startswith,
     "strip": strip,
+    "titlize": titlize,
+    "uppercase": uppercase,
     # Comparison
     "less_than": less_than,
     "less_than_or_equal": less_than_or_equal,
