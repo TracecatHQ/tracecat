@@ -538,7 +538,7 @@ _FUNCTION_MAPPING = {
     "split": split,
     "startswith": startswith,
     "strip": strip,
-    "titlize": titlize,
+    "titleize": titleize,
     "uppercase": uppercase,
     # Comparison
     "less_than": less_than,
