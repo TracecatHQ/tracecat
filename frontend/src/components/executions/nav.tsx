@@ -96,11 +96,12 @@ export function WorkflowExecutionNav({
         {workflowExecutions.map((execution, index) => (
           <HoverCard openDelay={10} closeDelay={10} key={index}>
             <Link
-              href={`${baseUrl}/executions/${execution.id.split(":")[1]}`}
+              href={`${baseUrl}/executions/${parseExecutionId(execution.id)[1]}`}
               className={cn(
                 buttonVariants({ variant: "default", size: "sm" }),
                 "justify-start bg-background text-muted-foreground shadow-none hover:cursor-default hover:bg-gray-100",
-                execution.id.split(":")[1] === executionId && "bg-gray-200"
+                parseExecutionId(execution.id)[1] === executionId &&
+                  "bg-gray-200"
               )}
             >
               <div className="flex items-center">
@@ -152,7 +153,7 @@ export function WorkflowExecutionNav({
                   <Label className="text-xs text-muted-foreground">
                     Execution ID
                   </Label>
-                  <span>{execution.id.split(":")[1]}</span>
+                  <span>{parseExecutionId(execution.id)[1]}</span>
                 </div>
                 <div className="flex flex-col">
                   <Label className="text-xs text-muted-foreground">
@@ -237,4 +238,24 @@ export function getExecutionStatusIcon(
     default:
       throw new Error("Invalid status")
   }
+}
+
+/**
+ * Get the execution ID from a full execution ID
+ * @param fullExecutionId
+ * @returns the execution ID
+ *
+ * Example:
+ * - "wf-123:1234567890" -> ["wf-123", "1234567890"]
+ * - "wf-123:1234567890:1" -> ["wf-123", "1234567890:1"]
+ */
+function parseExecutionId(fullExecutionId: string): [string, string] {
+  // Split at most once from the left, keeping any remaining colons in the second part
+  const splitIndex = fullExecutionId.indexOf(":")
+  if (splitIndex === -1) {
+    throw new Error("Invalid execution ID format - missing colon separator")
+  }
+  const workflowId = fullExecutionId.slice(0, splitIndex)
+  const executionId = fullExecutionId.slice(splitIndex + 1)
+  return [workflowId, executionId]
 }
