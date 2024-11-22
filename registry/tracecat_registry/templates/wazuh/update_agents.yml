@@ -42,6 +42,6 @@ definition:
         params:
           agents_list: ${{ FN.join(steps.upgrade_agents.result.data.data.affected_items[*].id, ",") }}
         headers:
-          Authorization: Bearer ${{ SECRETS.wazuh_token.WAZUH_API_TOKEN }}
+          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
         verify_ssl: ${{ inputs.verify_ssl  }}
   returns: ${{ steps.upgrade_result.result }}
