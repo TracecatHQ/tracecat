@@ -421,8 +421,12 @@ def _extract_first(input_or_result: temporalio.api.common.v1.Payloads) -> Any:
     raw_data = input_or_result.payloads[0].data
     try:
         return orjson.loads(raw_data)
-    except orjson.JSONDecodeError:
-        logger.warning("Failed to decode JSON data, attemping to decode as string")
+    except orjson.JSONDecodeError as e:
+        logger.warning(
+            "Failed to decode JSON data, attemping to decode as string",
+            raw_data=raw_data,
+            e=e,
+        )
 
     try:
         return raw_data.decode()
