@@ -582,6 +582,8 @@ def test_eval_templated_object_inline_fails_if_not_str():
             ],
         ),
         ("FN.filter(['a', 'b', 'c'], 'lambda x: x != \"b\"')", ["a", "c"]),
+        ("ACTIONS.empty[0].index", None),
+        ("ACTIONS.null_value.result.result", None),
     ],
 )
 def test_expression_parser(expr, expected):
@@ -623,6 +625,8 @@ def test_expression_parser(expr, expected):
                     },
                 },
             ],
+            "empty": [],
+            "null_value": None,
         },
         ExprContext.SECRETS: {
             "secret_test": {
