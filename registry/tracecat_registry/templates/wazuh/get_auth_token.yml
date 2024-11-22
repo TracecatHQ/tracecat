@@ -1,0 +1,33 @@
+type: action
+definition:
+  name: generate_wazuh_wui_token
+  namespace: integrations.wazuh
+  title: Generate Wazuh API Token
+  description: Authenticate with the Wazuh API and retrieve a token.
+  display_group: Wazuh
+  secrets:
+    - name: wazuh_wui
+      keys:
+        - WAZUH_WUI_USERNAME
+        - WAZUH_WUI_PASSWORD
+        - WAZUH_WUI_URL
+      optional_keys: null
+  expects:
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: get_auth_token
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.wazuh_wui.WAZUH_WUI_URL }}/security/user/authenticate
+        auth:
+          username: ${{ SECRETS.wazuh_wui.WAZUH_WUI_USERNAME }}
+          password: ${{ SECRETS.wazuh_wui.WAZUH_WUI_PASSWORD }}
+        method: POST
+        headers:
+          Content-Type: application/json
+        verify_ssl: ${{ inputs.verify_ssl  }}
+  returns:
+    token: ${{ steps.get_auth_token.result.data.token }}
