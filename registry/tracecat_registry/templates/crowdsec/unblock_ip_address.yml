@@ -9,7 +9,7 @@ definition:
     - name: crowdsec
       keys:
         - CROWDSEC_API_TOKEN
-	- CROWDSEC_API_URL
+        - CROWDSEC_API_URL
       optional_keys: null
   expects:
     ip_address:
