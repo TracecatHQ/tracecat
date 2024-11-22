@@ -84,6 +84,9 @@ def _bool(x: Any) -> bool:
     return bool(x)
 
 
+# String functions
+
+
 def from_timestamp(x: int, unit: str) -> datetime:
     """Convert timestamp to datetime, handling milliseconds if unit is 'ms'."""
     if unit == "ms":
@@ -91,6 +94,17 @@ def from_timestamp(x: int, unit: str) -> datetime:
     else:
         dt = datetime.fromtimestamp(x)
     return dt
+
+
+def to_datetime(x: Any) -> datetime:
+    """Convert input to datetime object from timestamp, ISO string or existing datetime."""
+    if isinstance(x, datetime):
+        return x
+    if isinstance(x, int):
+        return datetime.fromtimestamp(x)
+    if isinstance(x, str):
+        return datetime.fromisoformat(x)
+    raise ValueError(f"Invalid datetime value {x!r}")
 
 
 def format_string(template: str, *values: Any) -> str:
@@ -163,6 +177,60 @@ def b64url_to_str(x: str) -> str:
     return base64.urlsafe_b64decode(x).decode()
 
 
+def regex_extract(pattern: str, text: str) -> str | None:
+    """Extract first match of regex pattern from text."""
+    match = re.search(pattern, text)
+    if match:
+        return match.group(0)
+    return None
+
+
+def regex_match(pattern: str, text: str) -> bool:
+    """Check if text matches regex pattern."""
+    return bool(re.match(pattern, text))
+
+
+def regex_not_match(pattern: str, text: str) -> bool:
+    """Check if text does not match regex pattern."""
+    return not bool(re.match(pattern, text))
+
+
+def generate_uuid() -> str:
+    """Generate a random UUID string."""
+    return str(uuid4())
+
+
+def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
+    """Parse newline-delimited JSON string into list of dictionaries."""
+    return [orjson.loads(line) for line in x.splitlines()]
+
+
+def extract_text_from_html(input: str) -> list[str]:
+    """Extract text content from HTML string using HTMLToTextParser."""
+    parser = HTMLToTextParser()
+    parser.feed(input)
+    parser.close()
+    return parser._output
+
+
+class HTMLToTextParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self._output = []
+        self.convert_charrefs = True
+
+    def handle_data(self, data):
+        self._output += [data.strip()]
+
+
+# IP address functions
+
+
+def check_ip_version(ip: str) -> int:
+    """Get IP address version (4 or 6)."""
+    return ipaddress.ip_address(ip).version
+
+
 def ipv4_in_subnet(ipv4: str, subnet: str) -> bool:
     """Check if IPv4 address is in the given subnet."""
     if IPv4Address(ipv4) in IPv4Network(subnet):
@@ -187,33 +255,7 @@ def ipv6_is_public(ipv6: str) -> bool:
     return IPv6Address(ipv6).is_global
 
 
-def to_datetime(x: Any) -> datetime:
-    """Convert input to datetime object from timestamp, ISO string or existing datetime."""
-    if isinstance(x, datetime):
-        return x
-    if isinstance(x, int):
-        return datetime.fromtimestamp(x)
-    if isinstance(x, str):
-        return datetime.fromisoformat(x)
-    raise ValueError(f"Invalid datetime value {x!r}")
-
-
-def extract_text_from_html(input: str) -> list[str]:
-    """Extract text content from HTML string using HTMLToTextParser."""
-    parser = HTMLToTextParser()
-    parser.feed(input)
-    parser.close()
-    return parser._output
-
-
-class HTMLToTextParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self._output = []
-        self.convert_charrefs = True
-
-    def handle_data(self, data):
-        self._output += [data.strip()]
+# Array functions
 
 
 def custom_chain(*args) -> Any:
@@ -223,39 +265,6 @@ def custom_chain(*args) -> Any:
             yield from custom_chain(*arg)
         else:
             yield arg
-
-
-def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
-    """Parse newline-delimited JSON string into list of dictionaries."""
-    return [orjson.loads(line) for line in x.splitlines()]
-
-
-def not_null(x: Any) -> bool:
-    """Check if value is not None."""
-    return x is not None
-
-
-def is_null(x: Any) -> bool:
-    """Check if value is None."""
-    return x is None
-
-
-def regex_extract(pattern: str, text: str) -> str | None:
-    """Extract first match of regex pattern from text."""
-    match = re.search(pattern, text)
-    if match:
-        return match.group(0)
-    return None
-
-
-def regex_match(pattern: str, text: str) -> bool:
-    """Check if text matches regex pattern."""
-    return bool(re.match(pattern, text))
-
-
-def regex_not_match(pattern: str, text: str) -> bool:
-    """Check if text does not match regex pattern."""
-    return not bool(re.match(pattern, text))
 
 
 def contains(item: Any, container: Sequence[Any]) -> bool:
@@ -308,14 +317,17 @@ def iter_product(*iterables: Sequence[Any]) -> list[tuple[Any, ...]]:
     return list(itertools.product(*iterables))
 
 
-def generate_uuid() -> str:
-    """Generate a random UUID string."""
-    return str(uuid4())
+# Dictionary functions
 
 
 def dict_keys(x: dict[Any, Any]) -> list[Any]:
     """Extract keys from dictionary."""
     return list(x.keys())
+
+
+def dict_lookup(d: dict[Any, Any], k: Any) -> Any:
+    """Safely get value from dictionary."""
+    return d.get(k)
 
 
 def dict_values(x: dict[Any, Any]) -> list[Any]:
@@ -331,6 +343,9 @@ def serialize_to_json(x: Any) -> str:
 def prettify_json_str(x: Any) -> str:
     """Convert object to formatted JSON string."""
     return json.dumps(x, indent=2)
+
+
+# Time-related functions
 
 
 def to_timestamp_str(x: datetime) -> float:
@@ -353,14 +368,22 @@ def to_iso_format(x: datetime) -> str:
     return x.isoformat()
 
 
-def dict_lookup(d: dict[Any, Any], k: Any) -> Any:
-    """Safely get value from dictionary."""
-    return d.get(k)
+def now() -> datetime:
+    """Return the current datetime."""
+    return datetime.now()
 
 
-def check_ip_version(ip: str) -> int:
-    """Get IP address version (4 or 6)."""
-    return ipaddress.ip_address(ip).version
+# Comparison functions
+
+
+def not_null(x: Any) -> bool:
+    """Check if value is not None."""
+    return x is not None
+
+
+def is_null(x: Any) -> bool:
+    """Check if value is None."""
+    return x is None
 
 
 def less_than(a: Any, b: Any) -> bool:
@@ -427,11 +450,6 @@ def pow(a: float | int, b: float | int) -> float | int:
     return a**b
 
 
-def now() -> datetime:
-    """Return the current datetime."""
-    return datetime.now()
-
-
 def sum_(iterable: Iterable[float | int], start: float | int = 0) -> float | int:
     """Return the sum of a 'start' value (default: 0) plus an iterable of numbers."""
     return sum(iterable, start)
@@ -450,6 +468,9 @@ def and_(a: bool, b: bool) -> bool:
 def or_(a: bool, b: bool) -> bool:
     """Logical OR operation."""
     return a or b
+
+
+# Filtering functions
 
 
 def intersect[T: Any](
@@ -598,12 +619,12 @@ _FUNCTION_MAPPING = {
     "extract_text_from_html": extract_text_from_html,
     # Time related
     "from_timestamp": from_timestamp,
-    "to_timestamp": to_timestamp_str,
     "minutes": create_minutes,
     "now": now,
     "to_datestring": to_date_string,
     "to_datetime": to_datetime,
     "to_isoformat": to_iso_format,
+    "to_timestamp": to_timestamp_str,
     # Base64
     "to_base64": str_to_b64,
     "from_base64": b64_to_str,
