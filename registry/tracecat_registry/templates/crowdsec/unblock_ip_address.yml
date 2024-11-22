@@ -9,6 +9,7 @@ definition:
     - name: crowdsec
       keys:
         - CROWDSEC_API_TOKEN
+	- CROWDSEC_API_URL
       optional_keys: null
   expects:
     ip_address:
@@ -23,7 +24,7 @@ definition:
     - ref: unblock_ip_address
       action: core.http_request
       args:
-        url: ${{ inputs.url_server }}/v1/decisions?ip=${{ inputs.ip_address }}
+        url: ${{ SECRETS.crowdsec.CROWDSEC_API_URL }}/v1/decisions?ip=${{ inputs.ip_address }}
         method: DELETE
         headers:
           Authorization: Bearer ${{ SECRETS.crowdsec.CROWDSEC_API_TOKEN }}
