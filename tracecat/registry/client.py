@@ -1,6 +1,7 @@
 """Use this in worker to execute actions."""
 
 from collections.abc import Mapping
+from json import JSONDecodeError
 from typing import Any, cast
 
 import httpx
@@ -98,7 +99,12 @@ class RegistryClient:
             response.raise_for_status()
             return orjson.loads(response.content)
         except httpx.HTTPStatusError as e:
-            resp = e.response.json()
+            logger.info("Handling registry error", error=e)
+            try:
+                resp = e.response.json()
+            except JSONDecodeError:
+                logger.warning("Failed to decode JSON response, returning empty dict")
+                resp = {}
             if (detail := resp.get("detail")) and isinstance(detail, Mapping):
                 val_detail = RegistryActionErrorInfo(**detail)
                 detail = str(val_detail)
