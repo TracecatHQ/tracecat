@@ -98,6 +98,46 @@ def format_string(template: str, *values: Any) -> str:
     return template.format(*values)
 
 
+def capitalize(x: str) -> str:
+    """Capitalize a string."""
+    return x.capitalize()
+
+
+def titleize(x: str) -> str:
+    """Convert a string to titlecase."""
+    return x.title()
+
+
+def uppercase(x: str) -> str:
+    """Convert string to uppercase."""
+    return x.upper()
+
+
+def lowercase(x: str) -> str:
+    """Convert string to lowercase."""
+    return x.lower()
+
+
+def slice_str(x: str, start_index: int, length: int) -> str:
+    """Extract a substring from start_index with given length."""
+    return x[start_index : start_index + length]
+
+
+def endswith(x: str, suffix: str) -> bool:
+    """Check if a string ends with a specified suffix."""
+    return x.endswith(suffix)
+
+
+def startswith(x: str, suffix: str) -> bool:
+    """Check if a string starts wit a specified suffix."""
+    return x.startswith(suffix)
+
+
+def split(x: str, sep: str) -> list[str]:
+    """Split a string into a list of strings by a seperator."""
+    return x.split(sep)
+
+
 def strip(x: str, chars: str) -> str:
     """Removes all leading and trailing characters."""
     return x.strip(chars)
@@ -188,11 +228,6 @@ def custom_chain(*args) -> Any:
 def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
     """Parse newline-delimited JSON string into list of dictionaries."""
     return [orjson.loads(line) for line in x.splitlines()]
-
-
-def slice_str(x: str, start_index: int, length: int) -> str:
-    """Extract a substring from start_index with given length."""
-    return x[start_index : start_index + length]
 
 
 def not_null(x: Any) -> bool:
@@ -496,8 +531,15 @@ def eval_jsonpath(
 
 _FUNCTION_MAPPING = {
     # String transforms
+    "capitalize": capitalize,
+    "endswith": endswith,
+    "lowercase": lowercase,
     "slice": slice_str,
+    "split": split,
+    "startswith": startswith,
     "strip": strip,
+    "titleize": titleize,
+    "uppercase": uppercase,
     # Comparison
     "less_than": less_than,
     "less_than_or_equal": less_than_or_equal,
