@@ -70,7 +70,6 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
         # Detect
         "playbooks/detect/webhook_alerts/elastic.yml",
         "playbooks/detect/webhook_alerts/panther.yml",
-        "playbooks/detect/extract_iocs.yml",
         # Respond
         "playbooks/respond/notify_users/slack.yml",
         # Quickstart
