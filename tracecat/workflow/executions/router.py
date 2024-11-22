@@ -12,14 +12,15 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat import identifiers
 from tracecat.auth.credentials import authenticate_user_for_workspace
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
+from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
+from tracecat.workflow.executions.dependencies import UnquotedExecutionOrScheduleID
 from tracecat.workflow.executions.models import (
     CreateWorkflowExecutionParams,
     CreateWorkflowExecutionResponse,
@@ -36,7 +37,7 @@ router = APIRouter(prefix="/workflow-executions")
 async def list_workflow_executions(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
     # Filters
-    workflow_id: identifiers.WorkflowID | None = Query(None),
+    workflow_id: WorkflowID | None = Query(None),
 ) -> list[WorkflowExecutionResponse]:
     """List all workflow executions."""
     with logger.contextualize(role=role):
@@ -54,7 +55,7 @@ async def list_workflow_executions(
 @router.get("/{execution_id}", tags=["workflow-executions"])
 async def get_workflow_execution(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
+    execution_id: UnquotedExecutionOrScheduleID,
 ) -> WorkflowExecutionResponse:
     """Get a workflow execution."""
     with logger.contextualize(role=role):
@@ -66,7 +67,7 @@ async def get_workflow_execution(
 @router.get("/{execution_id}/history", tags=["workflow-executions"])
 async def list_workflow_execution_event_history(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
+    execution_id: UnquotedExecutionOrScheduleID,
 ) -> list[EventHistoryResponse]:
     """Get a workflow execution."""
     with logger.contextualize(role=role):
@@ -126,7 +127,7 @@ async def create_workflow_execution(
 )
 async def cancel_workflow_execution(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
+    execution_id: UnquotedExecutionOrScheduleID,
 ) -> None:
     """Get a workflow execution."""
     with logger.contextualize(role=role):
@@ -150,7 +151,7 @@ async def cancel_workflow_execution(
 )
 async def terminate_workflow_execution(
     role: Annotated[Role, Depends(authenticate_user_for_workspace)],
-    execution_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID,
+    execution_id: UnquotedExecutionOrScheduleID,
     params: TerminateWorkflowExecutionParams,
 ) -> None:
     """Get a workflow execution."""
