@@ -103,7 +103,7 @@ def capitalize(x: str) -> str:
     return x.capitalize()
 
 
-def titlize(x: str) -> str:
+def titleize(x: str) -> str:
     """Convert a string to titlecase."""
     return x.title()
 
