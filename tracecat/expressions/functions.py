@@ -353,6 +353,11 @@ def to_iso_format(x: datetime) -> str:
     return x.isoformat()
 
 
+def now() -> datetime:
+    """Return the current datetime."""
+    return datetime.now()
+
+
 def dict_lookup(d: dict[Any, Any], k: Any) -> Any:
     """Safely get value from dictionary."""
     return d.get(k)
@@ -425,11 +430,6 @@ def mod(a: float | int, b: float | int) -> float | int:
 def pow(a: float | int, b: float | int) -> float | int:
     """Raise first number to the power of second number."""
     return a**b
-
-
-def now() -> datetime:
-    """Return the current datetime."""
-    return datetime.now()
 
 
 def sum_(iterable: Iterable[float | int], start: float | int = 0) -> float | int:
