@@ -105,7 +105,11 @@ class RegistryClient:
             except JSONDecodeError:
                 logger.warning("Failed to decode JSON response, returning empty dict")
                 resp = {}
-            if (detail := resp.get("detail")) and isinstance(detail, Mapping):
+            if (
+                isinstance(resp, Mapping)
+                and (detail := resp.get("detail"))
+                and isinstance(detail, Mapping)
+            ):
                 val_detail = RegistryActionErrorInfo(**detail)
                 detail = str(val_detail)
             else:
