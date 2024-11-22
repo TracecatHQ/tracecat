@@ -20,7 +20,7 @@ from tracecat.dsl.models import (
     RunActionInput,
     TriggerInputs,
 )
-from tracecat.identifiers import WorkflowExecutionID, WorkflowID
+from tracecat.identifiers import WorkflowExecutionID, WorkflowID, WorkflowScheduleID
 from tracecat.types.auth import Role
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
@@ -34,6 +34,8 @@ WorkflowExecutionStatusLiteral = Literal[
     "TIMED_OUT",
 ]
 """Mapped literal types for workflow execution statuses."""
+
+ExecutionOrScheduleID = WorkflowExecutionID | WorkflowScheduleID
 
 
 class EventHistoryType(StrEnum):
