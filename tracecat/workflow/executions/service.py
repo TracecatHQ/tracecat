@@ -378,6 +378,8 @@ class WorkflowExecutionsService:
             role=self.role,
             wf_exec_id=wf_exec_id,
         )
+        if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
+            kwargs["rpc_timeout"] = datetime.timedelta(seconds=float(rpc_timeout))
         try:
             result = await self._client.execute_workflow(
                 DSLWorkflow.run,
