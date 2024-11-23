@@ -177,6 +177,11 @@ variable "temporal_memory" {
   default = "512"
 }
 
+variable "temporal_client_rpc_timeout" {
+  type        = string
+  description = "RPC timeout for Temporal client in seconds"
+}
+
 variable "caddy_cpu" {
   type    = string
   default = "256"
