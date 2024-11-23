@@ -180,6 +180,7 @@ variable "temporal_memory" {
 variable "temporal_client_rpc_timeout" {
   type        = string
   description = "RPC timeout for Temporal client in seconds"
+  default     = null
 }
 
 variable "caddy_cpu" {
