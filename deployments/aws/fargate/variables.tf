@@ -172,9 +172,20 @@ variable "temporal_cpu" {
   default = "256"
 }
 
+variable "temporal_log_level" {
+  type    = string
+  default = "warn"
+}
+
 variable "temporal_memory" {
   type    = string
   default = "512"
+}
+
+variable "temporal_client_rpc_timeout" {
+  type        = string
+  description = "RPC timeout for Temporal client in seconds"
+  default     = null
 }
 
 variable "caddy_cpu" {

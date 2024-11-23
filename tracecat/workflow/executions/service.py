@@ -373,10 +373,14 @@ class WorkflowExecutionsService:
         trigger_inputs: TriggerInputs | None = None,
         **kwargs: Any,
     ) -> DispatchWorkflowResult:
+        if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
+            kwargs["rpc_timeout"] = datetime.timedelta(seconds=float(rpc_timeout))
+
         logger.info(
             f"Executing DSL workflow: {dsl.title}",
             role=self.role,
             wf_exec_id=wf_exec_id,
+            kwargs=kwargs,
         )
         try:
             result = await self._client.execute_workflow(
