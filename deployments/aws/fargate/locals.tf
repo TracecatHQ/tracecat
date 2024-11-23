@@ -74,7 +74,7 @@ locals {
       DB                         = "postgres12"
       DB_PORT                    = "5432"
       POSTGRES_USER              = "postgres"
-      LOG_LEVEL                  = "warn"
+      LOG_LEVEL                  = var.temporal_log_level
       TEMPORAL_BROADCAST_ADDRESS = "0.0.0.0"
       BIND_ON_IP                 = "0.0.0.0"
     } :

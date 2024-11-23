@@ -172,6 +172,11 @@ variable "temporal_cpu" {
   default = "256"
 }
 
+variable "temporal_log_level" {
+  type    = string
+  default = "warn"
+}
+
 variable "temporal_memory" {
   type    = string
   default = "512"
