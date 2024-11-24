@@ -518,29 +518,29 @@ def create_weeks(x: int) -> timedelta:
     return timedelta(weeks=x)
 
 
-def seconds_between(x: datetime, y: datetime) -> int:
+def seconds_between(x: datetime, y: datetime) -> float:
     """Seconds between two datetimes."""
-    return (x - y).seconds
+    return (x - y).total_seconds()
 
 
 def minutes_between(x: datetime, y: datetime) -> float:
     """Minutes between two datetimes."""
-    return (x - y).seconds / 60
+    return (x - y).total_seconds() / 60
 
 
 def hours_between(x: datetime, y: datetime) -> float:
     """Hours between two datetimes."""
-    return (x - y).seconds / 3600
+    return (x - y).total_seconds() / 3600
 
 
-def days_between(x: datetime, y: datetime) -> int:
+def days_between(x: datetime, y: datetime) -> float:
     """Days between two datetimes."""
-    return (x - y).days
+    return (x - y).total_seconds() / 86400
 
 
 def weeks_between(x: datetime, y: datetime) -> float:
     """Weeks between two datetimes or dates."""
-    return (x - y).days / 7
+    return (x - y).total_seconds() / 604800
 
 
 def to_date_string(x: datetime, format: str) -> str:
