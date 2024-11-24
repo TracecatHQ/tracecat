@@ -419,7 +419,7 @@ def extract_hour(x: datetime) -> int:
     return x.hour
 
 
-def extract_day_of_week(x: datetime, format: str = "number") -> int | str:
+def extract_day_of_week(x: datetime, format: Literal["number", "full", "short"]  = "number") -> int | str:
     """Extract day of week from datetime. Returns 0-6 (Mon-Sun) or day name if format is "full" or "short"."""
     weekday = x.weekday()
     match format:
