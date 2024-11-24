@@ -6,8 +6,9 @@ import ipaddress
 import itertools
 import json
 import re
+import zoneinfo
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import wraps
 from html.parser import HTMLParser
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
@@ -255,6 +256,58 @@ def ipv6_is_public(ipv6: str) -> bool:
     return IPv6Address(ipv6).is_global
 
 
+# Numeric functions
+
+
+def add(a: float | int, b: float | int) -> float | int:
+    """Add two numbers together."""
+    return a + b
+
+
+def sub(a: float | int, b: float | int) -> float | int:
+    """Subtract second number from first number."""
+    return a - b
+
+
+def mul(a: float | int, b: float | int) -> float | int:
+    """Multiply two numbers together."""
+    return a * b
+
+
+def div(a: float | int, b: float | int) -> float:
+    """Divide first number by second number."""
+    if b == 0:
+        raise ZeroDivisionError("Cannot divide by zero")
+    return a / b
+
+
+def mod(a: float | int, b: float | int) -> float | int:
+    """Calculate modulo (remainder) of first number divided by second."""
+    if b == 0:
+        raise ZeroDivisionError("Cannot calculate modulo with zero")
+    return a % b
+
+
+def pow(a: float | int, b: float | int) -> float | int:
+    """Raise first number to the power of second number."""
+    return a**b
+
+
+def sum_(iterable: Iterable[float | int], start: float | int = 0) -> float | int:
+    """Return the sum of a 'start' value (default: 0) plus an iterable of numbers."""
+    return sum(iterable, start)
+
+
+def round_up(x: float) -> int:
+    """Round up to the closest integer."""
+    return
+
+
+def round_down(x: float) -> int:
+    """Round down to the closest integer"""
+    return
+
+
 # Array functions
 
 
@@ -353,9 +406,140 @@ def to_timestamp_str(x: datetime) -> float:
     return x.timestamp()
 
 
+def extract_second(x: datetime) -> int:
+    return x.second
+
+
+def extract_minute(x: datetime) -> int:
+    return x.minute
+
+
+def extract_hour(x: datetime) -> int:
+    return x.hour
+
+
+def extract_day_of_week(x: datetime, format: str = "number") -> int | str:
+    """Extract day of week from datetime. Returns 0-6 (Mon-Sun) or day name if format is "full" or "short"."""
+    weekday = x.weekday()
+    match format:
+        case "number":
+            return weekday
+        case "full":
+            days = [
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday",
+            ]
+            return days[weekday]
+        case "short":
+            days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            return days[weekday]
+        case _:
+            raise ValueError("format must be 'number', 'full', or 'short'")
+
+
+def extract_day(x: datetime) -> int:
+    return x.day
+
+
+def extract_month(x: datetime, format: str = "number") -> int | str:
+    """Extract month from datetime. Returns 1-12 or month name if format is "full" or "short"."""
+    month = x.month
+    match format:
+        case "number":
+            return month
+        case "full":
+            months = [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ]
+            return months[month - 1]
+        case "short":
+            months = [
+                "Jan",
+                "Feb",
+                "Mar",
+                "Apr",
+                "May",
+                "Jun",
+                "Jul",
+                "Aug",
+                "Sep",
+                "Oct",
+                "Nov",
+                "Dec",
+            ]
+            return months[month - 1]
+        case _:
+            raise ValueError("format must be 'number', 'full', or 'short'")
+
+
+def extract_year(x: datetime) -> int:
+    return x.year
+
+
+def create_seconds(x: int) -> timedelta:
+    """Create timedelta with specified seconds."""
+    return timedelta(seconds=x)
+
+
 def create_minutes(x: int) -> timedelta:
     """Create timedelta with specified minutes."""
     return timedelta(minutes=x)
+
+
+def create_hours(x: int) -> timedelta:
+    """Create timedelta with specified hours."""
+    return timedelta(hours=x)
+
+
+def create_days(x: int) -> timedelta:
+    """Create timedelta with specified days."""
+    return timedelta(days=x)
+
+
+def create_weeks(x: int) -> timedelta:
+    """Create timedelta with spcified weeks"""
+    return timedelta(weeks=x)
+
+
+def seconds_between(x: datetime, y: datetime) -> int:
+    """Seconds between two datetimes."""
+    return (x - y).seconds
+
+
+def minutes_between(x: datetime, y: datetime) -> float:
+    """Minutes between two datetimes."""
+    return (x - y).seconds / 60
+
+
+def hours_between(x: datetime, y: datetime) -> float:
+    """Hours between two datetimes."""
+    return (x - y).seconds / 3600
+
+
+def days_between(x: datetime, y: datetime) -> int:
+    """Days between two datetimes."""
+    return (x - y).days
+
+
+def weeks_between(x: datetime, y: datetime) -> float:
+    """Weeks between two datetimes or dates."""
+    return (x - y).days / 7
 
 
 def to_date_string(x: datetime, format: str) -> str:
@@ -371,6 +555,27 @@ def to_iso_format(x: datetime) -> str:
 def now() -> datetime:
     """Return the current datetime."""
     return datetime.now()
+
+
+def utcnow() -> datetime:
+    """Return the current timezone-aware datetime."""
+    return datetime.now(UTC)
+
+
+def today() -> date:
+    """Return the current date."""
+    return date.today()
+
+
+def change_timezone(x: datetime, timezone: str) -> datetime:
+    """Convert datetime to different timezone. Timezone must be a valid IANA timezone name (e.g., "America/New_York")."""
+    tz = zoneinfo.ZoneInfo(timezone)
+    return x.astimezone(tz)
+
+
+def drop_timezone(x: datetime) -> datetime:
+    """Remove timezone information from datetime without changing the time."""
+    return x.replace(tzinfo=None)
 
 
 # Comparison functions
@@ -414,45 +619,6 @@ def not_equal(a: Any, b: Any) -> bool:
 def is_equal(a: Any, b: Any) -> bool:
     """Check if a is equal to b."""
     return a == b
-
-
-def add(a: float | int, b: float | int) -> float | int:
-    """Add two numbers together."""
-    return a + b
-
-
-def sub(a: float | int, b: float | int) -> float | int:
-    """Subtract second number from first number."""
-    return a - b
-
-
-def mul(a: float | int, b: float | int) -> float | int:
-    """Multiply two numbers together."""
-    return a * b
-
-
-def div(a: float | int, b: float | int) -> float:
-    """Divide first number by second number."""
-    if b == 0:
-        raise ZeroDivisionError("Cannot divide by zero")
-    return a / b
-
-
-def mod(a: float | int, b: float | int) -> float | int:
-    """Calculate modulo (remainder) of first number divided by second."""
-    if b == 0:
-        raise ZeroDivisionError("Cannot calculate modulo with zero")
-    return a % b
-
-
-def pow(a: float | int, b: float | int) -> float | int:
-    """Raise first number to the power of second number."""
-    return a**b
-
-
-def sum_(iterable: Iterable[float | int], start: float | int = 0) -> float | int:
-    """Return the sum of a 'start' value (default: 0) plus an iterable of numbers."""
-    return sum(iterable, start)
 
 
 def not_(x: bool) -> bool:
@@ -619,8 +785,28 @@ _FUNCTION_MAPPING = {
     "extract_text_from_html": extract_text_from_html,
     # Time related
     "from_timestamp": from_timestamp,
+    "second": extract_second,
+    "minute": extract_minute,
+    "hour": extract_hour,
+    "day": extract_day,
+    "day_of_week": extract_day_of_week,
+    "month": extract_month,
+    "year": extract_year,
+    "seconds": create_seconds,
     "minutes": create_minutes,
+    "hours": create_hours,
+    "days": create_days,
+    "weeks": create_weeks,
+    "seconds_between": seconds_between,
+    "minutes_between": minutes_between,
+    "hours_between": hours_between,
+    "days_between": days_between,
+    "weeks_between": weeks_between,
     "now": now,
+    "utcnow": utcnow,
+    "today": today,
+    "change_timezone": change_timezone,
+    "drop_timezone": drop_timezone,
     "to_datestring": to_date_string,
     "to_datetime": to_datetime,
     "to_isoformat": to_iso_format,
