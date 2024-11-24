@@ -5,6 +5,7 @@ import base64
 import ipaddress
 import itertools
 import json
+import math
 import re
 import zoneinfo
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -300,12 +301,12 @@ def sum_(iterable: Iterable[float | int], start: float | int = 0) -> float | int
 
 def round_up(x: float) -> int:
     """Round up to the closest integer."""
-    return
+    return math.ceil(x)
 
 
 def round_down(x: float) -> int:
     """Round down to the closest integer"""
-    return
+    return math.floor(x)
 
 
 # Array functions
