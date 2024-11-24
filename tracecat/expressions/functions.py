@@ -447,7 +447,7 @@ def extract_day(x: datetime) -> int:
     return x.day
 
 
-def extract_month(x: datetime, format: str = "number") -> int | str:
+def extract_month(x: datetime, format: Literal["number", "full", "short"] = "number") -> int | str:
     """Extract month from datetime. Returns 1-12 or month name if format is "full" or "short"."""
     month = x.month
     match format:
