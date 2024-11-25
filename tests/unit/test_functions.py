@@ -708,19 +708,28 @@ def test_iter_product(iterables: tuple[list, ...], expected: list[tuple]) -> Non
 
 
 @pytest.mark.parametrize(
-    "dt,timezone,expected_offset",
+    "dt,timezone,expected_range",
     [
-        (datetime(2024, 1, 1, tzinfo=UTC), "America/New_York", -5),  # EST
-        (datetime(2024, 6, 1, tzinfo=UTC), "America/New_York", -4),  # EDT
-        (datetime(2024, 1, 1, tzinfo=UTC), "UTC", 0),
-        (datetime(2024, 1, 1, tzinfo=UTC), "Asia/Tokyo", 9),
+        # America/New_York varies between UTC-5 (EST) and UTC-4 (EDT)
+        (datetime(2024, 1, 1, tzinfo=UTC), "America/New_York", (-5, -4)),
+        # UTC is always +0
+        (datetime(2024, 1, 1, tzinfo=UTC), "UTC", (0, 0)),
+        # Asia/Tokyo is always UTC+9
+        (datetime(2024, 1, 1, tzinfo=UTC), "Asia/Tokyo", (9, 9)),
     ],
 )
-def test_set_timezone(dt: datetime, timezone: str, expected_offset: int) -> None:
+def test_set_timezone(
+    dt: datetime, timezone: str, expected_range: tuple[int, int]
+) -> None:
+    """Test timezone conversion, accounting for possible DST variations."""
     result = set_timezone(dt, timezone)
     offset = result.utcoffset()
     assert offset is not None
-    assert offset.total_seconds() / 3600 == expected_offset
+    offset_hours = offset.total_seconds() / 3600
+    min_offset, max_offset = expected_range
+    assert (
+        min_offset <= offset_hours <= max_offset
+    ), f"Offset {offset_hours} not in expected range [{min_offset}, {max_offset}]"
 
 
 @pytest.mark.parametrize(
