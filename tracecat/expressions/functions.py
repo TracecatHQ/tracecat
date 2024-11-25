@@ -577,13 +577,13 @@ def today() -> date:
     return date.today()
 
 
-def change_timezone(x: datetime, timezone: str) -> datetime:
+def set_timezone(x: datetime, timezone: str) -> datetime:
     """Convert datetime to different timezone. Timezone must be a valid IANA timezone name (e.g., "America/New_York")."""
     tz = zoneinfo.ZoneInfo(timezone)
     return x.astimezone(tz)
 
 
-def drop_timezone(x: datetime) -> datetime:
+def unset_timezone(x: datetime) -> datetime:
     """Remove timezone information from datetime without changing the time."""
     return x.replace(tzinfo=None)
 
@@ -815,8 +815,8 @@ _FUNCTION_MAPPING = {
     "now": now,
     "utcnow": utcnow,
     "today": today,
-    "change_timezone": change_timezone,
-    "drop_timezone": drop_timezone,
+    "change_timezone": set_timezone,
+    "drop_timezone": unset_timezone,
     "to_datestring": to_date_string,
     "to_datetime": to_datetime,
     "to_isoformat": to_iso_format,

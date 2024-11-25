@@ -19,7 +19,6 @@ from tracecat.expressions.functions import (
     # String Operations
     capitalize,
     cast,
-    change_timezone,
     # IP Address Operations
     check_ip_version,
     concat_strings,
@@ -41,7 +40,6 @@ from tracecat.expressions.functions import (
     dict_values,
     div,
     does_not_contain,
-    drop_timezone,
     endswith,
     extract_text_from_html,
     filter_,
@@ -90,6 +88,7 @@ from tracecat.expressions.functions import (
     regex_not_match,
     seconds_between,
     serialize_to_json,
+    set_timezone,
     slice_str,
     split,
     startswith,
@@ -106,6 +105,7 @@ from tracecat.expressions.functions import (
     today,
     union,
     unique_items,
+    unset_timezone,
     uppercase,
     utcnow,
     weeks_between,
@@ -884,29 +884,27 @@ def test_timezone_operations() -> None:
     """Test timezone manipulation functions."""
     dt_utc = datetime(2024, 3, 15, 12, 0, tzinfo=UTC)
 
-    # Test change_timezone
-    dt_est = change_timezone(dt_utc, "America/New_York")
+    # Test set_timezone
+    dt_est = set_timezone(dt_utc, "America/New_York")
     assert dt_est.tzinfo is not None
     assert dt_est.hour == 8  # UTC-4 during DST
 
-    dt_tokyo = change_timezone(dt_utc, "Asia/Tokyo")
+    dt_tokyo = set_timezone(dt_utc, "Asia/Tokyo")
     assert dt_tokyo.tzinfo is not None
     assert dt_tokyo.hour == 21  # UTC+9
 
-    # Test drop_timezone
-    dt_naive = drop_timezone(dt_utc)
+    # Test unset_timezone
+    dt_naive = unset_timezone(dt_utc)
     assert dt_naive.tzinfo is None
     assert dt_naive.hour == dt_utc.hour
 
     # Test with string input
-    dt_str = change_timezone(
-        datetime(2024, 3, 15, 12, 0, tzinfo=UTC), "America/New_York"
-    )
+    dt_str = set_timezone(datetime(2024, 3, 15, 12, 0, tzinfo=UTC), "America/New_York")
     assert dt_str.hour == 8
 
     # Test errors
     with pytest.raises(ValueError):
-        change_timezone(dt_utc, "Invalid/Timezone")
+        set_timezone(dt_utc, "Invalid/Timezone")
 
 
 @pytest.mark.parametrize(
