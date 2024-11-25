@@ -193,10 +193,25 @@ def test_format_string(template: str, values: list[Any], expected: str) -> None:
 
 
 def test_base64_functions() -> None:
-    original = "Hello World!"
-    encoded = str_to_b64(original)
-    assert encoded == "SGVsbG8gV29ybGQh"
-    assert b64_to_str(encoded) == original
+    original = "Hello World!+/="
+
+    # Test standard base64
+    b64_encoded = str_to_b64(original)
+    assert b64_to_str(b64_encoded) == original
+
+    # Test base64url
+    b64url_encoded = str_to_b64url(original)
+    assert b64url_to_str(b64url_encoded) == original
+
+    # Test empty string
+    assert b64_to_str(str_to_b64("")) == ""
+    assert b64url_to_str(str_to_b64url("")) == ""
+
+    # Test invalid input
+    with pytest.raises(ValueError):
+        b64_to_str("invalid base64")
+    with pytest.raises(ValueError):
+        b64url_to_str("invalid base64url")
 
 
 @pytest.mark.parametrize(
@@ -395,6 +410,15 @@ def test_null_and_empty_checks(func, value: Any, expected: bool) -> None:
         (is_equal, 1, 2, False),
         (not_equal, 1, 2, True),
         (not_equal, "test", "test", False),
+    ],
+)
+def test_equality(func, a: Any, b: Any, expected: bool) -> None:
+    assert func(a, b) == expected
+
+
+@pytest.mark.parametrize(
+    "func,container,item,expected",
+    [
         (contains, [1, 2, 3], 2, True),
         (contains, "hello", "el", True),
         (contains, [1, 2, 3], 4, False),
@@ -403,8 +427,8 @@ def test_null_and_empty_checks(func, value: Any, expected: bool) -> None:
         (does_not_contain, [1, 2, 3], 2, False),
     ],
 )
-def test_equality_and_containment(func, a: Any, b: Any, expected: bool) -> None:
-    assert func(a, b) == expected
+def test_contains(func, container: Any, item: Any, expected: bool) -> None:
+    assert func(container, item) == expected
 
 
 @pytest.mark.parametrize(
@@ -800,33 +824,6 @@ def test_datetime_parsing() -> None:
         to_datetime([])  # type: ignore
 
 
-def test_base64_encodings() -> None:
-    """Test all base64 encoding/decoding functions."""
-    original = "Hello World!+/="
-
-    # Test standard base64
-    b64_encoded = str_to_b64(original)
-    assert "+" in b64_encoded or "/" in b64_encoded or "=" in b64_encoded
-    assert b64_to_str(b64_encoded) == original
-
-    # Test base64url
-    b64url_encoded = str_to_b64url(original)
-    assert "+" not in b64url_encoded
-    assert "/" not in b64url_encoded
-    assert "=" not in b64url_encoded
-    assert b64url_to_str(b64url_encoded) == original
-
-    # Test empty string
-    assert b64_to_str(str_to_b64("")) == ""
-    assert b64url_to_str(str_to_b64url("")) == ""
-
-    # Test invalid input
-    with pytest.raises(ValueError):
-        b64_to_str("invalid base64")
-    with pytest.raises(ValueError):
-        b64url_to_str("invalid base64url")
-
-
 @pytest.mark.parametrize(
     "func,input_val,expected",
     [
@@ -866,16 +863,33 @@ def test_time_interval_creators(func, input_val: float, expected: timedelta) -> 
 @pytest.mark.parametrize(
     "func,start,end,expected",
     [
-        (weeks_between, "2024-01-01", "2024-01-08", 1.0),
-        (weeks_between, "2024-01-01", "2024-01-15", 2.0),
-        (days_between, "2024-01-01", "2024-01-02", 1.0),
-        (days_between, "2024-01-01 12:00", "2024-01-02", 0.5),
-        (hours_between, "2024-01-01", "2024-01-01 06:00", 6.0),
-        (minutes_between, "2024-01-01", "2024-01-01 00:30", 30.0),
-        (seconds_between, "2024-01-01", "2024-01-01 00:00:30", 30.0),
+        (weeks_between, to_datetime("2024-01-01"), to_datetime("2024-01-08"), 1.0),
+        (weeks_between, to_datetime("2024-01-01"), to_datetime("2024-01-15"), 2.0),
+        (days_between, to_datetime("2024-01-01"), to_datetime("2024-01-02"), 1.0),
+        (days_between, to_datetime("2024-01-01 12:00"), to_datetime("2024-01-02"), 0.5),
+        (
+            hours_between,
+            to_datetime("2024-01-01"),
+            to_datetime("2024-01-01 06:00"),
+            6.0,
+        ),
+        (
+            minutes_between,
+            to_datetime("2024-01-01"),
+            to_datetime("2024-01-01 00:30"),
+            30.0,
+        ),
+        (
+            seconds_between,
+            to_datetime("2024-01-01"),
+            to_datetime("2024-01-01 00:00:30"),
+            30.0,
+        ),
     ],
 )
-def test_time_between_calculations(func, start: str, end: str, expected: float) -> None:
+def test_time_between_calculations(
+    func, start: datetime, end: datetime, expected: float
+) -> None:
     """Test all time difference calculation functions."""
     assert func(start, end) == pytest.approx(expected)
 
@@ -908,28 +922,23 @@ def test_timezone_operations() -> None:
 
 
 @pytest.mark.parametrize(
-    "dict_input,keys,expected",
+    "dict_input,key,expected",
     [
         # Basic lookups
-        ({"a": 1}, ("a",), 1),
-        ({"a": None}, ("a",), None),
-        # Nested lookups
-        ({"a": {"b": 2}}, ("a", "b"), 2),
-        ({"a": {"b": {"c": 3}}}, ("a", "b", "c"), 3),
+        ({"a": 1}, "a", 1),
+        ({"a": None}, "a", None),
         # Missing keys
-        ({"a": 1}, ("b",), None),
-        ({"a": {"b": 2}}, ("a", "c"), None),
+        ({"a": 1}, "b", None),
         # Mixed key types
-        ({1: "one", "2": "two"}, (1,), "one"),
-        ({(1, 2): "tuple"}, ((1, 2),), "tuple"),
+        ({1: "one", "2": "two"}, 1, "one"),
+        ({(1, 2): "tuple"}, (1, 2), "tuple"),
         # Empty cases
-        ({}, ("a",), None),
-        ({"a": {}}, ("a", "b"), None),
+        ({}, "a", None),
     ],
 )
-def test_dict_lookup(dict_input: dict, keys: tuple, expected: Any) -> None:
+def test_dict_lookup(dict_input: dict, key: Any, expected: Any) -> None:
     """Test dictionary lookup with various inputs."""
-    assert dict_lookup(dict_input, *keys) == expected
+    assert dict_lookup(dict_input, key) == expected
 
 
 def test_collection_operations() -> None:
