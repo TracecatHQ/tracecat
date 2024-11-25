@@ -662,15 +662,16 @@ def or_(a: bool, b: bool) -> bool:
 
 
 def intersect[T: Any](
-    items: Sequence[T], collection: Sequence[T], jsonpath: str | None = None
+    items: Sequence[T], collection: Sequence[T], python_lambda: str | None = None
 ) -> list[T]:
-    """Return the set intersection of two sequences as a list."""
+    """Return the set intersection of two sequences as a list. If a Python lambda is provided, it will be applied to each item before checking for intersection."""
     col_set = set(collection)
-    if jsonpath:
-        return list(
-            {item for item in items if eval_jsonpath(jsonpath, item) in col_set}
-        )
-    return list({item for item in items if item in collection})
+    if python_lambda:
+        fn = _build_safe_lambda(python_lambda)
+        result = {item for item in items if fn(item) in col_set}
+    else:
+        result = set(items) & col_set
+    return list(result)
 
 
 def union[T: Any](*collections: Sequence[T]) -> list[T]:
@@ -687,7 +688,7 @@ def apply[T: Any](item: T | Iterable[T], python_lambda: str) -> T | list[T]:
 
 
 def filter_[T: Any](items: Sequence[T], python_lambda: str) -> list[T]:
-    """Filter a collection using a Python lambda expression."""
+    """Filter a collection using a Python lambda expression as a string (e.g. `"lambda x: x > 2"`)."""
     fn = _build_safe_lambda(python_lambda)
     return list(filter(fn, items))
 
