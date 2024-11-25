@@ -802,7 +802,7 @@ _FUNCTION_MAPPING = {
     "get_day_of_week": get_day_of_week,
     "get_month": get_month,
     "get_year": get_year,
-    "get_seconds": create_seconds,
+    "seconds": create_seconds,
     "minutes": create_minutes,
     "hours": create_hours,
     "days": create_days,
