@@ -5,31 +5,22 @@ import orjson
 import pytest
 
 from tracecat.expressions.functions import (
-    # Core/Utils
     _bool,
     _build_safe_lambda,
-    # Math Operations
     add,
-    # Logical Operations
     and_,
-    # Misc
     b64_to_str,
     b64url_to_str,
-    # String Operations
     capitalize,
     cast,
-    # IP Address Operations
     check_ip_version,
     contains,
-    # Time/Date Operations
     create_days,
     create_hours,
     create_minutes,
     create_seconds,
     create_weeks,
-    # Collection Operations
     days_between,
-    # JSON Operations
     deserialize_ndjson,
     dict_keys,
     dict_lookup,
@@ -53,6 +44,7 @@ from tracecat.expressions.functions import (
     greater_than,
     greater_than_or_equal,
     hours_between,
+    intersect,
     ipv4_in_subnet,
     ipv4_is_public,
     ipv6_in_subnet,
@@ -75,7 +67,6 @@ from tracecat.expressions.functions import (
     or_,
     pow,
     prettify_json_str,
-    # Regular Expressions
     regex_extract,
     regex_match,
     regex_not_match,
@@ -93,11 +84,9 @@ from tracecat.expressions.functions import (
     titleize,
     to_datetime,
     to_timestamp_str,
-    # today,
     union,
     unset_timezone,
     uppercase,
-    # utcnow,
     weeks_between,
     zip_iterables,
 )
@@ -817,3 +806,38 @@ def test_flatten(input_iterables: list, expected: list) -> None:
     # Test with non-iterable input
     with pytest.raises((TypeError, AttributeError)):
         flatten(123)  # type: ignore
+
+
+@pytest.mark.parametrize(
+    "items,collection,python_lambda,expected",
+    [
+        ([1, 2, 3], [2, 3, 4], None, [2, 3]),
+        # Empty intersection
+        ([1, 2], [3, 4], None, []),
+        # Empty inputs
+        ([], [1, 2], None, []),
+        ([1, 2], [], None, []),
+        # Duplicate values
+        ([1, 1, 2], [1, 2, 2], None, [1, 2]),
+        # String values
+        (["a", "b"], ["b", "c"], None, ["b"]),
+        # With lambda transformation
+        ([1, 2, 3], [2, 4, 6], "lambda x: x * 2", [1, 2, 3]),
+        # Lambda with string manipulation
+        (
+            ["hello", "world"],
+            ["HELLO", "WORLD"],
+            "lambda x: x.upper()",
+            ["hello", "world"],
+        ),
+        # Complex objects
+        ([(1, 2), (3, 4)], [(1, 2), (5, 6)], None, [(1, 2)]),
+    ],
+)
+def test_intersect(
+    items: list, collection: list, python_lambda: str | None, expected: list
+) -> None:
+    """Test the intersect function with various inputs and transformations."""
+    result = intersect(items, collection, python_lambda)
+    # Sort the results to ensure consistent comparison
+    assert sorted(result) == sorted(expected)
