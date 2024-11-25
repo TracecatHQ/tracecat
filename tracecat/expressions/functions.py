@@ -98,15 +98,27 @@ def from_timestamp(x: int, unit: str) -> datetime:
     return dt
 
 
-def to_datetime(x: Any) -> datetime:
-    """Convert input to datetime object from timestamp, ISO string or existing datetime."""
+def to_datetime(x: Any, timezone: str | None = None) -> datetime:
+    """Convert input to datetime object from timestamp, ISO string or existing datetime.
+    Supports timezone-aware datetime objects if IANA timezone is provided.
+    """
+    tzinfo = None
+    if timezone:
+        tzinfo = zoneinfo.ZoneInfo(timezone)
+
     if isinstance(x, datetime):
-        return x
-    if isinstance(x, int):
-        return datetime.fromtimestamp(x)
-    if isinstance(x, str):
-        return datetime.fromisoformat(x)
-    raise ValueError(f"Invalid datetime value {x!r}")
+        dt = x
+    elif isinstance(x, int):
+        dt = datetime.fromtimestamp(x)
+    elif isinstance(x, str):
+        dt = datetime.fromisoformat(x)
+    else:
+        raise ValueError(f"Invalid datetime value {x!r}")
+
+    if tzinfo:
+        dt = dt.astimezone(tzinfo)
+
+    return dt
 
 
 def format_string(template: str, *values: Any) -> str:

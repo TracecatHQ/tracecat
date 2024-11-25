@@ -175,15 +175,19 @@ def test_base64_invalid_input(invalid_input: str, decode_func) -> None:
 
 
 @pytest.mark.parametrize(
-    "input_val,expected",
+    "input_val,timezone,expected",
     [
-        (1609459200, datetime(2020, 12, 31, 16, 0)),  # Adjusted expected time
-        ("2021-01-01T00:00:00", datetime(2021, 1, 1, 0, 0)),
-        (datetime(2021, 1, 1, 0, 0), datetime(2021, 1, 1, 0, 0)),
+        (
+            1609459200,
+            "UTC",
+            datetime(2021, 1, 1, 0, 0, tzinfo=UTC),
+        ),  # UTC timestamp for 2021-01-01 00:00:00
+        ("2021-01-01T00:00:00", None, datetime(2021, 1, 1, 0, 0)),
+        (datetime(2021, 1, 1, 0, 0), None, datetime(2021, 1, 1, 0, 0)),
     ],
 )
-def test_to_datetime(input_val: Any, expected: datetime) -> None:
-    assert to_datetime(input_val) == expected
+def test_to_datetime(input_val: Any, timezone: str, expected: datetime) -> None:
+    assert to_datetime(input_val, timezone) == expected
 
 
 @pytest.mark.parametrize(
