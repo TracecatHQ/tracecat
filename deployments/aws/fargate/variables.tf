@@ -55,7 +55,7 @@ variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.14.0"
+  default = "0.14.1"
 }
 
 variable "use_git_commit_sha" {
@@ -172,9 +172,20 @@ variable "temporal_cpu" {
   default = "256"
 }
 
+variable "temporal_log_level" {
+  type    = string
+  default = "warn"
+}
+
 variable "temporal_memory" {
   type    = string
   default = "512"
+}
+
+variable "temporal_client_rpc_timeout" {
+  type        = string
+  description = "RPC timeout for Temporal client in seconds"
+  default     = null
 }
 
 variable "caddy_cpu" {

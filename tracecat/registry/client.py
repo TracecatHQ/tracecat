@@ -123,6 +123,10 @@ class RegistryClient:
                 raise RegistryActionError(
                     f"Unexpected registry error ({e.response.status_code}):\n\n{e}\n\n{detail}"
                 ) from e
+        except httpx.ReadTimeout as e:
+            raise RegistryActionError(
+                f"Timeout calling action {key!r} in registry: {e}"
+            ) from e
         except orjson.JSONDecodeError as e:
             raise RegistryActionError(
                 f"Error decoding JSON response for action {key!r}: {e}"

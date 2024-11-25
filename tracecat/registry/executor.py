@@ -55,9 +55,9 @@ async def _run_action_direct(
         raise ValueError("Templates cannot be executed directly")
     try:
         if action.is_async:
-            logger.info("Running UDF async")
+            logger.trace("Running UDF async")
             return await action.fn(**args)
-        logger.info("Running UDF sync")
+        logger.trace("Running UDF sync")
         return await asyncio.to_thread(action.fn, **args)
     except Exception as e:
         logger.error(
@@ -78,7 +78,7 @@ async def run_single_action(
         action = await service.load_action_impl(action_name=action_name)
     validated_args = action.validate_args(**args)
 
-    logger.info("Running regular UDF async", action=action_name)
+    logger.trace("Running regular UDF async", action=action_name)
     secret_names = [secret.name for secret in action.secrets or []]
     optional_secrets = [
         secret.name for secret in action.secrets or [] if secret.optional

@@ -71,6 +71,9 @@ resource "aws_ecs_service" "tracecat_worker" {
     service {
       port_name      = "worker"
       discovery_name = "worker-service"
+      timeout {
+        per_request_timeout_seconds = 120
+      }
       client_alias {
         port     = 8001
         dns_name = "worker-service"

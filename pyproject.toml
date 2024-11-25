@@ -38,6 +38,7 @@ dependencies = [
     "jsonpath_ng>=1.7.0",
     "lark==1.1.9",
     "loguru==0.7.2",
+    "msal==1.31.1",
     "ollama==0.3.3",
     "openai==1.30.3",
     "orjson==3.10.3",
@@ -45,13 +46,13 @@ dependencies = [
     "psycopg[binary]==3.1.19",
     "pyarrow==16.1.0",
     "pydantic==2.6.1",
-    "python-slugify==8.0.4",
     "pysaml2==7.5.0",
+    "python-slugify==8.0.4",
     "sqlmodel==0.0.18",
-    "tenacity==8.3.0",
     "temporalio==1.6.0",
-    "uvicorn==0.29.0",
+    "tenacity==8.3.0",
     "uv==0.4.10",
+    "uvicorn==0.29.0",
 ]
 dynamic = ["version"]
 
