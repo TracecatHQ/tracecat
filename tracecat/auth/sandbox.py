@@ -115,7 +115,7 @@ class AuthSandbox:
             self._context[name][kv.key] = kv.value.get_secret_value()
 
     def _unset_secrets(self) -> None:
-        logger.info("Cleaning up secrets")
+        logger.debug("Cleaning up secrets")
         for secret in self._secret_objs:
             if secret.name in self._context:
                 del self._context[secret.name]
