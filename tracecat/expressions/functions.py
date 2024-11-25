@@ -668,7 +668,7 @@ def intersect[T: Any](
     col_set = set(collection)
     if python_lambda:
         fn = _build_safe_lambda(python_lambda)
-        result = [item for item in items if fn(item) in col_set]
+        result = {item for item in items if fn(item) in col_set}
     else:
         result = set(items) & col_set
     return list(result)
