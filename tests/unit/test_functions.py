@@ -1,58 +1,114 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
 from tracecat.expressions.functions import (
+    # Core/Utils
     _bool,
     _build_safe_lambda,
+    # Math Operations
     add,
+    # Logical Operations
     and_,
+    # Misc
     apply,
+    # Encoding/Decoding
     b64_to_str,
+    b64url_to_str,
+    # String Operations
+    capitalize,
     cast,
+    change_timezone,
+    # IP Address Operations
     check_ip_version,
     concat_strings,
+    # Comparison
+    contains,
+    # Time/Date Operations
+    create_days,
+    create_hours,
     create_minutes,
+    create_seconds,
+    create_weeks,
+    days_between,
+    # JSON Operations
     deserialize_ndjson,
+    # Collection Operations
     dict_keys,
+    dict_lookup,
     dict_values,
     div,
+    does_not_contain,
+    drop_timezone,
+    endswith,
     extract_text_from_html,
     filter_,
     flatten,
     format_string,
     from_timestamp,
     generate_uuid,
+    get_day,
+    get_day_of_week,
+    get_hour,
+    get_minute,
+    get_month,
+    get_second,
+    get_year,
+    greater_than,
+    greater_than_or_equal,
+    hours_between,
     intersect,
     ipv4_in_subnet,
     ipv4_is_public,
     ipv6_in_subnet,
     ipv6_is_public,
+    is_empty,
+    is_equal,
+    is_null,
+    iter_product,
     join_strings,
     less_than,
     less_than_or_equal,
+    lowercase,
     mappable,
+    minutes_between,
     mod,
     mul,
     not_,
+    not_empty,
+    not_equal,
+    not_null,
     now,
     or_,
     pow,
     prettify_json_str,
+    # Regular Expressions
     regex_extract,
     regex_match,
     regex_not_match,
+    seconds_between,
     serialize_to_json,
     slice_str,
+    split,
+    startswith,
     str_to_b64,
+    str_to_b64url,
+    strip,
     sub,
+    sum_,
+    titleize,
     to_date_string,
     to_datetime,
     to_iso_format,
     to_timestamp_str,
+    today,
     union,
     unique_items,
+    uppercase,
+    utcnow,
+    weeks_between,
+    zip_iterables,
 )
 
 
@@ -214,12 +270,6 @@ def test_generate_uuid() -> None:
     assert uuid1 != uuid2  # Should generate unique values
 
 
-def test_dict_operations() -> None:
-    test_dict = {"a": 1, "b": 2, "c": 3}
-    assert set(dict_keys(test_dict)) == {"a", "b", "c"}
-    assert set(dict_values(test_dict)) == {1, 2, 3}
-
-
 def test_json_operations() -> None:
     data = {"name": "test", "value": 123}
     json_str = serialize_to_json(data)
@@ -290,33 +340,118 @@ def test_check_ip_version() -> None:
 
 
 @pytest.mark.parametrize(
-    "a,b,expected",
+    "func,a,b,expected",
     [
-        (1, 2, True),
-        (2, 2, False),
-        (3, 2, False),
-        ("a", "b", True),
-        ("b", "a", False),
-        (1.5, 2.5, True),
+        (less_than, 1, 2, True),
+        (less_than, 2, 2, False),
+        (less_than, 3, 2, False),
+        (less_than, "a", "b", True),
+        (less_than, "b", "a", False),
+        (less_than, 1.5, 2.5, True),
+        (greater_than, 2, 1, True),
+        (greater_than, 2, 2, False),
+        (greater_than, 1, 2, False),
+        (greater_than_or_equal, 2, 1, True),
+        (greater_than_or_equal, 2, 2, True),
+        (greater_than_or_equal, 1, 2, False),
+        (less_than_or_equal, 1, 2, True),
+        (less_than_or_equal, 2, 2, True),
+        (less_than_or_equal, 3, 2, False),
     ],
 )
-def test_less_than(a: Any, b: Any, expected: bool) -> None:
-    assert less_than(a, b) == expected
+def test_comparison_operations(func, a: Any, b: Any, expected: bool) -> None:
+    assert func(a, b) == expected
 
 
 @pytest.mark.parametrize(
-    "a,b,expected",
+    "func,value,expected",
     [
-        (1, 2, True),
-        (2, 2, True),
-        (3, 2, False),
-        ("a", "b", True),
-        ("a", "a", True),
-        (1.5, 2.5, True),
+        (is_null, None, True),
+        (is_null, "test", False),
+        (not_null, None, False),
+        (not_null, "test", True),
+        (is_empty, "", True),
+        (is_empty, [], True),
+        (is_empty, {}, True),
+        (is_empty, "test", False),
+        (is_empty, [1], False),
+        (not_empty, "", False),
+        (not_empty, [], False),
+        (not_empty, {}, False),
+        (not_empty, "test", True),
+        (not_empty, [1], True),
     ],
 )
-def test_less_than_or_equal(a: Any, b: Any, expected: bool) -> None:
-    assert less_than_or_equal(a, b) == expected
+def test_null_and_empty_checks(func, value: Any, expected: bool) -> None:
+    assert func(value) == expected
+
+
+@pytest.mark.parametrize(
+    "func,a,b,expected",
+    [
+        (is_equal, 1, 1, True),
+        (is_equal, "test", "test", True),
+        (is_equal, 1, 2, False),
+        (not_equal, 1, 2, True),
+        (not_equal, "test", "test", False),
+        (contains, [1, 2, 3], 2, True),
+        (contains, "hello", "el", True),
+        (contains, [1, 2, 3], 4, False),
+        (does_not_contain, [1, 2, 3], 4, True),
+        (does_not_contain, "hello", "x", True),
+        (does_not_contain, [1, 2, 3], 2, False),
+    ],
+)
+def test_equality_and_containment(func, a: Any, b: Any, expected: bool) -> None:
+    assert func(a, b) == expected
+
+
+@pytest.mark.parametrize(
+    "func,input_str,expected",
+    [
+        (uppercase, "hello", "HELLO"),
+        (lowercase, "HELLO", "hello"),
+        (capitalize, "hello world", "Hello world"),
+        (titleize, "hello world", "Hello World"),
+        (strip, "  hello  ", "hello"),
+    ],
+)
+def test_string_operations(func, input_str: str, expected: str) -> None:
+    assert func(input_str) == expected
+
+
+def test_split() -> None:
+    assert split("a,b,c", ",") == ["a", "b", "c"]
+    assert split("a b c", " ") == ["a", "b", "c"]  # default whitespace splitting
+    assert split("a||b||c", "||") == ["a", "b", "c"]
+
+
+def test_iter_product() -> None:
+    assert list(iter_product([1, 2], [3, 4])) == [(1, 3), (1, 4), (2, 3), (2, 4)]
+    assert list(iter_product("ab", "cd")) == [
+        ("a", "c"),
+        ("a", "d"),
+        ("b", "c"),
+        ("b", "d"),
+    ]
+
+
+def test_zip_iterables() -> None:
+    assert list(zip_iterables([1, 2, 3], ["a", "b", "c"])) == [
+        (1, "a"),
+        (2, "b"),
+        (3, "c"),
+    ]
+    assert list(zip_iterables([1, 2], ["a", "b", "c"])) == [
+        (1, "a"),
+        (2, "b"),
+    ]  # truncates to shortest
+
+
+def test_sum_() -> None:
+    assert sum_([1, 2, 3]) == 6
+    assert sum_([0.1, 0.2, 0.3]) == pytest.approx(0.6)
+    assert sum_([]) == 0  # empty list
 
 
 def test_math_operations() -> None:
@@ -497,3 +632,290 @@ def test_filter_() -> None:
         filter_([1, 2, 3], "not a lambda")
     with pytest.raises(ValueError):
         filter_([1, 2, 3], "lambda x: import os")
+
+
+@pytest.mark.parametrize(
+    "date_input,format,expected",
+    [
+        # Test number format (0-6 = Mon-Sun)
+        (datetime(2024, 3, 18), "number", 0),
+        (datetime(2024, 3, 24), "number", 6),
+        # Test full names
+        (datetime(2024, 3, 18), "full", "Monday"),
+        (datetime(2024, 3, 24), "full", "Sunday"),
+        # Test short names
+        (datetime(2024, 3, 18), "short", "Mon"),
+        (datetime(2024, 3, 24), "short", "Sun"),
+        # Test leap year
+        (datetime(2024, 2, 29), "number", 3),  # Thursday
+    ],
+)
+def test_get_day_of_week(
+    date_input: datetime, format: str, expected: int | str
+) -> None:
+    assert get_day_of_week(date_input, format) == expected  # type: ignore
+    # Test invalid format
+    with pytest.raises(ValueError):
+        get_day_of_week(date_input, "invalid")  # type: ignore
+
+
+@pytest.mark.parametrize(
+    "date_input,format,expected",
+    [
+        # Test number format (1-12)
+        (datetime(2024, 1, 1), "number", 1),
+        (datetime(2024, 12, 1), "number", 12),
+        # Test full names
+        (datetime(2024, 1, 1), "full", "January"),
+        (datetime(2024, 12, 1), "full", "December"),
+        # Test short names
+        (datetime(2024, 1, 1), "short", "Jan"),
+        (datetime(2024, 12, 1), "short", "Dec"),
+        # Test leap year
+        (datetime(2024, 2, 29), "short", "Feb"),
+    ],
+)
+def test_get_month(date_input: datetime, format: str, expected: int | str) -> None:
+    assert get_month(date_input, format) == expected  # type: ignore
+    # Test invalid format
+    with pytest.raises(ValueError):
+        get_month(date_input, "invalid")  # type: ignore
+
+
+def test_string_boundary_functions() -> None:
+    """Test string start/end checking functions."""
+    # Test startswith
+    assert startswith("Hello World", "Hello")
+    assert not startswith("Hello World", "World")
+
+    # Test endswith
+    assert endswith("Hello World", "World")
+    assert not endswith("Hello World", "Hello")
+
+    # Test with empty strings
+    assert startswith("", "")
+    assert endswith("", "")
+    assert not startswith("", "x")
+    assert not endswith("", "x")
+
+
+def test_today_and_now_functions() -> None:
+    """Test current time/date functions."""
+    # Test today()
+    today_result = today()
+    assert isinstance(today_result, datetime)
+    assert today_result.hour == 0
+    assert today_result.minute == 0
+    assert today_result.second == 0
+
+    # Test now() and utcnow()
+    now_result = now()
+    utc_result = utcnow()
+    assert isinstance(now_result, datetime)
+    assert isinstance(utc_result, datetime)
+    assert utc_result.tzinfo == UTC
+
+
+def test_dict_operations() -> None:
+    """Test dictionary operations."""
+    test_dict = {"a": 1, "b": 2, "c": 3}
+
+    # Test dict_keys
+    assert set(dict_keys(test_dict)) == {"a", "b", "c"}
+
+    # Test dict_values
+    assert set(dict_values(test_dict)) == {1, 2, 3}
+
+    # Test dict_lookup (already covered in separate test)
+
+    # Test with empty dict
+    empty_dict = {}
+    assert list(dict_keys(empty_dict)) == []
+    assert list(dict_values(empty_dict)) == []
+
+    # Test with non-dict input
+    with pytest.raises(AttributeError):
+        dict_keys("not a dict")  # type: ignore
+
+
+def test_timestamp_conversions() -> None:
+    """Test timestamp conversion functions."""
+    dt = datetime(2024, 3, 15, 12, 30, 45)
+
+    # Test to_timestamp_str
+    timestamp = to_timestamp_str(dt)
+    assert isinstance(timestamp, float)
+
+    # Test from_timestamp
+    assert from_timestamp(1710500000000, "ms") == datetime(2024, 3, 15, 12, 33, 20)
+    assert from_timestamp(1710500000, "s") == datetime(2024, 3, 15, 12, 33, 20)
+
+    # Test invalid unit
+    with pytest.raises(ValueError):
+        from_timestamp(1710500000, "invalid")  # type: ignore
+
+
+def test_date_string_formats() -> None:
+    """Test date string formatting functions."""
+    dt = datetime(2024, 3, 15, 12, 30, 45)
+
+    # Test to_date_string with different formats
+    assert to_date_string(dt, "%Y-%m-%d") == "2024-03-15"
+    assert to_date_string(dt, "%H:%M:%S") == "12:30:45"
+    assert to_date_string(dt, "%Y-%m-%d %H:%M:%S") == "2024-03-15 12:30:45"
+
+    # Test to_iso_format
+    assert to_iso_format(dt) == "2024-03-15T12:30:45"
+
+    # Test with timezone
+    dt_tz = datetime(2024, 3, 15, 12, 30, 45, tzinfo=UTC)
+    assert to_iso_format(dt_tz) == "2024-03-15T12:30:45+00:00"
+
+
+def test_datetime_parsing() -> None:
+    """Test datetime parsing functions."""
+    # Test to_datetime with different input types
+    assert to_datetime("2024-03-15") == datetime(2024, 3, 15)
+    assert to_datetime("2024-03-15T12:30:45") == datetime(2024, 3, 15, 12, 30, 45)
+    assert to_datetime(1710500000) == datetime(2024, 3, 15, 12, 33, 20)
+    assert to_datetime(datetime(2024, 3, 15)) == datetime(2024, 3, 15)
+
+    # Test invalid inputs
+    with pytest.raises(ValueError):
+        to_datetime("invalid date")
+    with pytest.raises(ValueError):
+        to_datetime([])  # type: ignore
+
+
+def test_base64_encodings() -> None:
+    """Test all base64 encoding/decoding functions."""
+    original = "Hello World!+/="
+
+    # Test standard base64
+    b64_encoded = str_to_b64(original)
+    assert "+" in b64_encoded or "/" in b64_encoded or "=" in b64_encoded
+    assert b64_to_str(b64_encoded) == original
+
+    # Test base64url
+    b64url_encoded = str_to_b64url(original)
+    assert "+" not in b64url_encoded
+    assert "/" not in b64url_encoded
+    assert "=" not in b64url_encoded
+    assert b64url_to_str(b64url_encoded) == original
+
+    # Test empty string
+    assert b64_to_str(str_to_b64("")) == ""
+    assert b64url_to_str(str_to_b64url("")) == ""
+
+    # Test invalid input
+    with pytest.raises(ValueError):
+        b64_to_str("invalid base64")
+    with pytest.raises(ValueError):
+        b64url_to_str("invalid base64url")
+
+
+@pytest.mark.parametrize(
+    "func,input_val,expected",
+    [
+        (get_day, datetime(2024, 3, 1), 1),
+        (get_day, datetime(2024, 3, 31), 31),
+        (get_hour, datetime(2024, 3, 15, 23), 23),
+        (get_minute, datetime(2024, 3, 15, 12, 59), 59),
+        (get_second, datetime(2024, 3, 15, 12, 30, 45), 45),
+        (get_year, datetime(2024, 3, 15), 2024),
+    ],
+)
+def test_date_component_getters(func, input_val: datetime, expected: int) -> None:
+    """Test all date/time component getter functions."""
+    assert func(input_val) == expected
+
+
+@pytest.mark.parametrize(
+    "func,input_val,expected",
+    [
+        (create_days, 1, timedelta(days=1)),
+        (create_days, 0.5, timedelta(hours=12)),
+        (create_hours, 24, timedelta(days=1)),
+        (create_hours, 1.5, timedelta(minutes=90)),
+        (create_minutes, 60, timedelta(hours=1)),
+        (create_minutes, 1.5, timedelta(seconds=90)),
+        (create_seconds, 3600, timedelta(hours=1)),
+        (create_seconds, 90, timedelta(seconds=90)),
+        (create_weeks, 1, timedelta(weeks=1)),
+        (create_weeks, 0.5, timedelta(days=3.5)),
+    ],
+)
+def test_time_interval_creators(func, input_val: float, expected: timedelta) -> None:
+    """Test all time interval creation functions."""
+    assert func(input_val) == expected
+
+
+@pytest.mark.parametrize(
+    "func,start,end,expected",
+    [
+        (weeks_between, "2024-01-01", "2024-01-08", 1.0),
+        (weeks_between, "2024-01-01", "2024-01-15", 2.0),
+        (days_between, "2024-01-01", "2024-01-02", 1.0),
+        (days_between, "2024-01-01 12:00", "2024-01-02", 0.5),
+        (hours_between, "2024-01-01", "2024-01-01 06:00", 6.0),
+        (minutes_between, "2024-01-01", "2024-01-01 00:30", 30.0),
+        (seconds_between, "2024-01-01", "2024-01-01 00:00:30", 30.0),
+    ],
+)
+def test_time_between_calculations(func, start: str, end: str, expected: float) -> None:
+    """Test all time difference calculation functions."""
+    assert func(start, end) == pytest.approx(expected)
+
+
+def test_timezone_operations() -> None:
+    """Test timezone manipulation functions."""
+    dt_utc = datetime(2024, 3, 15, 12, 0, tzinfo=UTC)
+
+    # Test change_timezone
+    dt_est = change_timezone(dt_utc, "America/New_York")
+    assert dt_est.tzinfo is not None
+    assert dt_est.hour == 8  # UTC-4 during DST
+
+    dt_tokyo = change_timezone(dt_utc, "Asia/Tokyo")
+    assert dt_tokyo.tzinfo is not None
+    assert dt_tokyo.hour == 21  # UTC+9
+
+    # Test drop_timezone
+    dt_naive = drop_timezone(dt_utc)
+    assert dt_naive.tzinfo is None
+    assert dt_naive.hour == dt_utc.hour
+
+    # Test with string input
+    dt_str = change_timezone(
+        datetime(2024, 3, 15, 12, 0, tzinfo=UTC), "America/New_York"
+    )
+    assert dt_str.hour == 8
+
+    # Test errors
+    with pytest.raises(ValueError):
+        change_timezone(dt_utc, "Invalid/Timezone")
+
+
+@pytest.mark.parametrize(
+    "dict_input,keys,expected",
+    [
+        # Basic lookups
+        ({"a": 1}, ("a",), 1),
+        ({"a": None}, ("a",), None),
+        # Nested lookups
+        ({"a": {"b": 2}}, ("a", "b"), 2),
+        ({"a": {"b": {"c": 3}}}, ("a", "b", "c"), 3),
+        # Missing keys
+        ({"a": 1}, ("b",), None),
+        ({"a": {"b": 2}}, ("a", "c"), None),
+        # Mixed key types
+        ({1: "one", "2": "two"}, (1,), "one"),
+        ({(1, 2): "tuple"}, ((1, 2),), "tuple"),
+        # Empty cases
+        ({}, ("a",), None),
+        ({"a": {}}, ("a", "b"), None),
+    ],
+)
+def test_dict_lookup(dict_input: dict, keys: tuple, expected: Any) -> None:
+    """Test dictionary lookup with various inputs."""
+    assert dict_lookup(dict_input, *keys) == expected
