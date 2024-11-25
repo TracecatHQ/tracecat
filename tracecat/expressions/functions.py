@@ -13,7 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 from functools import wraps
 from html.parser import HTMLParser
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, Literal, ParamSpec, TypeVar
 from typing import cast as type_cast
 from uuid import uuid4
 
@@ -407,19 +407,24 @@ def to_timestamp_str(x: datetime) -> float:
     return x.timestamp()
 
 
-def extract_second(x: datetime) -> int:
+def get_second(x: datetime) -> int:
+    """Get second (0-59) from datetime."""
     return x.second
 
 
-def extract_minute(x: datetime) -> int:
+def get_minute(x: datetime) -> int:
+    """Get minute (0-59) from datetime."""
     return x.minute
 
 
-def extract_hour(x: datetime) -> int:
+def get_hour(x: datetime) -> int:
+    """Get hour (0-23) from datetime."""
     return x.hour
 
 
-def extract_day_of_week(x: datetime, format: Literal["number", "full", "short"]  = "number") -> int | str:
+def get_day_of_week(
+    x: datetime, format: Literal["number", "full", "short"] = "number"
+) -> int | str:
     """Extract day of week from datetime. Returns 0-6 (Mon-Sun) or day name if format is "full" or "short"."""
     weekday = x.weekday()
     match format:
@@ -443,11 +448,14 @@ def extract_day_of_week(x: datetime, format: Literal["number", "full", "short"] 
             raise ValueError("format must be 'number', 'full', or 'short'")
 
 
-def extract_day(x: datetime) -> int:
+def get_day(x: datetime) -> int:
+    """Get day of month (1-31) from datetime."""
     return x.day
 
 
-def extract_month(x: datetime, format: Literal["number", "full", "short"] = "number") -> int | str:
+def get_month(
+    x: datetime, format: Literal["number", "full", "short"] = "number"
+) -> int | str:
     """Extract month from datetime. Returns 1-12 or month name if format is "full" or "short"."""
     month = x.month
     match format:
@@ -489,7 +497,8 @@ def extract_month(x: datetime, format: Literal["number", "full", "short"] = "num
             raise ValueError("format must be 'number', 'full', or 'short'")
 
 
-def extract_year(x: datetime) -> int:
+def get_year(x: datetime) -> int:
+    """Get year from datetime."""
     return x.year
 
 
@@ -786,13 +795,13 @@ _FUNCTION_MAPPING = {
     "extract_text_from_html": extract_text_from_html,
     # Time related
     "from_timestamp": from_timestamp,
-    "get_second": extract_second,
-    "get_minute": extract_minute,
-    "get_hour": extract_hour,
-    "get_day": extract_day,
-    "get_day_of_week": extract_day_of_week,
-    "get_month": extract_month,
-    "get_year": extract_year,
+    "get_second": get_second,
+    "get_minute": get_minute,
+    "get_hour": get_hour,
+    "get_day": get_day,
+    "get_day_of_week": get_day_of_week,
+    "get_month": get_month,
+    "get_year": get_year,
     "get_seconds": create_seconds,
     "minutes": create_minutes,
     "hours": create_hours,
