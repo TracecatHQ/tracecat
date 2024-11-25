@@ -2,13 +2,14 @@ name: Publish Images
 
 on:
   push:
-    branches: ["staging"]
+    branches: ["staging", "main"]
     tags:
       - "*.*.*"
 
 permissions:
-  contents: read
+  contents: write
   packages: write
+  pull-requests: read
 
 jobs:
   push-api-to-ghcr:
@@ -112,3 +113,25 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  create-release:
+    needs: [push-api-to-ghcr, push-ui-to-ghcr]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Release
+        uses: release-drafter/release-drafter@v6
+        with:
+          commitish: ${{ github.sha }}
+          disable-autolabeler: true
+          publish: true
+          name: ${{ github.ref_name }}
+          tag: ${{ github.ref_name }}
+          version: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
