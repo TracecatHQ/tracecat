@@ -31,10 +31,11 @@ from tracecat.expressions.functions import (
     create_minutes,
     create_seconds,
     create_weeks,
+    # Collection Operations
+    custom_chain,
     days_between,
     # JSON Operations
     deserialize_ndjson,
-    # Collection Operations
     dict_keys,
     dict_lookup,
     dict_values,
@@ -409,15 +410,23 @@ def test_equality_and_containment(func, a: Any, b: Any, expected: bool) -> None:
 @pytest.mark.parametrize(
     "func,input_str,expected",
     [
-        (uppercase, "hello", "HELLO"),
+        (slice_str, ("hello", 1, 3), "ell"),
+        (format_string, ("Hello {}", "World"), "Hello World"),
         (lowercase, "HELLO", "hello"),
+        (uppercase, "hello", "HELLO"),
         (capitalize, "hello world", "Hello world"),
         (titleize, "hello world", "Hello World"),
         (strip, "  hello  ", "hello"),
     ],
 )
-def test_string_operations(func, input_str: str, expected: str) -> None:
-    assert func(input_str) == expected
+def test_string_operations(func, input_str: str | tuple, expected: str) -> None:
+    """Test string manipulation functions."""
+    if func == slice_str:
+        assert func(*input_str) == expected
+    elif func == format_string:
+        assert func(*input_str) == expected
+    else:
+        assert func(input_str) == expected
 
 
 def test_split() -> None:
@@ -648,6 +657,10 @@ def test_filter_() -> None:
         (datetime(2024, 3, 24), "short", "Sun"),
         # Test leap year
         (datetime(2024, 2, 29), "number", 3),  # Thursday
+        # Edge cases
+        (datetime(2024, 12, 31), "number", 1),  # Tuesday at year boundary
+        (datetime(2024, 2, 29), "full", "Thursday"),  # Leap year
+        (datetime(2025, 2, 28), "short", "Fri"),  # Non-leap year
     ],
 )
 def test_get_day_of_week(
@@ -919,3 +932,43 @@ def test_timezone_operations() -> None:
 def test_dict_lookup(dict_input: dict, keys: tuple, expected: Any) -> None:
     """Test dictionary lookup with various inputs."""
     assert dict_lookup(dict_input, *keys) == expected
+
+
+def test_collection_operations() -> None:
+    """Test collection manipulation functions."""
+    # Test flatten
+    assert flatten([[1, 2], [3, 4]]) == [1, 2, 3, 4]
+    assert flatten([[1, [2, 3]], [4]]) == [1, 2, 3, 4]
+
+    # Test unique_items
+    assert set(unique_items([1, 2, 2, 3, 3, 3])) == {1, 2, 3}
+
+    # Test custom_chain
+    assert list(custom_chain([1, 2], [3, 4])) == [1, 2, 3, 4]
+    assert list(custom_chain([1, [2, 3]], 4)) == [1, 2, 3, 4]
+
+
+@pytest.mark.parametrize(
+    "func,inputs,expected",
+    [
+        (contains, (1, [1, 2, 3]), True),
+        (contains, (4, [1, 2, 3]), False),
+        (does_not_contain, (1, [1, 2, 3]), False),
+        (does_not_contain, (4, [1, 2, 3]), True),
+        (is_empty, ([],), True),
+        (is_empty, ([1],), False),
+        (not_empty, ([],), False),
+        (not_empty, ([1],), True),
+    ],
+)
+def test_collection_checks(func, inputs: tuple, expected: bool) -> None:
+    assert func(*inputs) == expected
+
+
+def test_collection_transformations() -> None:
+    # Test zip_iterables
+    assert zip_iterables([1, 2], ["a", "b"]) == [(1, "a"), (2, "b")]
+    assert zip_iterables([1], ["a", "b"]) == [(1, "a")]  # Test uneven lengths
+
+    # Test iter_product
+    assert iter_product([1, 2], ["a", "b"]) == [(1, "a"), (1, "b"), (2, "a"), (2, "b")]
