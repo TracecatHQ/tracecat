@@ -57,7 +57,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   push-ui-to-ghcr:
-    runs-on: ubuntu-latest-8-cores
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
