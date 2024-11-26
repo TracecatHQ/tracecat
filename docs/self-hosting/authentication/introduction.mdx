@@ -8,6 +8,15 @@ description: Learn how to configure authentication with Tracecat.
 The admin superuser role is assigned to the first user who logs into the Tracecat instance.
 This user owns the organization and has admin rights to every workspace in the Tracecat deployment.
 
+## Domain whitelist
+
+To prevent unauthorized access to your Tracecat instance, you can configure a list of allowed domains for authentication.
+You can do this by setting the `TRACECAT__AUTH_ALLOWED_DOMAINS` environment variable. For example:
+
+```bash
+TRACECAT__AUTH_ALLOWED_DOMAINS=acme.com,acme.ai
+```
+
 ## Authentication Methods
 
 <Warning>
