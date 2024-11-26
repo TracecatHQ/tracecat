@@ -6,6 +6,8 @@ import {
   workflowExecutionsTerminateWorkflowExecution,
 } from "@/client"
 import {
+  AlarmClockOffIcon,
+  CircleArrowRightIcon,
   CircleCheck,
   CircleMinusIcon,
   CircleX,
@@ -208,6 +210,10 @@ export function getExecutionStatusIcon(
   className?: string
 ) {
   switch (status) {
+    case "RUNNING":
+      return (
+        <Loader2 className={cn("animate-spin stroke-blue-500/50", className)} />
+      )
     case "COMPLETED":
       return (
         <CircleCheck
@@ -219,9 +225,11 @@ export function getExecutionStatusIcon(
       )
     case "FAILED":
       return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
-    case "RUNNING":
+    case "CANCELED":
       return (
-        <Loader2 className={cn("animate-spin stroke-blue-500/50", className)} />
+        <CircleMinusIcon
+          className={cn("fill-orange-500 stroke-white", className)}
+        />
       )
     case "TERMINATED":
       return (
@@ -229,10 +237,17 @@ export function getExecutionStatusIcon(
           className={cn("fill-rose-500 stroke-white", className)}
         />
       )
-    case "CANCELED":
+    case "CONTINUED_AS_NEW":
       return (
-        <CircleMinusIcon
-          className={cn("fill-orange-500 stroke-white", className)}
+        <CircleArrowRightIcon
+          className={cn("fill-blue-500 stroke-white", className)}
+        />
+      )
+    case "TIMED_OUT":
+      return (
+        <AlarmClockOffIcon
+          className={cn("stroke-rose-500", className)}
+          strokeWidth={2}
         />
       )
     default:
