@@ -31,8 +31,9 @@ mypy path:
 	mypy --ignore-missing-imports --enable-incomplete-feature=NewGenericSyntax {{path}}
 gen-client:
 	cd frontend && pnpm generate-client && cd ..
-update-version before after:
-	-./scripts/update-version.sh {{before}} {{after}}
+# Update version number. If no version is provided, increments patch version.
+update-version *after='':
+	@-./scripts/update-version.sh {{after}}
 
 # CLI shortcuts
 # Check that cli is installed

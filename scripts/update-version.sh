@@ -2,22 +2,42 @@
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 <current_version> <new_version>"
-    echo "Example: $0 1.0.0 1.0.1"
+    echo "Usage: $0 [new_version]"
+    echo "Examples:"
+    echo "  $0           # Automatically increment patch version"
+    echo "  $0 1.0.1    # Set specific version"
     exit 1
 }
 
-# Check if we have the required arguments
-if [ "$#" -ne 2 ]; then
+# Extract current version from __init__.py
+INIT_FILE="tracecat/__init__.py"
+if [ ! -f "$INIT_FILE" ]; then
+    echo "Error: Cannot find $INIT_FILE"
+    exit 1
+fi
+
+CURRENT_VERSION=$(grep -E "__version__ = \"[0-9]+\.[0-9]+\.[0-9]+\"" "$INIT_FILE" | grep -Eo "[0-9]+\.[0-9]+\.[0-9]+")
+if [ -z "$CURRENT_VERSION" ]; then
+    echo "Error: Could not extract version from $INIT_FILE"
+    exit 1
+fi
+
+# If no version provided, increment patch version
+if [ "$#" -eq 0 ]; then
+    # Split version into major.minor.patch
+    IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+    # Increment patch
+    NEW_VERSION="${major}.${minor}.$((patch + 1))"
+    echo "No version specified. Incrementing patch version to $NEW_VERSION"
+elif [ "$#" -eq 1 ]; then
+    NEW_VERSION=$1
+else
     usage
 fi
 
-CURRENT_VERSION=$1
-NEW_VERSION=$2
-
 # Validate version numbers (basic semver format)
-if ! [[ $CURRENT_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! [[ $NEW_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "Error: Versions must be in semver format (e.g., 1.0.0)"
+if ! [[ $NEW_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Version must be in semver format (e.g., 1.0.0)"
     exit 1
 fi
 
