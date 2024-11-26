@@ -123,6 +123,14 @@ variable "saml_idp_metadata_url_arn" {
   default     = null
 }
 
+### Security
+
+variable "auth_allowed_domains" {
+  type        = string
+  description = "Comma separated list of allowed domains for authentication"
+  default     = null
+}
+
 ### DNS
 
 variable "hosted_zone_id" {
