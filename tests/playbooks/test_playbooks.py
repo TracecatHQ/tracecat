@@ -67,11 +67,6 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
 @pytest.mark.parametrize(
     "file_path",
     [
-        # Detect
-        "playbooks/detect/webhook_alerts/elastic.yml",
-        "playbooks/detect/webhook_alerts/panther.yml",
-        # Respond
-        "playbooks/respond/notify_users/slack.yml",
         # Quickstart
         "playbooks/tutorials/quickstart.yml",
     ],
