@@ -121,6 +121,7 @@ class WorkflowExecutionsService:
         events = []
         for event in history.events:
             match event.event_type:
+                # === Child Workflow Execution Events ===
                 case EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
                     group = EventGroup.from_initiated_child_workflow(event)
                     event_group_names[event.event_id] = group
@@ -178,6 +179,7 @@ class WorkflowExecutionsService:
                         )
                     )
 
+                # === Workflow Execution Events ===
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
                     attrs = event.workflow_execution_started_event_attributes
                     run_args_data = _extract_first(attrs.input)
@@ -192,6 +194,7 @@ class WorkflowExecutionsService:
                             parent_wf_exec_id=parent_exec_id,
                             task_id=event.task_id,
                             role=dsl_run_args.role,
+                            workflow_timeout=dsl_run_args.runtime_config.timeout,
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
@@ -235,6 +238,25 @@ class WorkflowExecutionsService:
                             task_id=event.task_id,
                         )
                     )
+                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
+                            event_type=EventHistoryType.WORKFLOW_EXECUTION_CONTINUED_AS_NEW,
+                            task_id=event.task_id,
+                        )
+                    )
+                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT:
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
+                            event_type=EventHistoryType.WORKFLOW_EXECUTION_TIMED_OUT,
+                            task_id=event.task_id,
+                        )
+                    )
+                # === Activity Task Events ===
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
                     if not (group := EventGroup.from_scheduled_activity(event)):
                         continue
@@ -302,7 +324,21 @@ class WorkflowExecutionsService:
                             failure=EventFailure.from_history_event(event),
                         )
                     )
+                case EventType.EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT:
+                    gparent_event_id = event.activity_task_timed_out_event_attributes.scheduled_event_id
+                    if not (group := event_group_names.get(gparent_event_id)):
+                        continue
+                    events.append(
+                        EventHistoryResponse(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
+                            event_type=EventHistoryType.ACTIVITY_TASK_TIMED_OUT,
+                            task_id=event.task_id,
+                            event_group=group,
+                        )
+                    )
                 case _:
+                    logger.info("Unhandled event type", event_type=event.event_type)
                     continue
         return events
 
@@ -380,6 +416,7 @@ class WorkflowExecutionsService:
             f"Executing DSL workflow: {dsl.title}",
             role=self.role,
             wf_exec_id=wf_exec_id,
+            run_config=dsl.config,
             kwargs=kwargs,
         )
         try:
@@ -391,6 +428,8 @@ class WorkflowExecutionsService:
                 id=wf_exec_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
                 retry_policy=retry_policies["workflow:fail_fast"],
+                # We don't currently differentiate between exec and run timeout as we fail fast for workflows
+                execution_timeout=datetime.timedelta(seconds=dsl.config.timeout),
                 **kwargs,
             )
         except WorkflowFailureError as e:

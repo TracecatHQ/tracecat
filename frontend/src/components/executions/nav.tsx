@@ -247,7 +247,7 @@ export function getExecutionStatusIcon(
       return (
         <AlarmClockOffIcon
           className={cn("stroke-rose-500", className)}
-          strokeWidth={2}
+          strokeWidth={2.5}
         />
       )
     default:

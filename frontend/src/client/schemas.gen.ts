@@ -706,6 +706,12 @@ export const $DSLConfig_Input = {
             title: 'Environment',
             description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
             default: 'default'
+        },
+        timeout: {
+            type: 'number',
+            title: 'Timeout',
+            description: 'The maximum number of seconds to wait for the workflow to complete.',
+            default: 300
         }
     },
     type: 'object',
@@ -722,6 +728,12 @@ export const $DSLConfig_Output = {
             title: 'Environment',
             description: "The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.",
             default: 'default'
+        },
+        timeout: {
+            type: 'number',
+            title: 'Timeout',
+            description: 'The maximum number of seconds to wait for the workflow to complete.',
+            default: 300
         }
     },
     type: 'object',
@@ -1173,6 +1185,17 @@ export const $EventHistoryResponse = {
                 }
             ],
             title: 'Parent Wf Exec Id'
+        },
+        workflow_timeout: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Workflow Timeout'
         }
     },
     type: 'object',
@@ -1182,7 +1205,7 @@ export const $EventHistoryResponse = {
 
 export const $EventHistoryType = {
     type: 'string',
-    enum: ['WORKFLOW_EXECUTION_STARTED', 'WORKFLOW_EXECUTION_COMPLETED', 'WORKFLOW_EXECUTION_FAILED', 'WORKFLOW_EXECUTION_TERMINATED', 'WORKFLOW_EXECUTION_CANCELED', 'ACTIVITY_TASK_SCHEDULED', 'ACTIVITY_TASK_STARTED', 'ACTIVITY_TASK_COMPLETED', 'ACTIVITY_TASK_FAILED', 'CHILD_WORKFLOW_EXECUTION_STARTED', 'CHILD_WORKFLOW_EXECUTION_COMPLETED', 'CHILD_WORKFLOW_EXECUTION_FAILED', 'START_CHILD_WORKFLOW_EXECUTION_INITIATED'],
+    enum: ['WORKFLOW_EXECUTION_STARTED', 'WORKFLOW_EXECUTION_COMPLETED', 'WORKFLOW_EXECUTION_FAILED', 'WORKFLOW_EXECUTION_TERMINATED', 'WORKFLOW_EXECUTION_CANCELED', 'WORKFLOW_EXECUTION_CONTINUED_AS_NEW', 'WORKFLOW_EXECUTION_TIMED_OUT', 'ACTIVITY_TASK_SCHEDULED', 'ACTIVITY_TASK_STARTED', 'ACTIVITY_TASK_COMPLETED', 'ACTIVITY_TASK_FAILED', 'ACTIVITY_TASK_TIMED_OUT', 'CHILD_WORKFLOW_EXECUTION_STARTED', 'CHILD_WORKFLOW_EXECUTION_COMPLETED', 'CHILD_WORKFLOW_EXECUTION_FAILED', 'START_CHILD_WORKFLOW_EXECUTION_INITIATED'],
     title: 'EventHistoryType',
     description: 'The event types we care about.'
 } as const;

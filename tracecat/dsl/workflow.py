@@ -459,6 +459,9 @@ class DSLWorkflow:
                     patched_args.get("environment")
                     or base_run_args.runtime_config.environment
                 )
+                cloned_args.runtime_config.timeout = (
+                    patched_args.get("timeout") or base_run_args.runtime_config.timeout
+                )
 
                 yield cloned_args
 
@@ -610,6 +613,7 @@ class DSLWorkflow:
             # Override the environment in the runtime config,
             # otherwise use the default provided in the workflow definition
             environment=args.get("environment") or dsl.config.environment,
+            timeout=args.get("timeout") or dsl.config.timeout,
         )
         self.logger.debug("Runtime config", runtime_config=runtime_config)
 
