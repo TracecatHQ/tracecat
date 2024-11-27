@@ -37,6 +37,15 @@ async def execute(
             ),
         ),
     ] = None,
+    timeout: Annotated[
+        float | None,
+        Field(
+            description=(
+                "The maximum number of seconds to wait for the child workflow to complete. "
+                "If not provided, the child workflow's default timeout is used. "
+            ),
+        ),
+    ] = None,
     version: Annotated[
         int | None,
         Field(..., description="The version of the child workflow definition, if any."),

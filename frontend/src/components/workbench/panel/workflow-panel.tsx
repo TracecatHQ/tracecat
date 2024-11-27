@@ -315,12 +315,23 @@ export function WorkflowPanel({
                                   Fields
                                 </span>
                                 <pre className="space-y-2 text-wrap rounded-md border bg-muted-foreground/10 p-2 text-xs text-foreground/70">
-                                  <b>environment</b>
-                                  {": string | null"}
-                                  <p className="text-muted-foreground">
-                                    # The workflow&apos;s target execution
-                                    environment. Defaults to null.
-                                  </p>
+                                  <div>
+                                    <b>environment</b>
+                                    {": string | null"}
+                                    <p className="text-muted-foreground">
+                                      # The workflow&apos;s target execution
+                                      environment. Defaults to null.
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <b>timeout</b>
+                                    {": float"}
+                                    <p className="text-muted-foreground">
+                                      # The maximum number of seconds to wait
+                                      for the workflow to complete. Defaults to
+                                      300 seconds (5 minutes).
+                                    </p>
+                                  </div>
                                 </pre>
                               </div>
                             </div>

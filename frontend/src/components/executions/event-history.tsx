@@ -3,8 +3,11 @@
 import React from "react"
 import { EventHistoryResponse } from "@/client"
 import {
+  AlarmClockOffIcon,
   CalendarCheck,
+  CircleArrowRightIcon,
   CircleCheck,
+  CircleDotIcon,
   CircleMinusIcon,
   CircleX,
   GlobeIcon,
@@ -141,6 +144,7 @@ function getEventHistoryIcon(
   className?: string
 ) {
   switch (eventType) {
+    /* === Workflow Execution Events === */
     case "WORKFLOW_EXECUTION_STARTED":
       return <GlobeIcon className={cn("stroke-emerald-500", className)} />
     case "WORKFLOW_EXECUTION_COMPLETED":
@@ -163,6 +167,20 @@ function getEventHistoryIcon(
           className={cn("fill-rose-500 stroke-white", className)}
         />
       )
+    case "WORKFLOW_EXECUTION_CONTINUED_AS_NEW":
+      return (
+        <CircleArrowRightIcon
+          className={cn("fill-blue-500 stroke-white", className)}
+        />
+      )
+    case "WORKFLOW_EXECUTION_TIMED_OUT":
+      return (
+        <AlarmClockOffIcon
+          className={cn("stroke-rose-500", className)}
+          strokeWidth={2.5}
+        />
+      )
+    /* === Child Workflow Execution Events === */
     case "START_CHILD_WORKFLOW_EXECUTION_INITIATED":
       return (
         <WorkflowIcon
@@ -183,6 +201,7 @@ function getEventHistoryIcon(
       )
     case "CHILD_WORKFLOW_EXECUTION_FAILED":
       return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
+    /* === Activity Task Events === */
     case "ACTIVITY_TASK_SCHEDULED":
       return (
         <CalendarCheck
@@ -201,7 +220,18 @@ function getEventHistoryIcon(
       )
     case "ACTIVITY_TASK_FAILED":
       return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
+    case "ACTIVITY_TASK_TIMED_OUT":
+      return (
+        <AlarmClockOffIcon
+          className={cn("stroke-orange-500", className)}
+          strokeWidth={2.5}
+        />
+      )
     default:
-      throw new Error(`Invalid event type ${eventType}`)
+      return (
+        <CircleDotIcon
+          className={cn("fill-indigo-500/50 stroke-white", className)}
+        />
+      )
   }
 }

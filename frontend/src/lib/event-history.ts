@@ -8,7 +8,10 @@ export const encode = (str: string): string =>
 
 export const ERROR_EVENT_TYPES: EventHistoryResponse["event_type"][] = [
   "WORKFLOW_EXECUTION_FAILED",
+  "WORKFLOW_EXECUTION_TERMINATED",
+  "WORKFLOW_EXECUTION_TIMED_OUT",
   "ACTIVITY_TASK_FAILED",
+  "ACTIVITY_TASK_TIMED_OUT",
   "CHILD_WORKFLOW_EXECUTION_FAILED",
 ] as const
 export const SUCCESS_EVENT_TYPES: EventHistoryResponse["event_type"][] = [

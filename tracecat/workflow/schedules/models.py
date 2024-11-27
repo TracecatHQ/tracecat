@@ -19,6 +19,7 @@ class ScheduleRead(BaseModel):
     offset: timedelta | None = None
     start_at: datetime | None = None
     end_at: datetime | None = None
+    timeout: float | None = None
     status: Literal["online", "offline"]
 
 
@@ -31,6 +32,10 @@ class ScheduleCreate(BaseModel):
     start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
     end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
     status: Literal["online", "offline"] = "online"
+    timeout: float = Field(
+        300,
+        description="The maximum number of seconds to wait for the workflow to complete",
+    )
 
 
 class ScheduleUpdate(BaseModel):
