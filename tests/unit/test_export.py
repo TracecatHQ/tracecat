@@ -6,7 +6,7 @@ from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import ExternalWorkflowDefinition
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_workflow_can_import(test_role: Role):
     dsl = ExternalWorkflowDefinition(
         definition=DSLInput(

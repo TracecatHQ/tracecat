@@ -20,7 +20,7 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatCredentialsError
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, test_role):
     from datetime import datetime
 
@@ -48,7 +48,7 @@ async def test_auth_sandbox_with_secrets(mocker: pytest_mock.MockFixture, test_r
     AuthSandbox._get_secrets.assert_called_once()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_auth_sandbox_without_secrets(test_role, mock_user_id):
     # Auth sandbox has a different role.
     with TemporaryRole(
@@ -63,7 +63,7 @@ async def test_auth_sandbox_without_secrets(test_role, mock_user_id):
             )
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.skip("Deprecating env target")
 async def test_auth_sandbox_env_target(mocker: pytest_mock.MockFixture, test_role):
     role = ctx_role.get()
@@ -95,7 +95,7 @@ async def test_auth_sandbox_env_target(mocker: pytest_mock.MockFixture, test_rol
     assert "SECRET_KEY" not in os.environ
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_auth_sandbox_missing_secret(mocker: pytest_mock.MockFixture, test_role):
     role = ctx_role.get()
     assert role is not None
@@ -122,7 +122,7 @@ async def test_auth_sandbox_missing_secret(mocker: pytest_mock.MockFixture, test
     )
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_auth_sandbox_custom_runtime_env_target(
     mocker: pytest_mock.MockFixture, test_role
 ):
@@ -195,7 +195,7 @@ def test_env_sandbox_nested():
         assert secrets_manager.get("INNER") is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_env_sandbox_async():
     """Test that env_sandbox works in async contexts."""
 
@@ -219,7 +219,7 @@ def test_env_sandbox_exception():
     assert secrets_manager.get("EXCEPTION_KEY") is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_env_sandbox_sync_in_async():
     """Test that env_sandbox context is propagated correctly when running a sync function in asyncio.to_thread."""
 
@@ -237,7 +237,7 @@ async def test_env_sandbox_sync_in_async():
     assert secrets_manager.get("THREAD_KEY") is None
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_auth_sandbox_optional_secrets(
     mocker: pytest_mock.MockFixture, test_role
 ):
@@ -303,7 +303,7 @@ async def test_auth_sandbox_optional_secrets(
     assert "Missing secrets: required_secret" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_auth_sandbox_all_secrets_present(
     mocker: pytest_mock.MockFixture, test_role
 ):
@@ -377,7 +377,7 @@ async def test_auth_sandbox_all_secrets_present(
     )
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_auth_sandbox_optional_secret_with_all_keys(
     mocker: pytest_mock.MockFixture, test_role
 ):
@@ -426,7 +426,7 @@ async def test_auth_sandbox_optional_secret_with_all_keys(
         assert sandbox.secrets["optional_secret"]["OPTIONAL_KEY1"] == "optional_value1"
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_auth_sandbox_missing_optional_secret(
     mocker: pytest_mock.MockFixture, test_role
 ):
@@ -452,7 +452,7 @@ async def test_auth_sandbox_missing_optional_secret(
         assert "optional_secret" not in sandbox.secrets
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_auth_sandbox_optional_secret_missing_optional_key(
     mocker: pytest_mock.MockFixture, test_role
 ):

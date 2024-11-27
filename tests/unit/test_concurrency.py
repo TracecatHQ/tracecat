@@ -5,7 +5,7 @@ import pytest
 from tracecat.concurrency import GatheringTaskGroup, apartial
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_gathering_task_group():
     # Create a GatheringTaskGroup instance
 
@@ -23,7 +23,7 @@ async def test_gathering_task_group():
     assert group.results() == [0, 1, 2, 3, 4]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_apartial():
     async def mock_coroutine(a, b, c):
         await asyncio.sleep(0.1)
