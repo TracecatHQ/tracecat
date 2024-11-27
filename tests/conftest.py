@@ -13,6 +13,7 @@ import pytest
 
 from tracecat import config
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_engine
 from tracecat.db.schemas import User
 from tracecat.logger import logger
 from tracecat.registry.repository import Repository
@@ -45,6 +46,15 @@ def pytest_addoption(parser: pytest.Parser):
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture(autouse=True, scope="function")
+async def new_db():
+    try:
+        engine = get_async_engine()
+        yield engine
+    finally:
+        await engine.dispose()
 
 
 @pytest.fixture(autouse=True)
