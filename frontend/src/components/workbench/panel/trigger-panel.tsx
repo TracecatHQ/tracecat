@@ -57,6 +57,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -234,6 +235,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
             </TableHead>
             <TableHead className="text-xs font-semibold">Interval</TableHead>
             <TableHead className="text-xs font-semibold">Status</TableHead>
+            <TableHead className="text-xs font-semibold">Timeout</TableHead>
             <TableHead className="pr-3 text-right text-xs font-semibold">
               Actions
             </TableHead>
@@ -241,7 +243,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
         </TableHeader>
         <TableBody>
           {schedules.length > 0 ? (
-            schedules.map(({ id, status, inputs, every }) => (
+            schedules.map(({ id, status, inputs, every, timeout }) => (
               <HoverCard>
                 <HoverCardTrigger asChild className="hover:border-none">
                   <TableRow key={id} className="ext-xs text-muted-foreground">
@@ -254,6 +256,11 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                     <TableCell className="text-xs capitalize">
                       <div className="flex">
                         <p>{status}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs capitalize">
+                      <div className="flex">
+                        <p>{timeout ? `${timeout}s` : "None"}</p>
                       </div>
                     </TableCell>
                     <TableCell className="items-center pr-3 text-xs">
@@ -368,6 +375,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
 
 const scheduleInputsSchema = z.object({
   duration: durationSchema,
+  timeout: z.number().optional(),
 })
 type DurationType =
   | "duration.years"
@@ -386,13 +394,14 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
   })
 
   const onSubmit = async (values: ScheduleInputs) => {
-    const { duration } = values
+    const { duration, timeout } = values
     try {
       const response = await createSchedule({
         workspaceId,
         requestBody: {
           workflow_id: workflowId,
           every: durationToISOString(duration),
+          timeout,
         },
       })
       console.log("Schedule created", response)
@@ -428,6 +437,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
         </DialogHeader>
         <Form {...form}>
           <form
+            className="space-y-4"
             onSubmit={form.handleSubmit(onSubmit, () => {
               console.error("Form validation failed")
               toast({
@@ -471,6 +481,33 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                 />
               ))}
             </div>
+            <FormField
+              key="timeout"
+              control={form.control}
+              name="timeout"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs capitalize text-foreground/80">
+                    Timeout
+                  </FormLabel>
+                  <FormDescription className="text-xs">
+                    The maximum time in seconds the workflow can run for.
+                  </FormDescription>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      className="text-xs capitalize"
+                      placeholder="Timeout (seconds)"
+                      value={Math.max(1, Number(field.value || 300))}
+                      {...form.register("timeout", {
+                        valueAsNumber: true,
+                      })}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <DialogFooter className="mt-4">
               <DialogClose asChild>
                 <Button type="submit" variant="default">

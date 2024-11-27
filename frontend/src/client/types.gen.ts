@@ -765,6 +765,10 @@ export type Schedule = {
      * ISO 8601 datetime string
      */
     end_at?: string | null;
+    /**
+     * The maximum number of seconds to wait for the workflow to complete
+     */
+    timeout?: number | null;
     workflow_id: string | null;
 };
 
@@ -791,6 +795,10 @@ export type ScheduleCreate = {
      */
     end_at?: string | null;
     status?: 'online' | 'offline';
+    /**
+     * The maximum number of seconds to wait for the workflow to complete
+     */
+    timeout?: number;
 };
 
 export type status2 = 'online' | 'offline';

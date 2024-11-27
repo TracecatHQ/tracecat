@@ -2161,6 +2161,18 @@ export const $Schedule = {
             title: 'End At',
             description: 'ISO 8601 datetime string'
         },
+        timeout: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Timeout',
+            description: 'The maximum number of seconds to wait for the workflow to complete'
+        },
         workflow_id: {
             anyOf: [
                 {
@@ -2257,6 +2269,12 @@ export const $ScheduleCreate = {
             enum: ['online', 'offline'],
             title: 'Status',
             default: 'online'
+        },
+        timeout: {
+            type: 'number',
+            title: 'Timeout',
+            description: 'The maximum number of seconds to wait for the workflow to complete',
+            default: 300
         }
     },
     type: 'object',
