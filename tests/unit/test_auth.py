@@ -12,7 +12,7 @@ from tracecat.types.auth import Role
 pytest.mark.disable_fixture("test_user")
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_authenticated_service_client(mock_user_id, mock_org_id):
     service_role = Role(
         type="service", user_id=mock_user_id, service_id="tracecat-runner"
@@ -58,7 +58,7 @@ async def test_authenticated_service_client(mock_user_id, mock_org_id):
         assert uuid.UUID(client.headers["x-tracecat-role-workspace-id"]) == mock_org_id
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_authenticated_service_client_init_with_role(mock_user_id):
     # Test initialization of AuthenticatedServiceClient
     role = Role(type="service", user_id=mock_user_id, service_id="tracecat-runner")
@@ -74,7 +74,7 @@ async def test_authenticated_service_client_init_with_role(mock_user_id):
         assert "x-tracecat-role-workspace-id" not in client.headers
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_authenticated_service_client_init_no_role():
     """Test initialization of AuthenticatedServiceClient without role
 
@@ -96,7 +96,7 @@ async def test_authenticated_service_client_init_no_role():
         assert "x-tracecat-role-user-id" not in client.headers
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_authenticated_service_client_init_role_from_context(mock_user_id):
     # Test initialization of AuthenticatedServiceClient without role
     mock_ctx_role = Role(
@@ -116,7 +116,7 @@ async def test_authenticated_service_client_init_role_from_context(mock_user_id)
         assert uuid.UUID(client.headers["x-tracecat-role-user-id"]) == mock_user_id
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_authenticated_api_client_init_role_from_context(mock_user_id):
     # Test initialization of AuthenticatedAPIClient without role
     mock_ctx_role = Role(
@@ -137,7 +137,7 @@ async def test_authenticated_api_client_init_role_from_context(mock_user_id):
         assert client.base_url == TRACECAT__API_URL
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_authenticated_api_client_init_no_role():
     # Test initialization of AuthenticatedAPIClient without role
     default_role = Role(type="service", service_id="tracecat-service")
@@ -152,7 +152,7 @@ async def test_authenticated_api_client_init_no_role():
         assert client.base_url == TRACECAT__API_URL
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_authenticated_api_client_init_with_role(mock_user_id, mock_org_id):
     # Test initialization of AuthenticatedAPIClient
     role = Role(

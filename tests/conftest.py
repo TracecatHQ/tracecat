@@ -13,6 +13,7 @@ import pytest
 
 from tracecat import config
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_engine
 from tracecat.db.schemas import User
 from tracecat.logger import logger
 from tracecat.registry.repository import Repository
@@ -42,19 +43,25 @@ def pytest_addoption(parser: pytest.Parser):
     )
 
 
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
+@pytest.fixture(autouse=True, scope="function")
+async def new_db():
+    try:
+        engine = get_async_engine()
+        yield engine
+    finally:
+        await engine.dispose()
+
+
 @pytest.fixture(autouse=True)
 def check_disable_fixture(request):
     marker = request.node.get_closest_marker("disable_fixture")
     if marker and marker.args[0] == "test_user":
         pytest.skip("Test user fixture disabled for this test or module")
-
-
-@pytest.fixture(autouse=True, scope="session")
-def event_loop():
-    logger.info("Creating event loop")
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -348,11 +355,16 @@ def test_workspace(test_admin_user, authed_client_controls):
                 response.raise_for_status()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def temporal_client():
     from tracecat.dsl.client import get_temporal_client
 
-    loop = asyncio.get_event_loop()
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        policy = asyncio.get_event_loop_policy()
+        loop = policy.new_event_loop()
+
     client = loop.run_until_complete(get_temporal_client())
     return client
 

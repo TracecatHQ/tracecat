@@ -6,7 +6,7 @@ import yaml
 from tracecat.registry.actions.models import TemplateAction
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "file_path",
     list(Path("registry/tracecat_registry/templates").rglob("*.yml")),
