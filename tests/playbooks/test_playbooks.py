@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import pytest_asyncio
 import yaml
 from sqlmodel.ext.asyncio.session import AsyncSession
 from temporalio.client import Client
@@ -25,7 +24,7 @@ from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def session(env_sandbox) -> AsyncGenerator[AsyncSession]:
     """Test session that connexts to a live database."""
     logger.info("Creating test session")
@@ -34,7 +33,7 @@ async def session(env_sandbox) -> AsyncGenerator[AsyncSession]:
 
 
 # Fixture to create Tracecat secrets
-@pytest_asyncio.fixture
+@pytest.fixture
 async def integration_secrets(session: AsyncSession, test_role: Role):
     if not os.getenv("GITHUB_ACTIONS"):
         try:
@@ -72,7 +71,7 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
     ],
     ids=lambda x: x,
 )
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.dbtest
 async def test_playbook_validation(
     session: AsyncSession, file_path: str, test_role: Role
@@ -97,7 +96,7 @@ async def test_playbook_validation(
     assert len(validation_results) == 0
 
 
-@pytest.mark.skipif(not os.getenv("GITHUB_ACTIONS"), reason="Only run in CI")
+# @pytest.mark.skipif(not os.getenv("GITHUB_ACTIONS"), reason="Only run in CI")
 @pytest.mark.parametrize(
     "file_path, trigger_inputs, expected_actions",
     [
@@ -115,7 +114,7 @@ async def test_playbook_validation(
     ],
     ids=lambda x: x,
 )
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.webtest
 @pytest.mark.dbtest
 async def test_playbook_live_run(
