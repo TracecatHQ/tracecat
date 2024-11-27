@@ -46,6 +46,7 @@ export default function WorkflowExecutionsLayout({
   )
 }
 
+const REFETCH_INTERVAL = 2000
 function WorkflowExecutionsPanelGroup({
   workflowId,
   defaultLayout = [15, 15, 70],
@@ -65,7 +66,7 @@ function WorkflowExecutionsPanelGroup({
     workflowExecutions,
     workflowExecutionsError,
     workflowExecutionsIsLoading,
-  } = useWorkflowExecutions(workflowId)
+  } = useWorkflowExecutions(workflowId, { refetchInterval: REFETCH_INTERVAL })
 
   // Adjust onCollapse to match the expected signature
   const handleCollapse = () => {

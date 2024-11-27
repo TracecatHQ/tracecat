@@ -350,7 +350,12 @@ export function useWorkspaceManager() {
   }
 }
 
-export function useWorkflowExecutions(workflowId: string) {
+export function useWorkflowExecutions(
+  workflowId: string,
+  options?: {
+    refetchInterval?: number
+  }
+) {
   const { workspaceId } = useWorkspace()
   const {
     data: workflowExecutions,
@@ -363,6 +368,7 @@ export function useWorkflowExecutions(workflowId: string) {
         workspaceId,
         workflowId,
       }),
+    ...options,
   })
   return {
     workflowExecutions,
