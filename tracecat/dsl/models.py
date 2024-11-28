@@ -183,9 +183,6 @@ class DSLContext(TypedDict, total=False):
     SECRETS: dict[str, Any]
     """DSL Secrets context"""
 
-    var: dict[str, Any]
-    """DSL Variables context"""
-
 
 class RunActionInput(BaseModel):
     """This object contains all the information needed to execute an action."""
