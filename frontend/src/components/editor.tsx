@@ -76,7 +76,7 @@ export function CustomEditor({
           {
             label: "ACTIONS",
             kind: monaco.languages.CompletionItemKind.Keyword,
-            insertText: "ACTIONS",
+            insertText: " ACTIONS",
             documentation: "Insert ACTIONS reference",
             range: {
               startLineNumber: position.lineNumber,
@@ -88,7 +88,7 @@ export function CustomEditor({
           {
             label: "FN",
             kind: monaco.languages.CompletionItemKind.Function,
-            insertText: "FN",
+            insertText: " FN",
             documentation: "Insert Function reference",
             range: {
               startLineNumber: position.lineNumber,
