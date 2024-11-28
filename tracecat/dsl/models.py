@@ -138,6 +138,10 @@ class DSLConfig(BaseModel):
             "If not provided, the default environment (default) is used."
         ),
     )
+    timeout: float = Field(
+        default=300,
+        description="The maximum number of seconds to wait for the workflow to complete.",
+    )
 
 
 class Trigger(BaseModel):

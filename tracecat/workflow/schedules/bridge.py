@@ -23,11 +23,16 @@ async def create_schedule(
     offset: timedelta | None = None,
     start_at: datetime | None = None,
     end_at: datetime | None = None,
+    timeout: float | None = None,
 ) -> temporalio.client.ScheduleHandle:
     # Importing here to avoid circular imports...
     from tracecat.dsl.workflow import DSLWorkflow
 
     client = await get_temporal_client()
+
+    schedule_kwargs = {}
+    if timeout:
+        schedule_kwargs["execution_timeout"] = timedelta(seconds=timeout)
 
     workflow_schedule_id = f"{workflow_id}:{schedule_id}"
 
@@ -40,13 +45,11 @@ async def create_schedule(
                 # and the role of the user who scheduled it. Everything else
                 # is pulled inside the workflow itself.
                 DSLRunArgs(
-                    role=ctx_role.get(),
-                    wf_id=workflow_id,
-                    schedule_id=schedule_id,
-                    timeout=timedelta(minutes=5),
+                    role=ctx_role.get(), wf_id=workflow_id, schedule_id=schedule_id
                 ),
                 id=workflow_schedule_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                **schedule_kwargs,
             ),
             spec=temporalio.client.ScheduleSpec(
                 intervals=[

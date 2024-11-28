@@ -3,16 +3,19 @@ title: Introduction
 description: Learn how to configure authentication with Tracecat.
 ---
 
-## Default Admin User
+## Admin superuser
 
-The default admin user owns the organization and has admin rights to every workspace in the Tracecat deployment.
+The admin superuser role is assigned to the first user who logs into the Tracecat instance.
+This user owns the organization and has admin rights to every workspace in the Tracecat deployment.
 
-<Note>
-  There are two ways the default admin user is created:
+## Domain whitelist
 
-  - If basic auth is enabled, the default admin user is created from the email and password provided in the environment variables.
-  - If OAuth or SAML SSO is enabled, the default admin user is assigned to the first user that logs into the Tracecat instance.
-</Note>
+To prevent unauthorized access to your Tracecat instance, you can configure a list of allowed domains for authentication.
+You can do this by setting the `TRACECAT__AUTH_ALLOWED_DOMAINS` environment variable. For example:
+
+```bash
+TRACECAT__AUTH_ALLOWED_DOMAINS=acme.com,acme.ai
+```
 
 ## Authentication Methods
 

@@ -241,6 +241,10 @@ export type DSLConfig_Input = {
      * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
      */
     environment?: string;
+    /**
+     * The maximum number of seconds to wait for the workflow to complete.
+     */
+    timeout?: number;
 };
 
 /**
@@ -258,6 +262,10 @@ export type DSLConfig_Output = {
      * The workflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the default environment (default) is used.
      */
     environment?: string;
+    /**
+     * The maximum number of seconds to wait for the workflow to complete.
+     */
+    timeout?: number;
 };
 
 export type DSLContext = {
@@ -395,12 +403,13 @@ export type EventHistoryResponse = {
     result?: unknown | null;
     role?: Role | null;
     parent_wf_exec_id?: string | null;
+    workflow_timeout?: number | null;
 };
 
 /**
  * The event types we care about.
  */
-export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'WORKFLOW_EXECUTION_TERMINATED' | 'WORKFLOW_EXECUTION_CANCELED' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED' | 'CHILD_WORKFLOW_EXECUTION_STARTED' | 'CHILD_WORKFLOW_EXECUTION_COMPLETED' | 'CHILD_WORKFLOW_EXECUTION_FAILED' | 'START_CHILD_WORKFLOW_EXECUTION_INITIATED';
+export type EventHistoryType = 'WORKFLOW_EXECUTION_STARTED' | 'WORKFLOW_EXECUTION_COMPLETED' | 'WORKFLOW_EXECUTION_FAILED' | 'WORKFLOW_EXECUTION_TERMINATED' | 'WORKFLOW_EXECUTION_CANCELED' | 'WORKFLOW_EXECUTION_CONTINUED_AS_NEW' | 'WORKFLOW_EXECUTION_TIMED_OUT' | 'ACTIVITY_TASK_SCHEDULED' | 'ACTIVITY_TASK_STARTED' | 'ACTIVITY_TASK_COMPLETED' | 'ACTIVITY_TASK_FAILED' | 'ACTIVITY_TASK_TIMED_OUT' | 'CHILD_WORKFLOW_EXECUTION_STARTED' | 'CHILD_WORKFLOW_EXECUTION_COMPLETED' | 'CHILD_WORKFLOW_EXECUTION_FAILED' | 'START_CHILD_WORKFLOW_EXECUTION_INITIATED';
 
 export type ExpectedField = {
     type: string;
@@ -756,6 +765,10 @@ export type Schedule = {
      * ISO 8601 datetime string
      */
     end_at?: string | null;
+    /**
+     * The maximum number of seconds to wait for the workflow to complete
+     */
+    timeout?: number | null;
     workflow_id: string | null;
 };
 
@@ -782,6 +795,10 @@ export type ScheduleCreate = {
      */
     end_at?: string | null;
     status?: 'online' | 'offline';
+    /**
+     * The maximum number of seconds to wait for the workflow to complete
+     */
+    timeout?: number;
 };
 
 export type status2 = 'online' | 'offline';

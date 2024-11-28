@@ -26,31 +26,34 @@ locals {
 
   api_env = [
     for k, v in merge({
-      LOG_LEVEL                   = var.log_level
-      TRACECAT__API_URL           = local.internal_api_url
-      TRACECAT__API_ROOT_PATH     = "/api"
-      TRACECAT__APP_ENV           = var.tracecat_app_env
-      TRACECAT__PUBLIC_RUNNER_URL = local.public_api_url
-      TRACECAT__PUBLIC_APP_URL    = local.public_app_url
-      TRACECAT__ALLOW_ORIGINS     = local.allow_origins
-      TRACECAT__AUTH_TYPES        = var.auth_types
-      TEMPORAL__CLUSTER_URL       = local.temporal_cluster_url
-      TEMPORAL__CLUSTER_QUEUE     = local.temporal_cluster_queue
-      SAML_SP_ACS_URL             = local.saml_acs_url
-      RUN_MIGRATIONS              = "true"
+      LOG_LEVEL                      = var.log_level
+      TRACECAT__API_URL              = local.internal_api_url
+      TRACECAT__API_ROOT_PATH        = "/api"
+      TRACECAT__APP_ENV              = var.tracecat_app_env
+      TRACECAT__PUBLIC_RUNNER_URL    = local.public_api_url
+      TRACECAT__PUBLIC_APP_URL       = local.public_app_url
+      TRACECAT__ALLOW_ORIGINS        = local.allow_origins
+      TRACECAT__AUTH_TYPES           = var.auth_types
+      TRACECAT__AUTH_ALLOWED_DOMAINS = var.auth_allowed_domains
+      TEMPORAL__CLUSTER_URL          = local.temporal_cluster_url
+      TEMPORAL__CLUSTER_QUEUE        = local.temporal_cluster_queue
+      TEMPORAL__CLIENT_RPC_TIMEOUT   = var.temporal_client_rpc_timeout
+      SAML_SP_ACS_URL                = local.saml_acs_url
+      RUN_MIGRATIONS                 = "true"
     }, local.tracecat_db_configs) :
     { name = k, value = tostring(v) }
   ]
 
   worker_env = [
     for k, v in merge({
-      LOG_LEVEL                   = var.log_level
-      TRACECAT__API_URL           = local.internal_api_url
-      TRACECAT__API_ROOT_PATH     = "/api"
-      TRACECAT__APP_ENV           = var.tracecat_app_env
-      TRACECAT__PUBLIC_RUNNER_URL = local.public_api_url
-      TEMPORAL__CLUSTER_URL       = local.temporal_cluster_url
-      TEMPORAL__CLUSTER_QUEUE     = local.temporal_cluster_queue
+      LOG_LEVEL                    = var.log_level
+      TRACECAT__API_URL            = local.internal_api_url
+      TRACECAT__API_ROOT_PATH      = "/api"
+      TRACECAT__APP_ENV            = var.tracecat_app_env
+      TRACECAT__PUBLIC_RUNNER_URL  = local.public_api_url
+      TEMPORAL__CLUSTER_URL        = local.temporal_cluster_url
+      TEMPORAL__CLUSTER_QUEUE      = local.temporal_cluster_queue
+      TEMPORAL__CLIENT_RPC_TIMEOUT = var.temporal_client_rpc_timeout
     }, local.tracecat_db_configs) :
     { name = k, value = tostring(v) }
   ]
@@ -72,7 +75,7 @@ locals {
       DB                         = "postgres12"
       DB_PORT                    = "5432"
       POSTGRES_USER              = "postgres"
-      LOG_LEVEL                  = "warn"
+      LOG_LEVEL                  = var.temporal_log_level
       TEMPORAL_BROADCAST_ADDRESS = "0.0.0.0"
       BIND_ON_IP                 = "0.0.0.0"
     } :

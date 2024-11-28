@@ -345,6 +345,10 @@ class Schedule(Resource, table=True):
     offset: timedelta | None = Field(None, description="ISO 8601 duration string")
     start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
     end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
+    timeout: float | None = Field(
+        None,
+        description="The maximum number of seconds to wait for the workflow to complete",
+    )
     # Relationships
     workflow_id: str | None = Field(
         sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))

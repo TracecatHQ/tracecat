@@ -94,6 +94,7 @@ class WorkflowSchedulesService:
             offset=params.offset,
             start_at=params.start_at,
             end_at=params.end_at,
+            timeout=params.timeout,
             cron=params.cron,
             status="online",
         )
@@ -113,6 +114,7 @@ class WorkflowSchedulesService:
                     offset=params.offset,
                     start_at=params.start_at,
                     end_at=params.end_at,
+                    timeout=params.timeout,
                 )
             except Exception as e:
                 # If we fail to create the schedule in temporal
@@ -299,6 +301,7 @@ class WorkflowSchedulesService:
                     offset=schedule.offset,
                     start_at=schedule.start_at,
                     end_at=schedule.end_at,
+                    timeout=schedule.timeout,
                     cron=schedule.cron,
                     status=schedule.status,
                 )

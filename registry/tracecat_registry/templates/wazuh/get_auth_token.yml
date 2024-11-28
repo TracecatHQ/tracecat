@@ -30,4 +30,4 @@ definition:
           Content-Type: application/json
         verify_ssl: ${{ inputs.verify_ssl  }}
   returns:
-    token: ${{ steps.get_auth_token.result.data.token }}
+    token: ${{ steps.get_auth_token.result.data.data.token }}

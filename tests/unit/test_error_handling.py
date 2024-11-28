@@ -14,7 +14,7 @@ from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.logger import logger
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_execution_fails_fatal(temporal_cluster, test_role):
     dsl = DSLInput.from_yaml("tests/data/workflows/unit_error_fatal.yml")
     test_name = f"test_fatal_execution-{dsl.title}"
@@ -76,10 +76,10 @@ async def test_execution_fails_fatal(temporal_cluster, test_role):
         # ("${{ FN.exec('print(\"Hello\")') }}", "Unknown function 'exec'"),
     ],
 )
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.skip
 async def test_execution_fails_invalid_expressions(
-    expression, expected_error, temporal_cluster, test_role
+    expression, expected_error, test_role
 ):
     dsl = DSLInput(
         title="Testing invalid expressions: " + expected_error,

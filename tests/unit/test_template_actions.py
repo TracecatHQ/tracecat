@@ -99,7 +99,7 @@ def test_construct_template_action():
         ]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_template_action_run():
     action = TemplateAction(
         **{

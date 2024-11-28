@@ -150,12 +150,19 @@ export function WorkflowExecutionEventDetailView({
 }
 
 export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
-  const { event_group, role, event_type, event_id, parent_wf_exec_id } = event
+  const {
+    event_group,
+    role,
+    event_type,
+    event_id,
+    parent_wf_exec_id,
+    workflow_timeout,
+  } = event
   const {
     udf_key,
     action_title,
     action_description,
-    retry_policy,
+    retry_policy: action_retry_policy,
     action_input,
     join_strategy,
     start_delay,
@@ -163,7 +170,7 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
   } = event_group || {}
   const formattedEventType = parseEventType(event_type)
   const eventTimeDate = new Date(event.event_time)
-  const { max_attempts, timeout } = retry_policy || {}
+  const { max_attempts, timeout } = action_retry_policy || {}
 
   // Construct the link within the same workspace to the related workflow execution
   const { workspaceId } = useParams()
@@ -278,6 +285,15 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
           </>
         )}
       </div>
+      {event_type == "WORKFLOW_EXECUTION_STARTED" && workflow_timeout && (
+        <div className="space-x-2">
+          <Label className="w-24 text-xs text-muted-foreground">
+            Workflow Timeout
+          </Label>
+          <DescriptorBadge text={`${workflow_timeout}s`} />
+        </div>
+      )}
+
       {/* Action event group fields */}
       <div className="space-x-2">
         {udf_key && (
@@ -306,8 +322,8 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
         )}
       </div>
 
-      {/* Retry policy */}
-      {retry_policy && (
+      {/* Action Retry policy */}
+      {action_retry_policy && (
         <div className="space-x-2">
           <Label className="w-24 text-xs text-muted-foreground">
             Retry Policy

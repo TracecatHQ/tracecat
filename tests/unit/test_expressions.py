@@ -922,7 +922,7 @@ def assert_validation_result(
         ),
     ],
 )
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox):
     # The only defined action reference is "my_action"
     validation_context = ExprValidationContext(

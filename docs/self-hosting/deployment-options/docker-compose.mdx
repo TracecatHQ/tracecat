@@ -40,17 +40,15 @@ Use the commands listed below to download the required configuration files
 (`env.sh`, `.env.example`) and generate your own `.env` file.
 
 ```bash
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.14.0/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.14.0/.env.example
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.14.5/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.14.5/.env.example
 chmod +x env.sh && ./env.sh
 ```
 
 You should see the following instructions after executing `env.sh`.
 
 <Info>
-  If basic auth is enabled, you'll first be prompted to input the email and password for the default admin user.
-
-  Then you'll be prompted to input the following:
+You'll be prompted to input the following:
   - `y` (yes to production mode)
   - `localhost` (default host)
   - `n` (no to postgres SSL mode).
@@ -69,13 +67,13 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.14.0/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.14.5/Caddyfile
 ```
 
 ## Download Docker Compose File
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.14.0/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.14.5/docker-compose.yml
 ```
 
 ## Start Tracecat
@@ -103,12 +101,10 @@ To access the Tracecat GUI, visit `http://localhost`.
   Find out how to configure authentication in Tracecat. [View docs](/self-hosting/authentication/introduction).
 </Note>
 
-Every new Tracecat deployment is created with a default admin user.
-
-- If basic auth is enabled, the email and password for this user is configured in the `.env` file, which is created as part of the `env.sh` script.
-- Otherwise, if OAuth or SAML SSO is enabled, the default admin user is assigned to the first user that logs into the Tracecat instance.
-
+For each new Tracecat deployment, the admin superuser role is assigned to the first user who logs into the Tracecat instance.
 This user owns the organization and has admin rights to every workspace in the Tracecat deployment.
+
+To proceed, sign up and create an account with a strong and secure password.
 
 ![sign-in](/img/self-hosting/sign-in.png)
 

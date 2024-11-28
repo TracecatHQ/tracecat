@@ -29,7 +29,8 @@ def mock_package(tmp_path):
         # Create a file for the sync function
         with open(os.path.join(tmp_path, "sync_function.py"), "w") as f:
             f.write(
-                textwrap.dedent("""
+                textwrap.dedent(
+                    """
                 from tracecat_registry import registry
 
                 @registry.register(
@@ -38,13 +39,15 @@ def mock_package(tmp_path):
                 )
                 def test_function(num: int) -> int:
                     return num
-            """)
+            """
+                )
             )
 
         # Create a file for the async function
         with open(os.path.join(tmp_path, "async_function.py"), "w") as f:
             f.write(
-                textwrap.dedent("""
+                textwrap.dedent(
+                    """
                 from tracecat_registry import registry
 
                 @registry.register(
@@ -53,7 +56,8 @@ def mock_package(tmp_path):
                 )
                 async def async_test_function(num: int) -> int:
                     return num
-            """)
+            """
+                )
             )
 
         yield test_module
@@ -91,7 +95,7 @@ def test_registry_function_can_be_called(mock_package):
         assert udf.fn(num=i) == i
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_registry_async_function_can_be_called(mock_package):
     repo = Repository()
     assert len(repo) == 0
