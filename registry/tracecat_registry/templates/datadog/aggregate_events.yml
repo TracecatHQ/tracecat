@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: Aggregate Datadog Events
+  description: |
+    Aggregate Datadog events using various compute methods and filters.
+    Supports time-series and total aggregations with custom grouping.
+  display_group: Datadog
+  namespace: integrations.datadog
+  name: aggregate_events
+  secrets:
+    - name: datadog
+      keys: ["DATADOG_API_KEY", "DATADOG_APP_KEY", "DATADOG_API_URL"]
+  expects:
+    start_time:
+      type: datetime
+      description: Start ISO timestamp for the query (inclusive)
+    end_time:
+      type: datetime
+      description: End ISO timestamp for the query (exclusive)
+    aggregation:
+      type: str
+      description: Compute operation to perform
+      default: count
+    interval:
+      type: str
+      description: Time interval for the aggregation
+      default: null
+    type:
+      type: str
+      description: Type of aggregation
+      default: timeseries
+    indexes:
+      type: str
+      description: Indexes to search
+      default: ["main"]
+    query:
+      type: str
+      description: Search query string
+      default: "*"
+    group_by:
+      type: str
+      description: Field to group results by
+      default: null
+  steps:
+    - ref: aggregate_events
+      action: core.http_request
+      args:
+        method: POST
+        url: ${{ SECRETS.datadog.DATADOG_API_URL }}/v2/logs/analytics/aggregate
+        headers:
+          DD-API-KEY: ${{ SECRETS.datadog.DATADOG_API_KEY }}
+          DD-APPLICATION-KEY: ${{ SECRETS.datadog.DATADOG_APP_KEY }}
+        payload:
+          compute:
+            - aggregation: ${{ inputs.aggregation }}
+              interval: ${{ inputs.interval }}
+              metric: ${{ inputs.metric }}
+              type: ${{ inputs.type }}
+          filter:
+            from: ${{ FN.to_datestring(inputs.start_time, "%Y-%m-%dT%H:%M:%S+00:00") }}
+            to: ${{ FN.to_datestring(inputs.end_time, "%Y-%m-%dT%H:%M:%S+00:00") }}
+            indexes: ${{ inputs.indexes }}
+            query: ${{ inputs.query }}
+          group_by:
+            - facet: ${{ inputs.group_by }}
+  returns: ${{ steps.aggregate_events.result }}
