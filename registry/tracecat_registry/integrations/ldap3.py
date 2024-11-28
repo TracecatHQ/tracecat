@@ -9,10 +9,11 @@ Requires: A secret named `ldap` with the following keys:
 """
 
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, List, Union
 
 import ldap3
 from pydantic import Field
+from datetime import datetime
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
@@ -63,6 +64,11 @@ class LdapClient:
             password=secrets.get("LDAP_BIND_PASS"),
             auto_bind=True,
         )
+    
+    def _modify(self, object_dn: str, attribute : str, value: Union[str, int, List[Union[str, int]]]) -> bool:
+        return self._connection.modify(object_dn, {
+            attribute: [(ldap3.MODIFY_REPLACE, value)]
+        })
 
     def _search(self, base_dn: str, ldap_query: str):
         results = self._connection.search(
@@ -102,12 +108,22 @@ class LdapClient:
     def get_user(self, user_dn: str) -> dict:
         return self._searchone(user_dn, "(objectClass=*)")
 
-    def disable_user(self, user_dn: str):
-        return self._connection.modify(user_dn, {"userAccountControl": [(2, [514])]})
+    def disable_user(self, user_dn: str) -> bool:
+        return self._modify(user_dn, "userAccountControl", [514])
 
-    def enable_user(self, user_dn: str):
-        return self._connection.modify(user_dn, {"userAccountControl": [(2, [512])]})
+    def enable_user(self, user_dn: str) -> bool:
+        return self._modify(user_dn, "userAccountControl", [512])
 
+    def set_account_expiration(self, user_dn: str, expiration_datetime = datetime.now()) -> bool:
+        if self._ldap_active_directory:
+            attribute = "accountExpires"
+            # Calculate Windows file time (100-nanosecond intervals since 1601-01-01)
+            expiration_timestamp = int((expiration_datetime - datetime(1601, 1, 1)).total_seconds() * 10**7)
+        else:
+            attribute = "shadowExpire"
+            # Calculate UNIX timestamp in days since 1970-01-01
+            expiration_timestamp = (expiration_datetime - datetime(1970, 1, 1)).days
+        return self._modify(user_dn, attribute, [expiration_timestamp])
 
 def create_ldap_client(
     use_ssl: bool = True,
@@ -194,4 +210,66 @@ def enable_active_directory_user(
 ) -> dict[str, Any]:
     with create_ldap_client(use_ssl=use_ssl, is_active_directory=True) as client:
         result = client.enable_user(user_dn)
+        return result
+
+@registry.register(
+    default_title="Expire AD/LDAP User",
+    description="Expire AD or LDAP user by distinguished name",
+    display_group="LDAP",
+    namespace="integrations.ldap",
+    secrets=[ldap_secret],
+)
+def expire_active_directory_user(
+    user_dn: Annotated[
+        str,
+        Field(..., description="User distinguished name"),
+    ],
+    expiration_datetime: Annotated[
+        Union[datetime, int],
+        Field(..., description="Datetime for expiration : Defaults to NOW, set to '0' to unexpire"),
+    ] = datetime.now(),
+    use_ssl: Annotated[
+        bool,
+        Field(..., description="Use SSL for LDAP connection"),
+    ] = True,
+    is_active_directory: Annotated[
+        bool,
+        Field(..., description="Is Active Directory"),
+    ] = False,
+) -> dict[str, Any]:
+    with create_ldap_client(use_ssl=use_ssl, is_active_directory=is_active_directory) as client:
+        result = client.set_account_expiration(user_dn, expiration_datetime)
+        return result
+
+@registry.register(
+    default_title="Modify AD/LDAP Object Attribute",
+    description="Modify an attribute of a AD/LDAP object by distinguished name",
+    display_group="LDAP",
+    namespace="integrations.ldap",
+    secrets=[ldap_secret],
+)
+def modify_ldap_attribute(
+    user_dn: Annotated[
+        str,
+        Field(..., description="User distinguished name"),
+    ],
+    attribute: Annotated[
+        str,
+        Field(..., description="Attribute"),
+    ],
+    value: Annotated[
+        Union[str, int, List[Union[str, int]]],
+        Field(..., description="Value"),
+    ],
+    use_ssl: Annotated[
+        bool,
+        Field(..., description="Use SSL for LDAP connection"),
+    ] = True,
+    is_active_directory: Annotated[
+        bool,
+        Field(..., description="Is Active Directory"),
+    ] = False,
+) -> dict[str, Any]:
+    with create_ldap_client(use_ssl=use_ssl, is_active_directory=is_active_directory) as client:
+        result = client._modify(user_dn, attribute, value)
         return result
