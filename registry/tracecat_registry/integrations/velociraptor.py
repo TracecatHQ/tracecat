@@ -47,7 +47,7 @@ Read results with query:
     namespace="integrations.velociraptor",
     secrets=[velociraptor_secret],
 )
-async def run_velociraptor_query(
+def run_velociraptor_query(
     query: Annotated[
         str,
         Field(
@@ -69,7 +69,7 @@ async def run_velociraptor_query(
             description="Query timeout.",
         ),
     ],
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
     data = secrets.get("CONFIGURATION")
     data = base64.b64decode(
         data
