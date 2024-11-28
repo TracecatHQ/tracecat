@@ -82,6 +82,35 @@ services:
 
     command: ["python", "tracecat/dsl/worker.py"]
 
+  registry:
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.14.5}
+    restart: unless-stopped
+    networks:
+      - core
+      - core-db
+    environment:
+      # Common
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      # Registry
+      TRACECAT__REMOTE_REPOSITORY_URL: ${TRACECAT__REMOTE_REPOSITORY_URL}
+      TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME: ${TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME}
+    entrypoint:
+      [
+        "python",
+        "-m",
+        "uvicorn",
+        "tracecat.api.registry:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
+
   ui:
     image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.16.0}
     container_name: ui
