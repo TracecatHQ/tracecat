@@ -35,13 +35,25 @@ def _build_email_message(
     recipients: list[str],
     subject: str,
     body: str,
+    content_type: str | None = None,
     bcc: str | list[str] | None = None,
     cc: str | list[str] | None = None,
     reply_to: str | list[str] | None = None,
     headers: dict[str, str] | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
-    msg.set_content(body)
+
+    # Handle content based on content_type
+    if content_type == "text/html":
+        # Follow MIME standards for HTML emails
+        # https://www.w3.org/Protocols/rfc1341/7_2_Multipart.html
+        msg.add_alternative(
+            "This email requires an HTML viewer to display properly.", subtype="plain"
+        )
+        msg.add_alternative(body, subtype="html")
+    else:  # Default to text/plain
+        msg.set_content(body)
+
     msg["From"] = sender
     msg["To"] = recipients
     msg["Subject"] = subject
@@ -77,6 +89,13 @@ def send_email_smtp(
     ],
     subject: Annotated[str, Field(..., description="Subject of the email")],
     body: Annotated[str, Field(..., description="Body content of the email")],
+    content_type: Annotated[
+        str,
+        Field(
+            None,
+            description="Email content type ('text/plain' or 'text/html'). Defaults to 'text/plain'.",
+        ),
+    ] = "text/plain",
     timeout: Annotated[
         float | None, Field(None, description="Timeout for SMTP operations in seconds")
     ] = None,
@@ -116,7 +135,9 @@ def send_email_smtp(
     smtp_user = secrets.get("SMTP_USER")
     smtp_pass = secrets.get("SMTP_PASS")
 
-    msg = _build_email_message(sender, recipients, subject, body, headers=headers)
+    msg = _build_email_message(
+        sender, recipients, subject, body, content_type=content_type, headers=headers
+    )
 
     context = ssl.create_default_context()
     if ignore_cert_errors:
