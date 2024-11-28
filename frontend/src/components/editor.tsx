@@ -104,7 +104,83 @@ export function CustomEditor({
         }
       },
     })
+    // Register for yaml language
+    monaco.languages.registerCompletionItemProvider("yaml", {
+      triggerCharacters: ["$"],
+      provideCompletionItems: (model, position) => {
+        const wordUntilPosition = model.getWordUntilPosition(position)
+        const textUntilPosition = model.getValueInRange({
+          startLineNumber: position.lineNumber,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+        })
+
+        console.group("Completion Provider")
+        console.log("Triggered by character at position:", position)
+        console.log("Text until position:", textUntilPosition)
+
+        const shouldShowSuggestions = textUntilPosition.endsWith("$")
+
+        console.log("Should show suggestions:", shouldShowSuggestions)
+        console.groupEnd()
+
+        if (!shouldShowSuggestions) {
+          return { suggestions: [] }
+        }
+
+        const suggestions: languages.CompletionItem[] = [
+          {
+            label: "var",
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: "{{ var$0 }}",
+            insertTextRules:
+              monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: "Insert action-local variable reference",
+            range: {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: wordUntilPosition.startColumn,
+              endColumn: position.column,
+            },
+          },
+          {
+            label: "ACTIONS",
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: "{{ ACTIONS$0 }}",
+            documentation: "Insert action context reference",
+            insertTextRules:
+              monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            range: {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: wordUntilPosition.startColumn,
+              endColumn: position.column,
+            },
+          },
+          {
+            label: "FN",
+            kind: monaco.languages.CompletionItemKind.Function,
+            insertText: "{{ FN$0 }}",
+            documentation: "Insert function reference",
+            insertTextRules:
+              monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            range: {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: wordUntilPosition.startColumn,
+              endColumn: position.column,
+            },
+          },
+        ]
+
+        return {
+          suggestions: suggestions,
+        }
+      },
+    })
   }
+
   return (
     <div className={cn("h-36", className)}>
       <ReactMonacoEditor
