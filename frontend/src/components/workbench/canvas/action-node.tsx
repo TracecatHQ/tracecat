@@ -11,7 +11,7 @@ import {
 import { Node, NodeProps, useEdges } from "reactflow"
 
 import { useAction } from "@/lib/hooks"
-import { cn, slugify } from "@/lib/utils"
+import { cn, isEmptyObjectOrNullish, slugify } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -56,15 +56,14 @@ export interface ActionNodeData {
 export type ActionNodeType = Node<ActionNodeData>
 
 export default React.memo(function ActionNode({
-  data: { isConfigured },
   selected,
   id,
 }: NodeProps<ActionNodeData>) {
   const { workflowId, getNode, workspaceId, reactFlow } = useWorkflowBuilder()
   const { toast } = useToast()
-  const isConfiguredMessage = isConfigured ? "ready" : "missing inputs"
   // SAFETY: Node only exists if it's in the workflow
   const { action, actionIsLoading } = useAction(id, workspaceId, workflowId!)
+  const isConfigured = !isEmptyObjectOrNullish(action?.inputs)
 
   const handleDeleteNode = useCallback(async () => {
     try {
@@ -182,7 +181,9 @@ export default React.memo(function ActionNode({
               ) : (
                 <LayoutListIcon className="size-4 text-gray-400" />
               )}
-              <span className="text-xs capitalize">{isConfiguredMessage}</span>
+              <span className="text-xs capitalize">
+                {isConfigured ? "Ready" : "Missing inputs"}
+              </span>
             </div>
             {isChildWorkflow && (
               <div className="flex justify-end">
