@@ -11,6 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.api.routers.editor import router as editor_router
+from tracecat.api.routers.users import router as users_router
 from tracecat.auth.constants import AuthType
 from tracecat.auth.models import UserCreate, UserRead, UserUpdate
 from tracecat.auth.router import router as users_router
@@ -253,6 +255,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
     app.include_router(org_router)
+    app.include_router(editor_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

@@ -1242,6 +1242,33 @@ export const $ExpectedField = {
     title: 'ExpectedField'
 } as const;
 
+export const $FunctionMeta = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        description: {
+            type: 'string',
+            title: 'Description'
+        },
+        parameters: {
+            items: {
+                '$ref': '#/components/schemas/ParameterMeta'
+            },
+            type: 'array',
+            title: 'Parameters'
+        },
+        return_type: {
+            type: 'string',
+            title: 'Return Type'
+        }
+    },
+    type: 'object',
+    required: ['name', 'description', 'parameters', 'return_type'],
+    title: 'FunctionMeta'
+} as const;
+
 export const $GetWorkflowDefinitionActivityInputs = {
     properties: {
         role: {
@@ -1366,6 +1393,26 @@ export const $OrgMemberRead = {
     type: 'object',
     required: ['user_id', 'first_name', 'last_name', 'email', 'role', 'is_active', 'is_superuser', 'is_verified'],
     title: 'OrgMemberRead'
+} as const;
+
+export const $ParameterMeta = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        type: {
+            type: 'string',
+            title: 'Type'
+        },
+        optional: {
+            type: 'boolean',
+            title: 'Optional'
+        }
+    },
+    type: 'object',
+    required: ['name', 'type', 'optional'],
+    title: 'ParameterMeta'
 } as const;
 
 export const $RegistryActionCreate = {
