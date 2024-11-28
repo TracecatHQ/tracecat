@@ -166,6 +166,8 @@ class DSLEnvironment(TypedDict, total=False):
 
 
 class DSLContext(TypedDict, total=False):
+    """DSL Context. Contains all the context needed to execute a DSL workflow."""
+
     INPUTS: dict[str, Any]
     """DSL Static Inputs context"""
 
@@ -177,6 +179,12 @@ class DSLContext(TypedDict, total=False):
 
     ENV: DSLEnvironment
     """DSL Environment context. Has metadata about the workflow."""
+
+    SECRETS: dict[str, Any]
+    """DSL Secrets context"""
+
+    var: dict[str, Any]
+    """DSL Variables context"""
 
 
 class RunActionInput(BaseModel):

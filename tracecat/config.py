@@ -15,8 +15,9 @@ TRACECAT__SCHEDULE_INTERVAL_SECONDS = os.environ.get(
 TRACECAT__SCHEDULE_MAX_CONNECTIONS = 6
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = os.environ.get(
     "TRACECAT__APP_ENV", "development"
-)
+)  # type: ignore
 TRACECAT__API_URL = os.environ.get("TRACECAT__API_URL", "http://localhost:8000")
+TRACECAT__API_ROOT_PATH = os.environ.get("TRACECAT__API_ROOT_PATH", "/api")
 TRACECAT__PUBLIC_RUNNER_URL = os.environ.get(
     "TRACECAT__PUBLIC_RUNNER_URL", "http://localhost/api"
 )
@@ -31,6 +32,9 @@ TRACECAT__DB_URI = os.environ.get(
     "TRACECAT__DB_URI",
     "postgresql+psycopg://postgres:postgres@postgres_db:5432/postgres",
 )
+TRACECAT__REGISTRY_URL = os.environ.get(
+    "TRACECAT__REGISTRY_URL", "http://registry:8000"
+)
 
 TRACECAT__DB_NAME = os.environ.get("TRACECAT__DB_NAME")
 TRACECAT__DB_USER = os.environ.get("TRACECAT__DB_USER")
@@ -38,8 +42,6 @@ TRACECAT__DB_PASS = os.environ.get("TRACECAT__DB_PASS")
 TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 TRACECAT__DB_ENDPOINT = os.environ.get("TRACECAT__DB_ENDPOINT")
 TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
-
-TRACECAT__API_ROOT_PATH = os.environ.get("TRACECAT__API_ROOT_PATH", "/api")
 
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [

@@ -1598,9 +1598,9 @@ DIVISION_BY_ZERO_ERROR = {
         "Cannot divide by zero\n"
         "\n"
         "------------------------------\n"
-        "File: /app/tracecat/expressions/core.py\n"
-        "Function: result\n"
-        "Line: 51"
+        "File: /app/tracecat/registry/executor.py\n"
+        "Function: run_action_in_pool\n"
+        "Line: 80"
     ),
     "type": "RegistryActionError",
     "expr_context": "ACTIONS",

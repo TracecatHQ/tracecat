@@ -17,6 +17,7 @@ from tracecat.registry.actions.models import (
     RegistryActionRead,
     RegistryActionValidateResponse,
 )
+from tracecat.registry.constants import REGISTRY_ACTIONS_PATH, REGISTRY_REPOS_PATH
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryActionError, RegistryError
 
@@ -25,7 +26,7 @@ class _RegistryHTTPClient(AuthenticatedServiceClient):
     """Async httpx client for the registry service."""
 
     def __init__(self, role: Role | None = None, *args: Any, **kwargs: Any) -> None:
-        self._registry_base_url = config.TRACECAT__API_URL
+        self._registry_base_url = config.TRACECAT__REGISTRY_URL
         super().__init__(role, *args, base_url=self._registry_base_url, **kwargs)
         self.params = self.params.add("workspace_id", str(self.role.workspace_id))
 
@@ -33,13 +34,13 @@ class _RegistryHTTPClient(AuthenticatedServiceClient):
 class RegistryClient:
     """Use this to interact with the remote registry service."""
 
-    _repos_endpoint = "/registry/repos"
-    _actions_endpoint = "/registry/actions"
+    _repos_endpoint = REGISTRY_REPOS_PATH
+    _actions_endpoint = REGISTRY_ACTIONS_PATH
     _timeout: float = 60.0
 
     def __init__(self, role: Role | None = None):
         self.role = role or ctx_role.get()
-        self.logger = logger.bind(service="remote-registry", role=self.role)
+        self.logger = logger.bind(service="registry-client", role=self.role)
 
     """Execution"""
 

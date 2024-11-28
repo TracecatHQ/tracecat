@@ -20,12 +20,12 @@ from tracecat.registry.actions.models import (
     RegistryActionValidateResponse,
 )
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN, REGISTRY_ACTIONS_PATH
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import RegistryError
 from tracecat.validation.service import validate_registry_action_args
 
-router = APIRouter(prefix="/registry/actions", tags=["registry-actions"])
+router = APIRouter(prefix=REGISTRY_ACTIONS_PATH, tags=["registry-actions"])
 
 
 @router.get("")
@@ -177,7 +177,8 @@ async def run_registry_action(
 
     act_logger.info("Starting action")
     try:
-        return await executor.run_action_from_input(input=action_input)
+        return await executor.run_action_in_pool(input=action_input)
+        # return await executor.run_action_from_input(input=action_input)
     except Exception as e:
         # Get the traceback info
         tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
