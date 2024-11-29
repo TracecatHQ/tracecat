@@ -76,10 +76,10 @@ async def run_velociraptor_query(
     ],
 ) -> list[dict[str, Any]]:
     config_data = secrets.get("CONFIGURATION")
-    config = base64.b64decode(
+    decoded_config = base64.b64decode(
         config_data
     )  # configuration is base64 encoded: "cat api.config.yaml | base64 -w"
-    config = yaml.safe_load(config_data)
+    config = yaml.safe_load(decoded_config)
 
     creds = grpc.ssl_channel_credentials(
         root_certificates=config["ca_certificate"].encode("utf8"),
