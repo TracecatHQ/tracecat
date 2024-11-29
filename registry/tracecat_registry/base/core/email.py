@@ -7,7 +7,7 @@ import smtplib
 import socket
 import ssl
 from email.message import EmailMessage
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import nh3
 from pydantic import Field
@@ -36,7 +36,7 @@ def _build_email_message(
     recipients: list[str],
     subject: str,
     body: str,
-    content_type: str,
+    content_type: Literal["text/plain", "text/html"] = "text/plain",
     bcc: str | list[str] | None = None,
     cc: str | list[str] | None = None,
     reply_to: str | list[str] | None = None,
@@ -96,7 +96,7 @@ def send_email_smtp(
     subject: Annotated[str, Field(..., description="Subject of the email")],
     body: Annotated[str, Field(..., description="Body content of the email")],
     content_type: Annotated[
-        str,
+        Literal["text/plain", "text/html"],
         Field(
             ...,
             description="Email content type ('text/plain' or 'text/html'). Defaults to 'text/plain'.",
