@@ -304,7 +304,9 @@ def RoleACL(
         if min_access_level is not None:
             if role.access_level < min_access_level:
                 logger.warning(
-                    "User does not have the appropriate access level", role=role
+                    "User does not have the appropriate access level",
+                    role=role,
+                    min_access_level=min_access_level,
                 )
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
