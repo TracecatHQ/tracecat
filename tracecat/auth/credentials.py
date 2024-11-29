@@ -94,9 +94,14 @@ def authenticate_user_access_level(access_level: AccessLevel) -> Any:
         """Authenticate a user with access levels and return a `User` object."""
         user_access_level = USER_ROLE_TO_ACCESS_LEVEL[user.role]
         if user_access_level < access_level:
+            logger.warning(
+                "User does not have the appropriate access level",
+                user_id=user.id,
+                access_level=user_access_level,
+                required_access_level=access_level,
+            )
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied. User does not have the appropriate access level",
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
             )
         role = get_role_from_user(user)
         ctx_role.set(role)
@@ -153,9 +158,13 @@ async def _authenticate_user_for_workspace(
         if not await authz_service.user_is_workspace_member(
             user_id=user.id, workspace_id=workspace_id
         ):
+            logger.warning(
+                "User is not a member of this workspace",
+                user_id=user.id,
+                workspace_id=workspace_id,
+            )
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied. User not a member of this workspace",
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
             )
     role = get_role_from_user(user, workspace_id=workspace_id)
     ctx_role.set(role)
@@ -259,9 +268,12 @@ async def authenticate_optional_user_org(
     if not user.is_superuser or not user.role == UserRole.ADMIN:
         authz_service = AuthorizationService(session)
         if not await authz_service.user_is_organization_member(user.id):
+            logger.warning(
+                "User is not a member of the organization",
+                user_id=user.id,
+            )
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied. User not a member of the organization",
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
             )
     role = get_role_from_user(user)
     ctx_role.set(role)
@@ -331,29 +343,42 @@ def RoleACL(
                 if not await authz_service.user_is_workspace_member(
                     user_id=user.id, workspace_id=workspace_id
                 ):
+                    logger.warning(
+                        "User is not a member of this workspace",
+                        role=role,
+                        workspace_id=workspace_id,
+                    )
                     raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail="Access denied. User not a member of this workspace",
+                        status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
                     )
         elif api_key and allow_service:
             role = await _authenticate_service(request, api_key)
         else:
+            logger.warning("Invalid authentication or authorization", user=user)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
+
+        if role is None:
+            logger.warning("Invalid role", role=role)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication",
+                detail="Unauthorized",
             )
 
         if require_workspace and role.workspace_id is None:
+            logger.warning("User does not have access to this workspace", role=role)
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Workspace ID is required",
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
             )
 
         if min_access_level is not None:
             if role.access_level < min_access_level:
+                logger.warning(
+                    "User does not have the appropriate access level", role=role
+                )
                 raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied. User does not have the appropriate access level",
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
                 )
         ctx_role.set(role)
         return role
