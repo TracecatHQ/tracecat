@@ -98,7 +98,7 @@ def send_email_smtp(
     content_type: Annotated[
         Literal["text/plain", "text/html"],
         Field(
-            ...,
+            None,
             description="Email content type ('text/plain' or 'text/html'). Defaults to 'text/plain'.",
         ),
     ] = "text/plain",
