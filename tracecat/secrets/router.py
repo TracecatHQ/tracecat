@@ -29,6 +29,7 @@ async def search_secrets(
         allow_user=True,
         allow_service=False,
         require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
     environment: str = Query(...),
@@ -120,8 +121,9 @@ async def get_secret_by_name(
     *,
     role: Role = RoleACL(
         allow_user=True,
-        allow_service=True,  # NOTE(auth): Worker service can also access secrets
+        allow_service=False,
         require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
     secret_name: str,
