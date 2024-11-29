@@ -14,7 +14,7 @@ from tracecat.secrets.models import (
     SecretUpdate,
 )
 from tracecat.secrets.service import SecretsService
-from tracecat.types.auth import Role
+from tracecat.types.auth import AccessLevel, Role
 
 router = APIRouter(prefix="/secrets")
 
@@ -77,6 +77,7 @@ async def list_secrets(
         allow_user=True,
         allow_service=False,
         require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
     # Visibility is determined by the role ACL.
@@ -145,6 +146,7 @@ async def create_secret(
         allow_user=True,
         allow_service=False,
         require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
     params: SecretCreate,
@@ -168,6 +170,7 @@ async def update_secret_by_id(
         allow_user=True,
         allow_service=False,
         require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
     secret_id: SecretID,
@@ -196,6 +199,7 @@ async def delete_secret_by_id(
         allow_user=True,
         allow_service=False,
         require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
     secret_id: SecretID,
