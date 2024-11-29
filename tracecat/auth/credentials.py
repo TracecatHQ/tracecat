@@ -39,6 +39,7 @@ from tracecat.types.auth import AccessLevel, Role
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 api_key_header_scheme = APIKeyHeader(name="x-tracecat-service-key", auto_error=False)
 
+
 CREDENTIALS_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Could not validate credentials",
@@ -74,15 +75,6 @@ def get_role_from_user(
     )
 
 
-async def authenticate_user(
-    user: Annotated[User, Depends(current_active_user)],
-) -> Role:
-    """Return a Role object for the user."""
-    role = get_role_from_user(user)
-    ctx_role.set(role)
-    return role
-
-
 def authenticate_user_access_level(access_level: AccessLevel) -> Any:
     """Returns a FastAPI dependency that asserts that the user has at least
     the provided access level."""
@@ -108,29 +100,6 @@ def authenticate_user_access_level(access_level: AccessLevel) -> Any:
         return role
 
     return dependency
-
-
-async def get_optional_workspace_id(request: Request) -> UUID4 | None:
-    """Get the workspace ID from the path or query parameters."""
-    # Check for the workspace ID in the path
-    if workspace_id_path := request.path_params.get("workspace_id"):
-        return workspace_id_path
-    # Check for the workspace ID in the query
-    if workspace_id_query := request.query_params.get("workspace_id"):
-        return workspace_id_query
-    return None
-
-
-async def authenticate_user_for_workspace_by_path(
-    user: Annotated[User, Depends(current_active_user)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-    workspace_id: UUID4 = Path(...),
-) -> Role:
-    """Authenticate a user for a workspace passed in as a path parameter.
-
-    `ctx_role` ContextVar is set here.
-    """
-    return await _authenticate_user_for_workspace(user, session, workspace_id)
 
 
 async def authenticate_user_for_workspace(
@@ -243,51 +212,6 @@ async def authenticate_user_or_service_for_workspace(
 
     Note: Don't have to set the session context here,
     we've already done that in the user/service checks."""
-    if role_from_user:
-        logger.trace("User authentication")
-        return role_from_user
-    if api_key:
-        logger.trace("Service authentication")
-        return await authenticate_service(request, api_key)
-    logger.error("Could not validate credentials")
-    raise HTTP_EXC("Could not validate credentials")
-
-
-async def authenticate_optional_user_org(
-    user: Annotated[User | None, Depends(optional_current_active_user)],
-    session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> Role | None:
-    """Authenticate a user for the organization.
-
-    If no user available, return None.
-    If a user is available, `ctx_role` ContextVar is set here.
-    """
-    if not user:
-        return None
-    # Check if non-admin user is a member of the org
-    if not user.is_superuser or not user.role == UserRole.ADMIN:
-        authz_service = AuthorizationService(session)
-        if not await authz_service.user_is_organization_member(user.id):
-            logger.warning(
-                "User is not a member of the organization",
-                user_id=user.id,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-            )
-    role = get_role_from_user(user)
-    ctx_role.set(role)
-    return role
-
-
-async def authenticate_user_or_service_org(
-    role_from_user: Annotated[
-        Role | None, Depends(authenticate_optional_user_org)
-    ] = None,
-    api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
-    request: Request = None,
-) -> Role:
-    """Authenticate a user or service and return the role."""
     if role_from_user:
         logger.trace("User authentication")
         return role_from_user
