@@ -38,7 +38,7 @@ definition:
           filter:
             from: ${{ FN.to_timestamp(inputs.start_time) }}
             to: ${{ FN.to_timestamp(inputs.end_time) }}
-          query: "status:(${{ FN.join(inputs.status, ' OR ' }})"
+          query: "status:(${{ FN.join(inputs.status, ' OR ') }})"
           page:
             limit: ${{ inputs.limit }}
           sort: timestamp
