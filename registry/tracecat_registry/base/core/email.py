@@ -9,6 +9,7 @@ import ssl
 from email.message import EmailMessage
 from typing import Annotated, Any
 
+import nh3
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -50,9 +51,14 @@ def _build_email_message(
         msg.add_alternative(
             "This email requires an HTML viewer to display properly.", subtype="plain"
         )
-        msg.add_alternative(body, subtype="html")
-    else:  # Default to text/plain
+        sanitized_body = nh3.clean(body)
+        msg.add_alternative(sanitized_body, subtype="html")
+    elif content_type == "text/plain":
         msg.set_content(body)
+    else:
+        raise ValueError(
+            f"Unsupported content type: {content_type}. Expected 'text/plain' or 'text/html'."
+        )
 
     msg["From"] = sender
     msg["To"] = recipients
