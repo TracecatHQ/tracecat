@@ -314,12 +314,17 @@ def TemporaryRole(
         ctx_role.set(prev_role)
 
 
+OptionalUserDep = Annotated[User | None, Depends(optional_current_active_user)]
+OptionalApiKeyDep = Annotated[str | None, Security(api_key_header_scheme)]
+
+
 def RoleACL(
     *,
     allow_user: bool = True,
     allow_service: bool = False,
     require_workspace: bool = True,
     min_access_level: AccessLevel | None = None,
+    workspace_id_in_path: bool = False,
 ) -> Any:
     """
     Check the user or service against the authentication requirements and return a role.
@@ -384,25 +389,31 @@ def RoleACL(
         return role
 
     if require_workspace:
+        GetWsDep = Path if workspace_id_in_path else Query
 
         async def role_dependency_req_ws(
             request: Request,
             session: AsyncDBSession,
-            workspace_id: UUID4 = Query(...),
-            user: Annotated[User | None, Depends(optional_current_active_user)] = None,
-            api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
+            workspace_id: UUID4 = GetWsDep(...),
+            user: OptionalUserDep = None,
+            api_key: OptionalApiKeyDep = None,
         ) -> Role:
             return await role_dependency(request, session, workspace_id, user, api_key)
 
         return Depends(role_dependency_req_ws)
+
     else:
+        if workspace_id_in_path:
+            raise ValueError(
+                "workspace_id_in_path is not allowed without require_workspace"
+            )
 
         async def role_dependency_opt_ws(
             request: Request,
             session: AsyncDBSession,
             workspace_id: UUID4 | None = Query(None),
-            user: Annotated[User | None, Depends(optional_current_active_user)] = None,
-            api_key: Annotated[str | None, Security(api_key_header_scheme)] = None,
+            user: OptionalUserDep = None,
+            api_key: OptionalApiKeyDep = None,
         ) -> Role:
             return await role_dependency(request, session, workspace_id, user, api_key)
 
