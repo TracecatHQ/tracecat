@@ -67,7 +67,6 @@ async def search_secrets(
     decrypted = []
     for secret in secrets:
         decrypted.extend(service.decrypt_keys(secret.encrypted_keys))
-    logger.info("Decrypted secrets", secrets=[s.reveal() for s in decrypted])
     return [SecretRead.from_database(secret) for secret in secrets]
 
 
