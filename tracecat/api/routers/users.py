@@ -1,11 +1,9 @@
-from typing import Annotated
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.credentials import authenticate_user_access_level
+from tracecat.auth.credentials import RoleACL
 from tracecat.auth.models import UserRead
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import User
@@ -17,7 +15,12 @@ router = APIRouter(prefix="/users")
 
 @router.get("/search", tags=["users"])
 async def search_user(
-    role: Annotated[Role, Depends(authenticate_user_access_level(AccessLevel.ADMIN))],
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        min_access_level=AccessLevel.ADMIN,
+    ),
     email: str | None = Query(None),
     session: AsyncSession = Depends(get_async_session),
 ) -> UserRead:
