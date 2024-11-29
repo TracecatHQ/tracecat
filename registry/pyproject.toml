@@ -31,6 +31,7 @@ dependencies = [
     "grpcio==1.68.0",
     "httpx==0.27.0",
     "ldap3==2.9.1",
+    "nh3==0.2.18",
     "polars-lts-cpu==1.2.0",
     "pymongo==4.8.0",
     "slack-sdk==3.28.0",
