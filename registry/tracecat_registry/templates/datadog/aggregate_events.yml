@@ -30,7 +30,7 @@ definition:
       description: Type of aggregation
       default: timeseries
     indexes:
-      type: str
+      type: list[str]
       description: Indexes to search
       default: ["main"]
     query:
@@ -54,7 +54,6 @@ definition:
           compute:
             - aggregation: ${{ inputs.aggregation }}
               interval: ${{ inputs.interval }}
-              metric: ${{ inputs.metric }}
               type: ${{ inputs.type }}
           filter:
             from: ${{ FN.to_datestring(inputs.start_time, "%Y-%m-%dT%H:%M:%S+00:00") }}
