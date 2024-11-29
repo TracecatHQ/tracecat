@@ -9,23 +9,28 @@ from typing import Annotated, Any
 import grpc
 import yaml
 from pydantic import Field
-from pyvelociraptor import api_pb2, api_pb2_grpc
 
 from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry.integrations.velociraptor import api_pb2, api_pb2_grpc
 
 velociraptor_secret = RegistrySecret(
     name="velociraptor_ssl",
     keys=["CONFIGURATION"],
+    optional_keys=["ORGANIZATION_ID"],
 )
 """Velociraptor secret.
 
-- name: `velociraptor`
+- name: `velociraptor_ssl`
 - keys:
     - `CONFIGURATION`
+- optional_keys:
+    - `ORGANIZATION_ID`
 
 Note: The configuration needs to be base64 encoded before adding it as a secret in Tracecat to preserve formatting.
 You can use the following command to do so: `cat api.config.yaml | base64 -w`
-Please see Velociraptor docs for how to create a configuration and enable the server API: https://docs.velociraptor.app/docs/server_automation/server_api/.
+
+Please see Velociraptor docs for how to create a configuration and enable the server API:
+https://docs.velociraptor.app/docs/server_automation/server_api/.
 
 Example Usage
 -------------
@@ -47,7 +52,7 @@ Read results with query:
     namespace="integrations.velociraptor",
     secrets=[velociraptor_secret],
 )
-def run_velociraptor_query(
+async def run_velociraptor_query(
     query: Annotated[
         str,
         Field(
@@ -70,11 +75,11 @@ def run_velociraptor_query(
         ),
     ],
 ) -> list[dict[str, Any]]:
-    data = secrets.get("CONFIGURATION")
-    data = base64.b64decode(
-        data
+    config_data = secrets.get("CONFIGURATION")
+    config = base64.b64decode(
+        config_data
     )  # configuration is base64 encoded: "cat api.config.yaml | base64 -w"
-    config = yaml.safe_load(data)
+    config = yaml.safe_load(config_data)
 
     creds = grpc.ssl_channel_credentials(
         root_certificates=config["ca_certificate"].encode("utf8"),
@@ -88,12 +93,12 @@ def run_velociraptor_query(
             "VelociraptorServer",
         ),
     )
-    with grpc.secure_channel(
+    async with grpc.aio.secure_channel(
         config["api_connection_string"], creds, options
     ) as channel:
         stub = api_pb2_grpc.APIStub(channel)
         request = api_pb2.VQLCollectorArgs(
-            org_id="",
+            org_id=secrets.get("ORGANIZATION_ID", ""),
             max_wait=1,
             max_row=max_rows,
             Query=[
@@ -104,7 +109,8 @@ def run_velociraptor_query(
             ],
         )
         result = []
-        for response in stub.Query(request, timeout=timeout):
+        responses = await stub.Query(request, timeout=timeout)
+        async for response in responses:
             if not response.Response or len(response.Response) == 0:
                 continue
             result.extend(json.loads(response.Response))
