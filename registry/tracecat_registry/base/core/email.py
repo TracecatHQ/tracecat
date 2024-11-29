@@ -36,7 +36,7 @@ def _build_email_message(
     recipients: list[str],
     subject: str,
     body: str,
-    content_type: str | None = None,
+    content_type: str,
     bcc: str | list[str] | None = None,
     cc: str | list[str] | None = None,
     reply_to: str | list[str] | None = None,
@@ -98,7 +98,7 @@ def send_email_smtp(
     content_type: Annotated[
         str,
         Field(
-            None,
+            ...,
             description="Email content type ('text/plain' or 'text/html'). Defaults to 'text/plain'.",
         ),
     ] = "text/plain",
