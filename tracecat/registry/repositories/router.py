@@ -91,7 +91,7 @@ async def list_registry_repositories(
     *,
     role: Role = RoleACL(
         allow_user=True,
-        allow_service=True,
+        allow_service=False,
         require_workspace=False,
     ),
     session: AsyncDBSession,
@@ -114,7 +114,7 @@ async def get_registry_repository(
     *,
     role: Role = RoleACL(
         allow_user=True,
-        allow_service=True,
+        allow_service=False,
         require_workspace=False,
     ),
     session: AsyncDBSession,
@@ -144,8 +144,8 @@ async def get_registry_repository(
 async def create_registry_repository(
     *,
     role: Role = RoleACL(
-        allow_user=False,
-        allow_service=True,
+        allow_user=True,
+        allow_service=False,
         require_workspace=False,
         min_access_level=AccessLevel.ADMIN,
     ),
