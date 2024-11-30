@@ -11,29 +11,32 @@ from pydantic import Field
 
 from tracecat_registry import RegistrySecret, logger, registry, secrets
 
-# TODO: Support possible sets of secrets
-# e.g. AWS_PROFILE_NAME or AWS_ROLE_ARN
 aws_secret = RegistrySecret(
     name="aws",
-    keys=["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
+    optional_keys=[
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_REGION",
+        "AWS_PROFILE_NAME",
+        "AWS_ROLE_ARN",
+        "AWS_ROLE_SESSION_NAME",
+    ],
 )
 """AWS secret.
 
 Secret
 ------
 - name: `aws`
-- keys:
-    - `AWS_ACCESS_KEY_ID`
-    - `AWS_SECRET_ACCESS_KEY`
-    - `AWS_REGION`
-
-Example Usage
--------------
-Environment variables:
->>> secrets.get["AWS_ACCESS_KEY_ID"]
-
-Expression:
->>> ${{ SECRETS.aws.AWS_ACCESS_KEY_ID }}
+- optional_keys:
+    Either:
+        - `AWS_ACCESS_KEY_ID`
+        - `AWS_SECRET_ACCESS_KEY`
+        - `AWS_REGION`
+    Or:
+        - `AWS_PROFILE_NAME`
+    Or:
+        - `AWS_ROLE_ARN`
+        - `AWS_ROLE_SESSION_NAME`
 """
 
 
