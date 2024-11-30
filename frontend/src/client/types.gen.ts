@@ -436,6 +436,17 @@ export type OAuth2AuthorizeResponse = {
     authorization_url: string;
 };
 
+export type OrgMemberRead = {
+    user_id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string;
+    role: UserRole;
+    is_active: boolean;
+    is_superuser: boolean;
+    is_verified: boolean;
+};
+
 /**
  * API create model for a registered action.
  */
@@ -1665,6 +1676,21 @@ export type RegistryActionsValidateRegistryActionData = {
 
 export type RegistryActionsValidateRegistryActionResponse = RegistryActionValidateResponse;
 
+export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>;
+
+export type OrganizationDeleteOrgMemberData = {
+    userId: string;
+};
+
+export type OrganizationDeleteOrgMemberResponse = void;
+
+export type OrganizationUpdateOrgMemberData = {
+    requestBody: UserUpdate;
+    userId: string;
+};
+
+export type OrganizationUpdateOrgMemberResponse = OrgMemberRead;
+
 export type UsersUsersCurrentUserResponse = UserRead;
 
 export type UsersUsersPatchCurrentUserData = {
@@ -2601,6 +2627,44 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: RegistryActionValidateResponse;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/organization/members': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<OrgMemberRead>;
+            };
+        };
+    };
+    '/organization/members/{user_id}': {
+        delete: {
+            req: OrganizationDeleteOrgMemberData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        patch: {
+            req: OrganizationUpdateOrgMemberData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: OrgMemberRead;
                 /**
                  * Validation Error
                  */
