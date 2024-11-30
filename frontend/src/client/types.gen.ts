@@ -710,7 +710,6 @@ export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | '
  */
 export type RunActionInput_Input = {
     task: ActionStatement_Input;
-    role: Role;
     exec_context: DSLContext;
     run_context: RunContext;
 };
@@ -720,7 +719,6 @@ export type RunActionInput_Input = {
  */
 export type RunActionInput_Output = {
     task: ActionStatement_Output;
-    role: Role;
     exec_context: DSLContext;
     run_context: RunContext;
 };
@@ -1595,7 +1593,6 @@ export type RegistryRepositoriesSyncRegistryRepositoriesData = {
      * Origins to sync. If no origins provided, all repositories will be synced.
      */
     origins?: Array<(string)> | null;
-    workspaceId?: string | null;
 };
 
 export type RegistryRepositoriesSyncRegistryRepositoriesResponse = void;

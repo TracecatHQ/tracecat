@@ -1115,7 +1115,6 @@ export const usersSearchUser = (data: UsersSearchUserData = {}): CancelablePromi
  * Load actions from all registry repositories.
  * @param data The data for the request.
  * @param data.origins Origins to sync. If no origins provided, all repositories will be synced.
- * @param data.workspaceId
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -1123,8 +1122,7 @@ export const registryRepositoriesSyncRegistryRepositories = (data: RegistryRepos
     method: 'POST',
     url: '/registry/repos/sync',
     query: {
-        origins: data.origins,
-        workspace_id: data.workspaceId
+        origins: data.origins
     },
     errors: {
         422: 'Validation Error'

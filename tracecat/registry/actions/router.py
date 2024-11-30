@@ -34,7 +34,7 @@ async def list_registry_actions(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="no",
     ),
     session: AsyncDBSession,
 ) -> list[RegistryActionRead]:
@@ -58,7 +58,7 @@ async def get_registry_action(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="no",
     ),
     session: AsyncDBSession,
     action_name: str,
@@ -78,7 +78,7 @@ async def create_registry_action(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="no",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
@@ -107,7 +107,7 @@ async def update_registry_action(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="no",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
@@ -129,7 +129,7 @@ async def delete_registry_action(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="no",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
@@ -165,7 +165,7 @@ async def run_registry_action(
     role: Role = RoleACL(
         allow_user=False,  # XXX(authz): Users cannot execute actions
         allow_service=True,  # Only services can execute actions
-        require_workspace=False,
+        require_workspace="no",
     ),
     action_name: str,
     action_input: RunActionInput,
@@ -210,7 +210,7 @@ async def validate_registry_action(
     role: Role = RoleACL(
         allow_user=False,  # XXX(authz): Users cannot validate actions
         allow_service=True,  # Only services can validate actions
-        require_workspace=False,
+        require_workspace="no",
     ),
     session: AsyncDBSession,
     action_name: str,

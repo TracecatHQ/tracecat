@@ -1990,9 +1990,6 @@ export const $RunActionInput_Input = {
         task: {
             '$ref': '#/components/schemas/ActionStatement-Input'
         },
-        role: {
-            '$ref': '#/components/schemas/Role'
-        },
         exec_context: {
             '$ref': '#/components/schemas/DSLContext'
         },
@@ -2001,7 +1998,7 @@ export const $RunActionInput_Input = {
         }
     },
     type: 'object',
-    required: ['task', 'role', 'exec_context', 'run_context'],
+    required: ['task', 'exec_context', 'run_context'],
     title: 'RunActionInput',
     description: 'This object contains all the information needed to execute an action.'
 } as const;
@@ -2011,9 +2008,6 @@ export const $RunActionInput_Output = {
         task: {
             '$ref': '#/components/schemas/ActionStatement-Output'
         },
-        role: {
-            '$ref': '#/components/schemas/Role'
-        },
         exec_context: {
             '$ref': '#/components/schemas/DSLContext'
         },
@@ -2022,7 +2016,7 @@ export const $RunActionInput_Output = {
         }
     },
     type: 'object',
-    required: ['task', 'role', 'exec_context', 'run_context'],
+    required: ['task', 'exec_context', 'run_context'],
     title: 'RunActionInput',
     description: 'This object contains all the information needed to execute an action.'
 } as const;
