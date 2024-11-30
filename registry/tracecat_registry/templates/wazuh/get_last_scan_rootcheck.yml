@@ -2,7 +2,7 @@ type: action
 definition:
   name: update_wazuh_agents
   namespace: integrations.wazuh
-  title: Get Last Time Wazuh Rootcheck Scan 
+  title: Get Last Wazuh Rootcheck Scan 
   description: Retrieves the latest rootcheck scan results from Wazuh agents for analysis.
   display_group: Wazuh
   secrets:
