@@ -628,16 +628,13 @@ class DSLWorkflow:
 
     def _run_action(self, task: ActionStatement) -> Coroutine[Any, Any, Any]:
         arg = RunActionInput(
-            task=task,
-            role=self.role,
-            run_context=self.run_context,
-            exec_context=self.context,
+            task=task, run_context=self.run_context, exec_context=self.context
         )
         self.logger.debug("RUN UDF ACTIVITY", arg=arg)
 
         return workflow.execute_activity(
             DSLActivities.run_action_activity,
-            arg=arg,
+            args=(arg, self.role),
             start_to_close_timeout=timedelta(
                 seconds=task.start_delay + task.retry_policy.timeout
             ),

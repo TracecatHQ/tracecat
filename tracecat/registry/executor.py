@@ -12,7 +12,7 @@ from typing import Any, cast
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.contexts import ctx_logger, ctx_role, ctx_run
+from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.dsl.common import context_locator, create_default_dsl_context
 from tracecat.dsl.models import (
     ActionStatement,
@@ -175,10 +175,9 @@ async def run_template_action(
     return eval_templated_object(defn.returns, operand=template_context)
 
 
-async def run_action_from_input(input: RunActionInput[ArgsT]) -> Any:
+async def run_action_from_input(input: RunActionInput) -> Any:
     """This runs on the executor (API, not worker)"""
     ctx_run.set(input.run_context)
-    ctx_role.set(input.role)
     act_logger = ctx_logger.get()
 
     task = input.task

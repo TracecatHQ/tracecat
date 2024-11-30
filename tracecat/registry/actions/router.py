@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 
-from tracecat.auth.dependencies import OrgUserOrServiceRole
+from tracecat.auth.credentials import RoleACL
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger
 from tracecat.db.dependencies import AsyncDBSession
@@ -21,6 +21,7 @@ from tracecat.registry.actions.models import (
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import RegistryError
 from tracecat.validation.service import validate_registry_action_args
 
@@ -29,7 +30,12 @@ router = APIRouter(prefix="/registry/actions", tags=["registry-actions"])
 
 @router.get("")
 async def list_registry_actions(
-    role: OrgUserOrServiceRole,
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace=False,
+    ),
     session: AsyncDBSession,
 ) -> list[RegistryActionRead]:
     """List all actions in a registry."""
@@ -48,7 +54,14 @@ async def list_registry_actions(
     response_model_exclude_unset=True,
 )
 async def get_registry_action(
-    role: OrgUserOrServiceRole, session: AsyncDBSession, action_name: str
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace=False,
+    ),
+    session: AsyncDBSession,
+    action_name: str,
 ) -> RegistryActionRead:
     """Get a specific registry action."""
     service = RegistryActionsService(session, role)
@@ -61,7 +74,15 @@ async def get_registry_action(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_registry_action(
-    role: OrgUserOrServiceRole, session: AsyncDBSession, params: RegistryActionCreate
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
+    ),
+    session: AsyncDBSession,
+    params: RegistryActionCreate,
 ) -> RegistryActionRead:
     """Create a new registry action."""
     service = RegistryActionsService(session, role)
@@ -82,7 +103,13 @@ async def create_registry_action(
 
 @router.patch("/{action_name}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_registry_action(
-    role: OrgUserOrServiceRole,
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
+    ),
     session: AsyncDBSession,
     params: RegistryActionUpdate,
     action_name: str,
@@ -98,7 +125,15 @@ async def update_registry_action(
 
 @router.delete("/{action_name}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_registry_action(
-    role: OrgUserOrServiceRole, session: AsyncDBSession, action_name: str
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
+    ),
+    session: AsyncDBSession,
+    action_name: str,
 ) -> None:
     """Delete a template action."""
     service = RegistryActionsService(session, role)
@@ -126,7 +161,14 @@ async def delete_registry_action(
 
 @router.post("/{action_name}/execute")
 async def run_registry_action(
-    role: OrgUserOrServiceRole, action_name: str, action_input: RunActionInput
+    *,
+    role: Role = RoleACL(
+        allow_user=False,  # XXX(authz): Users cannot execute actions
+        allow_service=True,  # Only services can execute actions
+        require_workspace=False,
+    ),
+    action_name: str,
+    action_input: RunActionInput,
 ) -> Any:
     """Execute a registry action."""
     ref = action_input.task.ref
@@ -164,7 +206,12 @@ async def run_registry_action(
 
 @router.post("/{action_name}/validate")
 async def validate_registry_action(
-    role: OrgUserOrServiceRole,
+    *,
+    role: Role = RoleACL(
+        allow_user=False,  # XXX(authz): Users cannot validate actions
+        allow_service=True,  # Only services can validate actions
+        require_workspace=False,
+    ),
     session: AsyncDBSession,
     action_name: str,
     params: RegistryActionValidate,

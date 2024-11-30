@@ -1,7 +1,7 @@
 type: action
 definition:
-  title: Get VirusTotal comments on a URL
-  description: Get comments on a URL from the VirusTotal community.
+  title: List VirusTotal comments on URL
+  description: List comments on a URL from the VirusTotal community.
   display_group: VirusTotal
   namespace: integrations.virustotal
   name: list_comments

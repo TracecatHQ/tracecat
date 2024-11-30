@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import UUID4
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.dependencies import OrgUserOrServiceRole, OrgUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import RegistryRepository
 from tracecat.logger import logger
@@ -20,7 +19,7 @@ from tracecat.registry.repositories.models import (
 )
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import ensure_base_repository
-from tracecat.types.auth import Role
+from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import RegistryError, TracecatNotFoundError
 
 router = APIRouter(prefix="/registry/repos", tags=["registry-repositories"])
@@ -33,8 +32,9 @@ async def sync_registry_repositories(
     *,
     role: Role = RoleACL(
         allow_user=True,
-        allow_service=True,
+        allow_service=False,
         require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
     origins: list[str] | None = Query(
@@ -88,7 +88,13 @@ async def sync_registry_repositories(
 
 @router.get("")
 async def list_registry_repositories(
-    role: OrgUserRole, session: AsyncDBSession
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace=False,
+    ),
+    session: AsyncDBSession,
 ) -> list[RegistryRepositoryReadMinimal]:
     """List all registry repositories."""
     service = RegistryReposService(session, role)
@@ -105,7 +111,14 @@ async def list_registry_repositories(
 
 @router.get("/{origin:path}", response_model=RegistryRepositoryRead)
 async def get_registry_repository(
-    role: OrgUserRole, session: AsyncDBSession, origin: str
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace=False,
+    ),
+    session: AsyncDBSession,
+    origin: str,
 ) -> RegistryRepositoryRead:
     """Get a specific registry repository by origin."""
     service = RegistryReposService(session, role)
@@ -129,7 +142,13 @@ async def get_registry_repository(
     "", status_code=status.HTTP_201_CREATED, response_model=RegistryRepositoryRead
 )
 async def create_registry_repository(
-    role: OrgUserOrServiceRole,
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
+    ),
     session: AsyncDBSession,
     params: RegistryRepositoryCreate,
 ) -> RegistryRepositoryRead:
@@ -154,7 +173,13 @@ async def create_registry_repository(
 
 @router.patch("/{origin:path}", response_model=RegistryRepositoryRead)
 async def update_registry_repository(
-    role: OrgUserOrServiceRole,
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
+    ),
     session: AsyncDBSession,
     origin: str,
     params: RegistryRepositoryUpdate,
@@ -181,7 +206,15 @@ async def update_registry_repository(
 
 @router.delete("/{id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_registry_repository(
-    role: OrgUserOrServiceRole, session: AsyncDBSession, id: UUID4
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace=False,
+        min_access_level=AccessLevel.ADMIN,
+    ),
+    session: AsyncDBSession,
+    id: UUID4,
 ):
     """Delete a registry repository."""
     service = RegistryReposService(session, role)
