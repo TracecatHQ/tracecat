@@ -8,8 +8,9 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from tracecat import config
-from tracecat.auth.dependencies import WorkspaceUserOrServiceRole
+from tracecat.auth.credentials import RoleACL
 from tracecat.registry.repository import Repository
+from tracecat.types.auth import AccessLevel, Role
 
 
 class TestRegistryParams(BaseModel):
@@ -26,7 +27,14 @@ router = APIRouter(
 
 @router.post("")
 async def register_test_module(
-    role: WorkspaceUserOrServiceRole, params: TestRegistryParams
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=True,
+        require_workspace="yes",
+        min_access_level=AccessLevel.ADMIN,
+    ),
+    params: TestRegistryParams,
 ):
     """Use this only for testing purposes."""
     if config.TRACECAT__APP_ENV != "development":

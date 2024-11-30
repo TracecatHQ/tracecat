@@ -1,11 +1,10 @@
 import json
-from typing import Annotated, Literal
+from typing import Literal
 
 import orjson
 import yaml
 from fastapi import (
     APIRouter,
-    Depends,
     File,
     Form,
     HTTPException,
@@ -18,16 +17,14 @@ from pydantic import ValidationError
 from slugify import slugify
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.credentials import authenticate_user_for_workspace
-from tracecat.db.engine import get_async_session
+from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
 from tracecat.dsl.models import DSLConfig
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.validation.service import validate_dsl
 from tracecat.webhooks.models import UpsertWebhookParams, WebhookResponse
@@ -44,9 +41,6 @@ from tracecat.workflow.management.models import (
 )
 
 router = APIRouter(prefix="/workflows")
-
-WorkspaceUserRole = Annotated[Role, Depends(authenticate_user_for_workspace)]
-AsyncDBSession = Annotated[AsyncSession, Depends(get_async_session)]
 
 
 @router.get("", tags=["workflows"])
