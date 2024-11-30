@@ -18,3 +18,10 @@ export async function getCurrentUser(): Promise<UserRead | null> {
     }
   }
 }
+
+export function userIsPrivileged(user: UserRead | null): boolean {
+  if (!user) {
+    return false
+  }
+  return user.is_superuser || user.role === "admin"
+}

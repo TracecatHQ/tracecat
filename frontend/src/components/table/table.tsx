@@ -50,6 +50,7 @@ interface DataTableProps<TData, TValue> {
   emptyMessage?: string
   errorMessage?: string
   showSelectedRows?: boolean
+  initialSortingState?: SortingState
 }
 
 export function DataTable<TData, TValue>({
@@ -63,6 +64,7 @@ export function DataTable<TData, TValue>({
   emptyMessage,
   errorMessage,
   showSelectedRows = false,
+  initialSortingState: initialSorting = [],
 }: DataTableProps<TData, TValue>) {
   const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
@@ -70,7 +72,7 @@ export function DataTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     []
   )
-  const [sorting, setSorting] = React.useState<SortingState>([])
+  const [sorting, setSorting] = React.useState<SortingState>(initialSorting)
 
   const table = useReactTable({
     data: data || [],

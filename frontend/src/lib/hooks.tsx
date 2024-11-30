@@ -8,6 +8,12 @@ import {
   ApiError,
   CreateWorkspaceParams,
   EventHistoryResponse,
+  organizationDeleteOrgMember,
+  OrganizationDeleteOrgMemberData,
+  organizationListOrgMembers,
+  organizationUpdateOrgMember,
+  OrganizationUpdateOrgMemberData,
+  OrgMemberRead,
   RegistryActionCreate,
   RegistryActionRead,
   registryActionsCreateRegistryAction,
@@ -1056,5 +1062,87 @@ export function useRegistryRepositories() {
     deleteRepo,
     deleteRepoIsPending,
     deleteRepoError,
+  }
+}
+
+export function useOrgMembers() {
+  const queryClient = useQueryClient()
+  const { data: orgMembers } = useQuery<OrgMemberRead[]>({
+    queryKey: ["org-members"],
+    queryFn: async () => await organizationListOrgMembers(),
+  })
+
+  const {
+    mutateAsync: updateOrgMember,
+    isPending: updateOrgMemberIsPending,
+    error: updateOrgMemberError,
+  } = useMutation({
+    mutationFn: async (params: OrganizationUpdateOrgMemberData) =>
+      await organizationUpdateOrgMember(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
+      toast({
+        title: "Updated organization member",
+        description: "Organization member updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      const apiError = error as TracecatApiError
+      switch (apiError.status) {
+        case 403:
+          toast({
+            title: "You cannot perform this action",
+            description: `${apiError.message}: ${apiError.body.detail}`,
+          })
+          break
+        default:
+          toast({
+            title: "Failed to update organization member",
+            description: `An unexpected error occurred while updating the organization member. ${apiError.message}: ${apiError.body.detail}`,
+          })
+      }
+    },
+  })
+
+  const {
+    mutateAsync: deleteOrgMember,
+    isPending: deleteOrgMemberIsPending,
+    error: deleteOrgMemberError,
+  } = useMutation({
+    mutationFn: async (params: OrganizationDeleteOrgMemberData) =>
+      await organizationDeleteOrgMember(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
+      toast({
+        title: "Deleted organization member",
+        description: "Organization member deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      const apiError = error as TracecatApiError
+      switch (apiError.status) {
+        case 403:
+          toast({
+            title: "You cannot perform this action",
+            description: `${apiError.message}: ${apiError.body.detail}`,
+          })
+          break
+        default:
+          toast({
+            title: "Failed to delete organization member",
+            description: `An unexpected error occurred while deleting the organization member. ${apiError.message}: ${apiError.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    orgMembers,
+    updateOrgMember,
+    updateOrgMemberIsPending,
+    updateOrgMemberError,
+    deleteOrgMember,
+    deleteOrgMemberIsPending,
+    deleteOrgMemberError,
   }
 }

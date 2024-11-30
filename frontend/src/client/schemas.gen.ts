@@ -1313,6 +1313,61 @@ export const $OAuth2AuthorizeResponse = {
     title: 'OAuth2AuthorizeResponse'
 } as const;
 
+export const $OrgMemberRead = {
+    properties: {
+        user_id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'User Id'
+        },
+        first_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'First Name'
+        },
+        last_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Name'
+        },
+        email: {
+            type: 'string',
+            format: 'email',
+            title: 'Email'
+        },
+        role: {
+            '$ref': '#/components/schemas/UserRole'
+        },
+        is_active: {
+            type: 'boolean',
+            title: 'Is Active'
+        },
+        is_superuser: {
+            type: 'boolean',
+            title: 'Is Superuser'
+        },
+        is_verified: {
+            type: 'boolean',
+            title: 'Is Verified'
+        }
+    },
+    type: 'object',
+    required: ['user_id', 'first_name', 'last_name', 'email', 'role', 'is_active', 'is_superuser', 'is_verified'],
+    title: 'OrgMemberRead'
+} as const;
+
 export const $RegistryActionCreate = {
     properties: {
         name: {
