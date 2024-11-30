@@ -11,9 +11,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.api.routers.users import router as users_router
 from tracecat.auth.constants import AuthType
 from tracecat.auth.models import UserCreate, UserRead, UserUpdate
+from tracecat.auth.router import router as users_router
 from tracecat.auth.users import (
     FastAPIUsersException,
     InvalidDomainException,

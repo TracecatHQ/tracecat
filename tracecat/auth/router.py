@@ -1,13 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import EmailStr
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.models import UserRead
-from tracecat.db.engine import get_async_session
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import User
-from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 
 router = APIRouter(prefix="/users")
@@ -22,11 +21,10 @@ async def search_user(
         require_workspace="no",
         min_access_level=AccessLevel.ADMIN,
     ),
-    email: str | None = Query(None),
-    session: AsyncSession = Depends(get_async_session),
+    email: EmailStr | None = Query(None),
+    session: AsyncDBSession,
 ) -> UserRead:
     """Create new user."""
-    logger.info("HIT SEARCH")
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
