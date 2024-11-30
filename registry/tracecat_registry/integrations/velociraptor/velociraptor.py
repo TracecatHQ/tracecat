@@ -1,5 +1,5 @@
 """Generic interface to PyVelociraptor class.
-Author: Zane Gittins
+Author: Zane Gittins, Chris Lo
 """
 
 import base64
@@ -15,16 +15,16 @@ from tracecat_registry.integrations.velociraptor import api_pb2, api_pb2_grpc
 
 velociraptor_secret = RegistrySecret(
     name="velociraptor_ssl",
-    keys=["CONFIGURATION"],
-    optional_keys=["ORGANIZATION_ID"],
+    keys=["VELOCIRAPTOR_CONFIGURATION"],
+    optional_keys=["VELOCIRAPTOR_ORGANIZATION_ID"],
 )
 """Velociraptor secret.
 
 - name: `velociraptor_ssl`
 - keys:
-    - `CONFIGURATION`
+    - `VELOCIRAPTOR_B64_CONFIGURATION`
 - optional_keys:
-    - `ORGANIZATION_ID`
+    - `VELOCIRAPTOR_ORGANIZATION_ID`
 
 Note: The configuration needs to be base64 encoded before adding it as a secret in Tracecat to preserve formatting.
 You can use the following command to do so: `cat api.config.yaml | base64 -w`
@@ -75,7 +75,7 @@ async def run_velociraptor_query(
         ),
     ],
 ) -> list[dict[str, Any]]:
-    config_data = secrets.get("CONFIGURATION")
+    config_data = secrets.get("VELOCIRAPTOR_B64_CONFIGURATION")
     decoded_config = base64.b64decode(
         config_data
     )  # configuration is base64 encoded: "cat api.config.yaml | base64 -w"
@@ -98,7 +98,7 @@ async def run_velociraptor_query(
     ) as channel:
         stub = api_pb2_grpc.APIStub(channel)
         request = api_pb2.VQLCollectorArgs(
-            org_id=secrets.get("ORGANIZATION_ID", ""),
+            org_id=secrets.get("VELOCIRAPTOR_ORGANIZATION_ID", ""),
             max_wait=1,
             max_row=max_rows,
             Query=[
