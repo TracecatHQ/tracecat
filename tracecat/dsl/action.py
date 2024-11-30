@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from tracecat.contexts import ctx_logger, ctx_role, ctx_run
+from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.dsl.common import context_locator
 from tracecat.dsl.models import ActionStatement, DSLTaskErrorInfo, RunActionInput
 from tracecat.logger import logger
@@ -68,14 +68,13 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def run_action_activity(input: RunActionInput) -> Any:
+    async def run_action_activity(input: RunActionInput, role: Role) -> Any:
         """Run an action.
         Goals:
         - Think of this as a controller activity that will orchestrate the execution of the action.
         - The implementation of the action is located elsewhere (registry service on API)
         """
         ctx_run.set(input.run_context)
-        ctx_role.set(input.role)
         task = input.task
         environment = input.run_context.environment
         action_name = task.action
@@ -84,7 +83,7 @@ class DSLActivities:
             task_ref=task.ref,
             action_name=action_name,
             wf_id=input.run_context.wf_id,
-            role=input.role,
+            role=role,
             environment=environment,
         )
         ctx_logger.set(act_logger)
@@ -105,7 +104,7 @@ class DSLActivities:
 
         try:
             # Delegate to the registry client
-            client = RegistryClient(role=input.role)
+            client = RegistryClient(role=role)
             return await client.call_action(input)
         except RegistryActionError as e:
             # We only expect RegistryActionError to be raised from the registry client

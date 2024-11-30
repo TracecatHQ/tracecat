@@ -12,7 +12,6 @@ from tracecat.dsl.enums import JoinStrategy
 from tracecat.expressions.shared import ExprContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.types.auth import Role
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -184,7 +183,6 @@ class RunActionInput(BaseModel):
     """This object contains all the information needed to execute an action."""
 
     task: ActionStatement
-    role: Role
     exec_context: DSLContext
     run_context: RunContext
 

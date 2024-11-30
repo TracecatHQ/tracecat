@@ -72,14 +72,13 @@ class RegistryClient:
         but are included in the method signature for potential future use.
         """
 
-        role = input.role
         key = input.task.action
         content = input.model_dump_json()
-        workspace_id = str(role.workspace_id) if role.workspace_id else None
+        workspace_id = str(self.role.workspace_id) if self.role.workspace_id else None
         logger.debug(
             f"Calling action {key!r} with content",
             content=content,
-            role=role,
+            role=self.role,
             timeout=self._timeout,
         )
         try:
@@ -90,7 +89,7 @@ class RegistryClient:
                     headers={
                         "Content-Type": "application/json",
                         # Custom headers
-                        **role.to_headers(),
+                        **self.role.to_headers(),
                     },
                     content=content,
                     params={"workspace_id": workspace_id},
