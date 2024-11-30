@@ -24,6 +24,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
+from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import (
@@ -251,6 +252,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(users_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
+    app.include_router(org_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",
