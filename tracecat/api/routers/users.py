@@ -19,6 +19,7 @@ async def search_user(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
+        require_workspace="no",
         min_access_level=AccessLevel.ADMIN,
     ),
     email: str | None = Query(None),

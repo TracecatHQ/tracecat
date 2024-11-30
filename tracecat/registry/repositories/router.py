@@ -33,7 +33,7 @@ async def sync_registry_repositories(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="no",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
@@ -92,7 +92,7 @@ async def list_registry_repositories(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="no",
     ),
     session: AsyncDBSession,
 ) -> list[RegistryRepositoryReadMinimal]:
@@ -115,7 +115,7 @@ async def get_registry_repository(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="no",
     ),
     session: AsyncDBSession,
     origin: str,
@@ -146,7 +146,7 @@ async def create_registry_repository(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="no",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
@@ -177,7 +177,7 @@ async def update_registry_repository(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="no",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
@@ -210,7 +210,7 @@ async def delete_registry_repository(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="no",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,

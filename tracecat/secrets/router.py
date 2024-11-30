@@ -28,7 +28,7 @@ async def search_secrets(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="optional",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
@@ -77,7 +77,7 @@ async def list_secrets(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="optional",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
@@ -122,7 +122,7 @@ async def get_secret_by_name(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="optional",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
@@ -147,7 +147,7 @@ async def create_secret(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="optional",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
@@ -171,7 +171,7 @@ async def update_secret_by_id(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="optional",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
@@ -200,7 +200,7 @@ async def delete_secret_by_id(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace=False,
+        require_workspace="optional",
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,

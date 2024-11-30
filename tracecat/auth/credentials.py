@@ -246,7 +246,7 @@ def RoleACL(
     *,
     allow_user: bool = True,
     allow_service: bool = False,
-    require_workspace: bool = True,
+    require_workspace: Literal["yes", "no", "optional"] = "yes",
     min_access_level: AccessLevel | None = None,
     workspace_id_in_path: bool = False,
 ) -> Any:
@@ -295,7 +295,7 @@ def RoleACL(
                 detail="Unauthorized",
             )
 
-        if require_workspace and role.workspace_id is None:
+        if require_workspace == "yes" and role.workspace_id is None:
             logger.warning("User does not have access to this workspace", role=role)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
@@ -314,9 +314,10 @@ def RoleACL(
         ctx_role.set(role)
         return role
 
-    if require_workspace:
+    if require_workspace == "yes":
         GetWsDep = Path if workspace_id_in_path else Query
 
+        # Required workspace ID
         async def role_dependency_req_ws(
             request: Request,
             session: AsyncDBSession,
@@ -324,14 +325,20 @@ def RoleACL(
             user: OptionalUserDep = None,
             api_key: OptionalApiKeyDep = None,
         ) -> Role:
-            return await role_dependency(request, session, workspace_id, user, api_key)
+            return await role_dependency(
+                request=request,
+                session=session,
+                workspace_id=workspace_id,
+                user=user,
+                api_key=api_key,
+            )
 
         return Depends(role_dependency_req_ws)
 
-    else:
+    elif require_workspace == "optional":
         if workspace_id_in_path:
             raise ValueError(
-                "workspace_id_in_path is not allowed without require_workspace"
+                "workspace_id_in_path is not allowed with optional workspace"
             )
 
         async def role_dependency_opt_ws(
@@ -341,6 +348,32 @@ def RoleACL(
             user: OptionalUserDep = None,
             api_key: OptionalApiKeyDep = None,
         ) -> Role:
-            return await role_dependency(request, session, workspace_id, user, api_key)
+            return await role_dependency(
+                request=request,
+                session=session,
+                workspace_id=workspace_id,
+                user=user,
+                api_key=api_key,
+            )
 
         return Depends(role_dependency_opt_ws)
+    elif require_workspace == "no":
+        if workspace_id_in_path:
+            raise ValueError("workspace_id_in_path is not allowed with no workspace")
+
+        async def role_dependency_not_req_ws(
+            request: Request,
+            session: AsyncDBSession,
+            user: OptionalUserDep = None,
+            api_key: OptionalApiKeyDep = None,
+        ) -> Role:
+            return await role_dependency(
+                request=request,
+                session=session,
+                user=user,
+                api_key=api_key,
+            )
+
+        return Depends(role_dependency_not_req_ws)
+    else:
+        raise ValueError(f"Invalid require_workspace value: {require_workspace}")
