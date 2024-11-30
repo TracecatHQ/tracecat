@@ -1,11 +1,15 @@
 """S3 integration to download files and return contents as a string."""
 
+import re
 from typing import Annotated
 
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry
 from tracecat_registry.integrations.boto3 import get_session
+
+# Add this at the top with other constants
+BUCKET_REGEX = re.compile(r"^[a-z0-9][a-z0-9.-]*[a-z0-9]$")
 
 s3_secret = RegistrySecret(
     name="s3",
@@ -37,10 +41,29 @@ Secret
 
 
 @registry.register(
+    default_title="Parse S3 URI",
+    description="Parse an S3 URI into a bucket and key.",
+    display_group="AWS S3",
+    namespace="integrations.aws_s3",
+)
+async def parse_s3_uri(uri: str) -> tuple[str, str]:
+    uri = str(uri).strip()
+    if not uri.startswith("s3://"):
+        raise ValueError("S3 URI must start with 's3://'")
+
+    uri_path = uri.replace("s3://", "")
+    uri_paths = uri_path.split("/")
+    bucket = uri_paths.pop(0)
+    key = "/".join(uri_paths)
+
+    return bucket, key
+
+
+@registry.register(
     default_title="Download S3 Object",
     description="Download an object from S3 and return its body as a string.",
-    display_group="S3",
-    namespace="integrations.s3",
+    display_group="AWS S3",
+    namespace="integrations.aws_s3",
     secrets=[s3_secret],
 )
 async def download_s3_object(
