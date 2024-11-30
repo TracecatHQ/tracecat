@@ -1,4 +1,4 @@
-import { UserRead, UserRole } from "@/client"
+import { UserRead } from "@/client"
 import { AxiosError } from "axios"
 
 import { client } from "@/lib/api"

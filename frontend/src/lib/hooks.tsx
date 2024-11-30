@@ -56,7 +56,6 @@ import {
   WorkflowsCreateWorkflowData,
   workflowsDeleteWorkflow,
   workflowsListWorkflows,
-  WorkspaceMember,
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
