@@ -1,4 +1,4 @@
-import { UserRead } from "@/client"
+import { UserRead, UserRole } from "@/client"
 import { AxiosError } from "axios"
 
 import { client } from "@/lib/api"
@@ -17,4 +17,11 @@ export async function getCurrentUser(): Promise<UserRead | null> {
       throw error
     }
   }
+}
+
+export function userIsPrivileged(user: UserRead | null): boolean {
+  if (!user) {
+    return false
+  }
+  return user.is_superuser || user.role === "admin"
 }

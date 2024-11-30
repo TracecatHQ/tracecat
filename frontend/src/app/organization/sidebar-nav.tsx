@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { KeyRoundIcon, LucideIcon } from "lucide-react"
+import { KeyRoundIcon, LucideIcon, UsersIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
@@ -13,7 +13,7 @@ type NavItem = {
   href: string
 }
 
-const navItems: NavItem[] = [
+const secretNavItems: NavItem[] = [
   {
     title: "Credentials",
     href: "/organization/credentials",
@@ -21,6 +21,13 @@ const navItems: NavItem[] = [
   {
     title: "SSH Keys",
     href: "/organization/ssh-keys",
+  },
+]
+
+const userNavItems: NavItem[] = [
+  {
+    title: "Members",
+    href: "/organization/members",
   },
 ]
 
@@ -36,7 +43,12 @@ export function OrganizationSidebarNav() {
       <div className="space-y-0.5">
         <h2 className="text-xl font-bold tracking-tight">Organization</h2>
       </div>
-      <SidebarNavBlock title="Secrets" icon={KeyRoundIcon} items={navItems} />
+      <SidebarNavBlock
+        title="Secrets"
+        icon={KeyRoundIcon}
+        items={secretNavItems}
+      />
+      <SidebarNavBlock title="Users" icon={UsersIcon} items={userNavItems} />
     </div>
   )
 }
