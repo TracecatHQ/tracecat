@@ -128,7 +128,7 @@ async def test_workflow_can_run_from_yaml(dsl, test_role, temporal_client):
 
 
 def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
-    act_outputs = final_context[ExprContext.ACTIONS]
+    act_outputs = final_context[str(ExprContext.ACTIONS)]
     for action in dsl.actions:
         target = action.ref
         for source in action.depends_on:
@@ -239,14 +239,12 @@ async def test_stress_workflow(dsl, test_role):
     client = await get_temporal_client()
 
     tasks: list[asyncio.Task] = []
-    async with (
-        Worker(
-            client,
-            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            activities=DSLActivities.load() + DSL_UTILITIES,
-            workflows=[DSLWorkflow],
-            workflow_runner=new_sandbox_runner(),
-        ),
+    async with Worker(
+        client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=DSLActivities.load() + DSL_UTILITIES,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
     ):
         async with asyncio.TaskGroup() as tg:
             # We can have multiple executions of the same workflow running at the same time
