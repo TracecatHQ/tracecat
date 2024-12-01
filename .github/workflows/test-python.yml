@@ -57,6 +57,15 @@ jobs:
           uv pip install ".[dev]"
           uv pip install ./registry
 
+      - name: Run environment setup script
+        run: |
+          echo "admin@example.com
+          password123456789
+          password123456789
+          y
+          localhost
+          n" | bash env.sh
+
       - name: Run tests
         run: uv run pytest -m "not integration" tests/registry
 

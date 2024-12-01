@@ -31,7 +31,6 @@ def monkeysession(request: pytest.FixtureRequest):
     mpatch.undo()
 
 
-@pytest.mark.integration
 @pytest.fixture(autouse=True, scope="function")
 async def test_db_engine():
     engine = get_async_engine()
@@ -39,7 +38,6 @@ async def test_db_engine():
     await engine.dispose()
 
 
-@pytest.mark.integration
 @pytest.fixture(autouse=True, scope="session")
 def env_sandbox(monkeysession: pytest.MonkeyPatch):
     from dotenv import load_dotenv
