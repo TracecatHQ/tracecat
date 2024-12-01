@@ -7,6 +7,8 @@ import {
   ActionUpdate,
   ApiError,
   CreateWorkspaceParams,
+  EditorFunctionRead,
+  editorListFunctions,
   EventHistoryResponse,
   organizationDeleteOrgMember,
   OrganizationDeleteOrgMemberData,
@@ -14,7 +16,6 @@ import {
   organizationUpdateOrgMember,
   OrganizationUpdateOrgMemberData,
   OrgMemberRead,
-  FunctionMeta,
   RegistryActionCreate,
   RegistryActionRead,
   registryActionsCreateRegistryAction,
@@ -1146,6 +1147,8 @@ export function useOrgMembers() {
     deleteOrgMemberIsPending,
     deleteOrgMemberError,
   }
+}
+
 /**
  * Custom hook to fetch editor functions from the API
  *
@@ -1154,12 +1157,12 @@ export function useOrgMembers() {
  * the data fetching and caching.
  *
  * @returns {Object} Object containing:
- *   - functions: Array of FunctionMeta objects containing function definitions
+ *   - functions: Array of EditorFunctionRead objects containing function definitions
  */
 export function useEditorFunctions() {
-  const { data: functions } = useQuery<FunctionMeta[]>({
+  const { data: functions } = useQuery<EditorFunctionRead[]>({
     queryKey: ["editor_functions"],
-    queryFn: async () => await editorGetFunctions(),
+    queryFn: async () => await editorListFunctions(),
   })
 
   return { functions }

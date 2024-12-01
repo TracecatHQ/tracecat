@@ -538,9 +538,9 @@ export function ActionPanel({
                         render={({ field }) => (
                           <CustomEditor
                             className="h-72 w-full"
-                            defaultLanguage="yaml"
                             value={field.value}
                             onChange={field.onChange}
+                            defaultLanguage="yaml-extended"
                           />
                         )}
                       />
