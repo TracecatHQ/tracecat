@@ -1,16 +1,27 @@
 import inspect
 from typing import Union, get_type_hints
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query, status
 
-from tracecat.editor.models import EditorFunctionRead, EditorParamRead
+from tracecat.auth.credentials import RoleACL
+from tracecat.db.dependencies import AsyncDBSession
+from tracecat.editor.models import EditorActionRead, EditorFunctionRead, EditorParamRead
 from tracecat.expressions.functions import FUNCTION_MAPPING
+from tracecat.identifiers import WorkflowID
+from tracecat.types.auth import Role
+from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/editor", tags=["editor"])
 
 
-@router.get("/functions")
-async def list_functions() -> list[EditorFunctionRead]:
+@router.get("/functions", response_model=list[EditorFunctionRead])
+async def list_functions(
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+    ),
+):
     functions = []
 
     for name, func in FUNCTION_MAPPING.items():
@@ -60,3 +71,38 @@ async def list_functions() -> list[EditorFunctionRead]:
         )
 
     return functions
+
+
+@router.get("/actions", response_model=list[EditorActionRead])
+async def list_actions(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+    ),
+    session: AsyncDBSession,
+    workflow_id: WorkflowID = Query(...),
+):
+    # find actions that are in the workflow
+    service = WorkflowsManagementService(session, role=role)
+    workflow = await service.get_workflow(workflow_id)
+    if not workflow:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found",
+        )
+
+    actions = workflow.actions
+    if not actions:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No actions found in workflow",
+        )
+
+    return [
+        EditorActionRead(
+            type=action.type, ref=action.ref, description=action.description
+        )
+        for action in actions
+    ]

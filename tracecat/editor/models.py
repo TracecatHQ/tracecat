@@ -12,3 +12,9 @@ class EditorFunctionRead(BaseModel):
     description: str
     parameters: list[EditorParamRead]
     return_type: str
+
+
+class EditorActionRead(BaseModel):
+    type: str
+    ref: str
+    description: str
