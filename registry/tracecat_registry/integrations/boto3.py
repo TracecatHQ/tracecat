@@ -126,7 +126,7 @@ async def call_boto3_paginator(
             description="AWS service name to create Boto3 Paginator, e.g. 's3', 'ec2', 'guardduty'.",
         ),
     ],
-    paginator: Annotated[
+    method_name: Annotated[
         str,
         Field(
             ...,
@@ -140,8 +140,8 @@ async def call_boto3_paginator(
 ) -> list[dict[str, Any]]:
     params = params or {}
     session = await get_session()
-    async with session.client(service_name) as client:
-        paginator = client.get_paginator(paginator)
+    async with session.client(service_name) as client:  # type: ignore
+        paginator = client.get_paginator(method_name)
         pages = paginator.paginate(**params)
 
     results = []
