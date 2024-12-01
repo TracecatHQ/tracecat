@@ -2002,9 +2002,7 @@ def _get_test_id(test_case):
     ids=_get_test_id,
 )
 @pytest.mark.anyio
-async def test_workflow_error_path(
-    test_role, runtime_config, base_registry, dsl_data, expected
-):
+async def test_workflow_error_path(test_role, runtime_config, dsl_data, expected):
     dsl = DSLInput(**dsl_data)
     test_name = f"test_workflow_error-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
@@ -2041,7 +2039,7 @@ async def test_workflow_error_path(
 
 
 @pytest.mark.anyio
-async def test_workflow_join_unreachable(test_role, runtime_config, base_registry):
+async def test_workflow_join_unreachable(test_role, runtime_config):
     """Test join strategy behavior with unreachable nodes.
 
     Args:
@@ -2121,7 +2119,7 @@ async def test_workflow_join_unreachable(test_role, runtime_config, base_registr
 
 
 @pytest.mark.anyio
-async def test_workflow_multiple_entrypoints(test_role, runtime_config, base_registry):
+async def test_workflow_multiple_entrypoints(test_role, runtime_config):
     """Test workflow behavior with multiple entrypoints.
 
     Args:

@@ -14,7 +14,6 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine
 from tracecat.db.schemas import User
 from tracecat.logger import logger
-from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
 from tracecat.workspaces.models import WorkspaceMetadataResponse
 
@@ -33,10 +32,11 @@ def monkeysession(request: pytest.FixtureRequest):
 
 @pytest.fixture(autouse=True, scope="function")
 async def test_db_engine():
+    engine = get_async_engine()
     try:
-        engine = get_async_engine()
         yield engine
     finally:
+        # Ensure the engine is disposed even if the test fails
         await engine.dispose()
 
 
@@ -249,13 +249,3 @@ def temporal_client():
 
     client = loop.run_until_complete(get_temporal_client())
     return client
-
-
-@pytest.fixture
-def base_registry():
-    try:
-        registry = Repository()
-        registry.init(include_base=True, include_templates=False)
-        yield registry
-    finally:
-        registry._reset()
