@@ -5,7 +5,6 @@ from typing import Any
 
 import pytest
 import yaml
-from dotenv import load_dotenv
 from sqlmodel.ext.asyncio.session import AsyncSession
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -35,8 +34,6 @@ async def session(env_sandbox) -> AsyncGenerator[AsyncSession]:
 
 @pytest.fixture
 async def integration_secrets(session: AsyncSession, test_role: Role):
-    load_dotenv()
-
     from tracecat.secrets.models import SecretCreate, SecretKeyValue
     from tracecat.secrets.service import SecretsService
 
