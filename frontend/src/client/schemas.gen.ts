@@ -954,6 +954,26 @@ export const $DSLRunArgs = {
     title: 'DSLRunArgs'
 } as const;
 
+export const $EditorActionRead = {
+    properties: {
+        type: {
+            type: 'string',
+            title: 'Type'
+        },
+        ref: {
+            type: 'string',
+            title: 'Ref'
+        },
+        description: {
+            type: 'string',
+            title: 'Description'
+        }
+    },
+    type: 'object',
+    required: ['type', 'ref', 'description'],
+    title: 'EditorActionRead'
+} as const;
+
 export const $EditorFunctionRead = {
     properties: {
         name: {
