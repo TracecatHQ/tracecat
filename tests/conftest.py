@@ -24,13 +24,6 @@ def anyio_backend():
     return "asyncio"
 
 
-@pytest.fixture(autouse=True, scope="function")
-async def test_db_engine():
-    engine = get_async_engine()
-    yield engine
-    await engine.dispose()
-
-
 @pytest.fixture(autouse=True, scope="session")
 def monkeysession(request: pytest.FixtureRequest):
     mpatch = pytest.MonkeyPatch()
@@ -38,7 +31,16 @@ def monkeysession(request: pytest.FixtureRequest):
     mpatch.undo()
 
 
+@pytest.fixture(autouse=True, scope="function")
+@pytest.mark.integration
+async def test_db_engine():
+    engine = get_async_engine()
+    yield engine
+    await engine.dispose()
+
+
 @pytest.fixture(autouse=True, scope="session")
+@pytest.mark.integration
 def env_sandbox(monkeysession: pytest.MonkeyPatch):
     from dotenv import load_dotenv
 

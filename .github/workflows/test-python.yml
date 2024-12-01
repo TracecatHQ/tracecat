@@ -58,7 +58,7 @@ jobs:
           uv pip install ./registry
 
       - name: Run tests
-        run: uv run pytest tests/registry
+        run: uv run pytest -m "not integration" tests/registry
 
   test-all:
     runs-on: ubuntu-latest
