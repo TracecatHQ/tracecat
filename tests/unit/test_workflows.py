@@ -48,7 +48,10 @@ from tracecat.workflow.management.management import WorkflowsManagementService
     reason="Skip if running in GitHub Actions",
 )
 @pytest.fixture(autouse=True, scope="module")
-def additional_env_vars(monkeysession: pytest.MonkeyPatch):
+def hotfix_local_api_url(monkeysession: pytest.MonkeyPatch):
+    # NOTE: This is a hotfix to allow the workflow tests to run locally.
+    # We need to set the internal API url to the public API url
+    # otherwise the tests will fail because it cannot reach the internal API
     monkeysession.setattr(config, "TRACECAT__API_URL", "http://localhost/api")
 
 
