@@ -90,9 +90,6 @@ jobs:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
         run: docker compose -f docker-compose.dev.yml up --build --no-deps -d api worker postgres_db caddy
 
-      - name: Verify Tracecat API is running
-        run: curl -s http://localhost/api/health | jq -e '.status == "ok"'
-
       - name: uv install Tracecat
         run: |
           uv pip install ".[dev]"

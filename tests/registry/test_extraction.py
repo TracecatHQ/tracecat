@@ -1,5 +1,4 @@
 import pytest
-
 from tracecat_registry.base.etl.email import extract_emails
 from tracecat_registry.base.etl.ip_address import extract_ipv4_addresses
 from tracecat_registry.base.etl.url import extract_urls
