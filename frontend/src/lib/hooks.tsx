@@ -7,8 +7,6 @@ import {
   ActionUpdate,
   ApiError,
   CreateWorkspaceParams,
-  EditorFunctionRead,
-  editorListFunctions,
   EventHistoryResponse,
   organizationDeleteOrgMember,
   OrganizationDeleteOrgMemberData,
@@ -1147,23 +1145,4 @@ export function useOrgMembers() {
     deleteOrgMemberIsPending,
     deleteOrgMemberError,
   }
-}
-
-/**
- * Custom hook to fetch editor functions from the API
- *
- * This hook queries the backend API to retrieve available functions that can be used
- * in the editor for code completion and documentation. It uses React Query to handle
- * the data fetching and caching.
- *
- * @returns {Object} Object containing:
- *   - functions: Array of EditorFunctionRead objects containing function definitions
- */
-export function useEditorFunctions() {
-  const { data: functions } = useQuery<EditorFunctionRead[]>({
-    queryKey: ["editor_functions"],
-    queryFn: async () => await editorListFunctions(),
-  })
-
-  return { functions }
 }
