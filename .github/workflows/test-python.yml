@@ -32,10 +32,34 @@ env:
   UV_SYSTEM_PYTHON: 1
 
 jobs:
-  pytest:
+  test-registry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.20"
+          enable-cache: true
+          cache-dependency-glob: "registry/pyproject.toml"
+
+      - name: Install dependencies
+        run: |
+          uv pip install ".[dev]"
+          uv pip install ./registry
+
+      - name: Run tests
+        run: uv run pytest tests/registry
+
+  test-all:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: QA
+    needs: test-registry
     strategy:
       matrix:
         test_type: [unit, playbooks]
@@ -90,7 +114,7 @@ jobs:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
         run: docker compose -f docker-compose.dev.yml up --build --no-deps -d api worker postgres_db caddy
 
-      - name: uv install Tracecat
+      - name: Install dependencies
         run: |
           uv pip install ".[dev]"
           uv pip install ./registry
