@@ -40,7 +40,7 @@ Expression:
 async def get_temporary_credentials(
     role_arn: str,
     role_session_name: str | None = None,
-):
+) -> dict[str, Any]:
     async with aioboto3.Session().client("sts") as sts_client:
         # Assume the cross-account role
         response = await sts_client.assume_role(
@@ -106,7 +106,7 @@ async def call_boto3_client(
 ) -> dict[str, Any]:
     params = params or {}
     session = await get_session()
-    async with session.client(service_name) as client:
+    async with session.client(service_name) as client:  # type: ignore
         response = await getattr(client, method_name)(**params)
         return response
 
