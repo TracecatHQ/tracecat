@@ -11,8 +11,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.api.routers.editor import router as editor_router
-from tracecat.api.routers.users import router as users_router
 from tracecat.auth.constants import AuthType
 from tracecat.auth.models import UserCreate, UserRead, UserUpdate
 from tracecat.auth.router import router as users_router
@@ -24,6 +22,7 @@ from tracecat.auth.users import (
 )
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.editor.router import router as editor_router
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.organization.router import router as org_router
@@ -241,7 +240,7 @@ def create_app(**kwargs) -> FastAPI:
         root_path=config.TRACECAT__API_ROOT_PATH,
         **kwargs,
     )
-    app.logger = logger
+    app.logger = logger  # type: ignore
 
     # Routers
     app.include_router(webhook_router)
@@ -327,10 +326,14 @@ def create_app(**kwargs) -> FastAPI:
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
-    app.add_exception_handler(TracecatException, tracecat_exception_handler)
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(TracecatException, tracecat_exception_handler)  # type: ignore
     app.add_exception_handler(
-        FastAPIUsersException, fastapi_users_auth_exception_handler
+        RequestValidationError,
+        validation_exception_handler,  # type: ignore
+    )
+    app.add_exception_handler(
+        FastAPIUsersException,
+        fastapi_users_auth_exception_handler,  # type: ignore
     )
 
     # Middleware

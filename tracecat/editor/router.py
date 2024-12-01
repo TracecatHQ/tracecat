@@ -2,28 +2,15 @@ import inspect
 from typing import Union, get_type_hints
 
 from fastapi import APIRouter
-from pydantic import BaseModel
 
+from tracecat.editor.models import EditorFunctionRead, EditorParamRead
 from tracecat.expressions.functions import FUNCTION_MAPPING
 
 router = APIRouter(prefix="/editor", tags=["editor"])
 
 
-class ParameterMeta(BaseModel):
-    name: str
-    type: str
-    optional: bool
-
-
-class FunctionMeta(BaseModel):
-    name: str
-    description: str
-    parameters: list[ParameterMeta]
-    return_type: str
-
-
 @router.get("/functions")
-async def get_functions() -> list[FunctionMeta]:
+async def list_functions() -> list[EditorFunctionRead]:
     functions = []
 
     for name, func in FUNCTION_MAPPING.items():
@@ -52,7 +39,7 @@ async def get_functions() -> list[FunctionMeta]:
 
             param_type = format_type(param_type_hint)
             parameters.append(
-                ParameterMeta(
+                EditorParamRead(
                     name=param_name,
                     type=param_type,
                     optional=param.default != inspect.Parameter.empty,
@@ -64,7 +51,7 @@ async def get_functions() -> list[FunctionMeta]:
         return_type_str = format_type(return_type)
 
         functions.append(
-            FunctionMeta(
+            EditorFunctionRead(
                 name=name,
                 description=doc,
                 parameters=parameters,
