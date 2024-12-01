@@ -33,9 +33,11 @@ def monkeysession(request: pytest.FixtureRequest):
 
 @pytest.fixture(autouse=True, scope="function")
 async def test_db_engine():
-    engine = get_async_engine()
-    yield engine
-    await engine.dispose()
+    try:
+        engine = get_async_engine()
+        yield engine
+    finally:
+        await engine.dispose()
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -251,7 +253,9 @@ def temporal_client():
 
 @pytest.fixture
 def base_registry():
-    registry = Repository()
-    registry.init(include_base=True, include_templates=False)
-    yield registry
-    registry._reset()
+    try:
+        registry = Repository()
+        registry.init(include_base=True, include_templates=False)
+        yield registry
+    finally:
+        registry._reset()
