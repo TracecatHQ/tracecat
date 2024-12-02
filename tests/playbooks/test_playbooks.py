@@ -32,18 +32,8 @@ async def session(env_sandbox) -> AsyncGenerator[AsyncSession]:
         yield session
 
 
-# Fixture to create Tracecat secrets
 @pytest.fixture
 async def integration_secrets(session: AsyncSession, test_role: Role):
-    if not os.getenv("GITHUB_ACTIONS"):
-        try:
-            from dotenv import load_dotenv
-
-            load_dotenv()
-        except ImportError:
-            logger.warning("dotenv not installed, skipping loading .env file")
-            pass
-
     from tracecat.secrets.models import SecretCreate, SecretKeyValue
     from tracecat.secrets.service import SecretsService
 
@@ -55,9 +45,8 @@ async def integration_secrets(session: AsyncSession, test_role: Role):
         },
     }
 
-    # loop = asyncio.get_event_loop()
     for name, env_vars in secrets.items():
-        keyvalues = [SecretKeyValue(key=k, value=v) for k, v in env_vars.items()]
+        keyvalues = [SecretKeyValue(key=k, value=v) for k, v in env_vars.items()]  # type: ignore
         await secrets_service.create_secret(SecretCreate(name=name, keys=keyvalues))
 
     logger.info("Created integration secrets")
@@ -96,7 +85,6 @@ async def test_playbook_validation(
     assert len(validation_results) == 0
 
 
-# @pytest.mark.skipif(not os.getenv("GITHUB_ACTIONS"), reason="Only run in CI")
 @pytest.mark.parametrize(
     "file_path, trigger_inputs, expected_actions",
     [
@@ -127,10 +115,10 @@ async def test_playbook_live_run(
     expected_actions: list[str],
 ) -> None:
     # Create
-    file_path = Path(file_path)
-    logger.info(f"Creating workflow from {file_path}")
+    path = Path(file_path)
+    logger.info(f"Creating workflow from {path}")
     mgmt_service = WorkflowsManagementService(session, role=test_role)
-    with file_path.open() as f:
+    with path.open() as f:
         playbook_defn_data = yaml.safe_load(f)
     workflow = await mgmt_service.create_workflow_from_external_definition(
         playbook_defn_data
@@ -145,7 +133,7 @@ async def test_playbook_live_run(
     logger.info("Creating workflow definition")
     await defn_service.create_workflow_definition(workflow_id=workflow.id, dsl=dsl)
 
-    wf_exec_id = generate_test_exec_id(f"{file_path.stem}-{workflow.title}")
+    wf_exec_id = generate_test_exec_id(f"{path.stem}-{workflow.title}")
     run_args = DSLRunArgs(
         role=test_role,
         dsl=dsl,

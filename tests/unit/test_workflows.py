@@ -48,7 +48,10 @@ from tracecat.workflow.management.management import WorkflowsManagementService
     reason="Skip if running in GitHub Actions",
 )
 @pytest.fixture(autouse=True, scope="module")
-def additional_env_vars(monkeysession: pytest.MonkeyPatch):
+def hotfix_local_api_url(monkeysession: pytest.MonkeyPatch):
+    # NOTE: This is a hotfix to allow the workflow tests to run locally.
+    # We need to set the internal API url to the public API url
+    # otherwise the tests will fail because it cannot reach the internal API
     monkeysession.setattr(config, "TRACECAT__API_URL", "http://localhost/api")
 
 
@@ -103,9 +106,7 @@ def runtime_config() -> DSLConfig:
     ids=lambda x: x,
 )
 @pytest.mark.anyio
-async def test_workflow_can_run_from_yaml(
-    dsl, temporal_cluster, test_role, temporal_client
-):
+async def test_workflow_can_run_from_yaml(dsl, test_role, temporal_client):
     test_name = f"test_workflow_can_run_from_yaml-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
     # Run workflow
@@ -127,7 +128,7 @@ async def test_workflow_can_run_from_yaml(
 
 
 def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
-    act_outputs = final_context[ExprContext.ACTIONS]
+    act_outputs = final_context[str(ExprContext.ACTIONS)]
     for action in dsl.actions:
         target = action.ref
         for source in action.depends_on:
@@ -143,9 +144,7 @@ def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
     ids=lambda x: x,
 )
 @pytest.mark.anyio
-async def test_workflow_ordering_is_correct(
-    dsl, temporal_cluster, test_role, temporal_client
-):
+async def test_workflow_ordering_is_correct(dsl, test_role, temporal_client):
     """We need to test that the ordering of the workflow tasks is correct."""
 
     # Connect client
@@ -195,7 +194,7 @@ async def test_workflow_ordering_is_correct(
 )
 @pytest.mark.anyio
 async def test_workflow_completes_and_correct(
-    dsl_with_expected, temporal_cluster, test_role, runtime_config
+    dsl_with_expected, test_role, runtime_config
 ):
     dsl, expected = dsl_with_expected
     test_name = f"test_correctness_execution-{dsl.title}"
@@ -234,20 +233,18 @@ async def test_workflow_completes_and_correct(
 @pytest.mark.parametrize("dsl", ["stress_adder_tree"], indirect=True, ids=lambda x: x)
 @pytest.mark.slow
 @pytest.mark.anyio
-async def test_stress_workflow(dsl, temporal_cluster, test_role):
+async def test_stress_workflow(dsl, test_role):
     """Test that we can have multiple executions of the same workflow running at the same time."""
     test_name = f"test_stress_workflow-{dsl.title}"
     client = await get_temporal_client()
 
     tasks: list[asyncio.Task] = []
-    async with (
-        Worker(
-            client,
-            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            activities=DSLActivities.load() + DSL_UTILITIES,
-            workflows=[DSLWorkflow],
-            workflow_runner=new_sandbox_runner(),
-        ),
+    async with Worker(
+        client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=DSLActivities.load() + DSL_UTILITIES,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
     ):
         async with asyncio.TaskGroup() as tg:
             # We can have multiple executions of the same workflow running at the same time
@@ -273,7 +270,7 @@ async def test_stress_workflow(dsl, temporal_cluster, test_role):
 )
 @pytest.mark.anyio
 async def test_workflow_multi_environ_secret_manager_correctness(
-    temporal_cluster, test_role, temporal_client
+    test_role, temporal_client
 ):
     """Test that a UDF with declared secrets will pull the corresponding secrets given the runtime environment.
 
@@ -424,7 +421,7 @@ async def test_workflow_multi_environ_secret_manager_correctness(
 @pytest.mark.slow
 @pytest.mark.anyio
 async def test_stress_workflow_udf_secret_manager_correctness(
-    runs, temporal_cluster, test_role, temporal_client
+    runs, test_role, temporal_client
 ):
     """Test that we can have multiple executions of the same workflow running at the same time.
 
@@ -553,13 +550,11 @@ async def test_stress_workflow_udf_secret_manager_correctness(
     ]
 
 
+@pytest.mark.skip(reason="This test is too slow to run on CI, and breaking atm.")
 @pytest.mark.parametrize("runs", [10, 100])
 @pytest.mark.slow
-@pytest.mark.skip(reason="This test is too slow to run on CI, and breaking atm.")
 @pytest.mark.anyio
-async def test_stress_workflow_correctness(
-    runs, temporal_cluster, test_role, temporal_client
-):
+async def test_stress_workflow_correctness(runs, test_role, temporal_client):
     """Test that we can have multiple executions of the same workflow running at the same time."""
     test_name = test_stress_workflow_correctness.__name__
     dsl = DSLInput(
@@ -610,16 +605,14 @@ async def test_stress_workflow_correctness(
         }
     )
 
-    async with (
-        Worker(
-            temporal_client,
-            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            activities=DSLActivities.load() + DSL_UTILITIES,
-            workflows=[DSLWorkflow],
-            workflow_runner=new_sandbox_runner(),
-            max_concurrent_activities=1000,
-            max_concurrent_workflow_tasks=1000,
-        ),
+    async with Worker(
+        temporal_client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=DSLActivities.load() + DSL_UTILITIES,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+        max_concurrent_activities=1000,
+        max_concurrent_workflow_tasks=1000,
     ):
         async with GatheringTaskGroup() as tg:
             # We can have multiple executions of the same workflow running at the same time
@@ -647,9 +640,7 @@ async def test_stress_workflow_correctness(
 
 
 @pytest.mark.anyio
-async def test_workflow_set_environment_correct(
-    temporal_cluster, test_role, temporal_client
-):
+async def test_workflow_set_environment_correct(test_role, temporal_client):
     test_name = f"{test_workflow_set_environment_correct.__name__}"
     test_description = (
         "Test that we can set the runtime environment for a workflow."
@@ -707,9 +698,7 @@ async def test_workflow_set_environment_correct(
 
 
 @pytest.mark.anyio
-async def test_workflow_override_environment_correct(
-    temporal_cluster, test_role, temporal_client
-):
+async def test_workflow_override_environment_correct(test_role, temporal_client):
     test_name = f"{test_workflow_override_environment_correct.__name__}"
     test_description = (
         "Test that we can override the runtime environment for a workflow from its run_args."
@@ -768,9 +757,7 @@ async def test_workflow_override_environment_correct(
 
 
 @pytest.mark.anyio
-async def test_workflow_default_environment_correct(
-    temporal_cluster, test_role, temporal_client
-):
+async def test_workflow_default_environment_correct(test_role, temporal_client):
     test_name = f"{test_workflow_default_environment_correct.__name__}"
     test_description = (
         "Test that we can set the default runtime environment for a workflow."
@@ -869,7 +856,7 @@ async def _run_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
 
 
 @pytest.mark.anyio
-async def test_child_workflow_success(temporal_cluster, test_role, temporal_client):
+async def test_child_workflow_success(test_role, temporal_client):
     test_name = f"{test_child_workflow_success.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
     # Child
@@ -950,9 +937,7 @@ async def test_child_workflow_success(temporal_cluster, test_role, temporal_clie
 
 
 @pytest.mark.anyio
-async def test_child_workflow_context_passing(
-    temporal_cluster, test_role, temporal_client
-):
+async def test_child_workflow_context_passing(test_role, temporal_client):
     # Setup
     test_name = f"{test_child_workflow_context_passing.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
@@ -1070,7 +1055,7 @@ async def test_child_workflow_context_passing(
 
 @pytest.mark.anyio
 async def test_single_child_workflow_override_environment_correct(
-    temporal_cluster, test_role, temporal_client
+    test_role, temporal_client
 ):
     test_name = f"{test_single_child_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -1149,7 +1134,7 @@ async def test_single_child_workflow_override_environment_correct(
 
 @pytest.mark.anyio
 async def test_multiple_child_workflow_override_environment_correct(
-    temporal_cluster, test_role, temporal_client
+    test_role, temporal_client
 ):
     test_name = f"{test_multiple_child_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -1228,7 +1213,7 @@ async def test_multiple_child_workflow_override_environment_correct(
 
 @pytest.mark.anyio
 async def test_single_child_workflow_environment_has_correct_default(
-    temporal_cluster, test_role, temporal_client
+    test_role, temporal_client
 ):
     test_name = f"{test_single_child_workflow_environment_has_correct_default.__name__}"
     test_description = (
@@ -1307,7 +1292,7 @@ async def test_single_child_workflow_environment_has_correct_default(
 
 @pytest.mark.anyio
 async def test_multiple_child_workflow_environments_have_correct_defaults(
-    temporal_cluster, test_role, temporal_client
+    test_role, temporal_client
 ):
     test_name = (
         f"{test_multiple_child_workflow_environments_have_correct_defaults.__name__}"
@@ -1396,7 +1381,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
 
 @pytest.mark.anyio
 async def test_single_child_workflow_get_correct_secret_environment(
-    temporal_cluster, test_role, temporal_client
+    test_role, temporal_client
 ):
     # We need to set this on the API server, as we run it in a separate process
     # monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
@@ -2017,9 +2002,7 @@ def _get_test_id(test_case):
     ids=_get_test_id,
 )
 @pytest.mark.anyio
-async def test_workflow_error_path(
-    temporal_cluster, test_role, runtime_config, base_registry, dsl_data, expected
-):
+async def test_workflow_error_path(test_role, runtime_config, dsl_data, expected):
     dsl = DSLInput(**dsl_data)
     test_name = f"test_workflow_error-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
@@ -2056,9 +2039,7 @@ async def test_workflow_error_path(
 
 
 @pytest.mark.anyio
-async def test_workflow_join_unreachable(
-    temporal_cluster, test_role, runtime_config, base_registry
-):
+async def test_workflow_join_unreachable(test_role, runtime_config):
     """Test join strategy behavior with unreachable nodes.
 
     Args:
@@ -2138,9 +2119,7 @@ async def test_workflow_join_unreachable(
 
 
 @pytest.mark.anyio
-async def test_workflow_multiple_entrypoints(
-    temporal_cluster, test_role, runtime_config, base_registry
-):
+async def test_workflow_multiple_entrypoints(test_role, runtime_config):
     """Test workflow behavior with multiple entrypoints.
 
     Args:

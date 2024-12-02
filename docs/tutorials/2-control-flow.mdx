@@ -63,11 +63,11 @@ By the end of this tutorial, you will learn how to:
     </Step>
     <Step title="Configure output data">
         Let's configure the workflow to return specific output data on completion.
-        Click on the canvas to view workflow settings, then go to the **Schema** tab.
+        Click on the canvas to view workflow settings, then navigate to the **Schema** tab and set up the **Output Schema** as follows:
 
         ```
         url: ${{ ACTIONS.extract_virustotal_report.result.url }}
-        comments: ${{ ACTIONS.list_vt_comments.result.comments }}
+        comments: ${{ ACTIONS.list_virustotal_comments_on_url.result }}
         ```
 
         The ability to normalize a workflow's output data becomes more important when you start using [child workflows](/tutorials/4-child-workflows).
