@@ -5,17 +5,46 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
-variable "az_count" {
-  type        = number
-  description = "Number of AZs to cover in a given region"
-  default     = 2
-}
-
 variable "is_internal" {
   type        = bool
   description = "Whether the ALB is internal or public"
   default     = false
 }
+
+### Networking
+
+variable "vpc_id" {
+  type        = string
+  description = "The ID of the VPC"
+}
+
+variable "public_subnet_ids" {
+  type        = list(string)
+  description = "The IDs of the public subnets"
+}
+
+variable "private_subnet_ids" {
+  type        = list(string)
+  description = "The IDs of the private subnets"
+}
+
+### DNS
+
+variable "hosted_zone_id" {
+  type        = string
+  description = "The ID of the hosted zone in Route53"
+}
+
+variable "domain_name" {
+  type        = string
+  description = "The domain name to use for the application"
+}
+
+variable "acm_certificate_arn" {
+  type        = string
+  description = "The ARN of the ACM certificate to use for the application"
+}
+
 
 ### (Optional) Custom Integrations
 
@@ -135,18 +164,6 @@ variable "auth_allowed_domains" {
   type        = string
   description = "Comma separated list of allowed domains for authentication"
   default     = null
-}
-
-### DNS
-
-variable "hosted_zone_id" {
-  type        = string
-  description = "The ID of the hosted zone in Route53"
-}
-
-variable "domain_name" {
-  type        = string
-  description = "The domain name to use for the application"
 }
 
 ### Compute / Memory
@@ -299,4 +316,10 @@ variable "tracecat_app_env" {
 variable "auth_types" {
   type    = string
   default = "google_oauth,sso"
+}
+
+variable "enable_waf" {
+  description = "Whether to enable WAF for the ALB"
+  type        = bool
+  default     = true
 }

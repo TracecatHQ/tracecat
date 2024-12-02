@@ -1,7 +1,7 @@
 resource "aws_security_group" "alb" {
   name        = "alb-security-group"
   description = "Allow inbound HTTP/HTTPS access to the ALB"
-  vpc_id      = aws_vpc.tracecat.id
+  vpc_id      = var.vpc_id
 
   ingress {
     protocol    = "tcp"
@@ -28,7 +28,7 @@ resource "aws_security_group" "alb" {
 resource "aws_security_group" "caddy" {
   name        = "caddy-security-group"
   description = "Allow inbound access from the ALB to port 80 (Caddy) only"
-  vpc_id      = aws_vpc.tracecat.id
+  vpc_id      = var.vpc_id
 
   ingress {
     protocol        = "tcp"
@@ -48,7 +48,7 @@ resource "aws_security_group" "caddy" {
 resource "aws_security_group" "core" {
   name        = "core-security-group"
   description = "Security group for core Tracecat services"
-  vpc_id      = aws_vpc.tracecat.id
+  vpc_id      = var.vpc_id
 
   ingress {
     description = "Allow internal traffic to the Tracecat API service on port 8000"
@@ -94,7 +94,7 @@ resource "aws_security_group" "core" {
 resource "aws_security_group" "core_db" {
   name        = "core-db-security-group"
   description = "Security group for Tracecat API to RDS communication"
-  vpc_id      = aws_vpc.tracecat.id
+  vpc_id      = var.vpc_id
 
   ingress {
     description = "Allow inbound traffic to PostgreSQL database on port 5432"
@@ -116,7 +116,7 @@ resource "aws_security_group" "core_db" {
 resource "aws_security_group" "temporal_db" {
   name        = "temporal-db-security-group"
   description = "Security group for Tracecat API to RDS communication"
-  vpc_id      = aws_vpc.tracecat.id
+  vpc_id      = var.vpc_id
 
   ingress {
     description = "Allow inbound traffic to PostgreSQL database on port 5432"
