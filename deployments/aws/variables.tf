@@ -5,48 +5,6 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
-### Networking
-
-variable "is_internal" {
-  type        = bool
-  description = "Whether the ALB is internal or public"
-  default     = false
-}
-
-variable "vpc_id" {
-  type        = string
-  description = "The ID of the VPC"
-}
-
-variable "public_subnet_ids" {
-  type        = list(string)
-  description = "The IDs of the public subnets"
-}
-
-variable "private_subnet_ids" {
-  type        = list(string)
-  description = "The IDs of the private subnets"
-}
-
-variable "allowed_inbound_cidr_blocks" {
-  description = "List of CIDR blocks allowed to access the ALB"
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
-}
-
-variable "allowed_outbound_cidr_blocks" {
-  description = "List of CIDR blocks the ALB can send traffic to"
-  type        = list(string)
-  default     = [] # Empty by default, will be set to VPC CIDR
-}
-
-variable "enable_waf" {
-  description = "Whether to enable WAF for the ALB"
-  type        = bool
-  default     = true
-}
-
-
 ### DNS
 
 variable "domain_name" {
@@ -57,11 +15,6 @@ variable "domain_name" {
 variable "hosted_zone_id" {
   type        = string
   description = "The ID of the hosted zone in Route53"
-}
-
-variable "acm_certificate_arn" {
-  type        = string
-  description = "The ARN of the ACM certificate to use for the application"
 }
 
 ### Security
@@ -79,32 +32,6 @@ variable "auth_allowed_domains" {
 }
 
 ### Images and Versions
-
-variable "temporal_server_image" {
-  type    = string
-  default = "temporalio/auto-setup"
-}
-
-variable "temporal_server_image_tag" {
-  type    = string
-  default = "1.24.2"
-}
-
-variable "tracecat_image" {
-  type    = string
-  default = "ghcr.io/tracecathq/tracecat"
-}
-
-variable "tracecat_ui_image" {
-  type    = string
-  default = "ghcr.io/tracecathq/tracecat-ui"
-}
-
-variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
-  description = "Terraform Cloud only: the git commit SHA of that triggered the run"
-  type        = string
-  default     = null
-}
 
 variable "tracecat_image_tag" {
   type    = string
@@ -266,46 +193,10 @@ variable "restore_from_snapshot" {
   default     = false
 }
 
-variable "rds_multi_az" {
-  type        = bool
-  description = "Enable Multi-AZ for RDS instances"
-  default     = false
-}
-
-variable "rds_skip_final_snapshot" {
-  type        = bool
-  description = "Skip final snapshot when deleting RDS instances"
-  default     = false
-}
-
-variable "rds_deletion_protection" {
-  type        = bool
-  description = "Enable deletion protection for RDS instances"
-  default     = true
-}
-
-variable "rds_apply_immediately" {
-  type        = bool
-  description = "Apply changes immediately to RDS instances"
-  default     = true
-}
-
 variable "rds_backup_retention_period" {
   type        = number
   description = "The number of days to retain backups for RDS instances"
   default     = 7
-}
-
-variable "rds_performance_insights_enabled" {
-  type        = bool
-  description = "Enable Performance Insights for RDS instances"
-  default     = false
-}
-
-variable "rds_auto_minor_version_upgrade" {
-  type        = bool
-  description = "Enable auto minor version upgrades for RDS instances"
-  default     = false
 }
 
 ### Container Env Vars
