@@ -11,9 +11,9 @@ definition:
         - WAZUH_API_TOKEN
         - WAZUH_API_URL
   expects:
-    agents_list:
-      type: str | None
-      description: List of agent IDs (separated by comma), all agents selected by default if not specified.
+    agent_id:
+      type: str
+      description: ID of the agent having had a rootcheck scan
       default: null
     verify_ssl:
       type: bool
