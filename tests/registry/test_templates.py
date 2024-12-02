@@ -18,5 +18,3 @@ async def test_template_action_validation(file_path):
     action = TemplateAction(**template)
     assert action.type == "action"
     assert action.definition
-
-    # TODO: Add LLM based validation checks

@@ -1,8 +1,6 @@
 import asyncio
 import json
 import os
-import subprocess
-import time
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -16,31 +14,8 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine
 from tracecat.db.schemas import User
 from tracecat.logger import logger
-from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
 from tracecat.workspaces.models import WorkspaceMetadataResponse
-
-
-def pytest_addoption(parser: pytest.Parser):
-    parser.addoption(
-        "--temporal-compose-file",
-        action="store",
-        default="../temporal/docker-compose/docker-compose.yml",
-        help="Path to Temporal's docker-compose.yml file",
-    )
-    parser.addoption(
-        "--temporal-no-restart",
-        action="store_true",
-        default=False,
-        help="Do not restart the Temporal cluster if it is already running",
-    )
-
-    parser.addoption(
-        "--tracecat-no-restart",
-        action="store_true",
-        default=False,
-        help="Do not restart the Tracecat stack if it is already running",
-    )
 
 
 @pytest.fixture
@@ -48,33 +23,29 @@ def anyio_backend():
     return "asyncio"
 
 
+@pytest.fixture(autouse=True, scope="session")
+def monkeysession(request: pytest.FixtureRequest):
+    mpatch = pytest.MonkeyPatch()
+    yield mpatch
+    mpatch.undo()
+
+
 @pytest.fixture(autouse=True, scope="function")
-async def new_db():
+async def test_db_engine():
+    engine = get_async_engine()
     try:
-        engine = get_async_engine()
         yield engine
     finally:
+        # Ensure the engine is disposed even if the test fails
         await engine.dispose()
 
 
-@pytest.fixture(autouse=True)
-def check_disable_fixture(request):
-    marker = request.node.get_closest_marker("disable_fixture")
-    if marker and marker.args[0] == "test_user":
-        pytest.skip("Test user fixture disabled for this test or module")
-
-
 @pytest.fixture(autouse=True, scope="session")
-def env_sandbox(
-    monkeysession: pytest.MonkeyPatch,
-    request: pytest.FixtureRequest,
-):
-    import dotenv
+def env_sandbox(monkeysession: pytest.MonkeyPatch):
+    from dotenv import load_dotenv
 
-    dotenv.load_dotenv()
+    load_dotenv()
     logger.info("Setting up environment variables")
-    temporal_compose_file = request.config.getoption("--temporal-compose-file")
-
     monkeysession.setattr(
         config,
         "TRACECAT__DB_URI",
@@ -98,7 +69,6 @@ def env_sandbox(
     monkeysession.setenv("TRACECAT__PUBLIC_RUNNER_URL", "http://localhost:8001")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
-    monkeysession.setenv("TEMPORAL__DOCKER_COMPOSE_PATH", temporal_compose_file)
     # When launching the worker directly in a test, use localhost
     # If the worker is running inside a container, use host.docker.internal
     monkeysession.setenv("TEMPORAL__CLUSTER_URL", "http://localhost:7233")
@@ -107,13 +77,6 @@ def env_sandbox(
     yield
     # Cleanup is automatic with monkeypatch
     logger.info("Environment variables cleaned up")
-
-
-@pytest.fixture(autouse=True, scope="session")
-def monkeysession(request):
-    mpatch = pytest.MonkeyPatch()
-    yield mpatch
-    mpatch.undo()
 
 
 @pytest.fixture(scope="session")
@@ -143,87 +106,6 @@ def test_role(test_workspace, mock_org_id):
 
 
 @pytest.fixture(scope="session")
-def temporal_cluster(pytestconfig: pytest.Config, env_sandbox):
-    compose_file = os.environ["TEMPORAL__DOCKER_COMPOSE_PATH"]
-    logger.info(
-        "Setting up Temporal cluster",
-        compose_file=compose_file,
-    )
-
-    no_restart = pytestconfig.getoption("--temporal-no-restart")
-    if no_restart:
-        logger.info("Skipping Temporal cluster setup")
-        yield
-    else:
-        try:
-            subprocess.run(
-                ["docker", "compose", "-f", compose_file, "up", "-d"], check=True
-            )
-            time.sleep(10)  # Wait for the cluster to start
-            logger.info("Temporal started")
-
-            yield  # Run the tests
-
-        finally:
-            logger.info("Shutting down Temporal cluster")
-            subprocess.run(
-                ["docker", "compose", "-f", compose_file, "down", "--remove-orphans"],
-                check=True,
-            )
-            logger.info("Successfully shut down Temporal cluster")
-
-
-@pytest.fixture(scope="session")
-def tracecat_stack(pytestconfig: pytest.Config, env_sandbox):
-    logger.info("Setup Tracecat stack")
-    no_restart = pytestconfig.getoption("--tracecat-no-restart")
-    if no_restart:
-        logger.info("Skipping Tracecat stack setup")
-        yield
-    else:
-        try:
-            subprocess.run(
-                ["docker", "compose", "up", "-d", "api", "postgres_db"], check=True
-            )
-            time.sleep(5)  # Wait for the cluster to start
-            logger.info("Tracecat stack started")
-
-            yield
-        finally:
-            logger.info("Shutting down Tracecat stack")
-            subprocess.run(
-                ["docker", "compose", "down", "--remove-orphans"], check=True
-            )
-            logger.info("Successfully shut down Tracecat stack")
-
-
-@pytest.fixture(scope="session")
-def tracecat_worker(env_sandbox):
-    # Start the Tracecat Temporal worker
-    # The worker is in our main tracecat docker compose file
-    try:
-        # Check that worker is not already running
-        logger.info("Starting Tracecat Temporal worker")
-        env_copy = os.environ.copy()
-        # As the worker is running inside a container, use host.docker.internal
-        env_copy["TEMPORAL__CLUSTER_URL"] = "http://host.docker.internal:7233"
-        subprocess.run(
-            ["docker", "compose", "up", "-d", "worker"],
-            check=True,
-            env=env_copy,
-        )
-        time.sleep(5)
-
-        yield
-    finally:
-        logger.info("Stopping Tracecat Temporal worker")
-        subprocess.run(
-            ["docker", "compose", "down", "--remove-orphans", "worker"], check=True
-        )
-        logger.info("Stopped Tracecat Temporal worker")
-
-
-@pytest.fixture(scope="session", autouse=True)
 def test_config_path(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     tmp_path = tmp_path_factory.mktemp("config")
     config_path = tmp_path / "test_config.json"
@@ -260,7 +142,7 @@ def authed_client_controls(test_config_path: Path):
     return get_client, cfg_write, cfg_read
 
 
-@pytest.fixture(autouse=True, scope="session")
+@pytest.fixture(scope="session")
 def test_admin_user(env_sandbox, authed_client_controls):
     from tracecat.auth.models import UserCreate, UserRole
     # Login
@@ -316,7 +198,7 @@ def test_admin_user(env_sandbox, authed_client_controls):
             response.raise_for_status()
 
 
-@pytest.fixture(autouse=True, scope="session")
+@pytest.fixture(scope="session")
 def test_workspace(test_admin_user, authed_client_controls):
     """Create a test workspace for the test session."""
 
@@ -367,13 +249,3 @@ def temporal_client():
 
     client = loop.run_until_complete(get_temporal_client())
     return client
-
-
-@pytest.fixture
-def base_registry():
-    try:
-        registry = Repository()
-        registry.init(include_base=True, include_templates=False)
-        yield registry
-    finally:
-        registry._reset()
