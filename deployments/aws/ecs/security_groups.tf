@@ -1,3 +1,7 @@
+data "aws_vpc" "this" {
+  id = var.vpc_id
+}
+
 resource "aws_security_group" "alb" {
   name        = "alb-security-group"
   description = "Allow inbound HTTP/HTTPS access to the ALB"
@@ -7,21 +11,21 @@ resource "aws_security_group" "alb" {
     protocol    = "tcp"
     from_port   = 443
     to_port     = 443
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.allowed_inbound_cidr_blocks
   }
 
   ingress {
     protocol    = "tcp"
     from_port   = 80
     to_port     = 80
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.allowed_inbound_cidr_blocks
   }
 
   egress {
     protocol    = "-1"
     from_port   = 0
     to_port     = 0
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = coalesce(var.allowed_outbound_cidr_blocks, [data.aws_vpc.this.cidr_block])
   }
 }
 
@@ -41,7 +45,7 @@ resource "aws_security_group" "caddy" {
     protocol    = "-1"
     from_port   = 0
     to_port     = 0
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [data.aws_vpc.this.cidr_block]
   }
 }
 
@@ -86,7 +90,7 @@ resource "aws_security_group" "core" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [data.aws_vpc.this.cidr_block]
   }
 
 }
@@ -97,40 +101,40 @@ resource "aws_security_group" "core_db" {
   vpc_id      = var.vpc_id
 
   ingress {
-    description = "Allow inbound traffic to PostgreSQL database on port 5432"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "Allow inbound traffic to PostgreSQL database on port 5432"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.core.id]
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    security_groups = [aws_security_group.core.id]
   }
 
 }
 
 resource "aws_security_group" "temporal_db" {
   name        = "temporal-db-security-group"
-  description = "Security group for Tracecat API to RDS communication"
+  description = "Security group for Temporal server to RDS communication"
   vpc_id      = var.vpc_id
 
   ingress {
-    description = "Allow inbound traffic to PostgreSQL database on port 5432"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "Allow inbound traffic to PostgreSQL database on port 5432"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.core.id]
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    security_groups = [aws_security_group.core.id]
   }
 
 }
