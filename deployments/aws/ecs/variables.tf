@@ -28,6 +28,13 @@ variable "private_subnet_ids" {
   description = "The IDs of the private subnets"
 }
 
+variable "enable_waf" {
+  description = "Whether to enable WAF for the ALB"
+  type        = bool
+  default     = true
+}
+
+
 ### DNS
 
 variable "hosted_zone_id" {
@@ -45,18 +52,17 @@ variable "acm_certificate_arn" {
   description = "The ARN of the ACM certificate to use for the application"
 }
 
+### Security
 
-### (Optional) Custom Integrations
-
-variable "remote_repository_package_name" {
-  type        = string
-  description = "The package name of the remote repository"
-  default     = null
+variable "auth_types" {
+  type    = string
+  default = "google_oauth,sso"
 }
 
-variable "remote_repository_url" {
+
+variable "auth_allowed_domains" {
   type        = string
-  description = "The URL of the remote repository"
+  description = "Comma separated list of allowed domains for authentication"
   default     = null
 }
 
@@ -158,11 +164,17 @@ variable "saml_idp_metadata_url_arn" {
   default     = null
 }
 
-### Security
+### (Optional) Custom Integrations
 
-variable "auth_allowed_domains" {
+variable "remote_repository_package_name" {
   type        = string
-  description = "Comma separated list of allowed domains for authentication"
+  description = "The package name of the remote repository"
+  default     = null
+}
+
+variable "remote_repository_url" {
+  type        = string
+  description = "The URL of the remote repository"
   default     = null
 }
 
@@ -293,12 +305,6 @@ variable "rds_auto_minor_version_upgrade" {
 # NOTE: sensitive variables are stored in secrets manager
 # and specified directly in the task definition via a secret reference
 
-### Container Env Vars
-# PUBLIC_APP_URL = https://{var.domain_name}
-# PUBLIC_API_URL= https://{var.domain_name}/api/
-# INTERNAL_API_URL =  http://api-service:8000
-
-
 variable "log_level" {
   type        = string
   description = "Log level for the application"
@@ -309,17 +315,4 @@ variable "tracecat_app_env" {
   type        = string
   description = "The environment of the Tracecat application"
   default     = "production"
-}
-
-# UI
-
-variable "auth_types" {
-  type    = string
-  default = "google_oauth,sso"
-}
-
-variable "enable_waf" {
-  description = "Whether to enable WAF for the ALB"
-  type        = bool
-  default     = true
 }
