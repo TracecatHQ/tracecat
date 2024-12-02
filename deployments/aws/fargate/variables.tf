@@ -11,6 +11,12 @@ variable "az_count" {
   default     = 2
 }
 
+variable "is_internal" {
+  type        = bool
+  description = "Whether the ALB is internal or public"
+  default     = false
+}
+
 ### (Optional) Custom Integrations
 
 variable "remote_repository_package_name" {

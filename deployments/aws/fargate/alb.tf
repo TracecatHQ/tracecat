@@ -1,7 +1,7 @@
 # Application Load Balancer
 resource "aws_alb" "this" {
   name               = "tracecat-alb"
-  internal           = false
+  internal           = var.is_internal
   load_balancer_type = "application"
   subnets            = aws_subnet.public[*].id
   security_groups    = [aws_security_group.alb.id]
