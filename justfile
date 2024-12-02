@@ -4,7 +4,7 @@ set dotenv-load
 default:
   @just --list
 test:
-	pytest --cache-clear tests/unit  tests/playbooks --temporal-no-restart --tracecat-no-restart -x
+	pytest --cache-clear tests/registry tests/unit tests/playbooks -x
 down:
 	docker compose down --remove-orphans
 clean:

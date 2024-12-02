@@ -32,11 +32,10 @@ dependencies = [
     "httpx==0.27.0",
     "ldap3==2.9.1",
     "nh3==0.2.18",
-    "polars-lts-cpu==1.2.0",
     "pymongo==4.8.0",
     "slack-sdk==3.28.0",
     "tenacity==8.3.0",
-    "types-aioboto3[guardduty]==13.0.1",
+    "types-aioboto3[guardduty,s3]==13.0.1",
     "pyvelociraptor==0.1.8",
 ]
 dynamic = ["version"]
