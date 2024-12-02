@@ -30,14 +30,4 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
         verify_ssl: ${{ inputs.verify_ssl  }}
-    - ref: get_results_rootcheck
-      action: core.http_request
-      args:
-        url: ${{ SECRETS.wazuh.WAZUH_API_URL }}/rootcheck
-        method: GET
-        params:
-          agents_list: ${{ FN.join(steps.run_scan_rootcheck.result.data.data.affected_items[*].id, ",") }}
-        headers:
-          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
-        verify_ssl: ${{ inputs.verify_ssl  }}
-  returns: ${{ steps.get_results_rootcheck.result }}
+  returns: ${{ steps.run_scan_rootcheck.result }}
