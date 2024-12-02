@@ -2,7 +2,7 @@ type: action
 definition:
   name: get_results_rootcheck
   namespace: integrations.wazuh
-  title: Get Results Rootcheck Scan
+  title: Get Rootcheck Scan Results
   description: Recovers information from a rootcheck scan on an agent
   display_group: Wazuh
   secrets:
