@@ -363,6 +363,11 @@ def root() -> dict[str, str]:
     return {"message": "Hello world. I am the API."}
 
 
+@app.get("/info", include_in_schema=False)
+def info() -> dict[str, str]:
+    return {"public_app_url": config.TRACECAT__PUBLIC_APP_URL}
+
+
 @app.get("/health", tags=["public"])
 def check_health() -> dict[str, str]:
     return {"message": "Hello world. I am the API. This is the health endpoint."}
