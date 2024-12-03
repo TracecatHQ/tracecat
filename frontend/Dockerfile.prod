@@ -36,12 +36,6 @@ COPY --from=deps /app/node_modules ./node_modules
 
 # Copy all source files and build the application
 COPY . .
-
-# Skip type checking and linting during Docker build since we did it in CI
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV SKIP_TYPE_CHECK=true
-ENV SKIP_LINT=true
-
 RUN corepack enable pnpm && pnpm build
 
 # Use the Node.js Alpine image as the base image for the runner stage
