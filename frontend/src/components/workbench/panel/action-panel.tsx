@@ -541,6 +541,8 @@ export function ActionPanel({
                             value={field.value}
                             onChange={field.onChange}
                             defaultLanguage="yaml-extended"
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
@@ -612,6 +614,8 @@ export function ActionPanel({
                             defaultLanguage="yaml"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
@@ -653,6 +657,8 @@ export function ActionPanel({
                             defaultLanguage="yaml"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
@@ -692,6 +698,8 @@ export function ActionPanel({
                             defaultLanguage="yaml"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
@@ -749,6 +757,8 @@ export function ActionPanel({
                             defaultLanguage="yaml"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />

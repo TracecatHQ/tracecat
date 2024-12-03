@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react"
 import { EditorFunctionRead, editorListFunctions } from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
 import {
   EditorProps,
   Editor as ReactMonacoEditor,
@@ -129,12 +128,15 @@ interface ISuggestController {
 export function CustomEditor({
   className,
   onKeyDown,
+  workspaceId,
+  workflowId,
   ...props
 }: EditorProps & {
   className?: string
   onKeyDown?: () => void
+  workspaceId?: string
+  workflowId?: string | null
 }) {
-  const { workflowId, workspaceId } = useWorkflowBuilder()
   const completionDisposableRef = useRef<IDisposable | null>(null)
   const hoverDisposableRef = useRef<IDisposable | null>(null)
   const tokenizerDisposableRef = useRef<IDisposable | null>(null)
@@ -284,7 +286,7 @@ export function CustomEditor({
               console.log("MATCH: inside actions")
 
               if (textUntilPos.endsWith("ACTIONS.")) {
-                if (workflowId) {
+                if (workflowId && workspaceId) {
                   console.log("MATCH: get action completions")
                   return {
                     suggestions: await getActionCompletions(
@@ -328,7 +330,7 @@ export function CustomEditor({
               return { suggestions: [] }
             }
 
-            if (textUntilPos.endsWith("FN.")) {
+            if (textUntilPos.endsWith("FN.") && workspaceId) {
               console.log("MATCH: inside fn")
               return {
                 suggestions: await getFunctionSuggestions(
@@ -389,6 +391,9 @@ export function CustomEditor({
       "yaml-extended",
       {
         provideHover: async (model, position) => {
+          if (!workspaceId) {
+            return null
+          }
           const wordAtPosition = model.getWordAtPosition(position)
           if (!wordAtPosition) return null
 

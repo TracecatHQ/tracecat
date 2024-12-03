@@ -474,6 +474,8 @@ function WorkflowManualTrigger({
                               defaultLanguage="yaml"
                               value={field.value}
                               onChange={field.onChange}
+                              workspaceId={workspaceId}
+                              workflowId={workflowId}
                             />
                           </FormControl>
                           <FormMessage />

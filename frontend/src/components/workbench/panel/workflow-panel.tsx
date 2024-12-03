@@ -7,6 +7,7 @@ import "@radix-ui/react-dialog"
 
 import { ApiError, WorkflowResponse } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
+import { useWorkspace } from "@/providers/workspace"
 import {
   FileInputIcon,
   FileSliders,
@@ -108,6 +109,8 @@ export function WorkflowPanel({
 }: {
   workflow: WorkflowResponse
 }): React.JSX.Element {
+  const { workspaceId } = useWorkspace()
+  const { workflowId } = useWorkflow()
   const [saveState, setSaveState] = useState<"idle" | "saving" | "success">(
     "idle"
   )
@@ -350,6 +353,8 @@ export function WorkflowPanel({
                             defaultLanguage="yaml"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
@@ -405,6 +410,8 @@ export function WorkflowPanel({
                             defaultLanguage="yaml"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
@@ -453,6 +460,8 @@ export function WorkflowPanel({
                             defaultLanguage="yaml"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
@@ -504,6 +513,8 @@ export function WorkflowPanel({
                             defaultLanguage="yaml"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
