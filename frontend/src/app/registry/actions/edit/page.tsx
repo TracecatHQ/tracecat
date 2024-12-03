@@ -218,7 +218,7 @@ function EditTemplateActionForm({
                   </span>
                   <DynamicCustomEditor
                     className="h-96 w-full"
-                    defaultLanguage="yaml"
+                    defaultLanguage="yaml-extended"
                     value={field.value}
                     onChange={field.onChange}
                   />
