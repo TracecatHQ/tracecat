@@ -1,7 +1,3 @@
-data "aws_vpc" "this" {
-  id = var.vpc_id
-}
-
 resource "aws_security_group" "alb" {
   name        = "alb-security-group"
   description = "Allow inbound HTTP/HTTPS access to the ALB"
@@ -25,7 +21,7 @@ resource "aws_security_group" "alb" {
     protocol    = "-1"
     from_port   = 0
     to_port     = 0
-    cidr_blocks = coalesce(var.allowed_outbound_cidr_blocks, [data.aws_vpc.this.cidr_block])
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
@@ -45,7 +41,7 @@ resource "aws_security_group" "caddy" {
     protocol    = "-1"
     from_port   = 0
     to_port     = 0
-    cidr_blocks = [data.aws_vpc.this.cidr_block]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
@@ -109,11 +105,9 @@ resource "aws_security_group" "core_db" {
   }
 
   egress {
-    from_port = 0
-    to_port   = 0
-    protocol  = "-1"
-    # Need to reach GitHub image registry
-    cidr_blocks     = ["0.0.0.0/0"]
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
     security_groups = [aws_security_group.core.id]
   }
 
@@ -136,7 +130,6 @@ resource "aws_security_group" "temporal_db" {
     from_port       = 0
     to_port         = 0
     protocol        = "-1"
-    cidr_blocks     = ["0.0.0.0/0"]
     security_groups = [aws_security_group.core.id]
   }
 
@@ -164,9 +157,9 @@ resource "aws_security_group" "secretsmanager_vpc_endpoint" {
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    security_groups = [aws_security_group.core.id]
   }
 }
