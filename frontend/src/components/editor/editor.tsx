@@ -1,3 +1,5 @@
+"use client"
+
 import { useEffect, useRef } from "react"
 import { EditorFunctionRead, editorListFunctions } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
@@ -469,3 +471,5 @@ export function CustomEditor({
     </>
   )
 }
+
+export default CustomEditor
