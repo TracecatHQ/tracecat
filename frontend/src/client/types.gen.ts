@@ -355,6 +355,25 @@ export type DSLRunArgs = {
     schedule_id?: string | null;
 };
 
+export type EditorActionRead = {
+    type: string;
+    ref: string;
+    description: string;
+};
+
+export type EditorFunctionRead = {
+    name: string;
+    description: string;
+    parameters: Array<EditorParamRead>;
+    return_type: string;
+};
+
+export type EditorParamRead = {
+    name: string;
+    type: string;
+    optional: boolean;
+};
+
 export type ErrorModel = {
     detail: string | {
     [key: string]: (string);
@@ -1691,6 +1710,19 @@ export type OrganizationUpdateOrgMemberData = {
 
 export type OrganizationUpdateOrgMemberResponse = OrgMemberRead;
 
+export type EditorListFunctionsData = {
+    workspaceId: string;
+};
+
+export type EditorListFunctionsResponse = Array<EditorFunctionRead>;
+
+export type EditorListActionsData = {
+    workflowId: string;
+    workspaceId: string;
+};
+
+export type EditorListActionsResponse = Array<EditorActionRead>;
+
 export type UsersUsersCurrentUserResponse = UserRead;
 
 export type UsersUsersPatchCurrentUserData = {
@@ -2665,6 +2697,36 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: OrgMemberRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/editor/functions': {
+        get: {
+            req: EditorListFunctionsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<EditorFunctionRead>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/editor/actions': {
+        get: {
+            req: EditorListActionsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<EditorActionRead>;
                 /**
                  * Validation Error
                  */

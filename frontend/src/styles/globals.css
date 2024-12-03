@@ -80,4 +80,71 @@
     border-radius: 10px;
     border: 1px solid #d9d9d9;
   }
+  /* Custom styles for the Monaco editor suggestion widget */
+  .editor-wrapper .monaco-editor .suggest-widget {
+    border-radius: 4px;
+    overflow: hidden;
+    /* border: 1px solid var(--border-color); */
+    /* box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); */
+    min-width: 280px !important;
+  }
+
+  /* Style individual suggestion items */
+  .editor-wrapper .monaco-editor .suggest-widget .monaco-list-row {
+    white-space: nowrap !important;
+    overflow: visible !important;
+  }
+
+  /* Make the suggestion list container wider */
+  .editor-wrapper .monaco-editor .suggest-widget > .message,
+  .editor-wrapper .monaco-editor .suggest-widget > .tree {
+    width: auto !important;
+    min-width: 100% !important;
+  }
+
+  /* Ensure the details pane is wide enough */
+  .editor-wrapper .monaco-editor .suggest-widget .details-view {
+    padding: 8px;
+    width: auto !important;
+    min-width: 100% !important;
+  }
+
+  /* Style the highlighted/selected suggestion */
+  .editor-wrapper
+    .monaco-editor
+    .suggest-widget
+    .monaco-list
+    .monaco-list-row.focused {
+    background-color: #d5f0ff !important; /* Selected background */
+    color: black !important; /* Selected text color */
+  }
+
+  /* Style the matching text highlight */
+  .editor-wrapper
+    .monaco-editor
+    .suggest-widget
+    .monaco-list
+    .monaco-list-row.focused
+    .highlight {
+    color: black !important; /* Highlighted text in selected item */
+    font-weight: bold;
+  }
+
+  /* Style the matching text in non-selected items */
+  .editor-wrapper
+    .monaco-editor
+    .suggest-widget
+    .monaco-list
+    .monaco-list-row
+    .highlight {
+    color: #0078d4 !important; /* Highlighted text color */
+    font-weight: bold;
+  }
+  /* Hover styles */
+  .editor-wrapper .monaco-editor .monaco-hover {
+    background-color: #ffffff;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  }
 }

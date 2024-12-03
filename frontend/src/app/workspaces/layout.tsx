@@ -36,7 +36,6 @@ export default function WorkspaceLayout({
     return <NoWorkspaces />
   }
 
-  console.log("Redirecting to workspace", wsId)
   return (
     <WorkspaceProvider workspaceId={wsId}>
       <WorkflowProvider workspaceId={wsId}>

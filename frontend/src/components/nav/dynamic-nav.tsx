@@ -23,16 +23,12 @@ export function DynamicNavbar() {
 function getNavBar(pathname: string, params: DynamicNavbarParams) {
   const { workspaceId, workflowId } = params
   if (pathname.includes("/workflows") && workspaceId && workflowId) {
-    console.log("Rendering workflow nav")
     return <WorkbenchNav />
   } else if (pathname.includes("/workspaces") && workspaceId) {
-    console.log("Rendering workspace nav")
     return <WorkspaceNav />
   } else if (pathname.includes("/registry")) {
-    console.log("Rendering registry nav")
     return <RegistryNav />
   } else if (pathname.includes("/organization")) {
-    console.log("Rendering organization nav")
     return <OrganizationNav />
   } else {
     return null
