@@ -18,4 +18,6 @@ definition:
         params:
           email: ${{ inputs.email }}
         sdk_method: users_lookupByEmail
-  returns: ${{ steps.lookup_user.result.user.id }}
+  returns:
+    user_id: ${{ steps.lookup_user.result.user.id }}
+    email: ${{ inputs.email }}
