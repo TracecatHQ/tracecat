@@ -61,6 +61,32 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 f"Password must be at least {config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH} characters long"
             )
 
+    async def oauth_callback(
+        self,
+        oauth_name: str,
+        access_token: str,
+        account_id: str,
+        account_email: str,
+        expires_at: int | None = None,
+        refresh_token: str | None = None,
+        request: Request | None = None,
+        *,
+        associate_by_email: bool = False,
+        is_verified_by_default: bool = False,
+    ) -> User:
+        validate_email(account_email)
+        return await super().oauth_callback(  # type: ignore
+            oauth_name,
+            access_token,
+            account_id,
+            account_email,
+            expires_at,
+            refresh_token,
+            request,
+            associate_by_email=associate_by_email,
+            is_verified_by_default=is_verified_by_default,
+        )
+
     async def create(
         self,
         user_create: UserCreate,
@@ -269,6 +295,7 @@ async def list_users(*, session: SQLModelAsyncSession) -> Sequence[User]:
 def validate_email(email: EmailStr) -> None:
     # Safety: This is already a validated email, so we can split on the first @
     _, domain = email.split("@", 1)
+    logger.info(f"Domain: {domain}")
 
     if (
         config.TRACECAT__AUTH_ALLOWED_DOMAINS
