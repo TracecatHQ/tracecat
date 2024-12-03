@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.15.2}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.15.3}
     container_name: api
     restart: unless-stopped
     networks:
@@ -59,7 +59,7 @@ services:
       OLLAMA__API_URL: ${OLLAMA__API_URL}
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.15.2}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.15.3}
     restart: unless-stopped
     networks:
       - core
@@ -83,7 +83,7 @@ services:
     command: ["python", "tracecat/dsl/worker.py"]
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.15.2}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.15.3}
     container_name: ui
     restart: unless-stopped
     networks:
