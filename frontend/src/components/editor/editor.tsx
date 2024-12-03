@@ -125,18 +125,20 @@ interface ISuggestController {
   }
 }
 
+export interface CustomEditorProps extends EditorProps {
+  className?: string
+  onKeyDown?: () => void
+  workspaceId?: string
+  workflowId?: string | null
+}
+
 export function CustomEditor({
   className,
   onKeyDown,
   workspaceId,
   workflowId,
   ...props
-}: EditorProps & {
-  className?: string
-  onKeyDown?: () => void
-  workspaceId?: string
-  workflowId?: string | null
-}) {
+}: CustomEditorProps) {
   const completionDisposableRef = useRef<IDisposable | null>(null)
   const hoverDisposableRef = useRef<IDisposable | null>(null)
   const tokenizerDisposableRef = useRef<IDisposable | null>(null)
