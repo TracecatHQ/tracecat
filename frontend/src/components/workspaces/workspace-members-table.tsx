@@ -202,7 +202,7 @@ export function WorkspaceMembersTable({
                       {userIsAdmin && (
                         <>
                           <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Admin</DropdownMenuLabel>
+                          <DropdownMenuLabel>Manage</DropdownMenuLabel>
                           <DialogTrigger asChild>
                             <DropdownMenuItem
                               onClick={() => {
