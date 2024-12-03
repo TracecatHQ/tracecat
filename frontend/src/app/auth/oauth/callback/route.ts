@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { buildUrl, getDomain } from "@/lib/ss-utils"
+import { buildUrl } from "@/lib/ss-utils"
 
 /**
  * @param request
