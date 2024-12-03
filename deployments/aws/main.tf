@@ -36,9 +36,10 @@ module "ecs" {
   hosted_zone_id = var.hosted_zone_id
 
   # Tracecat version
-  tracecat_image_tag   = var.tracecat_image_tag
-  use_git_commit_sha   = var.use_git_commit_sha
-  force_new_deployment = var.force_new_deployment
+  TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA = var.TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA
+  tracecat_image_tag                       = var.tracecat_image_tag
+  use_git_commit_sha                       = var.use_git_commit_sha
+  force_new_deployment                     = var.force_new_deployment
 
   # Container environment variables
   tracecat_app_env   = var.tracecat_app_env
