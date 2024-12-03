@@ -85,7 +85,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { CustomEditor } from "@/components/editor"
+import { DynamicCustomEditor } from "@/components/editor/dynamic"
 
 export function WorkbenchNav() {
   const {
@@ -469,7 +469,7 @@ function WorkflowManualTrigger({
                       render={({ field }) => (
                         <FormItem>
                           <FormControl>
-                            <CustomEditor
+                            <DynamicCustomEditor
                               className="size-full h-36"
                               defaultLanguage="yaml"
                               value={field.value}

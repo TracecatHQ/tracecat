@@ -1,11 +1,9 @@
 "use client"
 
 import React from "react"
-import dynamic from "next/dynamic"
 import { useRouter, useSearchParams } from "next/navigation"
 import { TemplateAction_Output, TemplateActionDefinition } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { type EditorProps } from "@monaco-editor/react"
 import { AlertTriangleIcon, ArrowLeftIcon, Loader2 } from "lucide-react"
 import { Controller, useForm } from "react-hook-form"
 import YAML from "yaml"
@@ -30,14 +28,8 @@ import { Button } from "@/components/ui/button"
 import { Form, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { CenteredSpinner } from "@/components/loading/spinner"
-
-let CustomEditor: React.ComponentType<EditorProps> | undefined
-if (typeof window !== "undefined") {
-  CustomEditor = dynamic(() => import("@/components/editor/editor"), {
-    ssr: false,
-  })
-}
 
 export default function NewActionPage() {
   const searchParams = useSearchParams()
@@ -214,20 +206,18 @@ function NewTemplateActionForm({
             <span className="text-xs text-muted-foreground">
               Edit the action template in YAML.
             </span>
-            {CustomEditor && (
-              <Controller
-                name="definition"
-                control={methods.control}
-                render={({ field }) => (
-                  <CustomEditor
-                    className="h-96 w-full"
-                    defaultLanguage="yaml"
-                    value={field.value}
-                    onChange={field.onChange}
-                  />
-                )}
-              />
-            )}
+            <Controller
+              name="definition"
+              control={methods.control}
+              render={({ field }) => (
+                <DynamicCustomEditor
+                  className="h-96 w-full"
+                  defaultLanguage="yaml"
+                  value={field.value}
+                  onChange={field.onChange}
+                />
+              )}
+            />
             {error && (
               <FormMessage className="flex items-center space-x-1">
                 <AlertTriangleIcon className="size-4 fill-red-500 stroke-white" />

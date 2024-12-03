@@ -48,7 +48,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
-import { CustomEditor } from "@/components/editor"
+import { DynamicCustomEditor } from "@/components/editor/dynamic"
 
 const workflowConfigFormSchema = z.object({
   title: z.string(),
@@ -348,7 +348,7 @@ export function WorkflowPanel({
                         name="config"
                         control={methods.control}
                         render={({ field }) => (
-                          <CustomEditor
+                          <DynamicCustomEditor
                             className="h-48 w-full"
                             defaultLanguage="yaml"
                             value={field.value}
@@ -405,7 +405,7 @@ export function WorkflowPanel({
                         name="expects"
                         control={methods.control}
                         render={({ field }) => (
-                          <CustomEditor
+                          <DynamicCustomEditor
                             className="h-48 w-full"
                             defaultLanguage="yaml"
                             value={field.value}
@@ -455,7 +455,7 @@ export function WorkflowPanel({
                         name="returns"
                         control={methods.control}
                         render={({ field }) => (
-                          <CustomEditor
+                          <DynamicCustomEditor
                             className="h-48 w-full"
                             defaultLanguage="yaml"
                             value={field.value}
@@ -508,7 +508,7 @@ export function WorkflowPanel({
                         name="static_inputs"
                         control={methods.control}
                         render={({ field }) => (
-                          <CustomEditor
+                          <DynamicCustomEditor
                             className="h-48 w-full"
                             defaultLanguage="yaml"
                             value={field.value}
