@@ -18,11 +18,14 @@ URL_REGEX = r'https?://(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(?:/[^\s"\'\],\.]*)?'
 )
 def extract_urls(
     texts: Annotated[
-        list[str],
-        Field(..., description="The list of strings to extract URLs from"),
+        str | list[str],
+        Field(..., description="Text or list of text to extract URLs from"),
     ],
 ) -> list[str]:
     """Extract unique URLs from a list of strings."""
+    if isinstance(texts, str):
+        texts = [texts]
+
     urls = itertools.chain.from_iterable(re.findall(URL_REGEX, text) for text in texts)
     unique_urls = set(urls)
     return list(unique_urls)
