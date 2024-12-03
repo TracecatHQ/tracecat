@@ -350,7 +350,7 @@ export function WorkflowPanel({
                         render={({ field }) => (
                           <DynamicCustomEditor
                             className="h-48 w-full"
-                            defaultLanguage="yaml"
+                            defaultLanguage="yaml-extended"
                             value={field.value}
                             onChange={field.onChange}
                             workspaceId={workspaceId}
@@ -407,7 +407,7 @@ export function WorkflowPanel({
                         render={({ field }) => (
                           <DynamicCustomEditor
                             className="h-48 w-full"
-                            defaultLanguage="yaml"
+                            defaultLanguage="yaml-extended"
                             value={field.value}
                             onChange={field.onChange}
                             workspaceId={workspaceId}
@@ -457,7 +457,7 @@ export function WorkflowPanel({
                         render={({ field }) => (
                           <DynamicCustomEditor
                             className="h-48 w-full"
-                            defaultLanguage="yaml"
+                            defaultLanguage="yaml-extended"
                             value={field.value}
                             onChange={field.onChange}
                             workspaceId={workspaceId}
@@ -510,7 +510,7 @@ export function WorkflowPanel({
                         render={({ field }) => (
                           <DynamicCustomEditor
                             className="h-48 w-full"
-                            defaultLanguage="yaml"
+                            defaultLanguage="yaml-extended"
                             value={field.value}
                             onChange={field.onChange}
                             workspaceId={workspaceId}

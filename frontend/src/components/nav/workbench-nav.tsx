@@ -471,7 +471,7 @@ function WorkflowManualTrigger({
                           <FormControl>
                             <DynamicCustomEditor
                               className="size-full h-36"
-                              defaultLanguage="yaml"
+                              defaultLanguage="yaml-extended"
                               value={field.value}
                               onChange={field.onChange}
                               workspaceId={workspaceId}
