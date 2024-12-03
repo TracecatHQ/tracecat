@@ -90,7 +90,7 @@ resource "aws_security_group" "core" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = [data.aws_vpc.this.cidr_block]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
 }
@@ -109,9 +109,11 @@ resource "aws_security_group" "core_db" {
   }
 
   egress {
-    from_port       = 0
-    to_port         = 0
-    protocol        = "-1"
+    from_port = 0
+    to_port   = 0
+    protocol  = "-1"
+    # Need to reach GitHub image registry
+    cidr_blocks     = ["0.0.0.0/0"]
     security_groups = [aws_security_group.core.id]
   }
 
@@ -134,6 +136,7 @@ resource "aws_security_group" "temporal_db" {
     from_port       = 0
     to_port         = 0
     protocol        = "-1"
+    cidr_blocks     = ["0.0.0.0/0"]
     security_groups = [aws_security_group.core.id]
   }
 
@@ -158,5 +161,12 @@ resource "aws_security_group" "secretsmanager_vpc_endpoint" {
     to_port         = 443
     protocol        = "tcp"
     security_groups = [aws_security_group.core.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
