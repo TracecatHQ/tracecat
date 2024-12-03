@@ -1,7 +1,3 @@
-data "aws_vpc" "this" {
-  id = var.vpc_id
-}
-
 resource "aws_security_group" "alb" {
   name        = "alb-security-group"
   description = "Allow inbound HTTP/HTTPS access to the ALB"
@@ -25,7 +21,7 @@ resource "aws_security_group" "alb" {
     protocol    = "-1"
     from_port   = 0
     to_port     = 0
-    cidr_blocks = coalesce(var.allowed_outbound_cidr_blocks, [data.aws_vpc.this.cidr_block])
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
@@ -45,7 +41,7 @@ resource "aws_security_group" "caddy" {
     protocol    = "-1"
     from_port   = 0
     to_port     = 0
-    cidr_blocks = [data.aws_vpc.this.cidr_block]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
@@ -90,7 +86,7 @@ resource "aws_security_group" "core" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = [data.aws_vpc.this.cidr_block]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
 }
@@ -137,4 +133,33 @@ resource "aws_security_group" "temporal_db" {
     security_groups = [aws_security_group.core.id]
   }
 
+}
+
+resource "aws_vpc_endpoint" "secretsmanager" {
+  vpc_id              = var.vpc_id
+  service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = var.private_subnet_ids
+  security_group_ids  = [aws_security_group.secretsmanager_vpc_endpoint.id]
+  private_dns_enabled = true
+}
+
+resource "aws_security_group" "secretsmanager_vpc_endpoint" {
+  name        = "secretsmanager-vpc-endpoint"
+  description = "Security group for Secrets Manager VPC endpoint"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.core.id]
+  }
+
+  egress {
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    security_groups = [aws_security_group.core.id]
+  }
 }

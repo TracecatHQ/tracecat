@@ -33,6 +33,12 @@ variable "auth_allowed_domains" {
 
 ### Images and Versions
 
+variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
+  description = "Terraform Cloud only: the git commit SHA of that triggered the run"
+  type        = string
+  default     = null
+}
+
 variable "tracecat_image_tag" {
   type    = string
   default = "0.15.2"
