@@ -6,6 +6,7 @@ import { useAuth } from "@/providers/auth"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 
 import { userIsPrivileged } from "@/lib/auth"
+import { getRelativeTime } from "@/lib/event-history"
 import { useOrgMembers } from "@/lib/hooks"
 import {
   AlertDialog,
@@ -31,6 +32,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -230,10 +232,17 @@ export function OrgMembersTable() {
               cell: ({ row }) => {
                 const lastLoginAt =
                   row.getValue<OrgMemberRead["last_login_at"]>("last_login_at")
-                const date = lastLoginAt
-                  ? new Date(lastLoginAt).toLocaleString()
-                  : "-"
-                return <div className="text-xs">{date}</div>
+                if (!lastLoginAt) {
+                  return <div className="text-xs">-</div>
+                }
+                const date = new Date(lastLoginAt)
+                const ago = getRelativeTime(date)
+                return (
+                  <div className="space-x-2 text-xs">
+                    <span>{date.toLocaleString()}</span>
+                    <span className="text-muted-foreground">({ago})</span>
+                  </div>
+                )
               },
               enableSorting: true,
               enableHiding: false,
@@ -260,7 +269,7 @@ export function OrgMembersTable() {
                       </DropdownMenuItem>
 
                       {privileged && (
-                        <>
+                        <DropdownMenuGroup>
                           <DropdownMenuSeparator />
                           <DropdownMenuLabel>Manage</DropdownMenuLabel>
                           <DialogTrigger asChild>
@@ -285,7 +294,7 @@ export function OrgMembersTable() {
                               Remove from workspace
                             </DropdownMenuItem>
                           </AlertDialogTrigger>
-                        </>
+                        </DropdownMenuGroup>
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
