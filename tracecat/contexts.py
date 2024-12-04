@@ -16,7 +16,7 @@ class RunContext(BaseModel):
     """This is the runtime context model for a workflow run. Passed into activities."""
 
     wf_id: identifiers.WorkflowID
-    wf_exec_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID
+    wf_exec_id: identifiers.WorkflowExecutionID
     wf_run_id: identifiers.WorkflowRunID
     environment: str
 

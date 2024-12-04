@@ -47,12 +47,7 @@ from tracecat.identifiers import action, resource, schedules, workflow
 from tracecat.identifiers.action import ActionID, ActionKey, ActionRef
 from tracecat.identifiers.resource import id_factory
 from tracecat.identifiers.schedules import ScheduleID
-from tracecat.identifiers.workflow import (
-    WorkflowExecutionID,
-    WorkflowID,
-    WorkflowRunID,
-    WorkflowScheduleID,
-)
+from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID, WorkflowRunID
 
 UserID = UUID4
 WorkspaceID = UUID4
@@ -80,7 +75,6 @@ __all__ = [
     "ActionRef",
     "WorkflowID",
     "WorkflowExecutionID",
-    "WorkflowScheduleID",
     "WorkflowRunID",
     "ScheduleID",
     "UserID",

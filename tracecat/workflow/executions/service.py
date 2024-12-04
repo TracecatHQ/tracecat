@@ -28,12 +28,7 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.identifiers.workflow import (
-    WorkflowExecutionID,
-    WorkflowID,
-    WorkflowScheduleID,
-    exec_id,
-)
+from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID, exec_id
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
@@ -458,16 +453,13 @@ class WorkflowExecutionsService:
         return DispatchWorkflowResult(wf_id=wf_id, final_context=result)
 
     def cancel_workflow_execution(
-        self,
-        wf_exec_id: WorkflowExecutionID | WorkflowScheduleID,
+        self, wf_exec_id: WorkflowExecutionID
     ) -> Awaitable[None]:
         """Cancel a workflow execution."""
         return self.handle(wf_exec_id).cancel()
 
     def terminate_workflow_execution(
-        self,
-        wf_exec_id: WorkflowExecutionID | WorkflowScheduleID,
-        reason: str | None = None,
+        self, wf_exec_id: WorkflowExecutionID, reason: str | None = None
     ) -> Awaitable[None]:
         """Terminate a workflow execution."""
         return self.handle(wf_exec_id).terminate(reason=reason)
