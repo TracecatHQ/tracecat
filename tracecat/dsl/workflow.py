@@ -45,7 +45,7 @@ with workflow.unsafe.imports_passed_through():
         DSLContext,
         DSLEnvironment,
         DSLExecutionError,
-        DSLNodeResult,
+        ActionResult,
         RunActionInput,
         TriggerInputs,
     )
@@ -304,7 +304,7 @@ class DSLWorkflow:
         """
 
         logger.info("Begin task execution", task_ref=task.ref)
-        task_result = DSLNodeResult(result=None, result_typename=type(None).__name__)
+        task_result = ActionResult(result=None, result_typename=type(None).__name__)
         try:
             if self._should_execute_child_workflow(task):
                 # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows

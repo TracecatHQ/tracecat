@@ -20,7 +20,7 @@ TriggerInputs = JsonValue
 """Trigger inputs JSON type."""
 
 
-class DSLNodeResult(TypedDict, total=False):
+class ActionResult(TypedDict, total=False):
     """Result of executing a DSL node."""
 
     result: Any
