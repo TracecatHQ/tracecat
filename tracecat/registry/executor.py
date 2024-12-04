@@ -24,9 +24,9 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_engine
 from tracecat.dsl.common import context_locator, create_default_dsl_context
 from tracecat.dsl.models import (
+    ActionResult,
     ActionStatement,
     DSLContext,
-    DSLNodeResult,
     RunActionInput,
 )
 from tracecat.expressions.eval import (
@@ -290,7 +290,7 @@ async def run_template_action(
         )
         # Store the result of the step
         logger.trace("Storing step result", step=step.ref, result=result)
-        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = DSLNodeResult(
+        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = ActionResult(
             result=result,
             result_typename=type(result).__name__,
         )
