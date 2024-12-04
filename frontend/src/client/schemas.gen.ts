@@ -954,6 +954,73 @@ export const $DSLRunArgs = {
     title: 'DSLRunArgs'
 } as const;
 
+export const $EditorActionRead = {
+    properties: {
+        type: {
+            type: 'string',
+            title: 'Type'
+        },
+        ref: {
+            type: 'string',
+            title: 'Ref'
+        },
+        description: {
+            type: 'string',
+            title: 'Description'
+        }
+    },
+    type: 'object',
+    required: ['type', 'ref', 'description'],
+    title: 'EditorActionRead'
+} as const;
+
+export const $EditorFunctionRead = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        description: {
+            type: 'string',
+            title: 'Description'
+        },
+        parameters: {
+            items: {
+                '$ref': '#/components/schemas/EditorParamRead'
+            },
+            type: 'array',
+            title: 'Parameters'
+        },
+        return_type: {
+            type: 'string',
+            title: 'Return Type'
+        }
+    },
+    type: 'object',
+    required: ['name', 'description', 'parameters', 'return_type'],
+    title: 'EditorFunctionRead'
+} as const;
+
+export const $EditorParamRead = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        type: {
+            type: 'string',
+            title: 'Type'
+        },
+        optional: {
+            type: 'boolean',
+            title: 'Optional'
+        }
+    },
+    type: 'object',
+    required: ['name', 'type', 'optional'],
+    title: 'EditorParamRead'
+} as const;
+
 export const $ErrorModel = {
     properties: {
         detail: {

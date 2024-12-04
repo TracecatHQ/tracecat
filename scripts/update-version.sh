@@ -48,7 +48,8 @@ FILES=(
     "docker-compose.yml"
     "docs/tutorials/updating.mdx"
     "docs/self-hosting/deployment-options/docker-compose.mdx"
-    "deployments/aws/fargate/variables.tf"
+    "deployments/aws/variables.tf"
+    "deployments/aws/ecs/variables.tf"
 )
 
 # Function to update version in a file

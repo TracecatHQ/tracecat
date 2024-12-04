@@ -1,22 +1,23 @@
-# ECS Task Definition for API Service
-resource "aws_ecs_task_definition" "api_task_definition" {
-  family                   = "TracecatApiTaskDefinition"
+# ECS Task Definition for Worker Service
+resource "aws_ecs_task_definition" "worker_task_definition" {
+  family                   = "TracecatWorkerTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = var.api_cpu
-  memory                   = var.api_memory
-  execution_role_arn       = aws_iam_role.api_execution.arn
+  cpu                      = var.worker_cpu
+  memory                   = var.worker_memory
+  execution_role_arn       = aws_iam_role.worker_execution.arn
   task_role_arn            = aws_iam_role.api_worker_task.arn
 
   container_definitions = jsonencode([
     {
-      name  = "TracecatApiContainer"
-      image = "${var.tracecat_image}:${local.tracecat_image_tag}"
+      name    = "TracecatWorkerContainer"
+      image   = "${var.tracecat_image}:${local.tracecat_image_tag}"
+      command = ["python", "tracecat/dsl/worker.py"]
       portMappings = [
         {
-          containerPort = 8000
-          hostPort      = 8000
-          name          = "api"
+          containerPort = 8001
+          hostPort      = 8001
+          name          = "worker"
           appProtocol   = "http"
         }
       ]
@@ -25,46 +26,39 @@ resource "aws_ecs_task_definition" "api_task_definition" {
         options = {
           awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
           awslogs-region        = var.aws_region
-          awslogs-stream-prefix = "api"
+          awslogs-stream-prefix = "worker"
         }
       }
-      environment = concat(local.api_env, [
+      environment = concat(local.worker_env, [
         {
           name  = "TRACECAT__DB_ENDPOINT"
           value = local.core_db_hostname
-        },
-        {
-          name  = "TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME"
-          value = var.remote_repository_package_name
-        },
-        {
-          name  = "TRACECAT__REMOTE_REPOSITORY_URL"
-          value = var.remote_repository_url
         }
       ])
       secrets = local.tracecat_secrets
       dockerPullConfig = {
         maxAttempts = 3
-        backoffTime = 10
+        backoffTime = 30
       }
     }
   ])
 
   depends_on = [
-    aws_ecs_service.temporal_service
+    aws_ecs_service.temporal_service,
+    aws_ecs_task_definition.temporal_task_definition,
   ]
 }
 
-resource "aws_ecs_service" "tracecat_api" {
-  name                 = "tracecat-api"
+resource "aws_ecs_service" "tracecat_worker" {
+  name                 = "tracecat-worker"
   cluster              = aws_ecs_cluster.tracecat_cluster.id
-  task_definition      = aws_ecs_task_definition.api_task_definition.arn
+  task_definition      = aws_ecs_task_definition.worker_task_definition.arn
   launch_type          = "FARGATE"
   desired_count        = 1
   force_new_deployment = var.force_new_deployment
 
   network_configuration {
-    subnets = aws_subnet.private[*].id
+    subnets = var.private_subnet_ids
     security_groups = [
       aws_security_group.core.id,
       aws_security_group.core_db.id,
@@ -75,14 +69,14 @@ resource "aws_ecs_service" "tracecat_api" {
     enabled   = true
     namespace = local.local_dns_namespace
     service {
-      port_name      = "api"
-      discovery_name = "api-service"
+      port_name      = "worker"
+      discovery_name = "worker-service"
       timeout {
         per_request_timeout_seconds = 120
       }
       client_alias {
-        port     = 8000
-        dns_name = "api-service"
+        port     = 8001
+        dns_name = "worker-service"
       }
     }
 
@@ -91,13 +85,13 @@ resource "aws_ecs_service" "tracecat_api" {
       options = {
         awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
         awslogs-region        = var.aws_region
-        awslogs-stream-prefix = "service-connect-api"
+        awslogs-stream-prefix = "service-connect-worker"
       }
     }
   }
 
   depends_on = [
     aws_ecs_service.temporal_service,
+    aws_ecs_service.tracecat_api,
   ]
-
 }

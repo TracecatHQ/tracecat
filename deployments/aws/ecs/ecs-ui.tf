@@ -45,7 +45,7 @@ resource "aws_ecs_service" "tracecat_ui" {
   force_new_deployment = var.force_new_deployment
 
   network_configuration {
-    subnets = aws_subnet.private[*].id
+    subnets = var.private_subnet_ids
     security_groups = [
       aws_security_group.core.id,
     ]

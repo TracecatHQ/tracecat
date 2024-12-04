@@ -242,7 +242,7 @@ export function OrgMembersTable() {
                       {privileged && (
                         <>
                           <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Admin</DropdownMenuLabel>
+                          <DropdownMenuLabel>Manage</DropdownMenuLabel>
                           <DialogTrigger asChild>
                             <DropdownMenuItem
                               onClick={() => {
