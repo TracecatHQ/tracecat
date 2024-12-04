@@ -581,7 +581,7 @@ class DSLWorkflow:
             start_to_close_timeout=self.start_to_close_timeout,
             retry_policy=retry_policies["activity:fail_fast"],
         )
-        return schedule_read.inputs
+        return schedule_read.inputs or {}
 
     async def _validate_action(self, task: ActionStatement) -> None:
         result = await workflow.execute_activity(
