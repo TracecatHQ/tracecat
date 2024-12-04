@@ -144,6 +144,8 @@ services:
     container_name: ollama
     tty: true
     restart: unless-stopped
+    networks:
+      - core
     image: ollama/ollama:${OLLAMA__VERSION}
     ports:
       - 11434:11434
