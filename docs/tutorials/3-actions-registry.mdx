@@ -61,20 +61,32 @@ By the end of this tutorial, you will learn:
         ```
     </Step>
     <Step title="Replace actions in workflow">
-        Replace the `Search URL with VirusTotal` and `Extract VirusTotal report` actions with the new `Is URL malicious` action.
+        Go back to `Enrich URL with VirusTotal` workflow and replace the `Search URL with VirusTotal` and `Extract VirusTotal report` actions with the new `Is URL malicious` action.
     </Step>
     <Step title="Remove the if-condition and update action result references">
-        Remove the previously created if-condition from `List VirusTotal comments on URL` action Control Flow tab.
+        Remove the previously created if-condition from `List VirusTotal comments on URL` action **Control Flow** tab.
 
-        Update the `List VirusTotal comments on URL` action Input to use the new `Is URL malicious` action.
+        Update the `List VirusTotal comments on URL` action Input to use the trigger URL:
 
         ```yaml
-        ${{ ACTIONS.is_url_malicious.result }}
+        url: ${{ TRIGGER.url }}
+        ```
+    </Step>
+    <Step title="Modify output data">
+        Click on the canvas to view workflow settings, then go to the **Schema** tab.
+        Modify the **Output Schema** :
+        ```
+        Url: ${{ TRIGGER.url }}
+        Comments count: ${{ ACTIONS.get_virustotal_comments_on_a_url.result.data.meta.count }}
+        Is URL malicious: ${{ ACTIONS.is_url_malicious.result }}
         ```
     </Step>
     <Step title="Run the workflow">
-        Click on the **Run** button to execute the workflow.
-        The results will be the same as the previous tutorial.
+        Click on the **Run** button to execute the workflow. Use the same sample payload:
+        ```json
+        {"url": "https://crowdstrikebluescreen.com"}
+        ```
+        The results will be similar to the previous tutorial.
     </Step>
 </Steps>
 
