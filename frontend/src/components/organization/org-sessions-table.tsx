@@ -130,9 +130,7 @@ export function OrgSessionsTable() {
                       {privileged && (
                         <DropdownMenuGroup>
                           <DropdownMenuSeparator />
-                          <DropdownMenuLabel className="text-sm text-muted-foreground">
-                            Manage
-                          </DropdownMenuLabel>
+                          <DropdownMenuLabel>Manage</DropdownMenuLabel>
                           <AlertDialogTrigger asChild>
                             <DropdownMenuItem
                               className="text-rose-500 focus:text-rose-600"
