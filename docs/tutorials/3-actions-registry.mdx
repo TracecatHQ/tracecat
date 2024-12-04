@@ -1,6 +1,6 @@
 ---
 title: Actions Registry
-description: Learn how to use pre-built integrations in your workflows.
+description: Learn how to use and modify pre-built integrations in your workflows.
 ---
 
 ## Goals
@@ -74,10 +74,10 @@ By the end of this tutorial, you will learn:
     </Step>
     <Step title="Modify output data">
         Click on the canvas to view workflow settings, then go to the **Schema** tab.
-        Modify the **Output Schema** :
+        Modify the **Output Schema** to following:
         ```
         Url: ${{ TRIGGER.url }}
-        Comments count: ${{ ACTIONS.get_virustotal_comments_on_a_url.result.data.meta.count }}
+        Comment count: ${{ ACTIONS.list_virustotal_comments_on_url.result.data.meta.count }}
         Is URL malicious: ${{ ACTIONS.is_url_malicious.result }}
         ```
     </Step>
