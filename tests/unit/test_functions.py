@@ -97,8 +97,8 @@ from tracecat.expressions.functions import (
 @pytest.mark.parametrize(
     "input,prefix,expected",
     [
-        ("test", "prefix", "prefix_test"),
-        (["hello", "world"], "prefix", ["prefix_hello", "prefix_world"]),
+        ("test", "prefix", "prefixtest"),
+        (["hello", "world"], "prefix", ["prefixhello", "prefixworld"]),
     ],
 )
 def test_add_prefix(
@@ -110,8 +110,8 @@ def test_add_prefix(
 @pytest.mark.parametrize(
     "input,suffix,expected",
     [
-        ("test", "suffix", "test_suffix"),
-        (["hello", "world"], "suffix", ["hello_suffix", "world_suffix"]),
+        ("test", "suffix", "testsuffix"),
+        (["hello", "world"], "suffix", ["hellosuffix", "worldsuffix"]),
     ],
 )
 def test_add_suffix(
