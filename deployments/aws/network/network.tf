@@ -1,4 +1,9 @@
 # network.tf
+
+locals {
+  az_count = 2
+}
+
 resource "aws_vpc" "tracecat" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
@@ -12,7 +17,7 @@ resource "aws_vpc" "tracecat" {
 data "aws_availability_zones" "available" {}
 
 resource "aws_subnet" "public" {
-  count                   = var.az_count
+  count                   = local.az_count
   vpc_id                  = aws_vpc.tracecat.id
   cidr_block              = "10.0.${count.index + 1}.0/24"
   availability_zone       = data.aws_availability_zones.available.names[count.index]
@@ -34,19 +39,19 @@ resource "aws_route" "internet_access" {
 }
 
 resource "aws_eip" "gw" {
-  count      = var.az_count
+  count      = local.az_count
   domain     = "vpc"
   depends_on = [aws_internet_gateway.gw]
 }
 
 resource "aws_nat_gateway" "gw" {
-  count         = var.az_count
+  count         = local.az_count
   subnet_id     = aws_subnet.public[count.index].id
   allocation_id = aws_eip.gw[count.index].id
 }
 
 resource "aws_subnet" "private" {
-  count             = var.az_count
+  count             = local.az_count
   vpc_id            = aws_vpc.tracecat.id
   cidr_block        = "10.0.${count.index + 10}.0/24"
   availability_zone = data.aws_availability_zones.available.names[count.index]
@@ -57,7 +62,7 @@ resource "aws_subnet" "private" {
 }
 
 resource "aws_route_table" "private" {
-  count  = var.az_count
+  count  = local.az_count
   vpc_id = aws_vpc.tracecat.id
 
   route {
@@ -67,7 +72,7 @@ resource "aws_route_table" "private" {
 }
 
 resource "aws_route_table_association" "private" {
-  count          = var.az_count
+  count          = local.az_count
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private[count.index].id
 }
@@ -86,7 +91,7 @@ resource "aws_route_table" "public_rt" {
 }
 
 resource "aws_route_table_association" "public_subnet_routes" {
-  count          = var.az_count
+  count          = local.az_count
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public_rt.id
 }

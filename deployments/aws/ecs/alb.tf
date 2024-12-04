@@ -1,9 +1,9 @@
 # Application Load Balancer
 resource "aws_alb" "this" {
   name               = "tracecat-alb"
-  internal           = false
+  internal           = var.is_internal
   load_balancer_type = "application"
-  subnets            = aws_subnet.public[*].id
+  subnets            = var.public_subnet_ids
   security_groups    = [aws_security_group.alb.id]
 
   tags = {
@@ -11,8 +11,60 @@ resource "aws_alb" "this" {
   }
 }
 
+# Target Group for Caddy
+resource "aws_alb_target_group" "caddy" {
+  name        = "tracecat-caddy-tg"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+  target_type = "ip"
+
+  health_check {
+    healthy_threshold   = "3"
+    interval            = "30"
+    protocol            = "HTTP"
+    matcher             = "200"
+    timeout             = "3"
+    path                = "/"
+    unhealthy_threshold = "2"
+  }
+}
+
+# HTTPS Listener
+resource "aws_alb_listener" "https" {
+  load_balancer_arn = aws_alb.this.id
+  port              = "443"
+  protocol          = "HTTPS"
+
+  ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn = var.acm_certificate_arn
+
+  default_action {
+    target_group_arn = aws_alb_target_group.caddy.id
+    type             = "forward"
+  }
+}
+
+# HTTP to HTTPS Redirect
+resource "aws_alb_listener" "http" {
+  load_balancer_arn = aws_alb.this.id
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
 # Add a WAF in front of the ALB
 resource "aws_wafv2_web_acl" "this" {
+  count = var.enable_waf ? 1 : 0
+
   name        = "tracecat-waf-acl"
   description = "Default WAF configuration for Tracecat ALB"
   scope       = "REGIONAL"
@@ -159,56 +211,8 @@ resource "aws_wafv2_web_acl" "this" {
 }
 
 resource "aws_wafv2_web_acl_association" "this" {
+  count = var.enable_waf ? 1 : 0
+
   resource_arn = aws_alb.this.arn
-  web_acl_arn  = aws_wafv2_web_acl.this.arn
-}
-
-# Target Group for Caddy
-resource "aws_alb_target_group" "caddy" {
-  name        = "tracecat-caddy-tg"
-  port        = 80
-  protocol    = "HTTP"
-  vpc_id      = aws_vpc.tracecat.id
-  target_type = "ip"
-
-  health_check {
-    healthy_threshold   = "3"
-    interval            = "30"
-    protocol            = "HTTP"
-    matcher             = "200"
-    timeout             = "3"
-    path                = "/"
-    unhealthy_threshold = "2"
-  }
-}
-
-# HTTPS Listener
-resource "aws_alb_listener" "https" {
-  load_balancer_arn = aws_alb.this.id
-  port              = "443"
-  protocol          = "HTTPS"
-
-  ssl_policy      = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn = aws_acm_certificate.this.arn
-
-  default_action {
-    target_group_arn = aws_alb_target_group.caddy.id
-    type             = "forward"
-  }
-}
-
-# HTTP to HTTPS Redirect
-resource "aws_alb_listener" "http" {
-  load_balancer_arn = aws_alb.this.id
-  port              = "80"
-  protocol          = "HTTP"
-
-  default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
-    }
-  }
+  web_acl_arn  = aws_wafv2_web_acl.this[0].arn
 }

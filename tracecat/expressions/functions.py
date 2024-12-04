@@ -121,6 +121,20 @@ def to_datetime(x: Any, timezone: str | None = None) -> datetime:
     return dt
 
 
+def add_prefix(x: str | list[str], prefix: str) -> str | list[str]:
+    """Add a prefix to a string or list of strings."""
+    if is_iterable(x, container_only=True):
+        return [f"{prefix}{item}" for item in x]
+    return f"{prefix}{x}"
+
+
+def add_suffix(x: str | list[str], suffix: str) -> str | list[str]:
+    """Add a suffix to a string or list of strings."""
+    if is_iterable(x, container_only=True):
+        return [f"{item}{suffix}" for item in x]
+    return f"{x}{suffix}"
+
+
 def format_string(template: str, *values: Any) -> str:
     """Format a string with the given arguments."""
     return template.format(*values)
@@ -741,6 +755,8 @@ def eval_jsonpath(
 
 _FUNCTION_MAPPING = {
     # String transforms
+    "prefix": add_prefix,
+    "suffix": add_suffix,
     "capitalize": capitalize,
     "endswith": endswith,
     "lowercase": lowercase,

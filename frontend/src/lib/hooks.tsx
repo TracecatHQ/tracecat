@@ -10,7 +10,10 @@ import {
   EventHistoryResponse,
   organizationDeleteOrgMember,
   OrganizationDeleteOrgMemberData,
+  organizationDeleteSession,
+  OrganizationDeleteSessionData,
   organizationListOrgMembers,
+  organizationListSessions,
   organizationUpdateOrgMember,
   OrganizationUpdateOrgMemberData,
   OrgMemberRead,
@@ -44,6 +47,7 @@ import {
   secretsListSecrets,
   secretsUpdateSecretById,
   SecretUpdate,
+  SessionRead,
   triggersUpdateWebhook,
   UpsertWebhookParams,
   usersUsersPatchCurrentUser,
@@ -1144,5 +1148,44 @@ export function useOrgMembers() {
     deleteOrgMember,
     deleteOrgMemberIsPending,
     deleteOrgMemberError,
+  }
+}
+
+export function useSessions() {
+  const queryClient = useQueryClient()
+  // List
+  const {
+    data: sessions,
+    isLoading: sessionsIsLoading,
+    error: sessionsError,
+  } = useQuery<SessionRead[]>({
+    queryKey: ["sessions"],
+    queryFn: async () => await organizationListSessions(),
+  })
+
+  // Delete
+  const {
+    mutateAsync: deleteSession,
+    isPending: deleteSessionIsPending,
+    error: deleteSessionError,
+  } = useMutation({
+    mutationFn: async (params: OrganizationDeleteSessionData) =>
+      await organizationDeleteSession(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+      toast({
+        title: "Revoked session",
+        description: "Session revoked successfully.",
+      })
+    },
+  })
+
+  return {
+    sessions,
+    sessionsIsLoading,
+    sessionsError,
+    deleteSession,
+    deleteSessionIsPending,
+    deleteSessionError,
   }
 }

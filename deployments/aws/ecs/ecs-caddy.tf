@@ -60,7 +60,7 @@ resource "aws_ecs_service" "tracecat_caddy" {
   desired_count   = 1
 
   network_configuration {
-    subnets = aws_subnet.private[*].id
+    subnets = var.private_subnet_ids
     security_groups = [
       aws_security_group.caddy.id,
       aws_security_group.core.id

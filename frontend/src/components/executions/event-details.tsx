@@ -27,6 +27,7 @@ import {
   ERROR_EVENT_TYPES,
   getRelativeTime,
   parseEventType,
+  parseExecutionId,
 } from "@/lib/event-history"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -174,12 +175,20 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
 
   // Construct the link within the same workspace to the related workflow execution
   const { workspaceId } = useParams()
-  const [relatedWorkflowId, relatedExecutionId] =
-    related_wf_exec_id?.split(":") ?? []
-  const relatedWorkflowExecutionLink = `/workspaces/${workspaceId}/workflows/${relatedWorkflowId}/executions/${relatedExecutionId}`
-  const [parentWorkflowId, parentExecutionId] =
-    parent_wf_exec_id?.split(":") ?? []
-  const parentWorkflowExecutionLink = `/workspaces/${workspaceId}/workflows/${parentWorkflowId}/executions/${parentExecutionId}`
+  let relatedWorkflowExecutionLink: string | undefined
+  if (related_wf_exec_id) {
+    const [relatedWorkflowId, relatedExecutionId] =
+      parseExecutionId(related_wf_exec_id)
+
+    relatedWorkflowExecutionLink = `/workspaces/${workspaceId}/workflows/${relatedWorkflowId}/executions/${relatedExecutionId}`
+  }
+
+  let parentWorkflowExecutionLink: string | undefined
+  if (parent_wf_exec_id) {
+    const [parentWorkflowId, parentExecutionId] =
+      parseExecutionId(parent_wf_exec_id)
+    parentWorkflowExecutionLink = `/workspaces/${workspaceId}/workflows/${parentWorkflowId}/executions/${parentExecutionId}`
+  }
 
   return (
     <div className="my-4 flex flex-col space-y-2 px-4">
@@ -223,42 +232,46 @@ export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
             event_type == "CHILD_WORKFLOW_EXECUTION_FAILED" && "bg-rose-200"
           )}
         />
-        {event_type.includes("CHILD_WORKFLOW_EXECUTION") && (
-          <Tooltip>
-            <TooltipTrigger>
-              <Badge variant="outline">
-                <Link href={relatedWorkflowExecutionLink}>
-                  <div className="flex items-center gap-1">
-                    <span className="font-normal">Go to workflow run</span>
-                    <SquareArrowOutUpRightIcon className="size-3" />
-                  </div>
-                </Link>
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent>
-              <span>{related_wf_exec_id}</span>
-            </TooltipContent>
-          </Tooltip>
-        )}
-        {event_type == "WORKFLOW_EXECUTION_STARTED" && parent_wf_exec_id && (
-          <Tooltip>
-            <TooltipTrigger>
-              <Badge variant="outline">
-                <Link href={parentWorkflowExecutionLink}>
-                  <div className="flex items-center gap-1">
-                    <span className="font-normal">
-                      Go to parent workflow run
-                    </span>
-                    <SquareArrowOutUpRightIcon className="size-3" />
-                  </div>
-                </Link>
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent>
-              <span>{parent_wf_exec_id}</span>
-            </TooltipContent>
-          </Tooltip>
-        )}
+        {event_type.includes("CHILD_WORKFLOW_EXECUTION") &&
+          related_wf_exec_id &&
+          relatedWorkflowExecutionLink && (
+            <Tooltip>
+              <TooltipTrigger>
+                <Badge variant="outline">
+                  <Link href={relatedWorkflowExecutionLink}>
+                    <div className="flex items-center gap-1">
+                      <span className="font-normal">Go to workflow run</span>
+                      <SquareArrowOutUpRightIcon className="size-3" />
+                    </div>
+                  </Link>
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <span>{related_wf_exec_id}</span>
+              </TooltipContent>
+            </Tooltip>
+          )}
+        {event_type == "WORKFLOW_EXECUTION_STARTED" &&
+          parent_wf_exec_id &&
+          parentWorkflowExecutionLink && (
+            <Tooltip>
+              <TooltipTrigger>
+                <Badge variant="outline">
+                  <Link href={parentWorkflowExecutionLink}>
+                    <div className="flex items-center gap-1">
+                      <span className="font-normal">
+                        Go to parent workflow run
+                      </span>
+                      <SquareArrowOutUpRightIcon className="size-3" />
+                    </div>
+                  </Link>
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <span>{parent_wf_exec_id}</span>
+              </TooltipContent>
+            </Tooltip>
+          )}
       </div>
       <div className="space-x-2">
         <Label className="w-24 text-xs text-muted-foreground">Event ID</Label>

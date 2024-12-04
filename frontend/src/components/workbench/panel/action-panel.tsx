@@ -71,7 +71,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { CopyButton } from "@/components/copy-button"
-import { CustomEditor } from "@/components/editor"
+import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -536,11 +536,13 @@ export function ActionPanel({
                         name="inputs"
                         control={methods.control}
                         render={({ field }) => (
-                          <CustomEditor
+                          <DynamicCustomEditor
                             className="h-72 w-full"
-                            defaultLanguage="yaml"
                             value={field.value}
                             onChange={field.onChange}
+                            defaultLanguage="yaml-extended"
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
@@ -607,11 +609,13 @@ export function ActionPanel({
                         name="control_flow.run_if"
                         control={methods.control}
                         render={({ field }) => (
-                          <CustomEditor
+                          <DynamicCustomEditor
                             className="h-24 w-full"
-                            defaultLanguage="yaml"
+                            defaultLanguage="yaml-extended"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
@@ -648,11 +652,13 @@ export function ActionPanel({
                         name="control_flow.for_each"
                         control={methods.control}
                         render={({ field }) => (
-                          <CustomEditor
+                          <DynamicCustomEditor
                             className="h-24 w-full"
-                            defaultLanguage="yaml"
+                            defaultLanguage="yaml-extended"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
@@ -687,11 +693,13 @@ export function ActionPanel({
                         name="control_flow.options"
                         control={methods.control}
                         render={({ field }) => (
-                          <CustomEditor
+                          <DynamicCustomEditor
                             className="h-24 w-full"
-                            defaultLanguage="yaml"
+                            defaultLanguage="yaml-extended"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />
@@ -744,11 +752,13 @@ export function ActionPanel({
                         name="control_flow.retry_policy"
                         control={methods.control}
                         render={({ field }) => (
-                          <CustomEditor
+                          <DynamicCustomEditor
                             className="h-24 w-full"
-                            defaultLanguage="yaml"
+                            defaultLanguage="yaml-extended"
                             value={field.value}
                             onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
                           />
                         )}
                       />

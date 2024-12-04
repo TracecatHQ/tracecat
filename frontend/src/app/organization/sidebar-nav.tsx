@@ -29,6 +29,10 @@ const userNavItems: NavItem[] = [
     title: "Members",
     href: "/organization/members",
   },
+  {
+    title: "Sessions",
+    href: "/organization/sessions",
+  },
 ]
 
 interface SidebarNavProps extends React.HTMLAttributes<HTMLElement> {

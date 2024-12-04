@@ -25,7 +25,8 @@ def normalize_email_address(email: str) -> str:
 )
 def extract_emails(
     texts: Annotated[
-        list[str], Field(..., description="The list of strings to extract emails from")
+        str | list[str],
+        Field(..., description="Text or list of text to extract emails from"),
     ],
     normalize: Annotated[
         bool,
@@ -37,8 +38,12 @@ def extract_emails(
 ) -> list[str]:
     """Extract unique emails from a list of strings."""
     emails = set()
+    if isinstance(texts, str):
+        texts = [texts]
+
     for text in texts:
         emails.update(re.findall(EMAIL_REGEX, text))
     if normalize and len(emails) > 0:
         emails = {normalize_email_address(email) for email in emails}
+
     return list(emails)

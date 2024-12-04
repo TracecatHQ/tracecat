@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button"
 import { Form, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { CustomEditor } from "@/components/editor"
+import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { CenteredSpinner } from "@/components/loading/spinner"
 
 export default function NewActionPage() {
@@ -210,9 +210,9 @@ function NewTemplateActionForm({
               name="definition"
               control={methods.control}
               render={({ field }) => (
-                <CustomEditor
+                <DynamicCustomEditor
                   className="h-96 w-full"
-                  defaultLanguage="yaml"
+                  defaultLanguage="yaml-extended"
                   value={field.value}
                   onChange={field.onChange}
                 />
