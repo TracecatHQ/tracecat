@@ -946,6 +946,7 @@ export type SecretUpdate = {
 };
 
 export type SessionRead = {
+    id: string;
     created_at: string;
     user_id: string;
     user_email: string;
@@ -1718,6 +1719,12 @@ export type OrganizationUpdateOrgMemberData = {
 export type OrganizationUpdateOrgMemberResponse = OrgMemberRead;
 
 export type OrganizationListSessionsResponse = Array<SessionRead>;
+
+export type OrganizationDeleteSessionData = {
+    sessionId: string;
+};
+
+export type OrganizationDeleteSessionResponse = void;
 
 export type EditorListFunctionsData = {
     workspaceId: string;
@@ -2720,6 +2727,21 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: Array<SessionRead>;
+            };
+        };
+    };
+    '/organization/sessions/{session_id}': {
+        delete: {
+            req: OrganizationDeleteSessionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
             };
         };
     };

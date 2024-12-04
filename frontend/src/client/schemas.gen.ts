@@ -2869,6 +2869,11 @@ Secret types
 
 export const $SessionRead = {
     properties: {
+        id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Id'
+        },
         created_at: {
             type: 'string',
             format: 'date-time',
@@ -2886,7 +2891,7 @@ export const $SessionRead = {
         }
     },
     type: 'object',
-    required: ['created_at', 'user_id', 'user_email'],
+    required: ['id', 'created_at', 'user_id', 'user_email'],
     title: 'SessionRead'
 } as const;
 
