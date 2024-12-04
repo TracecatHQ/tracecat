@@ -5,15 +5,15 @@ from contextlib import asynccontextmanager
 
 from sqlmodel import select
 
-from tracecat.auth.models import UserUpdate
+from tracecat.auth.models import SessionRead, UserUpdate
 from tracecat.auth.users import (
     UserManager,
     get_user_db_context,
     get_user_manager_context,
 )
 from tracecat.authz.controls import require_access_level
-from tracecat.db.schemas import User
-from tracecat.identifiers import UserID
+from tracecat.db.schemas import AccessToken, User
+from tracecat.identifiers import SessionID, UserID
 from tracecat.service import Service
 from tracecat.types.auth import AccessLevel
 from tracecat.types.exceptions import TracecatAuthorizationError
@@ -120,3 +120,29 @@ class OrgService(Service):
     async def get_settings(self) -> dict[str, str]:
         """Get the organization settings."""
         raise NotImplementedError
+
+    # === Manage sessions ===
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def list_sessions(self) -> list[SessionRead]:
+        """List all sessions."""
+        statement = select(AccessToken)
+        result = await self.session.exec(statement)
+        return [
+            SessionRead(
+                id=s.id,
+                created_at=s.created_at,
+                user_id=s.user.id,
+                user_email=s.user.email,
+            )
+            for s in result.all()
+        ]
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def delete_session(self, session_id: SessionID) -> None:
+        """Delete a session by its ID."""
+        statement = select(AccessToken).where(AccessToken.id == session_id)
+        result = await self.session.exec(statement)
+        db_token = result.one()
+        await self.session.delete(db_token)
+        await self.session.commit()

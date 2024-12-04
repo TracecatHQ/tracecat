@@ -1,6 +1,7 @@
 import contextlib
 import uuid
 from collections.abc import AsyncGenerator, Sequence
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
@@ -95,6 +96,24 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     ) -> User:
         validate_email(email=user_create.email)
         return await super().create(user_create, safe, request)
+
+    async def on_after_login(
+        self,
+        user: User,
+        request: Request | None = None,
+        response: Response | None = None,
+    ) -> None:
+        # Update last login info
+        try:
+            now = datetime.now(UTC)
+            await self.user_db.update(user, update_dict={"last_login_at": now})
+        except Exception as e:
+            self.logger.warning(
+                "Failed to update last login info",
+                user_id=user.id,
+                user=user.email,
+                error=e,
+            )
 
     async def on_after_register(
         self, user: User, request: Request | None = None
