@@ -11,9 +11,9 @@ definition:
         - WAZUH_API_TOKEN
         - WAZUH_API_URL
   expects:
-    agents_list:
-      type: str | None
-      description: List of agent IDs (separated by comma), all agents selected by default if not specified.
+    agent_id:
+      type: str
+      description: ID of the agent having had a rootcheck scan
       default: null
     verify_ssl:
       type: bool
@@ -23,10 +23,8 @@ definition:
     - ref: clear_rootcheck
       action: core.http_request
       args:
-        url: ${{ SECRETS.wazuh.WAZUH_API_URL }}/rootcheck
+        url: ${{ SECRETS.wazuh.WAZUH_API_URL }}/rootcheck/${{ inputs.agent_id }}
         method: DELETE
-        params:
-          agents_list: ${{ inputs.agents_list }}
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
         verify_ssl: ${{ inputs.verify_ssl  }}
