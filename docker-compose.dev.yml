@@ -218,7 +218,22 @@ services:
     volumes:
       - ollama:/root/.ollama
 
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    ports:
+      - 9000:9000 # API port
+      - 9001:9001 # Console port
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+
 volumes:
   core-db:
   temporal-db:
   ollama:
+  minio-data:
