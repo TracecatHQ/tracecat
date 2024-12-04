@@ -20,7 +20,7 @@ from tracecat.dsl.models import (
     RunActionInput,
     TriggerInputs,
 )
-from tracecat.identifiers import WorkflowExecutionID, WorkflowID, WorkflowScheduleID
+from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.types.auth import Role
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
@@ -34,8 +34,6 @@ WorkflowExecutionStatusLiteral = Literal[
     "TIMED_OUT",
 ]
 """Mapped literal types for workflow execution statuses."""
-
-ExecutionOrScheduleID = WorkflowExecutionID | WorkflowScheduleID
 
 
 class EventHistoryType(StrEnum):
@@ -206,6 +204,8 @@ class EventGroup(BaseModel, Generic[EventInput]):
             ].data
         )
         dsl_run_args = DSLRunArgs(**input)
+        if dsl_run_args.dsl is None:
+            raise ValueError("DSL run args are required for child workflow execution.")
         # Create an event group
         return EventGroup(
             event_id=event.event_id,

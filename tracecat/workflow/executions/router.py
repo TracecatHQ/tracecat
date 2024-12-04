@@ -17,7 +17,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatValidationError
-from tracecat.workflow.executions.dependencies import UnquotedExecutionOrScheduleID
+from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.models import (
     CreateWorkflowExecutionParams,
     CreateWorkflowExecutionResponse,
@@ -52,7 +52,7 @@ async def list_workflow_executions(
 @router.get("/{execution_id}", tags=["workflow-executions"])
 async def get_workflow_execution(
     role: WorkspaceUserRole,
-    execution_id: UnquotedExecutionOrScheduleID,
+    execution_id: UnquotedExecutionID,
 ) -> WorkflowExecutionResponse:
     """Get a workflow execution."""
     with logger.contextualize(role=role):
@@ -64,7 +64,7 @@ async def get_workflow_execution(
 @router.get("/{execution_id}/history", tags=["workflow-executions"])
 async def list_workflow_execution_event_history(
     role: WorkspaceUserRole,
-    execution_id: UnquotedExecutionOrScheduleID,
+    execution_id: UnquotedExecutionID,
 ) -> list[EventHistoryResponse]:
     """Get a workflow execution."""
     with logger.contextualize(role=role):
@@ -124,7 +124,7 @@ async def create_workflow_execution(
 )
 async def cancel_workflow_execution(
     role: WorkspaceUserRole,
-    execution_id: UnquotedExecutionOrScheduleID,
+    execution_id: UnquotedExecutionID,
 ) -> None:
     """Get a workflow execution."""
     with logger.contextualize(role=role):
@@ -148,7 +148,7 @@ async def cancel_workflow_execution(
 )
 async def terminate_workflow_execution(
     role: WorkspaceUserRole,
-    execution_id: UnquotedExecutionOrScheduleID,
+    execution_id: UnquotedExecutionID,
     params: TerminateWorkflowExecutionParams,
 ) -> None:
     """Get a workflow execution."""
