@@ -219,6 +219,26 @@ export function OrgMembersTable() {
               enableHiding: false,
             },
             {
+              accessorKey: "last_login_at",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Last Login"
+                />
+              ),
+              cell: ({ row }) => {
+                const lastLoginAt =
+                  row.getValue<OrgMemberRead["last_login_at"]>("last_login_at")
+                const date = lastLoginAt
+                  ? new Date(lastLoginAt).toLocaleString()
+                  : "-"
+                return <div className="text-xs">{date}</div>
+              },
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {

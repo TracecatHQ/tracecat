@@ -1428,10 +1428,22 @@ export const $OrgMemberRead = {
         is_verified: {
             type: 'boolean',
             title: 'Is Verified'
+        },
+        last_login_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Login At'
         }
     },
     type: 'object',
-    required: ['user_id', 'first_name', 'last_name', 'email', 'role', 'is_active', 'is_superuser', 'is_verified'],
+    required: ['user_id', 'first_name', 'last_name', 'email', 'role', 'is_active', 'is_superuser', 'is_verified', 'last_login_at'],
     title: 'OrgMemberRead'
 } as const;
 
@@ -2853,6 +2865,29 @@ Secret types
 - \`custom\`: Arbitrary user-defined types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
 - \`oauth2\`: OAuth2 Client Credentials (TBC)`
+} as const;
+
+export const $SessionRead = {
+    properties: {
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        user_id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'User Id'
+        },
+        user_email: {
+            type: 'string',
+            format: 'email',
+            title: 'User Email'
+        }
+    },
+    type: 'object',
+    required: ['created_at', 'user_id', 'user_email'],
+    title: 'SessionRead'
 } as const;
 
 export const $TemplateAction_Input = {

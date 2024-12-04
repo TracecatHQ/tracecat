@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr
 
 from tracecat.auth.models import UserRole
@@ -15,6 +17,7 @@ class OrgMemberRead(BaseModel):
     is_active: bool
     is_superuser: bool
     is_verified: bool
+    last_login_at: datetime | None
 
 
 # Organization

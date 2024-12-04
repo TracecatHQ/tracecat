@@ -44,6 +44,7 @@ async def list_org_members(
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             is_verified=user.is_verified,
+            last_login_at=user.last_login_at,
         )
         for user in members
     ]
@@ -99,6 +100,7 @@ async def update_org_member(
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             is_verified=user.is_verified,
+            last_login_at=user.last_login_at,
         )
     except NoResultFound as e:
         raise HTTPException(
