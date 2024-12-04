@@ -139,10 +139,18 @@ class User(SQLModelBaseUserDB, table=True):
         link_model=Membership,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
+    access_tokens: list["AccessToken"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
 
 
 class AccessToken(SQLModelBaseAccessToken, table=True):
-    pass
+    id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
+    user: "User" = Relationship(
+        back_populates="access_tokens",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
 
 
 class BaseSecret(Resource):
