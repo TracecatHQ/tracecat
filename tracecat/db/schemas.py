@@ -399,12 +399,6 @@ class Action(Resource, table=True):
         back_populates="actions", sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
     )
 
-    @computed_field
-    @property
-    def key(self) -> str:
-        """Workflow-relative key for an Action."""
-        return action.key(self.workflow_id, self.id)
-
     @property
     def ref(self) -> str:
         """Slugified title of the action. Used for references."""
