@@ -81,3 +81,23 @@ export function getRelativeTime(date: Date) {
   if (seconds > 0) return `${seconds} second${seconds > 1 ? "s" : ""} ago`
   return "just now"
 }
+
+/**
+ * Get the execution ID from a full execution ID
+ * @param fullExecutionId
+ * @returns the execution ID
+ *
+ * Example:
+ * - "wf-123:1234567890" -> ["wf-123", "1234567890"]
+ * - "wf-123:1234567890:1" -> ["wf-123", "1234567890:1"]
+ */
+export function parseExecutionId(fullExecutionId: string): [string, string] {
+  // Split at most once from the left, keeping any remaining colons in the second part
+  const splitIndex = fullExecutionId.indexOf(":")
+  if (splitIndex === -1) {
+    throw new Error("Invalid execution ID format - missing colon separator")
+  }
+  const workflowId = fullExecutionId.slice(0, splitIndex)
+  const executionId = fullExecutionId.slice(splitIndex + 1)
+  return [workflowId, executionId]
+}

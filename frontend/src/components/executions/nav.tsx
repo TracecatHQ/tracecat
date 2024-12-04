@@ -37,6 +37,7 @@ import { useParams, usePathname, useRouter } from "next/navigation"
 import { useWorkspace } from "@/providers/workspace"
 import { TriangleRightIcon } from "@radix-ui/react-icons"
 
+import { parseExecutionId } from "@/lib/event-history"
 import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 
@@ -258,24 +259,4 @@ export function getExecutionStatusIcon(
     default:
       throw new Error("Invalid status")
   }
-}
-
-/**
- * Get the execution ID from a full execution ID
- * @param fullExecutionId
- * @returns the execution ID
- *
- * Example:
- * - "wf-123:1234567890" -> ["wf-123", "1234567890"]
- * - "wf-123:1234567890:1" -> ["wf-123", "1234567890:1"]
- */
-function parseExecutionId(fullExecutionId: string): [string, string] {
-  // Split at most once from the left, keeping any remaining colons in the second part
-  const splitIndex = fullExecutionId.indexOf(":")
-  if (splitIndex === -1) {
-    throw new Error("Invalid execution ID format - missing colon separator")
-  }
-  const workflowId = fullExecutionId.slice(0, splitIndex)
-  const executionId = fullExecutionId.slice(splitIndex + 1)
-  return [workflowId, executionId]
 }
