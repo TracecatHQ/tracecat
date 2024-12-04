@@ -1,6 +1,6 @@
 ---
 title: Actions Registry
-description: Learn how to use pre-built integrations in your workflows.
+description: Learn how to use and modify pre-built integrations in your workflows.
 ---
 
 ## Goals
@@ -27,28 +27,66 @@ By the end of this tutorial, you will learn:
     </Step>
     <Step title="Clone existing Action Template">
         Let's create a new action called `Is URL malicious`.
-        First, clone the existing `Search URL with VirusTotal` action template.
+        First, find and clone the existing `Search URL with VirusTotal` action template by selecting **New from template** in Action Registry.
+        ![Clone Template](/img/tutorials/actions-registry/clone-template.png)
     </Step>
     <Step title="Edit the new action">
         Edit the action to get the VirusTotal report, check if the URL is malicious, and return a single boolean value.
         Copy the following configuration into the YAML editor:
 
         ```yaml
+        name: is_url_malicious
+        namespace: integrations.virustotal
+        title: Is URL malicious
+        description: Check if URL is marked as malicious in the VirusTotal.
+        display_group: VirusTotal
+        secrets:
+          - name: virustotal
+            keys:
+              - VIRUSTOTAL_API_KEY
+        expects:
+          url:
+            type: str
+            description: The URL to search
+        steps:
+          - ref: is_url_malicious
+            action: core.http_request
+            args:
+              url: https://www.virustotal.com/api/v3/urls/${{
+                FN.strip(FN.to_base64url(inputs.url), "=") }}
+              method: GET
+              headers:
+                x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+        returns: ${{ FN.greater_than_or_equal(steps.is_url_malicious.result.data.data.attributes.last_analysis_stats.malicious, 1) }}
         ```
     </Step>
     <Step title="Replace actions in workflow">
-        Replace the `Search URL with VirusTotal` and `Extract VirusTotal report` actions with the new `Is URL malicious` action.
+        Go back to `Enrich URL with VirusTotal` workflow and replace the `Search URL with VirusTotal` and `Extract VirusTotal report` actions with the new `Is URL malicious` action.
     </Step>
-    <Step title="Update action result references">
-        We need to update the `List VirusTotal comments on URL` action to use the new `Is URL malicious` action.
+    <Step title="Remove the if-condition and update action result references">
+        Remove the previously created if-condition from `List VirusTotal comments on URL` action **Control Flow** tab.
+
+        Update the `List VirusTotal comments on URL` action Input to use the trigger URL:
 
         ```yaml
-        ${{ ACTIONS.is_url_malicious.result }}
+        url: ${{ TRIGGER.url }}
+        ```
+    </Step>
+    <Step title="Modify output data">
+        Click on the canvas to view workflow settings, then go to the **Schema** tab.
+        Modify the **Output Schema** to following:
+        ```
+        Url: ${{ TRIGGER.url }}
+        Comment count: ${{ ACTIONS.list_virustotal_comments_on_url.result.data.meta.count }}
+        Is URL malicious: ${{ ACTIONS.is_url_malicious.result }}
         ```
     </Step>
     <Step title="Run the workflow">
-        Click on the **Run** button to execute the workflow.
-        The results will be the same as the previous tutorial.
+        Click on the **Run** button to execute the workflow. Use the same sample payload:
+        ```json
+        {"url": "https://crowdstrikebluescreen.com"}
+        ```
+        The results will be similar to the previous tutorial.
     </Step>
 </Steps>
 
