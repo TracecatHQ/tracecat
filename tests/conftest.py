@@ -46,6 +46,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
 
     load_dotenv()
     logger.info("Setting up environment variables")
+    monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
     monkeysession.setattr(
         config,
         "TRACECAT__DB_URI",
@@ -58,6 +59,9 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         "TRACECAT__REMOTE_REPOSITORY_URL",
         "git+ssh://git@github.com/TracecatHQ/udfs.git",
     )
+    monkeysession.setattr(
+        config, "TRACECAT__REGISTRY_URL", "http://localhost/api/registry"
+    )
 
     monkeysession.setenv(
         "TRACECAT__DB_URI",
@@ -65,6 +69,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     )
     # monkeysession.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeysession.setenv("TRACECAT__API_URL", "http://api:8000")
+    monkeysession.setenv("TRACECAT__REGISTRY_URL", "http://registry:8000")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
     monkeysession.setenv("TRACECAT__PUBLIC_RUNNER_URL", "http://localhost:8001")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
