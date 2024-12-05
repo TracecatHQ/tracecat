@@ -17,6 +17,10 @@ definition:
       type: bool
       description: If False, disables SSL verification for internal networks.
       default: true
+    auth_token_exp_timeout:
+      type: int
+      description: Change the token base duration
+      default: 900
   steps:
     - ref: get_auth_token
       action: core.http_request
@@ -28,6 +32,8 @@ definition:
         method: POST
         headers:
           Content-Type: application/json
-        verify_ssl: ${{ inputs.verify_ssl  }}
+        payload:
+          auth_token_exp_timeout: ${{ inputs.auth_token_exp_timeout }}
+        verify_ssl: ${{ inputs.verify_ssl }}
   returns:
     token: ${{ steps.get_auth_token.result.data.data.token }}
