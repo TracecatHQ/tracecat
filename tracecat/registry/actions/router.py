@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.contexts import ctx_logger
+from tracecat.contexts import ctx_logger, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.models import RunActionInput
 from tracecat.logger import logger
@@ -172,13 +172,13 @@ async def run_registry_action(
 ) -> Any:
     """Execute a registry action."""
     ref = action_input.task.ref
+    ctx_role.set(role)
     act_logger = logger.bind(role=role, action_name=action_name, ref=ref)
     ctx_logger.set(act_logger)
 
     act_logger.info("Starting action")
     try:
         return await executor.run_action_in_pool(input=action_input)
-        # return await executor.run_action_from_input(input=action_input)
     except Exception as e:
         # Get the traceback info
         tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame

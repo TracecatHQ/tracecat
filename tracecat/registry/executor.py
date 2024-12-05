@@ -15,7 +15,7 @@ import uvloop
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.contexts import ctx_logger, ctx_run
+from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.db.engine import get_async_engine
 from tracecat.dsl.common import context_locator, create_default_dsl_context
 from tracecat.dsl.models import (
@@ -38,6 +38,7 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
+from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
 
 """All these methods are used in the registry executor, not on the worker"""
@@ -59,12 +60,13 @@ def get_executor() -> ProcessPoolExecutor:
     return _executor
 
 
-def sync_executor_entrypoint(input: RunActionInput[ArgsT]) -> Any:
+def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
     """Run an action on the executor (API, not worker)"""
 
     logger.info("Running action in pool", input=input)
 
     async def coro():
+        ctx_role.set(role)
         async_engine = get_async_engine()
         try:
             return await run_action_from_input(input=input)
@@ -77,7 +79,10 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT]) -> Any:
 async def run_action_in_pool(input: RunActionInput[ArgsT]) -> Any:
     """Run an action on the executor (API, not worker)"""
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(get_executor(), sync_executor_entrypoint, input)
+    role = ctx_role.get()
+    result = await loop.run_in_executor(
+        get_executor(), sync_executor_entrypoint, input, role
+    )
     return result
 
 
