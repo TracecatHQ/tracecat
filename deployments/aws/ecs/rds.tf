@@ -104,7 +104,7 @@ resource "aws_db_instance" "temporal_database" {
 
 resource "aws_db_subnet_group" "tracecat_db_subnet" {
   name       = "tracecat-db-subnet"
-  subnet_ids = aws_subnet.private[*].id
+  subnet_ids = var.private_subnet_ids
 }
 
 # Local variables for database hostnames

@@ -18,15 +18,19 @@ IPV4_REGEX = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
 )
 def extract_ipv4_addresses(
     texts: Annotated[
-        list[str],
-        Field(..., description="The list of strings to extract IP addresses from"),
+        str | list[str],
+        Field(..., description="Text or list of text to extract IP addresses from"),
     ],
 ) -> list[str]:
     """Extract unique IPv4 addresses from a list of strings."""
-    # Find all matches for IPv4 addresses
+
+    if isinstance(texts, str):
+        texts = [texts]
+
     ip_addresses = itertools.chain.from_iterable(
         re.findall(IPV4_REGEX, text) for text in texts
     )
+
     # Validate IP addresses
     valid_ips = set()
     for ip in ip_addresses:

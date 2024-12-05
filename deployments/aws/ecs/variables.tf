@@ -5,23 +5,76 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
-variable "az_count" {
-  type        = number
-  description = "Number of AZs to cover in a given region"
-  default     = 2
+### Networking
+
+variable "is_internal" {
+  type        = bool
+  description = "Whether the ALB is internal or public"
+  default     = false
 }
 
-### (Optional) Custom Integrations
-
-variable "remote_repository_package_name" {
+variable "vpc_id" {
   type        = string
-  description = "The package name of the remote repository"
-  default     = null
+  description = "The ID of the VPC"
 }
 
-variable "remote_repository_url" {
+variable "public_subnet_ids" {
+  type        = list(string)
+  description = "The IDs of the public subnets"
+}
+
+variable "private_subnet_ids" {
+  type        = list(string)
+  description = "The IDs of the private subnets"
+}
+
+variable "allowed_inbound_cidr_blocks" {
+  description = "List of CIDR blocks allowed to access the ALB"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+# variable "allowed_outbound_cidr_blocks" {
+#   description = "List of CIDR blocks the ALB can send traffic to"
+#   type        = list(string)
+#   default     = [] # Empty by default, will be set to VPC CIDR
+# }
+
+variable "enable_waf" {
+  description = "Whether to enable WAF for the ALB"
+  type        = bool
+  default     = true
+}
+
+
+### DNS
+
+variable "domain_name" {
   type        = string
-  description = "The URL of the remote repository"
+  description = "The domain name to use for the application"
+}
+
+variable "hosted_zone_id" {
+  type        = string
+  description = "The ID of the hosted zone in Route53"
+}
+
+variable "acm_certificate_arn" {
+  type        = string
+  description = "The ARN of the ACM certificate to use for the application"
+}
+
+### Security
+
+variable "auth_types" {
+  type    = string
+  default = "google_oauth,sso"
+}
+
+
+variable "auth_allowed_domains" {
+  type        = string
+  description = "Comma separated list of allowed domains for authentication (e.g. `acme.com,acme.ai`)"
   default     = null
 }
 
@@ -55,7 +108,7 @@ variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.15.1"
+  default = "0.16.0"
 }
 
 variable "use_git_commit_sha" {
@@ -123,24 +176,18 @@ variable "saml_idp_metadata_url_arn" {
   default     = null
 }
 
-### Security
+### (Optional) Custom Integrations
 
-variable "auth_allowed_domains" {
+variable "remote_repository_package_name" {
   type        = string
-  description = "Comma separated list of allowed domains for authentication"
+  description = "The package name of the remote repository"
   default     = null
 }
 
-### DNS
-
-variable "hosted_zone_id" {
+variable "remote_repository_url" {
   type        = string
-  description = "The ID of the hosted zone in Route53"
-}
-
-variable "domain_name" {
-  type        = string
-  description = "The domain name to use for the application"
+  description = "The URL of the remote repository"
+  default     = null
 }
 
 ### Compute / Memory
@@ -178,11 +225,6 @@ variable "ui_memory" {
 variable "temporal_cpu" {
   type    = string
   default = "256"
-}
-
-variable "temporal_log_level" {
-  type    = string
-  default = "warn"
 }
 
 variable "temporal_memory" {
@@ -270,11 +312,11 @@ variable "rds_auto_minor_version_upgrade" {
 # NOTE: sensitive variables are stored in secrets manager
 # and specified directly in the task definition via a secret reference
 
-### Container Env Vars
-# PUBLIC_APP_URL = https://{var.domain_name}
-# PUBLIC_API_URL= https://{var.domain_name}/api/
-# INTERNAL_API_URL =  http://api-service:8000
-
+variable "tracecat_app_env" {
+  type        = string
+  description = "The environment of the Tracecat application"
+  default     = "production"
+}
 
 variable "log_level" {
   type        = string
@@ -282,15 +324,7 @@ variable "log_level" {
   default     = "INFO"
 }
 
-variable "tracecat_app_env" {
-  type        = string
-  description = "The environment of the Tracecat application"
-  default     = "production"
-}
-
-# UI
-
-variable "auth_types" {
+variable "temporal_log_level" {
   type    = string
-  default = "google_oauth,sso"
+  default = "warn"
 }

@@ -123,6 +123,9 @@ class User(SQLModelBaseUserDB, table=True):
     last_name: str | None = Field(default=None, max_length=255)
     role: UserRole = Field(nullable=False, default=UserRole.BASIC)
     settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    last_login_at: datetime | None = Field(
+        sa_column=Column(TIMESTAMP(timezone=True)),
+    )
     # Relationships
     oauth_accounts: list["OAuthAccount"] = Relationship(
         back_populates="user",
@@ -136,10 +139,18 @@ class User(SQLModelBaseUserDB, table=True):
         link_model=Membership,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
+    access_tokens: list["AccessToken"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
 
 
 class AccessToken(SQLModelBaseAccessToken, table=True):
-    pass
+    id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
+    user: "User" = Relationship(
+        back_populates="access_tokens",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
 
 
 class BaseSecret(Resource):

@@ -95,7 +95,9 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
 
 const basicLoginSchema = z.object({
   email: z.string().email().min(3, { message: "Required" }),
-  password: z.string().min(8, "Password needs to be atleast 8 charakters long"),
+  password: z
+    .string()
+    .min(8, "Password needs to be at least 8 characters long"),
 })
 type BasicLoginForm = z.infer<typeof basicLoginSchema>
 

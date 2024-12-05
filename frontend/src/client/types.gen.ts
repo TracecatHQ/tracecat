@@ -355,6 +355,25 @@ export type DSLRunArgs = {
     schedule_id?: string | null;
 };
 
+export type EditorActionRead = {
+    type: string;
+    ref: string;
+    description: string;
+};
+
+export type EditorFunctionRead = {
+    name: string;
+    description: string;
+    parameters: Array<EditorParamRead>;
+    return_type: string;
+};
+
+export type EditorParamRead = {
+    name: string;
+    type: string;
+    optional: boolean;
+};
+
 export type ErrorModel = {
     detail: string | {
     [key: string]: (string);
@@ -445,6 +464,7 @@ export type OrgMemberRead = {
     is_active: boolean;
     is_superuser: boolean;
     is_verified: boolean;
+    last_login_at: string | null;
 };
 
 /**
@@ -923,6 +943,13 @@ export type SecretUpdate = {
 } | null;
     environment?: string | null;
     level?: SecretLevel | null;
+};
+
+export type SessionRead = {
+    id: string;
+    created_at: string;
+    user_id: string;
+    user_email: string;
 };
 
 export type TemplateAction_Input = {
@@ -1690,6 +1717,27 @@ export type OrganizationUpdateOrgMemberData = {
 };
 
 export type OrganizationUpdateOrgMemberResponse = OrgMemberRead;
+
+export type OrganizationListSessionsResponse = Array<SessionRead>;
+
+export type OrganizationDeleteSessionData = {
+    sessionId: string;
+};
+
+export type OrganizationDeleteSessionResponse = void;
+
+export type EditorListFunctionsData = {
+    workspaceId: string;
+};
+
+export type EditorListFunctionsResponse = Array<EditorFunctionRead>;
+
+export type EditorListActionsData = {
+    workflowId: string;
+    workspaceId: string;
+};
+
+export type EditorListActionsResponse = Array<EditorActionRead>;
 
 export type UsersUsersCurrentUserResponse = UserRead;
 
@@ -2665,6 +2713,61 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: OrgMemberRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/organization/sessions': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<SessionRead>;
+            };
+        };
+    };
+    '/organization/sessions/{session_id}': {
+        delete: {
+            req: OrganizationDeleteSessionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/editor/functions': {
+        get: {
+            req: EditorListFunctionsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<EditorFunctionRead>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/editor/actions': {
+        get: {
+            req: EditorListActionsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<EditorActionRead>;
                 /**
                  * Validation Error
                  */

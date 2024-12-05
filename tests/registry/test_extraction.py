@@ -8,6 +8,11 @@ from tracecat_registry.base.etl.url import extract_urls
     "texts, expected_emails, normalize",
     [
         (
+            "Contact us at support@example.com or sales@example.org.",
+            ["support@example.com", "sales@example.org"],
+            False,
+        ),
+        (
             ["Contact us at support@example.com or sales@example.org."],
             ["support@example.com", "sales@example.org"],
             False,
@@ -46,7 +51,8 @@ from tracecat_registry.base.etl.url import extract_urls
         ),
     ],
     ids=[
-        "valid_emails",
+        "single_email",
+        "multiple_emails",
         "invalid_and_valid_email",
         "subaddressed_email",
         "normalized_subaddressed_emails",
@@ -62,6 +68,7 @@ def test_extract_emails(texts, expected_emails, normalize):
 @pytest.mark.parametrize(
     "texts, expected_ip_addresses",
     [
+        ("IPv4 address 192.168.1.1 and some random text", ["192.168.1.1"]),
         (
             [
                 "IPv4 address 192.168.1.1 and some random text",
@@ -93,7 +100,8 @@ def test_extract_emails(texts, expected_emails, normalize):
         ),
     ],
     ids=[
-        "valid_ipv4",
+        "single_ipv4",
+        "multiple_ipv4",
         "no_ip_addresses",
         "invalid_ip_addresses",
         "json_with_ip_addresses",
@@ -107,6 +115,10 @@ def test_extract_ipv4_addresses(texts, expected_ip_addresses):
 @pytest.mark.parametrize(
     "texts, expected_urls",
     [
+        (
+            "Visit our website at https://example.com for more info.",
+            ["https://example.com"],
+        ),
         (
             ["Visit our website at https://example.com for more info."],
             ["https://example.com"],
@@ -144,7 +156,8 @@ def test_extract_ipv4_addresses(texts, expected_ip_addresses):
     ],
     ids=[
         "single_url",
-        "multiple_urls_with_paths",
+        "multiple_urls",
+        "no_urls",
         "invalid_and_valid_url_with_path",
         "multiple_urls_in_text_with_paths",
         "json_with_urls_and_paths",

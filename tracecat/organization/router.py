@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.models import UserUpdate
+from tracecat.auth.models import SessionRead, UserUpdate
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.identifiers import UserID
+from tracecat.identifiers import SessionID, UserID
 from tracecat.organization.models import OrgMemberRead, OrgRead
 from tracecat.organization.service import OrgService
 from tracecat.types.auth import AccessLevel, Role
@@ -44,6 +44,7 @@ async def list_org_members(
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             is_verified=user.is_verified,
+            last_login_at=user.last_login_at,
         )
         for user in members
     ]
@@ -67,6 +68,11 @@ async def delete_org_member(
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        ) from e
+    except IntegrityError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Action cannot be performed. Check if user is a superuser or has active sessions.",
         ) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(
@@ -99,6 +105,7 @@ async def update_org_member(
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             is_verified=user.is_verified,
+            last_login_at=user.last_login_at,
         )
     except NoResultFound as e:
         raise HTTPException(
@@ -107,4 +114,40 @@ async def update_org_member(
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+        ) from e
+
+
+@router.get("/sessions", response_model=list[SessionRead])
+async def list_sessions(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=AccessLevel.ADMIN,
+    ),
+    session: AsyncDBSession,
+):
+    service = OrgService(session, role=role)
+    return await service.list_sessions()
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_session(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=AccessLevel.ADMIN,
+    ),
+    session: AsyncDBSession,
+    session_id: SessionID,
+):
+    service = OrgService(session, role=role)
+    try:
+        await service.delete_session(session_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         ) from e

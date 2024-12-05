@@ -8,6 +8,8 @@ from tracecat.expressions.functions import (
     _bool,
     _build_safe_lambda,
     add,
+    add_prefix,
+    add_suffix,
     and_,
     b64_to_str,
     b64url_to_str,
@@ -90,6 +92,32 @@ from tracecat.expressions.functions import (
     weeks_between,
     zip_iterables,
 )
+
+
+@pytest.mark.parametrize(
+    "input,prefix,expected",
+    [
+        ("test", "prefix", "prefixtest"),
+        (["hello", "world"], "prefix", ["prefixhello", "prefixworld"]),
+    ],
+)
+def test_add_prefix(
+    input: str | list[str], prefix: str, expected: str | list[str]
+) -> None:
+    assert add_prefix(input, prefix) == expected
+
+
+@pytest.mark.parametrize(
+    "input,suffix,expected",
+    [
+        ("test", "suffix", "testsuffix"),
+        (["hello", "world"], "suffix", ["hellosuffix", "worldsuffix"]),
+    ],
+)
+def test_add_suffix(
+    input: str | list[str], suffix: str, expected: str | list[str]
+) -> None:
+    assert add_suffix(input, suffix) == expected
 
 
 @pytest.mark.parametrize(

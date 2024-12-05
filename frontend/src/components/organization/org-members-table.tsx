@@ -6,6 +6,7 @@ import { useAuth } from "@/providers/auth"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 
 import { userIsPrivileged } from "@/lib/auth"
+import { getRelativeTime } from "@/lib/event-history"
 import { useOrgMembers } from "@/lib/hooks"
 import {
   AlertDialog,
@@ -31,6 +32,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -219,6 +221,33 @@ export function OrgMembersTable() {
               enableHiding: false,
             },
             {
+              accessorKey: "last_login_at",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  className="text-xs"
+                  column={column}
+                  title="Last Login"
+                />
+              ),
+              cell: ({ row }) => {
+                const lastLoginAt =
+                  row.getValue<OrgMemberRead["last_login_at"]>("last_login_at")
+                if (!lastLoginAt) {
+                  return <div className="text-xs">-</div>
+                }
+                const date = new Date(lastLoginAt)
+                const ago = getRelativeTime(date)
+                return (
+                  <div className="space-x-2 text-xs">
+                    <span>{date.toLocaleString()}</span>
+                    <span className="text-muted-foreground">({ago})</span>
+                  </div>
+                )
+              },
+              enableSorting: true,
+              enableHiding: false,
+            },
+            {
               id: "actions",
               enableHiding: false,
               cell: ({ row }) => {
@@ -240,9 +269,9 @@ export function OrgMembersTable() {
                       </DropdownMenuItem>
 
                       {privileged && (
-                        <>
+                        <DropdownMenuGroup>
                           <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Admin</DropdownMenuLabel>
+                          <DropdownMenuLabel>Manage</DropdownMenuLabel>
                           <DialogTrigger asChild>
                             <DropdownMenuItem
                               onClick={() => {
@@ -265,7 +294,7 @@ export function OrgMembersTable() {
                               Remove from workspace
                             </DropdownMenuItem>
                           </AlertDialogTrigger>
-                        </>
+                        </DropdownMenuGroup>
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>

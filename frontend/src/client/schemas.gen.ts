@@ -954,6 +954,73 @@ export const $DSLRunArgs = {
     title: 'DSLRunArgs'
 } as const;
 
+export const $EditorActionRead = {
+    properties: {
+        type: {
+            type: 'string',
+            title: 'Type'
+        },
+        ref: {
+            type: 'string',
+            title: 'Ref'
+        },
+        description: {
+            type: 'string',
+            title: 'Description'
+        }
+    },
+    type: 'object',
+    required: ['type', 'ref', 'description'],
+    title: 'EditorActionRead'
+} as const;
+
+export const $EditorFunctionRead = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        description: {
+            type: 'string',
+            title: 'Description'
+        },
+        parameters: {
+            items: {
+                '$ref': '#/components/schemas/EditorParamRead'
+            },
+            type: 'array',
+            title: 'Parameters'
+        },
+        return_type: {
+            type: 'string',
+            title: 'Return Type'
+        }
+    },
+    type: 'object',
+    required: ['name', 'description', 'parameters', 'return_type'],
+    title: 'EditorFunctionRead'
+} as const;
+
+export const $EditorParamRead = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        type: {
+            type: 'string',
+            title: 'Type'
+        },
+        optional: {
+            type: 'boolean',
+            title: 'Optional'
+        }
+    },
+    type: 'object',
+    required: ['name', 'type', 'optional'],
+    title: 'EditorParamRead'
+} as const;
+
 export const $ErrorModel = {
     properties: {
         detail: {
@@ -1361,10 +1428,22 @@ export const $OrgMemberRead = {
         is_verified: {
             type: 'boolean',
             title: 'Is Verified'
+        },
+        last_login_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Login At'
         }
     },
     type: 'object',
-    required: ['user_id', 'first_name', 'last_name', 'email', 'role', 'is_active', 'is_superuser', 'is_verified'],
+    required: ['user_id', 'first_name', 'last_name', 'email', 'role', 'is_active', 'is_superuser', 'is_verified', 'last_login_at'],
     title: 'OrgMemberRead'
 } as const;
 
@@ -2786,6 +2865,34 @@ Secret types
 - \`custom\`: Arbitrary user-defined types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
 - \`oauth2\`: OAuth2 Client Credentials (TBC)`
+} as const;
+
+export const $SessionRead = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Id'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        user_id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'User Id'
+        },
+        user_email: {
+            type: 'string',
+            format: 'email',
+            title: 'User Email'
+        }
+    },
+    type: 'object',
+    required: ['id', 'created_at', 'user_id', 'user_email'],
+    title: 'SessionRead'
 } as const;
 
 export const $TemplateAction_Input = {

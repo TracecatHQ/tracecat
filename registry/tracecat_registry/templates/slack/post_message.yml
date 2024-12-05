@@ -15,6 +15,7 @@ definition:
     blocks:
       type: any
       description: Blocks of the message to post
+      default: null
     thread_ts:
       type: str
       description: Timestamp of the thread to post the message to

@@ -1,20 +1,20 @@
 resource "aws_security_group" "alb" {
   name        = "alb-security-group"
   description = "Allow inbound HTTP/HTTPS access to the ALB"
-  vpc_id      = aws_vpc.tracecat.id
+  vpc_id      = var.vpc_id
 
   ingress {
     protocol    = "tcp"
     from_port   = 443
     to_port     = 443
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.allowed_inbound_cidr_blocks
   }
 
   ingress {
     protocol    = "tcp"
     from_port   = 80
     to_port     = 80
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.allowed_inbound_cidr_blocks
   }
 
   egress {
@@ -28,7 +28,7 @@ resource "aws_security_group" "alb" {
 resource "aws_security_group" "caddy" {
   name        = "caddy-security-group"
   description = "Allow inbound access from the ALB to port 80 (Caddy) only"
-  vpc_id      = aws_vpc.tracecat.id
+  vpc_id      = var.vpc_id
 
   ingress {
     protocol        = "tcp"
@@ -48,7 +48,7 @@ resource "aws_security_group" "caddy" {
 resource "aws_security_group" "core" {
   name        = "core-security-group"
   description = "Security group for core Tracecat services"
-  vpc_id      = aws_vpc.tracecat.id
+  vpc_id      = var.vpc_id
 
   ingress {
     description = "Allow internal traffic to the Tracecat API service on port 8000"
@@ -94,43 +94,72 @@ resource "aws_security_group" "core" {
 resource "aws_security_group" "core_db" {
   name        = "core-db-security-group"
   description = "Security group for Tracecat API to RDS communication"
-  vpc_id      = aws_vpc.tracecat.id
+  vpc_id      = var.vpc_id
 
   ingress {
-    description = "Allow inbound traffic to PostgreSQL database on port 5432"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "Allow inbound traffic to PostgreSQL database on port 5432"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.core.id]
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    security_groups = [aws_security_group.core.id]
   }
 
 }
 
 resource "aws_security_group" "temporal_db" {
   name        = "temporal-db-security-group"
-  description = "Security group for Tracecat API to RDS communication"
-  vpc_id      = aws_vpc.tracecat.id
+  description = "Security group for Temporal server to RDS communication"
+  vpc_id      = var.vpc_id
 
   ingress {
-    description = "Allow inbound traffic to PostgreSQL database on port 5432"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "Allow inbound traffic to PostgreSQL database on port 5432"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.core.id]
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    security_groups = [aws_security_group.core.id]
   }
 
+}
+
+resource "aws_vpc_endpoint" "secretsmanager" {
+  vpc_id              = var.vpc_id
+  service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = var.private_subnet_ids
+  security_group_ids  = [aws_security_group.secretsmanager_vpc_endpoint.id]
+  private_dns_enabled = true
+}
+
+resource "aws_security_group" "secretsmanager_vpc_endpoint" {
+  name        = "secretsmanager-vpc-endpoint"
+  description = "Security group for Secrets Manager VPC endpoint"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.core.id]
+  }
+
+  egress {
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    security_groups = [aws_security_group.core.id]
+  }
 }
