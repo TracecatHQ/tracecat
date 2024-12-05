@@ -16,6 +16,7 @@ from tracecat.registry.constants import (
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import safe_url
+from tracecat.store.client import get_store
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
 
@@ -133,3 +134,16 @@ async def setup_oss_models():
     )
     await preload_ollama_models(preload_models)
     logger.info("Preloaded models", models=preload_models)
+
+
+async def setup_store():
+    store = get_store()
+    try:
+        await store.create_bucket("tracecat")
+        logger.info("Object store setup complete")
+    except Exception as e:
+        exc_type = e.__class__.__name__
+        if exc_type == "BucketAlreadyOwnedByYou":
+            logger.info("Object store already setup")
+        else:
+            logger.warning("Couldn't set up object store", error=e)
