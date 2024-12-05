@@ -13,6 +13,7 @@ from tracecat.api.common import (
     custom_generate_unique_id,
     generic_exception_handler,
     setup_registry,
+    setup_store,
     tracecat_exception_handler,
 )
 from tracecat.auth.constants import AuthType
@@ -54,6 +55,9 @@ async def lifespan(app: FastAPI):
     async with get_async_session_context_manager() as session:
         await setup_workspace_defaults(session, admin_role)
         await setup_registry(session, admin_role)
+    # Setup minio
+    await setup_store()
+
     yield
 
 
