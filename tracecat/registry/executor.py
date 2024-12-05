@@ -7,12 +7,16 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator, Mapping
+from concurrent.futures import ProcessPoolExecutor
 from typing import Any, cast
+
+import uvloop
 
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.contexts import ctx_logger, ctx_run
+from tracecat.contexts import ctx_logger, ctx_role, ctx_run
+from tracecat.db.engine import get_async_engine
 from tracecat.dsl.common import context_locator, create_default_dsl_context
 from tracecat.dsl.models import (
     ActionStatement,
@@ -21,11 +25,12 @@ from tracecat.dsl.models import (
     RunActionInput,
 )
 from tracecat.expressions.eval import (
+    OperandType,
     eval_templated_object,
     extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.expressions.shared import ExprContext, ExprContextType
+from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.models import ArgsClsT, BoundRegistryAction
@@ -33,11 +38,52 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
+from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
 
 """All these methods are used in the registry executor, not on the worker"""
 
 type ArgsT = Mapping[str, Any]
+
+_executor: ProcessPoolExecutor | None = None
+
+# We want to be able to serve a looped action
+# Before we send out tasks to the executor we should inspect the size of the loop
+# and set the right chunk size for each worker
+
+
+def get_executor() -> ProcessPoolExecutor:
+    """Get the executor, creating it if it doesn't exist"""
+    global _executor
+    if _executor is None:
+        _executor = ProcessPoolExecutor()
+    return _executor
+
+
+def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
+    """Run an action on the executor (API, not worker)"""
+
+    logger.info("Running action in pool", input=input)
+
+    async def coro():
+        ctx_role.set(role)
+        async_engine = get_async_engine()
+        try:
+            return await run_action_from_input(input=input)
+        finally:
+            await async_engine.dispose()
+
+    return uvloop.run(coro())
+
+
+async def run_action_in_pool(input: RunActionInput[ArgsT]) -> Any:
+    """Run an action on the executor (API, not worker)"""
+    loop = asyncio.get_running_loop()
+    role = ctx_role.get()
+    result = await loop.run_in_executor(
+        get_executor(), sync_executor_entrypoint, input, role
+    )
+    return result
 
 
 async def _run_action_direct(
@@ -68,69 +114,23 @@ async def _run_action_direct(
 
 async def run_single_action(
     *,
-    action_name: str,
+    action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
-    context: dict[str, Any] | None = None,
+    context: DSLContext | None = None,
 ) -> Any:
     """Run a UDF async."""
-    # NOTE(perf): We might want to cache this, or call at a higher level
-    async with RegistryActionsService.with_session() as service:
-        action = await service.load_action_impl(action_name=action_name)
-    validated_args = action.validate_args(**args)
-
-    logger.trace("Running regular UDF async", action=action_name)
-    secret_names = [secret.name for secret in action.secrets or []]
-    optional_secrets = [
-        secret.name for secret in action.secrets or [] if secret.optional
-    ]
-    run_context = ctx_run.get()
-    environment = getattr(run_context, "environment", DEFAULT_SECRETS_ENVIRONMENT)
-    async with (
-        AuthSandbox(
-            secrets=secret_names,
-            target="context",
-            environment=environment,
-            optional_secrets=optional_secrets,
-        ) as sandbox,
-    ):
-        # Flatten the secrets to a dict[str, str]
-        secret_context = sandbox.secrets.copy()
-        if action.is_template:
-            logger.info("Running template UDF async", action=action_name)
-            context_with_secrets = context.copy() if context else {}
-            # Merge the secrets from the sandbox with the existing context
-            context_with_secrets[ExprContext.SECRETS] = (
-                context_with_secrets.get(ExprContext.SECRETS, {}) | secret_context
-            )
-            return await run_template_action(
-                action=action,
-                args=validated_args,
-                context=context_with_secrets,
-            )
-        # Given secrets in the format of {name: {key: value}}, we need to flatten
-        # it to a dict[str, str] to set in the environment context
-        flattened_secrets: dict[str, str] = {}
-        for name, keyvalues in secret_context.items():
-            for key, value in keyvalues.items():
-                if key in flattened_secrets:
-                    raise ValueError(
-                        f"Key {key!r} is duplicated in {name!r}! "
-                        "Please ensure only one secret with a given name is set. "
-                        "e.g. If you have `first_secret.KEY` set, then you cannot "
-                        "also set `second_secret.KEY` as `KEY` is duplicated."
-                    )
-                flattened_secrets[key] = value
-
-        with env_sandbox(flattened_secrets):
-            # Run the UDF in the caller process (usually the worker)
-            return await _run_action_direct(action=action, args=validated_args)
+    if action.is_template:
+        logger.info("Running template UDF async", action=action.name)
+        return await run_template_action(action=action, args=args, context=context)
+    # Run the UDF in the caller process (usually the worker)
+    return await _run_action_direct(action=action, args=args)
 
 
 async def run_template_action(
     *,
     action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
-    context: DSLContext,
+    context: DSLContext | None = None,
 ) -> Any:
     """Handle template execution.
 
@@ -146,9 +146,11 @@ async def run_template_action(
         )
     defn = action.template_action.definition
     template_context = cast(
-        ExprContextType,
-        context.copy()
-        | {
+        DSLContext,
+        {
+            ExprContext.SECRETS: {}
+            if context is None
+            else context.get(ExprContext.SECRETS, {}),
             ExprContext.TEMPLATE_ACTION_INPUTS: args,
             ExprContext.TEMPLATE_ACTION_STEPS: {},
         },
@@ -157,10 +159,15 @@ async def run_template_action(
 
     for step in defn.steps:
         evaled_args = cast(
-            ArgsT, eval_templated_object(step.args, operand=template_context)
+            ArgsT,
+            eval_templated_object(
+                step.args, operand=cast(OperandType, template_context)
+            ),
         )
+        async with RegistryActionsService.with_session() as service:
+            step_action = await service.load_action_impl(action_name=step.action)
         result = await run_single_action(
-            action_name=step.action,
+            action=step_action,
             args=evaled_args,
             context=template_context,
         )
@@ -172,13 +179,15 @@ async def run_template_action(
         )
 
     # Handle returns
-    return eval_templated_object(defn.returns, operand=template_context)
+    return eval_templated_object(
+        defn.returns, operand=cast(OperandType, template_context)
+    )
 
 
 async def run_action_from_input(input: RunActionInput) -> Any:
     """This runs on the executor (API, not worker)"""
     ctx_run.set(input.run_context)
-    act_logger = ctx_logger.get()
+    act_logger = ctx_logger.get(logger.bind(ref=input.task.ref))
 
     task = input.task
     environment = input.run_context.environment
@@ -200,18 +209,26 @@ async def run_action_from_input(input: RunActionInput) -> Any:
     # 2. Load the secrets
     # 3. Inject the secrets into the task arguments using an enriched context
     # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
-    secret_refs = extract_templated_secrets(task.args)
+
+    async with RegistryActionsService.with_session() as service:
+        action = await service.load_action_impl(action_name=action_name)
+
+    run_context = ctx_run.get()
+    environment = getattr(run_context, "environment", DEFAULT_SECRETS_ENVIRONMENT)
+
+    action_secret_names = {secret.name for secret in action.secrets or []}
+    optional_secrets = {
+        secret.name for secret in action.secrets or [] if secret.optional
+    }
+    args_secret_refs = set(extract_templated_secrets(task.args))
 
     async with AuthSandbox(
-        secrets=secret_refs, target="context", environment=environment
+        secrets=list(action_secret_names | args_secret_refs),
+        target="context",
+        environment=environment,
+        optional_secrets=list(optional_secrets),
     ) as sandbox:
         secrets = sandbox.secrets.copy()
-    context_with_secrets = DSLContext(
-        **{
-            **input.exec_context,
-            ExprContext.SECRETS: secrets,
-        }
-    )
 
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         act_logger.warning(
@@ -231,40 +248,55 @@ async def run_action_from_input(input: RunActionInput) -> Any:
         args=task.args,
     )
 
-    # Actual execution
-    if task.for_each:
-        iterator = iter_for_each(task=task, context=context_with_secrets)
-        try:
-            async with GatheringTaskGroup() as tg:
-                for patched_args in iterator:
-                    tg.create_task(
-                        run_single_action(
-                            action_name=action_name,
-                            args=patched_args,
-                            context=context_with_secrets,
+    context = input.exec_context.copy()
+    context.update(SECRETS=secrets)
+
+    # Given secrets in the format of {name: {key: value}}, we need to flatten
+    # it to a dict[str, str] to set in the environment context
+    flattened_secrets: dict[str, str] = {}
+    for name, keyvalues in secrets.items():
+        for key, value in keyvalues.items():
+            if key in flattened_secrets:
+                raise ValueError(
+                    f"Key {key!r} is duplicated in {name!r}! "
+                    "Please ensure only one secret with a given name is set. "
+                    "e.g. If you have `first_secret.KEY` set, then you cannot "
+                    "also set `second_secret.KEY` as `KEY` is duplicated."
+                )
+            flattened_secrets[key] = value
+
+    with env_sandbox(flattened_secrets):
+        # Actual execution
+        if task.for_each:
+            # If the action is CPU bound, just run it directly
+            # Otherwise, we want to parallelize it
+            iterator = iter_for_each(task=task, context=context)
+
+            try:
+                async with GatheringTaskGroup() as tg:
+                    for patched_args in iterator:
+                        tg.create_task(
+                            run_single_action(
+                                action=action, args=patched_args, context=context
+                            )
                         )
-                    )
 
-            result = tg.results()
-        except* Exception as eg:
-            errors = [str(x) for x in eg.exceptions]
-            logger.error("Error resolving expressions", errors=errors)
-            raise TracecatException(
-                (
-                    f"[{context_locator(task, 'for_each')}]"
-                    "\n\nError in loop:"
-                    f"\n\n{'\n\n'.join(errors)}"
-                ),
-                detail={"errors": errors},
-            ) from eg
+                result = tg.results()
+            except* Exception as eg:
+                errors = [str(x) for x in eg.exceptions]
+                logger.error("Error resolving expressions", errors=errors)
+                raise TracecatException(
+                    (
+                        f"[{context_locator(task, 'for_each')}]"
+                        "\n\nError in loop:"
+                        f"\n\n{'\n\n'.join(errors)}"
+                    ),
+                    detail={"errors": errors},
+                ) from eg
 
-    else:
-        args = evaluate_templated_args(task, context_with_secrets)
-        result = await run_single_action(
-            action_name=action_name,
-            args=args,
-            context=cast(dict[str, Any], context_with_secrets),
-        )
+        else:
+            args = evaluate_templated_args(task, context)
+            result = await run_single_action(action=action, args=args, context=context)
 
     if mask_values:
         result = apply_masks_object(result, masks=mask_values)
@@ -300,28 +332,20 @@ def iter_for_each(
         raise ValueError("No loop expression found")
     iterators = get_iterables_from_expression(expr=task.for_each, operand=context)
 
-    # Assert that all length of the iterables are the same
-    # This is a requirement for parallel processing
-    # if len({len(expr.collection) for expr in iterators}) != 1:
-    #     raise ValueError("All iterables must be of the same length")
+    # Patch the context with the loop item and evaluate the action-local expressions
+    # We're copying this so that we don't pollute the original context
+    # Currently, the only source of action-local expressions is the loop iteration
+    # In the future, we may have other sources of action-local expressions
+    # XXX: ENV is the only context that should be shared
+    patched_context = context.copy() if patch else create_default_dsl_context()
+    logger.trace("Context before patch", patched_context=patched_context)
 
     # Create a generator that zips the iterables together
     for i, items in enumerate(zip(*iterators, strict=False)):
         logger.trace("Loop iteration", iteration=i)
-        # Patch the context with the loop item and evaluate the action-local expressions
-        # We're copying this so that we don't pollute the original context
-        # Currently, the only source of action-local expressions is the loop iteration
-        # In the future, we may have other sources of action-local expressions
-        patched_context = (
-            context.copy()
-            if patch
-            # XXX: ENV is the only context that should be shared
-            else create_default_dsl_context()
-        )
-        logger.trace("Context before patch", patched_context=patched_context)
         for iterator_path, iterator_value in items:
             patch_object(
-                cast(dict[str, Any], patched_context),
+                obj=patched_context,  # type: ignore
                 path=assign_context + iterator_path,
                 value=iterator_value,
             )
