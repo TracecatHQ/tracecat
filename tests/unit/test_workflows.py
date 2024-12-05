@@ -1601,7 +1601,7 @@ DIVISION_BY_ZERO_ERROR = {
         "------------------------------\n"
         "File: /app/tracecat/registry/executor.py\n"
         "Function: run_action_in_pool\n"
-        "Line: 84"
+        "Line: 83"
     ),
     "type": "RegistryActionError",
     "expr_context": "ACTIONS",
