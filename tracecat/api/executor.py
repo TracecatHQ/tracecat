@@ -23,7 +23,10 @@ from tracecat.types.exceptions import TracecatException
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await setup_oss_models()
+    try:
+        await setup_oss_models()
+    except Exception as e:
+        logger.error("Failed to preload OSS models", error=e)
     executor = get_executor()
     try:
         await setup_custom_remote_repository()
