@@ -10,6 +10,7 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
+    REGISTRY_REPOS_PATH,
 )
 from tracecat.registry.repositories.models import (
     RegistryRepositoryCreate,
@@ -22,7 +23,7 @@ from tracecat.registry.repository import ensure_base_repository
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import RegistryError, TracecatNotFoundError
 
-router = APIRouter(prefix="/registry/repos", tags=["registry-repositories"])
+router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 
 # Controls
 

@@ -17,6 +17,7 @@ from tracecat.registry.actions.models import (
     RegistryActionRead,
     RegistryActionValidateResponse,
 )
+from tracecat.registry.constants import REGISTRY_ACTIONS_PATH, REGISTRY_REPOS_PATH
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryActionError, RegistryError
 
@@ -25,7 +26,7 @@ class _RegistryHTTPClient(AuthenticatedServiceClient):
     """Async httpx client for the registry service."""
 
     def __init__(self, role: Role | None = None, *args: Any, **kwargs: Any) -> None:
-        self._registry_base_url = config.TRACECAT__API_URL
+        self._registry_base_url = config.TRACECAT__REGISTRY_URL
         super().__init__(role, *args, base_url=self._registry_base_url, **kwargs)
         self.params = self.params.add("workspace_id", str(self.role.workspace_id))
 
@@ -33,13 +34,13 @@ class _RegistryHTTPClient(AuthenticatedServiceClient):
 class RegistryClient:
     """Use this to interact with the remote registry service."""
 
-    _repos_endpoint = "/registry/repos"
-    _actions_endpoint = "/registry/actions"
+    _repos_endpoint = REGISTRY_REPOS_PATH
+    _actions_endpoint = REGISTRY_ACTIONS_PATH
     _timeout: float = 60.0
 
     def __init__(self, role: Role | None = None):
         self.role = role or ctx_role.get()
-        self.logger = logger.bind(service="remote-registry", role=self.role)
+        self.logger = logger.bind(service="registry-client", role=self.role)
 
     """Execution"""
 
@@ -72,11 +73,11 @@ class RegistryClient:
         but are included in the method signature for potential future use.
         """
 
-        key = input.task.action
+        action_type = input.task.action
         content = input.model_dump_json()
         workspace_id = str(self.role.workspace_id) if self.role.workspace_id else None
         logger.debug(
-            f"Calling action {key!r} with content",
+            f"Calling action {action_type!r} with content",
             content=content,
             role=self.role,
             timeout=self._timeout,
@@ -84,7 +85,7 @@ class RegistryClient:
         try:
             async with _RegistryHTTPClient(self.role) as client:
                 response = await client.post(
-                    f"{self._actions_endpoint}/{key}/execute",
+                    f"{self._actions_endpoint}/{action_type}/execute",
                     # NOTE(perf): Maybe serialize with orjson.dumps instead
                     headers={
                         "Content-Type": "application/json",
@@ -116,7 +117,7 @@ class RegistryClient:
             logger.error("Registry returned an error", error=e, detail=detail)
             if e.response.status_code / 100 == 5:
                 raise RegistryActionError(
-                    f"There was an error in the registry when calling action {key!r} ({e.response.status_code}).\n\n{detail}"
+                    f"There was an error in the registry when calling action {action_type!r} ({e.response.status_code}).\n\n{detail}"
                 ) from e
             else:
                 raise RegistryActionError(
@@ -124,15 +125,15 @@ class RegistryClient:
                 ) from e
         except httpx.ReadTimeout as e:
             raise RegistryActionError(
-                f"Timeout calling action {key!r} in registry: {e}"
+                f"Timeout calling action {action_type!r} in registry: {e}"
             ) from e
         except orjson.JSONDecodeError as e:
             raise RegistryActionError(
-                f"Error decoding JSON response for action {key!r}: {e}"
+                f"Error decoding JSON response for action {action_type!r}: {e}"
             ) from e
         except Exception as e:
             raise RegistryActionError(
-                f"Unexpected error calling action {key!r} in registry: {e}"
+                f"Unexpected error calling action {action_type!r} in registry: {e}"
             ) from e
 
     """Validation"""
