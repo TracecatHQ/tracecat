@@ -14,7 +14,7 @@ export const GET = async (request: NextRequest) => {
   const response = await fetch(url.toString())
   const setCookieHeader = response.headers.get("set-cookie")
 
-  // Get  redirect
+  // Get redirect
   const resp = await fetch(buildUrl("/info"))
   const { public_app_url } = await resp.json()
   console.log("Public app URL", public_app_url)
