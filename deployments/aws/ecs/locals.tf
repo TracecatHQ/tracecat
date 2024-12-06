@@ -26,20 +26,23 @@ locals {
 
   api_env = [
     for k, v in merge({
-      LOG_LEVEL                      = var.log_level
-      TRACECAT__API_URL              = local.internal_api_url
-      TRACECAT__API_ROOT_PATH        = "/api"
-      TRACECAT__APP_ENV              = var.tracecat_app_env
-      TRACECAT__PUBLIC_RUNNER_URL    = local.public_api_url
-      TRACECAT__PUBLIC_APP_URL       = local.public_app_url
-      TRACECAT__ALLOW_ORIGINS        = local.allow_origins
-      TRACECAT__AUTH_TYPES           = var.auth_types
-      TRACECAT__AUTH_ALLOWED_DOMAINS = var.auth_allowed_domains
-      TEMPORAL__CLUSTER_URL          = local.temporal_cluster_url
-      TEMPORAL__CLUSTER_QUEUE        = local.temporal_cluster_queue
-      TEMPORAL__CLIENT_RPC_TIMEOUT   = var.temporal_client_rpc_timeout
-      SAML_SP_ACS_URL                = local.saml_acs_url
-      RUN_MIGRATIONS                 = "true"
+      LOG_LEVEL                                = var.log_level
+      TRACECAT__API_URL                        = local.internal_api_url
+      TRACECAT__API_ROOT_PATH                  = "/api"
+      TRACECAT__APP_ENV                        = var.tracecat_app_env
+      TRACECAT__DB_ENDPOINT                    = local.core_db_hostname
+      TRACECAT__PUBLIC_RUNNER_URL              = local.public_api_url
+      TRACECAT__PUBLIC_APP_URL                 = local.public_app_url
+      TRACECAT__ALLOW_ORIGINS                  = local.allow_origins
+      TRACECAT__AUTH_TYPES                     = var.auth_types
+      TRACECAT__AUTH_ALLOWED_DOMAINS           = var.auth_allowed_domains
+      TEMPORAL__CLUSTER_URL                    = local.temporal_cluster_url
+      TEMPORAL__CLUSTER_QUEUE                  = local.temporal_cluster_queue
+      TEMPORAL__CLIENT_RPC_TIMEOUT             = var.temporal_client_rpc_timeout
+      SAML_SP_ACS_URL                          = local.saml_acs_url
+      TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME = var.remote_repository_package_name
+      TRACECAT__REMOTE_REPOSITORY_URL          = var.remote_repository_url
+      RUN_MIGRATIONS                           = "true"
     }, local.tracecat_db_configs) :
     { name = k, value = tostring(v) }
   ]
@@ -50,6 +53,7 @@ locals {
       TRACECAT__API_URL            = local.internal_api_url
       TRACECAT__API_ROOT_PATH      = "/api"
       TRACECAT__APP_ENV            = var.tracecat_app_env
+      TRACECAT__DB_ENDPOINT        = local.core_db_hostname
       TRACECAT__PUBLIC_RUNNER_URL  = local.public_api_url
       TEMPORAL__CLUSTER_URL        = local.temporal_cluster_url
       TEMPORAL__CLUSTER_QUEUE      = local.temporal_cluster_queue
@@ -62,6 +66,7 @@ locals {
     for k, v in merge({
       LOG_LEVEL                                = var.log_level
       TRACECAT__APP_ENV                        = var.tracecat_app_env
+      TRACECAT__DB_ENDPOINT                    = local.core_db_hostname
       TRACECAT__REMOTE_REPOSITORY_URL          = var.remote_repository_url
       TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME = var.remote_repository_package_name
     }, local.tracecat_db_configs) :
