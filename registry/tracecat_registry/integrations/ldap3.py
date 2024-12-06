@@ -9,6 +9,7 @@ Requires: A secret named `ldap` with the following keys:
 """
 
 import json
+import timezone
 from typing import Annotated, Any, List, Union
 
 import ldap3
@@ -114,16 +115,17 @@ class LdapClient:
     def enable_user(self, user_dn: str) -> bool:
         return self._modify(user_dn, "userAccountControl", [512])
 
-    def set_account_expiration(self, user_dn: str, expiration_datetime = datetime.now()) -> bool:
+    def set_account_expiration(self, user_dn: str, expiration: datetime | None = None) -> bool:
+      expiration = expiration or datetime.now(timezone.utc)
         if self._ldap_active_directory:
             attribute = "accountExpires"
             # Calculate Windows file time (100-nanosecond intervals since 1601-01-01)
-            expiration_timestamp = int((expiration_datetime - datetime(1601, 1, 1)).total_seconds() * 10**7)
+            expiration_ts = int((expiration - datetime(1601, 1, 1)).total_seconds() * 10**7)
         else:
             attribute = "shadowExpire"
             # Calculate UNIX timestamp in days since 1970-01-01
-            expiration_timestamp = (expiration_datetime - datetime(1970, 1, 1)).days
-        return self._modify(user_dn, attribute, [expiration_timestamp])
+            expiration_ts = (expiration - datetime(1970, 1, 1)).days
+        return self._modify(user_dn, attribute, [expiration_ts])
 
 def create_ldap_client(
     use_ssl: bool = True,
@@ -224,9 +226,9 @@ def expire_active_directory_user(
         str,
         Field(..., description="User distinguished name"),
     ],
-    expiration_datetime: Annotated[
-        Union[datetime, int],
-        Field(..., description="Datetime for expiration : Defaults to NOW, set to '0' to unexpire"),
+    expiration: Annotated[
+        datetime,
+        Field(..., description="Expiration datetime. If None, defaults to UTC now."),
     ] = datetime.now(),
     use_ssl: Annotated[
         bool,
