@@ -118,7 +118,7 @@ data "aws_secretsmanager_secret_version" "temporal_db_password" {
 }
 
 locals {
-  base_secrets = [
+  tracecat_base_secrets = [
     {
       name      = "TRACECAT__SERVICE_KEY"
       valueFrom = data.aws_secretsmanager_secret_version.tracecat_service_key.arn
@@ -175,8 +175,8 @@ locals {
     }
   ] : []
 
-  tracecat_secrets = concat(
-    local.base_secrets,
+  tracecat_api_secrets = concat(
+    local.tracecat_base_secrets,
     local.oauth_client_id_secret,
     local.oauth_client_secret_secret,
     local.saml_idp_entity_id_secret,
