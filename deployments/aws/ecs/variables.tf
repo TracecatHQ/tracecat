@@ -68,7 +68,7 @@ variable "acm_certificate_arn" {
 
 variable "auth_types" {
   type    = string
-  default = "google_oauth,sso"
+  default = "google_oauth,saml"
 }
 
 
