@@ -36,10 +36,6 @@ resource "aws_ecs_task_definition" "api_task_definition" {
       }
     }
   ])
-
-  depends_on = [
-    aws_ecs_service.temporal_service
-  ]
 }
 
 resource "aws_ecs_service" "tracecat_api" {
@@ -85,6 +81,7 @@ resource "aws_ecs_service" "tracecat_api" {
 
   depends_on = [
     aws_ecs_service.temporal_service,
+    aws_ecs_service.tracecat_registry
   ]
 
 }
