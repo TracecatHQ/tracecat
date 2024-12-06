@@ -10,7 +10,8 @@ locals {
   public_app_url         = "https://${var.domain_name}"
   public_api_url         = "https://${var.domain_name}/api"
   saml_acs_url           = "https://${var.domain_name}/api/auth/saml/acs"
-  internal_api_url       = "http://api-service:8000" # Service connect DNS name
+  internal_api_url       = "http://api-service:8000"      # Service connect DNS name
+  internal_registry_url  = "http://registry-service:8002" # Service connect DNS name
   temporal_cluster_url   = "temporal-service:7233"
   temporal_cluster_queue = "tracecat-task-queue"
   allow_origins          = "${var.domain_name},http://ui-service:3000" # Allow api service and public app to access the API
@@ -27,22 +28,23 @@ locals {
   api_env = [
     for k, v in merge({
       LOG_LEVEL                                = var.log_level
-      TRACECAT__API_URL                        = local.internal_api_url
-      TRACECAT__API_ROOT_PATH                  = "/api"
-      TRACECAT__APP_ENV                        = var.tracecat_app_env
-      TRACECAT__DB_ENDPOINT                    = local.core_db_hostname
-      TRACECAT__PUBLIC_RUNNER_URL              = local.public_api_url
-      TRACECAT__PUBLIC_APP_URL                 = local.public_app_url
-      TRACECAT__ALLOW_ORIGINS                  = local.allow_origins
-      TRACECAT__AUTH_TYPES                     = var.auth_types
-      TRACECAT__AUTH_ALLOWED_DOMAINS           = var.auth_allowed_domains
-      TEMPORAL__CLUSTER_URL                    = local.temporal_cluster_url
-      TEMPORAL__CLUSTER_QUEUE                  = local.temporal_cluster_queue
-      TEMPORAL__CLIENT_RPC_TIMEOUT             = var.temporal_client_rpc_timeout
+      RUN_MIGRATIONS                           = "true"
       SAML_SP_ACS_URL                          = local.saml_acs_url
+      TEMPORAL__CLIENT_RPC_TIMEOUT             = var.temporal_client_rpc_timeout
+      TEMPORAL__CLUSTER_QUEUE                  = local.temporal_cluster_queue
+      TEMPORAL__CLUSTER_URL                    = local.temporal_cluster_url
+      TRACECAT__ALLOW_ORIGINS                  = local.allow_origins
+      TRACECAT__API_ROOT_PATH                  = "/api"
+      TRACECAT__API_URL                        = local.internal_api_url
+      TRACECAT__APP_ENV                        = var.tracecat_app_env
+      TRACECAT__AUTH_ALLOWED_DOMAINS           = var.auth_allowed_domains
+      TRACECAT__AUTH_TYPES                     = var.auth_types
+      TRACECAT__DB_ENDPOINT                    = local.core_db_hostname
+      TRACECAT__PUBLIC_APP_URL                 = local.public_app_url
+      TRACECAT__PUBLIC_RUNNER_URL              = local.public_api_url
       TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME = var.remote_repository_package_name
       TRACECAT__REMOTE_REPOSITORY_URL          = var.remote_repository_url
-      RUN_MIGRATIONS                           = "true"
+      TRACECAT__REGISTRY_URL                   = local.internal_registry_url
     }, local.tracecat_db_configs) :
     { name = k, value = tostring(v) }
   ]
@@ -58,6 +60,7 @@ locals {
       TEMPORAL__CLUSTER_URL        = local.temporal_cluster_url
       TEMPORAL__CLUSTER_QUEUE      = local.temporal_cluster_queue
       TEMPORAL__CLIENT_RPC_TIMEOUT = var.temporal_client_rpc_timeout
+      TRACECAT__REGISTRY_URL       = local.internal_registry_url
     }, local.tracecat_db_configs) :
     { name = k, value = tostring(v) }
   ]
