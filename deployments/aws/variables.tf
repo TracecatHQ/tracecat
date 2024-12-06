@@ -21,7 +21,7 @@ variable "hosted_zone_id" {
 
 variable "auth_types" {
   type    = string
-  default = "google_oauth,sso"
+  default = "google_oauth,saml"
 }
 
 
