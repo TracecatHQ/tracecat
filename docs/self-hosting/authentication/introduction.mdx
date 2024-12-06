@@ -28,7 +28,7 @@ Tracecat currently supports the following authentication methods:
 
 - `basic`: Email and Password
 - `google_oauth`: Google OAuth
-- `sso`: SAML SSO
+- `saml`: SAML SSO
 
 Choose from a number of authentication methods listed below to get started.
 
@@ -59,8 +59,8 @@ Choose from a number of authentication methods listed below to get started.
 ## Enable / Disable Authentication Methods
 
 You can enable / disable multiple authentication methods in the `.env` file by modifying the `TRACECAT__AUTH_TYPES` environment variable.
-`TRACECAT__AUTH_TYPES` is a comma separated list of auth method keys: i.e. `basic`, `google_oauth`, `sso`.
+`TRACECAT__AUTH_TYPES` is a comma separated list of auth method keys: i.e. `basic`, `google_oauth`, `saml`.
 
 ```bash
-TRACECAT__AUTH_TYPES=basic,google_oauth,sso
+TRACECAT__AUTH_TYPES=basic,google_oauth,saml
 ```
