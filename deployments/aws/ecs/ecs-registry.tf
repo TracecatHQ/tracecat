@@ -39,7 +39,7 @@ resource "aws_ecs_task_definition" "registry_task_definition" {
         }
       }
       environment = local.registry_env
-      secrets     = local.tracecat_secrets
+      secrets     = local.tracecat_base_secrets
       dockerPullConfig = {
         maxAttempts = 3
         backoffTime = 10
