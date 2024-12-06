@@ -145,6 +145,16 @@ variable "worker_memory" {
   default = "512"
 }
 
+variable "registry_cpu" {
+  type    = string
+  default = "256"
+}
+
+variable "registry_memory" {
+  type    = string
+  default = "512"
+}
+
 variable "ui_cpu" {
   type    = string
   default = "256"
