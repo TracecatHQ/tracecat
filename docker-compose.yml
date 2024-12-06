@@ -79,7 +79,6 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
-
     command: ["python", "tracecat/dsl/worker.py"]
 
   registry:
@@ -99,7 +98,7 @@ services:
       # Registry
       TRACECAT__REMOTE_REPOSITORY_URL: ${TRACECAT__REMOTE_REPOSITORY_URL}
       TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME: ${TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME}
-    entrypoint:
+    command:
       [
         "python",
         "-m",

@@ -58,6 +58,16 @@ locals {
     { name = k, value = tostring(v) }
   ]
 
+  registry_env = [
+    for k, v in merge({
+      LOG_LEVEL                                = var.log_level
+      TRACECAT__APP_ENV                        = var.tracecat_app_env
+      TRACECAT__REMOTE_REPOSITORY_URL          = var.remote_repository_url
+      TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME = var.remote_repository_package_name
+    }, local.tracecat_db_configs) :
+    { name = k, value = tostring(v) }
+  ]
+
   ui_env = [
     for k, v in {
       NEXT_PUBLIC_API_URL    = local.public_api_url
