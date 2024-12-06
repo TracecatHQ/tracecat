@@ -29,13 +29,8 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
           awslogs-stream-prefix = "worker"
         }
       }
-      environment = concat(local.worker_env, [
-        {
-          name  = "TRACECAT__DB_ENDPOINT"
-          value = local.core_db_hostname
-        }
-      ])
-      secrets = local.tracecat_secrets
+      environment = local.worker_env
+      secrets     = local.tracecat_secrets
       dockerPullConfig = {
         maxAttempts = 3
         backoffTime = 30

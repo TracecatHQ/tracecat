@@ -28,21 +28,8 @@ resource "aws_ecs_task_definition" "api_task_definition" {
           awslogs-stream-prefix = "api"
         }
       }
-      environment = concat(local.api_env, [
-        {
-          name  = "TRACECAT__DB_ENDPOINT"
-          value = local.core_db_hostname
-        },
-        {
-          name  = "TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME"
-          value = var.remote_repository_package_name
-        },
-        {
-          name  = "TRACECAT__REMOTE_REPOSITORY_URL"
-          value = var.remote_repository_url
-        }
-      ])
-      secrets = local.tracecat_secrets
+      environment = local.api_env
+      secrets     = local.tracecat_secrets
       dockerPullConfig = {
         maxAttempts = 3
         backoffTime = 10

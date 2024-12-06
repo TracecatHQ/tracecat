@@ -67,6 +67,14 @@ resource "aws_security_group" "core" {
   }
 
   ingress {
+    description = "Allow internal traffic to the Tracecat Registry service on port 8002"
+    from_port   = 8002
+    to_port     = 8002
+    protocol    = "tcp"
+    self        = true
+  }
+
+  ingress {
     description = "Allow internal traffic to the Tracecat UI service on port 3000"
     from_port   = 3000
     to_port     = 3000
