@@ -1,0 +1,34 @@
+type: action
+definition:
+  name: expire_active_directory_user
+  namespace: integrations.ldap
+  title: Expire Active Directory User
+  description: Expire a user in Active Directory using LDAP.
+  display_group: LDAP
+  secrets:
+    - name: ldap
+  expects:
+    dn:
+      type: str
+      description: Distinguished Name of the user to expire
+    expiration:
+      type: datetime
+      description: Expiration datetime of the user
+    server_kwargs:
+      type: dict
+      description: Additional server parameters
+    connection_kwargs:
+      type: dict
+      description: Additional connection parameters
+  steps:
+    - ref: expire_user
+      action: integrations.ldap.modify_entry
+      args:
+        dn: ${{ inputs.dn }}
+        changes:
+          accountExpires:
+            # Windows file time (100-nanosecond intervals since 1601-01-01)
+            - ["MODIFY_REPLACE", "${{ FN.windows_filetime(inputs.expiration) }}"]
+        server_kwargs: ${{ inputs.server_kwargs }}
+        connection_kwargs: ${{ inputs.connection_kwargs }}
+  returns: ${{ steps.expire_user.result }}
