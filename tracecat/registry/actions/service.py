@@ -22,6 +22,7 @@ from tracecat.registry.actions.models import (
     RegistryActionUpdate,
     model_converters,
 )
+from tracecat.registry.client import RegistryClient
 from tracecat.registry.loaders import get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
@@ -208,9 +209,11 @@ class RegistryActionsService:
         - For each repository, we need to reimport the packages to run decorators. (for remote this involves pulling)
         - Scan the repositories for implementation details/metadata and update the DB
         """
+        # (1) Update the API's view of the repository
         repo = Repository(origin=db_repo.origin, role=self.role)
         await repo.load_from_origin()
 
+        # (2) Handle DB bookkeeping for the API's view of the repository
         # Perform diffing here. The expectation for this endpoint is to sync Tracecat's view of
         # the repository with the remote repository -- meaning any creation/updates/deletions to
         # actions should be propogated to the db.
@@ -274,6 +277,11 @@ class RegistryActionsService:
             updated=n_updated,
             deleted=n_deleted,
         )
+
+        # (3) Update the executor's view of the repository
+        self.logger.info("Syncing executor", origin=db_repo.origin)
+        client = RegistryClient(role=self.role)
+        await client.sync_executor(origin=db_repo.origin)
 
     async def load_action_impl(self, action_name: str) -> BoundRegistryAction:
         """

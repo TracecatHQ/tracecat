@@ -9,31 +9,19 @@ from tracecat.api.common import (
     custom_generate_unique_id,
     generic_exception_handler,
     setup_oss_models,
-    setup_registry,
     tracecat_exception_handler,
 )
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
-from tracecat.registry.actions.router import router as registry_actions_router
-from tracecat.registry.executor import get_executor
-from tracecat.registry.repositories.router import router as registry_repos_router
-from tracecat.types.auth import AccessLevel, Role
+from tracecat.registry.executor import get_executor, router
 from tracecat.types.exceptions import TracecatException
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    admin_role = Role(
-        type="service",
-        access_level=AccessLevel.ADMIN,
-        service_id="tracecat-registry",
-    )
-    async with get_async_session_context_manager() as session:
-        await setup_registry(session, admin_role)
     await setup_oss_models()
+    executor = get_executor()
     try:
-        executor = get_executor()
         yield
     finally:
         executor.shutdown()
@@ -45,20 +33,19 @@ def create_app(**kwargs) -> FastAPI:
     else:
         allow_origins = ["*"]
     app = FastAPI(
-        title="Tracecat Registry",
-        description="Registry action executor.",
-        summary="Tracecat Registry",
+        title="Tracecat Executor",
+        description="Action executor for Tracecat.",
+        summary="Tracecat Executor",
         lifespan=lifespan,
         default_response_class=ORJSONResponse,
         generate_unique_id_function=custom_generate_unique_id,
-        root_path="/api/registry",
+        root_path="/api/executor",
         **kwargs,
     )
     app.logger = logger  # type: ignore
 
     # Routers
-    app.include_router(registry_repos_router)
-    app.include_router(registry_actions_router)
+    app.include_router(router)
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
@@ -75,7 +62,7 @@ def create_app(**kwargs) -> FastAPI:
     )
 
     logger.info(
-        "Registry service started",
+        "Executor service started",
         env=config.TRACECAT__APP_ENV,
         origins=allow_origins,
         auth_types=config.TRACECAT__AUTH_TYPES,
@@ -89,4 +76,4 @@ app = create_app()
 
 @app.get("/", include_in_schema=False)
 def root() -> dict[str, str]:
-    return {"message": "Hello world. I am the registry."}
+    return {"message": "Hello world. I am the executor."}
