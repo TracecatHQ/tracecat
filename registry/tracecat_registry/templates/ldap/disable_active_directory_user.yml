@@ -1,0 +1,22 @@
+type: action
+definition:
+  name: disable_active_directory_user
+  namespace: integrations.ldap
+  title: Disable Active Directory User
+  description: Disable a user in Active Directory using LDAP.
+  display_group: LDAP
+  secrets:
+    - name: ldap
+  expects:
+    dn:
+      type: str
+      description: Distinguished Name of the user to disable
+  steps:
+    - ref: disable_user
+      action: integrations.ldap.modify_entry
+      args:
+        dn: ${{ inputs.dn }}
+        changes:
+          userAccountControl:
+            - ["MODIFY_REPLACE", 514]
+  returns: ${{ steps.disable_user.result }}

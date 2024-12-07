@@ -98,8 +98,12 @@ class LdapClient:
         if not result:
             raise PermissionError(self.connection.result)
 
-    def modify_entry(self, dn: str, changes: dict[str, Any]) -> None:
-        escaped_dn = escape_rdn(dn)
+    def modify_entry(
+        self,
+        dn: str,
+        changes: dict[str, list[tuple[str, list[str | int]]]],
+    ) -> None:
+        escaped_dn = escape_rdn(dn)  # LDAP injection mitigation
         result = self.connection.modify(escaped_dn, changes)
         if not result:
             raise PermissionError(self.connection.result)
@@ -211,7 +215,10 @@ def delete_entry(
 )
 def modify_entry(
     dn: Annotated[str, Field(..., description="Distinguished name of the entry")],
-    changes: Annotated[dict[str, Any], Field(..., description="Changes to the entry")],
+    changes: Annotated[
+        dict[str, list[tuple[str, list[str | int]]]],
+        Field(..., description="Changes to the entry"),
+    ],
     server_kwargs: Annotated[
         dict[str, Any] | None, Field(..., description="Additional server parameters")
     ] = None,
