@@ -24,6 +24,7 @@ from tracecat.types.exceptions import TracecatException
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await setup_oss_models()
+    executor = get_executor()
     try:
         await setup_custom_remote_repository()
     except Exception as e:

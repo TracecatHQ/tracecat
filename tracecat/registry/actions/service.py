@@ -22,6 +22,7 @@ from tracecat.registry.actions.models import (
     RegistryActionUpdate,
     model_converters,
 )
+from tracecat.registry.client import RegistryClient
 from tracecat.registry.loaders import get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
