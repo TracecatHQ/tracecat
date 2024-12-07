@@ -9,26 +9,16 @@ from tracecat.api.common import (
     custom_generate_unique_id,
     generic_exception_handler,
     setup_oss_models,
-    setup_registry,
     tracecat_exception_handler,
 )
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry.executor import get_executor, router
-from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    admin_role = Role(
-        type="service",
-        access_level=AccessLevel.ADMIN,
-        service_id="tracecat-executor",
-    )
-    async with get_async_session_context_manager() as session:
-        await setup_registry(session, admin_role)
     await setup_oss_models()
     executor = get_executor()
     try:

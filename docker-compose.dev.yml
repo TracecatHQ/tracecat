@@ -63,6 +63,7 @@ services:
       - ./alembic:/app/alembic
     depends_on:
       - ollama
+      - executor
 
   worker:
     build:
