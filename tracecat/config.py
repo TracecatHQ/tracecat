@@ -32,8 +32,8 @@ TRACECAT__DB_URI = os.environ.get(
     "TRACECAT__DB_URI",
     "postgresql+psycopg://postgres:postgres@postgres_db:5432/postgres",
 )
-TRACECAT__REGISTRY_URL = os.environ.get(
-    "TRACECAT__REGISTRY_URL", "http://registry:8000"
+TRACECAT__EXECUTOR_URL = os.environ.get(
+    "TRACECAT__EXECUTOR_URL", "http://executor:8000"
 )
 
 TRACECAT__DB_NAME = os.environ.get("TRACECAT__DB_NAME")
