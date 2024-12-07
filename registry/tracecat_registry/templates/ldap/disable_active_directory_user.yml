@@ -11,6 +11,12 @@ definition:
     dn:
       type: str
       description: Distinguished Name of the user to disable
+    server_kwargs:
+      type: dict
+      description: Additional server parameters
+    connection_kwargs:
+      type: dict
+      description: Additional connection parameters
   steps:
     - ref: disable_user
       action: integrations.ldap.modify_entry
@@ -19,4 +25,6 @@ definition:
         changes:
           userAccountControl:
             - ["MODIFY_REPLACE", 514]
+        server_kwargs: ${{ inputs.server_kwargs }}
+        connection_kwargs: ${{ inputs.connection_kwargs }}
   returns: ${{ steps.disable_user.result }}
