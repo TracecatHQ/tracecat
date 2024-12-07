@@ -173,110 +173,7 @@ export const $ActionRetryPolicy = {
     title: 'ActionRetryPolicy'
 } as const;
 
-export const $ActionStatement_Input = {
-    properties: {
-        id: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Id',
-            description: 'The action ID. If this is populated means there is a corresponding actionin the database `Action` table.'
-        },
-        ref: {
-            type: 'string',
-            pattern: '^[a-z0-9_]+$',
-            title: 'Ref',
-            description: 'Unique reference for the task'
-        },
-        description: {
-            type: 'string',
-            title: 'Description',
-            default: ''
-        },
-        action: {
-            type: 'string',
-            pattern: '^[a-z0-9_.]+$',
-            title: 'Action',
-            description: 'Action type. Equivalent to the UDF key.'
-        },
-        args: {
-            type: 'object',
-            title: 'Args',
-            description: 'Arguments for the action'
-        },
-        depends_on: {
-            items: {
-                type: 'string'
-            },
-            type: 'array',
-            title: 'Depends On',
-            description: 'Task dependencies'
-        },
-        run_if: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Run If',
-            description: 'Condition to run the task'
-        },
-        for_each: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    items: {
-                        type: 'string'
-                    },
-                    type: 'array'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'For Each',
-            description: 'Iterate over a list of items and run the task for each item.'
-        },
-        retry_policy: {
-            allOf: [
-                {
-                    '$ref': '#/components/schemas/ActionRetryPolicy'
-                }
-            ],
-            description: 'Retry policy for the action.'
-        },
-        start_delay: {
-            type: 'number',
-            title: 'Start Delay',
-            description: 'Delay before starting the action in seconds.',
-            default: 0
-        },
-        join_strategy: {
-            allOf: [
-                {
-                    '$ref': '#/components/schemas/JoinStrategy'
-                }
-            ],
-            description: 'The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.',
-            default: 'all'
-        }
-    },
-    type: 'object',
-    required: ['ref', 'action'],
-    title: 'ActionStatement'
-} as const;
-
-export const $ActionStatement_Output = {
+export const $ActionStatement = {
     properties: {
         ref: {
             type: 'string',
@@ -758,10 +655,15 @@ export const $DSLContext = {
         },
         ENV: {
             '$ref': '#/components/schemas/DSLEnvironment'
+        },
+        SECRETS: {
+            type: 'object',
+            title: 'Secrets'
         }
     },
     type: 'object',
-    title: 'DSLContext'
+    title: 'DSLContext',
+    description: 'DSL Context. Contains all the context needed to execute a DSL workflow.'
 } as const;
 
 export const $DSLEntrypoint = {
@@ -837,7 +739,7 @@ export const $DSLInput = {
         },
         actions: {
             items: {
-                '$ref': '#/components/schemas/ActionStatement-Output'
+                '$ref': '#/components/schemas/ActionStatement'
             },
             type: 'array',
             title: 'Actions'
@@ -1118,7 +1020,7 @@ export const $EventGroup = {
         action_input: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/RunActionInput-Output'
+                    '$ref': '#/components/schemas/RunActionInput'
                 },
                 {
                     '$ref': '#/components/schemas/DSLRunArgs'
@@ -1333,7 +1235,7 @@ export const $GetWorkflowDefinitionActivityInputs = {
         task: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/ActionStatement-Output'
+                    '$ref': '#/components/schemas/ActionStatement'
                 },
                 {
                     type: 'null'
@@ -1868,18 +1770,6 @@ export const $RegistryActionUpdate = {
     description: 'API update model for a registered action.'
 } as const;
 
-export const $RegistryActionValidate = {
-    properties: {
-        args: {
-            type: 'object',
-            title: 'Args'
-        }
-    },
-    type: 'object',
-    required: ['args'],
-    title: 'RegistryActionValidate'
-} as const;
-
 export const $RegistryActionValidateResponse = {
     properties: {
         ok: {
@@ -2086,7 +1976,7 @@ export const $Role = {
         },
         service_id: {
             type: 'string',
-            enum: ['tracecat-runner', 'tracecat-api', 'tracecat-cli', 'tracecat-schedule-runner', 'tracecat-service'],
+            enum: ['tracecat-runner', 'tracecat-api', 'tracecat-cli', 'tracecat-schedule-runner', 'tracecat-service', 'tracecat-executor'],
             title: 'Service Id'
         }
     },
@@ -2119,28 +2009,10 @@ Service roles
 - A service's \`user_id\` is the user it's acting on behalf of. This can be None for internal services.`
 } as const;
 
-export const $RunActionInput_Input = {
+export const $RunActionInput = {
     properties: {
         task: {
-            '$ref': '#/components/schemas/ActionStatement-Input'
-        },
-        exec_context: {
-            '$ref': '#/components/schemas/DSLContext'
-        },
-        run_context: {
-            '$ref': '#/components/schemas/RunContext'
-        }
-    },
-    type: 'object',
-    required: ['task', 'exec_context', 'run_context'],
-    title: 'RunActionInput',
-    description: 'This object contains all the information needed to execute an action.'
-} as const;
-
-export const $RunActionInput_Output = {
-    properties: {
-        task: {
-            '$ref': '#/components/schemas/ActionStatement-Output'
+            '$ref': '#/components/schemas/ActionStatement'
         },
         exec_context: {
             '$ref': '#/components/schemas/DSLContext'

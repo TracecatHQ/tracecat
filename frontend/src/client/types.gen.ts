@@ -56,53 +56,7 @@ export type ActionRetryPolicy = {
     timeout?: number;
 };
 
-export type ActionStatement_Input = {
-    /**
-     * The action ID. If this is populated means there is a corresponding actionin the database `Action` table.
-     */
-    id?: string | null;
-    /**
-     * Unique reference for the task
-     */
-    ref: string;
-    description?: string;
-    /**
-     * Action type. Equivalent to the UDF key.
-     */
-    action: string;
-    /**
-     * Arguments for the action
-     */
-    args?: {
-        [key: string]: unknown;
-    };
-    /**
-     * Task dependencies
-     */
-    depends_on?: Array<(string)>;
-    /**
-     * Condition to run the task
-     */
-    run_if?: string | null;
-    /**
-     * Iterate over a list of items and run the task for each item.
-     */
-    for_each?: string | Array<(string)> | null;
-    /**
-     * Retry policy for the action.
-     */
-    retry_policy?: ActionRetryPolicy;
-    /**
-     * Delay before starting the action in seconds.
-     */
-    start_delay?: number;
-    /**
-     * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
-     */
-    join_strategy?: JoinStrategy;
-};
-
-export type ActionStatement_Output = {
+export type ActionStatement = {
     /**
      * Unique reference for the task
      */
@@ -268,6 +222,9 @@ export type DSLConfig_Output = {
     timeout?: number;
 };
 
+/**
+ * DSL Context. Contains all the context needed to execute a DSL workflow.
+ */
 export type DSLContext = {
     INPUTS?: {
         [key: string]: unknown;
@@ -277,6 +234,9 @@ export type DSLContext = {
     };
     TRIGGER?: JsonValue;
     ENV?: DSLEnvironment;
+    SECRETS?: {
+        [key: string]: unknown;
+    };
 };
 
 export type DSLEntrypoint = {
@@ -320,7 +280,7 @@ export type DSLInput = {
     title: string;
     description: string;
     entrypoint: DSLEntrypoint;
-    actions: Array<ActionStatement_Output>;
+    actions: Array<ActionStatement>;
     config?: DSLConfig_Output;
     triggers?: Array<Trigger>;
     /**
@@ -400,7 +360,7 @@ export type EventGroup = {
     action_ref: string;
     action_title: string;
     action_description: string;
-    action_input: RunActionInput_Output | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
+    action_input: RunActionInput | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
     action_result?: unknown | null;
     current_attempt?: number | null;
     retry_policy?: ActionRetryPolicy;
@@ -440,7 +400,7 @@ export type GetWorkflowDefinitionActivityInputs = {
     role: Role;
     workflow_id: string;
     version?: number | null;
-    task?: ActionStatement_Output | null;
+    task?: ActionStatement | null;
 };
 
 export type HTTPValidationError = {
@@ -657,12 +617,6 @@ export type RegistryActionUpdate = {
     options?: RegistryActionOptions | null;
 };
 
-export type RegistryActionValidate = {
-    args: {
-        [key: string]: unknown;
-    };
-};
-
 export type RegistryActionValidateResponse = {
     ok: boolean;
     message: string;
@@ -729,27 +683,18 @@ export type Role = {
     workspace_id?: string | null;
     user_id?: string | null;
     access_level?: AccessLevel;
-    service_id: 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
+    service_id: 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service' | 'tracecat-executor';
 };
 
 export type type2 = 'user' | 'service';
 
-export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service';
+export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | 'tracecat-schedule-runner' | 'tracecat-service' | 'tracecat-executor';
 
 /**
  * This object contains all the information needed to execute an action.
  */
-export type RunActionInput_Input = {
-    task: ActionStatement_Input;
-    exec_context: DSLContext;
-    run_context: RunContext;
-};
-
-/**
- * This object contains all the information needed to execute an action.
- */
-export type RunActionInput_Output = {
-    task: ActionStatement_Output;
+export type RunActionInput = {
+    task: ActionStatement;
     exec_context: DSLContext;
     run_context: RunContext;
 };
@@ -1626,6 +1571,42 @@ export type UsersSearchUserData = {
 
 export type UsersSearchUserResponse = UserRead;
 
+export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>;
+
+export type OrganizationDeleteOrgMemberData = {
+    userId: string;
+};
+
+export type OrganizationDeleteOrgMemberResponse = void;
+
+export type OrganizationUpdateOrgMemberData = {
+    requestBody: UserUpdate;
+    userId: string;
+};
+
+export type OrganizationUpdateOrgMemberResponse = OrgMemberRead;
+
+export type OrganizationListSessionsResponse = Array<SessionRead>;
+
+export type OrganizationDeleteSessionData = {
+    sessionId: string;
+};
+
+export type OrganizationDeleteSessionResponse = void;
+
+export type EditorListFunctionsData = {
+    workspaceId: string;
+};
+
+export type EditorListFunctionsResponse = Array<EditorFunctionRead>;
+
+export type EditorListActionsData = {
+    workflowId: string;
+    workspaceId: string;
+};
+
+export type EditorListActionsResponse = Array<EditorActionRead>;
+
 export type RegistryRepositoriesSyncRegistryRepositoriesData = {
     /**
      * Origins to sync. If no origins provided, all repositories will be synced.
@@ -1688,56 +1669,6 @@ export type RegistryActionsDeleteRegistryActionData = {
 };
 
 export type RegistryActionsDeleteRegistryActionResponse = void;
-
-export type RegistryActionsRunRegistryActionData = {
-    actionName: string;
-    requestBody: RunActionInput_Input;
-};
-
-export type RegistryActionsRunRegistryActionResponse = unknown;
-
-export type RegistryActionsValidateRegistryActionData = {
-    actionName: string;
-    requestBody: RegistryActionValidate;
-};
-
-export type RegistryActionsValidateRegistryActionResponse = RegistryActionValidateResponse;
-
-export type OrganizationListOrgMembersResponse = Array<OrgMemberRead>;
-
-export type OrganizationDeleteOrgMemberData = {
-    userId: string;
-};
-
-export type OrganizationDeleteOrgMemberResponse = void;
-
-export type OrganizationUpdateOrgMemberData = {
-    requestBody: UserUpdate;
-    userId: string;
-};
-
-export type OrganizationUpdateOrgMemberResponse = OrgMemberRead;
-
-export type OrganizationListSessionsResponse = Array<SessionRead>;
-
-export type OrganizationDeleteSessionData = {
-    sessionId: string;
-};
-
-export type OrganizationDeleteSessionResponse = void;
-
-export type EditorListFunctionsData = {
-    workspaceId: string;
-};
-
-export type EditorListFunctionsResponse = Array<EditorFunctionRead>;
-
-export type EditorListActionsData = {
-    workflowId: string;
-    workspaceId: string;
-};
-
-export type EditorListActionsResponse = Array<EditorActionRead>;
 
 export type UsersUsersCurrentUserResponse = UserRead;
 
@@ -2507,6 +2438,99 @@ export type $OpenApiTs = {
             };
         };
     };
+    '/organization/members': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<OrgMemberRead>;
+            };
+        };
+    };
+    '/organization/members/{user_id}': {
+        delete: {
+            req: OrganizationDeleteOrgMemberData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        patch: {
+            req: OrganizationUpdateOrgMemberData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: OrgMemberRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/organization/sessions': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<SessionRead>;
+            };
+        };
+    };
+    '/organization/sessions/{session_id}': {
+        delete: {
+            req: OrganizationDeleteSessionData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/editor/functions': {
+        get: {
+            req: EditorListFunctionsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<EditorFunctionRead>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/editor/actions': {
+        get: {
+            req: EditorListActionsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<EditorActionRead>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
     '/registry/repos/sync': {
         post: {
             req: RegistryRepositoriesSyncRegistryRepositoriesData;
@@ -2645,129 +2669,6 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/registry/actions/{action_name}/execute': {
-        post: {
-            req: RegistryActionsRunRegistryActionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: unknown;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/registry/actions/{action_name}/validate': {
-        post: {
-            req: RegistryActionsValidateRegistryActionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: RegistryActionValidateResponse;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/organization/members': {
-        get: {
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<OrgMemberRead>;
-            };
-        };
-    };
-    '/organization/members/{user_id}': {
-        delete: {
-            req: OrganizationDeleteOrgMemberData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-        patch: {
-            req: OrganizationUpdateOrgMemberData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: OrgMemberRead;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/organization/sessions': {
-        get: {
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<SessionRead>;
-            };
-        };
-    };
-    '/organization/sessions/{session_id}': {
-        delete: {
-            req: OrganizationDeleteSessionData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                204: void;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/editor/functions': {
-        get: {
-            req: EditorListFunctionsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<EditorFunctionRead>;
-                /**
-                 * Validation Error
-                 */
-                422: HTTPValidationError;
-            };
-        };
-    };
-    '/editor/actions': {
-        get: {
-            req: EditorListActionsData;
-            res: {
-                /**
-                 * Successful Response
-                 */
-                200: Array<EditorActionRead>;
                 /**
                  * Validation Error
                  */

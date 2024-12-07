@@ -12,6 +12,7 @@ from tracecat import config
 from tracecat.api.common import (
     custom_generate_unique_id,
     generic_exception_handler,
+    setup_registry,
     tracecat_exception_handler,
 )
 from tracecat.auth.constants import AuthType
@@ -29,6 +30,8 @@ from tracecat.editor.router import router as editor_router
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.organization.router import router as org_router
+from tracecat.registry.actions.router import router as registry_actions_router
+from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
@@ -50,6 +53,7 @@ async def lifespan(app: FastAPI):
     )
     async with get_async_session_context_manager() as session:
         await setup_defaults(session, admin_role)
+        await setup_registry(session, admin_role)
     yield
 
 
@@ -139,6 +143,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(users_router)
     app.include_router(org_router)
     app.include_router(editor_router)
+    app.include_router(registry_repos_router)
+    app.include_router(registry_actions_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

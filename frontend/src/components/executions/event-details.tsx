@@ -1,9 +1,5 @@
 import React from "react"
-import {
-  DSLRunArgs,
-  EventHistoryResponse,
-  RunActionInput_Output,
-} from "@/client"
+import { DSLRunArgs, EventHistoryResponse, RunActionInput } from "@/client"
 import JsonView from "react18-json-view"
 
 import {
@@ -139,7 +135,7 @@ export function WorkflowExecutionEventDetailView({
               </AccordionTrigger>
               <AccordionContent>
                 <div className="my-4 flex flex-col space-y-8 px-4">
-                  <JsonViewWithControls src={event.event_group.action_input} />
+                  <JsonViewWithControls src={event.event_group?.action_input} />
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -412,7 +408,7 @@ function ActionEventGeneralInfo({
     task: { depends_on, run_if, for_each },
   },
 }: {
-  input: RunActionInput_Output
+  input: RunActionInput
 }) {
   return (
     <div>
@@ -467,12 +463,12 @@ function ActionEventGeneralInfo({
 
 function isRunActionInput_Output(
   actionInput: unknown
-): actionInput is RunActionInput_Output {
+): actionInput is RunActionInput {
   return (
     typeof actionInput === "object" &&
     actionInput !== null &&
     "task" in actionInput &&
-    typeof (actionInput as RunActionInput_Output).task === "object"
+    typeof (actionInput as RunActionInput).task === "object"
   )
 }
 
