@@ -114,9 +114,9 @@ resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
   role       = aws_iam_role.worker_execution.name
 }
 
-# Registry execution role
-resource "aws_iam_role" "registry_execution" {
-  name               = "TracecatRegistryExecutionRole"
+# Executor execution role
+resource "aws_iam_role" "executor_execution" {
+  name               = "TracecatExecutorExecutionRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 

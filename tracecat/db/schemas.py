@@ -342,7 +342,7 @@ class Webhook(Resource, table=True):
     @computed_field
     @property
     def url(self) -> str:
-        return f"{config.TRACECAT__PUBLIC_RUNNER_URL}/webhooks/{self.workflow_id}/{self.secret}"
+        return f"{config.TRACECAT__PUBLIC_API_URL}/webhooks/{self.workflow_id}/{self.secret}"
 
 
 class Schedule(Resource, table=True):

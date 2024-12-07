@@ -48,6 +48,7 @@ resource "aws_ecs_service" "tracecat_ui" {
     subnets = var.private_subnet_ids
     security_groups = [
       aws_security_group.core.id,
+      aws_security_group.caddy.id
     ]
   }
 

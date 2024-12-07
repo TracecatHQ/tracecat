@@ -28,7 +28,7 @@ services:
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
-      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
+      TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
       TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
@@ -36,7 +36,7 @@ services:
       TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
       TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS}
       TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH}
-      TRACECAT__REGISTRY_URL: ${INTERNAL_REGISTRY_URL}
+      TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
       OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
@@ -63,6 +63,7 @@ services:
       - ./alembic:/app/alembic
     depends_on:
       - ollama
+      - executor
 
   worker:
     build:
@@ -77,8 +78,8 @@ services:
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
-      TRACECAT__PUBLIC_RUNNER_URL: ${TRACECAT__PUBLIC_RUNNER_URL}
-      TRACECAT__REGISTRY_URL: ${INTERNAL_REGISTRY_URL}
+      TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
+      TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       # Temporal
@@ -87,9 +88,9 @@ services:
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
-    entrypoint: ["python", "tracecat/dsl/worker.py"]
+    command: ["python", "tracecat/dsl/worker.py"]
 
-  registry:
+  executor:
     build:
       context: .
       dockerfile: Dockerfile.dev
@@ -112,13 +113,12 @@ services:
       OLLAMA__API_URL: ${OLLAMA__API_URL}
     volumes:
       - ./tracecat:/app/tracecat
-      - ./registry:/app/registry
-    entrypoint:
+    command:
       [
         "python",
         "-m",
         "uvicorn",
-        "tracecat.api.registry:app",
+        "tracecat.api.executor:app",
         "--host",
         "0.0.0.0",
         "--port",

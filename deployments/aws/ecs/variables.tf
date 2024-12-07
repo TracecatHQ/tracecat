@@ -212,12 +212,12 @@ variable "worker_memory" {
   default = "512"
 }
 
-variable "registry_cpu" {
+variable "executor_cpu" {
   type    = string
   default = "256"
 }
 
-variable "registry_memory" {
+variable "executor_memory" {
   type    = string
   default = "512"
 }
