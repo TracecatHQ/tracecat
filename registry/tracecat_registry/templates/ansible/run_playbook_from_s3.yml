@@ -5,17 +5,15 @@ definition:
   title: Run Ansible Playbook from S3
   description: Download an Ansible playbook from S3 and run it
   display_group: Ansible
-  secrets:
-    - name: ansible
   expects:
     playbook_path:
       type: str
       description: Path to the playbook in S3
     extra_vars:
-      type: dict
+      type: dict[str, any]
       description: Extra variables to pass to the playbook
     runner_kwargs:
-      type: dict
+      type: dict[str, any]
       description: Additional keyword arguments to pass to the Ansible runner
   steps:
     - ref: parse_uri
