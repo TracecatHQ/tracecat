@@ -29,6 +29,7 @@ from tracecat.auth.users import (
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
+from tracecat.executor.enums import ResultsBackend
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.organization.router import router as org_router
@@ -53,7 +54,12 @@ async def lifespan(app: FastAPI):
         await setup_workspace_defaults(session, role)
         await setup_registry(session, role)
     # Setup minio
-    await setup_store()
+    if config.TRACECAT__RESULTS_BACKEND == ResultsBackend.STORE:
+        await setup_store()
+    else:
+        logger.info(
+            f"Using {config.TRACECAT__RESULTS_BACKEND} backend for execution context"
+        )
 
     yield
 

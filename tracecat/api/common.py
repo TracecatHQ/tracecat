@@ -16,7 +16,7 @@ from tracecat.registry.constants import (
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import safe_url
-from tracecat.store.client import get_store
+from tracecat.store.service import get_store
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
 

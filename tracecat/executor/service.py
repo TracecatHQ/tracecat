@@ -6,8 +6,8 @@ NOTE: This is only used in the API server, not the worker
 from __future__ import annotations
 
 import asyncio
-import traceback
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from types import CoroutineType
 from typing import Any, cast
 
 import ray
@@ -19,21 +19,24 @@ from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.db.engine import get_async_engine
-from tracecat.dsl.common import context_locator, create_default_dsl_context
+from tracecat.dsl.common import (
+    context_locator,
+    create_default_execution_context,
+)
 from tracecat.dsl.models import (
     ActionResult,
     ActionStatement,
-    DSLContext,
+    ExecutionContext,
     RunActionInput,
 )
 from tracecat.executor.engine import EXECUTION_TIMEOUT
+from tracecat.executor.enums import ResultsBackend
+from tracecat.expressions.common import ExprContext, ExprOperand
+from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.eval import (
-    OperandType,
     eval_templated_object,
-    extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.models import (
@@ -44,6 +47,7 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
+from tracecat.store.service import get_store
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
 
@@ -64,6 +68,14 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
 
     async def coro():
         ctx_role.set(role)
+        ctx_run.set(input.run_context)
+        ctx_logger.set(
+            logger.bind(
+                role=role,
+                ref=input.task.ref,
+                results_backend=config.TRACECAT__RESULTS_BACKEND.value,
+            )
+        )
         async_engine = get_async_engine()
         try:
             return await run_action_from_input(input=input)
@@ -101,8 +113,12 @@ async def _run_action_direct(
     try:
         if action.is_async:
             logger.trace("Running UDF async")
+            if isinstance(action.fn, CoroutineType):
+                raise TracecatException("UDF is async but doesn't return a coroutine")
             return await action.fn(**args)
         logger.trace("Running UDF sync")
+        if not isinstance(action.fn, Callable):
+            raise TracecatException("UDF is not callable")
         return await asyncio.to_thread(action.fn, **args)
     except Exception as e:
         logger.error(
@@ -115,7 +131,7 @@ async def run_single_action(
     *,
     action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
-    context: DSLContext,
+    context: ExecutionContext,
 ) -> Any:
     """Run a UDF async."""
 
@@ -157,7 +173,7 @@ async def run_template_action(
     *,
     action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
-    context: DSLContext,
+    context: ExecutionContext | None = None,
 ) -> Any:
     """Handle template execution.
 
@@ -173,7 +189,7 @@ async def run_template_action(
         )
     defn = action.template_action.definition
     template_context = cast(
-        DSLContext,
+        ExecutionContext,
         {
             ExprContext.SECRETS: {}
             if context is None
@@ -188,7 +204,7 @@ async def run_template_action(
         evaled_args = cast(
             ArgsT,
             eval_templated_object(
-                step.args, operand=cast(OperandType, template_context)
+                step.args, operand=cast(ExprOperand, template_context)
             ),
         )
         async with RegistryActionsService.with_session() as service:
@@ -208,15 +224,13 @@ async def run_template_action(
 
     # Handle returns
     return eval_templated_object(
-        defn.returns, operand=cast(OperandType, template_context)
+        defn.returns, operand=cast(ExprOperand, template_context)
     )
 
 
 async def run_action_from_input(input: RunActionInput) -> Any:
-    """This runs on the executor (API, not worker)"""
-    ctx_run.set(input.run_context)
-    act_logger = ctx_logger.get(logger.bind(ref=input.task.ref))
-
+    """This runs on the executor process pool."""
+    log = ctx_logger.get()
     task = input.task
     action_name = task.action
 
@@ -244,17 +258,47 @@ async def run_action_from_input(input: RunActionInput) -> Any:
     optional_secrets = {
         secret.name for secret in action.secrets or [] if secret.optional
     }
-    args_secret_refs = set(extract_templated_secrets(task.args))
+
+    # === Prepare action ===
+    # Prepare the execution context to evaluate expressions
+    context = input.exec_context.copy()
+
+    extracted_exprs = extract_expressions(task.args)
+    extracted_secrets = extracted_exprs[ExprContext.SECRETS]
+    log.trace("Extracted expressions", extracted_exprs=extracted_exprs)
+
+    # If we run with object store backend, we need to retrieve action expressions from the store.
+    if config.TRACECAT__RESULTS_BACKEND == ResultsBackend.STORE:
+        # (1) Extract expressions
+        log.trace("Store backend, pulling action results into execution context")
+
+        # (2) Pull action results from the store
+        if extracted_action_refs := extracted_exprs[ExprContext.ACTIONS]:
+            store = get_store()
+            action_results = await store.load_action_result_batched(
+                execution_id=run_context.wf_exec_id,
+                action_refs=extracted_action_refs,
+            )
+            context.update(ACTIONS=action_results)
+            log.trace("Updated action context", action_results=action_results)
+        else:
+            log.trace("No action refs in task args")
+    else:
+        # Otherwise, we use the action results from the current execution context
+        log.trace("Memory backend, using action results from current execution context")
+
+    # Pull secrets
     async with AuthSandbox(
-        secrets=list(action_secret_names | args_secret_refs),
+        secrets=list(action_secret_names | extracted_secrets),
         target="context",
         environment=get_runtime_env(),
         optional_secrets=list(optional_secrets),
     ) as sandbox:
         secrets = sandbox.secrets.copy()
+        context.update(SECRETS=secrets)
 
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
-        act_logger.warning(
+        log.warning(
             "Secrets masking is disabled. This is unsafe in production workflows."
         )
         mask_values = None
@@ -264,7 +308,7 @@ async def run_action_from_input(input: RunActionInput) -> Any:
 
     # When we're here, we've populated the task arguments with shared context values
 
-    act_logger.info(
+    log.info(
         "Run action",
         task_ref=task.ref,
         action_name=action_name,
@@ -389,7 +433,7 @@ async def dispatch_action_on_cluster(input: RunActionInput, role: Role) -> Any:
 """Utilities"""
 
 
-def evaluate_templated_args(task: ActionStatement, context: DSLContext) -> ArgsT:
+def evaluate_templated_args(task: ActionStatement, context: ExecutionContext) -> ArgsT:
     return cast(ArgsT, eval_templated_object(task.args, operand=context))
 
 
@@ -402,7 +446,7 @@ def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") 
 
 def iter_for_each(
     task: ActionStatement,
-    context: DSLContext,
+    context: ExecutionContext,
     *,
     assign_context: ExprContext = ExprContext.LOCAL_VARS,
     patch: bool = True,
@@ -418,7 +462,7 @@ def iter_for_each(
     # Currently, the only source of action-local expressions is the loop iteration
     # In the future, we may have other sources of action-local expressions
     # XXX: ENV is the only context that should be shared
-    patched_context = context.copy() if patch else create_default_dsl_context()
+    patched_context = context.copy() if patch else create_default_execution_context()
     logger.trace("Context before patch", patched_context=patched_context)
 
     # Create a generator that zips the iterables together

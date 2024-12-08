@@ -30,13 +30,14 @@ from tracecat.db.schemas import Workflow
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
-from tracecat.dsl.models import DSLConfig, DSLContext
+from tracecat.dsl.models import DSLConfig, ExecutionContext
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.executor.service import run_action_on_ray_cluster
-from tracecat.expressions.shared import ExprContext
+from tracecat.executor.client import ExecutorClient
+from tracecat.executor.service import run_action_in_pool
+from tracecat.expressions.common import ExprContext
 from tracecat.logger import logger
-from tracecat.registry.client import RegistryClient
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
@@ -139,8 +140,8 @@ async def test_workflow_can_run_from_yaml(dsl, test_role, temporal_client):
     assert len(result[ExprContext.ACTIONS]) == len(dsl.actions)
 
 
-def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
-    act_outputs = final_context[str(ExprContext.ACTIONS)]
+def assert_respectful_exec_order(dsl: DSLInput, final_context: ExecutionContext):
+    act_outputs = final_context[ExprContext.ACTIONS]
     for action in dsl.actions:
         target = action.ref
         for source in action.depends_on:
@@ -320,7 +321,7 @@ async def test_workflow_multi_environ_secret_manager_correctness(
             return {{"secret_value": secret_value, "value": value}}
     """
     )
-    client = RegistryClient()
+    client = ExecutorClient()
     await client._register_test_module(
         version=version,
         code=code,
@@ -474,7 +475,7 @@ async def test_stress_workflow_udf_secret_manager_correctness(
             }
     """
     )
-    client = RegistryClient()
+    client = ExecutorClient()
     await client._register_test_module(
         version=version,
         code=code,

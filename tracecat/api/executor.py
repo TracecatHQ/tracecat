@@ -93,6 +93,7 @@ def create_app(**kwargs) -> FastAPI:
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
         CORSMiddleware,
+        # XXX(security): We should be more restrictive here
         allow_origins=allow_origins,
         allow_credentials=True,
         allow_methods=["*"],
@@ -103,7 +104,6 @@ def create_app(**kwargs) -> FastAPI:
         "Executor service started",
         env=config.TRACECAT__APP_ENV,
         origins=allow_origins,
-        auth_types=config.TRACECAT__AUTH_TYPES,
     )
 
     return app

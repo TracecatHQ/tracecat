@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-from collections.abc import AsyncGenerator, Awaitable, Coroutine
+from collections.abc import AsyncGenerator, Awaitable
 from typing import Any
 
 import orjson
@@ -28,7 +28,11 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID, exec_id
+from tracecat.identifiers.workflow import (
+    WorkflowExecutionID,
+    WorkflowID,
+    generate_exec_id,
+)
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
@@ -368,16 +372,16 @@ class WorkflowExecutionsService:
         return CreateWorkflowExecutionResponse(
             message="Workflow execution started",
             wf_id=wf_id,
-            wf_exec_id=exec_id(wf_id),
+            wf_exec_id=generate_exec_id(wf_id),
         )
 
-    def create_workflow_execution(
+    async def create_workflow_execution(
         self,
         dsl: DSLInput,
         *,
         wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
-    ) -> Coroutine[Any, Any, DispatchWorkflowResult]:
+    ) -> DispatchWorkflowResult:
         """Create a new workflow execution.
 
         Note: This method blocks until the workflow execution completes.
@@ -389,11 +393,10 @@ class WorkflowExecutionsService:
                 validation_result.msg, detail=validation_result.detail
             )
 
-        wf_exec_id = exec_id(wf_id)
-        return self._dispatch_workflow(
+        return await self._dispatch_workflow(
             dsl=dsl,
             wf_id=wf_id,
-            wf_exec_id=wf_exec_id,
+            wf_exec_id=generate_exec_id(wf_id),
             trigger_inputs=payload,
         )
 
@@ -450,7 +453,7 @@ class WorkflowExecutionsService:
             )
             raise e
         self.logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
-        return DispatchWorkflowResult(wf_id=wf_id, final_context=result)
+        return DispatchWorkflowResult(wf_id=wf_id, result=result)
 
     def cancel_workflow_execution(
         self, wf_exec_id: WorkflowExecutionID

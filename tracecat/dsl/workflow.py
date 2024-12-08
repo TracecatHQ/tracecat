@@ -4,7 +4,7 @@ import asyncio
 import itertools
 import json
 import uuid
-from collections.abc import Generator, Iterable
+from collections.abc import Awaitable, Callable, Generator, Iterable
 from datetime import timedelta
 from typing import Any
 
@@ -18,13 +18,13 @@ from temporalio.exceptions import (
 )
 
 with workflow.unsafe.imports_passed_through():
+    import jsonpath_ng.ext.parser  # noqa: F401, I001
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
-    import jsonpath_ng.ext.parser  # noqa: F401
     import tracecat_registry  # noqa
     from pydantic import ValidationError
 
-    from tracecat import identifiers
+    from tracecat import config, identifiers
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import RunContext, ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.action import (
@@ -40,12 +40,12 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.constants import CHILD_WORKFLOW_EXECUTE_ACTION
     from tracecat.dsl.enums import FailStrategy, LoopStrategy
     from tracecat.dsl.models import (
+        ActionResult,
         ActionStatement,
         DSLConfig,
-        DSLContext,
         DSLEnvironment,
         DSLExecutionError,
-        ActionResult,
+        ExecutionContext,
         RunActionInput,
         TriggerInputs,
     )
@@ -54,9 +54,16 @@ with workflow.unsafe.imports_passed_through():
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
     )
+    from tracecat.executor.enums import ResultsBackend
+    from tracecat.executor.service import evaluate_templated_args, iter_for_each
+    from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
-    from tracecat.expressions.shared import ExprContext
     from tracecat.logger import logger
+    from tracecat.store.service import (
+        StoreResolveActionsInput,
+        store_resolve_actions_activity,
+    )
+    from tracecat.types.auth import Role
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.types.exceptions import (
         TracecatCredentialsError,
@@ -121,6 +128,7 @@ class DSLWorkflow:
         self.start_to_close_timeout = args.timeout
         ctx_role.set(self.role)
         wf_info = workflow.info()
+        self.results_backend = config.TRACECAT__RESULTS_BACKEND
 
         self.logger = logger.bind(
             wf_id=args.wf_id,
@@ -225,11 +233,11 @@ class DSLWorkflow:
             ) from e
 
         # Prepare user facing context
-        self.context = DSLContext(
-            ACTIONS={},
-            INPUTS=self.dsl.inputs,
-            TRIGGER=trigger_inputs,
-            ENV=DSLEnvironment(
+        self.context: ExecutionContext = {
+            ExprContext.ACTIONS: {},
+            ExprContext.INPUTS: self.dsl.inputs,
+            ExprContext.TRIGGER: trigger_inputs,
+            ExprContext.ENV: DSLEnvironment(
                 workflow={
                     "start_time": wf_info.start_time,
                     "dispatch_type": self.dispatch_type,
@@ -237,7 +245,7 @@ class DSLWorkflow:
                 environment=self.runtime_config.environment,
                 variables={},
             ),
-        )
+        }
 
         # All the starting config has been consolidated, can safely set the run context
         # Internal facing context
@@ -248,8 +256,6 @@ class DSLWorkflow:
             environment=self.runtime_config.environment,
         )
         ctx_run.set(self.run_context)
-
-        self.dep_list = {task.ref: task.depends_on for task in self.dsl.actions}
 
         self.logger.info(
             "Running DSL task workflow",
@@ -278,7 +284,7 @@ class DSLWorkflow:
 
         try:
             self.logger.info("DSL workflow completed")
-            return self._handle_return()
+            return await self._handle_return()
         except TracecatExpressionError as e:
             raise ApplicationError(
                 f"Couldn't parse return value expression: {e}",
@@ -292,7 +298,7 @@ class DSLWorkflow:
                 type=e.__class__.__name__,
             ) from e
 
-    async def execute_task(self, task: ActionStatement) -> Any:
+    async def execute_task(self, task: ActionStatement) -> None:
         """Purely execute a task and manage the results.
 
         Preflight checks
@@ -302,11 +308,11 @@ class DSLWorkflow:
         3. If there's an ActionTest, skip execution and return the patched result.
             - Note that we still schedule the task for execution, but we don't actually run it.
         """
-
-        logger.info("Begin task execution", task_ref=task.ref)
-        task_result = ActionResult(result=None, result_typename=type(None).__name__)
-        try:
+        if self.results_backend == ResultsBackend.STORE:
             if self._should_execute_child_workflow(task):
+                raise NotImplementedError(
+                    "Child workflows are not yet supported in store mode"
+                )
                 # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
                 # 1. Prepare the child workflow
                 logger.trace("Preparing child workflow")
@@ -319,46 +325,78 @@ class DSLWorkflow:
                 )
 
             else:
-                # Below this point, we're executing the task
-                logger.trace(
-                    "Running action",
-                    task_ref=task.ref,
-                    runtime_config=self.runtime_config,
-                )
-                action_result = await self._run_action(task)
-            logger.trace("Action completed successfully", action_result=action_result)
-            task_result.update(
-                result=action_result, result_typename=type(action_result).__name__
+                action_ref_handle = await self._run_action(task)
+            logger.trace(
+                "Action completed successfully", action_ref_handle=action_ref_handle
             )
-        # NOTE: By the time we receive an exception, we've exhausted all retry attempts
-        except (ActivityError, ChildWorkflowError, FailureError) as e:
-            # These are deterministic and expected errors that
-            err_type = e.__class__.__name__
-            msg = self.ERROR_TYPE_TO_MESSAGE[err_type]
-            logger.error(msg, error=e.message)
-            match cause := e.cause:
-                case ApplicationError(details=[err_info, *_]):
-                    task_result.update(
-                        error=err_info, error_typename=cause.type or err_type
+            self.context[ExprContext.ACTIONS][task.ref] = action_ref_handle  # type: ignore
+
+        else:
+            logger.info("Begin task execution", task_ref=task.ref)
+            task_result = ActionResult(result=None, result_typename=type(None).__name__)
+            try:
+                if self._should_execute_child_workflow(task):
+                    # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
+                    # 1. Prepare the child workflow
+                    logger.trace("Preparing child workflow")
+                    child_run_args = await self._prepare_child_workflow(task)
+                    logger.trace(
+                        "Child workflow prepared", child_run_args=child_run_args
                     )
-                case _:
-                    task_result.update(error=e.message, error_typename=err_type)
-            raise ApplicationError(e.message, non_retryable=True, type=err_type) from e
-        except ValidationError as e:
-            logger.error("Runtime validation error", error=e.errors())
-            task_result.update(
-                error=e.errors(), error_typename=ValidationError.__name__
-            )
-            raise e
-        except Exception as e:
-            err_type = e.__class__.__name__
-            msg = f"Task execution failed with unexpected error: {e}"
-            logger.error("Activity execution failed with unexpected error", error=msg)
-            task_result.update(error=msg, error_typename=err_type)
-            raise ApplicationError(msg, non_retryable=True, type=err_type) from e
-        finally:
-            logger.debug("Setting action result", task_result=task_result)
-            self.context[ExprContext.ACTIONS][task.ref] = task_result  # type: ignore
+                    # This is the original child runtime args, preset by the DSL
+                    # In contrast, task.args are the runtime args that the parent workflow provided
+                    action_result = await self._execute_child_workflow(
+                        task=task, child_run_args=child_run_args
+                    )
+
+                else:
+                    # Below this point, we're executing the task
+                    logger.trace(
+                        "Running action",
+                        task_ref=task.ref,
+                        runtime_config=self.runtime_config,
+                    )
+                    action_result = await self._run_action(task)
+                logger.trace(
+                    "Action completed successfully", action_result=action_result
+                )
+                task_result.update(
+                    result=action_result, result_typename=type(action_result).__name__
+                )
+            # NOTE: By the time we receive an exception, we've exhausted all retry attempts
+            except (ActivityError, ChildWorkflowError, FailureError) as e:
+                # These are deterministic and expected errors that
+                err_type = e.__class__.__name__
+                msg = self.ERROR_TYPE_TO_MESSAGE[err_type]
+                logger.error(msg, error=e.message)
+                match cause := e.cause:
+                    case ApplicationError(details=[err_info, *_]):
+                        task_result.update(
+                            error=err_info, error_typename=cause.type or err_type
+                        )
+                    case _:
+                        task_result.update(error=e.message, error_typename=err_type)
+                raise ApplicationError(
+                    e.message, non_retryable=True, type=err_type
+                ) from e
+            except ValidationError as e:
+                logger.error("Runtime validation error", error=e.errors())
+                task_result.update(
+                    error=e.errors(), error_typename=ValidationError.__name__
+                )
+                raise e
+            except Exception as e:
+                err_type = e.__class__.__name__
+                msg = f"Task execution failed with unexpected error: {e}"
+                logger.error(
+                    "Activity execution failed with unexpected error", error=msg
+                )
+                task_result.update(error=msg, error_typename=err_type)
+                raise ApplicationError(msg, non_retryable=True, type=err_type) from e
+            finally:
+                logger.debug("Setting action result", task_result=task_result)
+                # Write to action store
+                self.context[ExprContext.ACTIONS][task.ref] = task_result
 
     ERROR_TYPE_TO_MESSAGE = {
         ActivityError.__name__: "Activity execution failed",
@@ -507,17 +545,35 @@ class DSLWorkflow:
             ]
             return result
 
-    def _handle_return(self) -> Any:
+    async def _handle_return(self) -> Any:
         self.logger.debug("Handling return", context=self.context)
         if self.dsl.returns is None:
             # Return the context
             # XXX: Don't return ENV context for now
             self.logger.trace("Returning DSL context")
-            self.context.pop(ExprContext.ENV.value, None)
+            self.context.pop(ExprContext.ENV, None)
             return self.context
-        # Return some custom value that should be evaluated
-        self.logger.trace("Returning value from expression")
-        return eval_templated_object(self.dsl.returns, operand=self.context)
+
+        match self.results_backend:
+            case ResultsBackend.STORE:
+                return_value = await workflow.execute_activity(
+                    store_resolve_actions_activity,
+                    arg=StoreResolveActionsInput(
+                        execution_id=self.run_context.wf_exec_id,
+                        args=self.dsl.returns,
+                        context=self.context,
+                    ),
+                    start_to_close_timeout=self.start_to_close_timeout,
+                    retry_policy=retry_policies["activity:fail_fast"],
+                )
+            case ResultsBackend.MEMORY:
+                return_value = eval_templated_object(
+                    self.dsl.returns, operand=self.context
+                )
+            case _:
+                raise ValueError(f"Unsupported exec context backend: {self.backend}")
+        self.logger.trace("Returning value from expression", return_value=return_value)
+        return return_value
 
     async def _get_workflow_definition(
         self, workflow_id: identifiers.WorkflowID, version: int | None = None
@@ -642,10 +698,14 @@ class DSLWorkflow:
         arg = RunActionInput(
             task=task, run_context=self.run_context, exec_context=self.context
         )
-        self.logger.debug("RUN UDF ACTIVITY", arg=arg)
+        self.logger.debug("Running action activity", arg=arg)
+
+        activity = BACKEND_TO_ACTIVITY[self.results_backend]
+
+        self.logger.debug("Running action activity", activity=activity.__name__)
 
         return await workflow.execute_activity(
-            DSLActivities.run_action_activity,
+            activity,
             args=(arg, self.role),
             start_to_close_timeout=timedelta(
                 seconds=task.start_delay + task.retry_policy.timeout
@@ -657,7 +717,7 @@ class DSLWorkflow:
 
     async def _run_child_workflow(self, run_args: DSLRunArgs) -> Any:
         self.logger.info("Running child workflow", run_args=run_args)
-        wf_exec_id = identifiers.workflow.exec_id(run_args.wf_id)
+        wf_exec_id = identifiers.workflow.generate_exec_id(run_args.wf_id)
         wf_info = workflow.info()
         return await workflow.execute_child_workflow(
             DSLWorkflow.run,
@@ -672,3 +732,11 @@ class DSLWorkflow:
 
     def _should_execute_child_workflow(self, task: ActionStatement) -> bool:
         return task.action == CHILD_WORKFLOW_EXECUTE_ACTION
+
+
+BACKEND_TO_ACTIVITY: dict[
+    ResultsBackend, Callable[[RunActionInput, Role], Awaitable[Any]]
+] = {
+    ResultsBackend.STORE: DSLActivities.run_action_with_store_activity,
+    ResultsBackend.MEMORY: DSLActivities.run_action_activity,
+}
