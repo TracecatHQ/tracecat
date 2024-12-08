@@ -1,3 +1,6 @@
+# UV
+uv.lock
+
 # Terraform-related files
 *.tfstate
 *.tfstate.backup
