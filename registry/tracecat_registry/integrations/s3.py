@@ -46,7 +46,7 @@ Secret
     display_group="AWS S3",
     namespace="integrations.aws_s3",
 )
-async def parse_s3_uri(uri: str) -> tuple[str, str]:
+async def parse_uri(uri: str) -> tuple[str, str]:
     uri = str(uri).strip()
     if not uri.startswith("s3://"):
         raise ValueError("S3 URI must start with 's3://'")
@@ -66,7 +66,7 @@ async def parse_s3_uri(uri: str) -> tuple[str, str]:
     namespace="integrations.aws_s3",
     secrets=[s3_secret],
 )
-async def download_s3_object(
+async def download_object(
     bucket: Annotated[str, Field(..., description="S3 bucket name.")],
     key: Annotated[str, Field(..., description="S3 object key.")],
 ) -> str:
