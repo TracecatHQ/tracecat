@@ -1,0 +1,36 @@
+type: action
+definition:
+  name: run_playbook_from_s3
+  namespace: integrations.ansible
+  title: Run Ansible Playbook from S3
+  description: Download an Ansible playbook from S3 and run it
+  display_group: Ansible
+  secrets:
+    - name: ansible
+  expects:
+    playbook_path:
+      type: str
+      description: Path to the playbook in S3
+    extra_vars:
+      type: dict
+      description: Extra variables to pass to the playbook
+    runner_kwargs:
+      type: dict
+      description: Additional keyword arguments to pass to the Ansible runner
+  steps:
+    - ref: parse_uri
+      action: integrations.aws_s3.parse_uri
+      args:
+        uri: ${{ inputs.playbook_path }}
+    - ref: download_playbook
+      action: integrations.aws_s3.download_object
+      args:
+        bucket: ${{ steps.parse_uri.result.bucket }}
+        key: ${{ steps.parse_uri.result.key }}
+    - ref: run_playbook
+      action: integrations.ansible.run_playbook
+      args:
+        playbook: ${{ steps.download_playbook.result }}
+        extra_vars: ${{ inputs.extra_vars }}
+        runner_kwargs: ${{ inputs.runner_kwargs }}
+  returns: ${{ steps.run_playbook.result }}
