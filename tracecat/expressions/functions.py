@@ -433,6 +433,18 @@ def to_timestamp_str(x: datetime) -> float:
     return x.timestamp()
 
 
+def create_datetime(
+    year: int,
+    month: int,
+    day: int,
+    hour: int = 0,
+    minute: int = 0,
+    second: int = 0,
+) -> datetime:
+    """Create datetime from year, month, day, hour, minute, and second."""
+    return datetime(year, month, day, hour, minute, second)
+
+
 def get_second(x: datetime) -> int:
     """Get second (0-59) from datetime."""
     return x.second
@@ -612,6 +624,22 @@ def set_timezone(x: datetime, timezone: str) -> datetime:
 def unset_timezone(x: datetime) -> datetime:
     """Remove timezone information from datetime without changing the time."""
     return x.replace(tzinfo=None)
+
+
+def windows_filetime(x: datetime) -> int:
+    """Convert datetime to Windows filetime."""
+    # Define Windows and Unix epochs
+    windows_epoch = datetime(1601, 1, 1, tzinfo=UTC)
+
+    # Ensure input datetime is UTC
+    if x.tzinfo is None:
+        x = x.replace(tzinfo=UTC)
+    elif x.tzinfo != UTC:
+        x = x.astimezone(UTC)
+
+    # Calculate number of 100-nanosecond intervals since Windows epoch
+    delta = x - windows_epoch
+    return int(delta.total_seconds() * 10_000_000)
 
 
 # Comparison functions
@@ -831,6 +859,7 @@ _FUNCTION_MAPPING = {
     "get_day_of_week": get_day_of_week,
     "get_month": get_month,
     "get_year": get_year,
+    "datetime": create_datetime,
     "seconds": create_seconds,
     "minutes": create_minutes,
     "hours": create_hours,
@@ -850,6 +879,7 @@ _FUNCTION_MAPPING = {
     "to_datetime": to_datetime,
     "to_isoformat": to_iso_format,
     "to_timestamp": to_timestamp_str,
+    "windows_filetime": windows_filetime,
     # Base64
     "to_base64": str_to_b64,
     "from_base64": b64_to_str,
