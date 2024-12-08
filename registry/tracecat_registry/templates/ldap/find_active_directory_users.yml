@@ -1,0 +1,31 @@
+type: action
+definition:
+  name: find_active_directory_users
+  namespace: integrations.ldap
+  title: Find Active Directory Users
+  description: Find Active Directory users using LDAP search.
+  display_group: LDAP
+  secrets:
+    - name: ldap
+  expects:
+    dn:
+      type: str
+      description: Base Distinguished Name to search for users
+    username_or_email:
+      type: str
+      description: Username or email to search for
+    server_kwargs:
+      type: dict
+      description: Additional server parameters
+    connection_kwargs:
+      type: dict
+      description: Additional connection parameters
+  steps:
+    - ref: find_users
+      action: integrations.ldap.search_entries
+      args:
+        search_base: ${{ inputs.dn }}
+        search_filter: ${{ (|(anr={inputs.username_or_email})(mail={inputs.username_or_email})(proxyAddresses=SMTP:{inputs.username_or_email})(userPrincipalName={inputs.username_or_email})(sAMAccountName={inputs.username_or_email})) }}
+        server_kwargs: ${{ inputs.server_kwargs }}
+        connection_kwargs: ${{ inputs.connection_kwargs }}
+  returns: ${{ steps.find_users.result }}
