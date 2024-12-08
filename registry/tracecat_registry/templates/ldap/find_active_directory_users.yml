@@ -5,8 +5,6 @@ definition:
   title: Find Active Directory Users
   description: Find Active Directory users using LDAP search.
   display_group: LDAP
-  secrets:
-    - name: ldap
   expects:
     dn:
       type: str

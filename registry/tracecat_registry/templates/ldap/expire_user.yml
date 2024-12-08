@@ -5,8 +5,6 @@ definition:
   title: Expire LDAP User
   description: Expire a user in LDAP
   display_group: LDAP
-  secrets:
-    - name: ldap
   expects:
     dn:
       type: str
