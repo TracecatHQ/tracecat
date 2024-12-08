@@ -40,11 +40,15 @@ async def run_ansible_playbook(
     playbook: Annotated[
         list[dict[str, Any]], Field(..., description="List of plays to run")
     ],
+    extra_vars: Annotated[
+        dict[str, Any],
+        Field(description="Extra variables to pass to the playbook"),
+    ] = None,
     runner_kwargs: Annotated[
         dict[str, Any],
-        Field(description="Keyword arguments to pass to the Ansible runner"),
+        Field(description="Additional keyword arguments to pass to the Ansible runner"),
     ] = None,
-) -> Any:
+) -> dict[str, Any]:
     ssh_key = secrets.get("ANSIBLE_SSH_KEY")
     passwords = secrets.get("ANSIBLE_PASSWORDS")
 
@@ -71,6 +75,7 @@ async def run_ansible_playbook(
             return run_async(
                 private_data_dir=temp_dir,
                 playbook=playbook,
+                extravars=extra_vars,
                 **runner_kwargs,
             )
 
