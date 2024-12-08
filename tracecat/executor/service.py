@@ -19,10 +19,7 @@ from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.db.engine import get_async_engine
-from tracecat.dsl.common import (
-    context_locator,
-    create_default_execution_context,
-)
+from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.models import (
     ActionResult,
     ActionStatement,
