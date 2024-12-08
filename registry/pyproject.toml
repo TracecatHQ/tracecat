@@ -24,6 +24,7 @@ dependencies = [
     "adbc-driver-postgresql==1.0.0",
     "adbc-driver-snowflake==1.0.0",
     "adbc-driver-sqlite==1.0.0",
+    "ansible-runner==2.4.0",
     "aioboto3==13.0.1",
     "boto3==1.34.70",
     "crowdstrike-falconpy==1.4.4",
