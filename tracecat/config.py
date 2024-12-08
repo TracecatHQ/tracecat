@@ -3,6 +3,7 @@ import uuid
 from typing import Literal
 
 from tracecat.auth.constants import AuthType
+from tracecat.executor.enums import ResultsBackend
 
 # === Actions Config === #
 HTTP_MAX_RETRIES = 10
@@ -158,3 +159,11 @@ TRACECAT__PRELOAD_OSS_MODELS = (
 ) or []
 
 OLLAMA__API_URL = os.environ.get("OLLAMA__API_URL", "http://ollama:11434")
+
+# === Object storage config === #
+TRACECAT__RESULTS_BACKEND = ResultsBackend(
+    os.environ.get("TRACECAT__RESULTS_BACKEND", "memory")
+)
+MINIO_ENDPOINT_URL = os.environ.get("MINIO_ENDPOINT_URL") or "http://minio:9000"
+MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY")
+MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY")

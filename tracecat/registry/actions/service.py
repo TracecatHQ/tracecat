@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
 from pydantic import UUID4
+from pydantic_core import to_jsonable_python
 from sqlalchemy import Boolean
 from sqlmodel import cast, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -13,6 +14,7 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryAction, RegistryRepository
+from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     BoundRegistryAction,
@@ -22,7 +24,6 @@ from tracecat.registry.actions.models import (
     RegistryActionUpdate,
     model_converters,
 )
-from tracecat.registry.client import RegistryClient
 from tracecat.registry.loaders import get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
@@ -116,7 +117,7 @@ class RegistryActionsService:
 
         action = RegistryAction(
             owner_id=owner_id,
-            interface=interface,
+            interface=to_jsonable_python(interface),
             **params.model_dump(exclude={"interface"}),
         )
 
@@ -280,7 +281,7 @@ class RegistryActionsService:
 
         # (3) Update the executor's view of the repository
         self.logger.info("Syncing executor", origin=db_repo.origin)
-        client = RegistryClient(role=self.role)
+        client = ExecutorClient(role=self.role)
         await client.sync_executor(origin=db_repo.origin)
 
     async def load_action_impl(self, action_name: str) -> BoundRegistryAction:

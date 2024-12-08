@@ -8,7 +8,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat.contexts import ctx_logger
 from tracecat.dsl.common import AdjDst, DSLEdge, DSLInput, edge_components_from_dep
 from tracecat.dsl.enums import EdgeMarker, EdgeType, JoinStrategy, SkipStrategy
-from tracecat.dsl.models import ActionStatement, DSLContext
+from tracecat.dsl.models import ActionStatement, ExecutionContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
@@ -24,10 +24,10 @@ class DSLScheduler:
     def __init__(
         self,
         *,
-        executor: Coroutine[Any, Any, Any],
+        executor: Coroutine[Any, Any, None],
         dsl: DSLInput,
         skip_strategy: SkipStrategy = SkipStrategy.PROPAGATE,
-        context: DSLContext,
+        context: ExecutionContext,
     ):
         self.dsl = dsl
         self.context = context

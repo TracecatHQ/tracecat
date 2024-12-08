@@ -1,8 +1,13 @@
 """Workflow identifiers."""
 
-from typing import Annotated
+from __future__ import annotations
 
-from pydantic import UUID4, StringConstraints
+from typing import Annotated, cast
+
+from pydantic import (
+    UUID4,
+    StringConstraints,
+)
 
 from tracecat.identifiers.resource import ResourcePrefix, generate_resource_id
 from tracecat.identifiers.schedules import SCHEDULE_EXEC_ID_PATTERN
@@ -10,8 +15,8 @@ from tracecat.identifiers.schedules import SCHEDULE_EXEC_ID_PATTERN
 # Patterns
 WF_ID_PATTERN = r"wf-[0-9a-f]{32}"
 EXEC_ID_PATTERN = r"exec-[\w-]+"
-WF_EXEC_SUFFIX_PATTERN = f"({EXEC_ID_PATTERN}|{SCHEDULE_EXEC_ID_PATTERN})"
-WF_EXEC_ID_PATTERN = f"{WF_ID_PATTERN}:{WF_EXEC_SUFFIX_PATTERN}"
+WF_EXEC_SUFFIX_PATTERN = rf"({EXEC_ID_PATTERN}|{SCHEDULE_EXEC_ID_PATTERN})"
+WF_EXEC_ID_PATTERN = rf"{WF_ID_PATTERN}:{WF_EXEC_SUFFIX_PATTERN}"
 
 
 # Annotations
@@ -60,7 +65,27 @@ WorkflowExecutionSuffixID = Annotated[
 """The suffix of a workflow execution ID."""
 
 
-def exec_id(workflow_id: str) -> WorkflowExecutionID:
+def generate_exec_id(workflow_id: str) -> WorkflowExecutionID:
     """Inner workflow ID for a run, using the workflow ID and run ID."""
     exec_id = generate_resource_id(ResourcePrefix.WORKFLOW_EXECUTION)
     return f"{workflow_id}:{exec_id}"
+
+
+def exec_suffix_id() -> WorkflowExecutionSuffixID:
+    """The suffix of a workflow execution ID."""
+    return generate_resource_id(ResourcePrefix.WORKFLOW_EXECUTION)
+
+
+def exec_id_to_parts(
+    wf_exec_id: WorkflowExecutionID,
+) -> tuple[WorkflowID, WorkflowExecutionSuffixID]:
+    """The components of a workflow execution ID."""
+    wf_id, exec_suffix_id = wf_exec_id.split(":", 1)
+    return cast(WorkflowID, wf_id), cast(WorkflowExecutionSuffixID, exec_suffix_id)
+
+
+def exec_id_from_parts(
+    wf_id: WorkflowID, exec_suffix_id: WorkflowExecutionSuffixID
+) -> WorkflowExecutionID:
+    """Create a workflow execution ID from its components."""
+    return f"{wf_id}:{exec_suffix_id}"

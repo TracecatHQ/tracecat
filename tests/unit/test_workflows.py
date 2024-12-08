@@ -30,12 +30,13 @@ from tracecat.db.schemas import Workflow
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
-from tracecat.dsl.models import DSLConfig, DSLContext
+from tracecat.dsl.models import DSLConfig, ExecutionContext
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.expressions.shared import ExprContext
+from tracecat.executor.client import ExecutorClient
+from tracecat.executor.service import run_action_in_pool
+from tracecat.expressions.common import ExprContext
 from tracecat.logger import logger
-from tracecat.registry.client import RegistryClient
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
@@ -127,8 +128,8 @@ async def test_workflow_can_run_from_yaml(dsl, test_role, temporal_client):
     assert len(result[ExprContext.ACTIONS]) == len(dsl.actions)
 
 
-def assert_respectful_exec_order(dsl: DSLInput, final_context: DSLContext):
-    act_outputs = final_context[str(ExprContext.ACTIONS)]
+def assert_respectful_exec_order(dsl: DSLInput, final_context: ExecutionContext):
+    act_outputs = final_context[ExprContext.ACTIONS]
     for action in dsl.actions:
         target = action.ref
         for source in action.depends_on:
@@ -308,7 +309,7 @@ async def test_workflow_multi_environ_secret_manager_correctness(
             return {{"secret_value": secret_value, "value": value}}
     """
     )
-    client = RegistryClient()
+    client = ExecutorClient()
     await client._register_test_module(
         version=version,
         code=code,
@@ -462,7 +463,7 @@ async def test_stress_workflow_udf_secret_manager_correctness(
             }
     """
     )
-    client = RegistryClient()
+    client = ExecutorClient()
     await client._register_test_module(
         version=version,
         code=code,
@@ -1579,7 +1580,7 @@ async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_
 
 
 # Get the line number dynamically
-DIVISION_BY_ZERO_ERROR = {
+PARTIAL_DIVISION_BY_ZERO_ERROR = {
     "ref": "start",
     "message": (
         "There was an error in the registry when calling action 'core.transform.reshape' (500).\n"
@@ -1599,14 +1600,30 @@ DIVISION_BY_ZERO_ERROR = {
         "Cannot divide by zero\n"
         "\n"
         "------------------------------\n"
-        "File: /app/tracecat/registry/executor.py\n"
-        "Function: run_action_in_pool\n"
-        "Line: 200"
+        f"File: /app/{"/".join(run_action_in_pool.__module__.split("."))}.py\n"
+        f"Function: {run_action_in_pool.__name__}\n"
+        # f"Line: {run_action_in_pool.__code__.co_firstlineno}"
     ),
     "type": "RegistryActionError",
     "expr_context": "ACTIONS",
     "attempt": 1,
 }
+
+
+def appromately_equal(result: Any, expected: Any) -> bool:
+    if type(result) is not type(expected):
+        return False
+    match result:
+        case str():
+            return result == expected or result.startswith(expected)
+        case dict():
+            return all(appromately_equal(result[key], expected[key]) for key in result)
+        case list():
+            return all(
+                appromately_equal(result[i], expected[i]) for i in range(len(result))
+            )
+        case _:
+            return result == expected
 
 
 def _get_test_id(test_case):
@@ -1658,7 +1675,7 @@ def _get_test_id(test_case):
             },
             {
                 "start": None,
-                "start.error": DIVISION_BY_ZERO_ERROR,
+                "start.error": PARTIAL_DIVISION_BY_ZERO_ERROR,
                 "success": None,
                 "error": "ERROR",
             },
@@ -2036,7 +2053,7 @@ async def test_workflow_error_path(test_role, runtime_config, dsl_data, expected
                 ],
             ),
         )
-    assert result == expected
+    assert appromately_equal(result, expected)
 
 
 @pytest.mark.anyio

@@ -18,75 +18,54 @@ from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
+from tracecat.executor.enums import ResultsBackend
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     RegistryActionErrorInfo,
     RegistryActionRead,
     RegistryActionValidateResponse,
 )
-from tracecat.registry.constants import REGISTRY_ACTIONS_PATH, REGISTRY_REPOS_PATH
+from tracecat.store.models import ActionRefHandle
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryActionError, RegistryError
 
 
-class _RegistryHTTPClient(AuthenticatedServiceClient):
-    """Async httpx client for the registry service."""
+class ExecutorHTTPClient(AuthenticatedServiceClient):
+    """Async httpx client for the executor service."""
 
     def __init__(self, role: Role | None = None, *args: Any, **kwargs: Any) -> None:
-        self._registry_base_url = config.TRACECAT__EXECUTOR_URL
-        super().__init__(role, *args, base_url=self._registry_base_url, **kwargs)
+        self._executor_base_url = config.TRACECAT__EXECUTOR_URL
+        super().__init__(role, *args, base_url=self._executor_base_url, **kwargs)
         self.params = self.params.add(
             "workspace_id", str(self.role.workspace_id) if self.role else None
         )
 
 
-class RegistryClient:
-    """Use this to interact with the remote registry service."""
+class ExecutorClient:
+    """Use this to interact with the remote executor service."""
 
-    _repos_endpoint = REGISTRY_REPOS_PATH
-    _actions_endpoint = REGISTRY_ACTIONS_PATH
     _timeout: float = 60.0
 
-    def __init__(self, role: Role | None = None):
+    def __init__(self, role: Role | None = None, backend: ResultsBackend | None = None):
         self.role = role or ctx_role.get()
-        self.logger = logger.bind(service="registry-client", role=self.role)
+        self.logger = logger.bind(service="executor-client", role=self.role)
+        self._backend = backend or config.TRACECAT__RESULTS_BACKEND
 
     @asynccontextmanager
-    async def _client(self) -> AsyncIterator[_RegistryHTTPClient]:
-        async with _RegistryHTTPClient(self.role) as client:
+    async def _client(self) -> AsyncIterator[ExecutorHTTPClient]:
+        async with ExecutorHTTPClient(self.role) as client:
             yield client
 
     """Execution"""
 
-    async def call_action(self, input: RunActionInput) -> Any:
-        """
-        Call an action in the registry asynchronously.
+    async def run_action(self, input: RunActionInput) -> Any:
+        if self._backend == ResultsBackend.STORE:
+            return await self._run_action_store_backend(input)
+        elif self._backend == ResultsBackend.MEMORY:
+            return await self._run_action_memory_backend(input)
+        raise ValueError(f"Unsupported backend: {self._backend}")
 
-        Parameters
-        ----------
-        key : str
-            The unique identifier of the action to call.
-        version : str | None, optional
-            The version of the action to call. If None, the latest version is used.
-        args : ArgsT
-            The arguments to pass to the action.
-        context : dict[str, Any] | None, optional
-            Additional context information for the action. Not used in the current implementation.
-        secrets : dict[str, Any] | None, optional
-            Secrets to be used by the action. Not used in the current implementation.
-
-        Returns
-        -------
-        httpx.Response
-            The response from the registry service.
-
-        Notes
-        -----
-        This method sends a POST request to the registry service to execute the specified action.
-        The `context` and `secrets` parameters are currently not used in the implementation
-        but are included in the method signature for potential future use.
-        """
-
+    async def _run_action_memory_backend(self, input: RunActionInput) -> Any:
         action_type = input.task.action
         content = input.model_dump_json()
         logger.debug(
@@ -97,14 +76,11 @@ class RegistryClient:
         )
         try:
             async with self._client() as client:
+                # No need to include role headers here because it's already
+                # added in AuthenticatedServiceClient
                 response = await client.post(
                     f"/run/{action_type}",
-                    # NOTE(perf): Maybe serialize with orjson.dumps instead
-                    headers={
-                        "Content-Type": "application/json",
-                        # Custom headers
-                        **self.role.to_headers(),
-                    },
+                    headers={"Content-Type": "application/json"},
                     content=content,
                     timeout=self._timeout,
                 )
@@ -148,6 +124,27 @@ class RegistryClient:
                 f"Unexpected error calling action {action_type!r} in registry: {e}"
             ) from e
 
+    async def _run_action_store_backend(self, input: RunActionInput) -> ActionRefHandle:
+        action_type = input.task.action
+        content = input.model_dump_json()
+        logger.debug(
+            f"Calling action {action_type!r} in store mode with content",
+            content=content,
+            role=self.role,
+            timeout=self._timeout,
+        )
+        async with ExecutorHTTPClient(self.role) as client:
+            # No need to include role headers here because it's already
+            # added in AuthenticatedServiceClient
+            response = await client.post(
+                f"/run-store/{action_type}",
+                headers={"Content-Type": "application/json"},
+                content=content,
+                timeout=self._timeout,
+            )
+        response.raise_for_status()
+        return ActionRefHandle.model_validate_json(response.content)
+
     """Validation"""
 
     async def validate_action(
@@ -175,7 +172,7 @@ class RegistryClient:
                 f"Unexpected error while listing registries: {str(e)}"
             ) from e
 
-    """Executor"""
+    """Management"""
 
     async def sync_executor(self, origin: str, *, max_attempts: int = 3) -> None:
         """Sync the executor from the registry.
@@ -227,10 +224,11 @@ class RegistryClient:
     """Registry management"""
 
     async def list_repositories(self) -> list[str]:
+        """XXX: This is not used anywhere."""
         try:
             logger.warning("Listing registries")
-            async with _RegistryHTTPClient(self.role) as client:
-                response = await client.get(self._repos_endpoint)
+            async with ExecutorHTTPClient(self.role) as client:
+                response = await client.get("/repos")
             response.raise_for_status()
             return cast(list[str], response.json())
         except httpx.HTTPStatusError as e:
@@ -247,9 +245,10 @@ class RegistryClient:
             ) from e
 
     async def get_repository_actions(self, version: str) -> list[RegistryActionRead]:
+        """XXX: This is not used anywhere."""
         try:
-            async with _RegistryHTTPClient(self.role) as client:
-                response = await client.get(f"{self._repos_endpoint}/{version}")
+            async with ExecutorHTTPClient(self.role) as client:
+                response = await client.get(f"/repos/{version}")
             response.raise_for_status()
             data = response.json()
             return [RegistryActionRead(**item) for item in data]
@@ -278,12 +277,12 @@ class RegistryClient:
             module_name: str,
             validate_keys: list[str] | None = None,
         ) -> dict[str, Any]:
-            """Use this only for testing purposes."""
+            """XXX: This is not used anywhere."""
             if config.TRACECAT__APP_ENV != "development":
                 # Unreachable
                 raise RegistryError("This method is only available in development mode")
             try:
-                async with _RegistryHTTPClient(role=self.role) as client:
+                async with ExecutorHTTPClient(role=self.role) as client:
                     response = await client.post(
                         "/test-registry",
                         params={"workspace_id": str(self.role.workspace_id)},

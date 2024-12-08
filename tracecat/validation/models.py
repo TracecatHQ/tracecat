@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from tracecat.expressions.shared import ExprType
+from tracecat.expressions.common import ExprType
 
 
 class ValidationResult(BaseModel):

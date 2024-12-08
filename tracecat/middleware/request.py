@@ -21,6 +21,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             path=request.url.path,
             params=request_params,
             body=request_body,
+            headers=request.headers,
         )
 
         return await call_next(request)

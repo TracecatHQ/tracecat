@@ -11,9 +11,10 @@ from tracecat.api.common import (
     setup_oss_models,
     tracecat_exception_handler,
 )
+from tracecat.executor.router import router as executor_router
+from tracecat.executor.service import get_executor
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
-from tracecat.registry.executor import get_executor, router
 from tracecat.types.exceptions import TracecatException
 
 
@@ -48,7 +49,7 @@ def create_app(**kwargs) -> FastAPI:
     app.logger = logger  # type: ignore
 
     # Routers
-    app.include_router(router)
+    app.include_router(executor_router)
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
@@ -58,6 +59,7 @@ def create_app(**kwargs) -> FastAPI:
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
         CORSMiddleware,
+        # XXX(security): We should be more restrictive here
         allow_origins=allow_origins,
         allow_credentials=True,
         allow_methods=["*"],
@@ -68,7 +70,6 @@ def create_app(**kwargs) -> FastAPI:
         "Executor service started",
         env=config.TRACECAT__APP_ENV,
         origins=allow_origins,
-        auth_types=config.TRACECAT__AUTH_TYPES,
     )
 
     return app
