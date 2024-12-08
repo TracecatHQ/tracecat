@@ -3,8 +3,6 @@ from dataclasses import dataclass
 from enum import StrEnum, auto
 from typing import Any, TypeVar
 
-from fastapi.encoders import jsonable_encoder
-
 
 class TracecatEnum(StrEnum):
     def __repr__(self) -> str:
@@ -88,17 +86,3 @@ class IterableExpr[T]:
 
 K = TypeVar("K", str, StrEnum)
 ExprOperand = Mapping[K, Any]
-
-
-if __name__ == "__main__":
-    test = {
-        ExprContext.ACTIONS: 1,
-        ExprContext.SECRETS: 2,
-        ExprContext.FN: 3,
-        ExprContext.INPUTS: 4,
-        ExprContext.ENV: 5,
-    }
-    import orjson
-    from fastapi.encoders import jsonable_encoder
-
-    print(orjson.dumps(test, default=jsonable_encoder, option=orjson.OPT_NON_STR_KEYS))
