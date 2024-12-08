@@ -13,10 +13,10 @@ definition:
       type: datetime
       description: Expiration datetime of the user
     server_kwargs:
-      type: dict
+      type: dict[str, any]
       description: Additional server parameters
     connection_kwargs:
-      type: dict
+      type: dict[str, any]
       description: Additional connection parameters
   steps:
     - ref: expire_user

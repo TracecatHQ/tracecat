@@ -13,10 +13,10 @@ definition:
       type: str
       description: Username or email to search for
     server_kwargs:
-      type: dict
+      type: dict[str, any]
       description: Additional server parameters
     connection_kwargs:
-      type: dict
+      type: dict[str, any]
       description: Additional connection parameters
   steps:
     - ref: find_users

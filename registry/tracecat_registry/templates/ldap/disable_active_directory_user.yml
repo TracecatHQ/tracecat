@@ -10,10 +10,10 @@ definition:
       type: str
       description: Distinguished Name of the user to disable
     server_kwargs:
-      type: dict
+      type: dict[str, any]
       description: Additional server parameters
     connection_kwargs:
-      type: dict
+      type: dict[str, any]
       description: Additional connection parameters
   steps:
     - ref: disable_user
