@@ -6,7 +6,7 @@ import json
 import uuid
 from collections.abc import Awaitable, Callable, Generator, Iterable
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -466,7 +466,10 @@ class DSLWorkflow:
             fail_strategy=fail_strategy,
         )
 
-        iterator = iter_for_each(task=task, context=self.context)
+        iterator = cast(
+            Iterable[ExecuteChildWorkflowArgs],
+            iter_for_each(task=task, context=self.context),
+        )
         if loop_strategy == LoopStrategy.PARALLEL:
             action_result = await self._execute_child_workflow_batch(
                 batch=iterator,
