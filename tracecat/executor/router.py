@@ -3,6 +3,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
@@ -25,7 +26,7 @@ from tracecat.registry.repository import RegistryReposService, Repository
 from tracecat.types.auth import Role
 from tracecat.validation.service import validate_registry_action_args
 
-router = APIRouter(tags=["executor"])
+router = APIRouter()
 
 
 @router.post("/sync")
@@ -51,7 +52,7 @@ async def sync_executor(
     await repo.load_from_origin(commit_sha=db_repo.commit_sha)
 
 
-@router.post("/run/{action_name}")
+@router.post("/run/{action_name}", tags=["execution"])
 async def run_action(
     *,
     role: Role = RoleACL(
@@ -167,7 +168,7 @@ async def run_action_with_store(
 
     action_result = ActionResult()
     try:
-        result = await executor_service.run_action_in_pool(input=action_input)
+        result = await dispatch_action_on_cluster(input=action_input, role=role)
         action_result.update(result=result, result_typename=type(result).__name__)
     except Exception as e:
         # Get the traceback info
