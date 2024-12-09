@@ -13,7 +13,6 @@ from tracecat.api.common import (
     custom_generate_unique_id,
     generic_exception_handler,
     setup_registry,
-    setup_store,
     tracecat_exception_handler,
 )
 from tracecat.auth.constants import AuthType
@@ -58,6 +57,8 @@ async def lifespan(app: FastAPI):
         await setup_registry(session, admin_role)
     # Setup minio
     if config.TRACECAT__RESULTS_BACKEND == ResultsBackend.STORE:
+        from tracecat.ee.store.common import setup_store
+
         await setup_store()
     else:
         logger.info(

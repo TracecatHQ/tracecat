@@ -17,6 +17,9 @@ from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import ActionRetryPolicy, RunActionInput, TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs_activity
+from tracecat.ee.executor.service import (
+    run_action_with_store_activity,
+)
 from tracecat.ee.store.service import store_workflow_result_activity
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.logger import logger
@@ -159,7 +162,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
             action_input = GetWorkflowDefinitionActivityInputs(**activity_input_data)
         elif act_type in (
             DSLActivities.run_action_activity.__name__,
-            DSLActivities.run_action_with_store_activity.__name__,
+            run_action_with_store_activity.__name__,
         ):
             action_input = RunActionInput(**activity_input_data)
         else:
