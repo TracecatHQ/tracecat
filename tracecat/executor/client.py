@@ -18,7 +18,6 @@ from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
-from tracecat.executor.enums import ResultsBackend
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     RegistryActionErrorInfo,
@@ -46,10 +45,9 @@ class ExecutorClient:
 
     _timeout: float = 60.0
 
-    def __init__(self, role: Role | None = None, backend: ResultsBackend | None = None):
+    def __init__(self, role: Role | None = None):
         self.role = role or ctx_role.get()
         self.logger = logger.bind(service="executor-client", role=self.role)
-        self._backend = backend or config.TRACECAT__RESULTS_BACKEND
 
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[ExecutorHTTPClient]:
@@ -58,14 +56,7 @@ class ExecutorClient:
 
     """Execution"""
 
-    async def run_action(self, input: RunActionInput) -> Any:
-        if self._backend == ResultsBackend.STORE:
-            return await self._run_action_store_backend(input)
-        elif self._backend == ResultsBackend.MEMORY:
-            return await self._run_action_memory_backend(input)
-        raise ValueError(f"Unsupported backend: {self._backend}")
-
-    async def _run_action_memory_backend(self, input: RunActionInput) -> Any:
+    async def run_action_memory_backend(self, input: RunActionInput) -> Any:
         action_type = input.task.action
         content = input.model_dump_json()
         logger.debug(
@@ -124,7 +115,7 @@ class ExecutorClient:
                 f"Unexpected error calling action {action_type!r} in registry: {e}"
             ) from e
 
-    async def _run_action_store_backend(self, input: RunActionInput) -> ActionRefHandle:
+    async def run_action_store_backend(self, input: RunActionInput) -> ActionRefHandle:
         action_type = input.task.action
         content = input.model_dump_json()
         logger.debug(
