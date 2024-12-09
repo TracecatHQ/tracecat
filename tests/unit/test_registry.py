@@ -104,3 +104,35 @@ async def test_registry_async_function_can_be_called(mock_package):
     udf = repo.get("test.async_test_function")
     for i in range(10):
         assert await udf.fn(num=i) == i
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("git+ssh://git@github.com/org/repo", ("org", "repo", "main")),
+        ("git+ssh://git@github.com/org/repo.git", ("org", "repo", "main")),
+        ("git+ssh://git@github.com/org/repo@branch", ("org", "repo", "branch")),
+        ("git+ssh://git@github.com/org/repo.git@branch", ("org", "repo", "branch")),
+    ],
+)
+def test_parse_github_url_valid(url: str, expected: tuple[str, str, str]):
+    """Test that valid GitHub URLs are correctly parsed."""
+    from tracecat.registry.repository import parse_github_url
+
+    assert parse_github_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    "invalid_url",
+    [
+        "https://github.com/org/repo",
+        "git+ssh://git@github.com/org",
+        "git+ssh://git@github.com/org/repo@branch/extra",
+    ],
+)
+def test_parse_github_url_invalid(invalid_url: str):
+    """Test that invalid GitHub URLs raise ValueError."""
+    from tracecat.registry.repository import parse_github_url
+
+    with pytest.raises(ValueError):
+        parse_github_url(invalid_url)

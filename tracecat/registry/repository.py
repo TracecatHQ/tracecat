@@ -646,8 +646,8 @@ def parse_github_url(url: str) -> tuple[str, str, str]:
     Raises:
         ValueError: If the URL is not a valid GitHub repository URL.
     """
-    # Define regex patterns
-    ssh_pattern = r"^git\+ssh:\/\/git@github\.com\/(?P<org>[^\/]+)\/(?P<repo>[^\/]+?)(\.git)?(@(?P<branch>[^\/]+))?$"
+    # Define regex patterns with atomic groups and no nested quantifiers
+    ssh_pattern = r"^git\+ssh://git@github\.com/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<branch>[^/]+))?$"
 
     # Try matching SSH pattern
     if ssh_match := re.match(ssh_pattern, url):
