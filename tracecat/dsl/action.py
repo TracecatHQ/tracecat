@@ -12,10 +12,9 @@ from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.dsl.common import context_locator
 from tracecat.dsl.models import ActionStatement, DSLTaskErrorInfo, RunActionInput
 from tracecat.executor.client import ExecutorClient
-from tracecat.executor.enums import ResultsBackend
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.store.models import ActionRefHandle
+from tracecat.store.models import StoreObjectPtr
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryActionError
 
@@ -106,8 +105,8 @@ class DSLActivities:
 
         try:
             # Delegate to the registry client
-            client = ExecutorClient(role=role, backend=ResultsBackend.MEMORY)
-            return await client.run_action(input)
+            client = ExecutorClient(role=role)
+            return await client.run_action_memory_backend(input)
         except RegistryActionError as e:
             # We only expect RegistryActionError to be raised from the registry client
             kind = e.__class__.__name__
@@ -161,7 +160,7 @@ class DSLActivities:
     @activity.defn
     async def run_action_with_store_activity(
         input: RunActionInput, role: Role
-    ) -> ActionRefHandle:
+    ) -> StoreObjectPtr:
         """
         Run an action in store mode.
 
@@ -196,8 +195,9 @@ class DSLActivities:
 
         try:
             # Delegate to the registry client
-            client = ExecutorClient(role=role, backend=ResultsBackend.STORE)
-            return await client.run_action(input)
+            client = ExecutorClient(role=role)
+            handle = await client.run_action_store_backend(input)
+            return handle.to_pointer()
         except Exception as e:
             # Now that we return ActionRefHandle, these are transient errors
             kind = e.__class__.__name__

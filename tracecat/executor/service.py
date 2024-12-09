@@ -270,6 +270,7 @@ async def run_action_from_input(input: RunActionInput) -> Any:
         log.trace("Store backend, pulling action results into execution context")
 
         # (2) Pull action results from the store
+        # We only pull the action results that are actually used in the template
         if extracted_action_refs := extracted_exprs[ExprContext.ACTIONS]:
             store = get_store()
             action_results = await store.load_action_result_batched(

@@ -84,6 +84,11 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
+      # Minio
+      TRACECAT__RESULTS_BACKEND: ${TRACECAT__RESULTS_BACKEND}
+      MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
@@ -110,6 +115,11 @@ services:
       # AI
       TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
       OLLAMA__API_URL: ${OLLAMA__API_URL}
+      # Object store
+      TRACECAT__RESULTS_BACKEND: ${TRACECAT__RESULTS_BACKEND}
+      MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     volumes:
       - ./tracecat:/app/tracecat
     ports:

@@ -19,7 +19,7 @@ from tracecat.dsl.models import ActionRetryPolicy, RunActionInput, TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs_activity
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.logger import logger
-from tracecat.store.service import store_resolve_actions_activity
+from tracecat.store.service import store_workflow_result_activity
 from tracecat.types.auth import Role
 from tracecat.workflow.management.definitions import get_workflow_definition_activity
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
@@ -118,7 +118,7 @@ IGNORED_UTILITY_ACTIONS = {
     WorkflowSchedulesService.get_schedule_activity.__name__,
     validate_trigger_inputs_activity.__name__,
     DSLActivities.validate_action_activity.__name__,
-    store_resolve_actions_activity.__name__,
+    store_workflow_result_activity.__name__,
 }
 
 

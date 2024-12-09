@@ -60,8 +60,8 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.logger import logger
     from tracecat.store.service import (
-        StoreResolveActionsInput,
-        store_resolve_actions_activity,
+        StoreWorkflowResultActivityInput,
+        store_workflow_result_activity,
     )
     from tracecat.types.auth import Role
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
@@ -299,67 +299,15 @@ class DSLWorkflow:
             ) from e
 
     async def execute_task(self, task: ActionStatement) -> None:
-        """Purely execute a task and manage the results.
-
-        Preflight checks
-        ---------------
-        1. Evaluate `run_if` condition
-        2. Resolve all templated arguments
-        3. If there's an ActionTest, skip execution and return the patched result.
-            - Note that we still schedule the task for execution, but we don't actually run it.
-        """
+        logger.info("Begin task execution", task_ref=task.ref)
         if self.results_backend == ResultsBackend.STORE:
-            if self._should_execute_child_workflow(task):
-                raise NotImplementedError(
-                    "Child workflows are not yet supported in store mode"
-                )
-                # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
-                # 1. Prepare the child workflow
-                logger.trace("Preparing child workflow")
-                child_run_args = await self._prepare_child_workflow(task)
-                logger.trace("Child workflow prepared", child_run_args=child_run_args)
-                # This is the original child runtime args, preset by the DSL
-                # In contrast, task.args are the runtime args that the parent workflow provided
-                action_result = await self._execute_child_workflow(
-                    task=task, child_run_args=child_run_args
-                )
-
-            else:
-                action_ref_handle = await self._run_action(task)
-            logger.trace(
-                "Action completed successfully", action_ref_handle=action_ref_handle
-            )
-            self.context[ExprContext.ACTIONS][task.ref] = action_ref_handle  # type: ignore
-
+            # await self._execute_task_store_backend(task)
+            action_ref_handle = await self._run_action_or_child_workflow(task)
+            self.context[ExprContext.ACTIONS][task.ref] = action_ref_handle
         else:
-            logger.info("Begin task execution", task_ref=task.ref)
             task_result = ActionResult(result=None, result_typename=type(None).__name__)
             try:
-                if self._should_execute_child_workflow(task):
-                    # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
-                    # 1. Prepare the child workflow
-                    logger.trace("Preparing child workflow")
-                    child_run_args = await self._prepare_child_workflow(task)
-                    logger.trace(
-                        "Child workflow prepared", child_run_args=child_run_args
-                    )
-                    # This is the original child runtime args, preset by the DSL
-                    # In contrast, task.args are the runtime args that the parent workflow provided
-                    action_result = await self._execute_child_workflow(
-                        task=task, child_run_args=child_run_args
-                    )
-
-                else:
-                    # Below this point, we're executing the task
-                    logger.trace(
-                        "Running action",
-                        task_ref=task.ref,
-                        runtime_config=self.runtime_config,
-                    )
-                    action_result = await self._run_action(task)
-                logger.trace(
-                    "Action completed successfully", action_result=action_result
-                )
+                action_result = await self._run_action_or_child_workflow(task)
                 task_result.update(
                     result=action_result, result_typename=type(action_result).__name__
                 )
@@ -397,6 +345,19 @@ class DSLWorkflow:
                 logger.debug("Setting action result", task_result=task_result)
                 # Write to action store
                 self.context[ExprContext.ACTIONS][task.ref] = task_result
+
+    async def _run_action_or_child_workflow(self, task: ActionStatement) -> Any:
+        if self._should_execute_child_workflow(task):
+            logger.trace("Preparing child workflow")
+            child_run_args = await self._prepare_child_workflow(task)
+            logger.trace("Child workflow prepared", child_run_args=child_run_args)
+            result = await self._execute_child_workflow(
+                task=task, child_run_args=child_run_args
+            )
+        else:
+            result = await self._run_action(task)
+        self.logger.trace("Action completed successfully", result=result)
+        return result
 
     ERROR_TYPE_TO_MESSAGE = {
         ActivityError.__name__: "Activity execution failed",
@@ -557,24 +518,19 @@ class DSLWorkflow:
             self.context.pop(ExprContext.ENV, None)
             return self.context
 
-        match self.results_backend:
-            case ResultsBackend.STORE:
-                return_value = await workflow.execute_activity(
-                    store_resolve_actions_activity,
-                    arg=StoreResolveActionsInput(
-                        execution_id=self.run_context.wf_exec_id,
-                        args=self.dsl.returns,
-                        context=self.context,
-                    ),
-                    start_to_close_timeout=self.start_to_close_timeout,
-                    retry_policy=retry_policies["activity:fail_fast"],
-                )
-            case ResultsBackend.MEMORY:
-                return_value = eval_templated_object(
-                    self.dsl.returns, operand=self.context
-                )
-            case _:
-                raise ValueError(f"Unsupported exec context backend: {self.backend}")
+        if self.results_backend == ResultsBackend.STORE:
+            return_value = await workflow.execute_activity(
+                store_workflow_result_activity,
+                arg=StoreWorkflowResultActivityInput(
+                    execution_id=self.run_context.wf_exec_id,
+                    args=self.dsl.returns,
+                    context=self.context,
+                ),
+                start_to_close_timeout=self.start_to_close_timeout,
+                retry_policy=retry_policies["activity:fail_fast"],
+            )
+        else:
+            return_value = eval_templated_object(self.dsl.returns, operand=self.context)
         self.logger.trace("Returning value from expression", return_value=return_value)
         return return_value
 
@@ -660,6 +616,7 @@ class DSLWorkflow:
     async def _prepare_child_workflow(self, task: ActionStatement) -> DSLRunArgs:
         """Grab a workflow definition and create child workflow run args"""
 
+        # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
         await self._validate_action(task)
         # environment is None here. This is coming from the action
         self.logger.trace("Validated child workflow args", task=task)

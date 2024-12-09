@@ -15,7 +15,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.validation import validate_trigger_inputs_activity
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
-from tracecat.store.service import store_resolve_actions_activity
+from tracecat.store.service import store_workflow_result_activity
 from tracecat.workflow.management.definitions import (
     get_workflow_definition_activity,
 )
@@ -54,7 +54,7 @@ def get_worker_activities() -> list[Callable[..., Any]]:
         *WorkflowSchedulesService.get_activities(),
         get_workflow_definition_activity,
         validate_trigger_inputs_activity,
-        store_resolve_actions_activity,
+        store_workflow_result_activity,
     ]
 
 
