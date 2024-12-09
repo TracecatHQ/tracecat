@@ -6,7 +6,13 @@ from fastapi import APIRouter, HTTPException, status
 from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.dsl.models import RunActionInput
+from tracecat.dsl.models import (
+    ActionResult,
+    RunActionInput,
+)
+from tracecat.ee.store.models import ActionRefHandle
+from tracecat.ee.store.service import get_store
+from tracecat.executor.enums import ResultsBackend
 from tracecat.executor.models import ExecutorSyncInput
 from tracecat.executor.service import dispatch_action_on_cluster
 from tracecat.logger import logger

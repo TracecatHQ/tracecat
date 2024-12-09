@@ -18,13 +18,13 @@ from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
+from tracecat.ee.store.models import ActionRefHandle
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     RegistryActionErrorInfo,
     RegistryActionRead,
     RegistryActionValidateResponse,
 )
-from tracecat.store.models import ActionRefHandle
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryActionError, RegistryError
 

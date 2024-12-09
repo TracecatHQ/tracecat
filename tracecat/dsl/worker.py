@@ -14,8 +14,8 @@ from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.validation import validate_trigger_inputs_activity
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.ee.store.service import store_workflow_result_activity
 from tracecat.logger import logger
-from tracecat.store.service import store_workflow_result_activity
 from tracecat.workflow.management.definitions import (
     get_workflow_definition_activity,
 )

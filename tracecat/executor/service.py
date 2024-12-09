@@ -6,6 +6,7 @@ NOTE: This is only used in the API server, not the worker
 from __future__ import annotations
 
 import asyncio
+import traceback
 from collections.abc import Callable, Iterator, Mapping
 from types import CoroutineType
 from typing import Any, cast
@@ -26,6 +27,7 @@ from tracecat.dsl.models import (
     ExecutionContext,
     RunActionInput,
 )
+from tracecat.ee.store.service import get_store
 from tracecat.executor.engine import EXECUTION_TIMEOUT
 from tracecat.executor.enums import ResultsBackend
 from tracecat.expressions.common import ExprContext, ExprOperand
@@ -44,7 +46,6 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
-from tracecat.store.service import get_store
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
 

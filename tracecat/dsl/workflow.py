@@ -59,7 +59,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.logger import logger
-    from tracecat.store.service import (
+    from tracecat.ee.store.service import (
         StoreWorkflowResultActivityInput,
         store_workflow_result_activity,
     )

@@ -17,9 +17,9 @@ from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import ActionRetryPolicy, RunActionInput, TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs_activity
+from tracecat.ee.store.service import store_workflow_result_activity
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.logger import logger
-from tracecat.store.service import store_workflow_result_activity
 from tracecat.types.auth import Role
 from tracecat.workflow.management.definitions import get_workflow_definition_activity
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
