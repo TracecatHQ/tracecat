@@ -1,32 +1,32 @@
-# ECS Task Definition for Registry Service
-resource "aws_ecs_task_definition" "registry_task_definition" {
-  family                   = "TracecatRegistryTaskDefinition"
+# ECS Task Definition for Executor Service
+resource "aws_ecs_task_definition" "executor_task_definition" {
+  family                   = "TracecatExecutorTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = var.registry_cpu
-  memory                   = var.registry_memory
+  cpu                      = var.executor_cpu
+  memory                   = var.executor_memory
   execution_role_arn       = aws_iam_role.worker_execution.arn
   task_role_arn            = aws_iam_role.api_worker_task.arn
 
   container_definitions = jsonencode([
     {
-      name  = "TracecatRegistryContainer"
+      name  = "TracecatExecutorContainer"
       image = "${var.tracecat_image}:${local.tracecat_image_tag}"
       command = [
         "python",
         "-m",
         "uvicorn",
-        "tracecat.api.registry:app",
+        "tracecat.api.executor:app",
         "--host",
         "0.0.0.0",
         "--port",
-        "8002"
+        "8000"
       ]
       portMappings = [
         {
           containerPort = 8002
           hostPort      = 8002
-          name          = "registry"
+          name          = "executor"
           appProtocol   = "http"
         }
       ]
@@ -35,10 +35,10 @@ resource "aws_ecs_task_definition" "registry_task_definition" {
         options = {
           awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
           awslogs-region        = var.aws_region
-          awslogs-stream-prefix = "registry"
+          awslogs-stream-prefix = "executor"
         }
       }
-      environment = local.registry_env
+      environment = local.executor_env
       secrets     = local.tracecat_base_secrets
       dockerPullConfig = {
         maxAttempts = 3
@@ -48,10 +48,10 @@ resource "aws_ecs_task_definition" "registry_task_definition" {
   ])
 }
 
-resource "aws_ecs_service" "tracecat_registry" {
-  name                 = "tracecat-registry"
+resource "aws_ecs_service" "tracecat_executor" {
+  name                 = "tracecat-executor"
   cluster              = aws_ecs_cluster.tracecat_cluster.id
-  task_definition      = aws_ecs_task_definition.registry_task_definition.arn
+  task_definition      = aws_ecs_task_definition.executor_task_definition.arn
   launch_type          = "FARGATE"
   desired_count        = 1
   force_new_deployment = var.force_new_deployment
@@ -68,14 +68,14 @@ resource "aws_ecs_service" "tracecat_registry" {
     enabled   = true
     namespace = local.local_dns_namespace
     service {
-      port_name      = "registry"
-      discovery_name = "registry-service"
+      port_name      = "executor"
+      discovery_name = "executor-service"
       timeout {
         per_request_timeout_seconds = 120
       }
       client_alias {
         port     = 8002
-        dns_name = "registry-service"
+        dns_name = "executor-service"
       }
     }
 
@@ -84,7 +84,7 @@ resource "aws_ecs_service" "tracecat_registry" {
       options = {
         awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
         awslogs-region        = var.aws_region
-        awslogs-stream-prefix = "service-connect-registry"
+        awslogs-stream-prefix = "service-connect-executor"
       }
     }
   }
