@@ -19,18 +19,18 @@ from types_aiobotocore_s3.type_defs import (
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.models import ActionResult, ExecutionContext
-from tracecat.expressions.common import ExprContext
-from tracecat.expressions.core import extract_expressions
-from tracecat.expressions.eval import eval_templated_object
-from tracecat.identifiers import ActionRef, WorkflowExecutionID
-from tracecat.logger import logger
-from tracecat.store.constants import WORKFLOW_RESULTS_BUCKET
-from tracecat.store.models import (
+from tracecat.ee.store.constants import WORKFLOW_RESULTS_BUCKET
+from tracecat.ee.store.models import (
     ActionRefHandle,
     ExecutionResultHandle,
     StoreObjectPtr,
     WorkflowResultHandle,
 )
+from tracecat.expressions.common import ExprContext
+from tracecat.expressions.core import extract_expressions
+from tracecat.expressions.eval import eval_templated_object
+from tracecat.identifiers import ActionRef, WorkflowExecutionID
+from tracecat.logger import logger
 
 _minio_client: MinioStore | None = None
 

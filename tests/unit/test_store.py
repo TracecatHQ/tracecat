@@ -1,6 +1,6 @@
 import pytest
 
-from tracecat.store.models import (
+from tracecat.ee.store.models import (
     ActionRefHandle,
     WorkflowResultHandle,
 )

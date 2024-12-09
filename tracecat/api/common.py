@@ -7,6 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.contexts import ctx_role
+from tracecat.ee.store.service import get_store
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import (
@@ -16,7 +17,6 @@ from tracecat.registry.constants import (
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import safe_url
-from tracecat.store.service import get_store
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
 

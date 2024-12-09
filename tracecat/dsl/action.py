@@ -11,10 +11,10 @@ from temporalio.exceptions import ApplicationError
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.dsl.common import context_locator
 from tracecat.dsl.models import ActionStatement, DSLTaskErrorInfo, RunActionInput
+from tracecat.ee.store.models import StoreObjectPtr
 from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.store.models import StoreObjectPtr
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryActionError
 

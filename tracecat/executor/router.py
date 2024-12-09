@@ -14,6 +14,8 @@ from tracecat.dsl.models import (
     ActionResult,
     RunActionInput,
 )
+from tracecat.ee.store.models import ActionRefHandle
+from tracecat.ee.store.service import get_store
 from tracecat.executor.enums import ResultsBackend
 from tracecat.executor.models import ExecutorSyncInput
 from tracecat.logger import logger
@@ -23,8 +25,6 @@ from tracecat.registry.actions.models import (
     RegistryActionValidateResponse,
 )
 from tracecat.registry.repository import Repository
-from tracecat.store.models import ActionRefHandle
-from tracecat.store.service import get_store
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryError
 from tracecat.validation.service import validate_registry_action_args

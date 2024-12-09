@@ -25,6 +25,7 @@ from tracecat.dsl.models import (
     ExecutionContext,
     RunActionInput,
 )
+from tracecat.ee.store.service import get_store
 from tracecat.executor.enums import ResultsBackend
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.core import extract_expressions
@@ -42,7 +43,6 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
-from tracecat.store.service import get_store
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
 
