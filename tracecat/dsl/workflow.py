@@ -54,15 +54,18 @@ with workflow.unsafe.imports_passed_through():
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
     )
+    from tracecat.ee.executor.service import (
+        run_action_with_store_activity,
+    )
+    from tracecat.ee.store.service import (
+        StoreWorkflowResultActivityInput,
+        store_workflow_result_activity,
+    )
     from tracecat.executor.enums import ResultsBackend
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.logger import logger
-    from tracecat.ee.store.service import (
-        StoreWorkflowResultActivityInput,
-        store_workflow_result_activity,
-    )
     from tracecat.types.auth import Role
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.types.exceptions import (
@@ -697,6 +700,6 @@ class DSLWorkflow:
 BACKEND_TO_ACTIVITY: dict[
     ResultsBackend, Callable[[RunActionInput, Role], Awaitable[Any]]
 ] = {
-    ResultsBackend.STORE: DSLActivities.run_action_with_store_activity,
+    ResultsBackend.STORE: run_action_with_store_activity,
     ResultsBackend.MEMORY: DSLActivities.run_action_activity,
 }

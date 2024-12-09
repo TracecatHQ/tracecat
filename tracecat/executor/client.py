@@ -18,7 +18,6 @@ from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
-from tracecat.ee.store.models import ActionRefHandle
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     RegistryActionErrorInfo,
@@ -114,27 +113,6 @@ class ExecutorClient:
             raise RegistryActionError(
                 f"Unexpected error calling action {action_type!r} in registry: {e}"
             ) from e
-
-    async def run_action_store_backend(self, input: RunActionInput) -> ActionRefHandle:
-        action_type = input.task.action
-        content = input.model_dump_json()
-        logger.debug(
-            f"Calling action {action_type!r} in store mode with content",
-            content=content,
-            role=self.role,
-            timeout=self._timeout,
-        )
-        async with ExecutorHTTPClient(self.role) as client:
-            # No need to include role headers here because it's already
-            # added in AuthenticatedServiceClient
-            response = await client.post(
-                f"/run-store/{action_type}",
-                headers={"Content-Type": "application/json"},
-                content=content,
-                timeout=self._timeout,
-            )
-        response.raise_for_status()
-        return ActionRefHandle.model_validate_json(response.content)
 
     """Validation"""
 

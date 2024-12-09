@@ -7,7 +7,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.contexts import ctx_role
-from tracecat.ee.store.service import get_store
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import (
@@ -135,18 +134,3 @@ async def setup_oss_models():
     )
     await preload_ollama_models(preload_models)
     logger.info("Preloaded models", models=preload_models)
-
-
-async def setup_store():
-    store = get_store()
-    try:
-        await store.create_bucket()
-        logger.info("Object store setup complete", bucket=store.bucket_name)
-    except Exception as e:
-        exc_type = e.__class__.__name__
-        if exc_type == "BucketAlreadyOwnedByYou":
-            logger.info("Object store already setup", bucket=store.bucket_name)
-        else:
-            logger.warning(
-                "Couldn't set up object store", error=e, bucket=store.bucket_name
-            )
