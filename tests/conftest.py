@@ -73,7 +73,6 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     # Needed for local unit tests
     monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://executor:8000")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
-    monkeysession.setenv("TRACECAT__PUBLIC_RUNNER_URL", "http://localhost:8001")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
     # When launching the worker directly in a test, use localhost
