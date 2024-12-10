@@ -20,7 +20,7 @@ resource "aws_ecs_task_definition" "executor_task_definition" {
         "--host",
         "0.0.0.0",
         "--port",
-        "8000"
+        "8002"
       ]
       portMappings = [
         {
