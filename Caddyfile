@@ -1,5 +1,8 @@
 {$BASE_DOMAIN} {
 	bind {$ADDRESS} # Binds to all available network interfaces if not specified
+	handle_path /api/executor* {
+		reverse_proxy http://executor:8000
+	}
 	handle_path /api* {
 		reverse_proxy http://api:8000
 	}

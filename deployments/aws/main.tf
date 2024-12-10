@@ -78,6 +78,8 @@ module "ecs" {
   api_memory                  = var.api_memory
   worker_cpu                  = var.worker_cpu
   worker_memory               = var.worker_memory
+  executor_cpu                = var.executor_cpu
+  executor_memory             = var.executor_memory
   ui_cpu                      = var.ui_cpu
   ui_memory                   = var.ui_memory
   temporal_cpu                = var.temporal_cpu

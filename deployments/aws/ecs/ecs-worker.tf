@@ -29,24 +29,14 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
           awslogs-stream-prefix = "worker"
         }
       }
-      environment = concat(local.worker_env, [
-        {
-          name  = "TRACECAT__DB_ENDPOINT"
-          value = local.core_db_hostname
-        }
-      ])
-      secrets = local.tracecat_secrets
+      environment = local.worker_env
+      secrets     = local.tracecat_base_secrets
       dockerPullConfig = {
         maxAttempts = 3
         backoffTime = 30
       }
     }
   ])
-
-  depends_on = [
-    aws_ecs_service.temporal_service,
-    aws_ecs_task_definition.temporal_task_definition,
-  ]
 }
 
 resource "aws_ecs_service" "tracecat_worker" {
@@ -92,6 +82,6 @@ resource "aws_ecs_service" "tracecat_worker" {
 
   depends_on = [
     aws_ecs_service.temporal_service,
-    aws_ecs_service.tracecat_api,
+    aws_ecs_service.tracecat_executor
   ]
 }

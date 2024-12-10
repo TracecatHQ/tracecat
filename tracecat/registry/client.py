@@ -1,11 +1,18 @@
 """Use this in worker to execute actions."""
 
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 from json import JSONDecodeError
 from typing import Any, cast
 
 import httpx
 import orjson
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
@@ -17,6 +24,7 @@ from tracecat.registry.actions.models import (
     RegistryActionRead,
     RegistryActionValidateResponse,
 )
+from tracecat.registry.constants import REGISTRY_ACTIONS_PATH, REGISTRY_REPOS_PATH
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryActionError, RegistryError
 
@@ -25,21 +33,28 @@ class _RegistryHTTPClient(AuthenticatedServiceClient):
     """Async httpx client for the registry service."""
 
     def __init__(self, role: Role | None = None, *args: Any, **kwargs: Any) -> None:
-        self._registry_base_url = config.TRACECAT__API_URL
+        self._registry_base_url = config.TRACECAT__EXECUTOR_URL
         super().__init__(role, *args, base_url=self._registry_base_url, **kwargs)
-        self.params = self.params.add("workspace_id", str(self.role.workspace_id))
+        self.params = self.params.add(
+            "workspace_id", str(self.role.workspace_id) if self.role else None
+        )
 
 
 class RegistryClient:
     """Use this to interact with the remote registry service."""
 
-    _repos_endpoint = "/registry/repos"
-    _actions_endpoint = "/registry/actions"
+    _repos_endpoint = REGISTRY_REPOS_PATH
+    _actions_endpoint = REGISTRY_ACTIONS_PATH
     _timeout: float = 60.0
 
     def __init__(self, role: Role | None = None):
         self.role = role or ctx_role.get()
-        self.logger = logger.bind(service="remote-registry", role=self.role)
+        self.logger = logger.bind(service="registry-client", role=self.role)
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[_RegistryHTTPClient]:
+        async with _RegistryHTTPClient(self.role) as client:
+            yield client
 
     """Execution"""
 
@@ -72,19 +87,18 @@ class RegistryClient:
         but are included in the method signature for potential future use.
         """
 
-        key = input.task.action
+        action_type = input.task.action
         content = input.model_dump_json()
-        workspace_id = str(self.role.workspace_id) if self.role.workspace_id else None
         logger.debug(
-            f"Calling action {key!r} with content",
+            f"Calling action {action_type!r} with content",
             content=content,
             role=self.role,
             timeout=self._timeout,
         )
         try:
-            async with _RegistryHTTPClient(self.role) as client:
+            async with self._client() as client:
                 response = await client.post(
-                    f"{self._actions_endpoint}/{key}/execute",
+                    f"/run/{action_type}",
                     # NOTE(perf): Maybe serialize with orjson.dumps instead
                     headers={
                         "Content-Type": "application/json",
@@ -92,7 +106,6 @@ class RegistryClient:
                         **self.role.to_headers(),
                     },
                     content=content,
-                    params={"workspace_id": workspace_id},
                     timeout=self._timeout,
                 )
             response.raise_for_status()
@@ -116,7 +129,7 @@ class RegistryClient:
             logger.error("Registry returned an error", error=e, detail=detail)
             if e.response.status_code / 100 == 5:
                 raise RegistryActionError(
-                    f"There was an error in the registry when calling action {key!r} ({e.response.status_code}).\n\n{detail}"
+                    f"There was an error in the registry when calling action {action_type!r} ({e.response.status_code}).\n\n{detail}"
                 ) from e
             else:
                 raise RegistryActionError(
@@ -124,15 +137,15 @@ class RegistryClient:
                 ) from e
         except httpx.ReadTimeout as e:
             raise RegistryActionError(
-                f"Timeout calling action {key!r} in registry: {e}"
+                f"Timeout calling action {action_type!r} in registry: {e}"
             ) from e
         except orjson.JSONDecodeError as e:
             raise RegistryActionError(
-                f"Error decoding JSON response for action {key!r}: {e}"
+                f"Error decoding JSON response for action {action_type!r}: {e}"
             ) from e
         except Exception as e:
             raise RegistryActionError(
-                f"Unexpected error calling action {key!r} in registry: {e}"
+                f"Unexpected error calling action {action_type!r} in registry: {e}"
             ) from e
 
     """Validation"""
@@ -143,10 +156,9 @@ class RegistryClient:
         """Validate an action."""
         try:
             logger.warning("Validating action")
-            async with _RegistryHTTPClient(self.role) as client:
+            async with self._client() as client:
                 response = await client.post(
-                    f"{self._actions_endpoint}/{action_name}/validate",
-                    json={"args": args},
+                    f"/validate/{action_name}", json={"args": args}
                 )
             response.raise_for_status()
             return RegistryActionValidateResponse.model_validate_json(response.content)
@@ -161,6 +173,55 @@ class RegistryClient:
         except Exception as e:
             raise RegistryError(
                 f"Unexpected error while listing registries: {str(e)}"
+            ) from e
+
+    """Executor"""
+
+    async def sync_executor(self, origin: str, *, max_attempts: int = 3) -> None:
+        """Sync the executor from the registry.
+
+        Args:
+            origin: The origin of the sync request
+
+        Raises:
+            RegistryError: If the sync fails after all retries
+        """
+
+        @retry(
+            stop=stop_after_attempt(max_attempts),
+            wait=wait_exponential(multiplier=1, min=4, max=10),
+            retry=retry_if_exception_type(
+                (
+                    httpx.HTTPStatusError,
+                    httpx.RequestError,
+                    httpx.TimeoutException,
+                    httpx.ConnectError,
+                )
+            ),
+        )
+        async def _sync_request() -> None:
+            try:
+                async with self._client() as client:
+                    response = await client.post("/sync", json={"origin": origin})
+                    response.raise_for_status()
+            except Exception as e:
+                logger.error("Error syncing executor", error=e)
+                raise
+
+        try:
+            logger.info("Syncing executor", origin=origin)
+            _ = await _sync_request()
+        except httpx.HTTPStatusError as e:
+            raise RegistryError(
+                f"Failed to sync executor: HTTP {e.response.status_code}"
+            ) from e
+        except httpx.RequestError as e:
+            raise RegistryError(
+                f"Network error while syncing executor: {str(e)}"
+            ) from e
+        except Exception as e:
+            raise RegistryError(
+                f"Unexpected error while syncing executor: {str(e)}"
             ) from e
 
     """Registry management"""

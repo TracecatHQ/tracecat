@@ -31,10 +31,27 @@ resource "aws_security_group" "caddy" {
   vpc_id      = var.vpc_id
 
   ingress {
+    description     = "Allow inbound access from ALB to port 80 (Caddy) only"
     protocol        = "tcp"
     from_port       = 80
     to_port         = 80
     security_groups = [aws_security_group.alb.id]
+  }
+
+  ingress {
+    description = "Allow Caddy to forward traffic to API service only"
+    protocol    = "tcp"
+    from_port   = 8000
+    to_port     = 8000
+    self        = true
+  }
+
+  ingress {
+    description = "Allow Caddy to forward traffic to UI service only"
+    protocol    = "tcp"
+    from_port   = 3000
+    to_port     = 3000
+    self        = true
   }
 
   egress {
@@ -62,6 +79,14 @@ resource "aws_security_group" "core" {
     description = "Allow internal traffic to the Tracecat Worker service on port 8001"
     from_port   = 8001
     to_port     = 8001
+    protocol    = "tcp"
+    self        = true
+  }
+
+  ingress {
+    description = "Allow internal traffic to the Tracecat Executor service on port 8000"
+    from_port   = 8002
+    to_port     = 8002
     protocol    = "tcp"
     self        = true
   }

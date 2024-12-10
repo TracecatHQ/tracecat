@@ -19,6 +19,7 @@ from temporalio.client import (
     WorkflowHandle,
     WorkflowHistoryEventFilterType,
 )
+from temporalio.service import RPCError
 
 from tracecat import config
 from tracecat.contexts import ctx_role
@@ -435,6 +436,15 @@ class WorkflowExecutionsService:
         except WorkflowFailureError as e:
             self.logger.error(str(e), role=self.role, wf_exec_id=wf_exec_id, e=e)
             raise e
+        except RPCError as e:
+            self.logger.error(
+                f"Temporal service RPC error occurred while executing the workflow: {e}",
+                role=self.role,
+                wf_exec_id=wf_exec_id,
+                e=e,
+            )
+            raise e
+
         except Exception as e:
             self.logger.exception(
                 "Unexpected workflow error", role=self.role, wf_exec_id=wf_exec_id, e=e

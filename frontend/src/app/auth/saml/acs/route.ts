@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { buildUrl, getDomain } from "@/lib/ss-utils"
+import { buildUrl } from "@/lib/ss-utils"
 
 /**
  * @param request
@@ -13,9 +13,14 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData()
   const samlResponse = formData.get('SAMLResponse')
 
+  // Get redirect
+  const resp = await fetch(buildUrl("/info"))
+  const { public_app_url } = await resp.json()
+  console.log("Public app URL", public_app_url)
+
   if (!samlResponse) {
     console.error("No SAML response found in the request")
-    return NextResponse.redirect(new URL("/auth/error", getDomain(request)))
+    return NextResponse.redirect(new URL("/auth/error", public_app_url))
   }
 
   // Prepare the request to the FastAPI backend
@@ -31,18 +36,18 @@ export async function POST(request: NextRequest) {
 
   if (!backendResponse.ok) {
     console.error("Error from backend:", await backendResponse.text())
-    return NextResponse.redirect(new URL("/auth/error", getDomain(request)))
+    return NextResponse.redirect(new URL("/auth/error", public_app_url))
   }
 
   const setCookieHeader = backendResponse.headers.get("set-cookie")
 
   if (!setCookieHeader) {
     console.error("No set-cookie header found in response")
-    return NextResponse.redirect(new URL("/auth/error", getDomain(request)))
+    return NextResponse.redirect(new URL("/auth/error", public_app_url))
   }
 
   console.log("Redirecting to / with GET")
-  const redirectUrl = new URL("/", getDomain(request))
+  const redirectUrl = new URL("/", public_app_url)
   const redirectResponse = NextResponse.redirect(redirectUrl, {
     status: 303 // Force GET request
   })

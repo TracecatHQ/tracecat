@@ -68,7 +68,7 @@ variable "acm_certificate_arn" {
 
 variable "auth_types" {
   type    = string
-  default = "google_oauth,sso"
+  default = "google_oauth,saml"
 }
 
 
@@ -208,6 +208,16 @@ variable "worker_cpu" {
 }
 
 variable "worker_memory" {
+  type    = string
+  default = "512"
+}
+
+variable "executor_cpu" {
+  type    = string
+  default = "256"
+}
+
+variable "executor_memory" {
   type    = string
   default = "512"
 }

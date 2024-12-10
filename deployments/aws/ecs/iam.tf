@@ -49,7 +49,11 @@ resource "aws_iam_policy" "secrets_access" {
           var.tracecat_service_key_arn,
           var.tracecat_signing_secret_arn,
           var.oauth_client_id_arn,
-          var.oauth_client_secret_arn
+          var.oauth_client_secret_arn,
+          var.saml_idp_entity_id_arn,
+          var.saml_idp_redirect_url_arn,
+          var.saml_idp_certificate_arn,
+          var.saml_idp_metadata_url_arn,
         ])
       }
     ]
@@ -108,6 +112,12 @@ resource "aws_iam_role_policy_attachment" "worker_execution_ecs_poll" {
 resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
   policy_arn = aws_iam_policy.secrets_access.arn
   role       = aws_iam_role.worker_execution.name
+}
+
+# Executor execution role
+resource "aws_iam_role" "executor_execution" {
+  name               = "TracecatExecutorExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
 # UI execution role

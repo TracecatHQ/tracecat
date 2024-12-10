@@ -9,8 +9,7 @@ from tracecat.expressions.shared import ExprContext, IterableExpr
 
 T = TypeVar("T", str, list[Any], dict[str, Any])
 
-
-OperatorType = Callable[[re.Match[str]], str]
+OperatorType = Callable[[str], Any]
 OperandType = Mapping[str, Any]
 
 
@@ -113,8 +112,8 @@ def extract_expressions(templated_obj: Any) -> list[Expression]:
 
 def get_iterables_from_expression(
     expr: str | list[str], operand: OperandType
-) -> list[IterableExpr]:
-    iterable_exprs: IterableExpr | list[IterableExpr] = eval_templated_object(
+) -> list[IterableExpr[Any]]:
+    iterable_exprs: IterableExpr[Any] | list[IterableExpr[Any]] = eval_templated_object(
         expr, operand=operand
     )
     if isinstance(iterable_exprs, IterableExpr):
