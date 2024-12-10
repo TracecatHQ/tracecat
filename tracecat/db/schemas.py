@@ -41,14 +41,14 @@ class Resource(SQLModel):
     surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
     owner_id: OwnerID
     created_at: datetime = Field(
-        sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
+        sa_type=TIMESTAMP,
         sa_column_kwargs={
             "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
             "nullable": False,
         },
     )
     updated_at: datetime = Field(
-        sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
+        sa_type=TIMESTAMP,
         sa_column_kwargs={
             "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
             "onupdate": text("(now() AT TIME ZONE 'utc'::text)"),
@@ -398,12 +398,6 @@ class Action(Resource, table=True):
     workflow: Workflow | None = Relationship(
         back_populates="actions", sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
     )
-
-    @computed_field
-    @property
-    def key(self) -> str:
-        """Workflow-relative key for an Action."""
-        return action.key(self.workflow_id, self.id)
 
     @property
     def ref(self) -> str:
