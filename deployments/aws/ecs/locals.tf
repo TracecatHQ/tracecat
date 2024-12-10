@@ -11,7 +11,7 @@ locals {
   public_api_url         = "https://${var.domain_name}/api"
   saml_acs_url           = "https://${var.domain_name}/api/auth/saml/acs"
   internal_api_url       = "http://api-service:8000"      # Service connect DNS name
-  internal_executor_url  = "http://executor-service:8000" # Service connect DNS name
+  internal_executor_url  = "http://executor-service:8002" # Service connect DNS name
   temporal_cluster_url   = "temporal-service:7233"
   temporal_cluster_queue = "tracecat-task-queue"
   allow_origins          = "${var.domain_name},http://ui-service:3000" # Allow api service and public app to access the API
