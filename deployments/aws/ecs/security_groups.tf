@@ -116,6 +116,28 @@ resource "aws_security_group" "core" {
 
 }
 
+resource "aws_security_group" "temporal" {
+  name        = "temporal-security-group"
+  description = "Security group for Temporal server"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description = "Allow inbound traffic to Temporal server on port 7233"
+    from_port   = 7233
+    to_port     = 7233
+    protocol    = "tcp"
+    self        = true
+  }
+
+  ingress {
+    description = "Allow inbound traffic for port forwarding to Temporal UI"
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    self        = true
+  }
+}
+
 resource "aws_security_group" "core_db" {
   name        = "core-db-security-group"
   description = "Security group for Tracecat API to RDS communication"
