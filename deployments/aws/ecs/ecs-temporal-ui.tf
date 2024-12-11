@@ -5,8 +5,8 @@ resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
   memory                   = "512"
-  execution_role_arn       = aws_iam_role.ui_execution.arn
-  task_role_arn            = aws_iam_role.ui_task.arn
+  execution_role_arn       = aws_iam_role.temporal_ui_execution.arn
+  task_role_arn            = aws_iam_role.temporal_ui_task.arn
 
   container_definitions = jsonencode([
     {
@@ -28,8 +28,17 @@ resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
         {
           name  = "TEMPORAL_CORS_ORIGINS"
           value = "http://localhost:3000"
+        },
+        {
+          name  = "TEMPORAL_AUTH_ENABLED"
+          value = "false"
+        },
+        {
+          name  = "TEMPORAL_AUTH_SCOPES"
+          value = "openid,email,profile"
         }
       ]
+      secrets = local.temporal_ui_secrets
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -58,7 +67,8 @@ resource "aws_ecs_service" "temporal_ui_service" {
   network_configuration {
     subnets = var.private_subnet_ids
     security_groups = [
-      aws_security_group.temporal.id
+      aws_security_group.temporal.id,
+      aws_security_group.caddy.id
     ]
   }
 
@@ -89,65 +99,19 @@ resource "aws_ecs_service" "temporal_ui_service" {
   ]
 }
 
-resource "aws_iam_role_policy" "ui_task_ssm_policy" {
-  name = "temporal-ui-task-ssm-policy"
-  role = aws_iam_role.ui_task.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "ssmmessages:CreateControlChannel",
-          "ssmmessages:CreateDataChannel",
-          "ssmmessages:OpenControlChannel",
-          "ssmmessages:OpenDataChannel"
-        ]
-        Resource = [
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:session/${aws_ecs_cluster.tracecat_cluster.name}/*"
-        ]
-      }
-    ]
-  })
+# Execution role for Temporal UI
+resource "aws_iam_role" "temporal_ui_execution" {
+  name               = "TemporalUIExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
-resource "aws_iam_role_policy" "ui_task_cloudwatch_policy" {
-  name = "temporal-ui-task-cloudwatch-policy"
-  role = aws_iam_role.ui_task.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogStream",
-          "logs:DescribeLogGroups",
-          "logs:DescribeLogStreams",
-          "logs:PutLogEvents"
-        ]
-        Resource = [
-          "${aws_cloudwatch_log_group.tracecat_log_group.arn}:*"
-        ]
-      }
-    ]
-  })
+resource "aws_iam_role_policy_attachment" "temporal_ui_execution_cloudwatch_logs" {
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.temporal_ui_execution.name
 }
 
-resource "aws_iam_role" "ui_task" {
-  name = "ui_task_role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        }
-        Action = "sts:AssumeRole"
-      }
-    ]
-  })
+# Task role for Temporal UI
+resource "aws_iam_role" "temporal_ui_task" {
+  name               = "TemporalUITaskRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }

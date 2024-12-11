@@ -109,6 +109,30 @@ variable "saml_idp_metadata_url_arn" {
   default     = null
 }
 
+variable "temporal_auth_provider_url_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth provider URL (optional)"
+  default     = null
+}
+
+variable "temporal_auth_client_id_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth client ID (optional)"
+  default     = null
+}
+
+variable "temporal_auth_client_secret_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth client secret (optional)"
+  default     = null
+}
+
+variable "temporal_auth_callback_url_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth callback URL (optional)"
+  default     = null
+}
+
 ### (Optional) Custom Integrations
 
 variable "remote_repository_package_name" {
