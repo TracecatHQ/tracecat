@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Any, Union
 
 from lark import Lark, Transformer, v_args
@@ -12,6 +13,7 @@ type_grammar = r"""
      | list_type
      | dict_type
      | union_type
+     | enum_type
      | reference_type
 
 primitive_type: INTEGER
@@ -25,6 +27,7 @@ primitive_type: INTEGER
 
 INTEGER: "int"
 STRING: "str"
+STRING_LITERAL: "\"" /[^"]*/ "\""
 BOOLEAN: "bool"
 FLOAT: "float"
 DATETIME: "datetime"
@@ -35,6 +38,7 @@ NULL: "None"
 list_type: "list" "[" type "]"
 dict_type: "dict" "[" type "," type "]"
 union_type: type ("|" type)+
+enum_type: "enum" "[" STRING_LITERAL ("," STRING_LITERAL)* "]"
 reference_type: "$" CNAME
 
 CNAME: /[a-zA-Z_]\w*/
@@ -59,6 +63,12 @@ TYPE_MAPPING = {
 
 
 class TypeTransformer(Transformer):
+    MAX_ENUM_VALUES = 20
+
+    def __init__(self, field_name: str):
+        super().__init__()
+        self.field_name = field_name
+
     @v_args(inline=True)
     def primitive_type(self, item) -> type | None:
         logger.trace("Primitive type:", item=item)
@@ -87,10 +97,42 @@ class TypeTransformer(Transformer):
         logger.trace("Reference type:", name=name)
         return f"${name.value}"
 
+    @v_args(inline=True)
+    def enum_type(self, *values) -> type:
+        if len(values) > self.MAX_ENUM_VALUES:
+            raise ValueError(f"Too many enum values (maximum {self.MAX_ENUM_VALUES})")
 
-def parse_type(type_string: str) -> Any:
+        enum_values = {}
+        seen_values = set()
+
+        for value in values:
+            if not value:
+                raise ValueError("Enum value cannot be empty")
+
+            # Case-insensitive duplicate check
+            value_lower = value.lower()
+            if value_lower in seen_values:
+                raise ValueError(f"Duplicate enum value: {value}")
+
+            seen_values.add(value_lower)
+            enum_values[value] = value
+
+        # Convert to upper camel case (e.g., "user_status" -> "UserStatus")
+        enum_name = "".join(word.title() for word in self.field_name.split("_"))
+        logger.trace("Enum type:", name=enum_name, values=enum_values)
+        return Enum(enum_name, enum_values)
+
+    @v_args(inline=True)
+    def STRING_LITERAL(self, value):
+        # Remove quotes from the value
+        value = value.strip('"').strip("'")
+        # Coerce to string
+        return str(value)
+
+
+def parse_type(type_string: str, field_name: str | None = None) -> Any:
     tree = type_parser.parse(type_string)
-    return TypeTransformer().transform(tree)
+    return TypeTransformer(field_name).transform(tree)
 
 
 class ExpectedField(BaseModel):
@@ -106,7 +148,7 @@ def create_expectation_model(
     field_info_kwargs = {}
     for field_name, field_info in schema.items():
         validated_field_info = ExpectedField.model_validate(field_info)  # Defensive
-        field_type = parse_type(validated_field_info.type)
+        field_type = parse_type(validated_field_info.type, field_name)
         if validated_field_info.description:
             field_info_kwargs["description"] = validated_field_info.description
         field_info_kwargs["default"] = (
