@@ -4,6 +4,9 @@ import textwrap
 import pytest
 from tracecat_registry import RegistryValidationError
 
+from tracecat.concurrency import GatheringTaskGroup
+from tracecat.registry.actions.models import RegistryActionRead
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
 
 
@@ -136,3 +139,17 @@ def test_parse_github_url_invalid(invalid_url: str):
 
     with pytest.raises(ValueError):
         parse_github_url(invalid_url)
+
+
+@pytest.mark.anyio
+async def test_list_registry_actions(test_role):
+    """Test that the list_registry_actions endpoint returns the correct number of actions."""
+    async with RegistryActionsService.with_session(test_role) as service:
+        actions = await service.list_actions()
+
+        async with GatheringTaskGroup[RegistryActionRead]() as tg:
+            for action in actions:
+                tg.create_task(service.read_action_with_implicit_secrets(action))
+        results = tg.results()
+
+        assert len(results) == len(actions)
