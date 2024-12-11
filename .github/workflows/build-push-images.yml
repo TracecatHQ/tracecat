@@ -12,14 +12,7 @@ permissions:
 
 jobs:
   push-api-to-ghcr:
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - platform: linux/amd64
-            runner: ubuntu-latest
-          - platform: linux/arm64
-            runner: ubuntu-arm64-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -55,7 +48,7 @@ jobs:
         with:
           context: .
           push: true
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ steps.meta.outputs.tags }}
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'ghcr.io/tracecathq/tracecat:latest' || '' }}
@@ -64,14 +57,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   push-ui-to-ghcr:
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - platform: linux/amd64
-            runner: ubuntu-latest
-          - platform: linux/arm64
-            runner: ubuntu-arm64-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -120,8 +106,9 @@ jobs:
             NEXT_SERVER_API_URL=${{ env.NEXT_SERVER_API_URL }}
             NODE_ENV=${{ env.NODE_ENV }}
           push: true
-          platforms: ${{ matrix.platform }}
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ steps.meta.outputs.tags }}
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'ghcr.io/tracecathq/tracecat-ui:latest' || '' }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
