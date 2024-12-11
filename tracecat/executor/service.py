@@ -6,9 +6,8 @@ NOTE: This is only used in the API server, not the worker
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from concurrent.futures import ProcessPoolExecutor
-from types import CoroutineType
 from typing import Any, cast
 
 import uvloop
@@ -20,10 +19,10 @@ from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.db.engine import get_async_engine
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.models import (
-    ActionResult,
     ActionStatement,
     ExecutionContext,
     RunActionInput,
+    TaskResultDict,
 )
 from tracecat.ee.store.service import get_store
 from tracecat.executor.enums import ResultsBackend
@@ -88,6 +87,8 @@ def sync_executor_entrypoint(input: RunActionInput, role: Role) -> Any:
         async_engine = get_async_engine()
         try:
             return await run_action_from_input(input=input)
+        except* Exception as eg:
+            logger.warning("Got eg", eg=eg)
         finally:
             await async_engine.dispose()
 
@@ -111,12 +112,8 @@ async def _run_action_direct(
     try:
         if action.is_async:
             logger.trace("Running UDF async")
-            if isinstance(action.fn, CoroutineType):
-                raise TracecatException("UDF is async but doesn't return a coroutine")
             return await action.fn(**args)
         logger.trace("Running UDF sync")
-        if not isinstance(action.fn, Callable):
-            raise TracecatException("UDF is not callable")
         return await asyncio.to_thread(action.fn, **args)
     except Exception as e:
         logger.error(
@@ -185,7 +182,7 @@ async def _run_template_action(
         )
         # Store the result of the step
         logger.trace("Storing step result", step=step.ref, result=result)
-        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = ActionResult(
+        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = TaskResultDict(
             result=result,
             result_typename=type(result).__name__,
         )
@@ -248,8 +245,8 @@ async def run_action_from_input(input: RunActionInput) -> Any:
         # We only pull the action results that are actually used in the template
         if extracted_action_refs := extracted_exprs[ExprContext.ACTIONS]:
             store = get_store()
-            action_results = await store.load_action_result_batched(
-                execution_id=run_context.wf_exec_id,
+            action_results = await store.load_action_result_from_exec_context(
+                context=context,
                 action_refs=extracted_action_refs,
             )
             context.update(ACTIONS=action_results)
@@ -288,6 +285,7 @@ async def run_action_from_input(input: RunActionInput) -> Any:
         args=task.args,
     )
 
+    log.warning("Done preparing context", context=context)
     # === Done preparing ===
 
     # Given secrets in the format of {name: {key: value}}, we need to flatten

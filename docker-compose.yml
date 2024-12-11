@@ -103,6 +103,7 @@ services:
       # AI
       TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
       OLLAMA__API_URL: ${OLLAMA__API_URL}
+      TRACECAT__RESULTS_BACKEND: ${TRACECAT__RESULTS_BACKEND}
     command:
       [
         "python",

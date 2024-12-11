@@ -8,8 +8,8 @@ import tracecat.executor.service as executor_service
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger
-from tracecat.dsl.models import ActionResult, RunActionInput
-from tracecat.ee.store.models import ActionRefHandle
+from tracecat.dsl.models import RunActionInput, TaskResultDict
+from tracecat.ee.store.models import ActionResultHandle
 from tracecat.ee.store.service import get_store
 from tracecat.executor.enums import ResultsBackend
 from tracecat.logger import logger
@@ -29,7 +29,7 @@ async def run_action_with_store(
     ),
     action_name: str,
     action_input: RunActionInput,
-) -> ActionRefHandle:
+) -> ActionResultHandle:
     """Execute a registry action."""
     log = logger.bind(role=role, action_name=action_name, ref=action_input.task.ref)
     ctx_logger.set(log)
@@ -57,20 +57,23 @@ async def run_action_with_store(
         config.TRACECAT__RESULTS_BACKEND == ResultsBackend.STORE
     ), "Only store backend is supported n this endpoint"
 
-    action_result = ActionResult()
+    action_result = TaskResultDict()
     try:
         result = await executor_service.run_action_in_pool(input=action_input)
         action_result.update(result=result, result_typename=type(result).__name__)
     except Exception as e:
         # Get the traceback info
-        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
+        tb = traceback.extract_tb(e.__traceback__)
+
+        logger.warning("show", tb=traceback.print_tb(e.__traceback__))
+        top_tb = tb[-1]  # Get the last frame
         error_detail = RegistryActionErrorInfo(
             action_name=action_name,
             type=e.__class__.__name__,
             message=str(e),
-            filename=tb.filename,
-            function=tb.name,
-            lineno=tb.lineno,
+            filename=top_tb.filename,
+            function=top_tb.name,
+            lineno=top_tb.lineno,
         )
 
         action_result.update(

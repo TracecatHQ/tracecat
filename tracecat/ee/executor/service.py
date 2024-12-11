@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import Mapping
+from typing import Any
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -7,7 +9,14 @@ from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.dsl.action import contextualize_message
 from tracecat.dsl.models import DSLTaskErrorInfo, RunActionInput
 from tracecat.ee.executor.client import ExecutorClientEE
-from tracecat.ee.store.models import StoreObjectPtr
+from tracecat.ee.store.models import (
+    ResultVariantValidator,
+    StoreResult,
+    TaskResultHandle,
+)
+from tracecat.ee.store.service import get_store
+from tracecat.executor.enums import ResultsBackend
+from tracecat.executor.models import TaskResult
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 
@@ -15,7 +24,7 @@ from tracecat.types.auth import Role
 @activity.defn
 async def run_action_with_store_activity(
     input: RunActionInput, role: Role
-) -> StoreObjectPtr:
+) -> StoreResult:
     """
     Run an action in store mode.
 
@@ -62,3 +71,29 @@ async def run_action_with_store_activity(
                 ref=input.task.ref, message=str(e), type=kind, attempt=attempt
             ),
         ) from e
+
+
+async def resolve_task_result(result_obj: Mapping[str, Any]) -> TaskResult:
+    variant = ResultVariantValidator.validate_python(result_obj)
+    match variant:
+        case TaskResult():
+            return variant
+        case StoreResult():
+            # Load the action result here
+            store = get_store()
+            key = variant.key
+            handle = TaskResultHandle.from_key(key)
+            task_result = await store.load_task_result(handle)
+            return TaskResult(tc_backend_=ResultsBackend.MEMORY, **task_result)
+        case _:
+            raise ValueError(f"Invalid result variant: {variant}")
+
+
+if __name__ == "__main__":
+    x = ResultVariantValidator.validate_python(
+        {"tc_backend_": "memory", "result": "test", "result_typename": "task"}
+    )
+    print(type(x), x.model_dump_json())
+
+    y = ResultVariantValidator.validate_python({"tc_backend_": "store", "key": "test"})
+    print(type(y), y.model_dump_json())

@@ -24,7 +24,7 @@ build:
 lint-ui:
 	cd frontend && pnpm lint:fix && cd ..
 lint-app:
-	ruff check .
+	ruff check . && ruff format .
 
 lint: lint-ui lint-app
 mypy path:
@@ -47,3 +47,7 @@ gen-api: _check-cli
 
 gen-secrets: _check-cli
 	tracecat dev generate-secrets
+
+# Load an action result by workflow execution ID and ref
+load-obj path:
+    @python scripts/load_object.py {{path}} | jq .
