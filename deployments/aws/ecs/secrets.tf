@@ -71,11 +71,6 @@ data "aws_secretsmanager_secret" "temporal_auth_client_secret" {
   arn   = var.temporal_auth_client_secret_arn
 }
 
-data "aws_secretsmanager_secret" "temporal_auth_callback_url" {
-  count = var.temporal_auth_callback_url_arn != null ? 1 : 0
-  arn   = var.temporal_auth_callback_url_arn
-}
-
 ### Retrieve secret values
 
 # Tracecat secrets
@@ -137,11 +132,6 @@ data "aws_secretsmanager_secret_version" "temporal_auth_client_id" {
 data "aws_secretsmanager_secret_version" "temporal_auth_client_secret" {
   count     = var.temporal_auth_client_secret_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.temporal_auth_client_secret[0].id
-}
-
-data "aws_secretsmanager_secret_version" "temporal_auth_callback_url" {
-  count     = var.temporal_auth_callback_url_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.temporal_auth_callback_url[0].id
 }
 
 ### Database secrets
@@ -243,13 +233,6 @@ locals {
     }
   ] : []
 
-  temporal_auth_callback_url_secret = var.temporal_auth_callback_url_arn != null ? [
-    {
-      name      = "TEMPORAL_AUTH_CALLBACK_URL"
-      valueFrom = data.aws_secretsmanager_secret_version.temporal_auth_callback_url[0].arn
-    }
-  ] : []
-
   tracecat_api_secrets = concat(
     local.tracecat_base_secrets,
     local.oauth_client_id_secret,
@@ -271,6 +254,5 @@ locals {
     local.temporal_auth_provider_url_secret,
     local.temporal_auth_client_id_secret,
     local.temporal_auth_client_secret_secret,
-    local.temporal_auth_callback_url_secret
   )
 }
