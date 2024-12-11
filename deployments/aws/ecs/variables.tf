@@ -64,21 +64,6 @@ variable "acm_certificate_arn" {
   description = "The ARN of the ACM certificate to use for Tracecat"
 }
 
-# variable "temporal_ui_domain_name" {
-#   type        = string
-#   description = "The domain name to use for the Temporal UI"
-# }
-
-# variable "temporal_ui_hosted_zone_id" {
-#   type        = string
-#   description = "The hosted zone ID associated with the Temporal UI domain"
-# }
-
-# variable "temporal_ui_acm_certificate_arn" {
-#   type        = string
-#   description = "The ARN of the ACM certificate to use for the Temporal UI"
-# }
-
 ### Security
 
 variable "auth_types" {
@@ -193,6 +178,32 @@ variable "saml_idp_certificate_arn" {
 variable "saml_idp_metadata_url_arn" {
   type        = string
   description = "The ARN of the secret containing the SAML IDP metadata URL (optional)"
+  default     = null
+}
+
+# Temporal UI
+
+variable "temporal_auth_provider_url_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth provider URL (optional)"
+  default     = null
+}
+
+variable "temporal_auth_client_id_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth client ID (optional)"
+  default     = null
+}
+
+variable "temporal_auth_client_secret_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth client secret (optional)"
+  default     = null
+}
+
+variable "temporal_auth_callback_url_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth callback URL (optional)"
   default     = null
 }
 

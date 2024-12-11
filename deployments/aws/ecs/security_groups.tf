@@ -54,6 +54,14 @@ resource "aws_security_group" "caddy" {
     self        = true
   }
 
+  ingress {
+    description = "Allow Caddy to forward traffic to Temporal UI service"
+    protocol    = "tcp"
+    from_port   = 8080
+    to_port     = 8080
+    self        = true
+  }
+
   egress {
     protocol    = "-1"
     from_port   = 0
