@@ -56,11 +56,6 @@ data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
 
 # Temporal UI authentication
 
-data "aws_secretsmanager_secret" "temporal_auth_provider_url" {
-  count = var.temporal_auth_provider_url_arn != null ? 1 : 0
-  arn   = var.temporal_auth_provider_url_arn
-}
-
 data "aws_secretsmanager_secret" "temporal_auth_client_id" {
   count = var.temporal_auth_client_id_arn != null ? 1 : 0
   arn   = var.temporal_auth_client_id_arn
@@ -118,11 +113,6 @@ data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
 }
 
 # Temporal UI secrets
-
-data "aws_secretsmanager_secret_version" "temporal_auth_provider_url" {
-  count     = var.temporal_auth_provider_url_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.temporal_auth_provider_url[0].id
-}
 
 data "aws_secretsmanager_secret_version" "temporal_auth_client_id" {
   count     = var.temporal_auth_client_id_arn != null ? 1 : 0
@@ -212,13 +202,6 @@ locals {
     }
   ] : []
 
-  temporal_auth_provider_url_secret = var.temporal_auth_provider_url_arn != null ? [
-    {
-      name      = "TEMPORAL_AUTH_PROVIDER_URL"
-      valueFrom = data.aws_secretsmanager_secret_version.temporal_auth_provider_url[0].arn
-    }
-  ] : []
-
   temporal_auth_client_id_secret = var.temporal_auth_client_id_arn != null ? [
     {
       name      = "TEMPORAL_AUTH_CLIENT_ID"
@@ -251,7 +234,6 @@ locals {
   ]
 
   temporal_ui_secrets = concat(
-    local.temporal_auth_provider_url_secret,
     local.temporal_auth_client_id_secret,
     local.temporal_auth_client_secret_secret,
   )

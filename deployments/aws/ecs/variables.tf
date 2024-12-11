@@ -183,9 +183,9 @@ variable "saml_idp_metadata_url_arn" {
 
 # Temporal UI
 
-variable "temporal_auth_provider_url_arn" {
+variable "temporal_auth_provider_url" {
   type        = string
-  description = "The ARN of the secret containing the Temporal auth provider URL (optional)"
+  description = "The URL of the Temporal auth provider"
   default     = null
 }
 
