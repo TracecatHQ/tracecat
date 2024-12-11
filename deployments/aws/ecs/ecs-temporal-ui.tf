@@ -41,6 +41,10 @@ resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
         {
           name  = "TEMPORAL_UI_PUBLIC_PATH"
           value = "/temporal-admin"
+        },
+        {
+          name  = "TEMPORAL_AUTH_CALLBACK_URL"
+          value = "${local.public_app_url}/temporal-admin/auth/sso/callback"
         }
       ]
       secrets = local.temporal_ui_secrets
