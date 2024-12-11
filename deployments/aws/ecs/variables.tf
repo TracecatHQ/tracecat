@@ -51,18 +51,33 @@ variable "enable_waf" {
 
 variable "domain_name" {
   type        = string
-  description = "The domain name to use for the application"
+  description = "The domain name to use for Tracecat"
 }
 
 variable "hosted_zone_id" {
   type        = string
-  description = "The ID of the hosted zone in Route53"
+  description = "The hosted zone ID associated with the Tracecat domain"
 }
 
 variable "acm_certificate_arn" {
   type        = string
-  description = "The ARN of the ACM certificate to use for the application"
+  description = "The ARN of the ACM certificate to use for Tracecat"
 }
+
+# variable "temporal_ui_domain_name" {
+#   type        = string
+#   description = "The domain name to use for the Temporal UI"
+# }
+
+# variable "temporal_ui_hosted_zone_id" {
+#   type        = string
+#   description = "The hosted zone ID associated with the Temporal UI domain"
+# }
+
+# variable "temporal_ui_acm_certificate_arn" {
+#   type        = string
+#   description = "The ARN of the ACM certificate to use for the Temporal UI"
+# }
 
 ### Security
 
@@ -88,6 +103,11 @@ variable "temporal_server_image" {
 variable "temporal_server_image_tag" {
   type    = string
   default = "1.24.2"
+}
+
+variable "temporal_ui_image_tag" {
+  type    = string
+  default = "2.32.0"
 }
 
 variable "tracecat_image" {

@@ -10,6 +10,10 @@ output "private_subnet_ids" {
   value = aws_subnet.private[*].id
 }
 
-output "acm_certificate_arn" {
-  value = aws_acm_certificate.this.arn
+output "tracecat_acm_certificate_arn" {
+  value = aws_acm_certificate.tracecat.arn
+}
+
+output "temporal_ui_acm_certificate_arn" {
+  value = aws_acm_certificate.temporal_ui.arn
 }
