@@ -264,3 +264,25 @@ resource "aws_iam_role_policy_attachment" "caddy_execution_cloudwatch_logs" {
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
   role       = aws_iam_role.caddy_execution.name
 }
+
+# Temporal UI execution role
+resource "aws_iam_role" "temporal_ui_execution" {
+  name               = "TracecatTemporalUIExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "temporal_ui_execution_ecs_poll" {
+  policy_arn = aws_iam_policy.ecs_poll.arn
+  role       = aws_iam_role.temporal_ui_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "temporal_ui_execution_cloudwatch_logs" {
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.temporal_ui_execution.name
+}
+
+# Temporal UI task role (minimal permissions)
+resource "aws_iam_role" "temporal_ui_task" {
+  name               = "TracecatTemporalUITaskRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
