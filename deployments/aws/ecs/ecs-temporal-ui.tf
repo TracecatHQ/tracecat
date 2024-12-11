@@ -20,6 +20,7 @@ resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
           appProtocol   = "http"
         }
       ]
+      # https://github.com/temporalio/ui-server/tree/main/docker#quickstart-for-production
       environment = [
         {
           name  = "TEMPORAL_ADDRESS"
@@ -32,8 +33,17 @@ resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
         {
           name  = "TEMPORAL_AUTH_ENABLED"
           value = "true"
+        },
+        {
+          name  = "TEMPORAL_AUTH_SCOPES"
+          value = "openid,profile,email"
+        },
+        {
+          name  = "TEMPORAL_UI_PUBLIC_PATH"
+          value = "/temporal-admin"
         }
       ]
+      secrets = local.temporal_ui_secrets
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -63,7 +73,7 @@ resource "aws_ecs_service" "temporal_ui_service" {
     subnets = var.private_subnet_ids
     security_groups = [
       aws_security_group.temporal.id,
-      aws_security_group.alb.id
+      aws_security_group.caddy.id
     ]
   }
 
