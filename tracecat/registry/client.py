@@ -202,7 +202,9 @@ class RegistryClient:
         async def _sync_request() -> None:
             try:
                 async with self._client() as client:
-                    response = await client.post("/sync", json={"origin": origin})
+                    response = await client.post(
+                        "/sync", json={"origin": origin}, timeout=self._timeout
+                    )
                     response.raise_for_status()
             except Exception as e:
                 logger.error("Error syncing executor", error=e)
