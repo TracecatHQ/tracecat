@@ -33,6 +33,8 @@ async def create_schedule(
     schedule_kwargs = {}
     if timeout:
         schedule_kwargs["execution_timeout"] = timedelta(seconds=timeout)
+    if task_timeout := config.TEMPORAL__TASK_TIMEOUT:
+        schedule_kwargs["task_timeout"] = timedelta(seconds=float(task_timeout))
 
     workflow_schedule_id = f"{workflow_id}:{schedule_id}"
 

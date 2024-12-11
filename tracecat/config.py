@@ -117,6 +117,9 @@ TEMPORAL__TLS_CLIENT_PRIVATE_KEY = os.environ.get("TEMPORAL__TLS_CLIENT_PRIVATE_
 TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT")
 """RPC timeout for Temporal workflows in seconds."""
 
+TEMPORAL__TASK_TIMEOUT = os.environ.get("TEMPORAL__TASK_TIMEOUT")
+"""Temporal workflow task timeout in seconds (default 10 seconds)."""
+
 # Secrets manager config
 TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
     "TRACECAT__UNSAFE_DISABLE_SM_MASKING",
