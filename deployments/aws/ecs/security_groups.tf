@@ -27,11 +27,11 @@ resource "aws_security_group" "alb" {
 
 resource "aws_security_group" "caddy" {
   name        = "caddy-security-group"
-  description = "Allow inbound access from the ALB to port 80 (Caddy) only"
+  description = "Allow inbound access from the ALB to port 80 (Caddy)"
   vpc_id      = var.vpc_id
 
   ingress {
-    description     = "Allow inbound access from ALB to port 80 (Caddy) only"
+    description     = "Allow inbound access from ALB to port 80 (Caddy)"
     protocol        = "tcp"
     from_port       = 80
     to_port         = 80
@@ -39,7 +39,7 @@ resource "aws_security_group" "caddy" {
   }
 
   ingress {
-    description = "Allow Caddy to forward traffic to API service only"
+    description = "Allow Caddy to forward traffic to API service"
     protocol    = "tcp"
     from_port   = 8000
     to_port     = 8000
@@ -47,7 +47,7 @@ resource "aws_security_group" "caddy" {
   }
 
   ingress {
-    description = "Allow Caddy to forward traffic to UI service only"
+    description = "Allow Caddy to forward traffic to UI service"
     protocol    = "tcp"
     from_port   = 3000
     to_port     = 3000
