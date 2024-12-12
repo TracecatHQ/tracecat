@@ -1,4 +1,6 @@
 resource "aws_security_group" "alb" {
+
+  # Name prefix: https://github.com/hashicorp/terraform/issues/3341
   name_prefix = "alb-"
   description = "Allow inbound HTTP/HTTPS access to the ALB"
   vpc_id      = var.vpc_id
