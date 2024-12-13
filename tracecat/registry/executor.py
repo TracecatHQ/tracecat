@@ -6,6 +6,7 @@ NOTE: This is only used in the API server, not the worker
 from __future__ import annotations
 
 import asyncio
+import os
 import traceback
 from collections.abc import Iterator, Mapping
 from concurrent.futures import ProcessPoolExecutor
@@ -169,11 +170,21 @@ async def validate_action(
 # and set the right chunk size for each worker
 
 
+def _init_worker_process():
+    """Initialize each worker process with its own event loop"""
+    # Configure uvloop for the process and create a new event loop
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+    logger.info("Initialized worker process with new event loop", pid=os.getpid())
+
+
 def get_executor() -> ProcessPoolExecutor:
     """Get the executor, creating it if it doesn't exist"""
     global _executor
     if _executor is None:
-        _executor = ProcessPoolExecutor()
+        _executor = ProcessPoolExecutor(initializer=_init_worker_process)
+        logger.info("Initialized executor process pool")
     return _executor
 
 
@@ -190,7 +201,13 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
         finally:
             await async_engine.dispose()
 
-    return uvloop.run(coro())
+    try:
+        loop = asyncio.get_running_loop()
+        logger.debug("Got running loop")
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+        logger.debug("Get event loop")
+    return loop.run_until_complete(coro())
 
 
 async def run_action_in_pool(input: RunActionInput[ArgsT]) -> Any:

@@ -1,5 +1,10 @@
+import asyncio
+import os
+import time
 import uuid
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import SecretStr
@@ -18,11 +23,26 @@ from tracecat.registry.actions.models import (
     TemplateActionDefinition,
 )
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.executor import _init_worker_process, get_executor
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
+
+
+@pytest.fixture
+def mock_run_context():
+    wf_id = "wf-" + "0" * 32
+    exec_id = "exec-" + "0" * 32
+    wf_exec_id = f"{wf_id}:{exec_id}"
+    run_id = uuid.uuid4()
+    return RunContext(
+        wf_id=wf_id,
+        wf_exec_id=wf_exec_id,
+        wf_run_id=run_id,
+        environment="default",
+    )
 
 
 @pytest.fixture
@@ -78,7 +98,7 @@ async def db_session_with_repo(test_role):
 
 @pytest.mark.anyio
 async def test_executor_can_run_template_action_with_secret(
-    mock_package, test_role, db_session_with_repo
+    mock_package, test_role, db_session_with_repo, mock_run_context
 ):
     """Test that checks that Template Action steps correctly pull in their dependent secrets."""
 
@@ -146,11 +166,6 @@ async def test_executor_can_run_template_action_with_secret(
         RegistryActionCreate.from_bound(repo.get("testing.fetch_secret"), db_repo_id)
     )
 
-    # bound_action = repo.get(action.definition.action)
-    wf_id = "wf-" + "0" * 32
-    exec_id = "exec-" + "0" * 32
-    wf_exec_id = f"{wf_id}:{exec_id}"
-    wf_run_id = uuid.uuid4()
     input = RunActionInput(
         task=ActionStatement(
             ref="test",
@@ -160,12 +175,7 @@ async def test_executor_can_run_template_action_with_secret(
             args={"secret_key_name": "KEY"},
         ),
         exec_context=create_default_dsl_context(),
-        run_context=RunContext(
-            wf_id=wf_id,
-            wf_exec_id=wf_exec_id,
-            wf_run_id=wf_run_id,
-            environment="default",
-        ),
+        run_context=mock_run_context,
     )
 
     # Act
@@ -173,3 +183,124 @@ async def test_executor_can_run_template_action_with_secret(
 
     # Assert
     assert result == "__SECRET_VALUE__"
+
+
+@pytest.mark.anyio
+async def test_executor_initialization():
+    """Test that the executor is properly initialized with a process pool."""
+    # Test singleton behavior
+    executor1 = executor.get_executor()
+    executor2 = executor.get_executor()
+
+    assert executor1 is executor2
+    assert isinstance(executor1, ProcessPoolExecutor)
+
+
+def get_process_id():
+    """Helper function to return process ID"""
+    _init_worker_process()  # Initialize worker
+    return os.getpid()
+
+
+@pytest.mark.anyio
+async def test_executor_process_isolation():
+    """Test that each worker process gets its own event loop."""
+
+    # Create multiple concurrent tasks to verify process isolation
+    executor = get_executor()
+    futures = [executor.submit(get_process_id) for _ in range(3)]
+
+    # Get results and verify they're different process IDs
+    process_ids = [future.result() for future in futures]
+    assert all(pid != os.getpid() for pid in process_ids)  # Different from main process
+
+
+async def mock_action(input: Any):
+    """Mock action that simulates some async work"""
+    await asyncio.sleep(0.1)
+    return input
+
+
+def test_sync_executor_entrypoint(test_role, mock_run_context):
+    """Test that the sync executor entrypoint properly handles async operations."""
+    _init_worker_process()
+
+    # Create a test input
+
+    # Mock the run_action_from_input function
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("tracecat.registry.executor.run_action_from_input", mock_action)
+
+        # Run the entrypoint
+        for i in range(10):
+            input = RunActionInput(
+                task=ActionStatement(
+                    ref="test",
+                    action="test.mock_action",
+                    args={"value": i},
+                    run_if=None,
+                    for_each=None,
+                ),
+                exec_context=create_default_dsl_context(),
+                run_context=mock_run_context,
+            )
+            result = executor.sync_executor_entrypoint(input, test_role)
+            assert result == input
+
+
+def slow_task(sleep_time: float) -> float:
+    """Helper function that simulates a slow task"""
+    _init_worker_process()
+    time.sleep(sleep_time)
+    return sleep_time
+
+
+@pytest.mark.anyio
+async def test_executor_concurrent_execution():
+    """Test that the executor can handle multiple concurrent executions."""
+
+    # Submit multiple tasks with different durations
+    executor = get_executor()
+
+    futures = [
+        executor.submit(slow_task, 0.2),
+        executor.submit(slow_task, 0.3),
+        executor.submit(slow_task, 0.1),
+    ]
+
+    # Wait for all tasks to complete
+    results = [future.result() for future in futures]
+
+    # Verify results
+    assert results == [0.2, 0.3, 0.1]
+
+
+def _test_worker_task():
+    """Task that creates and uses an async operation in the worker"""
+
+    async def async_operation():
+        await asyncio.sleep(0.1)
+        return id(asyncio.get_running_loop())
+
+    # Get the loop from the worker process
+    loop = asyncio.get_event_loop()
+    # Run the async operation
+    return loop.run_until_complete(async_operation())
+
+
+@pytest.mark.anyio
+async def test_executor_prevents_loop_conflicts():
+    """Test that the executor prevents 'Task attached to different loop' errors."""
+
+    # Run multiple worker tasks
+    with ProcessPoolExecutor(initializer=_init_worker_process) as executor:
+        loop = asyncio.get_running_loop()
+        futures = [loop.run_in_executor(executor, _test_worker_task) for _ in range(10)]
+        ids = await asyncio.gather(*futures)
+
+        # Get the main process loop ID
+        main_loop_id = id(asyncio.get_running_loop())
+
+        # Verify that:
+        # 1. Each worker has a different loop from the main process
+        assert all(loop_id != main_loop_id for loop_id in ids)
