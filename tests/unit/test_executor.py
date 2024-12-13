@@ -277,17 +277,15 @@ async def test_executor_concurrent_execution():
 
 def _test_worker_task():
     """Task that creates and uses an async operation in the worker"""
-    _init_worker_process()
 
     async def async_operation():
         await asyncio.sleep(0.1)
-        return asyncio.get_running_loop()
+        return id(asyncio.get_running_loop())
 
     # Get the loop from the worker process
     loop = asyncio.get_event_loop()
     # Run the async operation
-    worker_result = loop.run_until_complete(async_operation())
-    return id(worker_result)  # Return loop ID for comparison
+    return loop.run_until_complete(async_operation())
 
 
 @pytest.mark.anyio
@@ -295,15 +293,14 @@ async def test_executor_prevents_loop_conflicts():
     """Test that the executor prevents 'Task attached to different loop' errors."""
 
     # Run multiple worker tasks
-    executor = get_executor()
-    futures = [executor.submit(_test_worker_task) for _ in range(3)]
+    with ProcessPoolExecutor(initializer=_init_worker_process) as executor:
+        loop = asyncio.get_running_loop()
+        futures = [loop.run_in_executor(executor, _test_worker_task) for _ in range(10)]
+        ids = await asyncio.gather(*futures)
 
-    # Get the loop IDs from different workers
-    worker_loop_ids = [future.result() for future in futures]
+        # Get the main process loop ID
+        main_loop_id = id(asyncio.get_running_loop())
 
-    # Get the main process loop ID
-    main_loop_id = id(asyncio.get_running_loop())
-
-    # Verify that:
-    # 1. Each worker has a different loop from the main process
-    assert all(loop_id != main_loop_id for loop_id in worker_loop_ids)
+        # Verify that:
+        # 1. Each worker has a different loop from the main process
+        assert all(loop_id != main_loop_id for loop_id in ids)
