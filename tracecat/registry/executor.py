@@ -260,11 +260,11 @@ async def run_single_action(
 
     action_secret_names = set()
     optional_secrets = set()
-    secrets_context = context.get("SECRETS", {})
+    secrets = context.get("SECRETS", {})
 
     for secret in action.secrets or []:
         # Only add if not already pulled
-        if secret.name not in secrets_context:
+        if secret.name not in secrets:
             if secret.optional:
                 optional_secrets.add(secret.name)
             action_secret_names.add(secret.name)
@@ -276,7 +276,7 @@ async def run_single_action(
         environment=get_runtime_env(),
         optional_secrets=list(optional_secrets),
     ) as sandbox:
-        secrets = sandbox.secrets.copy()
+        secrets |= sandbox.secrets.copy()
 
     context["SECRETS"] = context.get("SECRETS", {}) | secrets
     if action.is_template:
