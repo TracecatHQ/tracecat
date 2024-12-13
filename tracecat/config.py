@@ -24,7 +24,13 @@ TRACECAT__DB_URI = os.environ.get(
 TRACECAT__EXECUTOR_URL = os.environ.get(
     "TRACECAT__EXECUTOR_URL", "http://executor:8000"
 )
+TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
+    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 120.0)
+)
+"""Timeout for the executor client in seconds (default 120s).
 
+The `httpx.Client` default is 5s, which doesn't work for long-running actions.
+"""
 TRACECAT__DB_NAME = os.environ.get("TRACECAT__DB_NAME")
 TRACECAT__DB_USER = os.environ.get("TRACECAT__DB_USER")
 TRACECAT__DB_PASS = os.environ.get("TRACECAT__DB_PASS")
