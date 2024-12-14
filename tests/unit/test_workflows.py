@@ -33,7 +33,7 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import DSLConfig, DSLContext
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.executor.service import run_action_in_pool
+from tracecat.executor.engine import run_action_on_ray_cluster
 from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
 from tracecat.registry.client import RegistryClient
@@ -42,6 +42,17 @@ from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
+
+
+@pytest.fixture(scope="module")
+def ray_cluster():
+    import ray
+
+    try:
+        ray.init()
+        yield
+    finally:
+        ray.shutdown()
 
 
 @pytest.fixture(scope="module")
@@ -1600,9 +1611,9 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
         "Cannot divide by zero\n"
         "\n"
         "------------------------------\n"
-        f"File: /app/{"/".join(run_action_in_pool.__module__.split("."))}.py\n"
-        f"Function: {run_action_in_pool.__name__}\n"
-        # f"Line: {run_action_in_pool.__code__.co_firstlineno}"
+        f"File: /app/{"/".join(run_action_on_ray_cluster.__module__.split('.'))}.py\n"
+        f"Function: {run_action_on_ray_cluster.__name__}\n"
+        # f"Line: {run_action_on_ray_cluster.__code__.co_firstlineno}"
     ),
     "type": "RegistryActionError",
     "expr_context": "ACTIONS",
