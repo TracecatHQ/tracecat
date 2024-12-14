@@ -6,6 +6,7 @@ NOTE: This is only used in the API server, not the worker
 from __future__ import annotations
 
 import asyncio
+import os
 import traceback
 from collections.abc import Iterator, Mapping
 from concurrent.futures import ProcessPoolExecutor
@@ -169,11 +170,21 @@ async def validate_action(
 # and set the right chunk size for each worker
 
 
+def _init_worker_process():
+    """Initialize each worker process with its own event loop"""
+    # Configure uvloop for the process and create a new event loop
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+    logger.info("Initialized worker process with new event loop", pid=os.getpid())
+
+
 def get_executor() -> ProcessPoolExecutor:
     """Get the executor, creating it if it doesn't exist"""
     global _executor
     if _executor is None:
-        _executor = ProcessPoolExecutor()
+        _executor = ProcessPoolExecutor(initializer=_init_worker_process)
+        logger.info("Initialized executor process pool")
     return _executor
 
 
@@ -190,7 +201,13 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
         finally:
             await async_engine.dispose()
 
-    return uvloop.run(coro())
+    try:
+        loop = asyncio.get_running_loop()
+        logger.debug("Got running loop")
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+        logger.debug("Get event loop")
+    return loop.run_until_complete(coro())
 
 
 async def run_action_in_pool(input: RunActionInput[ArgsT]) -> Any:
@@ -233,21 +250,49 @@ async def run_single_action(
     *,
     action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
-    context: DSLContext | None = None,
+    context: DSLContext,
 ) -> Any:
     """Run a UDF async."""
+
+    # Here, we pass in context
+    # For this action, check whether its dependent secrets are already in the context
+    # For any that aren't, pull them in
+
+    action_secret_names = set()
+    optional_secrets = set()
+    secrets = context.get("SECRETS", {})
+
+    for secret in action.secrets or []:
+        # Only add if not already pulled
+        if secret.name not in secrets:
+            if secret.optional:
+                optional_secrets.add(secret.name)
+            action_secret_names.add(secret.name)
+
+    args_secret_refs = set(extract_templated_secrets(args))
+    async with AuthSandbox(
+        secrets=list(action_secret_names | args_secret_refs),
+        target="context",
+        environment=get_runtime_env(),
+        optional_secrets=list(optional_secrets),
+    ) as sandbox:
+        secrets |= sandbox.secrets.copy()
+
+    context["SECRETS"] = context.get("SECRETS", {}) | secrets
     if action.is_template:
         logger.info("Running template UDF async", action=action.name)
         return await run_template_action(action=action, args=args, context=context)
-    # Run the UDF in the caller process (usually the worker)
-    return await _run_action_direct(action=action, args=args)
+    flat_secrets = flatten_secrets(secrets)
+    with env_sandbox(flat_secrets):
+        # Run the UDF in the caller process (usually the worker)
+        return await _run_action_direct(action=action, args=args)
 
 
 async def run_template_action(
     *,
     action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
-    context: DSLContext | None = None,
+    context: DSLContext,
 ) -> Any:
     """Handle template execution.
 
@@ -283,6 +328,7 @@ async def run_template_action(
         )
         async with RegistryActionsService.with_session() as service:
             step_action = await service.load_action_impl(action_name=step.action)
+        logger.trace("Running action step", step_ation=step_action.action)
         result = await run_single_action(
             action=step_action,
             args=evaled_args,
@@ -307,7 +353,6 @@ async def run_action_from_input(input: RunActionInput) -> Any:
     act_logger = ctx_logger.get(logger.bind(ref=input.task.ref))
 
     task = input.task
-    environment = input.run_context.environment
     action_name = task.action
 
     # Multi-phase expression resolution
@@ -330,19 +375,15 @@ async def run_action_from_input(input: RunActionInput) -> Any:
     async with RegistryActionsService.with_session() as service:
         action = await service.load_action_impl(action_name=action_name)
 
-    run_context = ctx_run.get()
-    environment = getattr(run_context, "environment", DEFAULT_SECRETS_ENVIRONMENT)
-
     action_secret_names = {secret.name for secret in action.secrets or []}
     optional_secrets = {
         secret.name for secret in action.secrets or [] if secret.optional
     }
     args_secret_refs = set(extract_templated_secrets(task.args))
-
     async with AuthSandbox(
         secrets=list(action_secret_names | args_secret_refs),
         target="context",
-        environment=environment,
+        environment=get_runtime_env(),
         optional_secrets=list(optional_secrets),
     ) as sandbox:
         secrets = sandbox.secrets.copy()
@@ -368,20 +409,7 @@ async def run_action_from_input(input: RunActionInput) -> Any:
     context = input.exec_context.copy()
     context.update(SECRETS=secrets)
 
-    # Given secrets in the format of {name: {key: value}}, we need to flatten
-    # it to a dict[str, str] to set in the environment context
-    flattened_secrets: dict[str, str] = {}
-    for name, keyvalues in secrets.items():
-        for key, value in keyvalues.items():
-            if key in flattened_secrets:
-                raise ValueError(
-                    f"Key {key!r} is duplicated in {name!r}! "
-                    "Please ensure only one secret with a given name is set. "
-                    "e.g. If you have `first_secret.KEY` set, then you cannot "
-                    "also set `second_secret.KEY` as `KEY` is duplicated."
-                )
-            flattened_secrets[key] = value
-
+    flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):
         # Actual execution
         if task.for_each:
@@ -420,6 +448,32 @@ async def run_action_from_input(input: RunActionInput) -> Any:
 
     act_logger.debug("Result", result=result)
     return result
+
+
+def get_runtime_env() -> str:
+    """Get the runtime environment from `ctx_run` contextvar. Defaults to `default` if not set."""
+    return getattr(ctx_run.get(), "environment", DEFAULT_SECRETS_ENVIRONMENT)
+
+
+def flatten_secrets(secrets: dict[str, Any]):
+    """Given secrets in the format of {name: {key: value}}, we need to flatten
+    it to a dict[str, str] to set in the environment context.
+
+    For example, if you have the secret `my_secret.KEY`, then you access this in the UDF
+    as `KEY`. This means you cannot have a clashing key in different secrets.
+    """
+    flattened_secrets: dict[str, str] = {}
+    for name, keyvalues in secrets.items():
+        for key, value in keyvalues.items():
+            if key in flattened_secrets:
+                raise ValueError(
+                    f"Key {key!r} is duplicated in {name!r}! "
+                    "Please ensure only one secret with a given name is set. "
+                    "e.g. If you have `first_secret.KEY` set, then you cannot "
+                    "also set `second_secret.KEY` as `KEY` is duplicated."
+                )
+            flattened_secrets[key] = value
+    return flattened_secrets
 
 
 """Utilities"""

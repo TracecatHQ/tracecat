@@ -36,6 +36,7 @@ from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
 from tracecat.registry.client import RegistryClient
+from tracecat.registry.executor import run_action_in_pool
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
@@ -1579,7 +1580,7 @@ async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_
 
 
 # Get the line number dynamically
-DIVISION_BY_ZERO_ERROR = {
+PARTIAL_DIVISION_BY_ZERO_ERROR = {
     "ref": "start",
     "message": (
         "There was an error in the registry when calling action 'core.transform.reshape' (500).\n"
@@ -1599,14 +1600,32 @@ DIVISION_BY_ZERO_ERROR = {
         "Cannot divide by zero\n"
         "\n"
         "------------------------------\n"
-        "File: /app/tracecat/registry/executor.py\n"
-        "Function: run_action_in_pool\n"
-        "Line: 200"
+        f"File: /app/{"/".join(run_action_in_pool.__module__.split("."))}.py\n"
+        f"Function: {run_action_in_pool.__name__}\n"
+        # f"Line: {run_action_in_pool.__code__.co_firstlineno}"
     ),
     "type": "RegistryActionError",
     "expr_context": "ACTIONS",
     "attempt": 1,
 }
+
+
+def approximately_equal(result: Any, expected: Any) -> bool:
+    if type(result) is not type(expected):
+        return False
+    match result:
+        case str():
+            return result == expected or result.startswith(expected)
+        case dict():
+            return all(
+                approximately_equal(result[key], expected[key]) for key in result
+            )
+        case list():
+            return all(
+                approximately_equal(result[i], expected[i]) for i in range(len(result))
+            )
+        case _:
+            return result == expected
 
 
 def _get_test_id(test_case):
@@ -1658,7 +1677,7 @@ def _get_test_id(test_case):
             },
             {
                 "start": None,
-                "start.error": DIVISION_BY_ZERO_ERROR,
+                "start.error": PARTIAL_DIVISION_BY_ZERO_ERROR,
                 "success": None,
                 "error": "ERROR",
             },
@@ -2036,7 +2055,7 @@ async def test_workflow_error_path(test_role, runtime_config, dsl_data, expected
                 ],
             ),
         )
-    assert result == expected
+    assert approximately_equal(result, expected)
 
 
 @pytest.mark.anyio

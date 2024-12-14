@@ -45,7 +45,7 @@ class RegistryClient:
 
     _repos_endpoint = REGISTRY_REPOS_PATH
     _actions_endpoint = REGISTRY_ACTIONS_PATH
-    _timeout: float = 60.0
+    _timeout: float = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
     def __init__(self, role: Role | None = None):
         self.role = role or ctx_role.get()

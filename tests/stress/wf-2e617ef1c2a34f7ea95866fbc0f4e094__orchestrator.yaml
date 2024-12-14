@@ -1,0 +1,96 @@
+created_at: '2024-12-11T08:10:12.202785Z'
+definition:
+  actions:
+  - action: core.workflow.execute
+    args:
+      trigger_inputs:
+        data: data
+      workflow_id: wf-fee9abc1cc88417bbccb73433646e2c6
+    depends_on: []
+    description: ''
+    for_each: null
+    join_strategy: all
+    ref: a
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+  - action: core.workflow.execute
+    args:
+      trigger_inputs:
+        data: data
+      workflow_id: wf-fee9abc1cc88417bbccb73433646e2c6
+    depends_on: []
+    description: ''
+    for_each: null
+    join_strategy: all
+    ref: b
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+  - action: core.workflow.execute
+    args:
+      trigger_inputs:
+        data: data
+      workflow_id: wf-fee9abc1cc88417bbccb73433646e2c6
+    depends_on: []
+    description: ''
+    for_each: null
+    join_strategy: all
+    ref: c
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+  - action: core.transform.reshape
+    args:
+      value: ${{ FN.flatten([ACTIONS.a.result, ACTIONS.b.result, ACTIONS.c.result,
+        ACTIONS.d.result]) }}
+    depends_on:
+    - a
+    - b
+    - c
+    - d
+    description: ''
+    for_each: null
+    join_strategy: any
+    ref: reshape
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+  - action: core.workflow.execute
+    args:
+      trigger_inputs:
+        data: data
+      workflow_id: wf-fee9abc1cc88417bbccb73433646e2c6
+    depends_on: []
+    description: ''
+    for_each: null
+    join_strategy: all
+    ref: d
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+  config:
+    environment: default
+    timeout: 300.0
+  description: New workflow created Dec 11, 2024, 07:51:19
+  entrypoint:
+    expects: {}
+    ref: null
+  inputs: {}
+  returns: null
+  title: orchestrator
+  triggers: []
+updated_at: '2024-12-11T08:10:12.202785Z'
+version: 2
+workflow_id: wf-2e617ef1c2a34f7ea95866fbc0f4e094
+workspace_id: 65418a3e-068d-4a6d-bb83-6af09b6b940e
