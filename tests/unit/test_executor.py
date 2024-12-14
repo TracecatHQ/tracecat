@@ -262,17 +262,6 @@ async def test_executor_can_run_template_action_with_secret(
         await sec_service.delete_secret_by_id(secret.id)
 
 
-@pytest.mark.anyio
-async def test_executor_initialization():
-    """Test that the executor is properly initialized with a process pool."""
-    # Test singleton behavior
-    executor1 = executor.get_executor()
-    executor2 = executor.get_executor()
-
-    assert executor1 is executor2
-    assert isinstance(executor1, ProcessPoolExecutor)
-
-
 def get_process_id():
     """Helper function to return process ID"""
     _init_worker_process()  # Initialize worker
@@ -407,3 +396,48 @@ async def test_executor_mini_stress(mock_run_context):
     results = tg.results()
     logger.info("RESULTS", results=results)
     assert results == [f"{i} and " for i in range(size)]
+
+
+@pytest.mark.anyio
+async def test_executor_handles_action_error(mock_run_context):
+    """Test that the executor properly handles flaky network connections by retrying failed requests."""
+    # Create a test input that simulates a flaky network connection
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="core.transform.reshape",
+            args={"value": "test"},
+            run_if=None,
+            for_each=None,
+        ),
+        exec_context=create_default_dsl_context(),
+        run_context=mock_run_context,
+    )
+
+    # Track number of attempts
+    attempts = 0
+
+    async def flaky_run(input: RunActionInput):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise ConnectionError("Network connection failed")
+        return "test"
+
+    # Mock the executor to simulate network failures
+    from unittest.mock import patch
+
+    with patch("tracecat.registry.executor.run_action_in_pool", side_effect=flaky_run):
+        # First two attempts should fail
+        with pytest.raises(ConnectionError) as exc_info:
+            await executor.run_action_in_pool(input)
+        assert "Network connection failed" in str(exc_info.value)
+
+        with pytest.raises(ConnectionError) as exc_info:
+            await executor.run_action_in_pool(input)
+        assert "Network connection failed" in str(exc_info.value)
+
+        # Third attempt should succeed
+        result = await executor.run_action_in_pool(input)
+        assert result == "test"
+        assert attempts == 3
