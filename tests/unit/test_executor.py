@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from pydantic import SecretStr
 
+from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import RunContext
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.common import create_default_dsl_context
@@ -23,7 +24,7 @@ from tracecat.registry.actions.models import (
     TemplateActionDefinition,
 )
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.executor import _init_worker_process, get_executor
+from tracecat.registry.executor import _init_worker_process, get_pool
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
@@ -283,11 +284,11 @@ async def test_executor_process_isolation():
     """Test that each worker process gets its own event loop."""
 
     # Create multiple concurrent tasks to verify process isolation
-    executor = get_executor()
-    futures = [executor.submit(get_process_id) for _ in range(3)]
+    pool = get_pool()
+    futures = [pool.apply_async(get_process_id) for _ in range(3)]
 
     # Get results and verify they're different process IDs
-    process_ids = [future.result() for future in futures]
+    process_ids = [future.get() for future in futures]
     assert all(pid != os.getpid() for pid in process_ids)  # Different from main process
 
 
@@ -336,16 +337,16 @@ async def test_executor_concurrent_execution():
     """Test that the executor can handle multiple concurrent executions."""
 
     # Submit multiple tasks with different durations
-    executor = get_executor()
+    pool = get_pool()
 
     futures = [
-        executor.submit(slow_task, 0.2),
-        executor.submit(slow_task, 0.3),
-        executor.submit(slow_task, 0.1),
+        pool.apply_async(slow_task, (0.2,)),
+        pool.apply_async(slow_task, (0.3,)),
+        pool.apply_async(slow_task, (0.1,)),
     ]
 
     # Wait for all tasks to complete
-    results = [future.result() for future in futures]
+    results = [future.get() for future in futures]
 
     # Verify results
     assert results == [0.2, 0.3, 0.1]
@@ -380,3 +381,29 @@ async def test_executor_prevents_loop_conflicts():
         # Verify that:
         # 1. Each worker has a different loop from the main process
         assert all(loop_id != main_loop_id for loop_id in ids)
+
+
+@pytest.mark.anyio
+async def test_executor_mini_stress(mock_run_context):
+    """Test that the executor properly handles errors raised in worker processes."""
+
+    # Create a test input that will trigger an error
+    size = 1000
+    async with GatheringTaskGroup() as tg:
+        for i in range(size):
+            input = RunActionInput(
+                task=ActionStatement(
+                    ref="test",
+                    action="core.transform.reshape",
+                    args={"value": f"${{{{ {i} }}}} and "},
+                    run_if=None,
+                    for_each=None,
+                ),
+                exec_context=create_default_dsl_context(),
+                run_context=mock_run_context,
+            )
+            tg.create_task(executor.run_action_in_pool(input))
+
+    results = tg.results()
+    logger.info("RESULTS", results=results)
+    assert results == [f"{i} and " for i in range(size)]

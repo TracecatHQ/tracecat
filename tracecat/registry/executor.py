@@ -6,6 +6,7 @@ NOTE: This is only used in the API server, not the worker
 from __future__ import annotations
 
 import asyncio
+import multiprocessing.pool as mp
 import os
 import traceback
 from collections.abc import Iterator, Mapping
@@ -188,6 +189,18 @@ def get_executor() -> ProcessPoolExecutor:
     return _executor
 
 
+_pool: mp.Pool | None = None
+
+
+def get_pool():
+    """Get the executor, creating it if it doesn't exist"""
+    global _pool
+    if _pool is None:
+        _pool = mp.Pool(initializer=_init_worker_process, maxtasksperchild=100)
+        logger.info("Initialized executor process pool")
+    return _pool
+
+
 def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
     """Run an action on the executor (API, not worker)"""
 
@@ -210,14 +223,20 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
     return loop.run_until_complete(coro())
 
 
+def _execute_action(input: RunActionInput, role: Role) -> Any:
+    """Execute action in worker process"""
+    ctx_role.set(role)
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(run_action_from_input(input=input))
+
+
 async def run_action_in_pool(input: RunActionInput[ArgsT]) -> Any:
-    """Run an action on the executor (API, not worker)"""
-    loop = asyncio.get_running_loop()
+    """Run an action using multiprocessing Pool"""
     role = ctx_role.get()
-    result = await loop.run_in_executor(
-        get_executor(), sync_executor_entrypoint, input, role
-    )
-    return result
+
+    # Create pool with automatic worker restart
+    pool = get_pool()
+    return await asyncio.to_thread(pool.apply, _execute_action, (input, role))
 
 
 async def _run_action_direct(
