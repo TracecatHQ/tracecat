@@ -10,7 +10,9 @@ import traceback
 from collections.abc import Iterator, Mapping
 from typing import Any, cast
 
+import ray
 import uvloop
+from ray.exceptions import RayTaskError
 
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
@@ -24,6 +26,7 @@ from tracecat.dsl.models import (
     DSLNodeResult,
     RunActionInput,
 )
+from tracecat.executor.engine import EXECUTION_TIMEOUT
 from tracecat.expressions.eval import (
     OperandType,
     eval_templated_object,
@@ -46,7 +49,6 @@ from tracecat.types.exceptions import TracecatException
 
 """All these methods are used in the registry executor, not on the worker"""
 
-# Registry Action Controls
 
 type ArgsT = Mapping[str, Any]
 
@@ -274,37 +276,8 @@ async def run_action_from_input(input: RunActionInput) -> Any:
 
     flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):
-        # Actual execution
-        if task.for_each:
-            # If the action is CPU bound, just run it directly
-            # Otherwise, we want to parallelize it
-            iterator = iter_for_each(task=task, context=context)
-
-            try:
-                async with GatheringTaskGroup() as tg:
-                    for patched_args in iterator:
-                        tg.create_task(
-                            run_single_action(
-                                action=action, args=patched_args, context=context
-                            )
-                        )
-
-                result = tg.results()
-            except* Exception as eg:
-                errors = [str(x) for x in eg.exceptions]
-                logger.error("Error resolving expressions", errors=errors)
-                raise TracecatException(
-                    (
-                        f"[{context_locator(task, 'for_each')}]"
-                        "\n\nError in loop:"
-                        f"\n\n{'\n\n'.join(errors)}"
-                    ),
-                    detail={"errors": errors},
-                ) from eg
-
-        else:
-            args = evaluate_templated_args(task, context)
-            result = await run_single_action(action=action, args=args, context=context)
+        args = evaluate_templated_args(task, context)
+        result = await run_single_action(action=action, args=args, context=context)
 
     if mask_values:
         result = apply_masks_object(result, masks=mask_values)
@@ -337,6 +310,80 @@ def flatten_secrets(secrets: dict[str, Any]):
                 )
             flattened_secrets[key] = value
     return flattened_secrets
+
+
+@ray.remote
+def run_action_task(input: RunActionInput, role: Role) -> Any:
+    """Ray task that runs an action."""
+    return sync_executor_entrypoint(input, role)
+
+
+async def run_action_on_ray_cluster(input: RunActionInput, role: Role) -> Any:
+    """Run an action on the ray cluster."""
+
+    obj_ref = run_action_task.remote(input, role)
+    try:
+        coro = asyncio.to_thread(ray.get, obj_ref)
+        return await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
+    except TimeoutError as e:
+        logger.error("Action timed out, cancelling task", error=e)
+        ray.cancel(obj_ref, force=True)
+        raise e
+    except RayTaskError as e:
+        logger.error("Error running action on ray cluster", error=e)
+        if isinstance(e.cause, BaseException):
+            raise e.cause from None
+        raise e
+
+
+async def dispatch_action_on_cluster(input: RunActionInput, role: Role) -> Any:
+    """Schedule actions on the ray cluster."""
+
+    task = input.task
+
+    # If there's no for_each, execute normally
+    if not task.for_each:
+        return await run_action_on_ray_cluster(input, role)
+
+    logger.info("Running for_each on action in parallel", input=input)
+
+    # Handle for_each by creating parallel executions
+    base_context = input.exec_context
+    # We have a list of iterators that give a variable assignment path ".path.to.value"
+    # and a collection of values as a tuple.
+    iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
+
+    async def coro(patched_input: RunActionInput):
+        return await run_action_on_ray_cluster(patched_input, role)
+
+    try:
+        async with GatheringTaskGroup() as tg:
+            # Create a generator that zips the iterables together
+            # Iterate over the for_each items
+            for items in zip(*iterators, strict=False):
+                new_context = base_context.copy()
+                # Patch each loop variable
+                for iterator_path, iterator_value in items:
+                    patch_object(
+                        obj=new_context,  # type: ignore
+                        path=ExprContext.LOCAL_VARS + iterator_path,
+                        value=iterator_value,
+                    )
+                # Create a new task with the patched context
+                new_input = input.model_copy(update={"exec_context": new_context})
+                tg.create_task(coro(new_input))
+        return tg.results()
+    except* Exception as eg:
+        errors = [str(x) for x in eg.exceptions]
+        logger.error("Error resolving expressions", errors=errors)
+        raise TracecatException(
+            (
+                f"[{context_locator(task, 'for_each')}]"
+                "\n\nError in loop:"
+                f"\n\n{'\n\n'.join(errors)}"
+            ),
+            detail={"errors": errors},
+        ) from eg
 
 
 """Utilities"""
