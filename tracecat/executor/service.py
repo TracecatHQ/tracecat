@@ -6,22 +6,13 @@ NOTE: This is only used in the API server, not the worker
 from __future__ import annotations
 
 import asyncio
-import multiprocessing.pool as mp
-import os
-import traceback
 from collections.abc import Iterator, Mapping
 from typing import Any, cast
 
-import uvloop
-from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel
-
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_engine
 from tracecat.dsl.common import context_locator, create_default_dsl_context
 from tracecat.dsl.models import (
@@ -30,6 +21,7 @@ from tracecat.dsl.models import (
     DSLNodeResult,
     RunActionInput,
 )
+from tracecat.executor.core import EXECUTION_TIMEOUT, get_pool
 from tracecat.expressions.eval import (
     OperandType,
     eval_templated_object,
@@ -42,153 +34,19 @@ from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.models import (
     ArgsClsT,
     BoundRegistryAction,
-    RegistryActionErrorInfo,
-    RegistryActionValidate,
-    RegistryActionValidateResponse,
 )
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.repository import Repository
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryError, TracecatException
-from tracecat.validation.service import validate_registry_action_args
+from tracecat.types.exceptions import TracecatException
 
 """All these methods are used in the registry executor, not on the worker"""
 
 # Registry Action Controls
 
 type ArgsT = Mapping[str, Any]
-
-router = APIRouter(tags=["executor"])
-
-_pool: mp.Pool | None = None
-
-EXECUTION_TIMEOUT = 300
-
-
-class ExecutorSyncInput(BaseModel):
-    origin: str
-
-
-@router.post("/sync")
-async def sync_executor(
-    *,
-    role: Role = RoleACL(
-        allow_user=False,  # XXX(authz): Users cannot sync the executor
-        allow_service=True,  # Only services can sync the executor
-        require_workspace="no",
-    ),
-    input: ExecutorSyncInput,
-) -> None:
-    """Sync the executor from the registry."""
-    repo = Repository(origin=input.origin, role=role)
-    try:
-        await repo.load_from_origin()
-    except RegistryError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        ) from e
-
-
-@router.post("/run/{action_name}")
-async def run_action(
-    *,
-    role: Role = RoleACL(
-        allow_user=False,  # XXX(authz): Users cannot execute actions
-        allow_service=True,  # Only services can execute actions
-        require_workspace="no",
-    ),
-    action_name: str,
-    action_input: RunActionInput,
-) -> Any:
-    """Execute a registry action."""
-    ref = action_input.task.ref
-    ctx_role.set(role)
-    act_logger = logger.bind(role=role, action_name=action_name, ref=ref)
-    ctx_logger.set(act_logger)
-
-    act_logger.info("Starting action")
-    try:
-        return await run_action_in_pool(input=action_input)
-    except Exception as e:
-        # Get the traceback info
-        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
-        error_detail = RegistryActionErrorInfo(
-            action_name=action_name,
-            type=e.__class__.__name__,
-            message=str(e),
-            filename=tb.filename,
-            function=tb.name,
-            lineno=tb.lineno,
-        )
-        act_logger.error(
-            "Error running action",
-            action_name=action_name,
-            type=error_detail.type,
-            message=error_detail.message,
-            filename=error_detail.filename,
-            function=error_detail.function,
-            lineno=error_detail.lineno,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_detail.model_dump(mode="json"),
-        ) from e
-
-
-@router.post("/validate/{action_name}")
-async def validate_action(
-    *,
-    role: Role = RoleACL(
-        allow_user=False,  # XXX(authz): Users cannot validate actions
-        allow_service=True,  # Only services can validate actions
-        require_workspace="no",
-    ),
-    session: AsyncDBSession,
-    action_name: str,
-    params: RegistryActionValidate,
-) -> RegistryActionValidateResponse:
-    """Validate a registry action."""
-    try:
-        result = await validate_registry_action_args(
-            session=session, action_name=action_name, args=params.args
-        )
-
-        if result.status == "error":
-            logger.warning(
-                "Error validating UDF args", message=result.msg, details=result.detail
-            )
-        return RegistryActionValidateResponse.from_validation_result(result)
-    except KeyError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Action {action_name!r} not found in registry",
-        ) from e
-
-
-# We want to be able to serve a looped action
-# Before we send out tasks to the executor we should inspect the size of the loop
-# and set the right chunk size for each worker
-
-
-def _init_worker_process():
-    """Initialize each worker process with its own event loop"""
-    # Configure uvloop for the process and create a new event loop
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    loop = uvloop.new_event_loop()
-    asyncio.set_event_loop(loop)
-    logger.info("Initialized worker process with new event loop", pid=os.getpid())
-
-
-def get_pool():
-    """Get the executor, creating it if it doesn't exist"""
-    global _pool
-    if _pool is None:
-        _pool = mp.Pool(initializer=_init_worker_process, maxtasksperchild=100)
-        logger.info("Initialized executor process pool")
-    return _pool
 
 
 def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:

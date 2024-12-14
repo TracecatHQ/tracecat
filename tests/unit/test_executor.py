@@ -14,9 +14,10 @@ from tracecat.contexts import RunContext
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.common import create_default_dsl_context
 from tracecat.dsl.models import ActionStatement, RunActionInput
+from tracecat.executor import service
+from tracecat.executor.core import _init_worker_process, get_pool
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.logger import logger
-from tracecat.registry import executor
 from tracecat.registry.actions.models import (
     ActionStep,
     RegistryActionCreate,
@@ -24,7 +25,6 @@ from tracecat.registry.actions.models import (
     TemplateActionDefinition,
 )
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.executor import _init_worker_process, get_pool
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
@@ -151,7 +151,7 @@ async def test_executor_can_run_udf_with_secrets(
         )
 
         # Act
-        result = await executor.run_action_from_input(input)
+        result = await service.run_action_from_input(input)
 
         # Assert
         assert result == "__SECRET_VALUE_UDF__"
@@ -253,7 +253,7 @@ async def test_executor_can_run_template_action_with_secret(
         )
 
         # Act
-        result = await executor.run_action_from_input(input)
+        result = await service.run_action_from_input(input)
 
         # Assert
         assert result == "__SECRET_VALUE__"
@@ -295,7 +295,7 @@ def test_sync_executor_entrypoint(test_role, mock_run_context):
 
     # Mock the run_action_from_input function
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("tracecat.registry.executor.run_action_from_input", mock_action)
+        mp.setattr("tracecat.executor.service.run_action_from_input", mock_action)
 
         # Run the entrypoint
         for i in range(10):
@@ -310,7 +310,7 @@ def test_sync_executor_entrypoint(test_role, mock_run_context):
                 exec_context=create_default_dsl_context(),
                 run_context=mock_run_context,
             )
-            result = executor.sync_executor_entrypoint(input, test_role)
+            result = service.sync_executor_entrypoint(input, test_role)
             assert result == input
 
 
@@ -391,7 +391,7 @@ async def test_executor_mini_stress(mock_run_context):
                 exec_context=create_default_dsl_context(),
                 run_context=mock_run_context,
             )
-            tg.create_task(executor.run_action_in_pool(input))
+            tg.create_task(service.run_action_in_pool(input))
 
     results = tg.results()
     logger.info("RESULTS", results=results)
@@ -427,17 +427,17 @@ async def test_executor_handles_action_error(mock_run_context):
     # Mock the executor to simulate network failures
     from unittest.mock import patch
 
-    with patch("tracecat.registry.executor.run_action_in_pool", side_effect=flaky_run):
+    with patch("tracecat.executor.service.run_action_in_pool", side_effect=flaky_run):
         # First two attempts should fail
         with pytest.raises(ConnectionError) as exc_info:
-            await executor.run_action_in_pool(input)
+            await service.run_action_in_pool(input)
         assert "Network connection failed" in str(exc_info.value)
 
         with pytest.raises(ConnectionError) as exc_info:
-            await executor.run_action_in_pool(input)
+            await service.run_action_in_pool(input)
         assert "Network connection failed" in str(exc_info.value)
 
         # Third attempt should succeed
-        result = await executor.run_action_in_pool(input)
+        result = await service.run_action_in_pool(input)
         assert result == "test"
         assert attempts == 3

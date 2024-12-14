@@ -11,9 +11,10 @@ from tracecat.api.common import (
     setup_oss_models,
     tracecat_exception_handler,
 )
+from tracecat.executor.core import get_pool
+from tracecat.executor.router import router
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
-from tracecat.registry.executor import get_pool, router
 from tracecat.types.exceptions import TracecatException
 
 

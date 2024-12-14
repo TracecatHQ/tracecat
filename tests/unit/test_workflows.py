@@ -33,10 +33,10 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import DSLConfig, DSLContext
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.executor.service import run_action_in_pool
 from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
 from tracecat.registry.client import RegistryClient
-from tracecat.registry.executor import run_action_in_pool
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
