@@ -10,7 +10,6 @@ import multiprocessing.pool as mp
 import os
 import traceback
 from collections.abc import Iterator, Mapping
-from concurrent.futures import ProcessPoolExecutor
 from typing import Any, cast
 
 import uvloop
@@ -61,9 +60,12 @@ from tracecat.validation.service import validate_registry_action_args
 # Registry Action Controls
 
 type ArgsT = Mapping[str, Any]
-_executor: ProcessPoolExecutor | None = None
 
 router = APIRouter(tags=["executor"])
+
+_pool: mp.Pool | None = None
+
+EXECUTION_TIMEOUT = 300
 
 
 class ExecutorSyncInput(BaseModel):
@@ -180,18 +182,6 @@ def _init_worker_process():
     logger.info("Initialized worker process with new event loop", pid=os.getpid())
 
 
-def get_executor() -> ProcessPoolExecutor:
-    """Get the executor, creating it if it doesn't exist"""
-    global _executor
-    if _executor is None:
-        _executor = ProcessPoolExecutor(initializer=_init_worker_process)
-        logger.info("Initialized executor process pool")
-    return _executor
-
-
-_pool: mp.Pool | None = None
-
-
 def get_pool():
     """Get the executor, creating it if it doesn't exist"""
     global _pool
@@ -236,7 +226,11 @@ async def run_action_in_pool(input: RunActionInput[ArgsT]) -> Any:
 
     # Create pool with automatic worker restart
     pool = get_pool()
-    return await asyncio.to_thread(pool.apply, _execute_action, (input, role))
+    try:
+        coro = asyncio.to_thread(pool.apply, _execute_action, (input, role))
+        return await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
+    except TimeoutError as e:
+        raise TimeoutError("Action timed out") from e
 
 
 async def _run_action_direct(
