@@ -7,8 +7,8 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.models import RunActionInput
+from tracecat.executor.engine import run_action_on_ray_cluster
 from tracecat.executor.models import ExecutorSyncInput
-from tracecat.executor.service import run_action_in_pool
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     RegistryActionErrorInfo,
@@ -62,7 +62,7 @@ async def run_action(
 
     act_logger.info("Starting action")
     try:
-        return await run_action_in_pool(input=action_input)
+        return await run_action_on_ray_cluster(input=action_input, role=role)
     except Exception as e:
         # Get the traceback info
         tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
