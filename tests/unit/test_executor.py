@@ -72,10 +72,14 @@ def mock_package(tmp_path):
 
 @pytest.mark.anyio
 async def test_executor_can_run_udf_with_secrets(
-    mock_package, test_role, db_session_with_repo, mock_run_context
+    mock_package, test_role, db_session_with_repo, mock_run_context, monkeysession
 ):
     """Test that the executor can run a UDF with secrets through Ray."""
     session, db_repo_id = db_session_with_repo
+
+    from tracecat import config
+
+    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
 
     # Arrange
     repo = Repository()
