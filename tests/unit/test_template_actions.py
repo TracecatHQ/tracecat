@@ -1,8 +1,8 @@
 import pytest
 from tracecat_registry import RegistrySecret
 
+from tracecat.executor import service
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.registry import executor
 from tracecat.registry.actions.models import ActionStep, TemplateAction
 from tracecat.registry.repository import Repository
 
@@ -157,7 +157,7 @@ async def test_template_action_run():
     assert action.definition.action in registry
 
     bound_action = registry.get(action.definition.action)
-    result = await executor.run_template_action(
+    result = await service.run_template_action(
         action=bound_action,
         args={"service_source": "elastic"},
         context={},
