@@ -7,7 +7,6 @@ import pytest
 from pydantic import SecretStr
 
 from tracecat.contexts import RunContext, ctx_role
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.common import create_default_dsl_context
 from tracecat.dsl.models import ActionStatement, RunActionInput
 from tracecat.executor.service import run_action_from_input, sync_executor_entrypoint
@@ -20,8 +19,6 @@ from tracecat.registry.actions.models import (
     TemplateActionDefinition,
 )
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
-from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
@@ -71,25 +68,6 @@ def mock_package(tmp_path):
     finally:
         # Clean up
         del sys.modules["test_module"]
-
-
-@pytest.fixture(scope="function")
-async def db_session_with_repo(test_role):
-    """Fixture that creates a db session and temporary repository."""
-
-    async with get_async_session_context_manager() as session:
-        rr_service = RegistryReposService(session, role=test_role)
-        db_repo = await rr_service.create_repository(
-            RegistryRepositoryCreate(origin="__test_repo__")
-        )
-        try:
-            yield session, db_repo.id
-        finally:
-            try:
-                await rr_service.delete_repository(db_repo)
-                logger.info("Cleaned up db repo")
-            except Exception as e:
-                logger.error("Error cleaning up repo", e=e)
 
 
 @pytest.mark.anyio
