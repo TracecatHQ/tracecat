@@ -6,8 +6,11 @@ NOTE: This is only used in the API server, not the worker
 from __future__ import annotations
 
 import asyncio
+import traceback
 from collections.abc import Iterator, Mapping
 from typing import Any, cast
+
+import uvloop
 
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
@@ -21,7 +24,6 @@ from tracecat.dsl.models import (
     DSLNodeResult,
     RunActionInput,
 )
-from tracecat.executor.core import EXECUTION_TIMEOUT, get_pool
 from tracecat.expressions.eval import (
     OperandType,
     eval_templated_object,
@@ -50,7 +52,11 @@ type ArgsT = Mapping[str, Any]
 
 
 def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
-    """Run an action on the executor (API, not worker)"""
+    """We run this on the ray cluster."""
+
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     logger.info("Running action in pool", input=input)
 
@@ -63,32 +69,18 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
             await async_engine.dispose()
 
     try:
-        loop = asyncio.get_running_loop()
-        logger.debug("Got running loop")
-    except RuntimeError:
-        loop = asyncio.get_event_loop()
-        logger.debug("Get event loop")
-    return loop.run_until_complete(coro())
-
-
-def _execute_action(input: RunActionInput, role: Role) -> Any:
-    """Execute action in worker process"""
-    ctx_role.set(role)
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(run_action_from_input(input=input))
-
-
-async def run_action_in_pool(input: RunActionInput[ArgsT]) -> Any:
-    """Run an action using multiprocessing Pool"""
-    role = ctx_role.get()
-
-    # Create pool with automatic worker restart
-    pool = get_pool()
-    try:
-        coro = asyncio.to_thread(pool.apply, _execute_action, (input, role))
-        return await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
-    except TimeoutError as e:
-        raise TimeoutError("Action timed out") from e
+        return loop.run_until_complete(coro())
+    except Exception as e:
+        logger.error(
+            "Error running action",
+            error=e,
+            type=type(e).__name__,
+            traceback=traceback.format_exc(),
+        )
+        raise e
+    finally:
+        # We always close the loop
+        loop.close()
 
 
 async def _run_action_direct(
