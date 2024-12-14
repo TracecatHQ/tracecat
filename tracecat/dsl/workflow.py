@@ -57,7 +57,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.expressions.shared import ExprContext
     from tracecat.logger import logger
-    from tracecat.registry.executor import evaluate_templated_args, iter_for_each
+    from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.types.exceptions import (
         TracecatCredentialsError,
         TracecatDSLError,

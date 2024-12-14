@@ -114,6 +114,8 @@ services:
       OLLAMA__API_URL: ${OLLAMA__API_URL}
     volumes:
       - ./tracecat:/app/tracecat
+    ports:
+      - 8001:8000
     command:
       [
         "python",

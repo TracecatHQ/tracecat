@@ -6,22 +6,18 @@ NOTE: This is only used in the API server, not the worker
 from __future__ import annotations
 
 import asyncio
-import os
 import traceback
 from collections.abc import Iterator, Mapping
-from concurrent.futures import ProcessPoolExecutor
 from typing import Any, cast
 
+import ray
 import uvloop
-from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel
+from ray.exceptions import RayTaskError
 
 from tracecat import config
-from tracecat.auth.credentials import RoleACL
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_engine
 from tracecat.dsl.common import context_locator, create_default_dsl_context
 from tracecat.dsl.models import (
@@ -30,6 +26,7 @@ from tracecat.dsl.models import (
     DSLNodeResult,
     RunActionInput,
 )
+from tracecat.executor.engine import EXECUTION_TIMEOUT
 from tracecat.expressions.eval import (
     OperandType,
     eval_templated_object,
@@ -42,154 +39,26 @@ from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.models import (
     ArgsClsT,
     BoundRegistryAction,
-    RegistryActionErrorInfo,
-    RegistryActionValidate,
-    RegistryActionValidateResponse,
 )
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.repository import Repository
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryError, TracecatException
-from tracecat.validation.service import validate_registry_action_args
+from tracecat.types.exceptions import TracecatException
 
 """All these methods are used in the registry executor, not on the worker"""
 
-# Registry Action Controls
 
 type ArgsT = Mapping[str, Any]
-_executor: ProcessPoolExecutor | None = None
-
-router = APIRouter(tags=["executor"])
-
-
-class ExecutorSyncInput(BaseModel):
-    origin: str
-
-
-@router.post("/sync")
-async def sync_executor(
-    *,
-    role: Role = RoleACL(
-        allow_user=False,  # XXX(authz): Users cannot sync the executor
-        allow_service=True,  # Only services can sync the executor
-        require_workspace="no",
-    ),
-    input: ExecutorSyncInput,
-) -> None:
-    """Sync the executor from the registry."""
-    repo = Repository(origin=input.origin, role=role)
-    try:
-        await repo.load_from_origin()
-    except RegistryError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        ) from e
-
-
-@router.post("/run/{action_name}")
-async def run_action(
-    *,
-    role: Role = RoleACL(
-        allow_user=False,  # XXX(authz): Users cannot execute actions
-        allow_service=True,  # Only services can execute actions
-        require_workspace="no",
-    ),
-    action_name: str,
-    action_input: RunActionInput,
-) -> Any:
-    """Execute a registry action."""
-    ref = action_input.task.ref
-    ctx_role.set(role)
-    act_logger = logger.bind(role=role, action_name=action_name, ref=ref)
-    ctx_logger.set(act_logger)
-
-    act_logger.info("Starting action")
-    try:
-        return await run_action_in_pool(input=action_input)
-    except Exception as e:
-        # Get the traceback info
-        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
-        error_detail = RegistryActionErrorInfo(
-            action_name=action_name,
-            type=e.__class__.__name__,
-            message=str(e),
-            filename=tb.filename,
-            function=tb.name,
-            lineno=tb.lineno,
-        )
-        act_logger.error(
-            "Error running action",
-            action_name=action_name,
-            type=error_detail.type,
-            message=error_detail.message,
-            filename=error_detail.filename,
-            function=error_detail.function,
-            lineno=error_detail.lineno,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_detail.model_dump(mode="json"),
-        ) from e
-
-
-@router.post("/validate/{action_name}")
-async def validate_action(
-    *,
-    role: Role = RoleACL(
-        allow_user=False,  # XXX(authz): Users cannot validate actions
-        allow_service=True,  # Only services can validate actions
-        require_workspace="no",
-    ),
-    session: AsyncDBSession,
-    action_name: str,
-    params: RegistryActionValidate,
-) -> RegistryActionValidateResponse:
-    """Validate a registry action."""
-    try:
-        result = await validate_registry_action_args(
-            session=session, action_name=action_name, args=params.args
-        )
-
-        if result.status == "error":
-            logger.warning(
-                "Error validating UDF args", message=result.msg, details=result.detail
-            )
-        return RegistryActionValidateResponse.from_validation_result(result)
-    except KeyError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Action {action_name!r} not found in registry",
-        ) from e
-
-
-# We want to be able to serve a looped action
-# Before we send out tasks to the executor we should inspect the size of the loop
-# and set the right chunk size for each worker
-
-
-def _init_worker_process():
-    """Initialize each worker process with its own event loop"""
-    # Configure uvloop for the process and create a new event loop
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    loop = uvloop.new_event_loop()
-    asyncio.set_event_loop(loop)
-    logger.info("Initialized worker process with new event loop", pid=os.getpid())
-
-
-def get_executor() -> ProcessPoolExecutor:
-    """Get the executor, creating it if it doesn't exist"""
-    global _executor
-    if _executor is None:
-        _executor = ProcessPoolExecutor(initializer=_init_worker_process)
-        logger.info("Initialized executor process pool")
-    return _executor
 
 
 def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
-    """Run an action on the executor (API, not worker)"""
+    """We run this on the ray cluster."""
+
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     logger.info("Running action in pool", input=input)
 
@@ -202,22 +71,18 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
             await async_engine.dispose()
 
     try:
-        loop = asyncio.get_running_loop()
-        logger.debug("Got running loop")
-    except RuntimeError:
-        loop = asyncio.get_event_loop()
-        logger.debug("Get event loop")
-    return loop.run_until_complete(coro())
-
-
-async def run_action_in_pool(input: RunActionInput[ArgsT]) -> Any:
-    """Run an action on the executor (API, not worker)"""
-    loop = asyncio.get_running_loop()
-    role = ctx_role.get()
-    result = await loop.run_in_executor(
-        get_executor(), sync_executor_entrypoint, input, role
-    )
-    return result
+        return loop.run_until_complete(coro())
+    except Exception as e:
+        logger.error(
+            "Error running action",
+            error=e,
+            type=type(e).__name__,
+            traceback=traceback.format_exc(),
+        )
+        raise e
+    finally:
+        # We always close the loop
+        loop.close()
 
 
 async def _run_action_direct(
@@ -411,37 +276,8 @@ async def run_action_from_input(input: RunActionInput) -> Any:
 
     flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):
-        # Actual execution
-        if task.for_each:
-            # If the action is CPU bound, just run it directly
-            # Otherwise, we want to parallelize it
-            iterator = iter_for_each(task=task, context=context)
-
-            try:
-                async with GatheringTaskGroup() as tg:
-                    for patched_args in iterator:
-                        tg.create_task(
-                            run_single_action(
-                                action=action, args=patched_args, context=context
-                            )
-                        )
-
-                result = tg.results()
-            except* Exception as eg:
-                errors = [str(x) for x in eg.exceptions]
-                logger.error("Error resolving expressions", errors=errors)
-                raise TracecatException(
-                    (
-                        f"[{context_locator(task, 'for_each')}]"
-                        "\n\nError in loop:"
-                        f"\n\n{'\n\n'.join(errors)}"
-                    ),
-                    detail={"errors": errors},
-                ) from eg
-
-        else:
-            args = evaluate_templated_args(task, context)
-            result = await run_single_action(action=action, args=args, context=context)
+        args = evaluate_templated_args(task, context)
+        result = await run_single_action(action=action, args=args, context=context)
 
     if mask_values:
         result = apply_masks_object(result, masks=mask_values)
@@ -474,6 +310,80 @@ def flatten_secrets(secrets: dict[str, Any]):
                 )
             flattened_secrets[key] = value
     return flattened_secrets
+
+
+@ray.remote
+def run_action_task(input: RunActionInput, role: Role) -> Any:
+    """Ray task that runs an action."""
+    return sync_executor_entrypoint(input, role)
+
+
+async def run_action_on_ray_cluster(input: RunActionInput, role: Role) -> Any:
+    """Run an action on the ray cluster."""
+
+    obj_ref = run_action_task.remote(input, role)
+    try:
+        coro = asyncio.to_thread(ray.get, obj_ref)
+        return await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
+    except TimeoutError as e:
+        logger.error("Action timed out, cancelling task", error=e)
+        ray.cancel(obj_ref, force=True)
+        raise e
+    except RayTaskError as e:
+        logger.error("Error running action on ray cluster", error=e)
+        if isinstance(e.cause, BaseException):
+            raise e.cause from None
+        raise e
+
+
+async def dispatch_action_on_cluster(input: RunActionInput, role: Role) -> Any:
+    """Schedule actions on the ray cluster."""
+
+    task = input.task
+
+    # If there's no for_each, execute normally
+    if not task.for_each:
+        return await run_action_on_ray_cluster(input, role)
+
+    logger.info("Running for_each on action in parallel", input=input)
+
+    # Handle for_each by creating parallel executions
+    base_context = input.exec_context
+    # We have a list of iterators that give a variable assignment path ".path.to.value"
+    # and a collection of values as a tuple.
+    iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
+
+    async def coro(patched_input: RunActionInput):
+        return await run_action_on_ray_cluster(patched_input, role)
+
+    try:
+        async with GatheringTaskGroup() as tg:
+            # Create a generator that zips the iterables together
+            # Iterate over the for_each items
+            for items in zip(*iterators, strict=False):
+                new_context = base_context.copy()
+                # Patch each loop variable
+                for iterator_path, iterator_value in items:
+                    patch_object(
+                        obj=new_context,  # type: ignore
+                        path=ExprContext.LOCAL_VARS + iterator_path,
+                        value=iterator_value,
+                    )
+                # Create a new task with the patched context
+                new_input = input.model_copy(update={"exec_context": new_context})
+                tg.create_task(coro(new_input))
+        return tg.results()
+    except* Exception as eg:
+        errors = [str(x) for x in eg.exceptions]
+        logger.error("Error resolving expressions", errors=errors)
+        raise TracecatException(
+            (
+                f"[{context_locator(task, 'for_each')}]"
+                "\n\nError in loop:"
+                f"\n\n{'\n\n'.join(errors)}"
+            ),
+            detail={"errors": errors},
+        ) from eg
 
 
 """Utilities"""

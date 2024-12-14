@@ -11,9 +11,11 @@ import pytest
 
 from tracecat import config
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_engine
+from tracecat.db.engine import get_async_engine, get_async_session_context_manager
 from tracecat.db.schemas import User
 from tracecat.logger import logger
+from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.types.auth import Role
 from tracecat.workspaces.models import WorkspaceMetadataResponse
 
@@ -60,9 +62,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         "git+ssh://git@github.com/TracecatHQ/udfs.git",
     )
     # Need this for local unit tests
-    monkeysession.setattr(
-        config, "TRACECAT__EXECUTOR_URL", "http://localhost/api/executor"
-    )
+    monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
 
     monkeysession.setenv(
         "TRACECAT__DB_URI",
@@ -255,3 +255,22 @@ def temporal_client():
 
     client = loop.run_until_complete(get_temporal_client())
     return client
+
+
+@pytest.fixture(scope="function")
+async def db_session_with_repo(test_role):
+    """Fixture that creates a db session and temporary repository."""
+
+    async with get_async_session_context_manager() as session:
+        rr_service = RegistryReposService(session, role=test_role)
+        db_repo = await rr_service.create_repository(
+            RegistryRepositoryCreate(origin="__test_repo__")
+        )
+        try:
+            yield session, db_repo.id
+        finally:
+            try:
+                await rr_service.delete_repository(db_repo)
+                logger.info("Cleaned up db repo")
+            except Exception as e:
+                logger.error("Error cleaning up repo", e=e)
