@@ -60,7 +60,7 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
     loop = uvloop.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    logger.info("Running action in pool", input=input)
+    logger.info("Running action in sync entrypoint", action=input.task.action)
 
     async def coro():
         ctx_role.set(role)
