@@ -60,9 +60,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         "git+ssh://git@github.com/TracecatHQ/udfs.git",
     )
     # Need this for local unit tests
-    monkeysession.setattr(
-        config, "TRACECAT__EXECUTOR_URL", "http://localhost/api/executor"
-    )
+    monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
 
     monkeysession.setenv(
         "TRACECAT__DB_URI",
