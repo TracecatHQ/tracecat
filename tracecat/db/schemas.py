@@ -428,6 +428,15 @@ class RegistryRepository(Resource, table=True):
         unique=True,
         nullable=False,
     )
+    last_synced_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True)),
+    )
+    commit_sha: str | None = Field(
+        default=None,
+        description="The SHA of the last commit that was synced from the repository",
+    )
+    # Relationships
     actions: list["RegistryAction"] = Relationship(
         back_populates="repository",
         sa_relationship_kwargs={
