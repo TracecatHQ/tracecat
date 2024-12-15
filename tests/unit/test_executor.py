@@ -1,21 +1,17 @@
 import asyncio
-import os
-import time
 import uuid
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import SecretStr
 
-from tracecat.contexts import RunContext
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.contexts import RunContext, ctx_role
 from tracecat.dsl.common import create_default_dsl_context
 from tracecat.dsl.models import ActionStatement, RunActionInput
+from tracecat.executor.service import run_action_from_input, sync_executor_entrypoint
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.logger import logger
-from tracecat.registry import executor
 from tracecat.registry.actions.models import (
     ActionStep,
     RegistryActionCreate,
@@ -23,9 +19,6 @@ from tracecat.registry.actions.models import (
     TemplateActionDefinition,
 )
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.executor import _init_worker_process, get_executor
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
-from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
@@ -77,44 +70,24 @@ def mock_package(tmp_path):
         del sys.modules["test_module"]
 
 
-@pytest.fixture(scope="function")
-async def db_session_with_repo(test_role):
-    """Fixture that creates a db session and temporary repository."""
-
-    async with get_async_session_context_manager() as session:
-        rr_service = RegistryReposService(session, role=test_role)
-        db_repo = await rr_service.create_repository(
-            RegistryRepositoryCreate(origin="__test_repo__")
-        )
-        try:
-            yield session, db_repo.id
-        finally:
-            try:
-                await rr_service.delete_repository(db_repo)
-                logger.info("Cleaned up db repo")
-            except Exception as e:
-                logger.error("Error cleaning up repo", e=e)
-
-
 @pytest.mark.anyio
 async def test_executor_can_run_udf_with_secrets(
-    mock_package, test_role, db_session_with_repo, mock_run_context
+    mock_package, test_role, db_session_with_repo, mock_run_context, monkeysession
 ):
-    """Test that the executor can run a UDF with secrets.
-
-    A UDF should be able to pull secrets directly from the secrets store.
-    """
-
+    """Test that the executor can run a UDF with secrets through Ray."""
     session, db_repo_id = db_session_with_repo
+
+    from tracecat import config
+
+    monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
+
     # Arrange
-    # 1. Register test udfs
     repo = Repository()
     repo._register_udfs_from_package(mock_package)
 
     # Sanity check: Returns None because we haven't set secrets
     assert repo.get("testing.fetch_secret").fn("TEST_UDF_SECRET_KEY") is None  # type: ignore
 
-    # 2. Add secrets
     sec_service = SecretsService(session, role=test_role)
     try:
         await sec_service.create_secret(
@@ -150,7 +123,8 @@ async def test_executor_can_run_udf_with_secrets(
         )
 
         # Act
-        result = await executor.run_action_from_input(input)
+        ctx_role.set(test_role)
+        result = await run_action_from_input(input)
 
         # Assert
         assert result == "__SECRET_VALUE_UDF__"
@@ -252,43 +226,13 @@ async def test_executor_can_run_template_action_with_secret(
         )
 
         # Act
-        result = await executor.run_action_from_input(input)
+        result = await run_action_from_input(input)
 
         # Assert
         assert result == "__SECRET_VALUE__"
     finally:
         secret = await sec_service.get_secret_by_name("test", raise_on_error=True)
         await sec_service.delete_secret_by_id(secret.id)
-
-
-@pytest.mark.anyio
-async def test_executor_initialization():
-    """Test that the executor is properly initialized with a process pool."""
-    # Test singleton behavior
-    executor1 = executor.get_executor()
-    executor2 = executor.get_executor()
-
-    assert executor1 is executor2
-    assert isinstance(executor1, ProcessPoolExecutor)
-
-
-def get_process_id():
-    """Helper function to return process ID"""
-    _init_worker_process()  # Initialize worker
-    return os.getpid()
-
-
-@pytest.mark.anyio
-async def test_executor_process_isolation():
-    """Test that each worker process gets its own event loop."""
-
-    # Create multiple concurrent tasks to verify process isolation
-    executor = get_executor()
-    futures = [executor.submit(get_process_id) for _ in range(3)]
-
-    # Get results and verify they're different process IDs
-    process_ids = [future.result() for future in futures]
-    assert all(pid != os.getpid() for pid in process_ids)  # Different from main process
 
 
 async def mock_action(input: Any):
@@ -299,13 +243,12 @@ async def mock_action(input: Any):
 
 def test_sync_executor_entrypoint(test_role, mock_run_context):
     """Test that the sync executor entrypoint properly handles async operations."""
-    _init_worker_process()
 
     # Create a test input
 
     # Mock the run_action_from_input function
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("tracecat.registry.executor.run_action_from_input", mock_action)
+        mp.setattr("tracecat.executor.service.run_action_from_input", mock_action)
 
         # Run the entrypoint
         for i in range(10):
@@ -320,63 +263,5 @@ def test_sync_executor_entrypoint(test_role, mock_run_context):
                 exec_context=create_default_dsl_context(),
                 run_context=mock_run_context,
             )
-            result = executor.sync_executor_entrypoint(input, test_role)
+            result = sync_executor_entrypoint(input, test_role)
             assert result == input
-
-
-def slow_task(sleep_time: float) -> float:
-    """Helper function that simulates a slow task"""
-    _init_worker_process()
-    time.sleep(sleep_time)
-    return sleep_time
-
-
-@pytest.mark.anyio
-async def test_executor_concurrent_execution():
-    """Test that the executor can handle multiple concurrent executions."""
-
-    # Submit multiple tasks with different durations
-    executor = get_executor()
-
-    futures = [
-        executor.submit(slow_task, 0.2),
-        executor.submit(slow_task, 0.3),
-        executor.submit(slow_task, 0.1),
-    ]
-
-    # Wait for all tasks to complete
-    results = [future.result() for future in futures]
-
-    # Verify results
-    assert results == [0.2, 0.3, 0.1]
-
-
-def _test_worker_task():
-    """Task that creates and uses an async operation in the worker"""
-
-    async def async_operation():
-        await asyncio.sleep(0.1)
-        return id(asyncio.get_running_loop())
-
-    # Get the loop from the worker process
-    loop = asyncio.get_event_loop()
-    # Run the async operation
-    return loop.run_until_complete(async_operation())
-
-
-@pytest.mark.anyio
-async def test_executor_prevents_loop_conflicts():
-    """Test that the executor prevents 'Task attached to different loop' errors."""
-
-    # Run multiple worker tasks
-    with ProcessPoolExecutor(initializer=_init_worker_process) as executor:
-        loop = asyncio.get_running_loop()
-        futures = [loop.run_in_executor(executor, _test_worker_task) for _ in range(10)]
-        ids = await asyncio.gather(*futures)
-
-        # Get the main process loop ID
-        main_loop_id = id(asyncio.get_running_loop())
-
-        # Verify that:
-        # 1. Each worker has a different loop from the main process
-        assert all(loop_id != main_loop_id for loop_id in ids)

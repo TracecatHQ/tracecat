@@ -11,20 +11,18 @@ from tracecat.api.common import (
     setup_oss_models,
     tracecat_exception_handler,
 )
+from tracecat.executor.engine import setup_ray
+from tracecat.executor.router import router
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
-from tracecat.registry.executor import get_executor, router
 from tracecat.types.exceptions import TracecatException
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await setup_oss_models()
-    executor = get_executor()
-    try:
+    with setup_ray():
         yield
-    finally:
-        executor.shutdown()
 
 
 def create_app(**kwargs) -> FastAPI:

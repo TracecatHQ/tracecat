@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from types import CoroutineType, FunctionType, MethodType
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar, cast
 
 import yaml
@@ -34,7 +33,7 @@ RegistryActionType = Literal["udf", "template"]
 class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     # Bound Implementation
-    fn: FunctionType | MethodType | CoroutineType
+    fn: Callable[..., Any]
     template_action: TemplateAction | None = None
     # Registry action details
     name: str
