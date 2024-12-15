@@ -16,7 +16,7 @@ from tracecat.registry.constants import (
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import safe_url
-from tracecat.types.auth import Role
+from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
 
 
@@ -31,6 +31,15 @@ def generic_exception_handler(request: Request, exc: Exception):
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"message": "An unexpected error occurred. Please try again later."},
+    )
+
+
+def bootstrap_role():
+    """Role to bootstrap Tracecat services."""
+    return Role(
+        type="service",
+        access_level=AccessLevel.ADMIN,
+        service_id="tracecat-api",
     )
 
 
@@ -68,7 +77,9 @@ async def setup_registry(session: AsyncSession, admin_role: Role):
         # Create it if it doesn't exist
 
         cleaned_url = safe_url(remote_url)
+        # Repo doesn't exist
         if await repos_service.get_repository(cleaned_url) is None:
+            # Create it
             await repos_service.create_repository(
                 RegistryRepositoryCreate(origin=cleaned_url)
             )

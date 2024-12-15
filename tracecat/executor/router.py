@@ -15,9 +15,8 @@ from tracecat.registry.actions.models import (
     RegistryActionValidate,
     RegistryActionValidateResponse,
 )
-from tracecat.registry.repository import Repository
+from tracecat.registry.repository import RegistryReposService, Repository
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryError
 from tracecat.validation.service import validate_registry_action_args
 
 router = APIRouter(tags=["executor"])
@@ -31,16 +30,19 @@ async def sync_executor(
         allow_service=True,  # Only services can sync the executor
         require_workspace="no",
     ),
+    session: AsyncDBSession,
     input: ExecutorSyncInput,
 ) -> None:
     """Sync the executor from the registry."""
-    repo = Repository(origin=input.origin, role=role)
-    try:
-        await repo.load_from_origin()
-    except RegistryError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        ) from e
+    rr_service = RegistryReposService(session, role=role)
+    db_repo = await rr_service.get_repository_by_id(input.repository_id)
+    # If it doesn't exist, do nothing
+    if db_repo is None:
+        logger.info("Remote repository not found in DB, skipping")
+        return
+    # If it does exist, sync it
+    repo = Repository(db_repo.origin, role=role)
+    await repo.load_from_origin(commit_sha=db_repo.commit_sha)
 
 
 @router.post("/run/{action_name}")

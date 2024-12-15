@@ -1,16 +1,23 @@
+from datetime import datetime
+
 from pydantic import UUID4, BaseModel
 
 from tracecat.registry.actions.models import RegistryActionRead
 
 
 class RegistryRepositoryRead(BaseModel):
+    id: UUID4
     origin: str
+    last_synced_at: datetime | None
+    commit_sha: str | None
     actions: list[RegistryActionRead]
 
 
 class RegistryRepositoryReadMinimal(BaseModel):
     id: UUID4
     origin: str
+    last_synced_at: datetime | None
+    commit_sha: str | None
 
 
 class RegistryRepositoryCreate(BaseModel):
@@ -18,7 +25,6 @@ class RegistryRepositoryCreate(BaseModel):
 
 
 class RegistryRepositoryUpdate(BaseModel):
-    name: str | None = None
-    include_base: bool = True
-    include_remote: bool = True
-    include_templates: bool = True
+    last_synced_at: datetime | None = None
+    commit_sha: str | None = None
+    origin: str | None = None

@@ -10,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.api.common import (
+    bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
     setup_registry,
@@ -33,7 +34,7 @@ from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.secrets.router import router as secrets_router
-from tracecat.types.auth import AccessLevel, Role
+from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
 from tracecat.webhooks.router import router as webhook_router
 from tracecat.workflow.actions.router import router as workflow_actions_router
@@ -46,14 +47,10 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    admin_role = Role(
-        type="service",
-        access_level=AccessLevel.ADMIN,
-        service_id="tracecat-api",
-    )
+    role = bootstrap_role()
     async with get_async_session_context_manager() as session:
-        await setup_defaults(session, admin_role)
-        await setup_registry(session, admin_role)
+        await setup_defaults(session, role)
+        await setup_registry(session, role)
     yield
 
 
