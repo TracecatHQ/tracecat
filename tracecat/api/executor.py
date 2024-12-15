@@ -51,9 +51,12 @@ async def setup_custom_remote_repository():
         db_repo = await service.get_repository(url)
         # If it doesn't exist, do nothing
         if db_repo is None:
-            logger.info("Remote repository not found in DB, skipping")
+            logger.warning("Remote repository not found in DB, skipping")
             return
         # If it does exist, sync it
+        if db_repo.last_synced_at is None:
+            logger.info("Remote repository not synced, skipping")
+            return
         repo = Repository(db_repo.origin, role=role)
         await repo.load_from_origin(commit_sha=db_repo.commit_sha)
 
