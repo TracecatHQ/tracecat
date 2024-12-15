@@ -85,6 +85,11 @@ async def sync_registry_repository(
             detail=f"Unexpected error while syncing repository {repo.origin!r}: {e}",
         ) from e
 
+    # Finally, push the repository to the executor
+    await sync_executor_from_registry_repository(
+        role=role, session=session, repository_id=repository_id
+    )
+
 
 @router.post("/{repository_id}/sync-executor", status_code=status.HTTP_204_NO_CONTENT)
 async def sync_executor_from_registry_repository(
