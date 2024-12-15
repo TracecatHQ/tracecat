@@ -10,13 +10,13 @@ import re
 import subprocess
 import sys
 import tempfile
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from itertools import chain
 from pathlib import Path
 from timeit import default_timer
 from types import FunctionType, GenericAlias, ModuleType
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 
 import paramiko
@@ -220,14 +220,14 @@ class Repository:
 
         self._register_udfs_from_package(tracecat_registry)
 
-    async def load_from_origin(self) -> None:
-        """Load the registry from the origin."""
+    async def load_from_origin(self, commit_sha: str | None = None) -> str | None:
+        """Load the registry from the origin and return the commit sha."""
         if self._origin == DEFAULT_REGISTRY_ORIGIN:
             # This is a builtin registry, nothing to load
             logger.info("Loading builtin registry")
             self._load_base_udfs()
             self._load_base_template_actions()
-            return
+            return None
 
         elif self._origin == CUSTOM_REPOSITORY_ORIGIN:
             raise RegistryError("You cannot sync this repository.")
@@ -247,66 +247,50 @@ class Repository:
 
         package_name = config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME or repo_name
 
-        module = await self._load_remote_repository(self._origin, package_name)
+        cleaned_url = self.safe_remote_url(self._origin)
+        logger.debug("Cleaned URL", url=cleaned_url)
+        commit_sha = await self._install_remote_repository(cleaned_url, commit_sha)
+        module = await self._load_remote_repository(cleaned_url, package_name)
         logger.info(
             "Imported and reloaded remote repository",
             module_name=module.__name__,
             package_name=package_name,
         )
+        return commit_sha
 
-    async def _install_remote_repository(self, repo_url: str, env: _SSHEnv) -> None:
-        logger.info("Loading remote repository", url=repo_url)
-
-        cmd = ["uv", "pip", "install", "--system", "--refresh"]
-        extra_args = []
-        if config.TRACECAT__APP_ENV == "production":
-            # We set PYTHONUSERBASE in the prod Dockerfile
-            # Otherwise default to the user's home dir at ~/.local
-            python_user_base = (
-                os.getenv("PYTHONUSERBASE") or Path.home().joinpath(".local").as_posix()
-            )
-            logger.trace(
-                "Installing to PYTHONUSERBASE", python_user_base=python_user_base
-            )
-            extra_args = ["--target", python_user_base]
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                *extra_args,
-                repo_url,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=os.environ.copy() | env,
-            )
-            _, stderr = await process.communicate()
-            if process.returncode != 0:
-                error_message = stderr.decode().strip()
-                logger.error(f"Failed to install repository: {error_message}")
-                raise RuntimeError(f"Failed to install repository: {error_message}")
-
-            logger.info("Remote repository installed successfully")
-        except Exception as e:
-            logger.error(f"Error while fetching repository: {str(e)}")
-            raise RuntimeError(f"Error while fetching repository: {str(e)}") from e
-
-    async def _load_remote_repository(
-        self, repository_url: str, module_name: str
-    ) -> ModuleType:
-        """Load actions from a remote source."""
-        # First, we have to grab the ssh key from the db
+    async def _install_remote_repository(
+        self, repo_url: str, commit_sha: str | None = None
+    ) -> str:
+        """Install the remote repository into the filesystem and return the commit sha."""
 
         logger.info("Getting SSH key", role=self.role)
         async with SecretsService.with_session(role=self.role) as service:
             secret = await service.get_ssh_key(GITHUB_SSH_KEY_SECRET_NAME)
 
-        cleaned_url = self.safe_remote_url(repository_url)
-        logger.debug("Cleaned URL", url=cleaned_url)
         async with temporary_ssh_agent() as env:
             logger.info("Entered temporary SSH agent context")
             await add_ssh_key_to_agent(secret.reveal().value, env=env)
             await add_host_to_known_hosts("github.com", env=env)
-            await self._install_remote_repository(cleaned_url, env=env)
+            if commit_sha is None:
+                commit_sha = await get_git_repository_sha(repo_url, env=env)
+            await install_remote_repository(repo_url, commit_sha=commit_sha, env=env)
+        return commit_sha
 
+    async def _load_remote_repository(
+        self, repo_url: str, module_name: str
+    ) -> ModuleType:
+        """Load remote repository module into memory.
+
+        Args:
+            repo_url (str): The URL of the remote git repository
+            module_name (str): The name of the Python module to import
+
+        Returns:
+            ModuleType: The imported Python module containing the actions
+
+        Raises:
+            ImportError: If there is an error importing the module
+        """
         try:
             logger.info("Importing remote repository module", module_name=module_name)
             # We only need to call this at the root level because
@@ -314,7 +298,7 @@ class Repository:
             module = import_and_reload(module_name)
 
             # # Reload the module to ensure fresh execution
-            self._register_udfs_from_package(module, origin=cleaned_url)
+            self._register_udfs_from_package(module, origin=repo_url)
             logger.trace("AFTER", keys=self.keys)
         except ImportError as e:
             logger.error("Error importing remote repository udfs", error=e)
@@ -322,7 +306,7 @@ class Repository:
 
         try:
             self.load_template_actions_from_package(
-                package_name=module_name, origin=cleaned_url
+                package_name=module_name, origin=repo_url
             )
         except Exception as e:
             logger.error("Error importing remote repository template actions", error=e)
@@ -675,13 +659,13 @@ async def ensure_base_repository(
         logger.info("Base registry repository already exists", origin=origin)
 
 
-class _SSHEnv(TypedDict):
+class SshEnv(TypedDict):
     SSH_AUTH_SOCK: str
     SSH_AGENT_PID: str
 
 
 @asynccontextmanager
-async def temporary_ssh_agent() -> AsyncIterator[_SSHEnv]:
+async def temporary_ssh_agent() -> AsyncIterator[SshEnv]:
     """Set up a temporary SSH agent and yield the SSH_AUTH_SOCK."""
     original_ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
     try:
@@ -716,7 +700,7 @@ async def temporary_ssh_agent() -> AsyncIterator[_SSHEnv]:
             SSH_AUTH_SOCK=ssh_auth_sock,
             SSH_AGENT_PID=ssh_agent_pid,
         )
-        yield _SSHEnv(
+        yield SshEnv(
             SSH_AUTH_SOCK=ssh_auth_sock,
             SSH_AGENT_PID=ssh_agent_pid,
         )
@@ -736,7 +720,7 @@ async def temporary_ssh_agent() -> AsyncIterator[_SSHEnv]:
         logger.debug("Killed ssh-agent")
 
 
-async def add_ssh_key_to_agent(key_data: str, env: _SSHEnv) -> None:
+async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
     """Add the SSH key to the agent then remove it."""
     with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp_key_file:
         temp_key_file.write(key_data)
@@ -758,7 +742,7 @@ async def add_ssh_key_to_agent(key_data: str, env: _SSHEnv) -> None:
                 temp_key_file.name,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=env,
+                env=cast(Mapping[str, str], env),
             )
             _, stderr = await process.communicate()
 
@@ -771,7 +755,7 @@ async def add_ssh_key_to_agent(key_data: str, env: _SSHEnv) -> None:
             raise
 
 
-async def add_host_to_known_hosts(url: str, *, env: _SSHEnv) -> None:
+async def add_host_to_known_hosts(url: str, *, env: SshEnv) -> None:
     """Add the host to the known hosts file."""
     try:
         # Ensure the ~/.ssh directory exists
@@ -786,7 +770,7 @@ async def add_host_to_known_hosts(url: str, *, env: _SSHEnv) -> None:
             url,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env,
+            env=cast(Mapping[str, str], env),
         )
         stdout, stderr = await process.communicate()
 
@@ -801,3 +785,67 @@ async def add_host_to_known_hosts(url: str, *, env: _SSHEnv) -> None:
     except Exception as e:
         logger.error(f"Error adding host to known hosts: {str(e)}")
         raise
+
+
+async def install_remote_repository(
+    repo_url: str, commit_sha: str, env: SshEnv
+) -> None:
+    logger.info("Loading remote repository", url=repo_url, commit_sha=commit_sha)
+
+    cmd = ["uv", "pip", "install", "--system", "--refresh"]
+    extra_args = []
+    if config.TRACECAT__APP_ENV == "production":
+        # We set PYTHONUSERBASE in the prod Dockerfile
+        # Otherwise default to the user's home dir at ~/.local
+        python_user_base = (
+            os.getenv("PYTHONUSERBASE") or Path.home().joinpath(".local").as_posix()
+        )
+        logger.trace("Installing to PYTHONUSERBASE", python_user_base=python_user_base)
+        extra_args = ["--target", python_user_base]
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            *extra_args,
+            f"{repo_url}@{commit_sha}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=cast(Mapping[str, str], os.environ.copy() | env),
+        )
+        _, stderr = await process.communicate()
+        if process.returncode != 0:
+            error_message = stderr.decode().strip()
+            logger.error(f"Failed to install repository: {error_message}")
+            raise RuntimeError(f"Failed to install repository: {error_message}")
+
+        logger.info("Remote repository installed successfully")
+    except Exception as e:
+        logger.error(f"Error while fetching repository: {str(e)}")
+        raise RuntimeError(f"Error while fetching repository: {str(e)}") from e
+
+
+async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
+    """Get the SHA of the HEAD commit of a Git repository."""
+    try:
+        # Use git ls-remote to get the HEAD SHA without cloning
+        process = await asyncio.create_subprocess_exec(
+            "git",
+            "ls-remote",
+            repo_url,
+            "HEAD",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,  # type: ignore
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_message = stderr.decode().strip()
+            raise RuntimeError(f"Failed to get repository SHA: {error_message}")
+
+        # The output format is: "<SHA>\tHEAD"
+        sha = stdout.decode().split()[0]
+        return sha
+
+    except Exception as e:
+        logger.error("Error getting repository SHA", error=str(e))
+        raise RuntimeError(f"Error getting repository SHA: {str(e)}") from e

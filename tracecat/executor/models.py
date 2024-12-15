@@ -1,5 +1,5 @@
-from pydantic import BaseModel
+from pydantic import UUID4, BaseModel
 
 
 class ExecutorSyncInput(BaseModel):
-    origin: str
+    repository_id: UUID4
