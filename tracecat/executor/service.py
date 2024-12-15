@@ -345,7 +345,7 @@ async def dispatch_action_on_cluster(input: RunActionInput, role: Role) -> Any:
     if not task.for_each:
         return await run_action_on_ray_cluster(input, role)
 
-    logger.info("Running for_each on action in parallel", input=input)
+    logger.info("Running for_each on action in parallel", action=task.action)
 
     # Handle for_each by creating parallel executions
     base_context = input.exec_context
