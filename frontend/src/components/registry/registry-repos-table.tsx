@@ -4,8 +4,15 @@ import React, { useCallback, useState } from "react"
 import { RegistryRepositoryReadMinimal } from "@/client"
 import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { CopyIcon, LoaderCircleIcon, RefreshCcw, TrashIcon } from "lucide-react"
+import {
+  ArrowRightFromLineIcon,
+  CopyIcon,
+  LoaderCircleIcon,
+  RefreshCcw,
+  TrashIcon,
+} from "lucide-react"
 
+import { getRelativeTime } from "@/lib/event-history"
 import { useRegistryRepositories } from "@/lib/hooks"
 import {
   AlertDialog,
@@ -17,6 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -34,16 +42,19 @@ import {
 enum AlertAction {
   SYNC,
   DELETE,
+  SYNC_EXECUTOR,
 }
 
 export function RegistryRepositoriesTable() {
   const {
-    registryRepos,
-    registryReposIsLoading,
-    registryReposError,
-    syncRepos,
-    syncReposIsPending,
+    repos: registryRepos,
+    reposIsLoading: registryReposIsLoading,
+    reposError: registryReposError,
+    syncRepo,
+    syncRepoIsPending,
     deleteRepo,
+    syncExecutor,
+    syncExecutorIsPending,
   } = useRegistryRepositories()
   const [selectedRepo, setSelectedRepo] =
     useState<RegistryRepositoryReadMinimal | null>(null)
@@ -55,16 +66,34 @@ export function RegistryRepositoriesTable() {
         return {
           title: "Sync repository",
           description: (
-            <>
-              <span>You are about to sync the repository </span>
+            <div className="flex flex-col space-y-2">
+              <span>
+                You are about to pull the latest version of the repository{" "}
+              </span>
               <b className="font-mono tracking-tighter">
                 {selectedRepo?.origin}
               </b>
+              {selectedRepo?.commit_sha && (
+                <div className="text-sm text-muted-foreground">
+                  <span>Current SHA: </span>
+                  <Badge className="font-mono text-xs" variant="secondary">
+                    {selectedRepo.commit_sha}
+                  </Badge>
+                </div>
+              )}
+              {selectedRepo?.last_synced_at && (
+                <div className="text-sm text-muted-foreground">
+                  <span>Last synced: </span>
+                  <span>
+                    {new Date(selectedRepo.last_synced_at).toLocaleString()}
+                  </span>
+                </div>
+              )}
               <p>
                 Are you sure you want to proceed? This will reload all existing
-                actions with the latest versions from the repository.
+                actions with the latest versions from the remote repository.
               </p>
-            </>
+            </div>
           ),
           action: async () => {
             if (!selectedRepo) {
@@ -73,7 +102,7 @@ export function RegistryRepositoriesTable() {
             }
             console.log("Reloading repository", selectedRepo.origin)
             try {
-              await syncRepos({ origins: [selectedRepo.origin] })
+              await syncRepo({ repositoryId: selectedRepo.id })
               toast({
                 title: "Successfully synced repository",
                 description: (
@@ -87,6 +116,65 @@ export function RegistryRepositoriesTable() {
               })
             } catch (error) {
               console.error("Error reloading repository", error)
+            } finally {
+              setSelectedRepo(null)
+            }
+          },
+        }
+      case AlertAction.SYNC_EXECUTOR:
+        return {
+          title: "Push to executor",
+          description: (
+            <div className="flex flex-col space-y-2">
+              <span>
+                You are about to push the current version of the repository{" "}
+              </span>
+              <b className="font-mono tracking-tighter">
+                {selectedRepo?.origin}
+              </b>
+              <span>to the executor.</span>
+              {selectedRepo?.commit_sha && (
+                <div className="text-sm text-muted-foreground">
+                  <span>Current SHA: </span>
+                  <Badge className="font-mono text-xs" variant="secondary">
+                    {selectedRepo.commit_sha}
+                  </Badge>
+                </div>
+              )}
+              {selectedRepo?.last_synced_at && (
+                <div className="text-sm text-muted-foreground">
+                  <span>Last synced: </span>
+                  <span>
+                    {new Date(selectedRepo.last_synced_at).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              <p>
+                Are you sure you want to proceed? This will reload all existing
+                modules from this repository on the executor.
+              </p>
+            </div>
+          ),
+          action: async () => {
+            if (!selectedRepo) {
+              console.error("No repository selected")
+              return
+            }
+            try {
+              await syncExecutor({ repositoryId: selectedRepo.id })
+              toast({
+                title: "Successfully synced executor",
+                description: (
+                  <div className="flex flex-col space-y-2">
+                    <div>
+                      Successfully reloaded actions from{" "}
+                      <b className="inline-block">{selectedRepo.origin}</b>
+                    </div>
+                  </div>
+                ),
+              })
+            } catch (error) {
+              console.error("Error syncing executor", error)
             } finally {
               setSelectedRepo(null)
             }
@@ -122,7 +210,7 @@ export function RegistryRepositoriesTable() {
               selectedRepo.id
             )
             try {
-              await deleteRepo({ id: selectedRepo.id })
+              await deleteRepo({ repositoryId: selectedRepo.id })
             } catch (error) {
               console.error("Error deleting repository", error)
             } finally {
@@ -168,9 +256,66 @@ export function RegistryRepositoriesTable() {
             enableHiding: false,
           },
           {
+            accessorKey: "commit_sha",
+            header: ({ column }) => (
+              <DataTableColumnHeader
+                className="text-xs"
+                column={column}
+                title="Commit SHA"
+              />
+            ),
+            cell: ({ row }) => {
+              const sha =
+                row.getValue<RegistryRepositoryReadMinimal["commit_sha"]>(
+                  "commit_sha"
+                )
+              if (!sha)
+                return <div className="text-xs text-foreground/80">-</div>
+              return (
+                <Badge
+                  className="font-mono text-xs font-normal"
+                  variant="secondary"
+                >
+                  {sha.substring(0, 7)}
+                </Badge>
+              )
+            },
+            enableHiding: false,
+          },
+          {
+            accessorKey: "last_synced_at",
+            header: ({ column }) => (
+              <DataTableColumnHeader
+                className="text-xs"
+                column={column}
+                title="Last synced"
+              />
+            ),
+            cell: ({ row }) => {
+              const lastSyncedAt =
+                row.getValue<RegistryRepositoryReadMinimal["last_synced_at"]>(
+                  "last_synced_at"
+                )
+              if (!lastSyncedAt) {
+                return <div className="text-xs text-foreground/80">-</div>
+              }
+              const date = new Date(lastSyncedAt)
+              const ago = getRelativeTime(date)
+              return (
+                <div className="space-x-2 text-xs">
+                  <span>{date.toLocaleString()}</span>
+                  <span className="text-muted-foreground">({ago})</span>
+                </div>
+              )
+            },
+            enableSorting: true,
+            enableHiding: false,
+          },
+          {
             id: "actions",
             enableHiding: false,
             cell: ({ row }) => {
+              const commitSha = row.original.commit_sha
               return (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -180,8 +325,8 @@ export function RegistryRepositoriesTable() {
                       onClick={(e) => e.stopPropagation()} // Prevent row click
                     >
                       <span className="sr-only">Open menu</span>
-                      {row.original.origin === selectedRepo?.origin &&
-                      syncReposIsPending ? (
+                      {row.original.id === selectedRepo?.id &&
+                      (syncRepoIsPending || syncExecutorIsPending) ? (
                         <LoaderCircleIcon className="size-4 animate-spin" />
                       ) : (
                         <DotsHorizontalIcon className="size-4" />
@@ -192,6 +337,7 @@ export function RegistryRepositoriesTable() {
                     <DropdownMenuLabel className="p-2 text-xs font-semibold text-muted-foreground">
                       Actions
                     </DropdownMenuLabel>
+
                     <DropdownMenuItem
                       className="flex items-center text-xs"
                       onClick={(e) => {
@@ -201,14 +347,8 @@ export function RegistryRepositoriesTable() {
                           title: "Repository origin copied",
                           description: (
                             <div className="flex flex-col space-y-2">
-                              <span>
-                                Repository origin copied for{" "}
-                                <b className="inline-block">
-                                  {row.original.origin}
-                                </b>
-                              </span>
-                              <span className="text-muted-foreground">
-                                Repository origin: {row.original.origin}
+                              <span className="inline-block">
+                                {row.original.origin}
                               </span>
                             </div>
                           ),
@@ -218,6 +358,28 @@ export function RegistryRepositoriesTable() {
                       <CopyIcon className="mr-2 size-4" />
                       <span>Copy repository origin</span>
                     </DropdownMenuItem>
+                    {commitSha !== null && (
+                      <DropdownMenuItem
+                        className="flex items-center text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation() // Prevent row click
+                          navigator.clipboard.writeText(commitSha)
+                          toast({
+                            title: "Commit SHA copied",
+                            description: (
+                              <div className="flex flex-col space-y-2">
+                                <span className="inline-block">
+                                  {commitSha}
+                                </span>
+                              </div>
+                            ),
+                          })
+                        }}
+                      >
+                        <CopyIcon className="mr-2 size-4" />
+                        <span>Copy commit SHA</span>
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem
                       className="flex items-center text-xs"
                       onClick={(e) => {
@@ -228,8 +390,22 @@ export function RegistryRepositoriesTable() {
                       }}
                     >
                       <RefreshCcw className="mr-2 size-4" />
-                      <span>Sync repository</span>
+                      <span>Sync from remote</span>
                     </DropdownMenuItem>
+                    {row.original.last_synced_at !== null && (
+                      <DropdownMenuItem
+                        className="flex items-center text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation() // Prevent row click
+                          setSelectedRepo(row.original)
+                          setAlertAction(AlertAction.SYNC_EXECUTOR)
+                          setAlertOpen(true)
+                        }}
+                      >
+                        <ArrowRightFromLineIcon className="mr-2 size-4" />
+                        <span>Push to executor</span>
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem
                       className="flex items-center text-xs text-rose-600"
                       onClick={(e) => {
@@ -266,7 +442,7 @@ export function RegistryRepositoriesTable() {
               setAlertOpen(false)
               await alertContent?.action()
             }}
-            disabled={syncReposIsPending}
+            disabled={syncRepoIsPending || syncExecutorIsPending}
           >
             Confirm
           </AlertDialogAction>
