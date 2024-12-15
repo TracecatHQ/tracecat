@@ -5,10 +5,11 @@ import { RegistryRepositoryReadMinimal } from "@/client"
 import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
-  ArrowRightFromLineIcon,
+  ArrowRightToLineIcon,
   CopyIcon,
   LoaderCircleIcon,
   RefreshCcw,
+  Trash2Icon,
   TrashIcon,
 } from "lucide-react"
 
@@ -95,31 +96,86 @@ export function RegistryRepositoriesTable() {
               </p>
             </div>
           ),
-          action: async () => {
-            if (!selectedRepo) {
-              console.error("No repository selected")
-              return
-            }
-            console.log("Reloading repository", selectedRepo.origin)
-            try {
-              await syncRepo({ repositoryId: selectedRepo.id })
-              toast({
-                title: "Successfully synced repository",
-                description: (
-                  <div className="flex flex-col space-y-2">
-                    <div>
-                      Successfully reloaded actions from{" "}
-                      <b className="inline-block">{selectedRepo.origin}</b>
-                    </div>
-                  </div>
-                ),
-              })
-            } catch (error) {
-              console.error("Error reloading repository", error)
-            } finally {
-              setSelectedRepo(null)
-            }
-          },
+          actions: [
+            {
+              label: (
+                <div className="flex items-center space-x-2">
+                  <RefreshCcw className="size-4" />
+                  <span>Sync only</span>
+                </div>
+              ),
+              action: async () => {
+                if (!selectedRepo) {
+                  console.error("No repository selected")
+                  return
+                }
+                console.log("Reloading repository", selectedRepo.origin)
+                try {
+                  await syncRepo({ repositoryId: selectedRepo.id })
+                  toast({
+                    title: "Successfully synced repository",
+                    description: (
+                      <div className="flex flex-col space-y-2">
+                        <div>
+                          Successfully reloaded actions from{" "}
+                          <b className="inline-block">{selectedRepo.origin}</b>
+                        </div>
+                      </div>
+                    ),
+                  })
+                } catch (error) {
+                  console.error("Error reloading repository", error)
+                } finally {
+                  setSelectedRepo(null)
+                }
+              },
+            },
+            {
+              label: (
+                <div className="flex items-center space-x-2">
+                  <ArrowRightToLineIcon className="size-4" />
+                  <span>Sync and push to executor</span>
+                </div>
+              ),
+              action: async () => {
+                if (!selectedRepo) {
+                  console.error("No repository selected")
+                  return
+                }
+                console.log("Reloading repository", selectedRepo.origin)
+                try {
+                  await syncRepo({ repositoryId: selectedRepo.id })
+                  toast({
+                    title: "Successfully synced repository",
+                    description: (
+                      <div className="flex flex-col space-y-2">
+                        <div>
+                          Successfully reloaded actions from{" "}
+                          <b className="inline-block">{selectedRepo.origin}</b>
+                        </div>
+                      </div>
+                    ),
+                  })
+                  await syncExecutor({ repositoryId: selectedRepo.id })
+                  toast({
+                    title: "Successfully pushed to executor",
+                    description: (
+                      <div className="flex flex-col space-y-2">
+                        <div>
+                          Successfully pushed actions from{" "}
+                          <b className="inline-block">{selectedRepo.origin}</b>
+                        </div>
+                      </div>
+                    ),
+                  })
+                } catch (error) {
+                  console.error("Error reloading repository", error)
+                } finally {
+                  setSelectedRepo(null)
+                }
+              },
+            },
+          ],
         }
       case AlertAction.SYNC_EXECUTOR:
         return {
@@ -155,30 +211,40 @@ export function RegistryRepositoriesTable() {
               </p>
             </div>
           ),
-          action: async () => {
-            if (!selectedRepo) {
-              console.error("No repository selected")
-              return
-            }
-            try {
-              await syncExecutor({ repositoryId: selectedRepo.id })
-              toast({
-                title: "Successfully synced executor",
-                description: (
-                  <div className="flex flex-col space-y-2">
-                    <div>
-                      Successfully reloaded actions from{" "}
-                      <b className="inline-block">{selectedRepo.origin}</b>
-                    </div>
-                  </div>
-                ),
-              })
-            } catch (error) {
-              console.error("Error syncing executor", error)
-            } finally {
-              setSelectedRepo(null)
-            }
-          },
+          actions: [
+            {
+              label: (
+                <div className="flex items-center space-x-2">
+                  <ArrowRightToLineIcon className="size-4" />
+                  <span>Push to executor</span>
+                </div>
+              ),
+              action: async () => {
+                if (!selectedRepo) {
+                  console.error("No repository selected")
+                  return
+                }
+                try {
+                  await syncExecutor({ repositoryId: selectedRepo.id })
+                  toast({
+                    title: "Successfully synced executor",
+                    description: (
+                      <div className="flex flex-col space-y-2">
+                        <div>
+                          Successfully reloaded actions from{" "}
+                          <b className="inline-block">{selectedRepo.origin}</b>
+                        </div>
+                      </div>
+                    ),
+                  })
+                } catch (error) {
+                  console.error("Error syncing executor", error)
+                } finally {
+                  setSelectedRepo(null)
+                }
+              },
+            },
+          ],
         }
       case AlertAction.DELETE:
         return {
@@ -199,24 +265,34 @@ export function RegistryRepositoriesTable() {
               </p>
             </div>
           ),
-          action: async () => {
-            if (!selectedRepo) {
-              console.error("No repository selected")
-              return
-            }
-            console.log(
-              "Deleting repository",
-              selectedRepo.origin,
-              selectedRepo.id
-            )
-            try {
-              await deleteRepo({ repositoryId: selectedRepo.id })
-            } catch (error) {
-              console.error("Error deleting repository", error)
-            } finally {
-              setSelectedRepo(null)
-            }
-          },
+          actions: [
+            {
+              label: (
+                <div className="flex items-center space-x-2">
+                  <Trash2Icon className="size-4" />
+                  <span>Delete</span>
+                </div>
+              ),
+              action: async () => {
+                if (!selectedRepo) {
+                  console.error("No repository selected")
+                  return
+                }
+                console.log(
+                  "Deleting repository",
+                  selectedRepo.origin,
+                  selectedRepo.id
+                )
+                try {
+                  await deleteRepo({ repositoryId: selectedRepo.id })
+                } catch (error) {
+                  console.error("Error deleting repository", error)
+                } finally {
+                  setSelectedRepo(null)
+                }
+              },
+            },
+          ],
         }
       default:
         return null
@@ -327,7 +403,12 @@ export function RegistryRepositoriesTable() {
                       <span className="sr-only">Open menu</span>
                       {row.original.id === selectedRepo?.id &&
                       (syncRepoIsPending || syncExecutorIsPending) ? (
-                        <LoaderCircleIcon className="size-4 animate-spin" />
+                        <div className="flex items-center space-x-2">
+                          <LoaderCircleIcon className="size-4 animate-spin" />
+                          <span className="text-xs text-muted-foreground">
+                            {syncRepoIsPending ? "Pulling..." : "Pushing..."}
+                          </span>
+                        </div>
                       ) : (
                         <DotsHorizontalIcon className="size-4" />
                       )}
@@ -402,7 +483,7 @@ export function RegistryRepositoriesTable() {
                           setAlertOpen(true)
                         }}
                       >
-                        <ArrowRightFromLineIcon className="mr-2 size-4" />
+                        <ArrowRightToLineIcon className="mr-2 size-4" />
                         <span>Push to executor</span>
                       </DropdownMenuItem>
                     )}
@@ -437,15 +518,19 @@ export function RegistryRepositoriesTable() {
           <AlertDialogCancel onClick={() => setAlertOpen(false)}>
             Cancel
           </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={async () => {
-              setAlertOpen(false)
-              await alertContent?.action()
-            }}
-            disabled={syncRepoIsPending || syncExecutorIsPending}
-          >
-            Confirm
-          </AlertDialogAction>
+
+          {alertContent?.actions.map((action) => (
+            <AlertDialogAction
+              key={action.label}
+              onClick={async () => {
+                setAlertOpen(false)
+                await action.action()
+              }}
+              disabled={syncRepoIsPending || syncExecutorIsPending}
+            >
+              {action.label}
+            </AlertDialogAction>
+          ))}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
