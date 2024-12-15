@@ -392,18 +392,20 @@ export function RegistryRepositoriesTable() {
                       <RefreshCcw className="mr-2 size-4" />
                       <span>Sync from remote</span>
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="flex items-center text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation() // Prevent row click
-                        setSelectedRepo(row.original)
-                        setAlertAction(AlertAction.SYNC_EXECUTOR)
-                        setAlertOpen(true)
-                      }}
-                    >
-                      <ArrowRightFromLineIcon className="mr-2 size-4" />
-                      <span>Push to executor</span>
-                    </DropdownMenuItem>
+                    {row.original.last_synced_at !== null && (
+                      <DropdownMenuItem
+                        className="flex items-center text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation() // Prevent row click
+                          setSelectedRepo(row.original)
+                          setAlertAction(AlertAction.SYNC_EXECUTOR)
+                          setAlertOpen(true)
+                        }}
+                      >
+                        <ArrowRightFromLineIcon className="mr-2 size-4" />
+                        <span>Push to executor</span>
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem
                       className="flex items-center text-xs text-rose-600"
                       onClick={(e) => {
