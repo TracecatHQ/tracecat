@@ -29,8 +29,10 @@ import {
   registryRepositoriesDeleteRegistryRepository,
   RegistryRepositoriesDeleteRegistryRepositoryData,
   registryRepositoriesListRegistryRepositories,
-  registryRepositoriesSyncRegistryRepositories,
-  RegistryRepositoriesSyncRegistryRepositoriesData,
+  registryRepositoriesSyncExecutorFromRegistryRepository,
+  RegistryRepositoriesSyncExecutorFromRegistryRepositoryData,
+  registryRepositoriesSyncRegistryRepository,
+  RegistryRepositoriesSyncRegistryRepositoryData,
   RegistryRepositoryReadMinimal,
   Schedule,
   schedulesCreateSchedule,
@@ -962,25 +964,28 @@ export function useRegistryActions(versions?: string[]) {
 export function useRegistryRepositories() {
   const queryClient = useQueryClient()
   const {
-    data: registryRepos,
-    isLoading: registryReposIsLoading,
-    error: registryReposError,
+    data: repos,
+    isLoading: reposIsLoading,
+    error: reposError,
   } = useQuery<RegistryRepositoryReadMinimal[]>({
     queryKey: ["registry_repositories"],
     queryFn: async () => await registryRepositoriesListRegistryRepositories(),
   })
 
   const {
-    mutateAsync: syncRepos,
-    isPending: syncReposIsPending,
-    error: syncReposError,
+    mutateAsync: syncRepo,
+    isPending: syncRepoIsPending,
+    error: syncRepoError,
   } = useMutation({
     mutationFn: async (
-      params: RegistryRepositoriesSyncRegistryRepositoriesData
-    ) => await registryRepositoriesSyncRegistryRepositories(params),
+      params: RegistryRepositoriesSyncRegistryRepositoryData
+    ) => await registryRepositoriesSyncRegistryRepository(params),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["registry_repositories", "registry_actions"],
+        queryKey: ["registry_repositories"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["registry_actions"],
       })
       toast({
         title: "Synced registry repositories",
@@ -989,16 +994,16 @@ export function useRegistryRepositories() {
     },
     onError: (
       error: TracecatApiError,
-      variables: RegistryRepositoriesSyncRegistryRepositoriesData
+      variables: RegistryRepositoriesSyncRegistryRepositoryData
     ) => {
       const apiError = error as TracecatApiError
       switch (apiError.status) {
         case 400:
           toast({
-            title: "Couldn't sync repositories",
+            title: "Couldn't sync repository",
             description: (
               <div>
-                <p>Repositories: {variables.origins?.join(", ")}</p>
+                <p>Repository: {variables.repositoryId}</p>
                 <p>
                   {apiError.message}: {String(apiError.body.detail)}
                 </p>
@@ -1011,7 +1016,7 @@ export function useRegistryRepositories() {
             title: "Unexpected error syncing repositories",
             description: (
               <div>
-                <p>Repositories: {variables.origins?.join(", ")}</p>
+                <p>Repository: {variables.repositoryId}</p>
                 <p>{apiError.message}</p>
                 <p>{apiError.body.detail as string}</p>
               </div>
@@ -1056,16 +1061,53 @@ export function useRegistryRepositories() {
     },
   })
 
+  const {
+    mutateAsync: syncExecutor,
+    isPending: syncExecutorIsPending,
+    error: syncExecutorError,
+  } = useMutation({
+    mutationFn: async (
+      params: RegistryRepositoriesSyncExecutorFromRegistryRepositoryData
+    ) => await registryRepositoriesSyncExecutorFromRegistryRepository(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
+      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
+      toast({
+        title: "Synced executor",
+        description: "Executor synced successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      const apiError = error as TracecatApiError
+      switch (apiError.status) {
+        case 403:
+          toast({
+            title: "You cannot perform this action",
+            description: `${apiError.message}: ${apiError.body.detail}`,
+          })
+          break
+        default:
+          toast({
+            title: "Failed to sync executor",
+            description: `An unexpected error occurred while syncing the executor. ${apiError.message}: ${apiError.body.detail}`,
+          })
+      }
+    },
+  })
+
   return {
-    registryRepos,
-    registryReposIsLoading,
-    registryReposError,
-    syncRepos,
-    syncReposIsPending,
-    syncReposError,
+    repos,
+    reposIsLoading,
+    reposError,
+    syncRepo,
+    syncRepoIsPending,
+    syncRepoError,
     deleteRepo,
     deleteRepoIsPending,
     deleteRepoError,
+    syncExecutor,
+    syncExecutorIsPending,
+    syncExecutorError,
   }
 }
 
