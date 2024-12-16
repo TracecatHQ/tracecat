@@ -253,6 +253,11 @@ variable "executor_memory" {
   default = "512"
 }
 
+variable "executor_client_timeout" {
+  type    = string
+  default = "120"
+}
+
 variable "ui_cpu" {
   type    = string
   default = "256"
