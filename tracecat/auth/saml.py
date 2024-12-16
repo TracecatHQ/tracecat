@@ -1,22 +1,19 @@
 import tempfile
 import xml.etree.ElementTree as ET
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi_users.exceptions import UserAlreadyExists
 from pydantic import BaseModel
-from saml2 import BINDING_HTTP_POST, BINDING_HTTP_REDIRECT
+from saml2 import BINDING_HTTP_POST
 from saml2.client import Saml2Client
 from saml2.config import Config as Saml2Config
 
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
     SAML_IDP_CERTIFICATE,
-    SAML_IDP_ENTITY_ID,
     SAML_IDP_METADATA_URL,
-    SAML_IDP_REDIRECT_URL,
     SAML_SP_ACS_URL,
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
@@ -126,73 +123,6 @@ class SAMLParser:
         return attributes
 
 
-@contextmanager
-def generate_saml_metadata_file():
-    """Generate a temporary SAML metadata file."""
-
-    if not SAML_IDP_ENTITY_ID:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SAML SSO entity ID has not been configured.",
-        )
-
-    if not SAML_IDP_REDIRECT_URL:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SAML SSO redirect URL has not been configured.",
-        )
-
-    if not SAML_IDP_CERTIFICATE:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SAML SSO certificate has not been configured.",
-        )
-
-    # Create the root element
-    root = ET.Element(
-        "EntityDescriptor",
-        {
-            "xmlns": "urn:oasis:names:tc:SAML:2.0:metadata",
-            "xmlns:ds": "http://www.w3.org/2000/09/xmldsig#",
-            "entityID": SAML_IDP_ENTITY_ID,
-        },
-    )
-
-    # Create IDPSSODescriptor element
-    idp_sso_descriptor = ET.SubElement(
-        root,
-        "IDPSSODescriptor",
-        {"protocolSupportEnumeration": "urn:oasis:names:tc:SAML:2.0:protocol"},
-    )
-
-    # Add KeyDescriptor
-    key_descriptor = ET.SubElement(idp_sso_descriptor, "KeyDescriptor", use="signing")
-    key_info = ET.SubElement(key_descriptor, "ds:KeyInfo")
-    x509_data = ET.SubElement(key_info, "ds:X509Data")
-    x509_certificate = ET.SubElement(x509_data, "ds:X509Certificate")
-    x509_certificate.text = SAML_IDP_CERTIFICATE
-
-    # Add NameIDFormat
-    name_id_format = ET.SubElement(idp_sso_descriptor, "NameIDFormat")
-    name_id_format.text = "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"
-
-    # Add SingleSignOnService
-    ET.SubElement(
-        idp_sso_descriptor,
-        "SingleSignOnService",
-        {"Binding": BINDING_HTTP_REDIRECT, "Location": SAML_IDP_REDIRECT_URL},
-    )
-
-    # Create a temporary file
-    with tempfile.NamedTemporaryFile(mode="w+", suffix=".xml") as tmp_file:
-        # Write the XML to the temporary file
-        tree = ET.ElementTree(root)
-        tree.write(tmp_file, encoding="unicode", xml_declaration=True)
-        tmp_file.flush()
-        tmp_file_path = tmp_file.name
-        yield tmp_file_path
-
-
 def create_saml_client() -> Saml2Client:
     saml_settings = {
         "strict": True,
@@ -217,33 +147,25 @@ def create_saml_client() -> Saml2Client:
             },
         },
     }
-
-    if SAML_IDP_METADATA_URL is None:
-        with generate_saml_metadata_file() as tmp_metadata_path:
-            # Add the local metadata file to the settings
-            saml_settings["metadata"] = {"local": [tmp_metadata_path]}
-            config = Saml2Config()
-            config.load(saml_settings)
-    else:
-        # Save the cert to a temporary file
-        with tempfile.NamedTemporaryFile(mode="w+", suffix=".crt") as tmp_file:
-            if not SAML_IDP_CERTIFICATE:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="SAML SSO certificate has not been configured.",
-                )
-            tmp_file.write(SAML_IDP_CERTIFICATE)
-            tmp_file.flush()
-            saml_settings["metadata"] = {
-                "remote": [
-                    {
-                        "url": SAML_IDP_METADATA_URL,
-                        "cert": tmp_file.name,  # Path to cert
-                    }
-                ]
-            }
-            config = Saml2Config()
-            config.load(saml_settings)
+    # Save the cert to a temporary file
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".crt") as tmp_file:
+        if not SAML_IDP_CERTIFICATE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="SAML SSO certificate has not been configured.",
+            )
+        tmp_file.write(SAML_IDP_CERTIFICATE)
+        tmp_file.flush()
+        saml_settings["metadata"] = {
+            "remote": [
+                {
+                    "url": SAML_IDP_METADATA_URL,
+                    "cert": tmp_file.name,  # Path to cert
+                }
+            ]
+        }
+        config = Saml2Config()
+        config.load(saml_settings)
 
     client = Saml2Client(config)
     return client
