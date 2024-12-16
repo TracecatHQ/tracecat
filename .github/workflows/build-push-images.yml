@@ -25,7 +25,7 @@ jobs:
           - runner: ubuntu-latest
             platform: linux/amd64
             platform_tag: linux-amd64
-          - runner: buildjet-8vcpu-ubuntu-2204-arm
+          - runner: ubuntu-arm64-latest
             platform: linux/arm64
             platform_tag: linux-arm64
     steps:
@@ -133,7 +133,7 @@ jobs:
           - runner: ubuntu-latest
             platform: linux/amd64
             platform_tag: linux-amd64
-          - runner: buildjet-8vcpu-ubuntu-2204-arm
+          - runner: ubuntu-arm64-latest
             platform: linux/arm64
             platform_tag: linux-arm64
     steps:
