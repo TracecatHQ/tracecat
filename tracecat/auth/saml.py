@@ -60,14 +60,36 @@ class SAMLParser:
 
     def _extract_attribute(self, attribute_elem: ET.Element) -> SAMLAttribute:
         """Extract a single SAML attribute from an XML element"""
-        name = attribute_elem.get("Name", "")
-        name_format = attribute_elem.get("NameFormat", "")
-
-        # Get the attribute value
+        name = attribute_elem.get("Name")
+        name_format = attribute_elem.get("NameFormat")
         value_elem = attribute_elem.find("saml2:AttributeValue", self.NAMESPACES)
-        value = value_elem.text if value_elem is not None else ""
 
-        return SAMLAttribute(name=name, value=value, name_format=name_format)
+        if not name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="SAML response failed: AttributeName is empty",
+            )
+
+        if not name_format:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="SAML response failed: AttributeNameFormat is empty",
+            )
+
+        if value_elem is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"SAML response failed: AttributeValue for {name} not found",
+            )
+
+        value_text = value_elem.text
+        if value_text is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"SAML response failed: AttributeValue for {name} is empty",
+            )
+
+        return SAMLAttribute(name=name, value=value_text, name_format=name_format)
 
     def get_attribute_value(self, attribute_name: str) -> str:
         """Helper method to easily get an attribute value"""
@@ -85,7 +107,7 @@ class SAMLParser:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Failed to parse SAML response",
-            ) from None
+            ) from e
 
         # Find AttributeStatement
         attr_statement = root.find(".//saml2:AttributeStatement", self.NAMESPACES)
@@ -93,7 +115,7 @@ class SAMLParser:
             logger.error("SAML response failed: AttributeStatement not found")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid SAML response"
-            ) from None
+            )
 
         # Process all attributes
         attributes = {}
@@ -205,6 +227,11 @@ def create_saml_client() -> Saml2Client:
     else:
         # Save the cert to a temporary file
         with tempfile.NamedTemporaryFile(mode="w+", suffix=".crt") as tmp_file:
+            if not SAML_IDP_CERTIFICATE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="SAML SSO certificate has not been configured.",
+                )
             tmp_file.write(SAML_IDP_CERTIFICATE)
             tmp_file.flush()
             saml_settings["metadata"] = {
@@ -232,11 +259,11 @@ async def login(client: SamlClientDep) -> SAMLDatabaseLoginResponse:
         headers = info["headers"]
         # Select the IdP URL to send the AuthN request to
         redirect_url = next(v for k, v in headers if k == "Location")
-    except (KeyError, StopIteration):
+    except (KeyError, StopIteration) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Redirect URL not found in the SAML response.",
-        ) from None
+        ) from e
     # Return the redirect URL
     return SAMLDatabaseLoginResponse(redirect_url=redirect_url)
 
@@ -259,6 +286,13 @@ async def sso_acs(
     parser = SAMLParser(str(authn_response))
     email = parser.get_attribute_value("email")
 
+    # Validate email
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email not found in the SAML response.",
+        )
+
     # Try to get the user from the database
     try:
         user = await user_manager.saml_callback(
@@ -266,17 +300,17 @@ async def sso_acs(
             associate_by_email=True,  # Assuming we want to associate by email
             is_verified_by_default=True,  # Assuming SAML-authenticated users are verified by default
         )
-    except UserAlreadyExists:
+    except UserAlreadyExists as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User already exists",
-        ) from None
+        ) from e
 
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Bad credentials",
-        ) from None
+        )
 
     # Authenticate
     response = await auth_backend.login(strategy, user)
