@@ -56,6 +56,12 @@ variable "force_new_deployment" {
   default     = false
 }
 
+variable "disable_temporal_ui" {
+  type        = bool
+  description = "Whether to disable the Temporal UI service in the deployment"
+  default     = false
+}
+
 ### Secret ARNs
 
 variable "tracecat_db_encryption_key_arn" {
@@ -106,6 +112,24 @@ variable "saml_idp_certificate_arn" {
 variable "saml_idp_metadata_url_arn" {
   type        = string
   description = "The ARN of the secret containing the SAML IDP metadata URL (optional)"
+  default     = null
+}
+
+variable "temporal_auth_provider_url" {
+  type        = string
+  description = "The URL of the Temporal auth provider"
+  default     = null
+}
+
+variable "temporal_auth_client_id_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth client ID (optional)"
+  default     = null
+}
+
+variable "temporal_auth_client_secret_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth client secret (optional)"
   default     = null
 }
 

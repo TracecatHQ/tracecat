@@ -105,6 +105,12 @@ variable "tracecat_ui_image" {
   default = "ghcr.io/tracecathq/tracecat-ui"
 }
 
+variable "disable_temporal_ui" {
+  type        = bool
+  description = "Whether to disable the Temporal UI service in the deployment"
+  default     = false
+}
+
 variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
   description = "Terraform Cloud only: the git commit SHA of that triggered the run"
   type        = string
