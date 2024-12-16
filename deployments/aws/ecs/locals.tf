@@ -96,6 +96,7 @@ locals {
       LOG_LEVEL                  = var.temporal_log_level
       TEMPORAL_BROADCAST_ADDRESS = "0.0.0.0"
       BIND_ON_IP                 = "0.0.0.0"
+      NUM_HISTORY_SHARDS         = var.temporal_num_history_shards
     } :
     { name = k, value = tostring(v) }
   ]
