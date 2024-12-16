@@ -284,6 +284,12 @@ variable "temporal_client_rpc_timeout" {
   default     = null
 }
 
+variable "temporal_num_history_shards" {
+  type        = string
+  description = "Number of history shards for Temporal"
+  default     = "512"
+}
+
 variable "caddy_cpu" {
   type    = string
   default = "256"
