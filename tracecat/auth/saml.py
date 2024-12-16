@@ -1,22 +1,19 @@
 import tempfile
 import xml.etree.ElementTree as ET
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi_users.exceptions import UserAlreadyExists
 from pydantic import BaseModel
-from saml2 import BINDING_HTTP_POST, BINDING_HTTP_REDIRECT
+from saml2 import BINDING_HTTP_POST
 from saml2.client import Saml2Client
 from saml2.config import Config as Saml2Config
 
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
     SAML_IDP_CERTIFICATE,
-    SAML_IDP_ENTITY_ID,
     SAML_IDP_METADATA_URL,
-    SAML_IDP_REDIRECT_URL,
     SAML_SP_ACS_URL,
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
@@ -60,14 +57,36 @@ class SAMLParser:
 
     def _extract_attribute(self, attribute_elem: ET.Element) -> SAMLAttribute:
         """Extract a single SAML attribute from an XML element"""
-        name = attribute_elem.get("Name", "")
-        name_format = attribute_elem.get("NameFormat", "")
-
-        # Get the attribute value
+        name = attribute_elem.get("Name")
+        name_format = attribute_elem.get("NameFormat")
         value_elem = attribute_elem.find("saml2:AttributeValue", self.NAMESPACES)
-        value = value_elem.text if value_elem is not None else ""
 
-        return SAMLAttribute(name=name, value=value, name_format=name_format)
+        if not name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="SAML response failed: AttributeName is empty",
+            )
+
+        if not name_format:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="SAML response failed: AttributeNameFormat is empty",
+            )
+
+        if value_elem is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"SAML response failed: AttributeValue for {name} not found",
+            )
+
+        value_text = value_elem.text
+        if value_text is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"SAML response failed: AttributeValue for {name} is empty",
+            )
+
+        return SAMLAttribute(name=name, value=value_text, name_format=name_format)
 
     def get_attribute_value(self, attribute_name: str) -> str:
         """Helper method to easily get an attribute value"""
@@ -85,7 +104,7 @@ class SAMLParser:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Failed to parse SAML response",
-            ) from None
+            ) from e
 
         # Find AttributeStatement
         attr_statement = root.find(".//saml2:AttributeStatement", self.NAMESPACES)
@@ -93,7 +112,7 @@ class SAMLParser:
             logger.error("SAML response failed: AttributeStatement not found")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid SAML response"
-            ) from None
+            )
 
         # Process all attributes
         attributes = {}
@@ -104,74 +123,13 @@ class SAMLParser:
         return attributes
 
 
-@contextmanager
-def generate_saml_metadata_file():
-    """Generate a temporary SAML metadata file."""
-
-    if not SAML_IDP_ENTITY_ID:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SAML SSO entity ID has not been configured.",
-        )
-
-    if not SAML_IDP_REDIRECT_URL:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SAML SSO redirect URL has not been configured.",
-        )
-
-    if not SAML_IDP_CERTIFICATE:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SAML SSO certificate has not been configured.",
-        )
-
-    # Create the root element
-    root = ET.Element(
-        "EntityDescriptor",
-        {
-            "xmlns": "urn:oasis:names:tc:SAML:2.0:metadata",
-            "xmlns:ds": "http://www.w3.org/2000/09/xmldsig#",
-            "entityID": SAML_IDP_ENTITY_ID,
-        },
-    )
-
-    # Create IDPSSODescriptor element
-    idp_sso_descriptor = ET.SubElement(
-        root,
-        "IDPSSODescriptor",
-        {"protocolSupportEnumeration": "urn:oasis:names:tc:SAML:2.0:protocol"},
-    )
-
-    # Add KeyDescriptor
-    key_descriptor = ET.SubElement(idp_sso_descriptor, "KeyDescriptor", use="signing")
-    key_info = ET.SubElement(key_descriptor, "ds:KeyInfo")
-    x509_data = ET.SubElement(key_info, "ds:X509Data")
-    x509_certificate = ET.SubElement(x509_data, "ds:X509Certificate")
-    x509_certificate.text = SAML_IDP_CERTIFICATE
-
-    # Add NameIDFormat
-    name_id_format = ET.SubElement(idp_sso_descriptor, "NameIDFormat")
-    name_id_format.text = "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"
-
-    # Add SingleSignOnService
-    ET.SubElement(
-        idp_sso_descriptor,
-        "SingleSignOnService",
-        {"Binding": BINDING_HTTP_REDIRECT, "Location": SAML_IDP_REDIRECT_URL},
-    )
-
-    # Create a temporary file
-    with tempfile.NamedTemporaryFile(mode="w+", suffix=".xml") as tmp_file:
-        # Write the XML to the temporary file
-        tree = ET.ElementTree(root)
-        tree.write(tmp_file, encoding="unicode", xml_declaration=True)
-        tmp_file.flush()
-        tmp_file_path = tmp_file.name
-        yield tmp_file_path
-
-
 def create_saml_client() -> Saml2Client:
+    if not SAML_IDP_METADATA_URL:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="SAML SSO metadata URL has not been configured.",
+        )
+
     saml_settings = {
         "strict": True,
         # The global unique identifier for this service provider
@@ -195,28 +153,33 @@ def create_saml_client() -> Saml2Client:
             },
         },
     }
-
-    if SAML_IDP_METADATA_URL is None:
-        with generate_saml_metadata_file() as tmp_metadata_path:
-            # Add the local metadata file to the settings
-            saml_settings["metadata"] = {"local": [tmp_metadata_path]}
+    # Save the cert to a temporary file
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".crt") as tmp_file:
+        if not SAML_IDP_CERTIFICATE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="SAML SSO certificate has not been configured.",
+            )
+        tmp_file.write(
+            f"-----BEGIN CERTIFICATE-----\n{SAML_IDP_CERTIFICATE}\n-----END CERTIFICATE-----\n"
+        )
+        tmp_file.flush()
+        saml_settings["metadata"] = {
+            "remote": [
+                {
+                    "url": SAML_IDP_METADATA_URL,
+                    "cert": tmp_file.name,  # Path to cert
+                }
+            ]
+        }
+        try:
             config = Saml2Config()
             config.load(saml_settings)
-    else:
-        # Save the cert to a temporary file
-        with tempfile.NamedTemporaryFile(mode="w+", suffix=".crt") as tmp_file:
-            tmp_file.write(SAML_IDP_CERTIFICATE)
-            tmp_file.flush()
-            saml_settings["metadata"] = {
-                "remote": [
-                    {
-                        "url": SAML_IDP_METADATA_URL,
-                        "cert": tmp_file.name,  # Path to cert
-                    }
-                ]
-            }
-            config = Saml2Config()
-            config.load(saml_settings)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to load SAML configuration",
+            ) from e
 
     client = Saml2Client(config)
     return client
@@ -232,11 +195,11 @@ async def login(client: SamlClientDep) -> SAMLDatabaseLoginResponse:
         headers = info["headers"]
         # Select the IdP URL to send the AuthN request to
         redirect_url = next(v for k, v in headers if k == "Location")
-    except (KeyError, StopIteration):
+    except (KeyError, StopIteration) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Redirect URL not found in the SAML response.",
-        ) from None
+        ) from e
     # Return the redirect URL
     return SAMLDatabaseLoginResponse(redirect_url=redirect_url)
 
@@ -259,6 +222,13 @@ async def sso_acs(
     parser = SAMLParser(str(authn_response))
     email = parser.get_attribute_value("email")
 
+    # Validate email
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email not found in the SAML response.",
+        )
+
     # Try to get the user from the database
     try:
         user = await user_manager.saml_callback(
@@ -266,17 +236,17 @@ async def sso_acs(
             associate_by_email=True,  # Assuming we want to associate by email
             is_verified_by_default=True,  # Assuming SAML-authenticated users are verified by default
         )
-    except UserAlreadyExists:
+    except UserAlreadyExists as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User already exists",
-        ) from None
+        ) from e
 
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Bad credentials",
-        ) from None
+        )
 
     # Authenticate
     response = await auth_backend.login(strategy, user)

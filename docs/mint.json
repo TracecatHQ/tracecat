@@ -99,7 +99,7 @@
             "self-hosting/authentication/introduction",
             "self-hosting/authentication/basic",
             "self-hosting/authentication/google",
-            "self-hosting/authentication/okta"
+            "self-hosting/authentication/saml"
           ]
         }
       ]
