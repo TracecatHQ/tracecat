@@ -5,6 +5,8 @@ on:
     branches: ["staging"]
     tags:
       - "*.*.*"
+  pull_request:
+    branches: ["staging"]
 
 env:
   REGISTRY: ghcr.io
