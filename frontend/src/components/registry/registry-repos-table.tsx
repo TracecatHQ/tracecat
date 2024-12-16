@@ -519,9 +519,9 @@ export function RegistryRepositoriesTable() {
             Cancel
           </AlertDialogCancel>
 
-          {alertContent?.actions.map((action) => (
+          {alertContent?.actions.map((action, index) => (
             <AlertDialogAction
-              key={action.label}
+              key={index}
               onClick={async () => {
                 setAlertOpen(false)
                 await action.action()
