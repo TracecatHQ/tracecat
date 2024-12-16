@@ -51,16 +51,17 @@ locals {
 
   worker_env = [
     for k, v in merge({
-      LOG_LEVEL                    = var.log_level
-      TRACECAT__API_URL            = local.internal_api_url
-      TRACECAT__API_ROOT_PATH      = "/api"
-      TRACECAT__APP_ENV            = var.tracecat_app_env
-      TRACECAT__DB_ENDPOINT        = local.core_db_hostname
-      TRACECAT__PUBLIC_API_URL     = local.public_api_url
-      TEMPORAL__CLUSTER_URL        = local.temporal_cluster_url
-      TEMPORAL__CLUSTER_QUEUE      = local.temporal_cluster_queue
-      TEMPORAL__CLIENT_RPC_TIMEOUT = var.temporal_client_rpc_timeout
-      TRACECAT__EXECUTOR_URL       = local.internal_executor_url
+      LOG_LEVEL                         = var.log_level
+      TRACECAT__API_URL                 = local.internal_api_url
+      TRACECAT__API_ROOT_PATH           = "/api"
+      TRACECAT__APP_ENV                 = var.tracecat_app_env
+      TRACECAT__DB_ENDPOINT             = local.core_db_hostname
+      TRACECAT__PUBLIC_API_URL          = local.public_api_url
+      TEMPORAL__CLUSTER_URL             = local.temporal_cluster_url
+      TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
+      TEMPORAL__CLIENT_RPC_TIMEOUT      = var.temporal_client_rpc_timeout
+      TRACECAT__EXECUTOR_URL            = local.internal_executor_url
+      TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
     }, local.tracecat_db_configs) :
     { name = k, value = tostring(v) }
   ]
