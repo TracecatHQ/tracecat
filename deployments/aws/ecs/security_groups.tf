@@ -235,16 +235,22 @@ resource "aws_security_group" "secretsmanager_vpc_endpoint" {
   }
 
   ingress {
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.core.id]
+    from_port = 443
+    to_port   = 443
+    protocol  = "tcp"
+    security_groups = [
+      aws_security_group.core.id,
+      aws_security_group.temporal.id
+    ]
   }
 
   egress {
-    from_port       = 0
-    to_port         = 0
-    protocol        = "-1"
-    security_groups = [aws_security_group.core.id]
+    from_port = 0
+    to_port   = 0
+    protocol  = "-1"
+    security_groups = [
+      aws_security_group.core.id,
+      aws_security_group.temporal.id
+    ]
   }
 }

@@ -73,6 +73,12 @@ module "ecs" {
   saml_idp_certificate_arn  = var.saml_idp_certificate_arn
   saml_idp_metadata_url_arn = var.saml_idp_metadata_url_arn
 
+  # Temporal UI
+  temporal_auth_provider_url      = var.temporal_auth_provider_url
+  temporal_auth_client_id_arn     = var.temporal_auth_client_id_arn
+  temporal_auth_client_secret_arn = var.temporal_auth_client_secret_arn
+  disable_temporal_ui             = var.disable_temporal_ui
+
   # Compute / memory
   api_cpu                     = var.api_cpu
   api_memory                  = var.api_memory

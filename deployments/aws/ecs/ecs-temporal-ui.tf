@@ -1,5 +1,7 @@
 # ECS Task Definition for Temporal UI Service
 resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
+  count = var.disable_temporal_ui ? 0 : 1
+
   family                   = "TemporalUiTaskDefinition"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
@@ -69,9 +71,10 @@ resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
 }
 
 resource "aws_ecs_service" "temporal_ui_service" {
+  count                = var.disable_temporal_ui ? 0 : 1
   name                 = "temporal-ui"
   cluster              = aws_ecs_cluster.tracecat_cluster.id
-  task_definition      = aws_ecs_task_definition.temporal_ui_task_definition.arn
+  task_definition      = aws_ecs_task_definition.temporal_ui_task_definition[count.index].arn
   launch_type          = "FARGATE"
   desired_count        = 1
   force_new_deployment = var.force_new_deployment

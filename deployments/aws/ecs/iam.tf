@@ -82,6 +82,25 @@ resource "aws_iam_policy" "temporal_secrets_access" {
   depends_on = [aws_db_instance.temporal_database]
 }
 
+resource "aws_iam_policy" "temporal_ui_secrets_access" {
+  name        = "TracecatTemporalUISecretsAccessPolicy"
+  description = "Policy for accessing Temporal UI secrets"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        Resource = [
+          var.temporal_auth_client_id_arn,
+          var.temporal_auth_client_secret_arn
+        ]
+      }
+    ]
+  })
+}
+
 # API execution role
 resource "aws_iam_role" "api_execution" {
   name               = "TracecatAPIExecutionRole"
@@ -278,6 +297,11 @@ resource "aws_iam_role_policy_attachment" "temporal_ui_execution_ecs_poll" {
 
 resource "aws_iam_role_policy_attachment" "temporal_ui_execution_cloudwatch_logs" {
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.temporal_ui_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "temporal_ui_execution_secrets" {
+  policy_arn = aws_iam_policy.temporal_ui_secrets_access.arn
   role       = aws_iam_role.temporal_ui_execution.name
 }
 
