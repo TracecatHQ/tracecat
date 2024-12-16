@@ -3,7 +3,7 @@
 Currently supports confidential app-only authentication (i.e. `acquire_token_for_client` method)
 
 Docs:
--https://learn.microsoft.com/en-us/graph/auth-v2-service
+- https://learn.microsoft.com/en-us/graph/auth-v2-service
 - https://msal-python.readthedocs.io/en/latest/#confidentialclientapplication
 - https://learn.microsoft.com/en-us/entra/msal/python/getting-started/acquiring-tokens#confidential-clients-interactive-token-acquisition
 """
@@ -20,7 +20,7 @@ microsoft_graph_secret = RegistrySecret(
         "MICROSOFT_GRAPH_CLIENT_SECRET",
     ],
     optional_keys=[
-        "MICROSOFT_GRAPH_SCOPE",
+        "MICROSOFT_GRAPH_SCOPES",
         "MICROSOFT_TOKEN_AUTHORITY",
         "MICROSOFT_OIDC_AUTHORITY",
     ],
@@ -32,9 +32,13 @@ microsoft_graph_secret = RegistrySecret(
     - `MICROSOFT_GRAPH_CLIENT_ID`
     - `MICROSOFT_GRAPH_CLIENT_SECRET`
 - optional_keys:
-    - `MICROSOFT_GRAPH_SCOPE` (default: `https://graph.microsoft.com/.default`)
-    - `MICROSOFT_TOKEN_AUTHORITY` (default: `https://login.microsoftonline.com/common`)
+    - `MICROSOFT_GRAPH_SCOPES` (comma-separated list of scopes)
+    - `MICROSOFT_TOKEN_AUTHORITY`
     - `MICROSOFT_OIDC_AUTHORITY`
+
+Note:
+- `MICROSOFT_GRAPH_SCOPES` defaults to `https://graph.microsoft.com/.default`
+- `MICROSOFT_TOKEN_AUTHORITY` defaults to `https://login.microsoftonline.com/common`
 """
 
 
@@ -49,7 +53,7 @@ def get_auth_token() -> str:
     client_id = secrets.get("MICROSOFT_GRAPH_CLIENT_ID")
     client_secret = secrets.get("MICROSOFT_GRAPH_CLIENT_SECRET")
     scopes = secrets.get(
-        "MICROSOFT_GRAPH_SCOPE", "https://graph.microsoft.com/.default"
+        "MICROSOFT_GRAPH_SCOPES", "https://graph.microsoft.com/.default"
     )
     authority = secrets.get(
         "MICROSOFT_TOKEN_AUTHORITY", "https://login.microsoftonline.com/common"
@@ -63,7 +67,7 @@ def get_auth_token() -> str:
         app_name="tracecat",
         app_version=__version__,
     )
-    result = app.acquire_token_for_client(scopes=[scopes])
+    result = app.acquire_token_for_client(scopes=scopes.split(","))
     if result is None:
         raise ValueError("Failed to acquire token. Empty result returned.")
     elif "access_token" in result:
