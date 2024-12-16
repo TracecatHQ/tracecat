@@ -60,6 +60,10 @@ async def create_schedule(
                 start_at=start_at,
                 end_at=end_at,
             ),
+            policy=temporalio.client.SchedulePolicy(
+                # Allow overlapping workflows to run in parallel
+                overlap=temporalio.client.ScheduleOverlapPolicy.ALLOW_ALL,
+            ),
         ),
     )
 
