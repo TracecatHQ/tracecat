@@ -1074,6 +1074,10 @@ export const $EventGroup = {
                     pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
                 },
                 {
+                    type: 'string',
+                    pattern: 'wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*'
+                },
+                {
                     type: 'null'
                 }
             ],
@@ -1148,6 +1152,10 @@ export const $EventHistoryResponse = {
                 {
                     type: 'string',
                     pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
+                },
+                {
+                    type: 'string',
+                    pattern: 'wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*'
                 },
                 {
                     type: 'null'
@@ -1820,9 +1828,37 @@ export const $RegistryRepositoryCreate = {
 
 export const $RegistryRepositoryRead = {
     properties: {
+        id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Id'
+        },
         origin: {
             type: 'string',
             title: 'Origin'
+        },
+        last_synced_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Synced At'
+        },
+        commit_sha: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Commit Sha'
         },
         actions: {
             items: {
@@ -1833,7 +1869,7 @@ export const $RegistryRepositoryRead = {
         }
     },
     type: 'object',
-    required: ['origin', 'actions'],
+    required: ['id', 'origin', 'last_synced_at', 'commit_sha', 'actions'],
     title: 'RegistryRepositoryRead'
 } as const;
 
@@ -1847,16 +1883,20 @@ export const $RegistryRepositoryReadMinimal = {
         origin: {
             type: 'string',
             title: 'Origin'
-        }
-    },
-    type: 'object',
-    required: ['id', 'origin'],
-    title: 'RegistryRepositoryReadMinimal'
-} as const;
-
-export const $RegistryRepositoryUpdate = {
-    properties: {
-        name: {
+        },
+        last_synced_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Synced At'
+        },
+        commit_sha: {
             anyOf: [
                 {
                     type: 'string'
@@ -1865,22 +1905,49 @@ export const $RegistryRepositoryUpdate = {
                     type: 'null'
                 }
             ],
-            title: 'Name'
+            title: 'Commit Sha'
+        }
+    },
+    type: 'object',
+    required: ['id', 'origin', 'last_synced_at', 'commit_sha'],
+    title: 'RegistryRepositoryReadMinimal'
+} as const;
+
+export const $RegistryRepositoryUpdate = {
+    properties: {
+        last_synced_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Synced At'
         },
-        include_base: {
-            type: 'boolean',
-            title: 'Include Base',
-            default: true
+        commit_sha: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Commit Sha'
         },
-        include_remote: {
-            type: 'boolean',
-            title: 'Include Remote',
-            default: true
-        },
-        include_templates: {
-            type: 'boolean',
-            title: 'Include Templates',
-            default: true
+        origin: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Origin'
         }
     },
     type: 'object',

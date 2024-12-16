@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { RefreshCcw } from "lucide-react"
 
 import { useRegistryRepositories } from "@/lib/hooks"
@@ -9,20 +10,45 @@ import { ConfirmationDialog } from "@/components/confirmation-dialog"
 import { RegistryRepositoriesTable } from "@/components/registry/registry-repos-table"
 
 export default function RegistryRepositoriesPage() {
-  const { syncRepos, syncReposIsPending } = useRegistryRepositories()
+  const { repos, syncRepo } = useRegistryRepositories()
+  const [syncing, setSyncing] = useState(false)
   const handleSyncRepositories = async () => {
+    if (!repos) return
     try {
-      // Sync all repositories
-      await syncRepos({})
-      toast({
-        title: "Repositories synced",
-        description: "Your repositories have been synced",
-      })
+      // Sync all repositories and get their results
+      setSyncing(true)
+      const results = await Promise.allSettled(
+        repos.map((repo) => syncRepo({ repositoryId: repo.id }))
+      )
+
+      // Filter out the failed promises
+      const failures = results.filter(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected"
+      )
+
+      if (failures.length > 0) {
+        // Some repositories failed to sync
+        toast({
+          title: "Partial sync failure",
+          description: `Couldn't sync ${failures.map((f) => f.reason.body?.detail || f.reason.message).join(", ")}`,
+        })
+      } else {
+        // All repositories synced successfully
+        toast({
+          title: "Repositories synced",
+          description: `Successfully synced ${results.length} repositories`,
+        })
+      }
     } catch (error) {
+      // This catch block will only trigger for errors in the Promise.allSettled handling itself
       toast({
         title: "Failed to sync repositories",
-        description: "An error occurred while syncing your repositories",
+        description: "An unexpected error occurred while syncing repositories",
+        variant: "destructive",
       })
+    } finally {
+      setSyncing(false)
     }
   }
   return (
@@ -47,7 +73,7 @@ export default function RegistryRepositoriesPage() {
                 role="combobox"
                 variant="outline"
                 className="items-center space-x-2"
-                disabled={syncReposIsPending}
+                disabled={syncing}
               >
                 <RefreshCcw className="size-4 text-muted-foreground/80" />
                 <span>Sync All Repositories</span>
