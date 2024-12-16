@@ -86,6 +86,7 @@ module "ecs" {
   temporal_cpu                = var.temporal_cpu
   temporal_memory             = var.temporal_memory
   temporal_client_rpc_timeout = var.temporal_client_rpc_timeout
+  temporal_num_history_shards = var.temporal_num_history_shards
   caddy_cpu                   = var.caddy_cpu
   caddy_memory                = var.caddy_memory
   db_instance_class           = var.db_instance_class
