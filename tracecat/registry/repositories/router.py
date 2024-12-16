@@ -93,6 +93,7 @@ async def sync_executor_from_registry_repository(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
+        min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
     repository_id: UUID4,
