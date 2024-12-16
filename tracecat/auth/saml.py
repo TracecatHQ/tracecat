@@ -124,6 +124,12 @@ class SAMLParser:
 
 
 def create_saml_client() -> Saml2Client:
+    if not SAML_IDP_METADATA_URL:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="SAML SSO metadata URL has not been configured.",
+        )
+
     saml_settings = {
         "strict": True,
         # The global unique identifier for this service provider
@@ -154,7 +160,9 @@ def create_saml_client() -> Saml2Client:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="SAML SSO certificate has not been configured.",
             )
-        tmp_file.write(SAML_IDP_CERTIFICATE)
+        tmp_file.write(
+            f"-----BEGIN CERTIFICATE-----\n{SAML_IDP_CERTIFICATE}\n-----END CERTIFICATE-----\n"
+        )
         tmp_file.flush()
         saml_settings["metadata"] = {
             "remote": [
@@ -164,8 +172,14 @@ def create_saml_client() -> Saml2Client:
                 }
             ]
         }
-        config = Saml2Config()
-        config.load(saml_settings)
+        try:
+            config = Saml2Config()
+            config.load(saml_settings)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to load SAML configuration",
+            ) from e
 
     client = Saml2Client(config)
     return client
