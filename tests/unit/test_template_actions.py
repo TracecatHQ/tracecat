@@ -229,7 +229,7 @@ async def test_template_action_with_enum():
     registry.register_template_action(action)
 
     bound_action = registry.get(action.definition.action)
-    result = await executor.run_template_action(
+    result = await service.run_template_action(
         action=bound_action,
         args={"status": "critical", "message": "System CPU usage above 90%"},
         context={},
@@ -241,7 +241,7 @@ async def test_template_action_with_enum():
     }
 
     # Test with default status
-    result_default = await executor.run_template_action(
+    result_default = await service.run_template_action(
         action=bound_action,
         args={"message": "Informational message"},
         context={},
@@ -300,7 +300,7 @@ async def test_template_action_with_invalid_enum():
 
     bound_action = registry.get(action.definition.action)
     with pytest.raises(ValidationError) as exc_info:
-        await executor.run_template_action(
+        await service.run_template_action(
             action=bound_action,
             args={
                 "status": "emergency",  # Invalid status - not in enum
