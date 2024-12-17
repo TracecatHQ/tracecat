@@ -20,6 +20,7 @@ from tracecat.expressions.functions import (
     create_days,
     create_hours,
     create_minutes,
+    create_range,
     create_seconds,
     create_weeks,
     days_between,
@@ -869,3 +870,33 @@ def test_intersect(
     result = intersect(items, collection, python_lambda)
     # Sort the results to ensure consistent comparison
     assert sorted(result) == sorted(expected)
+
+
+@pytest.mark.parametrize(
+    "start,end,step,expected",
+    [
+        (0, 5, 1, [0, 1, 2, 3, 4]),  # Basic range
+        (1, 10, 2, [1, 3, 5, 7, 9]),  # Range with step
+        (5, 0, -1, [5, 4, 3, 2, 1]),  # Descending range
+        (0, 0, 1, []),  # Empty range
+        (-5, 5, 2, [-5, -3, -1, 1, 3]),  # Range with negative start
+        (10, 5, -2, [10, 8, 6]),  # Descending range with step
+    ],
+)
+def test_create_range(start: int, end: int, step: int, expected: list[int]) -> None:
+    """Test create_range function with various inputs.
+
+    Tests:
+    - Basic ascending range
+    - Range with custom step size
+    - Descending range
+    - Empty range
+    - Range with negative numbers
+    - Descending range with custom step
+    """
+    result = create_range(start, end, step)
+    assert list(result) == expected
+
+    # Test invalid step
+    with pytest.raises(ValueError):
+        create_range(0, 5, 0)  # Step cannot be 0

@@ -397,6 +397,11 @@ def iter_product(*iterables: Sequence[Any]) -> list[tuple[Any, ...]]:
     return list(itertools.product(*iterables))
 
 
+def create_range(start: int, end: int, step: int = 1) -> range:
+    """Create a range of integers from start to end (exclusive), with a step size."""
+    return range(start, end, step)
+
+
 # Dictionary functions
 
 
@@ -835,6 +840,7 @@ _FUNCTION_MAPPING = {
     # Iteration
     "zip": zip_iterables,
     "iter_product": iter_product,
+    "range": create_range,
     # Generators
     "uuid4": generate_uuid,
     # Extract JSON keys and values
