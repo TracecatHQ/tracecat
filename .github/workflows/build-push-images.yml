@@ -24,10 +24,10 @@ jobs:
         include:
           - runner: ubuntu-latest
             platform: linux/amd64
-            platform_tag: amd64
+            platform_tag: linux-amd64
           - runner: ubuntu-arm64-latest
             platform: linux/arm64
-            platform_tag: arm64
+            platform_tag: linux-arm64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,22 +54,42 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
-      - name: Build and push
+      - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          push: true
-          tags: |
-            ghcr.io/tracecathq/tracecat:${{ github.sha }}-${{ matrix.platform_tag }}
-            ghcr.io/tracecathq/tracecat:latest-${{ matrix.platform_tag }}
+          outputs: type=image,name=ghcr.io/tracecathq/tracecat,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=build-${{ matrix.platform_tag }}
+          cache-to: type=gha,scope=build-${{ matrix.platform_tag }},mode=max
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.platform_tag }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
 
   merge-api:
     needs: build-and-push-api
     runs-on: ubuntu-latest
     steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -80,40 +100,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create and push manifests
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/tracecathq/tracecat
+          tags: |
+            type=sha
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
         run: |
-          # Create SHA manifest
-          docker manifest create \
-            ghcr.io/tracecathq/tracecat:${{ github.sha }} \
-            --amend ghcr.io/tracecathq/tracecat:${{ github.sha }}-amd64 \
-            --amend ghcr.io/tracecathq/tracecat:${{ github.sha }}-arm64
-          docker manifest push ghcr.io/tracecathq/tracecat:${{ github.sha }}
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/tracecathq/tracecat@sha256:%s ' *) \
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && '-t ghcr.io/tracecathq/tracecat:latest' || '' }}
 
-          # Create latest manifest
-          docker manifest create \
-            ghcr.io/tracecathq/tracecat:latest \
-            --amend ghcr.io/tracecathq/tracecat:latest-amd64 \
-            --amend ghcr.io/tracecathq/tracecat:latest-arm64
-          docker manifest push ghcr.io/tracecathq/tracecat:latest
-
-          # If this is a PR, create PR manifest
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            docker manifest create \
-              ghcr.io/tracecathq/tracecat:pr-${{ github.event.number }} \
-              --amend ghcr.io/tracecathq/tracecat:${{ github.sha }}-amd64 \
-              --amend ghcr.io/tracecathq/tracecat:${{ github.sha }}-arm64
-            docker manifest push ghcr.io/tracecathq/tracecat:pr-${{ github.event.number }}
-          fi
-
-          # If this is a tag, create version manifest
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}
-            docker manifest create \
-              ghcr.io/tracecathq/tracecat:${VERSION} \
-              --amend ghcr.io/tracecathq/tracecat:${{ github.sha }}-amd64 \
-              --amend ghcr.io/tracecathq/tracecat:${{ github.sha }}-arm64
-            docker manifest push ghcr.io/tracecathq/tracecat:${VERSION}
-          fi
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect ghcr.io/tracecathq/tracecat:${{ steps.meta.outputs.version }}
 
   build-and-push-ui:
     runs-on: ${{ matrix.runner }}
@@ -181,13 +190,13 @@ jobs:
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
-          echo $digest > "/tmp/digests/digest.txt"
+          touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
           name: ui-digests-${{ matrix.platform_tag }}
-          path: /tmp/digests/digest.txt
+          path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
@@ -195,6 +204,13 @@ jobs:
     needs: build-and-push-ui
     runs-on: ubuntu-latest
     steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: ui-digests-*
+          merge-multiple: true
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -205,37 +221,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create and push manifests
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/tracecathq/tracecat-ui
+          tags: |
+            type=sha
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
         run: |
-          # Create SHA manifest
-          docker manifest create \
-            ghcr.io/tracecathq/tracecat-ui:${{ github.sha }} \
-            --amend ghcr.io/tracecathq/tracecat-ui:${{ github.sha }}-amd64 \
-            --amend ghcr.io/tracecathq/tracecat-ui:${{ github.sha }}-arm64
-          docker manifest push ghcr.io/tracecathq/tracecat-ui:${{ github.sha }}
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/tracecathq/tracecat-ui@sha256:%s ' *) \
+            ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && '-t ghcr.io/tracecathq/tracecat-ui:latest' || '' }}
 
-          # Create latest manifest
-          docker manifest create \
-            ghcr.io/tracecathq/tracecat-ui:latest \
-            --amend ghcr.io/tracecathq/tracecat-ui:latest-amd64 \
-            --amend ghcr.io/tracecathq/tracecat-ui:latest-arm64
-          docker manifest push ghcr.io/tracecathq/tracecat-ui:latest
-
-          # If this is a PR, create PR manifest
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            docker manifest create \
-              ghcr.io/tracecathq/tracecat-ui:pr-${{ github.event.number }} \
-              --amend ghcr.io/tracecathq/tracecat-ui:${{ github.sha }}-amd64 \
-              --amend ghcr.io/tracecathq/tracecat-ui:${{ github.sha }}-arm64
-            docker manifest push ghcr.io/tracecathq/tracecat-ui:pr-${{ github.event.number }}
-          fi
-
-          # If this is a tag, create version manifest
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}
-            docker manifest create \
-              ghcr.io/tracecathq/tracecat-ui:${VERSION} \
-              --amend ghcr.io/tracecathq/tracecat-ui:${{ github.sha }}-amd64 \
-              --amend ghcr.io/tracecathq/tracecat-ui:${{ github.sha }}-arm64
-            docker manifest push ghcr.io/tracecathq/tracecat-ui:${VERSION}
-          fi
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect ghcr.io/tracecathq/tracecat-ui:${{ steps.meta.outputs.version }}
