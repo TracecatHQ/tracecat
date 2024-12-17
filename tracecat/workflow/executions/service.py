@@ -412,6 +412,10 @@ class WorkflowExecutionsService:
     ) -> DispatchWorkflowResult:
         if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
             kwargs["rpc_timeout"] = datetime.timedelta(seconds=float(rpc_timeout))
+        if task_timeout := config.TEMPORAL__TASK_TIMEOUT:
+            kwargs.setdefault(
+                "task_timeout", datetime.timedelta(seconds=float(task_timeout))
+            )
 
         logger.info(
             f"Executing DSL workflow: {dsl.title}",

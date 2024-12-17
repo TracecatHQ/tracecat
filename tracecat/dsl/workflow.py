@@ -57,7 +57,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.expressions.shared import ExprContext
     from tracecat.logger import logger
-    from tracecat.registry.executor import evaluate_templated_args, iter_for_each
+    from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.types.exceptions import (
         TracecatCredentialsError,
         TracecatDSLError,
@@ -131,6 +131,18 @@ class DSLWorkflow:
         )
         ctx_logger.set(self.logger)
         self.logger.debug("DSL workflow started", args=args)
+        try:
+            self.logger.info(
+                "Workflow info",
+                run_timeout=wf_info.run_timeout,
+                execution_timeout=wf_info.execution_timeout,
+                task_timeout=wf_info.task_timeout,
+                retry_policy=wf_info.retry_policy,
+                history_events_length=wf_info.get_current_history_length(),
+                history_events_size_bytes=wf_info.get_current_history_size(),
+            )
+        except Exception as e:
+            self.logger.error("Failed to show workflow info", error=e)
 
         # Figure out what this worker will be running
         # Setup workflow definition
@@ -646,13 +658,16 @@ class DSLWorkflow:
     def _run_child_workflow(self, run_args: DSLRunArgs) -> Coroutine[Any, Any, Any]:
         self.logger.info("Running child workflow", run_args=run_args)
         wf_exec_id = identifiers.workflow.exec_id(run_args.wf_id)
+        wf_info = workflow.info()
         return workflow.execute_child_workflow(
             DSLWorkflow.run,
             run_args,
             id=wf_exec_id,
-            task_queue=workflow.info().task_queue,
             retry_policy=retry_policies["workflow:fail_fast"],
-            execution_timeout=self.start_to_close_timeout,
+            # Propagate the parent workflow attributes to the child workflow
+            task_queue=wf_info.task_queue,
+            execution_timeout=wf_info.execution_timeout,
+            task_timeout=wf_info.task_timeout,
         )
 
     def _should_execute_child_workflow(self, task: ActionStatement) -> bool:

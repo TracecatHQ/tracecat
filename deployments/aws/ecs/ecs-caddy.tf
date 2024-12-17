@@ -29,6 +29,9 @@ cat <<EOF > /etc/caddy/Caddyfile
   handle_path /api* {
     reverse_proxy http://api-service:8000
   }
+  handle_path /temporal-admin* {
+    reverse_proxy http://temporal-ui-service:8080
+  }
   reverse_proxy http://ui-service:3000
 }
 EOF

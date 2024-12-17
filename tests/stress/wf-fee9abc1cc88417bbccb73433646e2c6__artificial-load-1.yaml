@@ -1,0 +1,54 @@
+created_at: '2024-12-11T07:43:49.394683Z'
+definition:
+  actions:
+  - action: core.transform.reshape
+    args:
+      value:
+        created_at: ${{ FN.to_datetime(var.x.created_at) }}
+        description: Test ${{ var.x.description }} description
+        id: ${{ var.x.id || None }}
+        name: ${{ var.x.name || "no name" }}
+        tag1: ${{ var.x.tags[0] || "no tag1" }}
+        tag2: ${{ var.x.tags[1] || "no tag2" }}
+        updated_at: ${{ FN.to_datetime(var.x.updated_at) }}
+        value: ${{FN.mul(var.x.value, 100) if var.x.value < 100 else var.x.value }}
+    depends_on:
+    - hit_bore_server
+    description: ''
+    for_each: ${{ for var.x in ACTIONS.hit_bore_server.result.data }}
+    join_strategy: all
+    ref: reshape
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+  - action: core.http_request
+    args:
+      method: GET
+      url: http://bore.pub:13524/data
+    depends_on: []
+    description: ''
+    for_each: null
+    join_strategy: all
+    ref: hit_bore_server
+    retry_policy:
+      max_attempts: 1
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+  config:
+    environment: default
+    timeout: 300.0
+  description: hit server running on localhost
+  entrypoint:
+    expects: {}
+    ref: null
+  inputs: {}
+  returns: null
+  title: artificial load 1
+  triggers: []
+updated_at: '2024-12-11T07:43:49.394683Z'
+version: 3
+workflow_id: wf-fee9abc1cc88417bbccb73433646e2c6
+workspace_id: 65418a3e-068d-4a6d-bb83-6af09b6b940e

@@ -26,7 +26,7 @@ definition:
         bucket: ${{ steps.parse_uri.result.bucket }}
         key: ${{ steps.parse_uri.result.key }}
     - ref: run_playbook
-      action: integrations.ansible.run_playbook
+      action: integrations.ansible.run_ansible_playbook
       args:
         playbook: ${{ steps.download_playbook.result }}
         extra_vars: ${{ inputs.extra_vars }}

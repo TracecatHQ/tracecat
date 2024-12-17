@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import httpx
 import orjson
+from pydantic import UUID4
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -18,6 +19,7 @@ from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
+from tracecat.executor.models import ExecutorSyncInput
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     RegistryActionErrorInfo,
@@ -45,7 +47,7 @@ class RegistryClient:
 
     _repos_endpoint = REGISTRY_REPOS_PATH
     _actions_endpoint = REGISTRY_ACTIONS_PATH
-    _timeout: float = 60.0
+    _timeout: float = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
     def __init__(self, role: Role | None = None):
         self.role = role or ctx_role.get()
@@ -177,7 +179,9 @@ class RegistryClient:
 
     """Executor"""
 
-    async def sync_executor(self, origin: str, *, max_attempts: int = 3) -> None:
+    async def sync_executor(
+        self, repository_id: UUID4, *, max_attempts: int = 3
+    ) -> None:
         """Sync the executor from the registry.
 
         Args:
@@ -186,6 +190,8 @@ class RegistryClient:
         Raises:
             RegistryError: If the sync fails after all retries
         """
+
+        content = ExecutorSyncInput(repository_id=repository_id).model_dump_json()
 
         @retry(
             stop=stop_after_attempt(max_attempts),
@@ -202,14 +208,19 @@ class RegistryClient:
         async def _sync_request() -> None:
             try:
                 async with self._client() as client:
-                    response = await client.post("/sync", json={"origin": origin})
+                    response = await client.post(
+                        "/sync",
+                        content=content,
+                        headers={"Content-Type": "application/json"},
+                        timeout=self._timeout,
+                    )
                     response.raise_for_status()
             except Exception as e:
                 logger.error("Error syncing executor", error=e)
                 raise
 
         try:
-            logger.info("Syncing executor", origin=origin)
+            logger.info("Syncing executor", repository_id=repository_id)
             _ = await _sync_request()
         except httpx.HTTPStatusError as e:
             raise RegistryError(

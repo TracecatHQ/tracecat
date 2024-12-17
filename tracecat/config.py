@@ -24,7 +24,13 @@ TRACECAT__DB_URI = os.environ.get(
 TRACECAT__EXECUTOR_URL = os.environ.get(
     "TRACECAT__EXECUTOR_URL", "http://executor:8000"
 )
+TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
+    os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 120.0)
+)
+"""Timeout for the executor client in seconds (default 120s).
 
+The `httpx.Client` default is 5s, which doesn't work for long-running actions.
+"""
 TRACECAT__DB_NAME = os.environ.get("TRACECAT__DB_NAME")
 TRACECAT__DB_USER = os.environ.get("TRACECAT__DB_USER")
 TRACECAT__DB_PASS = os.environ.get("TRACECAT__DB_PASS")
@@ -116,6 +122,9 @@ TEMPORAL__TLS_CLIENT_CERT = os.environ.get("TEMPORAL__TLS_CLIENT_CERT")
 TEMPORAL__TLS_CLIENT_PRIVATE_KEY = os.environ.get("TEMPORAL__TLS_CLIENT_PRIVATE_KEY")
 TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT")
 """RPC timeout for Temporal workflows in seconds."""
+
+TEMPORAL__TASK_TIMEOUT = os.environ.get("TEMPORAL__TASK_TIMEOUT")
+"""Temporal workflow task timeout in seconds (default 10 seconds)."""
 
 # Secrets manager config
 TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(

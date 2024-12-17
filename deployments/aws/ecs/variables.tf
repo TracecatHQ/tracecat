@@ -51,17 +51,17 @@ variable "enable_waf" {
 
 variable "domain_name" {
   type        = string
-  description = "The domain name to use for the application"
+  description = "The domain name to use for Tracecat"
 }
 
 variable "hosted_zone_id" {
   type        = string
-  description = "The ID of the hosted zone in Route53"
+  description = "The hosted zone ID associated with the Tracecat domain"
 }
 
 variable "acm_certificate_arn" {
   type        = string
-  description = "The ARN of the ACM certificate to use for the application"
+  description = "The ARN of the ACM certificate to use for Tracecat"
 }
 
 ### Security
@@ -90,6 +90,11 @@ variable "temporal_server_image_tag" {
   default = "1.24.2"
 }
 
+variable "temporal_ui_image_tag" {
+  type    = string
+  default = "2.32.0"
+}
+
 variable "tracecat_image" {
   type    = string
   default = "ghcr.io/tracecathq/tracecat"
@@ -100,6 +105,12 @@ variable "tracecat_ui_image" {
   default = "ghcr.io/tracecathq/tracecat-ui"
 }
 
+variable "disable_temporal_ui" {
+  type        = bool
+  description = "Whether to disable the Temporal UI service in the deployment"
+  default     = false
+}
+
 variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
   description = "Terraform Cloud only: the git commit SHA of that triggered the run"
   type        = string
@@ -108,7 +119,7 @@ variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.16.0"
+  default = "0.18.0"
 }
 
 variable "use_git_commit_sha" {
@@ -176,6 +187,26 @@ variable "saml_idp_metadata_url_arn" {
   default     = null
 }
 
+# Temporal UI
+
+variable "temporal_auth_provider_url" {
+  type        = string
+  description = "The URL of the Temporal auth provider"
+  default     = null
+}
+
+variable "temporal_auth_client_id_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth client ID (optional)"
+  default     = null
+}
+
+variable "temporal_auth_client_secret_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth client secret (optional)"
+  default     = null
+}
+
 ### (Optional) Custom Integrations
 
 variable "remote_repository_package_name" {
@@ -222,6 +253,11 @@ variable "executor_memory" {
   default = "512"
 }
 
+variable "executor_client_timeout" {
+  type    = string
+  default = "120"
+}
+
 variable "ui_cpu" {
   type    = string
   default = "256"
@@ -246,6 +282,12 @@ variable "temporal_client_rpc_timeout" {
   type        = string
   description = "RPC timeout for Temporal client in seconds"
   default     = null
+}
+
+variable "temporal_num_history_shards" {
+  type        = string
+  description = "Number of history shards for Temporal"
+  default     = "512"
 }
 
 variable "caddy_cpu" {

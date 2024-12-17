@@ -90,7 +90,7 @@ function NewTemplateActionView({
   const { registryAction, registryActionIsLoading, registryActionError } =
     useRegistryAction(actionName, origin)
 
-  const { registryRepos } = useRegistryRepositories()
+  const { repos: registryRepos } = useRegistryRepositories()
 
   if (registryActionIsLoading || !registryAction) {
     return <CenteredSpinner />

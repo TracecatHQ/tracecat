@@ -629,20 +629,24 @@ export type RegistryRepositoryCreate = {
 };
 
 export type RegistryRepositoryRead = {
+    id: string;
     origin: string;
+    last_synced_at: string | null;
+    commit_sha: string | null;
     actions: Array<RegistryActionRead>;
 };
 
 export type RegistryRepositoryReadMinimal = {
     id: string;
     origin: string;
+    last_synced_at: string | null;
+    commit_sha: string | null;
 };
 
 export type RegistryRepositoryUpdate = {
-    name?: string | null;
-    include_base?: boolean;
-    include_remote?: boolean;
-    include_templates?: boolean;
+    last_synced_at?: string | null;
+    commit_sha?: string | null;
+    origin?: string | null;
 };
 
 export type RegistrySecret = {
@@ -1607,14 +1611,17 @@ export type EditorListActionsData = {
 
 export type EditorListActionsResponse = Array<EditorActionRead>;
 
-export type RegistryRepositoriesSyncRegistryRepositoriesData = {
-    /**
-     * Origins to sync. If no origins provided, all repositories will be synced.
-     */
-    origins?: Array<(string)> | null;
+export type RegistryRepositoriesSyncRegistryRepositoryData = {
+    repositoryId: string;
 };
 
-export type RegistryRepositoriesSyncRegistryRepositoriesResponse = void;
+export type RegistryRepositoriesSyncRegistryRepositoryResponse = void;
+
+export type RegistryRepositoriesSyncExecutorFromRegistryRepositoryData = {
+    repositoryId: string;
+};
+
+export type RegistryRepositoriesSyncExecutorFromRegistryRepositoryResponse = void;
 
 export type RegistryRepositoriesListRegistryRepositoriesResponse = Array<RegistryRepositoryReadMinimal>;
 
@@ -1625,20 +1632,20 @@ export type RegistryRepositoriesCreateRegistryRepositoryData = {
 export type RegistryRepositoriesCreateRegistryRepositoryResponse = RegistryRepositoryRead;
 
 export type RegistryRepositoriesGetRegistryRepositoryData = {
-    origin: string;
+    repositoryId: string;
 };
 
 export type RegistryRepositoriesGetRegistryRepositoryResponse = RegistryRepositoryRead;
 
 export type RegistryRepositoriesUpdateRegistryRepositoryData = {
-    origin: string;
+    repositoryId: string;
     requestBody: RegistryRepositoryUpdate;
 };
 
 export type RegistryRepositoriesUpdateRegistryRepositoryResponse = RegistryRepositoryRead;
 
 export type RegistryRepositoriesDeleteRegistryRepositoryData = {
-    id: string;
+    repositoryId: string;
 };
 
 export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void;
@@ -2531,9 +2538,24 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/registry/repos/sync': {
+    '/registry/repos/{repository_id}/sync': {
         post: {
-            req: RegistryRepositoriesSyncRegistryRepositoriesData;
+            req: RegistryRepositoriesSyncRegistryRepositoryData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/registry/repos/{repository_id}/sync-executor': {
+        post: {
+            req: RegistryRepositoriesSyncExecutorFromRegistryRepositoryData;
             res: {
                 /**
                  * Successful Response
@@ -2569,7 +2591,7 @@ export type $OpenApiTs = {
             };
         };
     };
-    '/registry/repos/{origin}': {
+    '/registry/repos/{repository_id}': {
         get: {
             req: RegistryRepositoriesGetRegistryRepositoryData;
             res: {
@@ -2596,8 +2618,6 @@ export type $OpenApiTs = {
                 422: HTTPValidationError;
             };
         };
-    };
-    '/registry/repos/{id}': {
         delete: {
             req: RegistryRepositoriesDeleteRegistryRepositoryData;
             res: {

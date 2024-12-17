@@ -6,25 +6,59 @@ from fastapi.responses import ORJSONResponse
 
 from tracecat import config
 from tracecat.api.common import (
+    bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
     setup_oss_models,
     tracecat_exception_handler,
 )
+from tracecat.executor.engine import setup_ray
+from tracecat.executor.router import router
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
-from tracecat.registry.executor import get_executor, router
+from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.registry.repository import Repository
 from tracecat.types.exceptions import TracecatException
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await setup_oss_models()
-    executor = get_executor()
     try:
+        await setup_custom_remote_repository()
+    except Exception as e:
+        logger.error("Error setting up custom remote repository", exc=e)
+
+    with setup_ray():
         yield
-    finally:
-        executor.shutdown()
+
+
+async def setup_custom_remote_repository():
+    """Install the remote repository if it is set.
+
+    Steps
+    -----
+    1. Get the SHA of the remote repository from the DB
+    2. If it doesn't exist, create it
+    3. If it does exist, sync it
+    """
+    url = config.TRACECAT__REMOTE_REPOSITORY_URL
+    if not url:
+        logger.info("Remote repository URL not set, skipping")
+        return
+    role = bootstrap_role()
+    async with RegistryReposService.with_session(role) as service:
+        db_repo = await service.get_repository(url)
+        # If it doesn't exist, do nothing
+        if db_repo is None:
+            logger.warning("Remote repository not found in DB, skipping")
+            return
+        # If it does exist, sync it
+        if db_repo.last_synced_at is None:
+            logger.info("Remote repository not synced, skipping")
+            return
+        repo = Repository(db_repo.origin, role=role)
+        await repo.load_from_origin(commit_sha=db_repo.commit_sha)
 
 
 def create_app(**kwargs) -> FastAPI:

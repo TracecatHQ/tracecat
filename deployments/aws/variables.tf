@@ -41,7 +41,7 @@ variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.16.0"
+  default = "0.18.0"
 }
 
 variable "use_git_commit_sha" {
@@ -53,6 +53,12 @@ variable "use_git_commit_sha" {
 variable "force_new_deployment" {
   type        = bool
   description = "Force a new deployment of Tracecat services. Used to update services with new images."
+  default     = false
+}
+
+variable "disable_temporal_ui" {
+  type        = bool
+  description = "Whether to disable the Temporal UI service in the deployment"
   default     = false
 }
 
@@ -109,6 +115,24 @@ variable "saml_idp_metadata_url_arn" {
   default     = null
 }
 
+variable "temporal_auth_provider_url" {
+  type        = string
+  description = "The URL of the Temporal auth provider"
+  default     = null
+}
+
+variable "temporal_auth_client_id_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth client ID (optional)"
+  default     = null
+}
+
+variable "temporal_auth_client_secret_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal auth client secret (optional)"
+  default     = null
+}
+
 ### (Optional) Custom Integrations
 
 variable "remote_repository_package_name" {
@@ -155,6 +179,11 @@ variable "executor_memory" {
   default = "512"
 }
 
+variable "executor_client_timeout" {
+  type    = string
+  default = "120"
+}
+
 variable "ui_cpu" {
   type    = string
   default = "256"
@@ -179,6 +208,12 @@ variable "temporal_client_rpc_timeout" {
   type        = string
   description = "RPC timeout for Temporal client in seconds"
   default     = null
+}
+
+variable "temporal_num_history_shards" {
+  type        = string
+  description = "Number of history shards for Temporal"
+  default     = "512"
 }
 
 variable "caddy_cpu" {

@@ -22,11 +22,10 @@ from tracecat.registry.actions.models import (
     RegistryActionUpdate,
     model_converters,
 )
-from tracecat.registry.client import RegistryClient
 from tracecat.registry.loaders import get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryError, TracecatNotFoundError
+from tracecat.types.exceptions import RegistryError
 
 
 class RegistryActionsService:
@@ -160,49 +159,9 @@ class RegistryActionsService:
         await self.session.commit()
         return action
 
-    async def sync_actions(
-        self, repos: list[RegistryRepository], *, raise_on_error: bool = True
-    ) -> None:
-        """
-        Update the RegistryAction table with the actions from a list of repositories.
-
-        Steps:
-        1. Load actions from a list of repositories
-        2. Update the database with the new actions
-        3. Update the registry manager with the new actions
-        """
-
-        # For each repo, load from origin
-        self.logger.info(
-            "Syncing actions from repositories", repos=[repo.origin for repo in repos]
-        )
-        for repo in repos:
-            try:
-                await self.sync_actions_from_repository(repo)
-            except RegistryError as e:
-                if e.detail == "You cannot sync this repository.":
-                    msg = f"Cannot sync repository {repo.origin!r}: {e}"
-                else:
-                    msg = f"Error while syncing repository {repo.origin!r}: {e}"
-
-                self.logger.warning(msg)
-                if raise_on_error:
-                    raise
-            except TracecatNotFoundError as e:
-                self.logger.warning(
-                    f"Error while syncing repository {repo.origin!r}: {e}"
-                )
-                if raise_on_error:
-                    raise
-            except Exception as e:
-                self.logger.error(
-                    f"Unexpected error while syncing repository: {str(e)}",
-                    repository=repo.origin,
-                )
-                if raise_on_error:
-                    raise
-
-    async def sync_actions_from_repository(self, db_repo: RegistryRepository) -> None:
+    async def sync_actions_from_repository(
+        self, db_repo: RegistryRepository, pull_remote: bool = True
+    ) -> str | None:
         """Sync actions from a repository.
 
         To sync actions from the db repositories:
@@ -211,7 +170,11 @@ class RegistryActionsService:
         """
         # (1) Update the API's view of the repository
         repo = Repository(origin=db_repo.origin, role=self.role)
-        await repo.load_from_origin()
+        # Load the repository
+        # After we sync the repository with its remote
+        # None here means we're pulling the remote repository from HEAD
+        sha = None if pull_remote else db_repo.commit_sha
+        commit_sha = await repo.load_from_origin(commit_sha=sha)
 
         # (2) Handle DB bookkeeping for the API's view of the repository
         # Perform diffing here. The expectation for this endpoint is to sync Tracecat's view of
@@ -278,10 +241,7 @@ class RegistryActionsService:
             deleted=n_deleted,
         )
 
-        # (3) Update the executor's view of the repository
-        self.logger.info("Syncing executor", origin=db_repo.origin)
-        client = RegistryClient(role=self.role)
-        await client.sync_executor(origin=db_repo.origin)
+        return commit_sha
 
     async def load_action_impl(self, action_name: str) -> BoundRegistryAction:
         """

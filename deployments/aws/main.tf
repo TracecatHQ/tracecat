@@ -73,6 +73,12 @@ module "ecs" {
   saml_idp_certificate_arn  = var.saml_idp_certificate_arn
   saml_idp_metadata_url_arn = var.saml_idp_metadata_url_arn
 
+  # Temporal UI
+  temporal_auth_provider_url      = var.temporal_auth_provider_url
+  temporal_auth_client_id_arn     = var.temporal_auth_client_id_arn
+  temporal_auth_client_secret_arn = var.temporal_auth_client_secret_arn
+  disable_temporal_ui             = var.disable_temporal_ui
+
   # Compute / memory
   api_cpu                     = var.api_cpu
   api_memory                  = var.api_memory
@@ -80,11 +86,13 @@ module "ecs" {
   worker_memory               = var.worker_memory
   executor_cpu                = var.executor_cpu
   executor_memory             = var.executor_memory
+  executor_client_timeout     = var.executor_client_timeout
   ui_cpu                      = var.ui_cpu
   ui_memory                   = var.ui_memory
   temporal_cpu                = var.temporal_cpu
   temporal_memory             = var.temporal_memory
   temporal_client_rpc_timeout = var.temporal_client_rpc_timeout
+  temporal_num_history_shards = var.temporal_num_history_shards
   caddy_cpu                   = var.caddy_cpu
   caddy_memory                = var.caddy_memory
   db_instance_class           = var.db_instance_class

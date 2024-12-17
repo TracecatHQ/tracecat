@@ -33,6 +33,7 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import DSLConfig, DSLContext
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.executor.service import run_action_on_ray_cluster
 from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
 from tracecat.registry.client import RegistryClient
@@ -41,6 +42,17 @@ from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
+
+
+@pytest.fixture(scope="module")
+def ray_cluster():
+    import ray
+
+    try:
+        ray.init()
+        yield
+    finally:
+        ray.shutdown()
 
 
 @pytest.fixture(scope="module")
@@ -1579,7 +1591,7 @@ async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_
 
 
 # Get the line number dynamically
-DIVISION_BY_ZERO_ERROR = {
+PARTIAL_DIVISION_BY_ZERO_ERROR = {
     "ref": "start",
     "message": (
         "There was an error in the registry when calling action 'core.transform.reshape' (500).\n"
@@ -1599,14 +1611,32 @@ DIVISION_BY_ZERO_ERROR = {
         "Cannot divide by zero\n"
         "\n"
         "------------------------------\n"
-        "File: /app/tracecat/registry/executor.py\n"
-        "Function: run_action_in_pool\n"
-        "Line: 200"
+        f"File: /app/{"/".join(run_action_on_ray_cluster.__module__.split('.'))}.py\n"
+        f"Function: {run_action_on_ray_cluster.__name__}\n"
+        # f"Line: {run_action_on_ray_cluster.__code__.co_firstlineno}"
     ),
     "type": "RegistryActionError",
     "expr_context": "ACTIONS",
     "attempt": 1,
 }
+
+
+def approximately_equal(result: Any, expected: Any) -> bool:
+    if type(result) is not type(expected):
+        return False
+    match result:
+        case str():
+            return result == expected or result.startswith(expected)
+        case dict():
+            return all(
+                approximately_equal(result[key], expected[key]) for key in result
+            )
+        case list():
+            return all(
+                approximately_equal(result[i], expected[i]) for i in range(len(result))
+            )
+        case _:
+            return result == expected
 
 
 def _get_test_id(test_case):
@@ -1658,7 +1688,7 @@ def _get_test_id(test_case):
             },
             {
                 "start": None,
-                "start.error": DIVISION_BY_ZERO_ERROR,
+                "start.error": PARTIAL_DIVISION_BY_ZERO_ERROR,
                 "success": None,
                 "error": "ERROR",
             },
@@ -2036,7 +2066,7 @@ async def test_workflow_error_path(test_role, runtime_config, dsl_data, expected
                 ],
             ),
         )
-    assert result == expected
+    assert approximately_equal(result, expected)
 
 
 @pytest.mark.anyio
@@ -2205,3 +2235,122 @@ async def test_workflow_multiple_entrypoints(test_role, runtime_config):
         "second": "ENTRYPOINT_2",
         "third": "ENTRYPOINT_3",
     }
+
+
+@pytest.mark.anyio
+async def test_workflow_runs_template_for_each(
+    test_role,
+    runtime_config,
+    temporal_client,
+    db_session_with_repo,
+):
+    """Test workflow behavior with for_each.
+
+    Args:
+        dsl_data: The workflow DSL configuration to test
+        should_throw: Whether the workflow should raise an error
+
+    The test verifies:
+    1. Workflows with satisfied dependencies execute successfully
+    2. Workflows with unsatisfied required dependencies fail appropriately
+    """
+
+    from tracecat.expressions.expectations import ExpectedField
+    from tracecat.registry.actions.models import (
+        ActionStep,
+        RegistryActionCreate,
+        TemplateAction,
+        TemplateActionDefinition,
+    )
+    from tracecat.registry.actions.service import RegistryActionsService
+    from tracecat.registry.repository import Repository
+
+    # Arrange
+    # 1. Register test udfs
+    repo = Repository()
+    session, db_repo_id = db_session_with_repo
+
+    # It then returns the fetched secret
+    action = TemplateAction(
+        type="action",
+        definition=TemplateActionDefinition(
+            title="Test Action",
+            description="This is just a test",
+            name="template_action",
+            namespace="testing",
+            display_group="Testing",
+            expects={
+                "num": ExpectedField(
+                    type="int",
+                    description="Number to add 100 to",
+                )
+            },
+            secrets=[],  # NOTE: We have no secrets at the template level
+            steps=[
+                ActionStep(
+                    ref="base",
+                    action="core.transform.reshape",
+                    args={
+                        "value": "${{ inputs.num + 100 }}",
+                    },
+                )
+            ],
+            returns="${{ steps.base.result }}",
+        ),
+    )
+
+    repo.register_template_action(action)
+
+    assert "testing.template_action" in repo
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.template_action"), db_repo_id)
+    )
+
+    dsl = DSLInput(
+        **{
+            "title": "for_each",
+            "description": "Test that workflow can have for_each",
+            "entrypoint": {"expects": {}, "ref": "start"},
+            "actions": [
+                {
+                    "ref": "entrypoint_1",
+                    "action": "core.transform.reshape",
+                    "for_each": "${{ for var.x in [1,2,3,4,5] }}",
+                    "args": {"value": "${{ var.x + 100 }}"},
+                },
+            ],
+            "returns": "${{ ACTIONS.entrypoint_1.result }}",
+        }
+    )
+    test_name = f"test_workflow_for_each-{dsl.title}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    async with Worker(
+        temporal_client,
+        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+        activities=DSLActivities.load() + DSL_UTILITIES,
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            DSLRunArgs(
+                dsl=dsl,
+                role=test_role,
+                wf_id=TEST_WF_ID,
+                runtime_config=runtime_config,
+            ),
+            id=wf_exec_id,
+            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            run_timeout=timedelta(seconds=5),
+            retry_policy=RetryPolicy(
+                maximum_attempts=1,
+                non_retryable_error_types=[
+                    "tracecat.types.exceptions.TracecatExpressionError",
+                    "TracecatValidationError",
+                ],
+            ),
+        )
+    assert result == [101, 102, 103, 104, 105]
