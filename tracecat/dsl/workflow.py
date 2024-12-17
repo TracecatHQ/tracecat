@@ -4,7 +4,7 @@ import asyncio
 import itertools
 import json
 import uuid
-from collections.abc import Coroutine, Generator, Iterable
+from collections.abc import Generator, Iterable
 from datetime import timedelta
 from typing import Any
 
@@ -638,13 +638,13 @@ class DSLWorkflow:
             runtime_config=runtime_config,
         )
 
-    def _run_action(self, task: ActionStatement) -> Coroutine[Any, Any, Any]:
+    async def _run_action(self, task: ActionStatement) -> Any:
         arg = RunActionInput(
             task=task, run_context=self.run_context, exec_context=self.context
         )
         self.logger.debug("RUN UDF ACTIVITY", arg=arg)
 
-        return workflow.execute_activity(
+        return await workflow.execute_activity(
             DSLActivities.run_action_activity,
             args=(arg, self.role),
             start_to_close_timeout=timedelta(
@@ -655,11 +655,11 @@ class DSLWorkflow:
             ),
         )
 
-    def _run_child_workflow(self, run_args: DSLRunArgs) -> Coroutine[Any, Any, Any]:
+    async def _run_child_workflow(self, run_args: DSLRunArgs) -> Any:
         self.logger.info("Running child workflow", run_args=run_args)
         wf_exec_id = identifiers.workflow.exec_id(run_args.wf_id)
         wf_info = workflow.info()
-        return workflow.execute_child_workflow(
+        return await workflow.execute_child_workflow(
             DSLWorkflow.run,
             run_args,
             id=wf_exec_id,
