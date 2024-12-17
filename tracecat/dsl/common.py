@@ -186,9 +186,14 @@ class DSLInput(BaseModel):
                     edges.append(RFEdge(source=trigger_node.id, target=entrypoint_id))
                 else:
                     # Otherwise, add edges for all dependencies
-                    for src_ref in action.depends_on:
+                    for dep_ref in action.depends_on:
+                        src_ref, edge_type = edge_components_from_dep(dep_ref)
                         src_id = ref2id[src_ref]
-                        edges.append(RFEdge(source=src_id, target=dst_id))
+                        edges.append(
+                            RFEdge(
+                                source=src_id, target=dst_id, source_handle=edge_type
+                            )
+                        )
 
             return RFGraph(nodes=nodes, edges=edges)
         except Exception as e:
