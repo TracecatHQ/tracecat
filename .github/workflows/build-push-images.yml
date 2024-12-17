@@ -190,13 +190,13 @@ jobs:
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          echo $digest > "/tmp/digests/digest.txt"
 
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.platform_tag }}
-          path: /tmp/digests/*
+          name: ui-digests-${{ matrix.platform_tag }}
+          path: /tmp/digests/digest.txt
           if-no-files-found: error
           retention-days: 1
 
@@ -208,7 +208,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
-          pattern: digests-*
+          pattern: ui-digests-*
           merge-multiple: true
 
       - name: Set up Docker Buildx
