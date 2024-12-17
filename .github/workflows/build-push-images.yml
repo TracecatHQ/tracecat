@@ -69,13 +69,13 @@ jobs:
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          echo $digest > "/tmp/digests/digest.txt"
 
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.platform_tag }}
-          path: /tmp/digests/*
+          name: api-digests-${{ matrix.platform_tag }}
+          path: /tmp/digests/digest.txt
           if-no-files-found: error
           retention-days: 1
 
@@ -87,7 +87,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
-          pattern: digests-*
+          pattern: api-digests-*
           merge-multiple: true
 
       - name: Set up Docker Buildx
@@ -117,7 +117,7 @@ jobs:
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/tracecathq/tracecat@sha256:%s ' *) \
+            $(for f in */digest.txt; do echo -n "ghcr.io/tracecathq/tracecat@$(cat $f) "; done) \
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && '-t ghcr.io/tracecathq/tracecat:latest' || '' }}
 
       - name: Inspect image
@@ -238,7 +238,7 @@ jobs:
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/tracecathq/tracecat-ui@sha256:%s ' *) \
+            $(for f in */digest.txt; do echo -n "ghcr.io/tracecathq/tracecat-ui@$(cat $f) "; done) \
             ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && '-t ghcr.io/tracecathq/tracecat-ui:latest' || '' }}
 
       - name: Inspect image
