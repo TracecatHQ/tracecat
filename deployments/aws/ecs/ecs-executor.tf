@@ -8,6 +8,11 @@ resource "aws_ecs_task_definition" "executor_task_definition" {
   execution_role_arn       = aws_iam_role.worker_execution.arn
   task_role_arn            = aws_iam_role.api_worker_task.arn
 
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "ARM64"
+  }
+
   container_definitions = jsonencode([
     {
       name  = "TracecatExecutorContainer"
