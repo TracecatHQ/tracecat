@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import traceback
-
 from fastapi import APIRouter, HTTPException, status
 
 from tracecat import config
@@ -62,37 +60,18 @@ async def run_action_with_store(
         result = await run_action_on_ray_cluster(input=action_input, role=role)
         action_result.update(result=result, result_typename=type(result).__name__)
     except Exception as e:
-        # Get the traceback info
-        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
-        error_detail = RegistryActionErrorInfo(
-            action_name=action_name,
-            type=e.__class__.__name__,
-            message=str(e),
-            filename=tb.filename,
-            function=tb.name,
-            lineno=tb.lineno,
-        )
+        err_info = RegistryActionErrorInfo.from_exc(e, action_name)
+        log.error("Error running action", **err_info.model_dump())
 
-        action_result.update(
-            error=error_detail.model_dump(mode="json"),
-            error_typename=error_detail.type,
-        )
-        log.error(
-            "Error running action",
-            action_name=action_name,
-            type=error_detail.type,
-            message=error_detail.message,
-            filename=error_detail.filename,
-            function=error_detail.function,
-            lineno=error_detail.lineno,
-        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=err_info.model_dump(mode="json"),
+        ) from e
 
     logger.info("Storing action result", action_result=action_result)
-    # TODO: Here, we should just return a store pointer to the action result
-    # instead of returning the result itself.
-    # For now we just return the result itself
-    # return result
     try:
+        # We return a store pointer to the action result
+        # instead of returning the result itself.
         action_ref_handle = await store.store_action_result(
             execution_id=action_input.run_context.wf_exec_id,
             action_ref=action_input.task.ref,
@@ -100,26 +79,9 @@ async def run_action_with_store(
         )
         return action_ref_handle
     except Exception as e:
-        # Get the traceback info
-        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
-        error_detail = RegistryActionErrorInfo(
-            action_name=action_name,
-            type=e.__class__.__name__,
-            message=str(e),
-            filename=tb.filename,
-            function=tb.name,
-            lineno=tb.lineno,
-        )
-        log.error(
-            "Error running action",
-            action_name=action_name,
-            type=error_detail.type,
-            message=error_detail.message,
-            filename=error_detail.filename,
-            function=error_detail.function,
-            lineno=error_detail.lineno,
-        )
+        err_info = RegistryActionErrorInfo.from_exc(e, action_name)
+        log.error("Error running action", **err_info.model_dump())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_detail.model_dump(mode="json"),
+            detail=err_info.model_dump(mode="json"),
         ) from e
