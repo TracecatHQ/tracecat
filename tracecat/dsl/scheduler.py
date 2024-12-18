@@ -9,6 +9,7 @@ from tracecat.contexts import ctx_logger
 from tracecat.dsl.common import AdjDst, DSLEdge, DSLInput, edge_components_from_dep
 from tracecat.dsl.enums import EdgeMarker, EdgeType, JoinStrategy, SkipStrategy
 from tracecat.dsl.models import ActionStatement, ExecutionContext
+from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
@@ -231,9 +232,11 @@ class DSLScheduler:
                 n_visited=len(self.completed_tasks),
                 n_tasks=len(self.tasks),
             )
-            raise ApplicationError(
-                "Task exceptions occurred", *self.task_exceptions.values()
+            msg = "Task exceptions occurred\n\n" + "\n".join(
+                f"{ExprContext.ACTIONS}.{k}: {v}"
+                for k, v in self.task_exceptions.items()
             )
+            raise ApplicationError(msg, *self.task_exceptions.values())
         self.logger.info(
             "All tasks completed",
             visited_tasks=self.completed_tasks,
