@@ -8,7 +8,7 @@ from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger
 from tracecat.dsl.models import ActionResult, RunActionInput
-from tracecat.ee.store.models import ActionRefHandle
+from tracecat.ee.store.models import ActionResultHandle
 from tracecat.ee.store.service import get_store
 from tracecat.executor import service
 from tracecat.executor.enums import ResultsBackend
@@ -29,7 +29,7 @@ async def run_action_with_store(
     ),
     action_name: str,
     action_input: RunActionInput,
-) -> ActionRefHandle:
+) -> ActionResultHandle:
     """Execute a registry action."""
     log = logger.bind(role=role, action_name=action_name, ref=action_input.task.ref)
     ctx_logger.set(log)

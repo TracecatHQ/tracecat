@@ -70,10 +70,11 @@ class WorkflowResultHandle(ExecutionResultHandle):
         return cls(wf_exec_id=exec_id_from_parts(wf_id, exec_suffix_id))
 
 
-class ActionRefHandle(ExecutionResultHandle):
+class ActionResultHandle(ExecutionResultHandle):
     """Represents a structured storage path for an action result."""
 
     ref: ActionRef
+    """The underlying action reference that this handle represents."""
 
     def to_path(self, ext: str = "json") -> StoreObjectPath:
         """Convert to storage path string"""

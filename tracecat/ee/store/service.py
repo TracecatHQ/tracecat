@@ -21,7 +21,7 @@ from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.models import ActionResult, ExecutionContext
 from tracecat.ee.store.constants import WORKFLOW_RESULTS_BUCKET
 from tracecat.ee.store.models import (
-    ActionRefHandle,
+    ActionResultHandle,
     ExecutionResultHandle,
     StoreObjectPtr,
     WorkflowResultHandle,
@@ -155,7 +155,7 @@ class MinioStore:
         execution_id: WorkflowExecutionID,
         action_ref: ActionRef,
         action_result: ActionResult,
-    ) -> ActionRefHandle:
+    ) -> ActionResultHandle:
         """Store action result in structured storage.
 
         Args:
@@ -165,7 +165,7 @@ class MinioStore:
             data: Data to store
 
         """
-        handle = ActionRefHandle(wf_exec_id=execution_id, ref=action_ref)
+        handle = ActionResultHandle(wf_exec_id=execution_id, ref=action_ref)
         await self.put_json(self._bucket_name, handle.to_path(), action_result)
         return handle
 
@@ -197,7 +197,7 @@ class MinioStore:
         """
         return await self.get_json(self._bucket_name, handle.to_path())
 
-    async def load_action_result(self, handle: ActionRefHandle) -> ActionResult:
+    async def load_action_result(self, handle: ActionResultHandle) -> ActionResult:
         """Retrieve action result from object storage.
 
         Args:
@@ -215,7 +215,7 @@ class MinioStore:
         action_refs: Iterable[ActionRef],
     ) -> dict[ActionRef, ActionResult]:
         keys = [
-            ActionRefHandle(wf_exec_id=execution_id, ref=ref).to_path()
+            ActionResultHandle(wf_exec_id=execution_id, ref=ref).to_path()
             for ref in action_refs
         ]
         # NOTE: Order is preserved

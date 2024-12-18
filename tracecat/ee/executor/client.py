@@ -1,5 +1,5 @@
 from tracecat.dsl.models import RunActionInput
-from tracecat.ee.store.models import ActionRefHandle
+from tracecat.ee.store.models import ActionResultHandle
 from tracecat.executor.client import ExecutorClient, ExecutorHTTPClient
 from tracecat.logger import logger
 
@@ -7,7 +7,9 @@ from tracecat.logger import logger
 class ExecutorClientEE(ExecutorClient):
     """EE version of the executor client"""
 
-    async def run_action_store_backend(self, input: RunActionInput) -> ActionRefHandle:
+    async def run_action_store_backend(
+        self, input: RunActionInput
+    ) -> ActionResultHandle:
         action_type = input.task.action
         content = input.model_dump_json()
         logger.debug(
@@ -26,4 +28,4 @@ class ExecutorClientEE(ExecutorClient):
                 timeout=self._timeout,
             )
         response.raise_for_status()
-        return ActionRefHandle.model_validate_json(response.content)
+        return ActionResultHandle.model_validate_json(response.content)

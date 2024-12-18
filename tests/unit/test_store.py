@@ -1,7 +1,7 @@
 import pytest
 
 from tracecat.ee.store.models import (
-    ActionRefHandle,
+    ActionResultHandle,
     WorkflowResultHandle,
 )
 
@@ -67,20 +67,20 @@ class TestActionRefHandle:
 
     def test_to_path_default_ext(self, workflow_exec_id: str, action_ref: str) -> None:
         """Test converting ActionRefHandle to path with default extension"""
-        handle = ActionRefHandle(wf_exec_id=workflow_exec_id, ref=action_ref)
+        handle = ActionResultHandle(wf_exec_id=workflow_exec_id, ref=action_ref)
         expected_path = "wf-00000000000000000000000000000000/exec-00000000000000000000000000000000/action789.json"
         assert handle.to_path() == expected_path
 
     def test_to_path_custom_ext(self, workflow_exec_id: str, action_ref: str) -> None:
         """Test converting ActionRefHandle to path with custom extension"""
-        handle = ActionRefHandle(wf_exec_id=workflow_exec_id, ref=action_ref)
+        handle = ActionResultHandle(wf_exec_id=workflow_exec_id, ref=action_ref)
         expected_path = "wf-00000000000000000000000000000000/exec-00000000000000000000000000000000/action789.yaml"
         assert handle.to_path(ext="yaml") == expected_path
 
     def test_from_path_valid(self, workflow_exec_id: str, action_ref: str) -> None:
         """Test creating ActionRefHandle from valid path"""
         path = "wf-00000000000000000000000000000000/exec-00000000000000000000000000000000/action789.json"
-        handle = ActionRefHandle.from_path(path)
+        handle = ActionResultHandle.from_path(path)
         assert handle.wf_exec_id == workflow_exec_id
         assert handle.ref == action_ref
 
@@ -89,7 +89,7 @@ class TestActionRefHandle:
     ) -> None:
         """Test creating ActionRefHandle from path with different extension"""
         path = "wf-00000000000000000000000000000000/exec-00000000000000000000000000000000/action789.yaml"
-        handle = ActionRefHandle.from_path(path)
+        handle = ActionResultHandle.from_path(path)
         assert handle.wf_exec_id == workflow_exec_id
         assert handle.ref == action_ref
 
@@ -113,4 +113,4 @@ class TestActionRefHandle:
     def test_from_path_invalid_format(self, path: str) -> None:
         """Test creating ActionRefHandle from invalid path format"""
         with pytest.raises(ValueError, match="Invalid path format"):
-            ActionRefHandle.from_path(path)
+            ActionResultHandle.from_path(path)
