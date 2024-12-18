@@ -3,7 +3,7 @@
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from json import JSONDecodeError
-from typing import Any, NoReturn, cast
+from typing import Any, NoReturn
 
 import httpx
 import orjson
@@ -23,7 +23,6 @@ from tracecat.executor.models import ExecutorSyncInput
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     RegistryActionErrorInfo,
-    RegistryActionRead,
     RegistryActionValidateResponse,
 )
 from tracecat.types.auth import Role
@@ -55,7 +54,7 @@ class ExecutorClient:
         async with ExecutorHTTPClient(self.role) as client:
             yield client
 
-    """Execution"""
+    # === Execution ===
 
     async def run_action_memory_backend(self, input: RunActionInput) -> Any:
         action_type = input.task.action
@@ -93,7 +92,7 @@ class ExecutorClient:
                 f"Unexpected error calling action {action_type!r} in executor: {e}"
             ) from e
 
-    """Validation"""
+    # === Validation ===
 
     async def validate_action(
         self, *, action_name: str, args: Mapping[str, Any]
@@ -120,7 +119,7 @@ class ExecutorClient:
                 f"Unexpected error while listing registries: {str(e)}"
             ) from e
 
-    """Management"""
+    # === Management ===
 
     async def sync_executor(
         self, repository_id: UUID4, *, max_attempts: int = 3
@@ -177,91 +176,7 @@ class ExecutorClient:
                 f"Unexpected error while syncing executor: {str(e)}"
             ) from e
 
-    """Registry management"""
-
-    async def list_repositories(self) -> list[str]:
-        """XXX: This is not used anywhere."""
-        try:
-            logger.warning("Listing registries")
-            async with ExecutorHTTPClient(self.role) as client:
-                response = await client.get("/repos")
-            response.raise_for_status()
-            return cast(list[str], response.json())
-        except httpx.HTTPStatusError as e:
-            raise RegistryError(
-                f"Failed to list registries: HTTP {e.response.status_code}"
-            ) from e
-        except httpx.RequestError as e:
-            raise RegistryError(
-                f"Network error while listing registries: {str(e)}"
-            ) from e
-        except Exception as e:
-            raise RegistryError(
-                f"Unexpected error while listing registries: {str(e)}"
-            ) from e
-
-    async def get_repository_actions(self, version: str) -> list[RegistryActionRead]:
-        """XXX: This is not used anywhere."""
-        try:
-            async with ExecutorHTTPClient(self.role) as client:
-                response = await client.get(f"/repos/{version}")
-            response.raise_for_status()
-            data = response.json()
-            return [RegistryActionRead(**item) for item in data]
-        except httpx.HTTPStatusError as e:
-            raise RegistryError(
-                f"Failed to list registry actions: HTTP {e.response.status_code}"
-            ) from e
-        except httpx.RequestError as e:
-            raise RegistryError(
-                f"Network error while listing registry actions: {str(e)}"
-            ) from e
-        except Exception as e:
-            raise RegistryError(
-                f"Unexpected error while listing registry actions: {str(e)}"
-            ) from e
-
-    """Development"""
-
-    if config.TRACECAT__APP_ENV == "development":
-
-        async def _register_test_module(
-            self,
-            *,
-            version: str,
-            code: str,
-            module_name: str,
-            validate_keys: list[str] | None = None,
-        ) -> dict[str, Any]:
-            """XXX: This is not used anywhere."""
-            if config.TRACECAT__APP_ENV != "development":
-                # Unreachable
-                raise RegistryError("This method is only available in development mode")
-            try:
-                async with ExecutorHTTPClient(role=self.role) as client:
-                    response = await client.post(
-                        "/test-registry",
-                        params={"workspace_id": str(self.role.workspace_id)},
-                        json={
-                            "version": version,
-                            "code": code,
-                            "module_name": module_name,
-                            "validate_function_names": validate_keys,
-                        },
-                    )
-                response.raise_for_status()
-                return cast(dict[str, Any], response.json())
-            except httpx.HTTPStatusError as e:
-                raise RegistryError(
-                    f"Failed to register test module: HTTP {e.response.status_code}"
-                    f"Response: {e.response.text}"
-                ) from e
-            except httpx.RequestError as e:
-                raise RegistryError(
-                    f"Network error while registering test module: {str(e)}"
-                ) from e
-
-    """Utility"""
+    # === Utility ===
 
     def _handle_http_status_error(
         self, e: httpx.HTTPStatusError, action_type: str
