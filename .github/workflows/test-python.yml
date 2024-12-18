@@ -58,10 +58,7 @@ jobs:
 
       - name: Run environment setup script
         run: |
-          echo "admin@example.com
-          password123456789
-          password123456789
-          y
+          echo "y
           localhost
           n" | bash env.sh
 
@@ -115,10 +112,7 @@ jobs:
 
       - name: Run environment setup script
         run: |
-          echo "admin@example.com
-          password123456789
-          password123456789
-          y
+          echo "y
           localhost
           n" | bash env.sh
 
