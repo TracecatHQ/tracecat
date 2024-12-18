@@ -8,6 +8,11 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
   execution_role_arn       = aws_iam_role.worker_execution.arn
   task_role_arn            = aws_iam_role.api_worker_task.arn
 
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "ARM64"
+  }
+
   container_definitions = jsonencode([
     {
       name    = "TracecatWorkerContainer"
@@ -35,6 +40,13 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
         maxAttempts = 3
         backoffTime = 30
       }
+      healthCheck = {
+        command     = ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/').raise_for_status()"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
     }
   ])
 }
@@ -44,7 +56,7 @@ resource "aws_ecs_service" "tracecat_worker" {
   cluster              = aws_ecs_cluster.tracecat_cluster.id
   task_definition      = aws_ecs_task_definition.worker_task_definition.arn
   launch_type          = "FARGATE"
-  desired_count        = 1
+  desired_count        = 2
   force_new_deployment = var.force_new_deployment
 
   network_configuration {
@@ -78,6 +90,18 @@ resource "aws_ecs_service" "tracecat_worker" {
         awslogs-stream-prefix = "service-connect-worker"
       }
     }
+  }
+
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+    weight            = 1
+    base              = 1
+  }
+
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE_SPOT"
+    weight            = 1
+    base              = 0
   }
 
   depends_on = [
