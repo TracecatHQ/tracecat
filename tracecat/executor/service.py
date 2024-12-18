@@ -67,14 +67,6 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
 
     async def coro():
         ctx_role.set(role)
-        ctx_run.set(input.run_context)
-        ctx_logger.set(
-            logger.bind(
-                role=role,
-                ref=input.task.ref,
-                results_backend=config.TRACECAT__RESULTS_BACKEND.value,
-            )
-        )
         async_engine = get_async_engine()
         try:
             return await run_action_from_input(input=input)
@@ -229,7 +221,13 @@ async def run_template_action(
 
 async def run_action_from_input(input: RunActionInput) -> Any:
     """This runs on the executor process pool."""
-    log = ctx_logger.get()
+    ctx_run.set(input.run_context)
+    log = logger.bind(
+        role=ctx_role.get(),
+        ref=input.task.ref,
+        results_backend=config.TRACECAT__RESULTS_BACKEND.value,
+    )
+    ctx_logger.set(log)
     task = input.task
     action_name = task.action
 

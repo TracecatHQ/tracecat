@@ -3,7 +3,7 @@
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from json import JSONDecodeError
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 import httpx
 import orjson
@@ -27,7 +27,7 @@ from tracecat.registry.actions.models import (
     RegistryActionValidateResponse,
 )
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryActionError, RegistryError
+from tracecat.types.exceptions import ActionExecutionError, RegistryError
 
 
 class ExecutorHTTPClient(AuthenticatedServiceClient):
@@ -44,7 +44,7 @@ class ExecutorHTTPClient(AuthenticatedServiceClient):
 class ExecutorClient:
     """Use this to interact with the remote executor service."""
 
-    _timeout: float = 60.0
+    _timeout: float = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
     def __init__(self, role: Role | None = None):
         self.role = role or ctx_role.get()
@@ -79,41 +79,18 @@ class ExecutorClient:
             response.raise_for_status()
             return orjson.loads(response.content)
         except httpx.HTTPStatusError as e:
-            logger.info("Handling registry error", error=e)
-            try:
-                resp = e.response.json()
-            except JSONDecodeError:
-                logger.warning("Failed to decode JSON response, returning empty dict")
-                resp = {}
-            if (
-                isinstance(resp, Mapping)
-                and (detail := resp.get("detail"))
-                and isinstance(detail, Mapping)
-            ):
-                val_detail = RegistryActionErrorInfo(**detail)
-                detail = str(val_detail)
-            else:
-                detail = e.response.text
-            logger.error("Registry returned an error", error=e, detail=detail)
-            if e.response.status_code / 100 == 5:
-                raise RegistryActionError(
-                    f"There was an error in the registry when calling action {action_type!r} ({e.response.status_code}).\n\n{detail}"
-                ) from e
-            else:
-                raise RegistryActionError(
-                    f"Unexpected registry error ({e.response.status_code}):\n\n{e}\n\n{detail}"
-                ) from e
+            self._handle_http_status_error(e, action_type)
         except httpx.ReadTimeout as e:
-            raise RegistryActionError(
-                f"Timeout calling action {action_type!r} in registry: {e}"
+            raise ActionExecutionError(
+                f"Timeout calling action {action_type!r} in executor: {e}"
             ) from e
         except orjson.JSONDecodeError as e:
-            raise RegistryActionError(
+            raise ActionExecutionError(
                 f"Error decoding JSON response for action {action_type!r}: {e}"
             ) from e
         except Exception as e:
-            raise RegistryActionError(
-                f"Unexpected error calling action {action_type!r} in registry: {e}"
+            raise ActionExecutionError(
+                f"Unexpected error calling action {action_type!r} in executor: {e}"
             ) from e
 
     """Validation"""
@@ -283,3 +260,33 @@ class ExecutorClient:
                 raise RegistryError(
                     f"Network error while registering test module: {str(e)}"
                 ) from e
+
+    """Utility"""
+
+    def _handle_http_status_error(
+        self, e: httpx.HTTPStatusError, action_type: str
+    ) -> NoReturn:
+        self.logger.info("Handling HTTP status error", error=e)
+        try:
+            resp = e.response.json()
+        except JSONDecodeError:
+            self.logger.warning("Failed to decode JSON response, returning empty dict")
+            resp = {}
+        if (
+            isinstance(resp, Mapping)
+            and (detail := resp.get("detail"))
+            and isinstance(detail, Mapping)
+        ):
+            val_detail = RegistryActionErrorInfo(**detail)
+            detail = str(val_detail)
+        else:
+            detail = e.response.text
+        self.logger.error("Executor returned an error", error=e, detail=detail)
+        if e.response.status_code / 100 == 5:
+            raise ActionExecutionError(
+                f"There was an error in the executor when calling action {action_type!r} ({e.response.status_code}).\n\n{detail}"
+            ) from e
+        else:
+            raise ActionExecutionError(
+                f"Unexpected executor error ({e.response.status_code}):\n\n{e}\n\n{detail}"
+            ) from e

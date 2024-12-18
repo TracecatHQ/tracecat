@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import aioboto3
+import botocore.exceptions
 import orjson
 from botocore.config import Config
 from pydantic import BaseModel
@@ -31,6 +32,7 @@ from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.identifiers import ActionRef, WorkflowExecutionID
 from tracecat.logger import logger
+from tracecat.types.exceptions import StoreError
 
 _minio_client: MinioStore | None = None
 
@@ -109,14 +111,25 @@ class MinioStore:
             bucket_name: Name of the target bucket
             object_name: Name/path of the object to store
             data: Dictionary to be stored as JSON
+
+        Returns:
+            The response from the put_object call
+
+        Raises:
+            StoreError: If the object cannot be stored
         """
-        async with self._client() as client:
-            return await client.put_object(
-                Bucket=bucket_name,
-                Key=key,
-                Body=orjson.dumps(data),
-                ContentType="application/json",
-            )
+        try:
+            async with self._client() as client:
+                return await client.put_object(
+                    Bucket=bucket_name,
+                    Key=key,
+                    Body=orjson.dumps(data),
+                    ContentType="application/json",
+                )
+        except botocore.exceptions.ClientError as e:
+            raise StoreError(
+                f"Error storing JSON object in the object store: {e}"
+            ) from None
 
     async def get_json(self, bucket_name: str, key: str) -> Any:
         """Retrieve and parse a JSON object from MinIO.
@@ -127,12 +140,20 @@ class MinioStore:
 
         Returns:
             The parsed JSON data as a dictionary
+
+        Raises:
+            StoreError: If the object cannot be retrieved
         """
-        async with self._client() as client:
-            response = await client.get_object(Bucket=bucket_name, Key=key)
-            async with response["Body"] as stream:
-                data = await stream.read()
-        return orjson.loads(data)
+        try:
+            async with self._client() as client:
+                response = await client.get_object(Bucket=bucket_name, Key=key)
+                async with response["Body"] as stream:
+                    data = await stream.read()
+                return orjson.loads(data)
+        except botocore.exceptions.ClientError as e:
+            raise StoreError(
+                f"Error retrieving JSON object from the object store: {e}"
+            ) from None
 
     async def get_json_batched(
         self, bucket_name: str, keys: Sequence[str]
