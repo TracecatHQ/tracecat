@@ -34,6 +34,7 @@ from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.eval import (
     eval_templated_object,
+    extract_templated_secrets,
     get_iterables_from_expression,
 )
 from tracecat.logger import logger
@@ -139,7 +140,7 @@ async def run_single_action(
 
     action_secret_names = set()
     optional_secrets = set()
-    secrets = context.get("SECRETS", {})
+    secrets = context.get(ExprContext.SECRETS, {})
 
     for secret in action.secrets or []:
         # Only add if not already pulled
@@ -157,7 +158,7 @@ async def run_single_action(
     ) as sandbox:
         secrets |= sandbox.secrets.copy()
 
-    context["SECRETS"] = context.get("SECRETS", {}) | secrets
+    context[ExprContext.SECRETS] = context.get(ExprContext.SECRETS, {}) | secrets
     if action.is_template:
         logger.info("Running template UDF async", action=action.name)
         return await run_template_action(action=action, args=args, context=context)
@@ -275,7 +276,7 @@ async def run_action_from_input(input: RunActionInput) -> Any:
         if extracted_action_refs := extracted_exprs[ExprContext.ACTIONS]:
             store = get_store()
             action_results = await store.load_action_result_batched(
-                execution_id=run_context.wf_exec_id,
+                execution_id=input.run_context.wf_exec_id,
                 action_refs=extracted_action_refs,
             )
             context.update(ACTIONS=action_results)
@@ -325,7 +326,7 @@ async def run_action_from_input(input: RunActionInput) -> Any:
     if mask_values:
         result = apply_masks_object(result, masks=mask_values)
 
-    act_logger.debug("Result", result=result)
+    log.debug("Result", result=result)
     return result
 
 

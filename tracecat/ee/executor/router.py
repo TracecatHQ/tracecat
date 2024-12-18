@@ -4,13 +4,13 @@ import traceback
 
 from fastapi import APIRouter
 
-import tracecat.executor.service as executor_service
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger
 from tracecat.dsl.models import ActionResult, RunActionInput
 from tracecat.ee.store.models import ActionRefHandle
 from tracecat.ee.store.service import get_store
+from tracecat.executor import service
 from tracecat.executor.enums import ResultsBackend
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionErrorInfo
@@ -59,7 +59,7 @@ async def run_action_with_store(
 
     action_result = ActionResult()
     try:
-        result = await executor_service.run_action_in_pool(input=action_input)
+        result = await service.run_action_on_ray_cluster(input=action_input, role=role)
         action_result.update(result=result, result_typename=type(result).__name__)
     except Exception as e:
         # Get the traceback info

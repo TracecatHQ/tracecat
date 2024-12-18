@@ -33,9 +33,8 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import DSLConfig, ExecutionContext
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.executor.service import run_action_on_ray_cluster
 from tracecat.executor.client import ExecutorClient
-from tracecat.executor.service import run_action_in_pool
+from tracecat.executor.service import run_action_on_ray_cluster
 from tracecat.expressions.common import ExprContext
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretCreate, SecretKeyValue

@@ -14,7 +14,6 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryAction, RegistryRepository
-from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     BoundRegistryAction,
