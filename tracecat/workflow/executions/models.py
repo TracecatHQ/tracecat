@@ -157,7 +157,6 @@ class EventGroup(BaseModel, Generic[EventInput]):
         # Retry policy
 
         act_type = attrs.activity_type.name
-        logger.warning("Activity task scheduled event", act_type=act_type)
         if act_type == get_workflow_definition_activity.__name__:
             action_input = GetWorkflowDefinitionActivityInputs(**activity_input_data)
         elif act_type in (

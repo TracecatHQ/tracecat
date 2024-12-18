@@ -55,10 +55,10 @@ class WorkflowExecutionsService:
         self.logger = logger.bind(service="workflow_executions")
 
     @staticmethod
-    async def connect() -> WorkflowExecutionsService:
+    async def connect(role: Role | None = None) -> WorkflowExecutionsService:
         """Initialize and connect to the service."""
         client = await get_temporal_client()
-        return WorkflowExecutionsService(client=client)
+        return WorkflowExecutionsService(client=client, role=role)
 
     def handle(self, wf_exec_id: WorkflowExecutionID) -> WorkflowHandle:
         return self._client.get_workflow_handle(wf_exec_id)
