@@ -49,6 +49,13 @@ resource "aws_ecs_task_definition" "executor_task_definition" {
         maxAttempts = 3
         backoffTime = 10
       }
+      healthCheck = {
+        command     = ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/').raise_for_status()"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
     }
   ])
 }
