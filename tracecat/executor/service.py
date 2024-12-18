@@ -7,8 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from collections.abc import Callable, Iterator, Mapping
-from types import CoroutineType
+from collections.abc import Iterator, Mapping
 from typing import Any, cast
 
 import ray
@@ -65,16 +64,10 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
 
     logger.info("Running action in sync entrypoint", action=input.task.action)
 
-    async def coro():
-        ctx_role.set(role)
-        async_engine = get_async_engine()
-        try:
-            return await run_action_from_input(input=input)
-        finally:
-            await async_engine.dispose()
-
+    async_engine = get_async_engine()
     try:
-        return loop.run_until_complete(coro())
+        coro = run_action_from_input(input=input, role=role)
+        return loop.run_until_complete(coro)
     except Exception as e:
         logger.error(
             "Error running action",
@@ -84,8 +77,8 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
         )
         raise e
     finally:
-        # We always close the loop
-        loop.close()
+        loop.run_until_complete(async_engine.dispose())
+        loop.close()  # We always close the loop
 
 
 async def _run_action_direct(
@@ -104,12 +97,8 @@ async def _run_action_direct(
     try:
         if action.is_async:
             logger.trace("Running UDF async")
-            if isinstance(action.fn, CoroutineType):
-                raise TracecatException("UDF is async but doesn't return a coroutine")
             return await action.fn(**args)
         logger.trace("Running UDF sync")
-        if not isinstance(action.fn, Callable):
-            raise TracecatException("UDF is not callable")
         return await asyncio.to_thread(action.fn, **args)
     except Exception as e:
         logger.error(
@@ -219,8 +208,9 @@ async def run_template_action(
     )
 
 
-async def run_action_from_input(input: RunActionInput) -> Any:
+async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     """This runs on the executor process pool."""
+    ctx_role.set(role)
     ctx_run.set(input.run_context)
     log = logger.bind(
         role=ctx_role.get(),

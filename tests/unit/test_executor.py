@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from pydantic import SecretStr
 
-from tracecat.contexts import RunContext, ctx_role
+from tracecat.contexts import RunContext
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.models import ActionStatement, RunActionInput
 from tracecat.executor.service import run_action_from_input, sync_executor_entrypoint
@@ -123,8 +123,7 @@ async def test_executor_can_run_udf_with_secrets(
         )
 
         # Act
-        ctx_role.set(test_role)
-        result = await run_action_from_input(input)
+        result = await run_action_from_input(input, test_role)
 
         # Assert
         assert result == "__SECRET_VALUE_UDF__"
@@ -226,7 +225,7 @@ async def test_executor_can_run_template_action_with_secret(
         )
 
         # Act
-        result = await run_action_from_input(input)
+        result = await run_action_from_input(input, test_role)
 
         # Assert
         assert result == "__SECRET_VALUE__"
