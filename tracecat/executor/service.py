@@ -21,10 +21,10 @@ from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.db.engine import get_async_engine
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.models import (
-    ActionResult,
     ActionStatement,
     ExecutionContext,
     RunActionInput,
+    TaskResultDict,
 )
 from tracecat.ee.store.service import get_store
 from tracecat.executor.engine import EXECUTION_TIMEOUT
@@ -197,7 +197,7 @@ async def run_template_action(
         )
         # Store the result of the step
         logger.trace("Storing step result", step=step.ref, result=result)
-        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = ActionResult(
+        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = TaskResultDict(
             result=result,
             result_typename=type(result).__name__,
         )
@@ -263,12 +263,14 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         # We only pull the action results that are actually used in the template
         if extracted_action_refs := extracted_exprs[ExprContext.ACTIONS]:
             store = get_store()
-            action_results = await store.load_action_result_batched(
-                execution_id=input.run_context.wf_exec_id,
+            action_results = await store.load_action_result_from_exec_context(
+                context=context,
                 action_refs=extracted_action_refs,
             )
             context.update(ACTIONS=action_results)
-            log.trace("Updated action context", action_results=action_results)
+            log.trace(
+                "Updated action context", action_results=action_results, context=context
+            )
         else:
             log.trace("No action refs in task args")
     else:
@@ -301,10 +303,8 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         task_ref=task.ref,
         action_name=action_name,
         args=task.args,
+        context=context,
     )
-
-    context = input.exec_context.copy()
-    context.update(SECRETS=secrets)
 
     flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):
@@ -365,6 +365,9 @@ async def run_action_on_ray_cluster(input: RunActionInput, role: Role) -> Any:
         logger.error("Error running action on ray cluster", error=e)
         if isinstance(e.cause, BaseException):
             raise e.cause from None
+        raise e
+    except Exception as e:
+        logger.error("Unexpected error running action on ray cluster", error=e)
         raise e
 
 

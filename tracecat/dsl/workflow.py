@@ -40,13 +40,13 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.constants import CHILD_WORKFLOW_EXECUTE_ACTION
     from tracecat.dsl.enums import FailStrategy, LoopStrategy
     from tracecat.dsl.models import (
-        ActionResult,
         ActionStatement,
         DSLConfig,
         DSLEnvironment,
         DSLExecutionError,
         ExecutionContext,
         RunActionInput,
+        TaskResultDict,
         TriggerInputs,
     )
     from tracecat.dsl.scheduler import DSLScheduler
@@ -57,6 +57,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.ee.executor.service import (
         run_action_with_store_activity,
     )
+    from tracecat.ee.store.models import StoreResult
     from tracecat.ee.store.service import (
         StoreWorkflowResultActivityInput,
         store_workflow_result_activity,
@@ -303,13 +304,14 @@ class DSLWorkflow:
     async def execute_task(self, task: ActionStatement) -> None:
         logger.info("Begin task execution", task_ref=task.ref)
         if self.results_backend == ResultsBackend.STORE:
-            # await self._execute_task_store_backend(task)
-            action_ref_handle = await self._run_action_or_child_workflow(task)
-            self.context[ExprContext.ACTIONS][task.ref] = action_ref_handle
+            store_result = await self._execute_action_or_child_workflow(task)
+            self.context[ExprContext.ACTIONS][task.ref] = store_result
         else:
-            task_result = ActionResult(result=None, result_typename=type(None).__name__)
+            task_result = TaskResultDict(
+                result=None, result_typename=type(None).__name__
+            )
             try:
-                action_result = await self._run_action_or_child_workflow(task)
+                action_result = await self._execute_action_or_child_workflow(task)
                 task_result.update(
                     result=action_result, result_typename=type(action_result).__name__
                 )
@@ -348,16 +350,13 @@ class DSLWorkflow:
                 # Write to action store
                 self.context[ExprContext.ACTIONS][task.ref] = task_result
 
-    async def _run_action_or_child_workflow(self, task: ActionStatement) -> Any:
+    async def _execute_action_or_child_workflow(
+        self, task: ActionStatement
+    ) -> StoreResult | Any:
         if self._should_execute_child_workflow(task):
-            logger.trace("Preparing child workflow")
-            child_run_args = await self._prepare_child_workflow(task)
-            logger.trace("Child workflow prepared", child_run_args=child_run_args)
-            result = await self._execute_child_workflow(
-                task=task, child_run_args=child_run_args
-            )
+            result = await self._execute_child_workflow(task)
         else:
-            result = await self._run_action(task)
+            result = await self._execute_action(task)
         self.logger.trace("Action completed successfully", result=result)
         return result
 
@@ -368,14 +367,13 @@ class DSLWorkflow:
         ValidationError.__name__: "Runtime validation error",
     }
 
-    async def _execute_child_workflow(
-        self,
-        task: ActionStatement,
-        child_run_args: DSLRunArgs,
-    ) -> Any:
+    async def _execute_child_workflow(self, task: ActionStatement) -> Any:
+        logger.trace("Preparing child workflow")
+        child_run_args = await self._prepare_child_workflow(task)
         self.logger.debug("Execute child workflow", child_run_args=child_run_args)
         if task.for_each:
             # In for loop, child run args are shared among all iterations
+            # This would actually return a list of pointers
             return await self._execute_child_workflow_loop(
                 task=task, child_run_args=child_run_args
             )
@@ -656,18 +654,14 @@ class DSLWorkflow:
             runtime_config=runtime_config,
         )
 
-    async def _run_action(self, task: ActionStatement) -> Any:
+    async def _execute_action(self, task: ActionStatement) -> StoreResult | Any:
         arg = RunActionInput(
             task=task, run_context=self.run_context, exec_context=self.context
         )
         self.logger.debug("Running action activity", arg=arg)
 
-        activity = BACKEND_TO_ACTIVITY[self.results_backend]
-
-        self.logger.debug("Running action activity", activity=activity.__name__)
-
         return await workflow.execute_activity(
-            activity,
+            RESULTS_BACKEND_TO_ACTIVITY[self.results_backend],
             args=(arg, self.role),
             start_to_close_timeout=timedelta(
                 seconds=task.start_delay + task.retry_policy.timeout
@@ -696,7 +690,7 @@ class DSLWorkflow:
         return task.action == CHILD_WORKFLOW_EXECUTE_ACTION
 
 
-BACKEND_TO_ACTIVITY: dict[
+RESULTS_BACKEND_TO_ACTIVITY: dict[
     ResultsBackend, Callable[[RunActionInput, Role], Awaitable[Any]]
 ] = {
     ResultsBackend.STORE: run_action_with_store_activity,

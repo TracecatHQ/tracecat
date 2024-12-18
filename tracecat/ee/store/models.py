@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import abc
-from typing import ClassVar, Self, TypedDict
+import re
+from typing import Annotated, ClassVar, Literal, Self
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints, TypeAdapter
 
+from tracecat.executor.enums import ResultsBackend
+from tracecat.executor.models import ExecutorResult, TaskResult
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.action import ActionRef
 from tracecat.identifiers.workflow import (
@@ -13,80 +16,133 @@ from tracecat.identifiers.workflow import (
     exec_id_to_parts,
 )
 
-type StoreObjectPath = str
-"""Type alias for a structured storage path"""
+StoreObjectKey = str
+"""Type alias for an S3 comatible object storage key"""
 
 
-class StoreObjectPtr(TypedDict):
+EXECUTION_RESULT_KEY_REGEX = (
+    r"^workflows/(?P<workflow_id>[^/]+)"
+    r"/executions/(?P<execution_id>[^/]+)"
+    r"/(?P<file_name>[^.]+)\.(?P<file_ext>[^/]+)$"
+)
+
+ExecutionResultKey = Annotated[
+    str, StringConstraints(pattern=EXECUTION_RESULT_KEY_REGEX)
+]
+"""A key for an execution result."""
+EXECTION_RESULT_KEY_PATTERN = re.compile(EXECUTION_RESULT_KEY_REGEX)
+EXECUTION_RESULT_KEY_TEMPLATE = (
+    "workflows/{workflow_id}/executions/{execution_id}/{file_name}.{file_ext}"
+)
+
+
+class StoreContextContainer(BaseModel):
+    """Utility model for parsing action context with store backend."""
+
+    context: dict[ActionRef, StoreResult]
+
+
+class StoreResult(ExecutorResult):
     """A pointer to an object in object storage"""
 
-    key: str
+    tc_backend_: Literal[ResultsBackend.STORE] = Field(
+        default=ResultsBackend.STORE, frozen=True
+    )
+    key: StoreObjectKey
+
+
+ResultVariant = Annotated[TaskResult | StoreResult, Field(discriminator="tc_backend_")]
+ResultVariantValidator: TypeAdapter[ResultVariant] = TypeAdapter(ResultVariant)  # type: ignore
 
 
 class StoreObjectHandle(abc.ABC, BaseModel):
     """Represents a structured storage path"""
 
     @abc.abstractmethod
-    def to_path(self, ext: str = "json") -> StoreObjectPath:
+    def to_key(self, ext: str = "json") -> StoreObjectKey:
         """Convert to relative object storage path string."""
         raise NotImplementedError
 
     @classmethod
     @abc.abstractmethod
-    def from_path(cls, path: StoreObjectPath) -> Self:
+    def from_key(cls, key: StoreObjectKey) -> Self:
         """Create a handle from a relative path string."""
         raise NotImplementedError
 
-    def to_pointer(self) -> StoreObjectPtr:
-        return StoreObjectPtr(key=self.to_path())
+    def to_pointer(self) -> StoreResult:
+        # NOTE: Explicitly set to avoid exclusiondue to value unset in dsl/_converter
+        return StoreResult(tc_backend_=ResultsBackend.STORE, key=self.to_key())
 
 
-class ExecutionResultHandle(StoreObjectHandle):
+class TaskResultHandle(StoreObjectHandle):
     wf_exec_id: WorkflowExecutionID
+    """The workflow execution ID of the workflow that produced the task result."""
 
     @property
     def workflow_exec_parts(self) -> tuple[WorkflowID, WorkflowExecutionSuffixID]:
+        """The workflow ID and execution suffix ID of the workflow that produced the task result."""
         return exec_id_to_parts(self.wf_exec_id)
 
+    @staticmethod
+    def from_key(key: StoreObjectKey) -> TaskResultHandle:
+        if key.endswith(
+            f"{WorkflowResultHandle.file_name}.{WorkflowResultHandle.file_ext}"
+        ):
+            handle = WorkflowResultHandle.from_key(key)
+        else:
+            handle = ActionResultHandle.from_key(key)
+        return handle
 
-class WorkflowResultHandle(ExecutionResultHandle):
+
+class WorkflowResultHandle(TaskResultHandle):
     """Represents a structured storage path for a workflow result."""
 
     file_name: ClassVar[str] = "_result"
     file_ext: ClassVar[str] = "json"
 
-    def to_path(self) -> StoreObjectPath:
+    def to_key(self) -> StoreObjectKey:
         wf_id, exec_suffix_id = self.workflow_exec_parts
-        return f"{wf_id}/{exec_suffix_id}/{self.file_name}.{self.file_ext}"
+        return EXECUTION_RESULT_KEY_TEMPLATE.format(
+            workflow_id=wf_id,
+            execution_id=exec_suffix_id,
+            file_name=self.file_name,
+            file_ext=self.file_ext,
+        )
 
     @classmethod
-    def from_path(cls, path: StoreObjectPath) -> Self:
-        segments = path.split("/")
-        if len(segments) != 3:
-            raise ValueError(f"Invalid path format: {path}")
-        wf_id, exec_suffix_id, suffix = segments
-        if suffix != f"{cls.file_name}.{cls.file_ext}":
-            raise ValueError(f"Invalid path format: {path}")
-        return cls(wf_exec_id=exec_id_from_parts(wf_id, exec_suffix_id))
+    def from_key(cls, key: StoreObjectKey) -> Self:
+        match = EXECTION_RESULT_KEY_PATTERN.match(key)
+        if not match:
+            raise ValueError(f"Invalid path format: {key}")
+        return cls(
+            wf_exec_id=exec_id_from_parts(
+                match.group("workflow_id"), match.group("execution_id")
+            )
+        )
 
 
-class ActionResultHandle(ExecutionResultHandle):
+class ActionResultHandle(TaskResultHandle):
     """Represents a structured storage path for an action result."""
 
     ref: ActionRef
     """The underlying action reference that this handle represents."""
 
-    def to_path(self, ext: str = "json") -> StoreObjectPath:
-        """Convert to storage path string"""
+    def to_key(self, ext: str = "json") -> StoreObjectKey:
+        """Convert to storage key string"""
         wf_id, exec_suffix_id = self.workflow_exec_parts
-        return f"{wf_id}/{exec_suffix_id}/{self.ref}.{ext}"
+        return EXECUTION_RESULT_KEY_TEMPLATE.format(
+            workflow_id=wf_id,
+            execution_id=exec_suffix_id,
+            file_name=self.ref,
+            file_ext=ext,
+        )
 
     @classmethod
-    def from_path(cls, path: StoreObjectPath) -> Self:
-        """Create an ActionRefHandle from a path string
+    def from_key(cls, key: StoreObjectKey) -> Self:
+        """Create an ActionRefHandle from a key string
 
         Args:
-            path: Path string in format "workflow_id/execution_id/object_name.ext"
+            key: Key string in format "workflow_id/execution_id/object_name.ext"
 
         Returns:
             ActionRefHandle instance
@@ -94,9 +150,24 @@ class ActionResultHandle(ExecutionResultHandle):
         Raises:
             ValueError: If path format is invalid
         """
-        try:
-            wf_id, exec_suffix_id, ref = path.split("/")
-            ref = ref.rsplit(".", 1)[0]  # Remove extension
-            return cls(wf_exec_id=exec_id_from_parts(wf_id, exec_suffix_id), ref=ref)
-        except ValueError as e:
-            raise ValueError(f"Invalid path format: {path}") from e
+        match = EXECTION_RESULT_KEY_PATTERN.match(key)
+        if not match:
+            raise ValueError(f"Invalid path format: {key}")
+        return cls(
+            wf_exec_id=exec_id_from_parts(
+                match.group("workflow_id"), match.group("execution_id")
+            ),
+            ref=match.group("file_name"),
+        )
+
+
+if __name__ == "__main__":
+    wf_id = "wf-" + "0" * 32
+    exec_id = "exec-" + "0" * 32
+    key = f"workflows/{wf_id}/executions/{exec_id}/test.json"
+    x = ActionResultHandle.from_key(key)
+    print(x.model_dump_json())
+    print(x.to_pointer().model_dump_json())
+
+    y = StoreResult(key=key)
+    print(y.model_dump_json())

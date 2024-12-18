@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, status
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger
-from tracecat.dsl.models import ActionResult, RunActionInput
+from tracecat.dsl.models import RunActionInput, TaskResultDict
 from tracecat.ee.store.models import ActionResultHandle
 from tracecat.ee.store.service import get_store
 from tracecat.executor.enums import ResultsBackend
@@ -14,7 +14,7 @@ from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionErrorInfo
 from tracecat.types.auth import Role
 
-router = APIRouter()
+router = APIRouter(tags=["EE"])
 
 
 @router.post("/run-store/{action_name}", tags=["execution"])
@@ -55,7 +55,7 @@ async def run_action_with_store(
         config.TRACECAT__RESULTS_BACKEND == ResultsBackend.STORE
     ), "Only store backend is supported n this endpoint"
 
-    action_result = ActionResult()
+    action_result = TaskResultDict()
     try:
         result = await run_action_on_ray_cluster(input=action_input, role=role)
         action_result.update(result=result, result_typename=type(result).__name__)

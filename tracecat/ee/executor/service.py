@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import Mapping
+from typing import Any
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -7,7 +9,14 @@ from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.dsl.action import contextualize_message
 from tracecat.dsl.models import DSLTaskErrorInfo, RunActionInput
 from tracecat.ee.executor.client import ExecutorClientEE
-from tracecat.ee.store.models import StoreObjectPtr
+from tracecat.ee.store.models import (
+    ResultVariantValidator,
+    StoreResult,
+    TaskResultHandle,
+)
+from tracecat.ee.store.service import get_store
+from tracecat.executor.enums import ResultsBackend
+from tracecat.executor.models import TaskResult
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import ActionExecutionError
@@ -16,7 +25,7 @@ from tracecat.types.exceptions import ActionExecutionError
 @activity.defn
 async def run_action_with_store_activity(
     input: RunActionInput, role: Role
-) -> StoreObjectPtr:
+) -> StoreResult:
     """
     Run an action in store mode.
 
@@ -95,3 +104,19 @@ async def run_action_with_store_activity(
             attempt=attempt,
         )
         raise ApplicationError(err_loc, err_info, type=kind, non_retryable=True) from e
+
+
+async def resolve_task_result(result_obj: Mapping[str, Any]) -> TaskResult:
+    result = ResultVariantValidator.validate_python(result_obj)
+    match result:
+        case TaskResult():
+            return result
+        case StoreResult():
+            # Load the action result here
+            store = get_store()
+            key = result.key
+            handle = TaskResultHandle.from_key(key)
+            task_result = await store.load_task_result(handle)
+            return TaskResult(tc_backend_=ResultsBackend.MEMORY, **task_result)
+        case _:
+            raise ValueError(f"Invalid result variant: {result}")

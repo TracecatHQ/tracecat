@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Iterable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Iterable, Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -19,12 +19,13 @@ from types_aiobotocore_s3.type_defs import (
 
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.dsl.models import ActionResult, ExecutionContext
-from tracecat.ee.store.constants import WORKFLOW_RESULTS_BUCKET
+from tracecat.dsl.models import ExecutionContext, TaskResultDict
 from tracecat.ee.store.models import (
     ActionResultHandle,
-    ExecutionResultHandle,
-    StoreObjectPtr,
+    StoreContextContainer,
+    StoreObjectKey,
+    StoreResult,
+    TaskResultHandle,
     WorkflowResultHandle,
 )
 from tracecat.expressions.common import ExprContext
@@ -58,7 +59,7 @@ class MinioStore:
         region: str = "us-east-1",
         access_key: str | None = None,
         secret_key: str | None = None,
-        bucket_name: str = WORKFLOW_RESULTS_BUCKET,
+        bucket_name: str = config.TRACECAT__BUCKET_NAME,
     ) -> None:
         self._endpoint_url = endpoint_url
         self._region = region
@@ -93,17 +94,19 @@ class MinioStore:
             return await client.create_bucket(Bucket=bucket_name)
 
     async def put(
-        self, bucket_name: str, key: str, file_path: str
+        self, bucket_name: str, key: StoreObjectKey, file_path: str
     ) -> PutObjectOutputTypeDef:
         async with self._client() as client:
             return await client.put_object(Bucket=bucket_name, Key=key, Body=file_path)
 
-    async def get(self, bucket_name: str, key: str) -> GetObjectOutputTypeDef:
+    async def get(
+        self, bucket_name: str, key: StoreObjectKey
+    ) -> GetObjectOutputTypeDef:
         async with self._client() as client:
             return await client.get_object(Bucket=bucket_name, Key=key)
 
     async def put_json(
-        self, bucket_name: str, key: str, data: Mapping[str, Any]
+        self, bucket_name: str, key: StoreObjectKey, data: Mapping[str, Any]
     ) -> PutObjectOutputTypeDef:
         """Store a JSON object in MinIO.
 
@@ -131,7 +134,7 @@ class MinioStore:
                 f"Error storing JSON object in the object store: {e}"
             ) from None
 
-    async def get_json(self, bucket_name: str, key: str) -> Any:
+    async def get_json(self, bucket_name: str, key: StoreObjectKey) -> Any:
         """Retrieve and parse a JSON object from MinIO.
 
         Args:
@@ -156,11 +159,11 @@ class MinioStore:
             ) from None
 
     async def get_json_batched(
-        self, bucket_name: str, keys: Sequence[str]
+        self, bucket_name: str, keys: Iterable[StoreObjectKey]
     ) -> list[Any]:
         async with self._client() as client:
 
-            async def coro(key: str):
+            async def coro(key: StoreObjectKey):
                 response = await client.get_object(Bucket=bucket_name, Key=key)
                 async with response["Body"] as stream:
                     data = await stream.read()
@@ -175,7 +178,7 @@ class MinioStore:
         self,
         execution_id: WorkflowExecutionID,
         action_ref: ActionRef,
-        action_result: ActionResult,
+        action_result: TaskResultDict,
     ) -> ActionResultHandle:
         """Store action result in structured storage.
 
@@ -187,13 +190,13 @@ class MinioStore:
 
         """
         handle = ActionResultHandle(wf_exec_id=execution_id, ref=action_ref)
-        await self.put_json(self._bucket_name, handle.to_path(), action_result)
+        await self.put_json(self._bucket_name, handle.to_key(), action_result)
         return handle
 
     async def store_workflow_result(
         self,
         execution_id: WorkflowExecutionID,
-        workflow_result: Any,
+        workflow_result: TaskResultDict,
     ) -> WorkflowResultHandle:
         """Store workflow result.
 
@@ -204,10 +207,10 @@ class MinioStore:
 
         """
         handle = WorkflowResultHandle(wf_exec_id=execution_id)
-        await self.put_json(self._bucket_name, handle.to_path(), workflow_result)
+        await self.put_json(self._bucket_name, handle.to_key(), workflow_result)
         return handle
 
-    async def load_execution_result(self, handle: ExecutionResultHandle) -> Any:
+    async def load_task_result(self, handle: TaskResultHandle) -> TaskResultDict:
         """Retrieve execution result from object storage.
 
         Args:
@@ -216,9 +219,10 @@ class MinioStore:
         Returns:
             The stored execution result
         """
-        return await self.get_json(self._bucket_name, handle.to_path())
+        result = await self.get_json(self._bucket_name, handle.to_key())
+        return TaskResultDict(**result)
 
-    async def load_action_result(self, handle: ActionResultHandle) -> ActionResult:
+    async def load_action_result(self, handle: ActionResultHandle) -> TaskResultDict:
         """Retrieve action result from object storage.
 
         Args:
@@ -227,34 +231,55 @@ class MinioStore:
         Returns:
             The stored action result
         """
-        result = await self.load_execution_result(handle)
-        return ActionResult(**result)
+        result = await self.load_task_result(handle)
+        return TaskResultDict(**result)
 
     async def load_action_result_batched(
         self,
         execution_id: WorkflowExecutionID,
         action_refs: Iterable[ActionRef],
-    ) -> dict[ActionRef, ActionResult]:
+    ) -> dict[ActionRef, TaskResultDict]:
         keys = [
-            ActionResultHandle(wf_exec_id=execution_id, ref=ref).to_path()
+            ActionResultHandle(wf_exec_id=execution_id, ref=ref).to_key()
             for ref in action_refs
         ]
         # NOTE: Order is preserved
         results = await self.get_json_batched(self._bucket_name, keys)
         return dict(zip(action_refs, results, strict=False))
 
+    async def load_action_result_from_exec_context(
+        self, context: ExecutionContext, action_refs: Iterable[ActionRef]
+    ) -> dict[ActionRef, TaskResultDict]:
+        """Use the object keys from the execution context to load objects instead"""
+
+        if not isinstance(action_refs, set):
+            action_refs = set(action_refs)
+
+        # (1) Get pointers from action refs
+        actions_context = context[ExprContext.ACTIONS]
+        model = StoreContextContainer(context=actions_context)
+        ref2key = {
+            ref: ptr.key for ref, ptr in model.context.items() if ref in action_refs
+        }
+
+        # (2) Get results from pointers
+        results = await self.get_json_batched(self._bucket_name, ref2key.values())
+        # The final dict will not contain any keys that were not in the execution context
+        return dict(zip(ref2key.keys(), results, strict=False))
+
     async def resolve_templated_object(
-        self, execution_id: WorkflowExecutionID, args: Any, context: ExecutionContext
+        self, args: Any, context: ExecutionContext
     ) -> Any:
         extracted_exprs = extract_expressions(args)
         extracted_action_refs = extracted_exprs[ExprContext.ACTIONS]
         if not extracted_action_refs:
             return args
         self.logger.trace(
-            "Evaluating template remote", extracted_action_refs=extracted_action_refs
+            "Resolving templated object from store values",
+            extracted_action_refs=extracted_action_refs,
         )
-        action_results = await self.load_action_result_batched(
-            execution_id=execution_id, action_refs=extracted_action_refs
+        action_results = await self.load_action_result_from_exec_context(
+            context=context, action_refs=extracted_action_refs
         )
         operand = context.copy()
         operand[ExprContext.ACTIONS] = action_results
@@ -270,20 +295,16 @@ class StoreWorkflowResultActivityInput(BaseModel):
 @activity.defn
 async def store_workflow_result_activity(
     input: StoreWorkflowResultActivityInput,
-) -> StoreObjectPtr:
+) -> StoreResult:
     """Store the result of a workflow."""
     store = get_store()
-    logger.info("Resolving templated object", execution_id=input.execution_id)
-    obj = await store.resolve_templated_object(
-        execution_id=input.execution_id,
-        args=input.args,
-        context=input.context,
-    )
+    logger.info("Resolving templated object")
+    obj = await store.resolve_templated_object(args=input.args, context=input.context)
     # Store the result if it's a WorkflowResultHandle
-    logger.info("Storing workflow result", execution_id=input.execution_id)
+    logger.info("Storing workflow result")
     handle = await store.store_workflow_result(
         execution_id=input.execution_id,
-        workflow_result=obj,
+        workflow_result=TaskResultDict(result=obj, result_typename=type(obj).__name__),
     )
     logger.info("Workflow result stored", handle=handle)
     return handle.to_pointer()

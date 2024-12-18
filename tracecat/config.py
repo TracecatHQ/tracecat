@@ -163,3 +163,4 @@ TRACECAT__RESULTS_BACKEND = ResultsBackend(
 MINIO_ENDPOINT_URL = os.environ.get("MINIO_ENDPOINT_URL") or "http://minio:9000"
 MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY")
 MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY")
+TRACECAT__BUCKET_NAME = os.environ.get("TRACECAT__BUCKET_NAME", "tracecat")
