@@ -49,7 +49,7 @@ resource "aws_ecs_service" "tracecat_worker" {
   cluster              = aws_ecs_cluster.tracecat_cluster.id
   task_definition      = aws_ecs_task_definition.worker_task_definition.arn
   launch_type          = "FARGATE"
-  desired_count        = 1
+  desired_count        = 2
   force_new_deployment = var.force_new_deployment
 
   network_configuration {
@@ -83,6 +83,18 @@ resource "aws_ecs_service" "tracecat_worker" {
         awslogs-stream-prefix = "service-connect-worker"
       }
     }
+  }
+
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+    weight            = 1
+    base              = 1
+  }
+
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE_SPOT"
+    weight            = 1
+    base              = 0
   }
 
   depends_on = [
