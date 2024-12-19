@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 import yaml
+from pydantic import SecretStr
 from temporalio.client import Client
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
@@ -1118,14 +1119,14 @@ async def test_single_child_workflow_get_correct_secret_environment(
             SecretCreate(
                 name="test_single_child_workflow_get_correct_secret_environment",
                 environment="__FIRST__",
-                keys=[SecretKeyValue(key="KEY", value="FIRST_VALUE")],
+                keys=[SecretKeyValue(key="KEY", value=SecretStr("FIRST_VALUE"))],
             )
         )
         await service.create_secret(
             SecretCreate(
                 name="test_single_child_workflow_get_correct_secret_environment",
                 environment="__SECOND__",
-                keys=[SecretKeyValue(key="KEY", value="SECOND_VALUE")],
+                keys=[SecretKeyValue(key="KEY", value=SecretStr("SECOND_VALUE"))],
             )
         )
 
