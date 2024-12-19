@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from temporalio import activity
 from types_aiobotocore_s3.client import S3Client
 from types_aiobotocore_s3.type_defs import (
+    BlobTypeDef,
     CreateBucketOutputTypeDef,
     GetObjectOutputTypeDef,
     PutObjectOutputTypeDef,
@@ -94,10 +95,10 @@ class MinioStore:
             return await client.create_bucket(Bucket=bucket_name)
 
     async def put(
-        self, bucket_name: str, key: StoreObjectKey, file_path: str
+        self, bucket_name: str, key: StoreObjectKey, data: BlobTypeDef
     ) -> PutObjectOutputTypeDef:
         async with self._client() as client:
-            return await client.put_object(Bucket=bucket_name, Key=key, Body=file_path)
+            return await client.put_object(Bucket=bucket_name, Key=key, Body=data)
 
     async def get(
         self, bucket_name: str, key: StoreObjectKey
