@@ -4,12 +4,13 @@ import aiobotocore.session
 import pytest
 from moto.server import ThreadedMotoServer
 
-from tracecat.dsl.models import TaskResultDict
+from tracecat.dsl.models import ExecutionContext, TaskResultDict
 from tracecat.ee.store.models import (
     ActionResultHandle,
     WorkflowResultHandle,
 )
 from tracecat.ee.store.service import MinioStore
+from tracecat.expressions.common import ExprContext
 from tracecat.types.exceptions import StoreError
 
 
@@ -338,3 +339,124 @@ class TestMinioStore:
         assert all(ref in results for ref in action_refs)
         assert results["action1"] == action_results["action1"]
         assert results["action2"] == action_results["action2"]
+
+    @pytest.mark.anyio
+    async def test_put_and_get_object(
+        self, mock_store: MinioStore, test_bucket: str
+    ) -> None:
+        """Test putting and getting a raw object."""
+        # Arrange
+        test_key = "test-raw-object"
+        test_content = b"test content"
+
+        # Act - Put
+        result = await mock_store.put(
+            bucket_name=test_bucket, key=test_key, data=test_content
+        )
+        assert result is not None
+
+        # Act - Get
+        response = await mock_store.get(test_bucket, test_key)
+        async with response["Body"] as stream:
+            content = await stream.read()
+
+        # Assert
+        assert content == test_content
+
+    @pytest.mark.anyio
+    async def test_load_task_result(
+        self, mock_store: MinioStore, workflow_exec_id: str
+    ) -> None:
+        """Test loading a task result."""
+        # Arrange
+        task_result = TaskResultDict(
+            result={"task": "data"}, result_typename="TestType"
+        )
+        handle = await mock_store.store_workflow_result(
+            execution_id=workflow_exec_id, workflow_result=task_result
+        )
+
+        # Act
+        loaded_result = await mock_store.load_task_result(handle)
+
+        # Assert
+        assert loaded_result == task_result
+        assert loaded_result.get("result") == {"task": "data"}
+        assert loaded_result.get("result_typename") == "TestType"
+
+    @pytest.mark.anyio
+    async def test_load_action_result_from_exec_context(
+        self, mock_store: MinioStore, workflow_exec_id: str
+    ) -> None:
+        """Test loading action results using execution context."""
+        # Arrange
+        action_refs = ["action1", "action2"]
+        action_results = {
+            "action1": TaskResultDict(result={"data": "1"}, result_typename=""),
+            "action2": TaskResultDict(result={"data": "2"}, result_typename=""),
+        }
+
+        # Store test data and create context
+        context: ExecutionContext = {ExprContext.ACTIONS: {}}
+        for ref in action_refs:
+            handle = await mock_store.store_action_result(
+                execution_id=workflow_exec_id,
+                action_ref=ref,
+                action_result=action_results[ref],
+            )
+            context[ExprContext.ACTIONS][ref] = handle.to_pointer()
+
+        # Act
+        results = await mock_store.load_action_result_from_exec_context(
+            context=context, action_refs=action_refs
+        )
+
+        # Assert
+        assert len(results) == 2
+        assert results["action1"].get("result") == {"data": "1"}
+        assert results["action2"].get("result") == {"data": "2"}
+
+    @pytest.mark.anyio
+    async def test_resolve_templated_object_no_expressions(
+        self, mock_store: MinioStore
+    ) -> None:
+        """Test resolving templated object with no expressions."""
+        # Arrange
+        test_obj = {"simple": "object"}
+        context: ExecutionContext = {ExprContext.ACTIONS: {}}
+
+        # Act
+        result = await mock_store.resolve_templated_object(test_obj, context)
+
+        # Assert
+        assert result == test_obj
+
+    @pytest.mark.anyio
+    async def test_resolve_templated_object_with_expressions(
+        self, mock_store: MinioStore, workflow_exec_id: str
+    ) -> None:
+        """Test resolving templated object with expressions."""
+        # Arrange
+        action_ref = "test_action"
+        action_result = TaskResultDict(result={"value": 42}, result_typename="")
+
+        # Store the action result
+        handle = await mock_store.store_action_result(
+            execution_id=workflow_exec_id,
+            action_ref=action_ref,
+            action_result=action_result,
+        )
+
+        # Create context with the stored action
+        context: ExecutionContext = {
+            ExprContext.ACTIONS: {action_ref: handle.to_pointer()}
+        }
+
+        # Template that references the action result
+        template = {"expression": f"${{{{ ACTIONS.{action_ref}.result.value}}}}"}
+
+        # Act
+        result = await mock_store.resolve_templated_object(template, context)
+
+        # Assert
+        assert result == {"expression": 42}
