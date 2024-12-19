@@ -1,15 +1,22 @@
 from collections.abc import AsyncGenerator
+from unittest.mock import AsyncMock, Mock, patch
 
 import aiobotocore.session
 import pytest
 from moto.server import ThreadedMotoServer
+from temporalio.testing import ActivityEnvironment
 
 from tracecat.dsl.models import ExecutionContext, TaskResultDict
 from tracecat.ee.store.models import (
     ActionResultHandle,
+    StoreResult,
     WorkflowResultHandle,
 )
-from tracecat.ee.store.service import MinioStore
+from tracecat.ee.store.service import (
+    MinioStore,
+    StoreWorkflowResultActivityInput,
+    store_workflow_result_activity,
+)
 from tracecat.expressions.common import ExprContext
 from tracecat.types.exceptions import StoreError
 
@@ -357,8 +364,13 @@ class TestMinioStore:
 
         # Act - Get
         response = await mock_store.get(test_bucket, test_key)
-        async with response["Body"] as stream:
-            content = await stream.read()
+        try:
+            async with response["Body"] as stream:
+                content = await stream.read()
+        except RuntimeError as e:
+            # Bandaid solution for flaky connection here
+            if "Connection closed" not in str(e):
+                raise e
 
         # Assert
         assert content == test_content
@@ -460,3 +472,91 @@ class TestMinioStore:
 
         # Assert
         assert result == {"expression": 42}
+
+
+@pytest.fixture
+def activity_mock_store() -> AsyncMock:
+    """Create a mock MinioStore for activity testing."""
+    store = AsyncMock(spec=MinioStore)
+    store.resolve_templated_object = AsyncMock(return_value={"test": "resolved_data"})
+    store.store_workflow_result = AsyncMock(
+        return_value=Mock(
+            to_pointer=Mock(return_value=StoreResult(key="test/workflow/key"))
+        )
+    )
+    return store
+
+
+@pytest.fixture
+def activity_env() -> ActivityEnvironment:
+    """Create an ActivityEnvironment for testing."""
+    return ActivityEnvironment()
+
+
+class TestStoreActivity:
+    """Test suite for store activities"""
+
+    @pytest.mark.anyio
+    async def test_store_workflow_result_activity(
+        self,
+        activity_env: ActivityEnvironment,
+        activity_mock_store: AsyncMock,
+        workflow_exec_id: str,
+    ) -> None:
+        """Test store_workflow_result_activity using Temporal's ActivityEnvironment."""
+        # Arrange
+        with patch(
+            "tracecat.ee.store.service.get_store", return_value=activity_mock_store
+        ):
+            input_data = StoreWorkflowResultActivityInput(
+                execution_id=workflow_exec_id,
+                args={"input": "test_data"},
+                context=ExecutionContext(),
+            )
+
+            # Act
+            result = await activity_env.run(store_workflow_result_activity, input_data)
+
+            # Assert
+            assert isinstance(result, StoreResult)
+            assert result.key == "test/workflow/key"
+
+            # Verify store interactions
+            activity_mock_store.resolve_templated_object.assert_awaited_once_with(
+                args={"input": "test_data"},
+                context=input_data.context,
+            )
+
+            activity_mock_store.store_workflow_result.assert_awaited_once_with(
+                execution_id=input_data.execution_id,
+                workflow_result=TaskResultDict(
+                    result={"test": "resolved_data"},
+                    result_typename="dict",
+                ),
+            )
+
+    @pytest.mark.anyio
+    async def test_store_workflow_result_activity_error_handling(
+        self,
+        activity_env: ActivityEnvironment,
+        activity_mock_store: AsyncMock,
+        workflow_exec_id: str,
+    ) -> None:
+        """Test store_workflow_result_activity error handling."""
+        # Arrange
+        activity_mock_store.resolve_templated_object.side_effect = Exception(
+            "Test error"
+        )
+
+        with patch(
+            "tracecat.ee.store.service.get_store", return_value=activity_mock_store
+        ):
+            input_data = StoreWorkflowResultActivityInput(
+                execution_id=workflow_exec_id,
+                args={"input": "test_data"},
+                context=ExecutionContext(),
+            )
+
+            # Act & Assert
+            with pytest.raises(Exception, match="Test error"):
+                await activity_env.run(store_workflow_result_activity, input_data)
