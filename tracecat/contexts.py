@@ -1,23 +1,20 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import TYPE_CHECKING
 
 import loguru
 from pydantic import BaseModel
 
-from tracecat import identifiers
-
-if TYPE_CHECKING:
-    from tracecat.types.auth import Role
+from tracecat.identifiers import WorkflowExecutionID, WorkflowID, WorkflowRunID
+from tracecat.types.auth import Role
 
 
 class RunContext(BaseModel):
     """This is the runtime context model for a workflow run. Passed into activities."""
 
-    wf_id: identifiers.WorkflowID
-    wf_exec_id: identifiers.WorkflowExecutionID | identifiers.WorkflowScheduleID
-    wf_run_id: identifiers.WorkflowRunID
+    wf_id: WorkflowID
+    wf_exec_id: WorkflowExecutionID
+    wf_run_id: WorkflowRunID
     environment: str
 
 

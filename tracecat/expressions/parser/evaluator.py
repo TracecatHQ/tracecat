@@ -1,27 +1,28 @@
 from collections.abc import Sequence
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from lark import Token, Transformer, Tree, v_args
 from lark.exceptions import VisitError
 
 from tracecat.expressions import functions
-from tracecat.expressions.shared import ExprContext, ExprContextType, IterableExpr
+from tracecat.expressions.common import ExprContext, ExprOperand, IterableExpr
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
 LiteralT = TypeVar("LiteralT", int, float, str, bool)
-T = TypeVar("T")
 
 
 class ExprEvaluator(Transformer):
     _visitor_name: str = "ExprEvaluator"
 
-    def __init__(self, context: ExprContextType, strict: bool = False) -> None:
-        self._context = context
+    def __init__(
+        self, operand: ExprOperand | None = None, strict: bool = False
+    ) -> None:
+        self._operand = cast(ExprOperand, operand or {})
         self._strict = strict
         self.logger = logger.bind(visitor=self._visitor_name)
 
-    def evaluate(self, tree: Tree) -> Any:
+    def evaluate(self, tree: Tree[Token]) -> Any:
         try:
             return self.transform(tree)
         except VisitError as e:
@@ -41,19 +42,19 @@ class ExprEvaluator(Transformer):
         return node
 
     @v_args(inline=True)
-    def trailing_typecast_expression(self, value: T, typename: str):
+    def trailing_typecast_expression(self, value: Any, typename: str):
         logger.trace(
             "Visiting trailing_typecast_expression:", value=value, typename=typename
         )
         return functions.cast(value, typename)
 
     @v_args(inline=True)
-    def expression(self, value: T):
+    def expression(self, value: Any):
         logger.trace("Visiting expression:", args=value)
         return value
 
     @v_args(inline=True)
-    def context(self, value: T):
+    def context(self, value: Any):
         logger.trace("Visiting context:", args=value)
         return value
 
@@ -103,31 +104,31 @@ class ExprEvaluator(Transformer):
     def actions(self, jsonpath: str):
         logger.trace("Visiting actions:", args=jsonpath)
         expr = ExprContext.ACTIONS + jsonpath
-        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
+        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def secrets(self, path: str):
         logger.trace("Visiting secrets:", path=path)
         expr = ExprContext.SECRETS + path
-        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
+        return functions.eval_jsonpath(expr, self._operand or {}, strict=self._strict)
 
     @v_args(inline=True)
     def inputs(self, jsonpath: str):
         logger.trace("Visiting inputs:", args=jsonpath)
         expr = ExprContext.INPUTS + jsonpath
-        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
+        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def env(self, jsonpath: str):
         logger.trace("Visiting env:", args=jsonpath)
         expr = ExprContext.ENV + jsonpath
-        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
+        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def local_vars(self, jsonpath: str):
         logger.trace("Visiting local_vars:", args=jsonpath)
         expr = ExprContext.LOCAL_VARS + jsonpath
-        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
+        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def local_vars_assignment(self, jsonpath: str):
@@ -138,19 +139,19 @@ class ExprEvaluator(Transformer):
     def trigger(self, jsonpath: str | None):
         logger.trace("Visiting trigger:", args=jsonpath)
         expr = ExprContext.TRIGGER + (jsonpath or "")
-        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
+        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def template_action_inputs(self, jsonpath: str):
         logger.trace("Visiting template_action_inputs:", args=jsonpath)
         expr = ExprContext.TEMPLATE_ACTION_INPUTS + jsonpath
-        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
+        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def template_action_steps(self, jsonpath: str):
         logger.trace("Visiting template_action_steps:", args=jsonpath)
         expr = ExprContext.TEMPLATE_ACTION_STEPS + jsonpath
-        return functions.eval_jsonpath(expr, self._context, strict=self._strict)
+        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def function(self, fn_name: str, fn_args: Sequence[Any]):

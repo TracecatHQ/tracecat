@@ -1,8 +1,9 @@
+from typing import Any
+
 from fastapi import APIRouter
 
 from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput
-from tracecat.dsl.models import DSLContext
 from tracecat.logger import logger
 from tracecat.webhooks.dependencies import PayloadDep, WorkflowDefinitionFromWebhook
 from tracecat.workflow.executions.models import CreateWorkflowExecutionResponse
@@ -35,7 +36,7 @@ async def incoming_webhook(
 @router.post("/{path}/{secret}/wait", tags=["public"])
 async def incoming_webhook_wait(
     defn: WorkflowDefinitionFromWebhook, path: str, payload: PayloadDep
-) -> DSLContext:
+) -> Any:
     """
     Webhook endpoint to trigger a workflow.
 
@@ -51,4 +52,4 @@ async def incoming_webhook_wait(
         dsl=dsl_input, wf_id=path, payload=payload
     )
 
-    return response["final_context"]
+    return response["result"]

@@ -72,6 +72,7 @@ dev = [
     "pytest==8.3.2",
     "python-dotenv",
     "respx",
+    "moto[server]==5.0.24",
 ]
 
 [tool.hatch.version]

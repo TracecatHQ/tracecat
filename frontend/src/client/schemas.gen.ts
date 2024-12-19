@@ -508,13 +508,12 @@ export const $CreateWorkflowExecutionParams = {
         },
         inputs: {
             anyOf: [
-                {
-                    '$ref': '#/components/schemas/JsonValue'
-                },
+                {},
                 {
                     type: 'null'
                 }
-            ]
+            ],
+            title: 'Inputs'
         }
     },
     type: 'object',
@@ -535,7 +534,7 @@ export const $CreateWorkflowExecutionResponse = {
         },
         wf_exec_id: {
             type: 'string',
-            pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+',
+            pattern: 'wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)',
             title: 'Wf Exec Id'
         }
     },
@@ -640,32 +639,6 @@ export const $DSLConfig_Output = {
 Activities don't need access to this.`
 } as const;
 
-export const $DSLContext = {
-    properties: {
-        INPUTS: {
-            type: 'object',
-            title: 'Inputs'
-        },
-        ACTIONS: {
-            type: 'object',
-            title: 'Actions'
-        },
-        TRIGGER: {
-            '$ref': '#/components/schemas/JsonValue'
-        },
-        ENV: {
-            '$ref': '#/components/schemas/DSLEnvironment'
-        },
-        SECRETS: {
-            type: 'object',
-            title: 'Secrets'
-        }
-    },
-    type: 'object',
-    title: 'DSLContext',
-    description: 'DSL Context. Contains all the context needed to execute a DSL workflow.'
-} as const;
-
 export const $DSLEntrypoint = {
     properties: {
         ref: {
@@ -698,30 +671,6 @@ export const $DSLEntrypoint = {
     },
     type: 'object',
     title: 'DSLEntrypoint'
-} as const;
-
-export const $DSLEnvironment = {
-    properties: {
-        workflow: {
-            type: 'object',
-            title: 'Workflow'
-        },
-        environment: {
-            type: 'string',
-            title: 'Environment'
-        },
-        variables: {
-            type: 'object',
-            title: 'Variables'
-        },
-        registry_version: {
-            type: 'string',
-            title: 'Registry Version'
-        }
-    },
-    type: 'object',
-    title: 'DSLEnvironment',
-    description: 'DSL Environment context. Has metadata about the workflow.'
 } as const;
 
 export const $DSLInput = {
@@ -805,13 +754,12 @@ export const $DSLRunArgs = {
         },
         trigger_inputs: {
             anyOf: [
-                {
-                    '$ref': '#/components/schemas/JsonValue'
-                },
+                {},
                 {
                     type: 'null'
                 }
-            ]
+            ],
+            title: 'Trigger Inputs'
         },
         parent_run_context: {
             anyOf: [
@@ -1071,11 +1019,7 @@ export const $EventGroup = {
             anyOf: [
                 {
                     type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
-                },
-                {
-                    type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*'
+                    pattern: 'wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)'
                 },
                 {
                     type: 'null'
@@ -1151,11 +1095,7 @@ export const $EventHistoryResponse = {
             anyOf: [
                 {
                     type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
-                },
-                {
-                    type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*'
+                    pattern: 'wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)'
                 },
                 {
                     type: 'null'
@@ -1219,6 +1159,13 @@ export const $ExpectedField = {
     title: 'ExpectedField'
 } as const;
 
+export const $ExprContext = {
+    type: 'string',
+    enum: ['ACTIONS', 'SECRETS', 'FN', 'INPUTS', 'ENV', 'TRIGGER', 'var', 'inputs', 'steps'],
+    title: 'ExprContext',
+    description: 'Expression contexts.'
+} as const;
+
 export const $GetWorkflowDefinitionActivityInputs = {
     properties: {
         role: {
@@ -1275,8 +1222,6 @@ export const $JoinStrategy = {
     enum: ['any', 'all'],
     title: 'JoinStrategy'
 } as const;
-
-export const $JsonValue = {} as const;
 
 export const $OAuth2AuthorizeResponse = {
     properties: {
@@ -2082,7 +2027,8 @@ export const $RunActionInput = {
             '$ref': '#/components/schemas/ActionStatement'
         },
         exec_context: {
-            '$ref': '#/components/schemas/DSLContext'
+            type: 'object',
+            title: 'Exec Context'
         },
         run_context: {
             '$ref': '#/components/schemas/RunContext'
@@ -2102,16 +2048,8 @@ export const $RunContext = {
             title: 'Wf Id'
         },
         wf_exec_id: {
-            anyOf: [
-                {
-                    type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
-                },
-                {
-                    type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*'
-                }
-            ],
+            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)',
             title: 'Wf Exec Id'
         },
         wf_run_id: {
