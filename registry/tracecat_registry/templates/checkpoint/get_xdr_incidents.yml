@@ -2,14 +2,18 @@ type: action
 definition:
   name: get_xdr_incidents
   namespace: integrations.check_point
-  title: Get Check Point Infinity XDR incidents for the last 7 days
-  description: Retrieve Check Point Infinity XDR incidents for the last 7 days.
+  title: Get Check Point Infinity XDR incidents
+  description: Retrieve Check Point Infinity XDR incidents for spicified date.
   display_group: Check Point
   expects:
     filterBy:
       type: str
       description: Filter by createdAt or updatedAt
       default: updatedAt
+    from:
+      type: str
+      description: The start date of the time frame in the "YYYY-MM-DDTHH:mm:ss.ssZ" format (default is 7 days ago)
+      default: null
   steps:
     - ref: get_auth_token
       action: integrations.check_point.get_auth_token
@@ -20,6 +24,9 @@ definition:
       args:
         url: https://cloudinfra-gw.portal.checkpoint.com/app/xdr/api/xdr/v1/incidents/
         method: GET
+        params:
+          filterBy: ${{ inputs.filterBy }}
+          from: ${{ inputs.from || (FN.now() - FN.days(7)) }}
         timeout: 60
         headers:
           accept: application/json
