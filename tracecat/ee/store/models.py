@@ -19,7 +19,6 @@ from tracecat.identifiers.workflow import (
 StoreObjectKey = str
 """Type alias for an S3 comatible object storage key"""
 
-
 EXECUTION_RESULT_KEY_REGEX = (
     r"^workflows/(?P<workflow_id>[^/]+)"
     r"/executions/(?P<execution_id>[^/]+)"
@@ -113,6 +112,8 @@ class WorkflowResultHandle(TaskResultHandle):
     def from_key(cls, key: StoreObjectKey) -> Self:
         match = EXECTION_RESULT_KEY_PATTERN.match(key)
         if not match:
+            raise ValueError(f"Invalid path format: {key}")
+        if match.group("file_name") != cls.file_name:
             raise ValueError(f"Invalid path format: {key}")
         return cls(
             wf_exec_id=exec_id_from_parts(
