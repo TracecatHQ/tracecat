@@ -145,6 +145,8 @@ class DSLWorkflow:
         try:
             self.logger.info(
                 "Workflow info",
+                results_backend=self.results_backend.value,
+                # Temporal
                 run_timeout=wf_info.run_timeout,
                 execution_timeout=wf_info.execution_timeout,
                 task_timeout=wf_info.task_timeout,
