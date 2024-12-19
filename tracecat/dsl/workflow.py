@@ -55,7 +55,7 @@ with workflow.unsafe.imports_passed_through():
         validate_trigger_inputs_activity,
     )
     from tracecat.expressions.eval import eval_templated_object
-    from tracecat.expressions.shared import ExprContext
+    from tracecat.expressions.common import ExprContext
     from tracecat.logger import logger
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.types.exceptions import (

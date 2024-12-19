@@ -11,6 +11,7 @@ from httpx import Response
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.schemas import BaseSecret
+from tracecat.expressions.common import ExprContext, ExprType, IterableExpr
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import (
     eval_templated_object,
@@ -22,7 +23,6 @@ from tracecat.expressions.parser.core import ExprParser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
 from tracecat.expressions.patterns import FULL_TEMPLATE
-from tracecat.expressions.shared import ExprContext, ExprType, IterableExpr
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue

@@ -27,13 +27,13 @@ from tracecat.dsl.models import (
     RunActionInput,
 )
 from tracecat.executor.engine import EXECUTION_TIMEOUT
+from tracecat.expressions.common import ExprContext
 from tracecat.expressions.eval import (
     OperandType,
     eval_templated_object,
     extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.models import (
