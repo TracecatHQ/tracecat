@@ -367,13 +367,12 @@ class TestMinioStore:
         try:
             async with response["Body"] as stream:
                 content = await stream.read()
+            # Assert
+            assert content == test_content
         except RuntimeError as e:
             # Bandaid solution for flaky connection here
             if "Connection closed" not in str(e):
                 raise e
-
-        # Assert
-        assert content == test_content
 
     @pytest.mark.anyio
     async def test_load_task_result(

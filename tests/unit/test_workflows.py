@@ -1307,7 +1307,7 @@ async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_
 PARTIAL_DIVISION_BY_ZERO_ERROR = {
     "ref": "start",
     "message": (
-        "There was an error in the registry when calling action 'core.transform.reshape' (500).\n"
+        "There was an error in the executor when calling action 'core.transform.reshape' (500).\n"
         "\n"
         "TracecatExpressionError: Error evaluating expression `1/0`\n"
         "\n"
@@ -1328,28 +1328,26 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
         f"Function: {run_action_on_ray_cluster.__name__}\n"
         # f"Line: {run_action_on_ray_cluster.__code__.co_firstlineno}"
     ),
-    "type": "RegistryActionError",
+    "type": "ActionExecutionError",
     "expr_context": "ACTIONS",
     "attempt": 1,
 }
 
 
-def approximately_equal(result: Any, expected: Any) -> bool:
-    if type(result) is not type(expected):
-        return False
+def approximately_equal(result: Any, expected: Any) -> None:
+    assert type(result) is type(expected)
+
     match result:
         case str():
-            return result == expected or result.startswith(expected)
+            assert result == expected or result.startswith(expected)
         case dict():
-            return all(
-                approximately_equal(result[key], expected[key]) for key in result
-            )
+            for key in result:
+                approximately_equal(result[key], expected[key])
         case list():
-            return all(
-                approximately_equal(result[i], expected[i]) for i in range(len(result))
-            )
+            for i in range(len(result)):
+                approximately_equal(result[i], expected[i])
         case _:
-            return result == expected
+            assert result == expected
 
 
 def _get_test_id(test_case):
@@ -1779,7 +1777,7 @@ async def test_workflow_error_path(test_role, runtime_config, dsl_data, expected
                 ],
             ),
         )
-    assert approximately_equal(result, expected)
+        approximately_equal(result, expected)
 
 
 @pytest.mark.anyio

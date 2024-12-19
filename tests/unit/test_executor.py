@@ -234,7 +234,7 @@ async def test_executor_can_run_template_action_with_secret(
         await sec_service.delete_secret_by_id(secret.id)
 
 
-async def mock_action(input: Any):
+async def mock_action(input: Any, **kwargs):
     """Mock action that simulates some async work"""
     await asyncio.sleep(0.1)
     return input
