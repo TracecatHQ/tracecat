@@ -43,7 +43,7 @@ export const publicIncomingWebhook = (data: PublicIncomingWebhookData): Cancelab
  * @param data.path
  * @param data.secret
  * @param data.contentType
- * @returns DSLContext Successful Response
+ * @returns unknown Successful Response
  * @throws ApiError
  */
 export const publicIncomingWebhookWait = (data: PublicIncomingWebhookWaitData): CancelablePromise<PublicIncomingWebhookWaitResponse> => { return __request(OpenAPI, {
@@ -1263,19 +1263,27 @@ export const registryRepositoriesSyncExecutorFromRegistryRepository = (data: Reg
 }); };
 
 /**
- * Update Org Member
- * @param data The data for the request.
- * @param data.userId
- * @param data.requestBody
- * @returns OrgMemberRead Successful Response
+ * List Registry Repositories
+ * List all registry repositories.
+ * @returns RegistryRepositoryReadMinimal Successful Response
  * @throws ApiError
  */
-export const organizationUpdateOrgMember = (data: OrganizationUpdateOrgMemberData): CancelablePromise<OrganizationUpdateOrgMemberResponse> => { return __request(OpenAPI, {
-    method: 'PATCH',
-    url: '/organization/members/{user_id}',
-    path: {
-        user_id: data.userId
-    },
+export const registryRepositoriesListRegistryRepositories = (): CancelablePromise<RegistryRepositoriesListRegistryRepositoriesResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/registry/repos'
+}); };
+
+/**
+ * Create Registry Repository
+ * Create a new registry repository.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns RegistryRepositoryRead Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesCreateRegistryRepository = (data: RegistryRepositoriesCreateRegistryRepositoryData): CancelablePromise<RegistryRepositoriesCreateRegistryRepositoryResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/registry/repos',
     body: data.requestBody,
     mediaType: 'application/json',
     errors: {
@@ -1284,41 +1292,14 @@ export const organizationUpdateOrgMember = (data: OrganizationUpdateOrgMemberDat
 }); };
 
 /**
- * List Sessions
- * @returns SessionRead Successful Response
- * @throws ApiError
- */
-export const organizationListSessions = (): CancelablePromise<OrganizationListSessionsResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/organization/sessions'
-}); };
-
-/**
- * Delete Session
- * @param data The data for the request.
- * @param data.sessionId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const organizationDeleteSession = (data: OrganizationDeleteSessionData): CancelablePromise<OrganizationDeleteSessionResponse> => { return __request(OpenAPI, {
-    method: 'DELETE',
-    url: '/organization/sessions/{session_id}',
-    path: {
-        session_id: data.sessionId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * List Functions
+ * Get Registry Repository
+ * Get a specific registry repository by origin.
  * @param data The data for the request.
  * @param data.repositoryId
  * @returns RegistryRepositoryRead Successful Response
  * @throws ApiError
  */
-export const editorListFunctions = (data: EditorListFunctionsData): CancelablePromise<EditorListFunctionsResponse> => { return __request(OpenAPI, {
+export const registryRepositoriesGetRegistryRepository = (data: RegistryRepositoriesGetRegistryRepositoryData): CancelablePromise<RegistryRepositoriesGetRegistryRepositoryResponse> => { return __request(OpenAPI, {
     method: 'GET',
     url: '/registry/repos/{repository_id}',
     path: {
@@ -1330,7 +1311,8 @@ export const editorListFunctions = (data: EditorListFunctionsData): CancelablePr
 }); };
 
 /**
- * List Actions
+ * Update Registry Repository
+ * Update an existing registry repository.
  * @param data The data for the request.
  * @param data.repositoryId
  * @param data.requestBody
@@ -1351,23 +1333,14 @@ export const registryRepositoriesUpdateRegistryRepository = (data: RegistryRepos
 }); };
 
 /**
- * List Org Members
- * @returns OrgMemberRead Successful Response
- * @throws ApiError
- */
-export const organizationListOrgMembers = (): CancelablePromise<OrganizationListOrgMembersResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/organization/members'
-}); };
-
-/**
- * Delete Org Member
+ * Delete Registry Repository
+ * Delete a registry repository.
  * @param data The data for the request.
  * @param data.repositoryId
  * @returns void Successful Response
  * @throws ApiError
  */
-export const organizationDeleteOrgMember = (data: OrganizationDeleteOrgMemberData): CancelablePromise<OrganizationDeleteOrgMemberResponse> => { return __request(OpenAPI, {
+export const registryRepositoriesDeleteRegistryRepository = (data: RegistryRepositoriesDeleteRegistryRepositoryData): CancelablePromise<RegistryRepositoriesDeleteRegistryRepositoryResponse> => { return __request(OpenAPI, {
     method: 'DELETE',
     url: '/registry/repos/{repository_id}',
     path: {
@@ -1379,18 +1352,67 @@ export const organizationDeleteOrgMember = (data: OrganizationDeleteOrgMemberDat
 }); };
 
 /**
- * Update Org Member
- * @param data The data for the request.
- * @param data.userId
- * @param data.requestBody
- * @returns OrgMemberRead Successful Response
+ * List Registry Actions
+ * List all actions in a registry.
+ * @returns RegistryActionRead Successful Response
  * @throws ApiError
  */
-export const organizationUpdateOrgMember = (data: OrganizationUpdateOrgMemberData): CancelablePromise<OrganizationUpdateOrgMemberResponse> => { return __request(OpenAPI, {
-    method: 'PATCH',
-    url: '/organization/members/{user_id}',
+export const registryActionsListRegistryActions = (): CancelablePromise<RegistryActionsListRegistryActionsResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/registry/actions'
+}); };
+
+/**
+ * Create Registry Action
+ * Create a new registry action.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns RegistryActionRead Successful Response
+ * @throws ApiError
+ */
+export const registryActionsCreateRegistryAction = (data: RegistryActionsCreateRegistryActionData): CancelablePromise<RegistryActionsCreateRegistryActionResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/registry/actions',
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Get Registry Action
+ * Get a specific registry action.
+ * @param data The data for the request.
+ * @param data.actionName
+ * @returns RegistryActionRead Successful Response
+ * @throws ApiError
+ */
+export const registryActionsGetRegistryAction = (data: RegistryActionsGetRegistryActionData): CancelablePromise<RegistryActionsGetRegistryActionResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/registry/actions/{action_name}',
     path: {
-        user_id: data.userId
+        action_name: data.actionName
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Update Registry Action
+ * Update a custom registry action.
+ * @param data The data for the request.
+ * @param data.actionName
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const registryActionsUpdateRegistryAction = (data: RegistryActionsUpdateRegistryActionData): CancelablePromise<RegistryActionsUpdateRegistryActionResponse> => { return __request(OpenAPI, {
+    method: 'PATCH',
+    url: '/registry/actions/{action_name}',
+    path: {
+        action_name: data.actionName
     },
     body: data.requestBody,
     mediaType: 'application/json',
@@ -1400,84 +1422,18 @@ export const organizationUpdateOrgMember = (data: OrganizationUpdateOrgMemberDat
 }); };
 
 /**
- * List Sessions
- * @returns SessionRead Successful Response
- * @throws ApiError
- */
-export const organizationListSessions = (): CancelablePromise<OrganizationListSessionsResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/organization/sessions'
-}); };
-
-/**
- * Delete Session
+ * Delete Registry Action
+ * Delete a template action.
  * @param data The data for the request.
- * @param data.sessionId
+ * @param data.actionName
  * @returns void Successful Response
  * @throws ApiError
  */
-export const organizationDeleteSession = (data: OrganizationDeleteSessionData): CancelablePromise<OrganizationDeleteSessionResponse> => { return __request(OpenAPI, {
+export const registryActionsDeleteRegistryAction = (data: RegistryActionsDeleteRegistryActionData): CancelablePromise<RegistryActionsDeleteRegistryActionResponse> => { return __request(OpenAPI, {
     method: 'DELETE',
-    url: '/organization/sessions/{session_id}',
+    url: '/registry/actions/{action_name}',
     path: {
-        session_id: data.sessionId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * List Functions
- * @param data The data for the request.
- * @param data.workspaceId
- * @returns EditorFunctionRead Successful Response
- * @throws ApiError
- */
-export const editorListFunctions = (data: EditorListFunctionsData): CancelablePromise<EditorListFunctionsResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/editor/functions',
-    query: {
-        workspace_id: data.workspaceId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * List Actions
- * @param data The data for the request.
- * @param data.workflowId
- * @param data.workspaceId
- * @returns EditorActionRead Successful Response
- * @throws ApiError
- */
-export const editorListActions = (data: EditorListActionsData): CancelablePromise<EditorListActionsResponse> => { return __request(OpenAPI, {
-    method: 'GET',
-    url: '/editor/actions',
-    query: {
-        workflow_id: data.workflowId,
-        workspace_id: data.workspaceId
-    },
-    errors: {
-        422: 'Validation Error'
-    }
-}); };
-
-/**
- * Sync Registry Repository
- * Load actions from a specific registry repository.
- * @param data The data for the request.
- * @param data.repositoryId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const registryRepositoriesSyncRegistryRepository = (data: RegistryRepositoriesSyncRegistryRepositoryData): CancelablePromise<RegistryRepositoriesSyncRegistryRepositoryResponse> => { return __request(OpenAPI, {
-    method: 'POST',
-    url: '/registry/repos/{repository_id}/sync',
-    path: {
-        repository_id: data.repositoryId
+        action_name: data.actionName
     },
     errors: {
         422: 'Validation Error'
