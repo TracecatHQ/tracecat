@@ -1,19 +1,16 @@
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from functools import partial
 from typing import Any, TypeVar
 
 from tracecat.expressions import patterns
+from tracecat.expressions.common import ExprOperand, IterableExpr
 from tracecat.expressions.core import Expression, TemplateExpression
-from tracecat.expressions.shared import ExprContext, IterableExpr
 
 T = TypeVar("T", str, list[Any], dict[str, Any])
 
-OperatorType = Callable[[str], Any]
-OperandType = Mapping[str, Any]
 
-
-def _eval_templated_obj_rec(obj: T, operator: OperatorType) -> T:
+def _eval_templated_obj_rec(obj: T, operator: Callable[[str], Any]) -> T:
     """Process jsonpaths in strings, lists, and dictionaries."""
     match obj:
         case str():
@@ -26,9 +23,9 @@ def _eval_templated_obj_rec(obj: T, operator: OperatorType) -> T:
             return obj
 
 
-def _eval_expression_op(match: re.Match[str], operand: dict[str, Any], **kwargs) -> str:
+def _eval_expression_op(match: re.Match[str], operand: ExprOperand | None) -> str:
     expr = match.group("template")
-    result = TemplateExpression(expr, operand=operand, **kwargs).result()
+    result = TemplateExpression(expr, operand=operand).result()
     try:
         return str(result)
     except Exception as e:
@@ -38,16 +35,11 @@ def _eval_expression_op(match: re.Match[str], operand: dict[str, Any], **kwargs)
 def eval_templated_object(
     obj: Any,
     *,
-    operand: OperandType | None = None,
+    operand: ExprOperand | None = None,
     pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
-    include: set[ExprContext] | None = None,
-    exclude: set[ExprContext] | None = None,
-    raise_on_stop: bool = False,
 ) -> Any:
     """Populate templated fields with actual values."""
-    kwargs = {"raise_on_stop": raise_on_stop, "include": include, "exclude": exclude}
-
-    evaluator = partial(_eval_expression_op, operand=operand, **kwargs)
+    evaluator = partial(_eval_expression_op, operand=operand)
 
     def operator(line: str) -> Any:
         """Evaluate the templated string.
@@ -64,7 +56,7 @@ def eval_templated_object(
             # Non-inline template
             # If the template expression isn't given a reolve type, its underlying
             # value is returned as is.
-            return TemplateExpression(line, operand=operand, **kwargs).result()
+            return TemplateExpression(line, operand=operand).result()
         # Inline template
         # If the template expression is inline, we evaluate the result
         # and attempt to cast each underlying value into a string.
@@ -111,7 +103,7 @@ def extract_expressions(templated_obj: Any) -> list[Expression]:
 
 
 def get_iterables_from_expression(
-    expr: str | list[str], operand: OperandType
+    expr: str | list[str], operand: ExprOperand
 ) -> list[IterableExpr[Any]]:
     iterable_exprs: IterableExpr[Any] | list[IterableExpr[Any]] = eval_templated_object(
         expr, operand=operand

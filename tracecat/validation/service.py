@@ -11,9 +11,9 @@ from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import DSLInput, context_locator
+from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
-from tracecat.expressions.shared import ExprType
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService

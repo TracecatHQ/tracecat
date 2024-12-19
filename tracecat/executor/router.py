@@ -1,4 +1,3 @@
-import traceback
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -19,7 +18,7 @@ from tracecat.registry.repository import RegistryReposService, Repository
 from tracecat.types.auth import Role
 from tracecat.validation.service import validate_registry_action_args
 
-router = APIRouter(tags=["executor"])
+router = APIRouter()
 
 
 @router.post("/sync")
@@ -45,7 +44,7 @@ async def sync_executor(
     await repo.load_from_origin(commit_sha=db_repo.commit_sha)
 
 
-@router.post("/run/{action_name}")
+@router.post("/run/{action_name}", tags=["execution"])
 async def run_action(
     *,
     role: Role = RoleACL(
@@ -66,28 +65,11 @@ async def run_action(
     try:
         return await dispatch_action_on_cluster(input=action_input, role=role)
     except Exception as e:
-        # Get the traceback info
-        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
-        error_detail = RegistryActionErrorInfo(
-            action_name=action_name,
-            type=e.__class__.__name__,
-            message=str(e),
-            filename=tb.filename,
-            function=tb.name,
-            lineno=tb.lineno,
-        )
-        act_logger.error(
-            "Error running action",
-            action_name=action_name,
-            type=error_detail.type,
-            message=error_detail.message,
-            filename=error_detail.filename,
-            function=error_detail.function,
-            lineno=error_detail.lineno,
-        )
+        err_info = RegistryActionErrorInfo.from_exc(e, action_name)
+        act_logger.error("Error running action", **err_info.model_dump())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_detail.model_dump(mode="json"),
+            detail=err_info.model_dump(mode="json"),
         ) from e
 
 

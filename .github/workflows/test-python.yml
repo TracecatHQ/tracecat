@@ -131,6 +131,6 @@ jobs:
 
       - name: Run tests
         env:
-          LOG_LEVEL: ERROR
+          LOG_LEVEL: TRACE
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
         run: uv run pytest tests/${{ matrix.test_type }} -s

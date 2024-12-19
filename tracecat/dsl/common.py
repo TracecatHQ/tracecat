@@ -17,16 +17,16 @@ from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy
 from tracecat.dsl.models import (
     ActionStatement,
     DSLConfig,
-    DSLContext,
     DSLEnvironment,
     DSLExecutionError,
+    ExecutionContext,
     Trigger,
     TriggerInputs,
 )
 from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDFNodeData
 from tracecat.expressions import patterns
+from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
@@ -305,18 +305,18 @@ def build_action_statements(
     return statements
 
 
-def create_default_dsl_context(
+def create_default_execution_context(
     INPUTS: dict[str, Any] | None = None,
     ACTIONS: dict[str, Any] | None = None,
     TRIGGER: dict[str, Any] | None = None,
     ENV: DSLEnvironment | None = None,
-) -> DSLContext:
-    return DSLContext(
-        INPUTS=INPUTS or {},
-        ACTIONS=ACTIONS or {},
-        TRIGGER=TRIGGER or {},
-        ENV=cast(DSLEnvironment, ENV or {}),
-    )
+) -> ExecutionContext:
+    return {
+        ExprContext.INPUTS: INPUTS or {},
+        ExprContext.ACTIONS: ACTIONS or {},
+        ExprContext.TRIGGER: TRIGGER or {},
+        ExprContext.ENV: cast(DSLEnvironment, ENV or {}),
+    }
 
 
 def dsl_execution_error_from_exception(e: BaseException) -> DSLExecutionError:

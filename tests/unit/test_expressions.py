@@ -11,6 +11,7 @@ from httpx import Response
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.schemas import BaseSecret
+from tracecat.expressions.common import ExprContext, ExprType, IterableExpr
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import (
     eval_templated_object,
@@ -22,7 +23,6 @@ from tracecat.expressions.parser.core import ExprParser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
 from tracecat.expressions.patterns import FULL_TEMPLATE
-from tracecat.expressions.shared import ExprContext, ExprType, IterableExpr
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
@@ -715,7 +715,7 @@ def test_expression_parser(expr, expected):
     # assert parser.walk_expr(expr, visitor) == expected
     parser = ExprParser()
     parse_tree = parser.parse(expr)
-    ev = ExprEvaluator(context=context)
+    ev = ExprEvaluator(operand=context)
     actual = ev.transform(parse_tree)
     assert actual == expected
 
@@ -766,13 +766,13 @@ def test_parser_error():
     with pytest.raises(TracecatExpressionError):
         parser.parse(expr)
 
-    strict_evaluator = ExprEvaluator(context=context, strict=True)
+    strict_evaluator = ExprEvaluator(operand=context, strict=True)
     with pytest.raises(TracecatExpressionError):
         test = "ACTIONS.action_test.foo"
         parse_tree = parser.parse(test)
         strict_evaluator.evaluate(parse_tree)
 
-    evaluator = ExprEvaluator(context=context, strict=False)
+    evaluator = ExprEvaluator(operand=context, strict=False)
     test = "ACTIONS.action_test.foo.bar.baz"
     parse_tree = parser.parse(test)
     assert evaluator.evaluate(parse_tree) is None
@@ -962,6 +962,6 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
 def test_parse_trigger_json(context, expr, expected):
     parser = ExprParser()
     parse_tree = parser.parse(expr)
-    ev = ExprEvaluator(context=context)
+    ev = ExprEvaluator(operand=context)
     actual = ev.transform(parse_tree)
     assert actual == expected

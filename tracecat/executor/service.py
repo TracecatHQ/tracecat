@@ -19,21 +19,23 @@ from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.db.engine import get_async_engine
-from tracecat.dsl.common import context_locator, create_default_dsl_context
+from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.models import (
     ActionStatement,
-    DSLContext,
-    DSLNodeResult,
+    ExecutionContext,
     RunActionInput,
+    TaskResultDict,
 )
+from tracecat.ee.store.service import get_store
 from tracecat.executor.engine import EXECUTION_TIMEOUT
+from tracecat.executor.enums import ResultsBackend
+from tracecat.expressions.common import ExprContext, ExprOperand
+from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.eval import (
-    OperandType,
     eval_templated_object,
     extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.models import (
@@ -62,16 +64,10 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
 
     logger.info("Running action in sync entrypoint", action=input.task.action)
 
-    async def coro():
-        ctx_role.set(role)
-        async_engine = get_async_engine()
-        try:
-            return await run_action_from_input(input=input)
-        finally:
-            await async_engine.dispose()
-
+    async_engine = get_async_engine()
     try:
-        return loop.run_until_complete(coro())
+        coro = run_action_from_input(input=input, role=role)
+        return loop.run_until_complete(coro)
     except Exception as e:
         logger.error(
             "Error running action",
@@ -81,8 +77,8 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
         )
         raise e
     finally:
-        # We always close the loop
-        loop.close()
+        loop.run_until_complete(async_engine.dispose())
+        loop.close()  # We always close the loop
 
 
 async def _run_action_direct(
@@ -115,7 +111,7 @@ async def run_single_action(
     *,
     action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
-    context: DSLContext,
+    context: ExecutionContext,
 ) -> Any:
     """Run a UDF async."""
 
@@ -125,7 +121,7 @@ async def run_single_action(
 
     action_secret_names = set()
     optional_secrets = set()
-    secrets = context.get("SECRETS", {})
+    secrets = context.get(ExprContext.SECRETS, {})
 
     for secret in action.secrets or []:
         # Only add if not already pulled
@@ -143,7 +139,7 @@ async def run_single_action(
     ) as sandbox:
         secrets |= sandbox.secrets.copy()
 
-    context["SECRETS"] = context.get("SECRETS", {}) | secrets
+    context[ExprContext.SECRETS] = context.get(ExprContext.SECRETS, {}) | secrets
     if action.is_template:
         logger.info("Running template UDF async", action=action.name)
         return await run_template_action(action=action, args=args, context=context)
@@ -157,7 +153,7 @@ async def run_template_action(
     *,
     action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
-    context: DSLContext,
+    context: ExecutionContext | None = None,
 ) -> Any:
     """Handle template execution.
 
@@ -173,7 +169,7 @@ async def run_template_action(
         )
     defn = action.template_action.definition
     template_context = cast(
-        DSLContext,
+        ExecutionContext,
         {
             ExprContext.SECRETS: {}
             if context is None
@@ -188,7 +184,7 @@ async def run_template_action(
         evaled_args = cast(
             ArgsT,
             eval_templated_object(
-                step.args, operand=cast(OperandType, template_context)
+                step.args, operand=cast(ExprOperand, template_context)
             ),
         )
         async with RegistryActionsService.with_session() as service:
@@ -201,22 +197,27 @@ async def run_template_action(
         )
         # Store the result of the step
         logger.trace("Storing step result", step=step.ref, result=result)
-        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = DSLNodeResult(
+        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = TaskResultDict(
             result=result,
             result_typename=type(result).__name__,
         )
 
     # Handle returns
     return eval_templated_object(
-        defn.returns, operand=cast(OperandType, template_context)
+        defn.returns, operand=cast(ExprOperand, template_context)
     )
 
 
-async def run_action_from_input(input: RunActionInput) -> Any:
-    """This runs on the executor (API, not worker)"""
+async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
+    """This runs on the executor process pool."""
+    ctx_role.set(role)
     ctx_run.set(input.run_context)
-    act_logger = ctx_logger.get(logger.bind(ref=input.task.ref))
-
+    log = logger.bind(
+        role=ctx_role.get(),
+        ref=input.task.ref,
+        results_backend=config.TRACECAT__RESULTS_BACKEND.value,
+    )
+    ctx_logger.set(log)
     task = input.task
     action_name = task.action
 
@@ -244,17 +245,50 @@ async def run_action_from_input(input: RunActionInput) -> Any:
     optional_secrets = {
         secret.name for secret in action.secrets or [] if secret.optional
     }
-    args_secret_refs = set(extract_templated_secrets(task.args))
+
+    # === Prepare action ===
+    # Prepare the execution context to evaluate expressions
+    context = input.exec_context.copy()
+
+    extracted_exprs = extract_expressions(task.args)
+    extracted_secrets = extracted_exprs[ExprContext.SECRETS]
+    log.trace("Extracted expressions", extracted_exprs=extracted_exprs)
+
+    # If we run with object store backend, we need to retrieve action expressions from the store.
+    if config.TRACECAT__RESULTS_BACKEND == ResultsBackend.STORE:
+        # (1) Extract expressions
+        log.trace("Store backend, pulling action results into execution context")
+
+        # (2) Pull action results from the store
+        # We only pull the action results that are actually used in the template
+        if extracted_action_refs := extracted_exprs[ExprContext.ACTIONS]:
+            store = get_store()
+            action_results = await store.load_action_result_from_exec_context(
+                context=context,
+                action_refs=extracted_action_refs,
+            )
+            context.update(ACTIONS=action_results)
+            log.trace(
+                "Updated action context", action_results=action_results, context=context
+            )
+        else:
+            log.trace("No action refs in task args")
+    else:
+        # Otherwise, we use the action results from the current execution context
+        log.trace("Memory backend, using action results from current execution context")
+
+    # Pull secrets
     async with AuthSandbox(
-        secrets=list(action_secret_names | args_secret_refs),
+        secrets=list(action_secret_names | extracted_secrets),
         target="context",
         environment=get_runtime_env(),
         optional_secrets=list(optional_secrets),
     ) as sandbox:
         secrets = sandbox.secrets.copy()
+        context.update(SECRETS=secrets)
 
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
-        act_logger.warning(
+        log.warning(
             "Secrets masking is disabled. This is unsafe in production workflows."
         )
         mask_values = None
@@ -264,15 +298,13 @@ async def run_action_from_input(input: RunActionInput) -> Any:
 
     # When we're here, we've populated the task arguments with shared context values
 
-    act_logger.info(
+    log.info(
         "Run action",
         task_ref=task.ref,
         action_name=action_name,
         args=task.args,
+        context=context,
     )
-
-    context = input.exec_context.copy()
-    context.update(SECRETS=secrets)
 
     flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):
@@ -282,7 +314,7 @@ async def run_action_from_input(input: RunActionInput) -> Any:
     if mask_values:
         result = apply_masks_object(result, masks=mask_values)
 
-    act_logger.debug("Result", result=result)
+    log.debug("Result", result=result)
     return result
 
 
@@ -333,6 +365,9 @@ async def run_action_on_ray_cluster(input: RunActionInput, role: Role) -> Any:
         logger.error("Error running action on ray cluster", error=e)
         if isinstance(e.cause, BaseException):
             raise e.cause from None
+        raise e
+    except Exception as e:
+        logger.error("Unexpected error running action on ray cluster", error=e)
         raise e
 
 
@@ -389,7 +424,7 @@ async def dispatch_action_on_cluster(input: RunActionInput, role: Role) -> Any:
 """Utilities"""
 
 
-def evaluate_templated_args(task: ActionStatement, context: DSLContext) -> ArgsT:
+def evaluate_templated_args(task: ActionStatement, context: ExecutionContext) -> ArgsT:
     return cast(ArgsT, eval_templated_object(task.args, operand=context))
 
 
@@ -402,7 +437,7 @@ def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") 
 
 def iter_for_each(
     task: ActionStatement,
-    context: DSLContext,
+    context: ExecutionContext,
     *,
     assign_context: ExprContext = ExprContext.LOCAL_VARS,
     patch: bool = True,
@@ -418,7 +453,7 @@ def iter_for_each(
     # Currently, the only source of action-local expressions is the loop iteration
     # In the future, we may have other sources of action-local expressions
     # XXX: ENV is the only context that should be shared
-    patched_context = context.copy() if patch else create_default_dsl_context()
+    patched_context = context.copy() if patch else create_default_execution_context()
     logger.trace("Context before patch", patched_context=patched_context)
 
     # Create a generator that zips the iterables together
