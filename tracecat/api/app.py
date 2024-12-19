@@ -203,14 +203,6 @@ def create_app(**kwargs) -> FastAPI:
         logger.info("SAML auth type enabled")
         app.include_router(saml_router)
 
-    # Development endpoints
-    if config.TRACECAT__APP_ENV == "development":
-        # XXX(security): This is a security risk. Do not run this in production.
-        from tracecat.testing.registry import router as registry_testing_router
-
-        app.include_router(registry_testing_router)
-        logger.warning("Development endpoints enabled. Do not run this in production.")
-
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)  # type: ignore  # type: ignore
