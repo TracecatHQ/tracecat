@@ -19,11 +19,11 @@ from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.db.engine import get_async_engine
-from tracecat.dsl.common import context_locator, create_default_dsl_context
+from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.models import (
     ActionStatement,
-    DSLContext,
     DSLNodeResult,
+    ExecutionContext,
     RunActionInput,
 )
 from tracecat.executor.engine import EXECUTION_TIMEOUT
@@ -114,7 +114,7 @@ async def run_single_action(
     *,
     action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
-    context: DSLContext,
+    context: ExecutionContext,
 ) -> Any:
     """Run a UDF async."""
 
@@ -124,7 +124,7 @@ async def run_single_action(
 
     action_secret_names = set()
     optional_secrets = set()
-    secrets = context.get("SECRETS", {})
+    secrets = context.get(ExprContext.SECRETS, {})
 
     for secret in action.secrets or []:
         # Only add if not already pulled
@@ -142,7 +142,7 @@ async def run_single_action(
     ) as sandbox:
         secrets |= sandbox.secrets.copy()
 
-    context["SECRETS"] = context.get("SECRETS", {}) | secrets
+    context[ExprContext.SECRETS] = context.get(ExprContext.SECRETS, {}) | secrets
     if action.is_template:
         logger.info("Running template UDF async", action=action.name)
         return await run_template_action(action=action, args=args, context=context)
@@ -156,7 +156,7 @@ async def run_template_action(
     *,
     action: BoundRegistryAction[ArgsClsT],
     args: ArgsT,
-    context: DSLContext,
+    context: ExecutionContext | None = None,
 ) -> Any:
     """Handle template execution.
 
@@ -172,7 +172,7 @@ async def run_template_action(
         )
     defn = action.template_action.definition
     template_context = cast(
-        DSLContext,
+        ExecutionContext,
         {
             ExprContext.SECRETS: {}
             if context is None
@@ -388,7 +388,7 @@ async def dispatch_action_on_cluster(input: RunActionInput, role: Role) -> Any:
 """Utilities"""
 
 
-def evaluate_templated_args(task: ActionStatement, context: DSLContext) -> ArgsT:
+def evaluate_templated_args(task: ActionStatement, context: ExecutionContext) -> ArgsT:
     return cast(ArgsT, eval_templated_object(task.args, operand=context))
 
 
@@ -401,7 +401,7 @@ def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") 
 
 def iter_for_each(
     task: ActionStatement,
-    context: DSLContext,
+    context: ExecutionContext,
     *,
     assign_context: ExprContext = ExprContext.LOCAL_VARS,
     patch: bool = True,
@@ -417,7 +417,7 @@ def iter_for_each(
     # Currently, the only source of action-local expressions is the loop iteration
     # In the future, we may have other sources of action-local expressions
     # XXX: ENV is the only context that should be shared
-    patched_context = context.copy() if patch else create_default_dsl_context()
+    patched_context = context.copy() if patch else create_default_execution_context()
     logger.trace("Context before patch", patched_context=patched_context)
 
     # Create a generator that zips the iterables together

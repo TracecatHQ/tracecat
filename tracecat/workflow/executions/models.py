@@ -16,7 +16,7 @@ from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import (
     ActionRetryPolicy,
-    DSLContext,
+    ExecutionContext,
     RunActionInput,
     TriggerInputs,
 )
@@ -285,7 +285,7 @@ class CreateWorkflowExecutionResponse(TypedDict):
 
 class DispatchWorkflowResult(TypedDict):
     wf_id: WorkflowID
-    final_context: DSLContext
+    final_context: ExecutionContext
 
 
 class TerminateWorkflowExecutionParams(BaseModel):

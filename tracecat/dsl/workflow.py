@@ -42,10 +42,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.models import (
         ActionStatement,
         DSLConfig,
-        DSLContext,
         DSLEnvironment,
         DSLExecutionError,
         DSLNodeResult,
+        ExecutionContext,
         RunActionInput,
         TriggerInputs,
     )
@@ -225,11 +225,11 @@ class DSLWorkflow:
             ) from e
 
         # Prepare user facing context
-        self.context = DSLContext(
-            ACTIONS={},
-            INPUTS=self.dsl.inputs,
-            TRIGGER=trigger_inputs,
-            ENV=DSLEnvironment(
+        self.context: ExecutionContext = {
+            ExprContext.ACTIONS: {},
+            ExprContext.INPUTS: self.dsl.inputs,
+            ExprContext.TRIGGER: trigger_inputs,
+            ExprContext.ENV: DSLEnvironment(
                 workflow={
                     "start_time": wf_info.start_time,
                     "dispatch_type": self.dispatch_type,
@@ -237,7 +237,7 @@ class DSLWorkflow:
                 environment=self.runtime_config.environment,
                 variables={},
             ),
-        )
+        }
 
         # All the starting config has been consolidated, can safely set the run context
         # Internal facing context
