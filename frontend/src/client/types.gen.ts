@@ -222,23 +222,6 @@ export type DSLConfig_Output = {
     timeout?: number;
 };
 
-/**
- * DSL Context. Contains all the context needed to execute a DSL workflow.
- */
-export type DSLContext = {
-    INPUTS?: {
-        [key: string]: unknown;
-    };
-    ACTIONS?: {
-        [key: string]: unknown;
-    };
-    TRIGGER?: JsonValue;
-    ENV?: DSLEnvironment;
-    SECRETS?: {
-        [key: string]: unknown;
-    };
-};
-
 export type DSLEntrypoint = {
     /**
      * The entrypoint action ref
@@ -250,20 +233,6 @@ export type DSLEntrypoint = {
     expects?: {
     [key: string]: ExpectedField;
 } | null;
-};
-
-/**
- * DSL Environment context. Has metadata about the workflow.
- */
-export type DSLEnvironment = {
-    workflow?: {
-        [key: string]: unknown;
-    };
-    environment?: string;
-    variables?: {
-        [key: string]: unknown;
-    };
-    registry_version?: string;
 };
 
 /**
@@ -395,6 +364,11 @@ export type ExpectedField = {
     description?: string | null;
     default?: unknown | null;
 };
+
+/**
+ * Expression contexts.
+ */
+export type ExprContext = 'ACTIONS' | 'SECRETS' | 'FN' | 'INPUTS' | 'ENV' | 'TRIGGER' | 'var' | 'inputs' | 'steps';
 
 export type GetWorkflowDefinitionActivityInputs = {
     role: Role;
@@ -699,7 +673,9 @@ export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | '
  */
 export type RunActionInput = {
     task: ActionStatement;
-    exec_context: DSLContext;
+    exec_context: {
+        [key: string]: unknown;
+    };
     run_context: RunContext;
 };
 
@@ -1223,7 +1199,9 @@ export type PublicIncomingWebhookWaitData = {
     secret: string;
 };
 
-export type PublicIncomingWebhookWaitResponse = DSLContext;
+export type PublicIncomingWebhookWaitResponse = {
+    [key: string]: unknown;
+};
 
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>;
 
@@ -1792,7 +1770,9 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: DSLContext;
+                200: {
+                    [key: string]: unknown;
+                };
                 /**
                  * Validation Error
                  */

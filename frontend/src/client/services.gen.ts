@@ -43,7 +43,7 @@ export const publicIncomingWebhook = (data: PublicIncomingWebhookData): Cancelab
  * @param data.path
  * @param data.secret
  * @param data.contentType
- * @returns DSLContext Successful Response
+ * @returns unknown Successful Response
  * @throws ApiError
  */
 export const publicIncomingWebhookWait = (data: PublicIncomingWebhookWaitData): CancelablePromise<PublicIncomingWebhookWaitResponse> => { return __request(OpenAPI, {
