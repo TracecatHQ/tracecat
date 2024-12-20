@@ -715,7 +715,7 @@ def test_expression_parser(expr, expected):
     # assert parser.walk_expr(expr, visitor) == expected
     parser = ExprParser()
     parse_tree = parser.parse(expr)
-    ev = ExprEvaluator(context=context)
+    ev = ExprEvaluator(operand=context)
     actual = ev.transform(parse_tree)
     assert actual == expected
 
@@ -766,13 +766,13 @@ def test_parser_error():
     with pytest.raises(TracecatExpressionError):
         parser.parse(expr)
 
-    strict_evaluator = ExprEvaluator(context=context, strict=True)
+    strict_evaluator = ExprEvaluator(operand=context, strict=True)
     with pytest.raises(TracecatExpressionError):
         test = "ACTIONS.action_test.foo"
         parse_tree = parser.parse(test)
         strict_evaluator.evaluate(parse_tree)
 
-    evaluator = ExprEvaluator(context=context, strict=False)
+    evaluator = ExprEvaluator(operand=context, strict=False)
     test = "ACTIONS.action_test.foo.bar.baz"
     parse_tree = parser.parse(test)
     assert evaluator.evaluate(parse_tree) is None
@@ -962,6 +962,6 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
 def test_parse_trigger_json(context, expr, expected):
     parser = ExprParser()
     parse_tree = parser.parse(expr)
-    ev = ExprEvaluator(context=context)
+    ev = ExprEvaluator(operand=context)
     actual = ev.transform(parse_tree)
     assert actual == expected
