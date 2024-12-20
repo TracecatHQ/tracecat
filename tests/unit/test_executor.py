@@ -7,7 +7,7 @@ import pytest
 from pydantic import SecretStr
 
 from tracecat.contexts import RunContext, ctx_role
-from tracecat.dsl.common import create_default_dsl_context
+from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.models import ActionStatement, RunActionInput
 from tracecat.executor.service import run_action_from_input, sync_executor_entrypoint
 from tracecat.expressions.expectations import ExpectedField
@@ -118,7 +118,7 @@ async def test_executor_can_run_udf_with_secrets(
                 for_each=None,
                 args={"secret_key_name": "TEST_UDF_SECRET_KEY"},
             ),
-            exec_context=create_default_dsl_context(),
+            exec_context=create_default_execution_context(),
             run_context=mock_run_context,
         )
 
@@ -221,7 +221,7 @@ async def test_executor_can_run_template_action_with_secret(
                 for_each=None,
                 args={"secret_key_name": "TEST_TEMPLATE_SECRET_KEY"},
             ),
-            exec_context=create_default_dsl_context(),
+            exec_context=create_default_execution_context(),
             run_context=mock_run_context,
         )
 
@@ -260,7 +260,7 @@ def test_sync_executor_entrypoint(test_role, mock_run_context):
                     run_if=None,
                     for_each=None,
                 ),
-                exec_context=create_default_dsl_context(),
+                exec_context=create_default_execution_context(),
                 run_context=mock_run_context,
             )
             result = sync_executor_entrypoint(input, test_role)
