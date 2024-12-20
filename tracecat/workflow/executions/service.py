@@ -31,8 +31,7 @@ from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
     WorkflowID,
-    WorkflowScheduleID,
-    exec_id,
+    generate_exec_id,
 )
 from tracecat.logger import logger
 from tracecat.types.auth import Role
@@ -373,7 +372,7 @@ class WorkflowExecutionsService:
         return CreateWorkflowExecutionResponse(
             message="Workflow execution started",
             wf_id=wf_id,
-            wf_exec_id=exec_id(wf_id),
+            wf_exec_id=generate_exec_id(wf_id),
         )
 
     def create_workflow_execution(
@@ -394,11 +393,10 @@ class WorkflowExecutionsService:
                 validation_result.msg, detail=validation_result.detail
             )
 
-        wf_exec_id = exec_id(wf_id)
         return self._dispatch_workflow(
             dsl=dsl,
             wf_id=wf_id,
-            wf_exec_id=wf_exec_id,
+            wf_exec_id=generate_exec_id(wf_id),
             trigger_inputs=payload,
         )
 
@@ -458,16 +456,13 @@ class WorkflowExecutionsService:
         return DispatchWorkflowResult(wf_id=wf_id, final_context=result)
 
     def cancel_workflow_execution(
-        self,
-        wf_exec_id: WorkflowExecutionID | WorkflowScheduleID,
+        self, wf_exec_id: WorkflowExecutionID
     ) -> Awaitable[None]:
         """Cancel a workflow execution."""
         return self.handle(wf_exec_id).cancel()
 
     def terminate_workflow_execution(
-        self,
-        wf_exec_id: WorkflowExecutionID | WorkflowScheduleID,
-        reason: str | None = None,
+        self, wf_exec_id: WorkflowExecutionID, reason: str | None = None
     ) -> Awaitable[None]:
         """Terminate a workflow execution."""
         return self.handle(wf_exec_id).terminate(reason=reason)
