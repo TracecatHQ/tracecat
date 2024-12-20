@@ -65,7 +65,7 @@ WorkflowExecutionSuffixID = Annotated[
 """The suffix of a workflow execution ID."""
 
 
-def generate_exec_id(workflow_id: str) -> WorkflowExecutionID:
+def generate_exec_id(workflow_id: WorkflowID) -> WorkflowExecutionID:
     """Inner workflow ID for a run, using the workflow ID and run ID."""
     exec_id = generate_resource_id(ResourcePrefix.WORKFLOW_EXECUTION)
     return f"{workflow_id}:{exec_id}"
