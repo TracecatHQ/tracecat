@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.models import DSLNodeResult
 from tracecat.expressions import functions
-from tracecat.expressions.shared import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, ExprType
+from tracecat.expressions.common import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, ExprType
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.exceptions import TracecatExpressionError

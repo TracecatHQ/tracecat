@@ -1,15 +1,16 @@
+from __future__ import annotations
+
 import re
-from collections.abc import Mapping
 from typing import Any
 
+from lark import Visitor
+
 from tracecat.expressions import patterns
+from tracecat.expressions.common import ExprOperand, ExprType
 from tracecat.expressions.parser.core import parser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.parser.validator import ExprValidator
-from tracecat.expressions.shared import ExprContext, ExprType
 from tracecat.types.exceptions import TracecatExpressionError
-
-OperandType = Mapping[str, Any]
 
 
 class Expression:
@@ -19,12 +20,13 @@ class Expression:
         self,
         expression: str,
         *,
-        operand: OperandType | None = None,
-        **kwargs,
+        operand: ExprOperand | None = None,
+        visitor: Visitor | None = None,
     ) -> None:
         self._expr = expression
         self._operand = operand
         self._parser = parser
+        self._visitor = visitor
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -45,7 +47,9 @@ class Expression:
             ) from e
 
         try:
-            visitor = ExprEvaluator(self._operand)
+            visitor = ExprEvaluator(operand=self._operand)
+            if parse_tree is None:
+                raise ValueError(f"Parser returned None for expression `{self._expr}`")
             return visitor.evaluate(parse_tree)
         except TracecatExpressionError as e:
             raise TracecatExpressionError(
@@ -92,10 +96,8 @@ class TemplateExpression:
     def __init__(
         self,
         template: str,
-        operand: OperandType | None = None,
+        operand: ExprOperand | None = None,
         pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
-        include: set[ExprContext] | None = None,
-        exclude: set[ExprContext] | None = None,
         **kwargs,
     ) -> None:
         match = pattern.match(template)
@@ -108,9 +110,7 @@ class TemplateExpression:
             raise TracecatExpressionError(
                 f"Template expression {template!r} matched pattern but contained no expression. "
             )
-        self.expr = Expression(
-            expr, operand=operand, include=include, exclude=exclude, **kwargs
-        )
+        self.expr = Expression(expr, operand=operand)
 
     def __str__(self) -> str:
         return self.__repr__()

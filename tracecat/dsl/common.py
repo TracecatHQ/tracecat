@@ -25,8 +25,8 @@ from tracecat.dsl.models import (
 )
 from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDFNodeData
 from tracecat.expressions import patterns
+from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.expressions.shared import ExprContext
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves

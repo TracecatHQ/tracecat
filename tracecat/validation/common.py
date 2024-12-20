@@ -2,7 +2,7 @@ from typing import Annotated, Any, Optional
 
 from pydantic import BaseModel, Field, create_model
 
-from tracecat.expressions.shared import ExprType
+from tracecat.expressions.common import ExprType
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretSearch

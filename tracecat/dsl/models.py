@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, JsonValue
 from tracecat.contexts import RunContext
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.enums import JoinStrategy
-from tracecat.expressions.shared import ExprContext
+from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
