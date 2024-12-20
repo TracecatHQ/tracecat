@@ -19,6 +19,9 @@ ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
 TriggerInputs = JsonValue
 """Trigger inputs JSON type."""
 
+ExecutionContext = dict[ExprContext, Any]
+"""Workflow execution context."""
+
 
 class DSLNodeResult(TypedDict, total=False):
     """Result of executing a DSL node."""
@@ -165,30 +168,11 @@ class DSLEnvironment(TypedDict, total=False):
     """The registry version to use for the workflow."""
 
 
-class DSLContext(TypedDict, total=False):
-    """DSL Context. Contains all the context needed to execute a DSL workflow."""
-
-    INPUTS: dict[str, Any]
-    """DSL Static Inputs context"""
-
-    ACTIONS: dict[str, Any]
-    """DSL Actions context"""
-
-    TRIGGER: TriggerInputs
-    """DSL Trigger dynamic inputs context"""
-
-    ENV: DSLEnvironment
-    """DSL Environment context. Has metadata about the workflow."""
-
-    SECRETS: dict[str, Any]
-    """DSL Secrets context"""
-
-
 class RunActionInput(BaseModel):
     """This object contains all the information needed to execute an action."""
 
     task: ActionStatement
-    exec_context: DSLContext
+    exec_context: ExecutionContext
     run_context: RunContext
 
 
