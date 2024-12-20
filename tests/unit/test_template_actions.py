@@ -100,7 +100,28 @@ def test_construct_template_action():
 
 
 @pytest.mark.anyio
-async def test_template_action_run():
+@pytest.mark.parametrize(
+    "test_args,expected_result",
+    [
+        (
+            {"service_source": "custom", "limit": 100},
+            [200, "custom"],
+            False,
+        ),
+        (
+            {"limit": 100},
+            [200, "elastic"],
+            False,
+        ),
+        (
+            {},
+            None,
+            True,
+        ),
+    ],
+    ids=["custom_source", "default_source", "missing_required"],
+)
+async def test_template_action_run(test_args, expected_result, should_raise):
     action = TemplateAction(
         **{
             "type": "action",
@@ -163,21 +184,26 @@ async def test_template_action_run():
     bound_action = registry.get(action.definition.action)
 
     # Run the action
-    result = await service.run_template_action(
-        action=bound_action,
-        args={"service_source": "elastic"},
-        context={},
-    )
-
-    # Check the result
-    assert result == [200, "elastic"]
+    if should_raise:
+        with pytest.raises(ValidationError):
+            await service.run_template_action(
+                action=bound_action,
+                args=test_args,
+                context={},
+            )
+    else:
+        result = await service.run_template_action(
+            action=bound_action,
+            args=test_args,
+            context={},
+        )
+    assert result == expected_result
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "test_args,expected_result,should_raise",
     [
-        # Valid cases
         (
             {"status": "critical", "message": "System CPU usage above 90%"},
             {"alert_status": "critical", "alert_message": "System CPU usage above 90%"},
@@ -188,7 +214,6 @@ async def test_template_action_run():
             {"alert_status": "info", "alert_message": "Informational message"},
             False,
         ),
-        # Invalid case
         (
             {
                 "status": "emergency",
@@ -200,7 +225,7 @@ async def test_template_action_run():
     ],
     ids=["valid_status", "default_status", "invalid_status"],
 )
-async def test_template_action_with_enum(test_args, expected_result, should_raise):
+async def test_enum_template_action(test_args, expected_result, should_raise):
     """Test template action with enum status.
     This test verifies that:
     1. The action can be constructed with an enum status
