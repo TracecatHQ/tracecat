@@ -18,14 +18,16 @@ def apartial(coro: Coroutine[T], /, *bind_args, **bind_kwargs):
     return wrapped
 
 
-class GatheringTaskGroup[T](asyncio.TaskGroup):
+class GatheringTaskGroup[T: Any](asyncio.TaskGroup):
     """Convenience class to gather results from tasks in a task group."""
 
     def __init__(self):
         super().__init__()
         self.__tasks: list[asyncio.Task[T]] = []
 
-    def create_task(self, coro, *, name=None, context=None) -> asyncio.Task[T]:
+    def create_task(
+        self, coro, *, name: str | None = None, context: Any | None = None
+    ) -> asyncio.Task[T]:
         task = super().create_task(coro, name=name, context=context)
         self.__tasks.append(task)
         return task
