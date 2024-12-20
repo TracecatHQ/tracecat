@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, TypedDict
 
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, Field
 
 from tracecat.contexts import RunContext
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
@@ -16,15 +16,15 @@ from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
 
-TriggerInputs = JsonValue
+TriggerInputs = Any
 """Trigger inputs JSON type."""
 
 ExecutionContext = dict[ExprContext, Any]
 """Workflow execution context."""
 
 
-class DSLNodeResult(TypedDict, total=False):
-    """Result of executing a DSL node."""
+class TaskResultDict(TypedDict, total=False):
+    """Result of executing a DSL task (action or workflow)."""
 
     result: Any
     result_typename: str

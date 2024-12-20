@@ -56,6 +56,11 @@ services:
       # AI
       TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
       OLLAMA__API_URL: ${OLLAMA__API_URL}
+      # Object store
+      TRACECAT__RESULTS_BACKEND: ${TRACECAT__RESULTS_BACKEND}
+      MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
@@ -84,6 +89,11 @@ services:
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
+      # Minio
+      TRACECAT__RESULTS_BACKEND: ${TRACECAT__RESULTS_BACKEND}
+      MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
@@ -110,6 +120,11 @@ services:
       # AI
       TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
       OLLAMA__API_URL: ${OLLAMA__API_URL}
+      # Object store
+      TRACECAT__RESULTS_BACKEND: ${TRACECAT__RESULTS_BACKEND}
+      MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     volumes:
       - ./tracecat:/app/tracecat
     ports:
@@ -218,7 +233,22 @@ services:
     volumes:
       - ollama:/root/.ollama
 
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    ports:
+      - 9000:9000 # API port
+      - 9001:9001 # Console port
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+
 volumes:
   core-db:
   temporal-db:
   ollama:
+  minio-data:

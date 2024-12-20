@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-from collections.abc import AsyncGenerator, Awaitable, Coroutine
+from collections.abc import AsyncGenerator, Awaitable, Mapping
 from typing import Any
 
 import orjson
@@ -28,6 +28,7 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.ee.executor.service import resolve_task_result
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
     WorkflowID,
@@ -55,10 +56,10 @@ class WorkflowExecutionsService:
         self.logger = logger.bind(service="workflow_executions")
 
     @staticmethod
-    async def connect() -> WorkflowExecutionsService:
+    async def connect(role: Role | None = None) -> WorkflowExecutionsService:
         """Initialize and connect to the service."""
         client = await get_temporal_client()
-        return WorkflowExecutionsService(client=client)
+        return WorkflowExecutionsService(client=client, role=role)
 
     def handle(self, wf_exec_id: WorkflowExecutionID) -> WorkflowHandle:
         return self._client.get_workflow_handle(wf_exec_id)
@@ -149,7 +150,7 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED:
-                    result = _extract_first(
+                    result = await resolve_first_task_result(
                         event.child_workflow_execution_completed_event_attributes.result
                     )
                     initiator_event_id = event.child_workflow_execution_completed_event_attributes.initiated_event_id
@@ -198,7 +199,7 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
-                    result = _extract_first(
+                    result = await resolve_first_task_result(
                         event.workflow_execution_completed_event_attributes.result
                     )
                     events.append(
@@ -294,7 +295,7 @@ class WorkflowExecutionsService:
                     if not (group := event_group_names.get(gparent_event_id)):
                         continue
                     event_group_names[event.event_id] = group
-                    result = _extract_first(
+                    result = await resolve_first_task_result(
                         event.activity_task_completed_event_attributes.result
                     )
                     events.append(
@@ -375,13 +376,13 @@ class WorkflowExecutionsService:
             wf_exec_id=generate_exec_id(wf_id),
         )
 
-    def create_workflow_execution(
+    async def create_workflow_execution(
         self,
         dsl: DSLInput,
         *,
         wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
-    ) -> Coroutine[Any, Any, DispatchWorkflowResult]:
+    ) -> DispatchWorkflowResult:
         """Create a new workflow execution.
 
         Note: This method blocks until the workflow execution completes.
@@ -393,7 +394,7 @@ class WorkflowExecutionsService:
                 validation_result.msg, detail=validation_result.detail
             )
 
-        return self._dispatch_workflow(
+        return await self._dispatch_workflow(
             dsl=dsl,
             wf_id=wf_id,
             wf_exec_id=generate_exec_id(wf_id),
@@ -453,7 +454,7 @@ class WorkflowExecutionsService:
             )
             raise e
         self.logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
-        return DispatchWorkflowResult(wf_id=wf_id, final_context=result)
+        return DispatchWorkflowResult(wf_id=wf_id, result=result)
 
     def cancel_workflow_execution(
         self, wf_exec_id: WorkflowExecutionID
@@ -466,6 +467,16 @@ class WorkflowExecutionsService:
     ) -> Awaitable[None]:
         """Terminate a workflow execution."""
         return self.handle(wf_exec_id).terminate(reason=reason)
+
+
+async def resolve_first_task_result(
+    input_or_result: temporalio.api.common.v1.Payloads,
+) -> Any:
+    result = _extract_first(input_or_result)
+    if isinstance(result, Mapping) and "tc_backend_" in result:
+        task_result = await resolve_task_result(result)
+        result = task_result.result
+    return result
 
 
 def _extract_first(input_or_result: temporalio.api.common.v1.Payloads) -> Any:
