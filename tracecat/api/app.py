@@ -49,12 +49,12 @@ from tracecat.workspaces.service import WorkspaceService
 async def lifespan(app: FastAPI):
     role = bootstrap_role()
     async with get_async_session_context_manager() as session:
-        await setup_defaults(session, role)
+        await setup_workspace_defaults(session, role)
         await setup_registry(session, role)
     yield
 
 
-async def setup_defaults(session: AsyncSession, admin_role: Role):
+async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
     ws_service = WorkspaceService(session, role=admin_role)
     workspaces = await ws_service.admin_list_workspaces()
     n_workspaces = len(workspaces)
