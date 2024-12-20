@@ -101,7 +101,7 @@ def test_construct_template_action():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "test_args,expected_result",
+    "test_args,expected_result,should_raise",
     [
         (
             {"service_source": "custom", "limit": 100},
