@@ -657,7 +657,7 @@ class DSLWorkflow:
 
     async def _run_child_workflow(self, run_args: DSLRunArgs) -> Any:
         self.logger.info("Running child workflow", run_args=run_args)
-        wf_exec_id = identifiers.workflow.exec_id(run_args.wf_id)
+        wf_exec_id = identifiers.workflow.generate_exec_id(run_args.wf_id)
         wf_info = workflow.info()
         return await workflow.execute_child_workflow(
             DSLWorkflow.run,
