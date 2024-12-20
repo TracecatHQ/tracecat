@@ -27,9 +27,8 @@ from tracecat.dsl.models import (
     RunActionInput,
 )
 from tracecat.executor.engine import EXECUTION_TIMEOUT
-from tracecat.expressions.common import ExprContext
+from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
-    OperandType,
     eval_templated_object,
     extract_templated_secrets,
     get_iterables_from_expression,
@@ -188,7 +187,7 @@ async def run_template_action(
         evaled_args = cast(
             ArgsT,
             eval_templated_object(
-                step.args, operand=cast(OperandType, template_context)
+                step.args, operand=cast(ExprOperand, template_context)
             ),
         )
         async with RegistryActionsService.with_session() as service:
@@ -208,7 +207,7 @@ async def run_template_action(
 
     # Handle returns
     return eval_templated_object(
-        defn.returns, operand=cast(OperandType, template_context)
+        defn.returns, operand=cast(ExprOperand, template_context)
     )
 
 
