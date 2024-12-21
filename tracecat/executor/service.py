@@ -33,6 +33,7 @@ from tracecat.expressions.eval import (
     extract_templated_secrets,
     get_iterables_from_expression,
 )
+from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
@@ -145,12 +146,15 @@ async def run_single_action(
 
     context["SECRETS"] = context.get("SECRETS", {}) | secrets
     if action.is_template:
-        logger.info("Running template UDF async", action=action.name)
-        return await run_template_action(action=action, args=args, context=context)
-    flat_secrets = flatten_secrets(secrets)
-    with env_sandbox(flat_secrets):
-        # Run the UDF in the caller process (usually the worker)
-        return await _run_action_direct(action=action, args=args)
+        logger.info("Running template action async", action=action.name)
+        result = await run_template_action(action=action, args=args, context=context)
+    else:
+        logger.trace("Running UDF async", action=action.name)
+        flat_secrets = flatten_secrets(secrets)
+        with env_sandbox(flat_secrets):
+            result = await _run_action_direct(action=action, args=args)
+
+    return result
 
 
 async def run_template_action(
@@ -159,25 +163,32 @@ async def run_template_action(
     args: ArgsT,
     context: DSLContext,
 ) -> Any:
-    """Handle template execution.
-
-    You should use `run_async` instead of calling this directly.
-
-    Move the template action execution here, so we can
-    override run_async's implementation
-    """
+    """Handle template execution."""
     if not action.template_action:
         raise ValueError(
             "Attempted to run a non-template UDF as a template. "
             "Please use `run_single_action` instead."
         )
     defn = action.template_action.definition
+
+    # Validate arguments and apply defaults
+    logger.trace(
+        "Validating template action arguments", expects=defn.expects, args=args
+    )
+    if defn.expects:
+        model = create_expectation_model(defn.expects)
+        # In pydantic 2.x, we need to use `model_dump(mode="json")`
+        # so enums return the string value instead of the enum instance
+        args = model(**args).model_dump(mode="json")
+
+    secrets_context = {}
+    if context is not None:
+        secrets_context = context.get(ExprContext.SECRETS, {})
+
     template_context = cast(
         DSLContext,
         {
-            ExprContext.SECRETS: {}
-            if context is None
-            else context.get(ExprContext.SECRETS, {}),
+            ExprContext.SECRETS: secrets_context,
             ExprContext.TEMPLATE_ACTION_INPUTS: args,
             ExprContext.TEMPLATE_ACTION_STEPS: {},
         },
@@ -201,9 +212,11 @@ async def run_template_action(
         )
         # Store the result of the step
         logger.trace("Storing step result", step=step.ref, result=result)
-        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = DSLNodeResult(
-            result=result,
-            result_typename=type(result).__name__,
+        template_context[str(ExprContext.TEMPLATE_ACTION_STEPS)][step.ref] = (
+            DSLNodeResult(
+                result=result,
+                result_typename=type(result).__name__,
+            )
         )
 
     # Handle returns
