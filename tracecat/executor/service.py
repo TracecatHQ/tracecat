@@ -22,12 +22,15 @@ from tracecat.db.engine import get_async_engine
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.models import (
     ActionStatement,
-    DSLNodeResult,
     ExecutionContext,
     RunActionInput,
+    TaskResultDict,
 )
+from tracecat.ee.store.service import get_store
 from tracecat.executor.engine import EXECUTION_TIMEOUT
+from tracecat.executor.enums import ResultsBackend
 from tracecat.expressions.common import ExprContext, ExprOperand
+from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.eval import (
     eval_templated_object,
     extract_templated_secrets,
@@ -194,7 +197,7 @@ async def run_template_action(
         )
         # Store the result of the step
         logger.trace("Storing step result", step=step.ref, result=result)
-        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = DSLNodeResult(
+        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = TaskResultDict(
             result=result,
             result_typename=type(result).__name__,
         )
@@ -209,8 +212,12 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     """Main entrypoint for running an action."""
     ctx_role.set(role)
     ctx_run.set(input.run_context)
-    act_logger = ctx_logger.get(logger.bind(ref=input.task.ref))
-
+    log = logger.bind(
+        role=ctx_role.get(),
+        ref=input.task.ref,
+        results_backend=config.TRACECAT__RESULTS_BACKEND.value,
+    )
+    ctx_logger.set(log)
     task = input.task
     action_name = task.action
 
@@ -238,17 +245,50 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     optional_secrets = {
         secret.name for secret in action.secrets or [] if secret.optional
     }
-    args_secret_refs = set(extract_templated_secrets(task.args))
+
+    # === Prepare action ===
+    # Prepare the execution context to evaluate expressions
+    context = input.exec_context.copy()
+
+    extracted_exprs = extract_expressions(task.args)
+    extracted_secrets = extracted_exprs[ExprContext.SECRETS]
+    log.trace("Extracted expressions", extracted_exprs=extracted_exprs)
+
+    # If we run with object store backend, we need to retrieve action expressions from the store.
+    if config.TRACECAT__RESULTS_BACKEND == ResultsBackend.STORE:
+        # (1) Extract expressions
+        log.trace("Store backend, pulling action results into execution context")
+
+        # (2) Pull action results from the store
+        # We only pull the action results that are actually used in the template
+        if extracted_action_refs := extracted_exprs[ExprContext.ACTIONS]:
+            store = get_store()
+            action_results = await store.load_action_result_from_exec_context(
+                context=context,
+                action_refs=extracted_action_refs,
+            )
+            context.update(ACTIONS=action_results)
+            log.trace(
+                "Updated action context", action_results=action_results, context=context
+            )
+        else:
+            log.trace("No action refs in task args")
+    else:
+        # Otherwise, we use the action results from the current execution context
+        log.trace("Memory backend, using action results from current execution context")
+
+    # Pull secrets
     async with AuthSandbox(
-        secrets=list(action_secret_names | args_secret_refs),
+        secrets=list(action_secret_names | extracted_secrets),
         target="context",
         environment=get_runtime_env(),
         optional_secrets=list(optional_secrets),
     ) as sandbox:
         secrets = sandbox.secrets.copy()
+        context.update(SECRETS=secrets)
 
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
-        act_logger.warning(
+        log.warning(
             "Secrets masking is disabled. This is unsafe in production workflows."
         )
         mask_values = None
@@ -258,15 +298,13 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
 
     # When we're here, we've populated the task arguments with shared context values
 
-    act_logger.info(
+    log.info(
         "Run action",
         task_ref=task.ref,
         action_name=action_name,
         args=task.args,
+        context=context,
     )
-
-    context = input.exec_context.copy()
-    context.update(SECRETS=secrets)
 
     flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):
@@ -276,7 +314,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     if mask_values:
         result = apply_masks_object(result, masks=mask_values)
 
-    act_logger.debug("Result", result=result)
+    log.debug("Result", result=result)
     return result
 
 
@@ -327,6 +365,9 @@ async def run_action_on_ray_cluster(input: RunActionInput, role: Role) -> Any:
         logger.error("Error running action on ray cluster", error=e)
         if isinstance(e.cause, BaseException):
             raise e.cause from None
+        raise e
+    except Exception as e:
+        logger.error("Unexpected error running action on ray cluster", error=e)
         raise e
 
 

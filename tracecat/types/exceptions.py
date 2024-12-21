@@ -79,3 +79,7 @@ class TaskUnreachable(TracecatException):
 
 class ActionExecutionError(TracecatException):
     """Exception raised when an action execution error occurs."""
+
+
+class StoreError(TracecatException):
+    """Exception raised when a store error occurs."""

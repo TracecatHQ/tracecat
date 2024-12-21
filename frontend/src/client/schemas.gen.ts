@@ -508,13 +508,12 @@ export const $CreateWorkflowExecutionParams = {
         },
         inputs: {
             anyOf: [
-                {
-                    '$ref': '#/components/schemas/JsonValue'
-                },
+                {},
                 {
                     type: 'null'
                 }
-            ]
+            ],
+            title: 'Inputs'
         }
     },
     type: 'object',
@@ -755,13 +754,12 @@ export const $DSLRunArgs = {
         },
         trigger_inputs: {
             anyOf: [
-                {
-                    '$ref': '#/components/schemas/JsonValue'
-                },
+                {},
                 {
                     type: 'null'
                 }
-            ]
+            ],
+            title: 'Trigger Inputs'
         },
         parent_run_context: {
             anyOf: [
@@ -1224,8 +1222,6 @@ export const $JoinStrategy = {
     enum: ['any', 'all'],
     title: 'JoinStrategy'
 } as const;
-
-export const $JsonValue = {} as const;
 
 export const $OAuth2AuthorizeResponse = {
     properties: {
