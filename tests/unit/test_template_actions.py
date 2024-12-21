@@ -1,6 +1,5 @@
 import pytest
-from pydantic import ValidationError
-from tracecat_registry import RegistrySecret
+from tracecat_registry import RegistrySecret, RegistryValidationError
 
 from tracecat.executor import service
 from tracecat.expressions.expectations import ExpectedField
@@ -194,7 +193,7 @@ async def test_template_action_run(test_args, expected_result, should_raise):
 
     # Run the action
     if should_raise:
-        with pytest.raises(ValidationError):
+        with pytest.raises(RegistryValidationError):
             await service.run_template_action(
                 action=bound_action,
                 args=test_args,
@@ -287,7 +286,7 @@ async def test_enum_template_action(test_args, expected_result, should_raise):
 
     # Run the action
     if should_raise:
-        with pytest.raises(ValidationError):
+        with pytest.raises(RegistryValidationError):
             await service.run_template_action(
                 action=bound_action,
                 args=test_args,
