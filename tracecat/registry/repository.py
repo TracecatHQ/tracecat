@@ -323,7 +323,7 @@ class Repository:
         # Get function metadata
         key = getattr(fn, "__tracecat_udf_key")
         kwargs = getattr(fn, "__tracecat_udf_kwargs")
-        logger.info(f"Registering UDF: {key}", key=key, name=name)
+        logger.debug("Registering UDF", key=key, name=name)
         # Add validators to the function
         validated_kwargs = RegisterKwargs.model_validate(kwargs)
         attach_validators(fn, TemplateValidator())
@@ -432,13 +432,11 @@ class Repository:
 
     def load_template_actions_from_path(self, *, path: Path, origin: str) -> int:
         """Load template actions from a package."""
-        # Load the default templates
-        logger.info(f"Loading template actions from {path!s}")
         # Load all .yml files using rglob
         n_loaded = 0
         all_paths = chain(path.rglob("*.yml"), path.rglob("*.yaml"))
         for file_path in all_paths:
-            logger.info(f"Loading template {file_path!s}")
+            logger.debug("Loading template action from path", path=file_path)
             # Load TemplateActionDefinition
             try:
                 template_action = TemplateAction.from_yaml(file_path)
@@ -450,14 +448,15 @@ class Repository:
                 continue
             except Exception as e:
                 logger.error(
-                    f"Unexpected error loading template action {file_path!s}", error=e
+                    "Unexpected error loading template action",
+                    error=e,
+                    path=file_path,
                 )
                 continue
 
             key = template_action.definition.action
             if key in self._store:
-                # Already registered, skip
-                logger.info(f"Template {key!r} already registered, skipping")
+                logger.debug("Template action already registered, skipping", key=key)
                 continue
 
             self.register_template_action(template_action, origin=origin)
