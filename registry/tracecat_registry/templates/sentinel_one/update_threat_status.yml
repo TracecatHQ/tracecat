@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Update SentinelOne Threat Status
+  description: Update the status of a SentinelOne threat
+  display_group: SentinelOne
+  namespace: integrations.sentinel_one
+  name: update_threat_status
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN", "SENTINEL_ONE_BASE_URL"]
+  expects:
+    threat_ids:
+      type: list[str]
+      description: The IDs of the threats to update
+    verdict:
+      type: str
+      description: The new status of the threat
+    status:
+      type: str
+      description: The analyst verdict of the threat
+  steps:
+    - ref: update_threat_status
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.sentinel_one.SENTINEL_ONE_BASE_URL }}/web/api/v2.1/threats/incident
+        method: POST
+        headers:
+          Authorization: ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+        payload:
+          data:
+            incidentStatus: ${{ inputs.status }}
+            analystVerdict: ${{ inputs.verdict }}
+          filter:
+            ids: ${{ inputs.threat_ids }}
+  returns: ${{ steps.update_threat_status.result }}
