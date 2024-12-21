@@ -115,7 +115,8 @@ TEMPORAL__CLUSTER_NAMESPACE = os.environ.get(
 TEMPORAL__CLUSTER_QUEUE = os.environ.get(
     "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
 )
-TEMPORAL__TLS_ENABLED = os.environ.get("TEMPORAL__TLS_ENABLED", False)
+TEMPORAL__TLS_ENABLED = os.environ.get("TEMPORAL__TLS_ENABLED", False) == "true"
+TEMPORAL__TLS_CERT__ARN = os.environ.get("TRACECAT__TLS_CERT_ARN")
 TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT")
 """RPC timeout for Temporal workflows in seconds."""
 
