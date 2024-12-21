@@ -57,7 +57,7 @@ TYPE_MAPPING = {
     "datetime": datetime,
     "duration": timedelta,
     "any": Any,
-    "null": None,
+    "None": None,
 }
 
 
