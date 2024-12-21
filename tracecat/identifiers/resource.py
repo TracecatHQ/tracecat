@@ -13,15 +13,13 @@ ResourceID = Annotated[str, StringConstraints(pattern=r"[a-z\-]{2,}-[0-9a-f]{32}
 """Resource identifier pattern. e.g. 'wf-77932a0b140a4465a1a25a5c95edcfb8'"""
 
 
-def generate_resource_id(prefix: ResourcePrefix, *, sep: str = "-") -> ResourceID:
+def generate_resource_id(prefix: str, *, sep: str = "-") -> ResourceID:
     """Generate a short unique identifier with a prefix."""
 
     return prefix + sep + uuid4().hex
 
 
-def id_factory(
-    prefix: ResourcePrefix, *, sep: str = "-"
-) -> Callable[[str], ResourceID]:
+def id_factory(prefix: str, *, sep: str = "-") -> Callable[[], ResourceID]:
     """Factory function to generate a short unique identifier with a prefix."""
 
     # Assert that the prefix is a valid resource class identifier.
@@ -31,7 +29,7 @@ def id_factory(
     def wrapper() -> ResourceID:
         return generate_resource_id(prefix, sep=sep)
 
-    return wrapper
+    return wrapper  # type: ignore
 
 
 class ResourcePrefix(StrEnum):
