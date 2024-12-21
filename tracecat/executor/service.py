@@ -33,7 +33,6 @@ from tracecat.expressions.eval import (
     extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.shared import ExprContext
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
@@ -87,17 +86,14 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
 
 
 async def _run_action_direct(
-    *, action: BoundRegistryAction[ArgsClsT], args: ArgsT, validate: bool = False
+    *, action: BoundRegistryAction[ArgsClsT], args: ArgsT
 ) -> Any:
     """Execute the UDF directly.
 
     At this point, the UDF cannot be a template.
     """
-    if validate:
-        # Optional, as we already validate in the caller
-        args = action.validate_args(**args)
     if action.is_template:
-        # This should not be reached
+        # Defensive check
         raise ValueError("Templates cannot be executed directly")
     try:
         if action.is_async:
@@ -176,10 +172,7 @@ async def run_template_action(
         "Validating template action arguments", expects=defn.expects, args=args
     )
     if defn.expects:
-        model = create_expectation_model(defn.expects)
-        # In pydantic 2.x, we need to use `model_dump(mode="json")`
-        # so enums return the string value instead of the enum instance
-        args = model(**args).model_dump(mode="json")
+        args = action.validate_args(**args)
 
     secrets_context = {}
     if context is not None:
