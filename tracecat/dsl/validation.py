@@ -33,9 +33,9 @@ def validate_trigger_inputs(
     }
     if isinstance(payload, dict):
         # NOTE: We only validate dict payloads for now
-        validator = create_expectation_model(expects_schema, model_name=model_name)
+        model = create_expectation_model(expects_schema, model_name=model_name)
         try:
-            validator(**payload)
+            validated_payload = model(**payload).model_dump(mode="json")
         except ValidationError as e:
             if raise_exceptions:
                 raise
@@ -44,7 +44,12 @@ def validate_trigger_inputs(
                 msg=f"Validation error in trigger inputs ({e.title}). Please refer to the schema for more details.",
                 detail={"errors": e.errors()},
             )
-    return ValidationResult(status="success", msg="Trigger inputs are valid.")
+    result = ValidationResult(
+        status="success",
+        msg="Trigger inputs are valid.",
+        payload=validated_payload,
+    )
+    return result
 
 
 class ValidateTriggerInputsActivityInputs(BaseModel):

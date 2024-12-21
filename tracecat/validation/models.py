@@ -14,6 +14,7 @@ class ValidationResult(BaseModel):
     msg: str = ""
     detail: Any | None = None
     ref: str | None = None
+    payload: dict[str, Any] | None = None
 
     def __hash__(self) -> int:
         detail = json.dumps(self.detail, sort_keys=True)
