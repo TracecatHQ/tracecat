@@ -145,7 +145,7 @@ async def test_template_action_run(test_args, expected_result, should_raise):
                     },
                     # Optional field with None as default
                     "limit": {
-                        "type": "int | null",
+                        "type": "int | None",
                         "description": "The limit",
                         "default": "null",
                     },

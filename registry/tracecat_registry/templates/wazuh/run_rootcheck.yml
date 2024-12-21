@@ -12,9 +12,9 @@ definition:
         - WAZUH_API_URL
   expects:
     agents_list:
-      type: str | null
+      type: str | None
       description: List of agent IDs (separated by comma), all agents selected by default if not specified.
-      default: null
+      default: None
     verify_ssl:
       type: bool
       description: If False, disables SSL verification for internal networks.

@@ -20,7 +20,7 @@ def test_validate_schema():
             "description": "The end time",
         },
         "nullable": {
-            "type": "int | null",
+            "type": "int | None",
             "description": "An nullable integer",
         },
         "optional_with_default": {
@@ -81,7 +81,7 @@ def test_dynamic_model_with_optional_field_omitted():
             "description": "The end time",
         },
         "nullable": {
-            "type": "int | null",
+            "type": "int | None",
             "description": "An nullable integer",
         },
         "optional_with_default": {
@@ -130,7 +130,7 @@ def test_dynamic_model_with_invalid_data():
             "description": "The end time",
         },
         "nullable": {
-            "type": "int | null",
+            "type": "int | None",
             "description": "A nullable integer",
         },
         "optional_with_default": {

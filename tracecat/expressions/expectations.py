@@ -32,7 +32,7 @@ FLOAT: "float"
 DATETIME: "datetime"
 DURATION: "duration"
 ANY: "any"
-NULL: "null"
+NULL: "None"
 
 list_type: "list" "[" type "]"
 dict_type: "dict" "[" type "," type "]"
@@ -151,17 +151,14 @@ def create_expectation_model(
 
         # Extract metadata
         field_type = parse_type(validated_field_info.type, field_name)
-        default = validated_field_info.default
         description = validated_field_info.description
 
         if description:
             field_info_kwargs["description"] = description
 
-        if default == "null":
-            # "null" indicates an explicit optional field, which evaluates to None
-            field_info_kwargs["default"] = None
-        elif default is not None:
-            field_info_kwargs["default"] = default
+        if "default" in validated_field_info.model_fields_set:
+            # If the field has a default value, use it
+            field_info_kwargs["default"] = validated_field_info.default
         else:
             # Use ... (ellipsis) to indicate a required field in Pydantic
             field_info_kwargs["default"] = ...
