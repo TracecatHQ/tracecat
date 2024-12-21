@@ -39,6 +39,7 @@ from tracecat.logger import logger
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
+from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -2065,3 +2066,175 @@ async def test_workflow_runs_template_for_each(
             ),
         )
     assert result == [101, 102, 103, 104, 105]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "trigger_inputs,expected_result,should_raise",
+    [
+        # Test case 1: All required fields with valid values
+        (
+            {"user_id": "john@example.com", "priority": "high", "count": 5},
+            {
+                "ACTIONS": {},
+                "INPUTS": {},
+                "TRIGGER": {
+                    "user_id": "john@example.com",
+                    "priority": "high",
+                    "count": 5,
+                },
+            },
+            False,
+        ),
+        # Test case 2: Using default values
+        (
+            {"user_id": "jane@example.com"},
+            {
+                "ACTIONS": {},
+                "INPUTS": {},
+                "TRIGGER": {
+                    "user_id": "jane@example.com",
+                    "priority": "low",
+                    "count": 10,
+                },
+            },
+            False,
+        ),
+        # Test case 3: Invalid enum value
+        (
+            {"user_id": "bob@example.com", "priority": "INVALID"},
+            None,
+            True,
+        ),
+        # Test case 4: Missing required field
+        (
+            {"priority": "medium", "count": 3},
+            None,
+            True,
+        ),
+        # Test case 5: No expects defined
+        (
+            {"any": "value"},
+            {
+                "ACTIONS": {},
+                "INPUTS": {},
+                "TRIGGER": {"any": "value"},
+            },
+            False,
+        ),
+    ],
+    ids=[
+        "valid_all_fields",
+        "with_defaults",
+        "invalid_enum",
+        "missing_required",
+        "no_expects",
+    ],
+)
+async def test_workflow_trigger_validation(
+    trigger_inputs, expected_result, should_raise, test_role, temporal_client
+):
+    """Test workflow trigger input validation.
+
+    This test verifies that:
+    1. Required trigger inputs are properly validated
+    2. Default values are correctly applied
+    3. Enum values are properly validated
+    4. Missing required fields are rejected
+    5. Workflows with no expects defined accept any trigger inputs
+    """
+    test_name = f"{test_workflow_trigger_validation.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Base DSL with validation
+    dsl_with_validation = {
+        "title": "Test Workflow Trigger Validation",
+        "description": "Test workflow with trigger input validation",
+        "entrypoint": {
+            "expects": {
+                "user_id": {
+                    "type": "str",
+                    "description": "User identifier",
+                },
+                "priority": {
+                    "type": 'enum["low", "medium", "high"]',
+                    "description": "Task priority level",
+                    "default": "low",
+                },
+                "count": {
+                    "type": "int",
+                    "description": "Number of items",
+                    "default": 10,
+                },
+            },
+            "ref": "start",
+        },
+        "actions": [
+            {
+                "ref": "start",
+                "action": "core.transform.reshape",
+                "args": {"value": "START"},
+            },
+        ],
+        "inputs": {},
+        "returns": None,
+        "tests": [],
+        "triggers": [],
+    }
+
+    # DSL without expects for the "no_expects" test case
+    dsl_without_validation = {
+        **dsl_with_validation,
+        "entrypoint": {"ref": "start"},
+    }
+
+    # Use appropriate DSL based on test case
+    dsl = DSLInput(
+        **(
+            dsl_without_validation
+            if trigger_inputs.get("any") == "value"
+            else dsl_with_validation
+        )
+    )
+
+    run_args = DSLRunArgs(
+        dsl=dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+        trigger_inputs=trigger_inputs,
+    )
+
+    if should_raise:
+        with pytest.raises(TracecatValidationError) as exc_info:
+            async with Worker(
+                temporal_client,
+                task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+                activities=DSLActivities.load() + DSL_UTILITIES,
+                workflows=[DSLWorkflow],
+                workflow_runner=new_sandbox_runner(),
+            ):
+                await temporal_client.execute_workflow(
+                    DSLWorkflow.run,
+                    run_args,
+                    id=wf_exec_id,
+                    task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+                    retry_policy=retry_policies["workflow:fail_fast"],
+                )
+        # Verify that it's a validation error
+        assert "ValidationError" in str(exc_info.value)
+    else:
+        async with Worker(
+            temporal_client,
+            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            activities=DSLActivities.load() + DSL_UTILITIES,
+            workflows=[DSLWorkflow],
+            workflow_runner=new_sandbox_runner(),
+        ):
+            result = await temporal_client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+                retry_policy=retry_policies["workflow:fail_fast"],
+            )
+        assert result == expected_result
