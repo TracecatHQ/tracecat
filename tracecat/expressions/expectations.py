@@ -32,7 +32,7 @@ FLOAT: "float"
 DATETIME: "datetime"
 DURATION: "duration"
 ANY: "any"
-NULL: "None"
+NULL: "null"
 
 list_type: "list" "[" type "]"
 dict_type: "dict" "[" type "," type "]"
@@ -57,7 +57,7 @@ TYPE_MAPPING = {
     "datetime": datetime,
     "duration": timedelta,
     "any": Any,
-    "None": None,
+    "null": None,
 }
 
 
@@ -97,7 +97,7 @@ class TypeTransformer(Transformer):
         return f"${name.value}"
 
     @v_args(inline=True)
-    def enum_type(self, *values) -> type:
+    def enum_type(self, *values) -> Enum:
         if len(values) > self.MAX_ENUM_VALUES:
             raise ValueError(f"Too many enum values (maximum {self.MAX_ENUM_VALUES})")
 
@@ -122,14 +122,14 @@ class TypeTransformer(Transformer):
         return Enum(enum_name, enum_values)
 
     @v_args(inline=True)
-    def STRING_LITERAL(self, value):
+    def STRING_LITERAL(self, value) -> str:
         # Remove quotes from the value
         value = value.strip('"').strip("'")
         # Coerce to string
         return str(value)
 
 
-def parse_type(type_string: str, field_name: str | None = None) -> Any:
+def parse_type(type_string: str, field_name: str) -> Any:
     tree = type_parser.parse(type_string)
     return TypeTransformer(field_name).transform(tree)
 
@@ -144,28 +144,35 @@ def create_expectation_model(
     schema: dict[str, ExpectedField], model_name: str = "ExpectedSchemaModel"
 ) -> type[BaseModel]:
     fields = {}
-    field_info_kwargs = {}
     for field_name, field_info in schema.items():
-        validated_field_info = ExpectedField.model_validate(field_info)  # Defensive
+        field_info_kwargs = {}
+        # Defensive validation
+        validated_field_info = ExpectedField.model_validate(field_info)
+
+        # Extract metadata
         field_type = parse_type(validated_field_info.type, field_name)
+        default = validated_field_info.default
+        description = validated_field_info.description
 
-        # Add description if provided
-        if validated_field_info.description:
-            field_info_kwargs["description"] = validated_field_info.description
+        if description:
+            field_info_kwargs["description"] = description
 
-        if validated_field_info.default:
-            # Add default if provided
-            field_info_kwargs["default"] = validated_field_info.default
+        if default == "null":
+            # "null" indicates an explicit optional field, which evaluates to None
+            field_info_kwargs["default"] = None
+        elif default is not None:
+            field_info_kwargs["default"] = default
         else:
-            # Else field is a required field
+            # Use ... (ellipsis) to indicate a required field in Pydantic
             field_info_kwargs["default"] = ...
 
         field = Field(**field_info_kwargs)
         fields[field_name] = (field_type, field)
 
     logger.trace("Creating expectation model", model_name=model_name, fields=fields)
-    return create_model(
+    model = create_model(
         model_name,
         __config__=ConfigDict(extra="forbid", arbitrary_types_allowed=True),
         **fields,
     )
+    return model
