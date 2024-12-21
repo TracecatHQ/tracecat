@@ -41,14 +41,14 @@ class Resource(SQLModel):
     surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
     owner_id: OwnerID
     created_at: datetime = Field(
-        sa_type=TIMESTAMP,
+        sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
         sa_column_kwargs={
             "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
             "nullable": False,
         },
     )
     updated_at: datetime = Field(
-        sa_type=TIMESTAMP,
+        sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
         sa_column_kwargs={
             "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
             "onupdate": text("(now() AT TIME ZONE 'utc'::text)"),
