@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-from collections.abc import AsyncGenerator, Awaitable, Coroutine
+from collections.abc import AsyncGenerator, Awaitable
 from typing import Any
 
 import orjson
@@ -55,10 +55,10 @@ class WorkflowExecutionsService:
         self.logger = logger.bind(service="workflow_executions")
 
     @staticmethod
-    async def connect() -> WorkflowExecutionsService:
+    async def connect(role: Role | None = None) -> WorkflowExecutionsService:
         """Initialize and connect to the service."""
         client = await get_temporal_client()
-        return WorkflowExecutionsService(client=client)
+        return WorkflowExecutionsService(client=client, role=role)
 
     def handle(self, wf_exec_id: WorkflowExecutionID) -> WorkflowHandle:
         return self._client.get_workflow_handle(wf_exec_id)
@@ -375,13 +375,13 @@ class WorkflowExecutionsService:
             wf_exec_id=generate_exec_id(wf_id),
         )
 
-    def create_workflow_execution(
+    async def create_workflow_execution(
         self,
         dsl: DSLInput,
         *,
         wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
-    ) -> Coroutine[Any, Any, DispatchWorkflowResult]:
+    ) -> DispatchWorkflowResult:
         """Create a new workflow execution.
 
         Note: This method blocks until the workflow execution completes.
@@ -393,7 +393,7 @@ class WorkflowExecutionsService:
                 validation_result.msg, detail=validation_result.detail
             )
 
-        return self._dispatch_workflow(
+        return await self._dispatch_workflow(
             dsl=dsl,
             wf_id=wf_id,
             wf_exec_id=generate_exec_id(wf_id),
