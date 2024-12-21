@@ -133,7 +133,7 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
             # Use cases would be transforming a UTC string to a datetime object
             # We return the validated input arguments as a dictionary
             validated: BaseModel = self.args_cls.model_validate(kwargs)
-            return cast(T, validated.model_dump())
+            validated_args = cast(T, validated.model_dump(mode="json"))
         except ValidationError as e:
             logger.error(
                 f"Validation error for bound registry action {self.action!r}. {e.errors()!r}"
@@ -148,6 +148,8 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
                 f"Unexpected error when validating input arguments for bound registry action {self.action!r}. {e}",
                 key=self.action,
             ) from e
+        else:
+            return validated_args
 
 
 # Templates
