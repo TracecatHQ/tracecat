@@ -16,7 +16,7 @@ definition:
       description: The service source
       default: elastic
     limit:
-      type: int | None
+      type: int | null
       description: The limit
   # Layers are used to define a sequence of operations
   steps:
