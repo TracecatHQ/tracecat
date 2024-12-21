@@ -37,7 +37,6 @@ async def list_actions(
             title=action.title,
             description=action.description,
             status=action.status,
-            key=action.key,
         )
         for action in actions
     ]
@@ -51,13 +50,18 @@ async def create_action(
     session: AsyncDBSession,
 ) -> ActionReadMinimal:
     """Create a new action for a workflow."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
     action = Action(
         owner_id=role.workspace_id,
         workflow_id=params.workflow_id,
         type=params.type,
         title=params.title,
         description="",  # Default to empty string
-    )
+    )  # type: ignore
     # Check if a clashing action ref exists
     statement = select(Action).where(
         Action.owner_id == role.workspace_id,
@@ -82,7 +86,6 @@ async def create_action(
         title=action.title,
         description=action.description,
         status=action.status,
-        key=action.key,
     )
     return action_metadata
 
@@ -115,7 +118,6 @@ async def get_action(
         description=action.description,
         status=action.status,
         inputs=action.inputs,
-        key=action.key,
         control_flow=ActionControlFlow(**action.control_flow),
     )
 
@@ -163,7 +165,6 @@ async def update_action(
         description=action.description,
         status=action.status,
         inputs=action.inputs,
-        key=action.key,
     )
 
 
