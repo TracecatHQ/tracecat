@@ -453,7 +453,7 @@ class WorkflowExecutionsService:
             )
             raise e
         self.logger.debug(f"Workflow result:\n{json.dumps(result, indent=2)}")
-        return DispatchWorkflowResult(wf_id=wf_id, final_context=result)
+        return DispatchWorkflowResult(wf_id=wf_id, result=result)
 
     def cancel_workflow_execution(
         self, wf_exec_id: WorkflowExecutionID
