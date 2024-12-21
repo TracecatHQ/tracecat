@@ -12,7 +12,7 @@ definition:
         - WAZUH_API_URL
   expects:
     agents_list:
-      type: str | None
+      type: str | null
       description: List of agent IDs (separated by comma), all agents selected by default if not specified.
       default: null
     verify_ssl:
