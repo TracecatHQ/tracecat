@@ -104,13 +104,13 @@ def test_construct_template_action():
     "test_args,expected_result,should_raise",
     [
         (
-            {"service_source": "custom", "limit": 100},
-            [200, "custom"],
+            {"user_id": "john@tracecat.com", "service_source": "custom", "limit": 99},
+            ["john@tracecat.com", "custom", 99],
             False,
         ),
         (
-            {"limit": 100},
-            [200, "elastic"],
+            {"user_id": "john@tracecat.com"},
+            ["john@tracecat.com", "elastic", 100],
             False,
         ),
         (
@@ -119,7 +119,7 @@ def test_construct_template_action():
             True,
         ),
     ],
-    ids=["custom_source", "default_source", "missing_required"],
+    ids=["valid", "with_defaults", "missing_required"],
 )
 async def test_template_action_run(test_args, expected_result, should_raise):
     action = TemplateAction(
@@ -133,14 +133,22 @@ async def test_template_action_run(test_args, expected_result, should_raise):
                 "display_group": "Testing",
                 "secrets": [{"name": "test_secret", "keys": ["KEY"]}],
                 "expects": {
+                    # Required field
+                    "user_id": {
+                        "type": "str",
+                        "description": "The user ID",
+                    },
+                    # Optional field with string defaultß
                     "service_source": {
                         "type": "str",
                         "description": "The service source",
                         "default": "elastic",
                     },
+                    # Optional field with None as default
                     "limit": {
-                        "type": "int | None",
+                        "type": "int | null",
                         "description": "The limit",
+                        "default": "null",
                     },
                 },
                 "steps": [
@@ -150,7 +158,7 @@ async def test_template_action_run(test_args, expected_result, should_raise):
                         "args": {
                             "value": {
                                 "service_source": "${{ inputs.service_source }}",
-                                "data": 100,
+                                "data": "${{ inputs.limit || 100 }}",
                             }
                         },
                     },
@@ -159,8 +167,9 @@ async def test_template_action_run(test_args, expected_result, should_raise):
                         "action": "core.transform.reshape",
                         "args": {
                             "value": [
-                                "${{ steps.base.result.data + 100 }}",
+                                "${{ inputs.user_id }}",
                                 "${{ steps.base.result.service_source }}",
+                                "${{ steps.base.result.data }}",
                             ]
                         },
                     },
@@ -197,7 +206,7 @@ async def test_template_action_run(test_args, expected_result, should_raise):
             args=test_args,
             context={},
         )
-    assert result == expected_result
+        assert result == expected_result
 
 
 @pytest.mark.anyio
