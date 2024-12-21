@@ -95,12 +95,14 @@ async def _run_action_direct(
     if action.is_template:
         # Defensive check
         raise ValueError("Templates cannot be executed directly")
+
+    validated_args = action.validate_args(**args)
     try:
         if action.is_async:
             logger.trace("Running UDF async")
-            return await action.fn(**args)
+            return await action.fn(**validated_args)
         logger.trace("Running UDF sync")
-        return await asyncio.to_thread(action.fn, **args)
+        return await asyncio.to_thread(action.fn, **validated_args)
     except Exception as e:
         logger.error(
             f"Error running UDF {action.action!r}", error=e, type=type(e).__name__
