@@ -12,6 +12,7 @@ from tracecat.api.common import (
     setup_oss_models,
     tracecat_exception_handler,
 )
+from tracecat.ee.executor.router import router as ee_executor_router
 from tracecat.executor.engine import setup_ray
 from tracecat.executor.router import router as executor_router
 from tracecat.logger import logger
@@ -83,6 +84,7 @@ def create_app(**kwargs) -> FastAPI:
 
     # Routers
     app.include_router(executor_router)
+    app.include_router(ee_executor_router)
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
