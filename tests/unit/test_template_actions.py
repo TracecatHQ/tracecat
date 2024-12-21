@@ -147,7 +147,7 @@ async def test_template_action_run(test_args, expected_result, should_raise):
                     "limit": {
                         "type": "int | None",
                         "description": "The limit",
-                        "default": "null",
+                        "default": None,
                     },
                 },
                 "steps": [

@@ -14,7 +14,7 @@ definition:
     agents_list:
       type: str | None
       description: List of agent IDs (separated by comma), all agents selected by default if not specified.
-      default: None
+      default: null
     verify_ssl:
       type: bool
       description: If False, disables SSL verification for internal networks.
