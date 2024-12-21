@@ -35,31 +35,21 @@ def get_connection_string(
 
 
 def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
-    # Check if AWS environment
     if config.TRACECAT__DB_USER and config.TRACECAT__DB_PASS__ARN:
-        logger.info("Retrieving database password from AWS Secrets Manager...")
+        # If AWS environment, get the password from AWS Secrets Manager
+        logger.info("Using database username and password from AWS Secrets Manager...")
         try:
             session = boto3.session.Session()
             client = session.client(service_name="secretsmanager")
             response = client.get_secret_value(SecretId=config.TRACECAT__DB_PASS__ARN)
             password = json.loads(response["SecretString"])["password"]
         except ClientError as e:
-            logger.error(
-                "Error retrieving secret from AWS secrets manager."
-                " Please check that the ECS task has sufficient permissions to read the secret and that the secret exists.",
-                error=e,
-            )
-            raise e
+            msg = "Error retrieving secret from AWS secrets manager."
+            raise ClientError(msg) from e
         except KeyError as e:
-            logger.error(
-                "Error retrieving secret from AWS secrets manager."
-                " `password` not found in secret."
-                " Please check that the database secret in AWS Secrets Manager is a valid JSON object"
-                " with `username` and `password`"
-            )
-            raise e
+            msg = "Error retrieving secret from AWS secrets manager.`password` not found in secret."
+            raise KeyError(msg) from e
 
-        # Get the password from AWS Secrets Manager
         uri = get_connection_string(
             username=config.TRACECAT__DB_USER,
             password=password,
@@ -68,9 +58,9 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
             database=config.TRACECAT__DB_NAME,
             driver=driver,
         )
-        logger.info("Successfully retrieved database password from AWS Secrets Manager")
-    # Else check if the password is in the local environment
     elif config.TRACECAT__DB_USER and config.TRACECAT__DB_PASS:
+        # Else check if the password is in the local environment
+        logger.info("Using database username and password from local environment...")
         uri = get_connection_string(
             username=config.TRACECAT__DB_USER,
             password=config.TRACECAT__DB_PASS,
@@ -79,12 +69,14 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
             database=config.TRACECAT__DB_NAME,
             driver=driver,
         )
-    # Else use the default URI
     else:
+        # Else use the default URI
+        logger.info("Using default database URI...")
         uri = config.TRACECAT__DB_URI
         if driver == "asyncpg":
             uri = uri.replace("psycopg", "asyncpg")
-    logger.trace("Using database URI", uri=uri)
+
+    logger.trace("Created database URI", uri=uri)
     return uri
 
 
