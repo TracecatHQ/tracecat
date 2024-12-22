@@ -93,7 +93,7 @@ async def _run_action_direct(
     At this point, the UDF cannot be a template.
     """
     if action.is_template:
-        # Defensive check
+        # This should not be reachable
         raise ValueError("Templates cannot be executed directly")
 
     validated_args = action.validate_args(**args)
