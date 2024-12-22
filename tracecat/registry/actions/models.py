@@ -134,6 +134,7 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
             # We return the validated input arguments as a dictionary
             validated: BaseModel = self.args_cls.model_validate(kwargs)
             validated_args = cast(T, validated.model_dump(mode="json"))
+            return validated_args
         except ValidationError as e:
             logger.error(
                 f"Validation error for bound registry action {self.action!r}. {e.errors()!r}"
@@ -148,8 +149,6 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
                 f"Unexpected error when validating input arguments for bound registry action {self.action!r}. {e}",
                 key=self.action,
             ) from e
-        else:
-            return validated_args
 
 
 # Templates

@@ -124,9 +124,8 @@ class TypeTransformer(Transformer):
     @v_args(inline=True)
     def STRING_LITERAL(self, value) -> str:
         # Remove quotes from the value
-        value = value.strip('"').strip("'")
-        # Coerce to string
-        return str(value)
+        value = str(value).strip('"').strip("'")
+        return value
 
 
 def parse_type(type_string: str, field_name: str) -> Any:
