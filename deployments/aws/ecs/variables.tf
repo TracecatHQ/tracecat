@@ -34,12 +34,6 @@ variable "allowed_inbound_cidr_blocks" {
   default     = ["0.0.0.0/0"]
 }
 
-# variable "allowed_outbound_cidr_blocks" {
-#   description = "List of CIDR blocks the ALB can send traffic to"
-#   type        = list(string)
-#   default     = [] # Empty by default, will be set to VPC CIDR
-# }
-
 variable "enable_waf" {
   description = "Whether to enable WAF for the ALB"
   type        = bool
