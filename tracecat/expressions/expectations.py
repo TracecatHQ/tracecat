@@ -26,7 +26,7 @@ primitive_type: INTEGER
 
 INTEGER: "int"
 STRING: "str"
-STRING_LITERAL: "\"" /[^"]*/ "\""
+STRING_LITERAL: "\"" /[^"]*/ "\"" | "'" /[^']*/ "'"
 BOOLEAN: "bool"
 FLOAT: "float"
 DATETIME: "datetime"
