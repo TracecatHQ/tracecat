@@ -119,7 +119,7 @@ class TypeTransformer(Transformer):
         # Convert to upper camel case (e.g., "user_status" -> "UserStatus")
         enum_name = "".join(word.title() for word in self.field_name.split("_"))
         logger.trace("Enum type:", name=enum_name, values=enum_values)
-        return Enum(enum_name, enum_values)
+        return Enum(f"Enum{enum_name}", enum_values)
 
     @v_args(inline=True)
     def STRING_LITERAL(self, value) -> str:
