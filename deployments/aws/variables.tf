@@ -33,15 +33,45 @@ variable "auth_allowed_domains" {
 
 ### Images and Versions
 
-variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
-  description = "Terraform Cloud only: the git commit SHA of that triggered the run"
-  type        = string
-  default     = null
+variable "tracecat_image" {
+  type    = string
+  default = "ghcr.io/tracecathq/tracecat"
+}
+
+variable "tracecat_ui_image" {
+  type    = string
+  default = "ghcr.io/tracecathq/tracecat-ui"
 }
 
 variable "tracecat_image_tag" {
   type    = string
   default = "0.18.2"
+}
+
+variable "temporal_server_image" {
+  type    = string
+  default = "temporalio/auto-setup"
+}
+
+variable "temporal_server_image_tag" {
+  type    = string
+  default = "1.24.2"
+}
+
+variable "temporal_ui_image" {
+  type    = string
+  default = "temporalio/ui"
+}
+
+variable "temporal_ui_image_tag" {
+  type    = string
+  default = "2.32.0"
+}
+
+variable "force_new_deployment" {
+  type        = bool
+  description = "Force a new deployment of Tracecat services. Used to update services with new images."
+  default     = false
 }
 
 variable "use_git_commit_sha" {
@@ -50,11 +80,13 @@ variable "use_git_commit_sha" {
   default     = false
 }
 
-variable "force_new_deployment" {
-  type        = bool
-  description = "Force a new deployment of Tracecat services. Used to update services with new images."
-  default     = false
+variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
+  description = "Terraform Cloud only: the git commit SHA of that triggered the run"
+  type        = string
+  default     = null
 }
+
+### Temporal configuration
 
 variable "disable_temporal_ui" {
   type        = bool
@@ -66,6 +98,52 @@ variable "disable_temporal_autosetup" {
   type        = bool
   description = "Whether to disable the Temporal auto-setup service in the deployment"
   default     = false
+}
+
+variable "temporal_mtls_enabled" {
+  type        = bool
+  description = "Whether to enable MTLS for the Temporal client"
+  default     = false
+}
+
+variable "temporal_cluster_url" {
+  type        = string
+  description = "Host and port of the Temporal server to connect to"
+  default     = "temporal-service:7233"
+}
+
+variable "temporal_cluster_queue" {
+  type        = string
+  description = "Temporal task queue to use for client calls"
+  default     = "default"
+}
+
+variable "temporal_namespace" {
+  type        = string
+  description = "Temporal namespace to use for client calls"
+  default     = "default"
+}
+
+
+### Container Env Vars
+# NOTE: sensitive variables are stored in secrets manager
+# and specified directly in the task definition via a secret reference
+
+variable "tracecat_app_env" {
+  type        = string
+  description = "The environment of the Tracecat application"
+  default     = "production"
+}
+
+variable "log_level" {
+  type        = string
+  description = "Log level for the application"
+  default     = "INFO"
+}
+
+variable "temporal_log_level" {
+  type    = string
+  default = "warn"
 }
 
 ### Secret ARNs
@@ -109,6 +187,8 @@ variable "saml_idp_metadata_url_arn" {
   default     = null
 }
 
+# Temporal UI
+
 variable "temporal_auth_provider_url" {
   type        = string
   description = "The URL of the Temporal auth provider"
@@ -124,6 +204,20 @@ variable "temporal_auth_client_id_arn" {
 variable "temporal_auth_client_secret_arn" {
   type        = string
   description = "The ARN of the secret containing the Temporal auth client secret (optional)"
+  default     = null
+}
+
+# Temporal client
+
+variable "temporal_mtls_cert_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal client certificate (optional)"
+  default     = null
+}
+
+variable "temporal_api_key_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal API key (optional)"
   default     = null
 }
 
@@ -242,25 +336,4 @@ variable "rds_backup_retention_period" {
   type        = number
   description = "The number of days to retain backups for RDS instances"
   default     = 7
-}
-
-### Container Env Vars
-# NOTE: sensitive variables are stored in secrets manager
-# and specified directly in the task definition via a secret reference
-
-variable "tracecat_app_env" {
-  type        = string
-  description = "The environment of the Tracecat application"
-  default     = "production"
-}
-
-variable "log_level" {
-  type        = string
-  description = "Log level for the application"
-  default     = "INFO"
-}
-
-variable "temporal_log_level" {
-  type    = string
-  default = "warn"
 }

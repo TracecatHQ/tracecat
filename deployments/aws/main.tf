@@ -36,10 +36,24 @@ module "ecs" {
   hosted_zone_id = var.hosted_zone_id
 
   # Tracecat version
-  TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA = var.TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA
+  tracecat_image                           = var.tracecat_image
+  tracecat_ui_image                        = var.tracecat_ui_image
   tracecat_image_tag                       = var.tracecat_image_tag
-  use_git_commit_sha                       = var.use_git_commit_sha
+  temporal_server_image                    = var.temporal_server_image
+  temporal_server_image_tag                = var.temporal_server_image_tag
+  temporal_ui_image                        = var.temporal_ui_image
+  temporal_ui_image_tag                    = var.temporal_ui_image_tag
   force_new_deployment                     = var.force_new_deployment
+  use_git_commit_sha                       = var.use_git_commit_sha
+  TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA = var.TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA
+
+  # Temporal configuration
+  disable_temporal_ui        = var.disable_temporal_ui
+  disable_temporal_autosetup = var.disable_temporal_autosetup
+  temporal_mtls_enabled      = var.temporal_mtls_enabled
+  temporal_cluster_url       = var.temporal_cluster_url
+  temporal_cluster_queue     = var.temporal_cluster_queue
+  temporal_namespace         = var.temporal_namespace
 
   # Container environment variables
   tracecat_app_env   = var.tracecat_app_env
@@ -71,12 +85,14 @@ module "ecs" {
   saml_idp_certificate_arn  = var.saml_idp_certificate_arn
   saml_idp_metadata_url_arn = var.saml_idp_metadata_url_arn
 
-  # Temporal
+  # Temporal UI authentication
   temporal_auth_provider_url      = var.temporal_auth_provider_url
   temporal_auth_client_id_arn     = var.temporal_auth_client_id_arn
   temporal_auth_client_secret_arn = var.temporal_auth_client_secret_arn
-  disable_temporal_ui             = var.disable_temporal_ui
-  disable_temporal_autosetup      = var.disable_temporal_autosetup
+
+  # Temporal client authentication
+  temporal_mtls_cert_arn = var.temporal_mtls_cert_arn
+  temporal_api_key_arn   = var.temporal_api_key_arn
 
   # Compute / memory
   api_cpu                     = var.api_cpu
