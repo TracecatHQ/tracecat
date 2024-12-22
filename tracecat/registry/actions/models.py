@@ -146,7 +146,7 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
             ) from e
         except Exception as e:
             raise RegistryValidationError(
-                f"Unexpected error when validating input arguments for bound registry action {self.action!r}. {e}",
+                f"Unexpected error when validating input arguments for bound registry action {self.action!r}. {e!r}",
                 key=self.action,
             ) from e
 
