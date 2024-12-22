@@ -174,7 +174,7 @@ async def run_template_action(
         "Validating template action arguments", expects=defn.expects, args=args
     )
     if defn.expects:
-        args = action.validate_args(**args)
+        validated_args = action.validate_args(**args)
 
     secrets_context = {}
     if context is not None:
@@ -184,7 +184,7 @@ async def run_template_action(
         DSLContext,
         {
             ExprContext.SECRETS: secrets_context,
-            ExprContext.TEMPLATE_ACTION_INPUTS: args,
+            ExprContext.TEMPLATE_ACTION_INPUTS: validated_args,
             ExprContext.TEMPLATE_ACTION_STEPS: {},
         },
     )
