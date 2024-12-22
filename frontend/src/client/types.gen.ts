@@ -160,7 +160,7 @@ export type status = 'success' | 'failure';
 
 export type CreateWorkflowExecutionParams = {
     workflow_id: string;
-    inputs?: JsonValue | null;
+    inputs?: unknown | null;
 };
 
 export type CreateWorkflowExecutionResponse = {
@@ -268,7 +268,7 @@ export type DSLRunArgs = {
     role: Role;
     dsl?: DSLInput | null;
     wf_id: string;
-    trigger_inputs?: JsonValue | null;
+    trigger_inputs?: unknown | null;
     parent_run_context?: RunContext | null;
     /**
      * Runtime configuration that can be set on workflow entry. Note that this can override the default config in DSLInput.
@@ -382,8 +382,6 @@ export type HTTPValidationError = {
 };
 
 export type JoinStrategy = 'any' | 'all';
-
-export type JsonValue = unknown;
 
 export type OAuth2AuthorizeResponse = {
     authorization_url: string;
@@ -1199,9 +1197,7 @@ export type PublicIncomingWebhookWaitData = {
     secret: string;
 };
 
-export type PublicIncomingWebhookWaitResponse = {
-    [key: string]: unknown;
-};
+export type PublicIncomingWebhookWaitResponse = unknown;
 
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>;
 
@@ -1770,9 +1766,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: {
-                    [key: string]: unknown;
-                };
+                200: unknown;
                 /**
                  * Validation Error
                  */
