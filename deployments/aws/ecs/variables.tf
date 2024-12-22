@@ -111,6 +111,12 @@ variable "disable_temporal_ui" {
   default     = false
 }
 
+variable "disable_temporal_autosetup" {
+  type        = bool
+  description = "Whether to disable the Temporal auto-setup service in the deployment"
+  default     = false
+}
+
 variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
   description = "Terraform Cloud only: the git commit SHA of that triggered the run"
   type        = string

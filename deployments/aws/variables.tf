@@ -62,6 +62,12 @@ variable "disable_temporal_ui" {
   default     = false
 }
 
+variable "disable_temporal_autosetup" {
+  type        = bool
+  description = "Whether to disable the Temporal auto-setup service in the deployment"
+  default     = false
+}
+
 ### Secret ARNs
 
 variable "tracecat_db_encryption_key_arn" {
