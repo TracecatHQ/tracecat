@@ -6,27 +6,31 @@ definition:
   description: Retrieve Check Point Infinity XDR incidents for spicified date.
   display_group: Check Point
   expects:
-    filterBy:
+    filter:
       type: str
-      description: Filter by createdAt or updatedAt
+      description: Filter by 'createdAt' or 'updatedAt'
       default: updatedAt
-    from:
-      type: str
-      description: The start date of the time frame in the "YYYY-MM-DDTHH:mm:ss.ssZ" format (default is 7 days ago)
+    start_time:
+      type: datetime
+      description: The start date (YYYY-MM-DDTHH:mm:ss.ssZ) of the time frame to look from (default is 7 days ago)
+      default: null
+    end_time:
+      type: datetime
+      description: The end date (YYYY-MM-DDTHH:mm:ss.ssZ) of the time frame to look from (default is today)
       default: null
   steps:
     - ref: get_auth_token
       action: integrations.check_point.get_auth_token
       args: {}
-
     - ref: get_xdr_incidents
       action: core.http_request
       args:
         url: https://cloudinfra-gw.portal.checkpoint.com/app/xdr/api/xdr/v1/incidents/
         method: GET
         params:
-          filterBy: ${{ inputs.filterBy }}
-          from: ${{ inputs.from || (FN.now() - FN.days(7)) }}
+          filterBy: ${{ inputs.filter }}
+          from: ${{ inputs.start_time || (FN.now() - FN.days(7)) }}
+          to: ${{ inputs.end_time || FN.now() }}
         timeout: 60
         headers:
           accept: application/json
