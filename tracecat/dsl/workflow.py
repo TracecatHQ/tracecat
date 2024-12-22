@@ -225,10 +225,11 @@ class DSLWorkflow:
             ) from e
 
         # Prepare user facing context
+        validated_payload = validation_result.payload or {}
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
             ExprContext.INPUTS: self.dsl.inputs,
-            ExprContext.TRIGGER: trigger_inputs,
+            ExprContext.TRIGGER: validated_payload,
             ExprContext.ENV: DSLEnvironment(
                 workflow={
                     "start_time": wf_info.start_time,
