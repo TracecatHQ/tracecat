@@ -71,6 +71,7 @@ dev = [
     "pytest-mock",
     "pytest==8.3.2",
     "python-dotenv",
+    "psycopg>=3.1.19",
     "respx",
 ]
 
