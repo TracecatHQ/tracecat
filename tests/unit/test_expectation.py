@@ -249,14 +249,14 @@ def test_validate_schema_failure():
 
 
 @pytest.mark.parametrize(
-    "input_value,priority_value",
+    "status,priority",
     [
         ("PENDING", "low"),
         ("running", "low"),
         ("Completed", "low"),
     ],
 )
-def test_validate_schema_with_enum(input_value, priority_value):
+def test_validate_schema_with_enum(status, priority):
     schema = {
         "status": {
             "type": 'enum["PENDING", "running", "Completed"]',
@@ -270,15 +270,15 @@ def test_validate_schema_with_enum(input_value, priority_value):
     }
 
     mapped = {k: ExpectedField(**v) for k, v in schema.items()}
-    DynamicModel = create_expectation_model(mapped)
+    model = create_expectation_model(mapped)
 
     # Test with provided priority
-    model_instance = DynamicModel(status=input_value, priority=priority_value)
+    model_instance = model(status=status, priority=priority)
     assert model_instance.status.__class__.__name__ == "EnumStatus"
     assert model_instance.priority.__class__.__name__ == "EnumPriority"
 
     # Test default priority
-    model_instance_default = DynamicModel(status=input_value)
+    model_instance_default = model(status=status)
     assert str(model_instance_default.priority) == "low"
 
 
