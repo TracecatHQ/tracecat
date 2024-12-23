@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 
+import lark
 import pytest
 from pydantic import ValidationError
 
@@ -247,4 +248,87 @@ def test_validate_schema_failure():
     assert "end_time" in str(e.value)
 
 
-# ... existing tests ...
+@pytest.mark.parametrize(
+    "status,priority",
+    [
+        ("PENDING", "low"),
+        ("running", "low"),
+        ("Completed", "low"),
+    ],
+)
+def test_validate_schema_with_enum(status, priority):
+    schema = {
+        "status": {
+            "type": 'enum["PENDING", "running", "Completed"]',
+            "description": "The status of the job",
+        },
+        "priority": {
+            "type": 'enum["low", "medium", "high"]',
+            "description": "The priority level",
+            "default": "low",
+        },
+    }
+
+    mapped = {k: ExpectedField(**v) for k, v in schema.items()}
+    model = create_expectation_model(mapped)
+
+    # Test with provided priority
+    model_instance = model(status=status, priority=priority)
+    assert model_instance.status.__class__.__name__ == "EnumStatus"
+    assert model_instance.priority.__class__.__name__ == "EnumPriority"
+
+    # Test default priority
+    model_instance_default = model(status=status)
+    assert str(model_instance_default.priority) == "low"
+
+
+@pytest.mark.parametrize(
+    "schema_def,error_type,error_message",
+    [
+        (
+            {"status": {"type": "enum[]", "description": "Empty enum"}},
+            lark.exceptions.UnexpectedCharacters,
+            "No terminal matches ']'",
+        ),
+        (
+            {
+                "status": {
+                    "type": 'enum["Pending", "PENDING"]',
+                    "description": "Duplicate values",
+                }
+            },
+            lark.exceptions.VisitError,
+            "Duplicate enum value",
+        ),
+    ],
+)
+def test_validate_schema_with_invalid_enum_definition(
+    schema_def, error_type, error_message
+):
+    with pytest.raises(error_type, match=error_message):
+        mapped = {k: ExpectedField(**v) for k, v in schema_def.items()}
+        create_expectation_model(mapped)
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        "invalid_status",
+        "INVALID",
+        "pending!",
+        "",
+    ],
+)
+def test_validate_schema_with_invalid_enum_values(invalid_value):
+    schema = {
+        "status": {
+            "type": 'enum["PENDING", "running", "Completed"]',
+            "description": "The status of the job",
+        }
+    }
+
+    mapped = {k: ExpectedField(**v) for k, v in schema.items()}
+    DynamicModel = create_expectation_model(mapped)
+
+    with pytest.raises(ValidationError):
+        DynamicModel(status=invalid_value)
