@@ -48,7 +48,7 @@ async def test_db_engine():
         await engine.dispose()
 
 
-@pytest.fixture(autouse=True, scope="session")
+@pytest.fixture(scope="session")
 def db() -> Iterator[None]:
     """Session-scoped fixture to create and teardown test database using sync SQLAlchemy."""
 
@@ -79,8 +79,8 @@ def db() -> Iterator[None]:
             logger.info("Creating all tables")
             SQLModel.metadata.create_all(conn)
         yield
-        test_engine.dispose()
     finally:
+        test_engine.dispose()
         # # Cleanup - reconnect to system db to drop test db
         with default_engine.begin() as conn:
             conn.execute(termination_query)
@@ -91,7 +91,7 @@ def db() -> Iterator[None]:
         default_engine.dispose()
 
 
-@pytest.fixture(autouse=True, scope="function")
+@pytest.fixture(scope="function")
 async def session() -> AsyncGenerator[AsyncSession, None]:
     """Creates a new database session with (with working transaction)
     for test duration. Use this for unit tests."""
