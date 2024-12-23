@@ -2,13 +2,18 @@ import asyncio
 import json
 import os
 import uuid
-from collections.abc import Iterator
+from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
@@ -34,12 +39,70 @@ def monkeysession(request: pytest.FixtureRequest):
 
 @pytest.fixture(autouse=True, scope="function")
 async def test_db_engine():
+    """Create a new engine for each integration test."""
     engine = get_async_engine()
     try:
         yield engine
     finally:
         # Ensure the engine is disposed even if the test fails
         await engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def db() -> Iterator[None]:
+    """Session-scoped fixture to create and teardown test database using sync SQLAlchemy."""
+
+    default_engine = create_engine(
+        TEST_DB_CONFIG.sys_url_sync, isolation_level="AUTOCOMMIT"
+    )
+
+    termination_query = text(
+        f"""
+        SELECT pg_terminate_backend(pg_stat_activity.pid)
+        FROM pg_stat_activity
+        WHERE pg_stat_activity.datname = '{TEST_DB_CONFIG.test_db_name}'
+        AND pid <> pg_backend_pid();
+        """
+    )
+
+    try:
+        with default_engine.connect() as conn:
+            # Terminate existing connections
+            conn.execute(termination_query)
+            # Create test database
+            conn.execute(text(f'CREATE DATABASE "{TEST_DB_CONFIG.test_db_name}"'))
+            logger.info("Created test database")
+
+        # Create sync engine for test db
+        test_engine = create_engine(TEST_DB_CONFIG.test_url_sync)
+        with test_engine.begin() as conn:
+            logger.info("Creating all tables")
+            SQLModel.metadata.create_all(conn)
+        yield
+    finally:
+        test_engine.dispose()
+        # # Cleanup - reconnect to system db to drop test db
+        with default_engine.begin() as conn:
+            conn.execute(termination_query)
+            conn.execute(
+                text(f'DROP DATABASE IF EXISTS "{TEST_DB_CONFIG.test_db_name}"')
+            )
+        logger.info("Dropped test database")
+        default_engine.dispose()
+
+
+@pytest.fixture(scope="function")
+async def session() -> AsyncGenerator[AsyncSession, None]:
+    """Creates a new database session with (with working transaction)
+    for test duration. Use this for unit tests."""
+    async_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+    async_session = AsyncSession(async_engine, expire_on_commit=False)
+    try:
+        await async_session.begin_nested()
+        yield async_session
+    finally:
+        await async_session.rollback()  # Rollback any changes made during the test
+        await async_engine.dispose()
 
 
 @pytest.fixture(autouse=True, scope="session")
