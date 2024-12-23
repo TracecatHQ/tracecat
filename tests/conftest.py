@@ -13,6 +13,7 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
 from tracecat.db.schemas import User
+from tracecat.executor.enums import ResultsBackend
 from tracecat.logger import logger
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -63,6 +64,8 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     )
     # Need this for local unit tests
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
+    # Use memory backend for local unit tests
+    monkeysession.setattr(config, "TRACECAT__RESULTS_BACKEND", ResultsBackend.MEMORY)
 
     monkeysession.setenv(
         "TRACECAT__DB_URI",

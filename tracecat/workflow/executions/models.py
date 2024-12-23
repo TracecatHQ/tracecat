@@ -12,12 +12,19 @@ from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
+from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import ActionRetryPolicy, RunActionInput, TriggerInputs
+from tracecat.dsl.validation import validate_trigger_inputs_activity
+from tracecat.ee.executor.service import run_action_with_store_activity
+from tracecat.ee.store.service import store_workflow_result_activity
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
+from tracecat.logger import logger
 from tracecat.types.auth import Role
+from tracecat.workflow.management.definitions import get_workflow_definition_activity
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
+from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 WorkflowExecutionStatusLiteral = Literal[
     "RUNNING",
@@ -109,9 +116,10 @@ EventInput = TypeVar(
 )
 
 IGNORED_UTILITY_ACTIONS = {
-    "get_schedule_activity",
-    "validate_trigger_inputs_activity",
-    "validate_action_activity",
+    WorkflowSchedulesService.get_schedule_activity.__name__,
+    validate_trigger_inputs_activity.__name__,
+    DSLActivities.validate_action_activity.__name__,
+    store_workflow_result_activity.__name__,
 }
 
 
@@ -135,7 +143,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
     @staticmethod
     def from_scheduled_activity(
         event: temporalio.api.history.v1.HistoryEvent,
-    ) -> EventGroup[EventInput] | None:
+    ) -> EventGroup | None:
         if (
             event.event_type
             != temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
@@ -147,12 +155,16 @@ class EventGroup(BaseModel, Generic[EventInput]):
         # Retry policy
 
         act_type = attrs.activity_type.name
-        if act_type in IGNORED_UTILITY_ACTIONS:
-            return None
-        if act_type == "get_workflow_definition_activity":
+        if act_type == get_workflow_definition_activity.__name__:
             action_input = GetWorkflowDefinitionActivityInputs(**activity_input_data)
-        else:
+        elif act_type in (
+            DSLActivities.run_action_activity.__name__,
+            run_action_with_store_activity.__name__,
+        ):
             action_input = RunActionInput(**activity_input_data)
+        else:
+            logger.info("Skipping activity with type", act_type=act_type)
+            return None
         if action_input.task is None:
             # It's a utility action.
             return None
@@ -172,7 +184,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
             action_ref=task.ref,
             action_title=task.title,
             action_description=task.description,
-            action_input=action_input,
+            action_input=cast(EventInput, action_input),
             retry_policy=action_retry_policy,
             start_delay=task.start_delay,
             join_strategy=task.join_strategy,
@@ -199,6 +211,8 @@ class EventGroup(BaseModel, Generic[EventInput]):
             ].data
         )
         dsl_run_args = DSLRunArgs(**input)
+        if dsl_run_args.dsl is None:
+            raise ValueError("DSL run args are required for child workflow execution.")
         # Create an event group
         return EventGroup(
             event_id=event.event_id,
