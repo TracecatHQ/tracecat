@@ -21,15 +21,6 @@ from tracecat.db.adapter import (
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
-DEFAULT_CASE_ACTIONS = [
-    "Active compromise",
-    "Ignore",
-    "Informational",
-    "Investigate",
-    "Quarantined",
-    "Sinkholed",
-]
-
 DEFAULT_SA_RELATIONSHIP_KWARGS = {
     "lazy": "selectin",
 }
@@ -41,14 +32,14 @@ class Resource(SQLModel):
     surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
     owner_id: OwnerID
     created_at: datetime = Field(
-        sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
         sa_column_kwargs={
             "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
             "nullable": False,
         },
     )
     updated_at: datetime = Field(
-        sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
         sa_column_kwargs={
             "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
             "onupdate": text("(now() AT TIME ZONE 'utc'::text)"),
