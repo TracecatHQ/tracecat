@@ -251,9 +251,9 @@ def test_validate_schema_failure():
 @pytest.mark.parametrize(
     "input_value,expected_value,priority_value",
     [
-        ("PENDING", "Status.PENDING", "low"),
-        ("running", "Status.running", "low"),
-        ("Completed", "Status.Completed", "low"),
+        ("PENDING", "EnumStatus.PENDING", "low"),
+        ("running", "EnumStatus.running", "low"),
+        ("Completed", "EnumStatus.Completed", "low"),
     ],
 )
 def test_validate_schema_with_enum(input_value, expected_value, priority_value):
