@@ -71,7 +71,7 @@ class RegistryValidationError(RegistryError):
         self.err = err
 
     def __reduce__(self):
-        return (self.__class__, (self.detail, self.key, self.err))
+        return (self.__class__, (self.key, self.err))
 
 
 class RegistryNotFound(RegistryError):
