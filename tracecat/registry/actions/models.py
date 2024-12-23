@@ -22,7 +22,11 @@ from tracecat_registry import RegistrySecret
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
-from tracecat.types.exceptions import RegistryActionError, TracecatValidationError
+from tracecat.types.exceptions import (
+    RegistryActionError,
+    RegistryValidationError,
+    TracecatValidationError,
+)
 from tracecat.validation.models import ValidationResult
 
 ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
