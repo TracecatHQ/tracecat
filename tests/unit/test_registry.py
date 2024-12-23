@@ -2,12 +2,12 @@ import os
 import textwrap
 
 import pytest
-from tracecat_registry import RegistryValidationError
 
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.registry.actions.models import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
+from tracecat.types.exceptions import RegistryValidationError
 
 
 @pytest.fixture

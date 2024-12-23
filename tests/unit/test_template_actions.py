@@ -1,10 +1,11 @@
 import pytest
-from tracecat_registry import RegistrySecret, RegistryValidationError
+from tracecat_registry import RegistrySecret
 
 from tracecat.executor import service
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.registry.actions.models import ActionStep, TemplateAction
 from tracecat.registry.repository import Repository
+from tracecat.types.exceptions import RegistryValidationError
 
 
 def test_construct_template_action():
