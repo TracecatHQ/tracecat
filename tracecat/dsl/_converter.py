@@ -34,7 +34,7 @@ class PydanticORJSONPayloadConverter(JSONPlainPayloadConverter):
                 # We exclude unset values to avoid sending them to Temporal
                 # as after serialization they will are treated as set values.
                 default=partial(jsonable_encoder, exclude_unset=True),
-                option=orjson.OPT_SORT_KEYS,
+                option=orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS,
             ),
         )
 

@@ -49,12 +49,12 @@ from tracecat.workspaces.service import WorkspaceService
 async def lifespan(app: FastAPI):
     role = bootstrap_role()
     async with get_async_session_context_manager() as session:
-        await setup_defaults(session, role)
+        await setup_workspace_defaults(session, role)
         await setup_registry(session, role)
     yield
 
 
-async def setup_defaults(session: AsyncSession, admin_role: Role):
+async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
     ws_service = WorkspaceService(session, role=admin_role)
     workspaces = await ws_service.admin_list_workspaces()
     n_workspaces = len(workspaces)
@@ -202,14 +202,6 @@ def create_app(**kwargs) -> FastAPI:
 
         logger.info("SAML auth type enabled")
         app.include_router(saml_router)
-
-    # Development endpoints
-    if config.TRACECAT__APP_ENV == "development":
-        # XXX(security): This is a security risk. Do not run this in production.
-        from tracecat.testing.registry import router as registry_testing_router
-
-        app.include_router(registry_testing_router)
-        logger.warning("Development endpoints enabled. Do not run this in production.")
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)

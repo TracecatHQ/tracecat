@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
 from pydantic import UUID4
+from pydantic_core import to_jsonable_python
 from sqlalchemy import Boolean
 from sqlmodel import cast, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -115,7 +116,7 @@ class RegistryActionsService:
 
         action = RegistryAction(
             owner_id=owner_id,
-            interface=interface,
+            interface=to_jsonable_python(interface),
             **params.model_dump(exclude={"interface"}),
         )
 

@@ -1,7 +1,7 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum, auto
-from typing import Any
+from typing import Any, TypeVar
 
 
 class TracecatEnum(StrEnum):
@@ -10,19 +10,35 @@ class TracecatEnum(StrEnum):
 
 
 class ExprContext(TracecatEnum):
-    """Global contexts"""
+    """Expression contexts."""
 
+    # Global contexts
     ACTIONS = "ACTIONS"
-    SECRETS = "SECRETS"
-    FN = "FN"
-    INPUTS = "INPUTS"
-    ENV = "ENV"
-    TRIGGER = "TRIGGER"
+    """Actions context"""
 
-    """Action-local variables"""
+    SECRETS = "SECRETS"
+    """Secrets context"""
+
+    FN = "FN"
+    """Function context"""
+
+    INPUTS = "INPUTS"
+    """Inputs context"""
+
+    ENV = "ENV"
+    """Environment context"""
+
+    TRIGGER = "TRIGGER"
+    """Trigger context"""
+    # Action-local variables
     LOCAL_VARS = "var"
+    """Action-local variables context"""
+
     TEMPLATE_ACTION_INPUTS = "inputs"
+    """Template action inputs context"""
+
     TEMPLATE_ACTION_STEPS = "steps"
+    """Template action steps context"""
 
 
 class ExprType(TracecatEnum):
@@ -56,9 +72,6 @@ VISITOR_NODE_TO_EXPR_TYPE = {
 }
 
 
-ExprContextType = dict[ExprContext, Any]
-
-
 @dataclass
 class IterableExpr[T]:
     """An expression that represents an iterable collection."""
@@ -69,3 +82,7 @@ class IterableExpr[T]:
     def __iter__(self) -> Iterator[tuple[str, T]]:
         for item in self.collection:
             yield self.iterator, item
+
+
+K = TypeVar("K", str, StrEnum)
+ExprOperand = Mapping[K, Any]

@@ -1,4 +1,4 @@
-from lark import Lark, Tree
+from lark import Lark, Token, Tree
 from lark.exceptions import UnexpectedCharacters, UnexpectedEOF, UnexpectedInput
 
 from tracecat.expressions.parser.grammar import grammar
@@ -10,7 +10,7 @@ class ExprParser:
     def __init__(self, start_rule: str = "root") -> None:
         self.parser = Lark(grammar, start=start_rule)
 
-    def parse(self, expression: str) -> Tree | None:
+    def parse(self, expression: str) -> Tree[Token] | None:
         try:
             return self.parser.parse(expression)
         except (UnexpectedCharacters, UnexpectedEOF, UnexpectedInput) as e:

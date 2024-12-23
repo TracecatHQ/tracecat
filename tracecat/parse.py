@@ -1,5 +1,8 @@
+import re
 from collections.abc import Iterator
 from typing import Any
+
+from tracecat.expressions import patterns
 
 
 def insert_obj_by_path(
@@ -39,3 +42,13 @@ def traverse_leaves(obj: Any, parent_key: str = "") -> Iterator[tuple[str, Any]]
             yield from traverse_leaves(item, new_key)
     else:
         yield parent_key, obj
+
+
+def traverse_expressions(obj: Any) -> Iterator[str]:
+    """Return an iterator of all expressions in a nested object."""
+    for _, value in traverse_leaves(obj):
+        if not isinstance(value, str):
+            continue
+        for match in re.finditer(patterns.TEMPLATE_STRING, value):
+            if expr := match.group("expr"):
+                yield expr

@@ -6,10 +6,10 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.client import RegistryClient
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
@@ -110,7 +110,7 @@ async def sync_executor_from_registry_repository(
             detail="Registry repository not found",
         ) from e
     logger.info("Syncing executor", origin=repo.origin)
-    client = RegistryClient(role=role)
+    client = ExecutorClient(role=role)
     try:
         await client.sync_executor(repository_id=repo.id)
     except RegistryError as e:

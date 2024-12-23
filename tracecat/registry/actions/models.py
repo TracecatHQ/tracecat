@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import traceback
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar, cast
@@ -503,4 +504,17 @@ class RegistryActionErrorInfo(BaseModel):
             f"\nFile: {self.filename}"
             f"\nFunction: {self.function}"
             f"\nLine: {self.lineno}"
+        )
+
+    @staticmethod
+    def from_exc(e: Exception, action_name: str) -> RegistryActionErrorInfo:
+        """Create an error info from an exception."""
+        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
+        return RegistryActionErrorInfo(
+            action_name=action_name,
+            type=e.__class__.__name__,
+            message=str(e),
+            filename=tb.filename,
+            function=tb.name,
+            lineno=tb.lineno,
         )

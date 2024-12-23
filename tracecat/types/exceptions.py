@@ -80,3 +80,7 @@ class RegistryNotFound(RegistryError):
 
 class TaskUnreachable(TracecatException):
     """Raised when a task is unreachable."""
+
+
+class ActionExecutionError(TracecatException):
+    """Exception raised when an action execution error occurs."""
