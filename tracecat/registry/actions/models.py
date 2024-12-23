@@ -22,7 +22,7 @@ from tracecat_registry import RegistrySecret
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
-from tracecat.types.exceptions import RegistryActionError, RegistryValidationError
+from tracecat.types.exceptions import RegistryActionError, TracecatValidationError
 from tracecat.validation.models import ValidationResult
 
 ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
@@ -391,7 +391,7 @@ class RegistryActionValidateResponse(BaseModel):
         )
 
     @staticmethod
-    def from_dsl_validation_error(exc: RegistryValidationError):
+    def from_dsl_validation_error(exc: TracecatValidationError):
         return RegistryActionValidateResponse(
             ok=False, message=str(exc), detail=exc.detail
         )
