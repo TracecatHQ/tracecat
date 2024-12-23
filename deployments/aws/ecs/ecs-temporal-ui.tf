@@ -18,7 +18,7 @@ resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
   container_definitions = jsonencode([
     {
       name  = "TemporalUiContainer"
-      image = "temporalio/ui:${var.temporal_ui_image_tag}"
+      image = "${var.temporal_ui_image}:${var.temporal_ui_image_tag}"
       portMappings = [
         {
           containerPort = 8080
