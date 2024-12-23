@@ -17,7 +17,7 @@ from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
-from tracecat.db.schemas import User
+from tracecat.db.schemas import User, Workspace
 from tracecat.logger import logger
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -337,3 +337,32 @@ async def db_session_with_repo(test_role):
                 logger.info("Cleaned up db repo")
             except Exception as e:
                 logger.error("Error cleaning up repo", e=e)
+
+
+@pytest.fixture
+async def svc_workspace(
+    session: AsyncSession,
+) -> AsyncGenerator[Workspace, None]:
+    """Service test fixture. Create a function scoped test workspace."""
+    workspace = Workspace(
+        name="test-workspace",
+        owner_id=config.TRACECAT__DEFAULT_ORG_ID,
+    )  # type: ignore
+    session.add(workspace)
+    await session.commit()
+    try:
+        yield workspace
+    finally:
+        await session.delete(workspace)
+        await session.commit()
+
+
+@pytest.fixture
+async def svc_role(svc_workspace: Workspace) -> Role:
+    """Service test fixture. Create a function scoped test role."""
+    return Role(
+        type="user",
+        workspace_id=svc_workspace.id,
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )

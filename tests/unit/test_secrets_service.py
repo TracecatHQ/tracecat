@@ -1,12 +1,7 @@
-import uuid
-from collections.abc import AsyncGenerator
-
 import pytest
 from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.config import TRACECAT__DEFAULT_ORG_ID
-from tracecat.db.schemas import Workspace
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.models import (
     SecretCreate,
@@ -22,37 +17,9 @@ pytestmark = pytest.mark.usefixtures("db")
 
 
 @pytest.fixture
-async def workspace(
-    session: AsyncSession,
-) -> AsyncGenerator[Workspace, None]:
-    """Create a test workspace."""
-    workspace = Workspace(
-        name="test-workspace",
-        owner_id=TRACECAT__DEFAULT_ORG_ID,
-    )  # type: ignore
-    session.add(workspace)
-    await session.commit()
-    yield workspace
-    await session.delete(workspace)
-    await session.commit()
-
-
-@pytest.fixture
-async def role(workspace: Workspace) -> Role:
-    """Create a test role."""
-    role = Role(
-        type="user",
-        workspace_id=workspace.id,
-        user_id=uuid.uuid4(),
-        service_id="tracecat-api",
-    )
-    return role
-
-
-@pytest.fixture
-async def service(session: AsyncSession, role: Role) -> SecretsService:
+async def service(session: AsyncSession, svc_role: Role) -> SecretsService:
     """Create a secrets service instance for testing."""
-    return SecretsService(session=session, role=role)
+    return SecretsService(session=session, role=svc_role)
 
 
 @pytest.fixture
