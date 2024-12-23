@@ -18,6 +18,8 @@ from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
+pytestmark = pytest.mark.usefixtures("db")
+
 
 @pytest.fixture
 async def workspace(
