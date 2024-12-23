@@ -2772,6 +2772,86 @@ export const $SessionRead = {
     title: 'SessionRead'
 } as const;
 
+export const $TagCreate = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        color: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Color'
+        }
+    },
+    type: 'object',
+    required: ['name'],
+    title: 'TagCreate'
+} as const;
+
+export const $TagRead = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Id'
+        },
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        color: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Color'
+        }
+    },
+    type: 'object',
+    required: ['id', 'name'],
+    title: 'TagRead'
+} as const;
+
+export const $TagUpdate = {
+    properties: {
+        name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Name'
+        },
+        color: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Color'
+        }
+    },
+    type: 'object',
+    title: 'TagUpdate'
+} as const;
+
 export const $TemplateAction_Input = {
     properties: {
         type: {
@@ -3655,6 +3735,20 @@ export const $WorkflowMetadataResponse = {
                 }
             ],
             title: 'Version'
+        },
+        tags: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/TagRead'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Tags'
         }
     },
     type: 'object',
@@ -3770,6 +3864,19 @@ export const $WorkflowResponse = {
     type: 'object',
     required: ['id', 'title', 'description', 'status', 'actions', 'object', 'owner_id', 'webhook', 'schedules', 'entrypoint', 'static_inputs', 'returns', 'config'],
     title: 'WorkflowResponse'
+} as const;
+
+export const $WorkflowTagCreate = {
+    properties: {
+        tag_id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Tag Id'
+        }
+    },
+    type: 'object',
+    required: ['tag_id'],
+    title: 'WorkflowTagCreate'
 } as const;
 
 export const $WorkspaceMember = {
