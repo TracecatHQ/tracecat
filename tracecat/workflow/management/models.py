@@ -12,6 +12,7 @@ from tracecat.dsl.models import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import OwnerID, WorkflowID, WorkspaceID
 from tracecat.registry.actions.models import RegistryActionValidateResponse
+from tracecat.tags.models import TagRead
 from tracecat.types.auth import Role
 from tracecat.webhooks.models import WebhookResponse
 from tracecat.workflow.actions.models import ActionRead
@@ -63,6 +64,7 @@ class WorkflowMetadataResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     version: int | None
+    tags: list[TagRead] | None = None
 
 
 class CreateWorkflowParams(BaseModel):

@@ -25,6 +25,7 @@ from tracecat.dsl.models import DSLConfig
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
+from tracecat.tags.models import TagRead
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.validation.service import validate_dsl
 from tracecat.webhooks.models import UpsertWebhookParams, WebhookResponse
@@ -47,23 +48,34 @@ router = APIRouter(prefix="/workflows")
 async def list_workflows(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
+    filter_tags: list[str] | None = Query(
+        default=None,
+        description="Filter workflows by tags",
+        alias="tag",
+    ),
 ) -> list[WorkflowMetadataResponse]:
     """List workflows."""
     service = WorkflowsManagementService(session, role=role)
-    workflows = await service.list_workflows()
-    return [
-        WorkflowMetadataResponse(
-            id=workflow.id,
-            title=workflow.title,
-            description=workflow.description,
-            status=workflow.status,
-            icon_url=workflow.icon_url,
-            created_at=workflow.created_at,
-            updated_at=workflow.updated_at,
-            version=workflow.version,
+    workflows = await service.list_workflows(tags=filter_tags)
+    res = []
+    for workflow in workflows:
+        tags = [
+            TagRead.model_validate(tag, from_attributes=True) for tag in workflow.tags
+        ]
+        res.append(
+            WorkflowMetadataResponse(
+                id=workflow.id,
+                title=workflow.title,
+                description=workflow.description,
+                status=workflow.status,
+                icon_url=workflow.icon_url,
+                created_at=workflow.created_at,
+                updated_at=workflow.updated_at,
+                version=workflow.version,
+                tags=tags,
+            )
         )
-        for workflow in workflows
-    ]
+    return res
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["workflows"])
