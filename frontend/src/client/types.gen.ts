@@ -146,18 +146,6 @@ export type Body_workflows_create_workflow = {
     file?: (Blob | File) | null;
 };
 
-export type CommitWorkflowResponse = {
-    workflow_id: string;
-    status: 'success' | 'failure';
-    message: string;
-    errors?: Array<RegistryActionValidateResponse> | null;
-    metadata?: {
-    [key: string]: unknown;
-} | null;
-};
-
-export type status = 'success' | 'failure';
-
 export type CreateWorkflowExecutionParams = {
     workflow_id: string;
     inputs?: unknown | null;
@@ -753,7 +741,7 @@ export type ScheduleCreate = {
     timeout?: number;
 };
 
-export type status2 = 'online' | 'offline';
+export type status = 'online' | 'offline';
 
 export type ScheduleSearch = {
     workflow_id?: string | null;
@@ -1035,6 +1023,18 @@ export type WebhookResponse = {
 };
 
 export type method = 'GET' | 'POST';
+
+export type WorkflowCommitResponse = {
+    workflow_id: string;
+    status: 'success' | 'failure';
+    message: string;
+    errors?: Array<RegistryActionValidateResponse> | null;
+    metadata?: {
+    [key: string]: unknown;
+} | null;
+};
+
+export type status2 = 'success' | 'failure';
 
 /**
  * A workflow definition.
@@ -1324,7 +1324,7 @@ export type WorkflowsCommitWorkflowData = {
     workspaceId: string;
 };
 
-export type WorkflowsCommitWorkflowResponse = CommitWorkflowResponse;
+export type WorkflowsCommitWorkflowResponse = WorkflowCommitResponse;
 
 export type WorkflowsExportWorkflowData = {
     /**
@@ -2068,7 +2068,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: CommitWorkflowResponse;
+                200: WorkflowCommitResponse;
                 /**
                  * Validation Error
                  */

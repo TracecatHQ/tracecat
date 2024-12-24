@@ -453,52 +453,6 @@ export const $Body_workflows_create_workflow = {
     title: 'Body_workflows-create_workflow'
 } as const;
 
-export const $CommitWorkflowResponse = {
-    properties: {
-        workflow_id: {
-            type: 'string',
-            title: 'Workflow Id'
-        },
-        status: {
-            type: 'string',
-            enum: ['success', 'failure'],
-            title: 'Status'
-        },
-        message: {
-            type: 'string',
-            title: 'Message'
-        },
-        errors: {
-            anyOf: [
-                {
-                    items: {
-                        '$ref': '#/components/schemas/RegistryActionValidateResponse'
-                    },
-                    type: 'array'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Errors'
-        },
-        metadata: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Metadata'
-        }
-    },
-    type: 'object',
-    required: ['workflow_id', 'status', 'message'],
-    title: 'CommitWorkflowResponse'
-} as const;
-
 export const $CreateWorkflowExecutionParams = {
     properties: {
         workflow_id: {
@@ -3430,6 +3384,52 @@ export const $WebhookResponse = {
     type: 'object',
     required: ['owner_id', 'id', 'secret', 'status', 'filters', 'method', 'workflow_id', 'url'],
     title: 'WebhookResponse'
+} as const;
+
+export const $WorkflowCommitResponse = {
+    properties: {
+        workflow_id: {
+            type: 'string',
+            title: 'Workflow Id'
+        },
+        status: {
+            type: 'string',
+            enum: ['success', 'failure'],
+            title: 'Status'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        },
+        errors: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/RegistryActionValidateResponse'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Errors'
+        },
+        metadata: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Metadata'
+        }
+    },
+    type: 'object',
+    required: ['workflow_id', 'status', 'message'],
+    title: 'WorkflowCommitResponse'
 } as const;
 
 export const $WorkflowDefinition = {

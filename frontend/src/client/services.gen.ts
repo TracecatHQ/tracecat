@@ -387,7 +387,7 @@ export const workflowsDeleteWorkflow = (data: WorkflowsDeleteWorkflowData): Canc
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.workspaceId
- * @returns CommitWorkflowResponse Successful Response
+ * @returns WorkflowCommitResponse Successful Response
  * @throws ApiError
  */
 export const workflowsCommitWorkflow = (data: WorkflowsCommitWorkflowData): CancelablePromise<WorkflowsCommitWorkflowResponse> => { return __request(OpenAPI, {

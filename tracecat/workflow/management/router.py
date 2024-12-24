@@ -33,8 +33,8 @@ from tracecat.workflow.actions.models import ActionRead
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import (
-    CommitWorkflowResponse,
     ExternalWorkflowDefinition,
+    WorkflowCommitResponse,
     WorkflowCreate,
     WorkflowRead,
     WorkflowReadMinimal,
@@ -253,7 +253,7 @@ async def commit_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: WorkflowID,
-) -> CommitWorkflowResponse:
+) -> WorkflowCommitResponse:
     """Commit a workflow.
 
     This deploys the workflow and updates its version. If a YAML file is provided, it will override the workflow in the database."""
@@ -291,7 +291,7 @@ async def commit_workflow(
             )
 
         if construction_errors:
-            return CommitWorkflowResponse(
+            return WorkflowCommitResponse(
                 workflow_id=workflow_id,
                 status="failure",
                 message=f"Workflow definition construction failed with {len(construction_errors)} errors",
@@ -303,7 +303,7 @@ async def commit_workflow(
 
         if val_errors := await validate_dsl(session=session, dsl=dsl):
             logger.warning("Validation errors", errors=val_errors)
-            return CommitWorkflowResponse(
+            return WorkflowCommitResponse(
                 workflow_id=workflow_id,
                 status="failure",
                 message=f"{len(val_errors)} validation error(s)",
@@ -332,7 +332,7 @@ async def commit_workflow(
         await session.refresh(workflow)
         await session.refresh(defn)
 
-        return CommitWorkflowResponse(
+        return WorkflowCommitResponse(
             workflow_id=workflow_id,
             status="success",
             message="Workflow committed successfully.",

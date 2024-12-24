@@ -12,8 +12,8 @@ import React, {
 import { useParams } from "next/navigation"
 import {
   ApiError,
-  CommitWorkflowResponse,
   RegistryActionValidateResponse,
+  WorkflowCommitResponse,
   WorkflowRead,
   workflowsCommitWorkflow,
   workflowsGetWorkflow,
@@ -38,7 +38,7 @@ type WorkflowContextType = {
   isOnline: boolean
   setIsOnline: (isOnline: boolean) => void
   commitWorkflow: MutateFunction<
-    CommitWorkflowResponse,
+    WorkflowCommitResponse,
     ApiError,
     void,
     unknown

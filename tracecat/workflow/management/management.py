@@ -18,9 +18,9 @@ from tracecat.types.exceptions import TracecatValidationError
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.models import (
-    CreateWorkflowFromDSLResponse,
     ExternalWorkflowDefinition,
     WorkflowCreate,
+    WorkflowDSLCreateResponse,
     WorkflowUpdate,
 )
 
@@ -126,7 +126,7 @@ class WorkflowsManagementService(BaseService):
 
     async def create_workflow_from_dsl(
         self, dsl_data: dict[str, Any], *, skip_secret_validation: bool = False
-    ) -> CreateWorkflowFromDSLResponse:
+    ) -> WorkflowDSLCreateResponse:
         """Create a new workflow from a Tracecat DSL data object."""
 
         construction_errors = []
@@ -148,12 +148,12 @@ class WorkflowsManagementService(BaseService):
                 for e in eg.exceptions
             )
         if construction_errors:
-            return CreateWorkflowFromDSLResponse(errors=construction_errors)
+            return WorkflowDSLCreateResponse(errors=construction_errors)
 
         if not skip_secret_validation:
             if val_errors := await validate_dsl(session=self.session, dsl=dsl):
                 self.logger.warning("Validation errors", errors=val_errors)
-                return CreateWorkflowFromDSLResponse(
+                return WorkflowDSLCreateResponse(
                     errors=[
                         RegistryActionValidateResponse.from_validation_result(val_res)
                         for val_res in val_errors
@@ -163,7 +163,7 @@ class WorkflowsManagementService(BaseService):
         self.logger.warning("Creating workflow from DSL", dsl=dsl)
         try:
             workflow = await self._create_db_workflow_from_dsl(dsl)
-            return CreateWorkflowFromDSLResponse(workflow=workflow)
+            return WorkflowDSLCreateResponse(workflow=workflow)
         except Exception as e:
             # Rollback the transaction on error
             self.logger.error(f"Error creating workflow: {e}")

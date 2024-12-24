@@ -117,7 +117,7 @@ class ExternalWorkflowDefinition(BaseModel):
         )
 
 
-class CommitWorkflowResponse(BaseModel):
+class WorkflowCommitResponse(BaseModel):
     workflow_id: str
     status: Literal["success", "failure"]
     message: str
@@ -130,6 +130,6 @@ class CommitWorkflowResponse(BaseModel):
         )
 
 
-class CreateWorkflowFromDSLResponse(BaseModel):
+class WorkflowDSLCreateResponse(BaseModel):
     workflow: Workflow | None = None
     errors: list[RegistryActionValidateResponse] | None = None
