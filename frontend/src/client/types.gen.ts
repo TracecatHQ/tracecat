@@ -875,6 +875,22 @@ export type SessionRead = {
     user_email: string;
 };
 
+export type TagCreate = {
+    name: string;
+    color?: string | null;
+};
+
+export type TagRead = {
+    id: string;
+    name: string;
+    color?: string | null;
+};
+
+export type TagUpdate = {
+    name?: string | null;
+    color?: string | null;
+};
+
 export type TemplateAction_Input = {
     type?: "action";
     definition: TemplateActionDefinition;
@@ -1116,6 +1132,7 @@ export type WorkflowMetadataResponse = {
     created_at: string;
     updated_at: string;
     version: number | null;
+    tags?: Array<TagRead> | null;
 };
 
 export type WorkflowResponse = {
@@ -1142,6 +1159,10 @@ export type WorkflowResponse = {
 } | null;
     returns: unknown;
     config: DSLConfig_Output | null;
+};
+
+export type WorkflowTagCreate = {
+    tag_id: string;
 };
 
 export type WorkspaceMember = {
@@ -1260,6 +1281,10 @@ export type WorkspacesDeleteWorkspaceMembershipData = {
 export type WorkspacesDeleteWorkspaceMembershipResponse = void;
 
 export type WorkflowsListWorkflowsData = {
+    /**
+     * Filter workflows by tags
+     */
+    tag?: Array<(string)> | null;
     workspaceId: string;
 };
 
@@ -1434,6 +1459,29 @@ export type ActionsDeleteActionData = {
 
 export type ActionsDeleteActionResponse = void;
 
+export type WorkflowsListTagsData = {
+    workflowId: string;
+    workspaceId: string;
+};
+
+export type WorkflowsListTagsResponse = Array<TagRead>;
+
+export type WorkflowsAddTagData = {
+    requestBody: WorkflowTagCreate;
+    workflowId: string;
+    workspaceId: string;
+};
+
+export type WorkflowsAddTagResponse = unknown;
+
+export type WorkflowsRemoveTagData = {
+    tagId: string;
+    workflowId: string;
+    workspaceId: string;
+};
+
+export type WorkflowsRemoveTagResponse = void;
+
 export type SecretsSearchSecretsData = {
     environment: string;
     /**
@@ -1542,6 +1590,41 @@ export type SchedulesSearchSchedulesData = {
 };
 
 export type SchedulesSearchSchedulesResponse = Array<Schedule>;
+
+export type TagsListTagsData = {
+    workspaceId: string;
+};
+
+export type TagsListTagsResponse = Array<TagRead>;
+
+export type TagsCreateTagData = {
+    requestBody: TagCreate;
+    workspaceId: string;
+};
+
+export type TagsCreateTagResponse = TagRead;
+
+export type TagsGetTagData = {
+    tagId: string;
+    workspaceId: string;
+};
+
+export type TagsGetTagResponse = TagRead;
+
+export type TagsUpdateTagData = {
+    requestBody: TagUpdate;
+    tagId: string;
+    workspaceId: string;
+};
+
+export type TagsUpdateTagResponse = TagRead;
+
+export type TagsDeleteTagData = {
+    tagId: string;
+    workspaceId: string;
+};
+
+export type TagsDeleteTagResponse = unknown;
 
 export type UsersSearchUserData = {
     email?: string | null;
@@ -2234,6 +2317,49 @@ export type $OpenApiTs = {
             };
         };
     };
+    '/workflows/{workflow_id}/tags': {
+        get: {
+            req: WorkflowsListTagsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<TagRead>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        post: {
+            req: WorkflowsAddTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                201: unknown;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/workflows/{workflow_id}/tags/{tag_id}': {
+        delete: {
+            req: WorkflowsRemoveTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
     '/secrets/search': {
         get: {
             req: SecretsSearchSecretsData;
@@ -2397,6 +2523,75 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: Array<Schedule>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/tags': {
+        get: {
+            req: TagsListTagsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<TagRead>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        post: {
+            req: TagsCreateTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: TagRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/tags/{tag_id}': {
+        get: {
+            req: TagsGetTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: TagRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        patch: {
+            req: TagsUpdateTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: TagRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        delete: {
+            req: TagsDeleteTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
                 /**
                  * Validation Error
                  */

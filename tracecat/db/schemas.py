@@ -102,6 +102,13 @@ class Workspace(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
+    tags: list["Tag"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
 
     @computed_field
     @property
@@ -219,6 +226,35 @@ class WorkflowDefinition(Resource, table=True):
     )
 
 
+class WorkflowTag(SQLModel, table=True):
+    """Link table for workflows and tags with optional metadata."""
+
+    tag_id: UUID4 = Field(foreign_key="tag.id", primary_key=True)
+    workflow_id: str = Field(foreign_key="workflow.id", primary_key=True)
+
+
+class Tag(Resource, table=True):
+    """A tag for organizing and filtering entities."""
+
+    __table_args__ = (UniqueConstraint("name", "owner_id"),)
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    name: str = Field(index=True, nullable=False)
+    color: str | None = Field(default=None)
+    # Relationships
+    owner: "Workspace" = Relationship(back_populates="tags")
+    workflows: list["Workflow"] = Relationship(
+        back_populates="tags",
+        link_model=WorkflowTag,
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
+
+
 class Workflow(Resource, table=True):
     """The workflow state.
 
@@ -303,6 +339,11 @@ class Workflow(Resource, table=True):
             "cascade": "all, delete",
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
+    )
+    tags: list["Tag"] = Relationship(
+        back_populates="workflows",
+        link_model=WorkflowTag,
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
 
 

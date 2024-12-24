@@ -6,12 +6,12 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
-from sqlmodel import select
+from sqlmodel import and_, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.schemas import Action, Webhook, Workflow
+from tracecat.db.schemas import Action, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, build_action_statements
 from tracecat.dsl.models import DSLConfig
 from tracecat.dsl.view import RFGraph
@@ -46,11 +46,32 @@ class WorkflowsManagementService:
         async with get_async_session_context_manager() as session:
             yield WorkflowsManagementService(session, role=role)
 
-    async def list_workflows(self) -> Sequence[Workflow]:
-        """List workflows."""
+    async def list_workflows(
+        self, *, tags: list[str] | None = None
+    ) -> Sequence[Workflow]:
+        """List workflows.
 
-        statement = select(Workflow).where(Workflow.owner_id == self.role.workspace_id)
-        results = await self.session.exec(statement)
+        Args:
+            tags: Optional list of tag names to filter workflows by
+
+        Returns:
+            Sequence[Workflow]: List of workflows matching the filters
+        """
+        stmt = select(Workflow).where(Workflow.owner_id == self.role.workspace_id)
+
+        if tags:
+            tag_set = set(tags)
+            # Join through the WorkflowTag link table to Tag table
+            stmt = (
+                stmt.join(WorkflowTag, Workflow.id == WorkflowTag.workflow_id)  # type: ignore
+                .join(
+                    Tag, and_(Tag.id == WorkflowTag.tag_id, col(Tag.name).in_(tag_set))
+                )
+                # Ensure we get distinct workflows when multiple tags match
+                .distinct()
+            )
+
+        results = await self.session.exec(stmt)
         workflows = results.all()
         return workflows
 
