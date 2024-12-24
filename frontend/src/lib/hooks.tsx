@@ -65,7 +65,7 @@ import {
   WorkflowExecutionResponse,
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
-  WorkflowMetadataResponse,
+  WorkflowReadMinimal,
   workflowsAddTag,
   WorkflowsAddTagData,
   workflowsCreateWorkflow,
@@ -198,7 +198,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     data: workflows,
     isLoading: workflowsLoading,
     error: workflowsError,
-  } = useQuery<WorkflowMetadataResponse[], ApiError>({
+  } = useQuery<WorkflowReadMinimal[], ApiError>({
     queryKey: ["workflows", filter?.tag],
     queryFn: async () =>
       await workflowsListWorkflows({ workspaceId, tag: filter?.tag }),

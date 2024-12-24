@@ -146,18 +146,6 @@ export type Body_workflows_create_workflow = {
     file?: (Blob | File) | null;
 };
 
-export type CommitWorkflowResponse = {
-    workflow_id: string;
-    status: 'success' | 'failure';
-    message: string;
-    errors?: Array<RegistryActionValidateResponse> | null;
-    metadata?: {
-    [key: string]: unknown;
-} | null;
-};
-
-export type status = 'success' | 'failure';
-
 export type CreateWorkflowExecutionParams = {
     workflow_id: string;
     inputs?: unknown | null;
@@ -753,7 +741,7 @@ export type ScheduleCreate = {
     timeout?: number;
 };
 
-export type status2 = 'online' | 'offline';
+export type status = 'online' | 'offline';
 
 export type ScheduleSearch = {
     workflow_id?: string | null;
@@ -958,26 +946,6 @@ export type Trigger = {
 
 export type type3 = 'schedule' | 'webhook';
 
-export type UpdateWorkflowParams = {
-    title?: string | null;
-    description?: string | null;
-    status?: 'online' | 'offline' | null;
-    object?: {
-    [key: string]: unknown;
-} | null;
-    version?: number | null;
-    entrypoint?: string | null;
-    icon_url?: string | null;
-    static_inputs?: {
-    [key: string]: unknown;
-} | null;
-    expects?: {
-    [key: string]: ExpectedField;
-} | null;
-    returns?: unknown | null;
-    config?: DSLConfig_Input | null;
-};
-
 export type UpdateWorkspaceParams = {
     name?: string | null;
     settings?: {
@@ -1056,6 +1024,18 @@ export type WebhookResponse = {
 
 export type method = 'GET' | 'POST';
 
+export type WorkflowCommitResponse = {
+    workflow_id: string;
+    status: 'success' | 'failure';
+    message: string;
+    errors?: Array<RegistryActionValidateResponse> | null;
+    metadata?: {
+    [key: string]: unknown;
+} | null;
+};
+
+export type status2 = 'success' | 'failure';
+
 /**
  * A workflow definition.
  *
@@ -1123,19 +1103,7 @@ export type WorkflowExecutionResponse = {
 
 export type status3 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
 
-export type WorkflowMetadataResponse = {
-    id: string;
-    title: string;
-    description: string;
-    status: string;
-    icon_url: string | null;
-    created_at: string;
-    updated_at: string;
-    version: number | null;
-    tags?: Array<TagRead> | null;
-};
-
-export type WorkflowResponse = {
+export type WorkflowRead = {
     id: string;
     title: string;
     description: string;
@@ -1161,8 +1129,40 @@ export type WorkflowResponse = {
     config: DSLConfig_Output | null;
 };
 
+export type WorkflowReadMinimal = {
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+    icon_url: string | null;
+    created_at: string;
+    updated_at: string;
+    version: number | null;
+    tags?: Array<TagRead> | null;
+};
+
 export type WorkflowTagCreate = {
     tag_id: string;
+};
+
+export type WorkflowUpdate = {
+    title?: string | null;
+    description?: string | null;
+    status?: 'online' | 'offline' | null;
+    object?: {
+    [key: string]: unknown;
+} | null;
+    version?: number | null;
+    entrypoint?: string | null;
+    icon_url?: string | null;
+    static_inputs?: {
+    [key: string]: unknown;
+} | null;
+    expects?: {
+    [key: string]: ExpectedField;
+} | null;
+    returns?: unknown | null;
+    config?: DSLConfig_Input | null;
 };
 
 export type WorkspaceMember = {
@@ -1288,24 +1288,24 @@ export type WorkflowsListWorkflowsData = {
     workspaceId: string;
 };
 
-export type WorkflowsListWorkflowsResponse = Array<WorkflowMetadataResponse>;
+export type WorkflowsListWorkflowsResponse = Array<WorkflowReadMinimal>;
 
 export type WorkflowsCreateWorkflowData = {
     formData?: Body_workflows_create_workflow;
     workspaceId: string;
 };
 
-export type WorkflowsCreateWorkflowResponse = WorkflowMetadataResponse;
+export type WorkflowsCreateWorkflowResponse = WorkflowReadMinimal;
 
 export type WorkflowsGetWorkflowData = {
     workflowId: string;
     workspaceId: string;
 };
 
-export type WorkflowsGetWorkflowResponse = WorkflowResponse;
+export type WorkflowsGetWorkflowResponse = WorkflowRead;
 
 export type WorkflowsUpdateWorkflowData = {
-    requestBody: UpdateWorkflowParams;
+    requestBody: WorkflowUpdate;
     workflowId: string;
     workspaceId: string;
 };
@@ -1324,7 +1324,7 @@ export type WorkflowsCommitWorkflowData = {
     workspaceId: string;
 };
 
-export type WorkflowsCommitWorkflowResponse = CommitWorkflowResponse;
+export type WorkflowsCommitWorkflowResponse = WorkflowCommitResponse;
 
 export type WorkflowsExportWorkflowData = {
     /**
@@ -1999,7 +1999,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Array<WorkflowMetadataResponse>;
+                200: Array<WorkflowReadMinimal>;
                 /**
                  * Validation Error
                  */
@@ -2012,7 +2012,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                201: WorkflowMetadataResponse;
+                201: WorkflowReadMinimal;
                 /**
                  * Validation Error
                  */
@@ -2027,7 +2027,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: WorkflowResponse;
+                200: WorkflowRead;
                 /**
                  * Validation Error
                  */
@@ -2068,7 +2068,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: CommitWorkflowResponse;
+                200: WorkflowCommitResponse;
                 /**
                  * Validation Error
                  */

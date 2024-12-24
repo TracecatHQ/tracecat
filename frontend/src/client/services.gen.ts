@@ -267,7 +267,7 @@ export const workspacesDeleteWorkspaceMembership = (data: WorkspacesDeleteWorksp
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.tag Filter workflows by tags
- * @returns WorkflowMetadataResponse Successful Response
+ * @returns WorkflowReadMinimal Successful Response
  * @throws ApiError
  */
 export const workflowsListWorkflows = (data: WorkflowsListWorkflowsData): CancelablePromise<WorkflowsListWorkflowsResponse> => { return __request(OpenAPI, {
@@ -291,7 +291,7 @@ export const workflowsListWorkflows = (data: WorkflowsListWorkflowsData): Cancel
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.formData
- * @returns WorkflowMetadataResponse Successful Response
+ * @returns WorkflowReadMinimal Successful Response
  * @throws ApiError
  */
 export const workflowsCreateWorkflow = (data: WorkflowsCreateWorkflowData): CancelablePromise<WorkflowsCreateWorkflowResponse> => { return __request(OpenAPI, {
@@ -313,7 +313,7 @@ export const workflowsCreateWorkflow = (data: WorkflowsCreateWorkflowData): Canc
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.workspaceId
- * @returns WorkflowResponse Successful Response
+ * @returns WorkflowRead Successful Response
  * @throws ApiError
  */
 export const workflowsGetWorkflow = (data: WorkflowsGetWorkflowData): CancelablePromise<WorkflowsGetWorkflowResponse> => { return __request(OpenAPI, {
@@ -387,7 +387,7 @@ export const workflowsDeleteWorkflow = (data: WorkflowsDeleteWorkflowData): Canc
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.workspaceId
- * @returns CommitWorkflowResponse Successful Response
+ * @returns WorkflowCommitResponse Successful Response
  * @throws ApiError
  */
 export const workflowsCommitWorkflow = (data: WorkflowsCommitWorkflowData): CancelablePromise<WorkflowsCommitWorkflowResponse> => { return __request(OpenAPI, {
