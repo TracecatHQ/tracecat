@@ -693,8 +693,8 @@ export type SAMLDatabaseLoginResponse = {
 
 export type Schedule = {
     owner_id: string;
-    created_at: string;
-    updated_at: string;
+    created_at?: string;
+    updated_at?: string;
     id?: string;
     status?: string;
     cron?: string | null;
@@ -1040,8 +1040,8 @@ export type ValidationError = {
 
 export type WebhookResponse = {
     owner_id: string;
-    created_at: string;
-    updated_at: string;
+    created_at?: string;
+    updated_at?: string;
     id: string;
     secret: string;
     status: 'online' | 'offline';
@@ -1078,8 +1078,8 @@ export type method = 'GET' | 'POST';
  */
 export type WorkflowDefinition = {
     owner_id: string;
-    created_at: string;
-    updated_at: string;
+    created_at?: string;
+    updated_at?: string;
     id?: string;
     /**
      * DSL spec version

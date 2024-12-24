@@ -2191,7 +2191,7 @@ export const $Schedule = {
         }
     },
     type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'every', 'workflow_id'],
+    required: ['owner_id', 'every', 'workflow_id'],
     title: 'Schedule'
 } as const;
 
@@ -3557,7 +3557,7 @@ export const $WebhookResponse = {
         }
     },
     type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'id', 'secret', 'status', 'filters', 'method', 'workflow_id', 'url'],
+    required: ['owner_id', 'id', 'secret', 'status', 'filters', 'method', 'workflow_id', 'url'],
     title: 'WebhookResponse'
 } as const;
 
@@ -3597,7 +3597,7 @@ export const $WorkflowDefinition = {
         }
     },
     type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'version', 'workflow_id', 'content'],
+    required: ['owner_id', 'version', 'workflow_id', 'content'],
     title: 'WorkflowDefinition',
     description: `A workflow definition.
 
