@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 
 import "@radix-ui/react-dialog"
 
-import { ApiError, WorkflowResponse } from "@/client"
+import { ApiError, WorkflowRead } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import {
@@ -107,7 +107,7 @@ type WorkflowConfigForm = z.infer<typeof workflowConfigFormSchema>
 export function WorkflowPanel({
   workflow,
 }: {
-  workflow: WorkflowResponse
+  workflow: WorkflowRead
 }): React.JSX.Element {
   const { workspaceId } = useWorkspace()
   const { workflowId } = useWorkflow()

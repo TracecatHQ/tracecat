@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { WorkflowMetadataResponse } from "@/client"
+import { WorkflowReadMinimal } from "@/client"
 
 import { useWorkflowManager } from "@/lib/hooks"
 import {
@@ -21,8 +21,8 @@ export function DeleteWorkflowAlertDialog({
   setSelectedWorkflow,
   children,
 }: React.PropsWithChildren<{
-  selectedWorkflow: WorkflowMetadataResponse | null
-  setSelectedWorkflow: (selectedSecret: WorkflowMetadataResponse | null) => void
+  selectedWorkflow: WorkflowReadMinimal | null
+  setSelectedWorkflow: (selectedSecret: WorkflowReadMinimal | null) => void
 }>) {
   const { deleteWorkflow } = useWorkflowManager()
   return (

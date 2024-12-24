@@ -2,7 +2,7 @@
 
 import React, { useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { TagRead, WorkflowMetadataResponse } from "@/client"
+import { TagRead, WorkflowReadMinimal } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
@@ -50,10 +50,10 @@ export function WorkflowsDashboardTable() {
     removeWorkflowTag,
   } = useWorkflowManager({ tag: queryTags })
   const [selectedWorkflow, setSelectedWorkflow] =
-    useState<WorkflowMetadataResponse | null>(null)
+    useState<WorkflowReadMinimal | null>(null)
   const { tags } = useTags(workspaceId)
 
-  const handleOnClickRow = (row: Row<WorkflowMetadataResponse>) => () => {
+  const handleOnClickRow = (row: Row<WorkflowReadMinimal>) => () => {
     // Link to workflow detail page
     console.debug("Clicked row", row)
     router.push(`/workspaces/${workspaceId}/workflows/${row.original.id}`)
@@ -82,7 +82,7 @@ export function WorkflowsDashboardTable() {
             ),
             cell: ({ row }) => (
               <div className="text-xs text-foreground/80">
-                {row.getValue<WorkflowMetadataResponse["title"]>("title")}
+                {row.getValue<WorkflowReadMinimal["title"]>("title")}
               </div>
             ),
             enableSorting: true,
@@ -99,7 +99,7 @@ export function WorkflowsDashboardTable() {
             ),
             cell: ({ row }) => (
               <div className="text-xs text-foreground/80">
-                {row.getValue<WorkflowMetadataResponse["description"]>(
+                {row.getValue<WorkflowReadMinimal["description"]>(
                   "description"
                 ) || "-"}
               </div>
@@ -118,7 +118,7 @@ export function WorkflowsDashboardTable() {
             ),
             cell: ({ row }) => {
               const status =
-                row.getValue<WorkflowMetadataResponse["status"]>("status")
+                row.getValue<WorkflowReadMinimal["status"]>("status")
               return (
                 <div className="flex-auto space-x-4 text-xs">
                   <div className="ml-auto flex items-center space-x-2">
@@ -151,10 +151,9 @@ export function WorkflowsDashboardTable() {
             ),
             cell: ({ row }) => (
               <div className="flex flex-wrap gap-1">
-                {row.getValue<WorkflowMetadataResponse["tags"]>("tags")
-                  ?.length ? (
+                {row.getValue<WorkflowReadMinimal["tags"]>("tags")?.length ? (
                   row
-                    .getValue<WorkflowMetadataResponse["tags"]>("tags")
+                    .getValue<WorkflowReadMinimal["tags"]>("tags")
                     ?.map((tag) => <TagBadge key={tag.id} tag={tag} />)
                 ) : (
                   <span className="text-xs text-muted-foreground">-</span>

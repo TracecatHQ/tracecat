@@ -14,11 +14,11 @@ import {
   ApiError,
   CommitWorkflowResponse,
   RegistryActionValidateResponse,
-  UpdateWorkflowParams,
-  WorkflowResponse,
+  WorkflowRead,
   workflowsCommitWorkflow,
   workflowsGetWorkflow,
   workflowsUpdateWorkflow,
+  WorkflowUpdate,
 } from "@/client"
 import {
   MutateFunction,
@@ -30,7 +30,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 
 type WorkflowContextType = {
-  workflow: WorkflowResponse | null
+  workflow: WorkflowRead | null
   workspaceId: string
   workflowId: string | null
   isLoading: boolean
@@ -43,7 +43,7 @@ type WorkflowContextType = {
     void,
     unknown
   >
-  updateWorkflow: MutateFunction<void, ApiError, UpdateWorkflowParams, unknown>
+  updateWorkflow: MutateFunction<void, ApiError, WorkflowUpdate, unknown>
   validationErrors: RegistryActionValidateResponse[] | null
   setValidationErrors: React.Dispatch<
     SetStateAction<RegistryActionValidateResponse[] | null>
@@ -76,7 +76,7 @@ export function WorkflowProvider({
     data: workflow,
     isLoading,
     error,
-  } = useQuery<WorkflowResponse | null, ApiError>({
+  } = useQuery<WorkflowRead | null, ApiError>({
     queryKey: ["workflow", workflowId],
     queryFn: async ({ queryKey }) => {
       const wfId = queryKey[1] as string | null
@@ -134,7 +134,7 @@ export function WorkflowProvider({
   })
 
   const { mutateAsync: updateWorkflow } = useMutation({
-    mutationFn: async (values: UpdateWorkflowParams) =>
+    mutationFn: async (values: WorkflowUpdate) =>
       await workflowsUpdateWorkflow({
         workspaceId,
         workflowId,

@@ -3,7 +3,7 @@
 import "react18-json-view/src/style.css"
 
 import React from "react"
-import { ApiError, WebhookResponse, WorkflowResponse } from "@/client"
+import { ApiError, WebhookResponse, WorkflowRead } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
@@ -87,7 +87,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { TriggerTypename } from "@/components/workbench/canvas/trigger-node"
 
-export function TriggerPanel({ workflow }: { workflow: WorkflowResponse }) {
+export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   return (
     <div className="size-full overflow-auto">
       <div className="grid grid-cols-3">
