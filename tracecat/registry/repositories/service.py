@@ -1,39 +1,23 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Sequence
 
 from pydantic import UUID4
 from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryRepository
-from tracecat.logger import logger
 from tracecat.registry.repositories.models import (
     RegistryRepositoryCreate,
     RegistryRepositoryUpdate,
 )
-from tracecat.types.auth import Role
+from tracecat.service import BaseService
 
 
-class RegistryReposService:
+class RegistryReposService(BaseService):
     """Registry repository service."""
 
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        self.role = role or ctx_role.get()
-        self.session = session
-        self.logger = logger.bind(service="registry-repositories")
-
-    @asynccontextmanager
-    @staticmethod
-    async def with_session(
-        role: Role | None = None,
-    ) -> AsyncGenerator[RegistryReposService, None]:
-        async with get_async_session_context_manager() as session:
-            yield RegistryReposService(session, role=role)
+    service_name = "registry_repositories"
 
     async def list_repositories(self) -> Sequence[RegistryRepository]:
         """Get all registry repositories."""

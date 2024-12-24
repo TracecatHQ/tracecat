@@ -14,15 +14,15 @@ from tracecat.auth.users import (
 from tracecat.authz.controls import require_access_level
 from tracecat.db.schemas import AccessToken, User
 from tracecat.identifiers import SessionID, UserID
-from tracecat.service import Service
+from tracecat.service import BaseService
 from tracecat.types.auth import AccessLevel
 from tracecat.types.exceptions import TracecatAuthorizationError
 
 
-class OrgService(Service):
+class OrgService(BaseService):
     """Manage the organization."""
 
-    _service_name = "org"
+    service_name = "org"
 
     @asynccontextmanager
     async def _manager(self) -> AsyncGenerator[UserManager, None]:

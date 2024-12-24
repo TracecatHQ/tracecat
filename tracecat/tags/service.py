@@ -4,12 +4,12 @@ from sqlmodel import select
 
 from tracecat.db.schemas import Tag
 from tracecat.identifiers import TagID
-from tracecat.service import Service
+from tracecat.service import BaseService
 from tracecat.tags.models import TagCreate, TagUpdate
 
 
-class TagsService(Service):
-    _service_name = "tags"
+class TagsService(BaseService):
+    service_name = "tags"
 
     async def list_tags(self) -> Sequence[Tag]:
         workspace_id = self.role.workspace_id

@@ -5,11 +5,11 @@ from sqlmodel import select
 from tracecat.db.schemas import Tag, WorkflowTag
 from tracecat.identifiers import TagID
 from tracecat.identifiers.workflow import WorkflowID
-from tracecat.service import Service
+from tracecat.service import BaseService
 
 
-class WorkflowTagsService(Service):
-    _service_name = "workflow-tags"
+class WorkflowTagsService(BaseService):
+    service_name = "workflow_tags"
 
     async def list_tags_for_workflow(self, wf_id: WorkflowID) -> Sequence[Tag]:
         stmt = select(Tag).where(
