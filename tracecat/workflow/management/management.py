@@ -12,7 +12,6 @@ from tracecat.dsl.common import DSLEntrypoint, DSLInput, build_action_statements
 from tracecat.dsl.models import DSLConfig
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
-from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.service import BaseService
 from tracecat.types.exceptions import TracecatValidationError
@@ -135,15 +134,15 @@ class WorkflowsManagementService(BaseService):
             # Convert the workflow into a WorkflowDefinition
             # XXX: When we commit from the workflow, we have action IDs
             dsl = DSLInput.model_validate(dsl_data)
-            logger.info("Commiting workflow from database")
+            self.logger.info("Commiting workflow from database")
         except* TracecatValidationError as eg:
-            logger.error(eg.message, error=eg.exceptions)
+            self.logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
                 RegistryActionValidateResponse.from_dsl_validation_error(e)
                 for e in eg.exceptions
             )
         except* ValidationError as eg:
-            logger.error(eg.message, error=eg.exceptions)
+            self.logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
                 RegistryActionValidateResponse.from_pydantic_validation_error(e)
                 for e in eg.exceptions
@@ -153,7 +152,7 @@ class WorkflowsManagementService(BaseService):
 
         if not skip_secret_validation:
             if val_errors := await validate_dsl(session=self.session, dsl=dsl):
-                logger.warning("Validation errors", errors=val_errors)
+                self.logger.warning("Validation errors", errors=val_errors)
                 return CreateWorkflowFromDSLResponse(
                     errors=[
                         RegistryActionValidateResponse.from_validation_result(val_res)
@@ -161,13 +160,13 @@ class WorkflowsManagementService(BaseService):
                     ]
                 )
 
-        logger.warning("Creating workflow from DSL", dsl=dsl)
+        self.logger.warning("Creating workflow from DSL", dsl=dsl)
         try:
             workflow = await self._create_db_workflow_from_dsl(dsl)
             return CreateWorkflowFromDSLResponse(workflow=workflow)
         except Exception as e:
             # Rollback the transaction on error
-            logger.error(f"Error creating workflow: {e}")
+            self.logger.error(f"Error creating workflow: {e}")
             await self.session.rollback()
             raise e
 
@@ -192,10 +191,10 @@ class WorkflowsManagementService(BaseService):
             )
         graph_actions = graph.action_nodes()
         if len(graph_actions) != len(actions):
-            logger.warning(
+            self.logger.warning(
                 f"Mismatch between graph actions (view) and workflow actions (model): {len(graph_actions)=} != {len(actions)=}"
             )
-            logger.debug("Actions", graph_actions=graph_actions, actions=actions)
+            self.logger.debug("Actions", graph_actions=graph_actions, actions=actions)
             # NOTE: This likely occurs due to race conditions in the FE
             # To recover from this, we will use the RFGraph object (view) as the source
             # of truth, and remove any orphaned `Actions` in the database
@@ -258,7 +257,7 @@ class WorkflowsManagementService(BaseService):
         updated_at: datetime | None = None,
     ) -> Workflow:
         """Create a new workflow and associated actions in the database from a DSLInput."""
-        logger.info("Creating workflow from DSL", dsl=dsl)
+        self.logger.info("Creating workflow from DSL", dsl=dsl)
         entrypoint = dsl.entrypoint.model_dump()
         workflow_kwargs = {
             "title": dsl.title,
@@ -314,7 +313,7 @@ class WorkflowsManagementService(BaseService):
 
         # Create and set the graph for the Workflow
         base_graph = RFGraph.with_defaults(workflow)
-        logger.info("Creating graph for workflow", graph=base_graph)
+        self.logger.info("Creating graph for workflow", graph=base_graph)
 
         # Add DSL contents to the Workflow
         ref2id = {act.ref: act.id for act in actions}
@@ -342,4 +341,4 @@ class WorkflowsManagementService(BaseService):
                 continue
             await self.session.delete(action)
         await self.session.commit()
-        logger.info(f"Deleted orphaned action: {action.title}")
+        self.logger.info(f"Deleted orphaned action: {action.title}")
