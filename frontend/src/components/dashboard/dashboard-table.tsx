@@ -2,7 +2,7 @@
 
 import React, { useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { WorkflowMetadataResponse } from "@/client"
+import { TagRead, WorkflowMetadataResponse } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
@@ -155,19 +155,7 @@ export function WorkflowsDashboardTable() {
                   ?.length ? (
                   row
                     .getValue<WorkflowMetadataResponse["tags"]>("tags")
-                    ?.map((tag) => (
-                      <Badge
-                        key={tag.id}
-                        variant="secondary"
-                        className="text-xs"
-                        style={{
-                          backgroundColor: tag.color || undefined,
-                          color: tag.color ? "white" : undefined,
-                        }}
-                      >
-                        {tag.name}
-                      </Badge>
-                    ))
+                    ?.map((tag) => <TagBadge key={tag.id} tag={tag} />)
                 ) : (
                   <span className="text-xs text-muted-foreground">-</span>
                 )}
@@ -222,72 +210,89 @@ export function WorkflowsDashboardTable() {
                       >
                         Copy Workflow ID
                       </DropdownMenuItem>
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger
-                          className="text-xs"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          Tags
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuPortal>
-                          <DropdownMenuSubContent>
-                            {tags?.map((tag) => {
-                              const hasTag = row.original.tags?.some(
-                                (t) => t.id === tag.id
-                              )
-                              return (
-                                <DropdownMenuCheckboxItem
-                                  key={tag.id}
-                                  className="text-xs"
-                                  checked={hasTag}
-                                  onClick={async (e) => {
-                                    e.stopPropagation()
-                                    try {
-                                      if (hasTag) {
-                                        // Delete tag if already exists
-                                        await removeWorkflowTag({
-                                          workflowId: row.original.id,
-                                          workspaceId,
-                                          tagId: tag.id,
-                                        })
+                      {tags && tags.length > 0 ? (
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger
+                            className="text-xs"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Tags
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuPortal>
+                            <DropdownMenuSubContent>
+                              {/* No tags */}
+
+                              {tags.map((tag) => {
+                                const hasTag = row.original.tags?.some(
+                                  (t) => t.id === tag.id
+                                )
+                                return (
+                                  <DropdownMenuCheckboxItem
+                                    key={tag.id}
+                                    className="text-xs"
+                                    checked={hasTag}
+                                    onClick={async (e) => {
+                                      e.stopPropagation()
+                                      try {
+                                        if (hasTag) {
+                                          // Delete tag if already exists
+                                          await removeWorkflowTag({
+                                            workflowId: row.original.id,
+                                            workspaceId,
+                                            tagId: tag.id,
+                                          })
+                                          toast({
+                                            title: "Tag removed",
+                                            description: `Successfully removed tag "${tag.name}" from workflow`,
+                                          })
+                                        } else {
+                                          // Add tag if doesn't exist
+                                          await addWorkflowTag({
+                                            workflowId: row.original.id,
+                                            workspaceId,
+                                            requestBody: {
+                                              tag_id: tag.id,
+                                            },
+                                          })
+                                          toast({
+                                            title: "Tag added",
+                                            description: `Successfully added tag "${tag.name}" to workflow`,
+                                          })
+                                        }
+                                      } catch (error) {
+                                        console.error(
+                                          "Failed to modify tag:",
+                                          error
+                                        )
                                         toast({
-                                          title: "Tag removed",
-                                          description: `Successfully removed tag "${tag.name}" from workflow`,
-                                        })
-                                      } else {
-                                        // Add tag if doesn't exist
-                                        await addWorkflowTag({
-                                          workflowId: row.original.id,
-                                          workspaceId,
-                                          requestBody: {
-                                            tag_id: tag.id,
-                                          },
-                                        })
-                                        toast({
-                                          title: "Tag added",
-                                          description: `Successfully added tag "${tag.name}" to workflow`,
+                                          title: "Error",
+                                          description: `Failed to ${hasTag ? "remove" : "add"} tag ${hasTag ? "from" : "to"} workflow`,
+                                          variant: "destructive",
                                         })
                                       }
-                                    } catch (error) {
-                                      console.error(
-                                        "Failed to modify tag:",
-                                        error
-                                      )
-                                      toast({
-                                        title: "Error",
-                                        description: `Failed to ${hasTag ? "remove" : "add"} tag ${hasTag ? "from" : "to"} workflow`,
-                                        variant: "destructive",
-                                      })
-                                    }
-                                  }}
-                                >
-                                  {tag.name}
-                                </DropdownMenuCheckboxItem>
-                              )
-                            })}
-                          </DropdownMenuSubContent>
-                        </DropdownMenuPortal>
-                      </DropdownMenuSub>
+                                    }}
+                                  >
+                                    <div
+                                      className="mr-2 flex size-2 rounded-full"
+                                      style={{
+                                        backgroundColor: tag.color || undefined,
+                                      }}
+                                    />
+                                    <span>{tag.name}</span>
+                                  </DropdownMenuCheckboxItem>
+                                )
+                              })}
+                            </DropdownMenuSubContent>
+                          </DropdownMenuPortal>
+                        </DropdownMenuSub>
+                      ) : (
+                        <DropdownMenuItem
+                          className="!bg-transparent text-xs !text-muted-foreground hover:cursor-not-allowed"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span>No tags available</span>
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem
                         className="text-xs"
                         onClick={async (e) => {
@@ -366,4 +371,20 @@ const defaultToolbarProps: DataTableToolbarProps = {
     placeholder: "Search workflows...",
     column: "title",
   },
+}
+
+export function TagBadge({ tag }: { tag: TagRead }) {
+  return (
+    <Badge
+      key={tag.id}
+      variant="secondary"
+      className="text-xs"
+      style={{
+        backgroundColor: tag.color || undefined,
+        color: tag.color ? "white" : undefined,
+      }}
+    >
+      {tag.name}
+    </Badge>
+  )
 }

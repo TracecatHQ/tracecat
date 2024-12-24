@@ -5,13 +5,7 @@ import { useRouter } from "next/navigation"
 import { TagCreate, TagRead, TagUpdate } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
-import {
-  EllipsisIcon,
-  PencilIcon,
-  Plus,
-  Tag,
-  Trash2Icon,
-} from "lucide-react"
+import { EllipsisIcon, PencilIcon, Plus, Tag, Trash2Icon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import z from "zod"
 
@@ -73,11 +67,15 @@ const createTagSchema = z.object({
 
 export function WorkflowTagsSidebar({ workspaceId }: { workspaceId: string }) {
   const router = useRouter()
-  const { tags, createTag, tagsIsLoading, deleteTag } = useTags(workspaceId)
+  const { tags, createTag, tagsIsLoading } = useTags(workspaceId)
   const [showTagDialog, setShowTagDialog] = useState(false)
 
   const methods = useForm<TagCreate>({
     resolver: zodResolver(createTagSchema),
+    defaultValues: {
+      name: "",
+      color: "#aabbcc",
+    },
   })
 
   const handleCreateTag = async (params: TagCreate) => {
