@@ -34,11 +34,11 @@ from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import (
     CommitWorkflowResponse,
-    CreateWorkflowParams,
     ExternalWorkflowDefinition,
-    UpdateWorkflowParams,
-    WorkflowMetadataResponse,
-    WorkflowResponse,
+    WorkflowCreate,
+    WorkflowRead,
+    WorkflowReadMinimal,
+    WorkflowUpdate,
 )
 
 router = APIRouter(prefix="/workflows")
@@ -53,7 +53,7 @@ async def list_workflows(
         description="Filter workflows by tags",
         alias="tag",
     ),
-) -> list[WorkflowMetadataResponse]:
+) -> list[WorkflowReadMinimal]:
     """List workflows."""
     service = WorkflowsManagementService(session, role=role)
     workflows = await service.list_workflows(tags=filter_tags)
@@ -63,7 +63,7 @@ async def list_workflows(
             TagRead.model_validate(tag, from_attributes=True) for tag in workflow.tags
         ]
         res.append(
-            WorkflowMetadataResponse(
+            WorkflowReadMinimal(
                 id=workflow.id,
                 title=workflow.title,
                 description=workflow.description,
@@ -85,7 +85,7 @@ async def create_workflow(
     title: str | None = Form(None),
     description: str | None = Form(None),
     file: UploadFile | None = File(None),
-) -> WorkflowMetadataResponse:
+) -> WorkflowReadMinimal:
     """Create a new Workflow.
 
     Optionally, you can provide a YAML file to create a workflow.
@@ -153,9 +153,9 @@ async def create_workflow(
             ) from e
     else:
         workflow = await service.create_workflow(
-            CreateWorkflowParams(title=title, description=description)
+            WorkflowCreate(title=title, description=description)
         )
-    return WorkflowMetadataResponse(
+    return WorkflowReadMinimal(
         id=workflow.id,
         title=workflow.title,
         description=workflow.description,
@@ -172,7 +172,7 @@ async def get_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: WorkflowID,
-) -> WorkflowResponse:
+) -> WorkflowRead:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     # Get Workflow given workflow_id
     service = WorkflowsManagementService(session, role=role)
@@ -187,7 +187,7 @@ async def get_workflow(
         action.id: ActionRead(**action.model_dump()) for action in actions
     }
     # Add webhook/schedules
-    return WorkflowResponse(
+    return WorkflowRead(
         id=workflow.id,
         owner_id=workflow.owner_id,
         title=workflow.title,
@@ -215,7 +215,7 @@ async def update_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: WorkflowID,
-    params: UpdateWorkflowParams,
+    params: WorkflowUpdate,
 ) -> None:
     """Update a workflow."""
     service = WorkflowsManagementService(session, role=role)

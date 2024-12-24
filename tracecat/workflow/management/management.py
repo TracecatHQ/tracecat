@@ -19,9 +19,9 @@ from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.models import (
     CreateWorkflowFromDSLResponse,
-    CreateWorkflowParams,
     ExternalWorkflowDefinition,
-    UpdateWorkflowParams,
+    WorkflowCreate,
+    WorkflowUpdate,
 )
 
 
@@ -67,7 +67,7 @@ class WorkflowsManagementService(BaseService):
         return result.one_or_none()
 
     async def update_wrkflow(
-        self, workflow_id: WorkflowID, params: UpdateWorkflowParams
+        self, workflow_id: WorkflowID, params: WorkflowUpdate
     ) -> Workflow:
         statement = select(Workflow).where(
             Workflow.owner_id == self.role.workspace_id,
@@ -93,7 +93,7 @@ class WorkflowsManagementService(BaseService):
         await self.session.delete(workflow)
         await self.session.commit()
 
-    async def create_workflow(self, params: CreateWorkflowParams) -> Workflow:
+    async def create_workflow(self, params: WorkflowCreate) -> Workflow:
         """Create a new workflow."""
 
         now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
