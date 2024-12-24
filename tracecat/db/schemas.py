@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, ConfigDict, computed_field, field_validator
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, text
+from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
@@ -32,17 +32,19 @@ class Resource(SQLModel):
     surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
     owner_id: OwnerID
     created_at: datetime = Field(
+        default_factory=datetime.now,  # Appease type checker
         sa_type=TIMESTAMP(timezone=True),  # type: ignore
         sa_column_kwargs={
-            "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
+            "server_default": func.now(),
             "nullable": False,
         },
     )
     updated_at: datetime = Field(
+        default_factory=datetime.now,  # Appease type checker
         sa_type=TIMESTAMP(timezone=True),  # type: ignore
         sa_column_kwargs={
-            "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
-            "onupdate": text("(now() AT TIME ZONE 'utc'::text)"),
+            "server_default": func.now(),
+            "onupdate": func.now(),
             "nullable": False,
         },
     )
