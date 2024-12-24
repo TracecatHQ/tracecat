@@ -50,6 +50,14 @@ import {
   secretsUpdateSecretById,
   SecretUpdate,
   SessionRead,
+  TagRead,
+  tagsCreateTag,
+  TagsCreateTagData,
+  tagsDeleteTag,
+  TagsDeleteTagData,
+  tagsListTags,
+  tagsUpdateTag,
+  TagsUpdateTagData,
   triggersUpdateWebhook,
   UpsertWebhookParams,
   usersUsersPatchCurrentUser,
@@ -58,10 +66,14 @@ import {
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
   WorkflowMetadataResponse,
+  workflowsAddTag,
+  WorkflowsAddTagData,
   workflowsCreateWorkflow,
   WorkflowsCreateWorkflowData,
   workflowsDeleteWorkflow,
   workflowsListWorkflows,
+  workflowsRemoveTag,
+  WorkflowsRemoveTagData,
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
@@ -69,6 +81,7 @@ import {
 import { useWorkspace } from "@/providers/workspace"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
+import { CircleCheck } from "lucide-react"
 
 import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { toast } from "@/components/ui/use-toast"
@@ -172,7 +185,11 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   return mutation
 }
 
-export function useWorkflowManager() {
+interface WorkflowFilter {
+  tag?: string[]
+}
+
+export function useWorkflowManager(filter?: WorkflowFilter) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
 
@@ -182,8 +199,9 @@ export function useWorkflowManager() {
     isLoading: workflowsLoading,
     error: workflowsError,
   } = useQuery<WorkflowMetadataResponse[], ApiError>({
-    queryKey: ["workflows"],
-    queryFn: async () => await workflowsListWorkflows({ workspaceId }),
+    queryKey: ["workflows", filter?.tag],
+    queryFn: async () =>
+      await workflowsListWorkflows({ workspaceId, tag: filter?.tag }),
     retry: retryHandler,
   })
 
@@ -255,12 +273,44 @@ export function useWorkflowManager() {
       }
     },
   })
+  // Add tag to workflow
+  const { mutateAsync: addWorkflowTag } = useMutation({
+    mutationFn: async (params: WorkflowsAddTagData) =>
+      await workflowsAddTag(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to add tag to workflow:", error)
+      toast({
+        title: "Couldn't add tag to workflow",
+        description: error.body.detail + ". Please try again.",
+      })
+    },
+  })
+  // Remove tag from workflow
+  const { mutateAsync: removeWorkflowTag } = useMutation({
+    mutationFn: async (params: WorkflowsRemoveTagData) =>
+      await workflowsRemoveTag(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to remove tag from workflow:", error)
+      toast({
+        title: "Couldn't remove tag from workflow",
+        description: error.body.detail + ". Please try again.",
+      })
+    },
+  })
   return {
     workflows,
     workflowsLoading,
     workflowsError,
     createWorkflow,
     deleteWorkflow,
+    addWorkflowTag,
+    removeWorkflowTag,
   }
 }
 
@@ -1229,5 +1279,141 @@ export function useSessions() {
     deleteSession,
     deleteSessionIsPending,
     deleteSessionError,
+  }
+}
+
+export function useTags(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  // List tags
+  const {
+    data: tags,
+    isLoading: tagsIsLoading,
+    error: tagsError,
+  } = useQuery<TagRead[]>({
+    queryKey: ["tags", workspaceId],
+    queryFn: async () => await tagsListTags({ workspaceId }),
+  })
+
+  // Create tag
+  const {
+    mutateAsync: createTag,
+    isPending: createTagIsPending,
+    error: createTagError,
+  } = useMutation({
+    mutationFn: async (params: TagsCreateTagData) =>
+      await tagsCreateTag(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tags", workspaceId] })
+      toast({
+        title: "Created tag",
+        description: (
+          <div className="flex items-center space-x-2">
+            <CircleCheck className="size-4 fill-emerald-500 stroke-white" />
+            <span>Tag created successfully.</span>
+          </div>
+        ),
+      })
+    },
+
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          console.error("Error creating tag", error)
+          toast({
+            title: "Error creating tag",
+            description: String(error.body.detail),
+          })
+          break
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to create tag", error)
+          toast({
+            title: "Failed to create tag",
+            description: `An error occurred while creating the tag: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  // Update tag
+  const {
+    mutateAsync: updateTag,
+    isPending: updateTagIsPending,
+    error: updateTagError,
+  } = useMutation({
+    mutationFn: async (params: TagsUpdateTagData) =>
+      await tagsUpdateTag(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tags", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      toast({
+        title: "Updated tag",
+        description: "Tag updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          console.error("Error updating tag", error)
+          toast({
+            title: "Error updating tag",
+            description: String(error.body.detail),
+          })
+          break
+      }
+    },
+  })
+
+  // Delete tag
+  const {
+    mutateAsync: deleteTag,
+    isPending: deleteTagIsPending,
+    error: deleteTagError,
+  } = useMutation({
+    mutationFn: async (params: TagsDeleteTagData) =>
+      await tagsDeleteTag(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tags", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      toast({
+        title: "Deleted tag",
+        description: "Tag deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+      }
+    },
+  })
+
+  return {
+    // List
+    tags,
+    tagsIsLoading,
+    tagsError,
+    // Create
+    createTag,
+    createTagIsPending,
+    createTagError,
+    // Update
+    updateTag,
+    updateTagIsPending,
+    updateTagError,
+    // Delete
+    deleteTag,
+    deleteTagIsPending,
+    deleteTagError,
   }
 }
