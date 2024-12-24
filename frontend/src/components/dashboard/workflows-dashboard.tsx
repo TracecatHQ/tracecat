@@ -29,7 +29,8 @@ export function WorkflowsDashboard() {
 
   // If we nagivate to a tag that doesn't exist, redirect to the workflows page
   if (queryTag && !tags?.some((tag) => tag.name === queryTag)) {
-    return router.push(`/workspaces/${workspaceId}/workflows`)
+    router.push(`/workspaces/${workspaceId}/workflows`)
+    return null
   }
   return (
     <div className="size-full overflow-auto">
