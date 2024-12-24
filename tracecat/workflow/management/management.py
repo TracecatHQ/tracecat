@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
 from sqlmodel import and_, col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Action, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, build_action_statements
 from tracecat.dsl.models import DSLConfig
@@ -18,7 +14,7 @@ from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.types.auth import Role
+from tracecat.service import BaseService
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.models import ActionControlFlow
@@ -30,21 +26,10 @@ from tracecat.workflow.management.models import (
 )
 
 
-class WorkflowsManagementService:
+class WorkflowsManagementService(BaseService):
     """Manages CRUD operations for Workflows."""
 
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        self.role = role or ctx_role.get()
-        self.session = session
-        self.logger = logger.bind(service="workflows")
-
-    @asynccontextmanager
-    @staticmethod
-    async def with_session(
-        role: Role | None = None,
-    ) -> AsyncGenerator[WorkflowsManagementService, None]:
-        async with get_async_session_context_manager() as session:
-            yield WorkflowsManagementService(session, role=role)
+    service_name = "workflows"
 
     async def list_workflows(
         self, *, tags: list[str] | None = None

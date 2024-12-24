@@ -1,20 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Sequence
 
 from pydantic import UUID4
 from pydantic_core import to_jsonable_python
 from sqlalchemy import Boolean
 from sqlmodel import cast, func, or_, select
-from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry import RegistrySecret
 
 from tracecat import config
-from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryAction, RegistryRepository
-from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     BoundRegistryAction,
     RegistryActionCreate,
@@ -25,25 +20,14 @@ from tracecat.registry.actions.models import (
 )
 from tracecat.registry.loaders import get_bound_action_impl
 from tracecat.registry.repository import Repository
-from tracecat.types.auth import Role
+from tracecat.service import BaseService
 from tracecat.types.exceptions import RegistryError
 
 
-class RegistryActionsService:
+class RegistryActionsService(BaseService):
     """Registry actions service."""
 
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        self.role = role or ctx_role.get()
-        self.session = session
-        self.logger = logger.bind(service="registry_actions")
-
-    @asynccontextmanager
-    @staticmethod
-    async def with_session(
-        role: Role | None = None,
-    ) -> AsyncGenerator[RegistryActionsService, None]:
-        async with get_async_session_context_manager() as session:
-            yield RegistryActionsService(session, role=role)
+    service_name = "registry_actions"
 
     async def list_actions(
         self,
