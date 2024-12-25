@@ -4,9 +4,9 @@ import asyncio
 import itertools
 import json
 import uuid
-from collections.abc import Generator, Iterable
+from collections.abc import Generator, Iterable, Iterator
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -428,7 +428,10 @@ class DSLWorkflow:
             fail_strategy=fail_strategy,
         )
 
-        iterator = iter_for_each(task=task, context=self.context)
+        iterator = cast(
+            Iterator[ExecuteChildWorkflowArgs],
+            iter_for_each(task=task, context=self.context),
+        )
         if loop_strategy == LoopStrategy.PARALLEL:
             action_result = await self._execute_child_workflow_batch(
                 batch=iterator,
@@ -560,7 +563,7 @@ class DSLWorkflow:
 
     async def _get_schedule_trigger_inputs(
         self, schedule_id: identifiers.ScheduleID, worflow_id: identifiers.WorkflowID
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         """Get the trigger inputs for a schedule.
 
         Raises
