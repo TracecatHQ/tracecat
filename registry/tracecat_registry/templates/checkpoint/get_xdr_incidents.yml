@@ -14,10 +14,10 @@ definition:
       type: datetime
       description: The end date (YYYY-MM-DDTHH:mm:ss.ssZ) of the time frame to look from (default is today)
       default: null
-    filter:
+    filter_by:
       type: str
-      description: (Optional) Additional filter to apply to alerts.
-      default: null
+      description: Filter by `createdAt` or `updatedAt`.
+      default: updatedAt
   steps:
     - ref: get_auth_token
       action: integrations.check_point.get_auth_token
