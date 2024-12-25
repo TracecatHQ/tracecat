@@ -1,0 +1,27 @@
+# https://developer.jamf.com/jamf-pro/reference/get_preview-computers
+type: action
+definition:
+  name: list_computer_inventory
+  namespace: integrations.jamf
+  title: List Computer Inventory
+  description: List all computers in the Jamf Pro inventory
+  display_group: Jamf
+  expects:
+    limit:
+      type: int
+      description: The maximum number of computers to return.
+      default: 100
+  steps:
+    - ref: get_auth_token
+      action: integrations.jamf.get_auth_token
+      args: {}
+    - ref: list_computer_inventory
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.jamf.JAMF_BASE_URL }}/api/preview/computers
+        method: GET
+        headers:
+          Authorization: Bearer ${{ steps.get_auth_token.result }}
+        params:
+          page-size: ${{ inputs.limit }}
+  returns: ${{ steps.list_computer_inventory.result }}
