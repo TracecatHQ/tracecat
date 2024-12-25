@@ -28,7 +28,7 @@ definition:
         url: https://cloudinfra-gw.portal.checkpoint.com/app/xdr/api/xdr/v1/incidents/
         method: GET
         params:
-          filterBy: ${{ inputs.filter }}
+          filterBy: ${{ inputs.filter_by }}
           from: ${{ inputs.start_time || (FN.now() - FN.days(7)) }}
           to: ${{ inputs.end_time || FN.now() }}
         timeout: 60
