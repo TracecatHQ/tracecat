@@ -12,6 +12,7 @@ definition:
     text:
       type: str
       description: Text of the message to post
+      default: null
     blocks:
       type: any
       description: Blocks of the message to post
