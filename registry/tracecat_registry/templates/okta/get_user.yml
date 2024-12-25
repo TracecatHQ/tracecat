@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Get Okta User
-  description: Get an Okta user by ID or Login
+  description: Retrieve an Okta user by ID or Login
   display_group: Okta
   namespace: integrations.okta
   name: get_user
