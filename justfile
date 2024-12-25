@@ -45,5 +45,5 @@ _check-cli:
 gen-api: _check-cli
 	LOG_LEVEL=ERROR tracecat dev generate-spec --update-docs
 
-gen-secrets: _check-cli
-	tracecat dev generate-secrets
+gen-integrations: _check-cli
+	tracecat dev gen-integrations
