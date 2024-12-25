@@ -1,43 +1,24 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-
 from pydantic import UUID4
 from sqlalchemy import func
 from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.authz.controls import require_access_level
 from tracecat.authz.models import OwnerType
-from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Membership, Ownership, User, Workspace
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
-from tracecat.logger import logger
-from tracecat.types.auth import AccessLevel, Role
+from tracecat.service import BaseService
+from tracecat.types.auth import AccessLevel
 from tracecat.types.exceptions import TracecatException, TracecatManagementError
 from tracecat.workspaces.models import SearchWorkspacesParams, UpdateWorkspaceParams
 
 
-class WorkspaceService:
+class WorkspaceService(BaseService):
     """Manage workspaces."""
 
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        self.session = session
-        self.role = role or ctx_role.get()
-        self.logger = logger.bind(service="workspace")
-
-    @asynccontextmanager
-    @staticmethod
-    async def with_session(
-        role: Role | None = None,
-    ) -> AsyncGenerator[WorkspaceService, None]:
-        async with get_async_session_context_manager() as session:
-            yield WorkspaceService(session, role=role)
-
-    """Management"""
+    service_name = "workspace"
 
     @require_access_level(AccessLevel.ADMIN)
     async def admin_list_workspaces(self, limit: int | None = None) -> list[Workspace]:

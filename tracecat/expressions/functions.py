@@ -10,6 +10,7 @@ import re
 import zoneinfo
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
+from enum import StrEnum
 from functools import wraps
 from html.parser import HTMLParser
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
@@ -21,7 +22,7 @@ import jsonpath_ng.ext
 import orjson
 from jsonpath_ng.exceptions import JsonPathParserError
 
-from tracecat.expressions.shared import ExprContext
+from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import is_iterable
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatExpressionError
@@ -742,7 +743,7 @@ def filter_[T: Any](items: Sequence[T], python_lambda: str) -> list[T]:
 
 def eval_jsonpath(
     expr: str,
-    operand: Mapping[str, Any],
+    operand: Mapping[str | StrEnum, Any],
     *,
     context_type: ExprContext | None = None,
     strict: bool = False,
@@ -939,7 +940,7 @@ def mappable(func: F) -> F:
         zipped_args = zip(*iterables, strict=False)
         return [func(*zipped) for zipped in zipped_args]
 
-    wrapper.map = broadcast_map
+    wrapper.map = broadcast_map  # type: ignore
     wrapper.__doc__ = func.__doc__
     return wrapper
 

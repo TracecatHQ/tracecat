@@ -42,10 +42,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.models import (
         ActionStatement,
         DSLConfig,
-        DSLContext,
         DSLEnvironment,
         DSLExecutionError,
         DSLNodeResult,
+        ExecutionContext,
         RunActionInput,
         TriggerInputs,
     )
@@ -55,7 +55,7 @@ with workflow.unsafe.imports_passed_through():
         validate_trigger_inputs_activity,
     )
     from tracecat.expressions.eval import eval_templated_object
-    from tracecat.expressions.shared import ExprContext
+    from tracecat.expressions.common import ExprContext
     from tracecat.logger import logger
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.types.exceptions import (
@@ -225,11 +225,11 @@ class DSLWorkflow:
             ) from e
 
         # Prepare user facing context
-        self.context = DSLContext(
-            ACTIONS={},
-            INPUTS=self.dsl.inputs,
-            TRIGGER=trigger_inputs,
-            ENV=DSLEnvironment(
+        self.context: ExecutionContext = {
+            ExprContext.ACTIONS: {},
+            ExprContext.INPUTS: self.dsl.inputs,
+            ExprContext.TRIGGER: trigger_inputs,
+            ExprContext.ENV: DSLEnvironment(
                 workflow={
                     "start_time": wf_info.start_time,
                     "dispatch_type": self.dispatch_type,
@@ -237,7 +237,7 @@ class DSLWorkflow:
                 environment=self.runtime_config.environment,
                 variables={},
             ),
-        )
+        }
 
         # All the starting config has been consolidated, can safely set the run context
         # Internal facing context
@@ -657,7 +657,7 @@ class DSLWorkflow:
 
     async def _run_child_workflow(self, run_args: DSLRunArgs) -> Any:
         self.logger.info("Running child workflow", run_args=run_args)
-        wf_exec_id = identifiers.workflow.exec_id(run_args.wf_id)
+        wf_exec_id = identifiers.workflow.generate_exec_id(run_args.wf_id)
         wf_info = workflow.info()
         return await workflow.execute_child_workflow(
             DSLWorkflow.run,

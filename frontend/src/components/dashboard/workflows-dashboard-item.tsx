@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { WorkflowMetadataResponse } from "@/client"
+import { WorkflowReadMinimal } from "@/client"
 
 import { cn } from "@/lib/utils"
 
@@ -8,7 +8,7 @@ export function WorkflowItem({
   workflow,
 }: {
   workspaceId: string
-  workflow: WorkflowMetadataResponse
+  workflow: WorkflowReadMinimal
 }) {
   return (
     <Link

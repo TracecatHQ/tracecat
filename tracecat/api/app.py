@@ -34,6 +34,7 @@ from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.secrets.router import router as secrets_router
+from tracecat.tags.router import router as tags_router
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
 from tracecat.webhooks.router import router as webhook_router
@@ -41,6 +42,7 @@ from tracecat.workflow.actions.router import router as workflow_actions_router
 from tracecat.workflow.executions.router import router as workflow_executions_router
 from tracecat.workflow.management.router import router as workflow_management_router
 from tracecat.workflow.schedules.router import router as schedules_router
+from tracecat.workflow.tags.router import router as workflow_tags_router
 from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
 
@@ -49,12 +51,12 @@ from tracecat.workspaces.service import WorkspaceService
 async def lifespan(app: FastAPI):
     role = bootstrap_role()
     async with get_async_session_context_manager() as session:
-        await setup_defaults(session, role)
+        await setup_workspace_defaults(session, role)
         await setup_registry(session, role)
     yield
 
 
-async def setup_defaults(session: AsyncSession, admin_role: Role):
+async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
     ws_service = WorkspaceService(session, role=admin_role)
     workspaces = await ws_service.admin_list_workspaces()
     n_workspaces = len(workspaces)
@@ -135,8 +137,10 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_management_router)
     app.include_router(workflow_executions_router)
     app.include_router(workflow_actions_router)
+    app.include_router(workflow_tags_router)
     app.include_router(secrets_router)
     app.include_router(schedules_router)
+    app.include_router(tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
     app.include_router(editor_router)
@@ -202,14 +206,6 @@ def create_app(**kwargs) -> FastAPI:
 
         logger.info("SAML auth type enabled")
         app.include_router(saml_router)
-
-    # Development endpoints
-    if config.TRACECAT__APP_ENV == "development":
-        # XXX(security): This is a security risk. Do not run this in production.
-        from tracecat.testing.registry import router as registry_testing_router
-
-        app.include_router(registry_testing_router)
-        logger.warning("Development endpoints enabled. Do not run this in production.")
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)

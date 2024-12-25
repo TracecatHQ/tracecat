@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicIncomingWebhookWaitData, PublicIncomingWebhookWaitResponse, WorkspacesListWorkspacesResponse, WorkspacesCreateWorkspaceData, WorkspacesCreateWorkspaceResponse, WorkspacesSearchWorkspacesData, WorkspacesSearchWorkspacesResponse, WorkspacesGetWorkspaceData, WorkspacesGetWorkspaceResponse, WorkspacesUpdateWorkspaceData, WorkspacesUpdateWorkspaceResponse, WorkspacesDeleteWorkspaceData, WorkspacesDeleteWorkspaceResponse, WorkspacesListWorkspaceMembershipsData, WorkspacesListWorkspaceMembershipsResponse, WorkspacesCreateWorkspaceMembershipData, WorkspacesCreateWorkspaceMembershipResponse, WorkspacesGetWorkspaceMembershipData, WorkspacesGetWorkspaceMembershipResponse, WorkspacesDeleteWorkspaceMembershipData, WorkspacesDeleteWorkspaceMembershipResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsExportWorkflowData, WorkflowsExportWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, SecretsListSecretsData, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretByNameData, SecretsGetSecretByNameResponse, SecretsUpdateSecretByIdData, SecretsUpdateSecretByIdResponse, SecretsDeleteSecretByIdData, SecretsDeleteSecretByIdResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, UsersSearchUserData, UsersSearchUserResponse, OrganizationListOrgMembersResponse, OrganizationDeleteOrgMemberData, OrganizationDeleteOrgMemberResponse, OrganizationUpdateOrgMemberData, OrganizationUpdateOrgMemberResponse, OrganizationListSessionsResponse, OrganizationDeleteSessionData, OrganizationDeleteSessionResponse, EditorListFunctionsData, EditorListFunctionsResponse, EditorListActionsData, EditorListActionsResponse, RegistryRepositoriesSyncRegistryRepositoryData, RegistryRepositoriesSyncRegistryRepositoryResponse, RegistryRepositoriesSyncExecutorFromRegistryRepositoryData, RegistryRepositoriesSyncExecutorFromRegistryRepositoryResponse, RegistryRepositoriesListRegistryRepositoriesResponse, RegistryRepositoriesCreateRegistryRepositoryData, RegistryRepositoriesCreateRegistryRepositoryResponse, RegistryRepositoriesGetRegistryRepositoryData, RegistryRepositoriesGetRegistryRepositoryResponse, RegistryRepositoriesUpdateRegistryRepositoryData, RegistryRepositoriesUpdateRegistryRepositoryResponse, RegistryRepositoriesDeleteRegistryRepositoryData, RegistryRepositoriesDeleteRegistryRepositoryResponse, RegistryActionsListRegistryActionsResponse, RegistryActionsCreateRegistryActionData, RegistryActionsCreateRegistryActionResponse, RegistryActionsGetRegistryActionData, RegistryActionsGetRegistryActionResponse, RegistryActionsUpdateRegistryActionData, RegistryActionsUpdateRegistryActionResponse, RegistryActionsDeleteRegistryActionData, RegistryActionsDeleteRegistryActionResponse, UsersUsersCurrentUserResponse, UsersUsersPatchCurrentUserData, UsersUsersPatchCurrentUserResponse, UsersUsersUserData, UsersUsersUserResponse, UsersUsersPatchUserData, UsersUsersPatchUserResponse, UsersUsersDeleteUserData, UsersUsersDeleteUserResponse, AuthAuthDatabaseLoginData, AuthAuthDatabaseLoginResponse, AuthAuthDatabaseLogoutResponse, AuthRegisterRegisterData, AuthRegisterRegisterResponse, AuthResetForgotPasswordData, AuthResetForgotPasswordResponse, AuthResetResetPasswordData, AuthResetResetPasswordResponse, AuthVerifyRequestTokenData, AuthVerifyRequestTokenResponse, AuthVerifyVerifyData, AuthVerifyVerifyResponse, AuthOauthGoogleDatabaseAuthorizeData, AuthOauthGoogleDatabaseAuthorizeResponse, AuthOauthGoogleDatabaseCallbackData, AuthOauthGoogleDatabaseCallbackResponse, AuthSamlDatabaseLoginResponse, AuthSsoAcsData, AuthSsoAcsResponse, PublicCheckHealthResponse } from './types.gen';
+import type { PublicIncomingWebhookData, PublicIncomingWebhookResponse, PublicIncomingWebhookWaitData, PublicIncomingWebhookWaitResponse, WorkspacesListWorkspacesResponse, WorkspacesCreateWorkspaceData, WorkspacesCreateWorkspaceResponse, WorkspacesSearchWorkspacesData, WorkspacesSearchWorkspacesResponse, WorkspacesGetWorkspaceData, WorkspacesGetWorkspaceResponse, WorkspacesUpdateWorkspaceData, WorkspacesUpdateWorkspaceResponse, WorkspacesDeleteWorkspaceData, WorkspacesDeleteWorkspaceResponse, WorkspacesListWorkspaceMembershipsData, WorkspacesListWorkspaceMembershipsResponse, WorkspacesCreateWorkspaceMembershipData, WorkspacesCreateWorkspaceMembershipResponse, WorkspacesGetWorkspaceMembershipData, WorkspacesGetWorkspaceMembershipResponse, WorkspacesDeleteWorkspaceMembershipData, WorkspacesDeleteWorkspaceMembershipResponse, WorkflowsListWorkflowsData, WorkflowsListWorkflowsResponse, WorkflowsCreateWorkflowData, WorkflowsCreateWorkflowResponse, WorkflowsGetWorkflowData, WorkflowsGetWorkflowResponse, WorkflowsUpdateWorkflowData, WorkflowsUpdateWorkflowResponse, WorkflowsDeleteWorkflowData, WorkflowsDeleteWorkflowResponse, WorkflowsCommitWorkflowData, WorkflowsCommitWorkflowResponse, WorkflowsExportWorkflowData, WorkflowsExportWorkflowResponse, WorkflowsGetWorkflowDefinitionData, WorkflowsGetWorkflowDefinitionResponse, WorkflowsCreateWorkflowDefinitionData, WorkflowsCreateWorkflowDefinitionResponse, TriggersCreateWebhookData, TriggersCreateWebhookResponse, TriggersGetWebhookData, TriggersGetWebhookResponse, TriggersUpdateWebhookData, TriggersUpdateWebhookResponse, WorkflowExecutionsListWorkflowExecutionsData, WorkflowExecutionsListWorkflowExecutionsResponse, WorkflowExecutionsCreateWorkflowExecutionData, WorkflowExecutionsCreateWorkflowExecutionResponse, WorkflowExecutionsGetWorkflowExecutionData, WorkflowExecutionsGetWorkflowExecutionResponse, WorkflowExecutionsListWorkflowExecutionEventHistoryData, WorkflowExecutionsListWorkflowExecutionEventHistoryResponse, WorkflowExecutionsCancelWorkflowExecutionData, WorkflowExecutionsCancelWorkflowExecutionResponse, WorkflowExecutionsTerminateWorkflowExecutionData, WorkflowExecutionsTerminateWorkflowExecutionResponse, ActionsListActionsData, ActionsListActionsResponse, ActionsCreateActionData, ActionsCreateActionResponse, ActionsGetActionData, ActionsGetActionResponse, ActionsUpdateActionData, ActionsUpdateActionResponse, ActionsDeleteActionData, ActionsDeleteActionResponse, WorkflowsListTagsData, WorkflowsListTagsResponse, WorkflowsAddTagData, WorkflowsAddTagResponse, WorkflowsRemoveTagData, WorkflowsRemoveTagResponse, SecretsSearchSecretsData, SecretsSearchSecretsResponse, SecretsListSecretsData, SecretsListSecretsResponse, SecretsCreateSecretData, SecretsCreateSecretResponse, SecretsGetSecretByNameData, SecretsGetSecretByNameResponse, SecretsUpdateSecretByIdData, SecretsUpdateSecretByIdResponse, SecretsDeleteSecretByIdData, SecretsDeleteSecretByIdResponse, SchedulesListSchedulesData, SchedulesListSchedulesResponse, SchedulesCreateScheduleData, SchedulesCreateScheduleResponse, SchedulesGetScheduleData, SchedulesGetScheduleResponse, SchedulesUpdateScheduleData, SchedulesUpdateScheduleResponse, SchedulesDeleteScheduleData, SchedulesDeleteScheduleResponse, SchedulesSearchSchedulesData, SchedulesSearchSchedulesResponse, TagsListTagsData, TagsListTagsResponse, TagsCreateTagData, TagsCreateTagResponse, TagsGetTagData, TagsGetTagResponse, TagsUpdateTagData, TagsUpdateTagResponse, TagsDeleteTagData, TagsDeleteTagResponse, UsersSearchUserData, UsersSearchUserResponse, OrganizationListOrgMembersResponse, OrganizationDeleteOrgMemberData, OrganizationDeleteOrgMemberResponse, OrganizationUpdateOrgMemberData, OrganizationUpdateOrgMemberResponse, OrganizationListSessionsResponse, OrganizationDeleteSessionData, OrganizationDeleteSessionResponse, EditorListFunctionsData, EditorListFunctionsResponse, EditorListActionsData, EditorListActionsResponse, RegistryRepositoriesSyncRegistryRepositoryData, RegistryRepositoriesSyncRegistryRepositoryResponse, RegistryRepositoriesSyncExecutorFromRegistryRepositoryData, RegistryRepositoriesSyncExecutorFromRegistryRepositoryResponse, RegistryRepositoriesListRegistryRepositoriesResponse, RegistryRepositoriesCreateRegistryRepositoryData, RegistryRepositoriesCreateRegistryRepositoryResponse, RegistryRepositoriesGetRegistryRepositoryData, RegistryRepositoriesGetRegistryRepositoryResponse, RegistryRepositoriesUpdateRegistryRepositoryData, RegistryRepositoriesUpdateRegistryRepositoryResponse, RegistryRepositoriesDeleteRegistryRepositoryData, RegistryRepositoriesDeleteRegistryRepositoryResponse, RegistryActionsListRegistryActionsResponse, RegistryActionsCreateRegistryActionData, RegistryActionsCreateRegistryActionResponse, RegistryActionsGetRegistryActionData, RegistryActionsGetRegistryActionResponse, RegistryActionsUpdateRegistryActionData, RegistryActionsUpdateRegistryActionResponse, RegistryActionsDeleteRegistryActionData, RegistryActionsDeleteRegistryActionResponse, UsersUsersCurrentUserResponse, UsersUsersPatchCurrentUserData, UsersUsersPatchCurrentUserResponse, UsersUsersUserData, UsersUsersUserResponse, UsersUsersPatchUserData, UsersUsersPatchUserResponse, UsersUsersDeleteUserData, UsersUsersDeleteUserResponse, AuthAuthDatabaseLoginData, AuthAuthDatabaseLoginResponse, AuthAuthDatabaseLogoutResponse, AuthRegisterRegisterData, AuthRegisterRegisterResponse, AuthResetForgotPasswordData, AuthResetForgotPasswordResponse, AuthResetResetPasswordData, AuthResetResetPasswordResponse, AuthVerifyRequestTokenData, AuthVerifyRequestTokenResponse, AuthVerifyVerifyData, AuthVerifyVerifyResponse, AuthOauthGoogleDatabaseAuthorizeData, AuthOauthGoogleDatabaseAuthorizeResponse, AuthOauthGoogleDatabaseCallbackData, AuthOauthGoogleDatabaseCallbackResponse, AuthSamlDatabaseLoginResponse, AuthSsoAcsData, AuthSsoAcsResponse, PublicCheckHealthResponse } from './types.gen';
 
 /**
  * Incoming Webhook
@@ -43,7 +43,7 @@ export const publicIncomingWebhook = (data: PublicIncomingWebhookData): Cancelab
  * @param data.path
  * @param data.secret
  * @param data.contentType
- * @returns DSLContext Successful Response
+ * @returns unknown Successful Response
  * @throws ApiError
  */
 export const publicIncomingWebhookWait = (data: PublicIncomingWebhookWaitData): CancelablePromise<PublicIncomingWebhookWaitResponse> => { return __request(OpenAPI, {
@@ -266,13 +266,15 @@ export const workspacesDeleteWorkspaceMembership = (data: WorkspacesDeleteWorksp
  * List workflows.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns WorkflowMetadataResponse Successful Response
+ * @param data.tag Filter workflows by tags
+ * @returns WorkflowReadMinimal Successful Response
  * @throws ApiError
  */
 export const workflowsListWorkflows = (data: WorkflowsListWorkflowsData): CancelablePromise<WorkflowsListWorkflowsResponse> => { return __request(OpenAPI, {
     method: 'GET',
     url: '/workflows',
     query: {
+        tag: data.tag,
         workspace_id: data.workspaceId
     },
     errors: {
@@ -289,7 +291,7 @@ export const workflowsListWorkflows = (data: WorkflowsListWorkflowsData): Cancel
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.formData
- * @returns WorkflowMetadataResponse Successful Response
+ * @returns WorkflowReadMinimal Successful Response
  * @throws ApiError
  */
 export const workflowsCreateWorkflow = (data: WorkflowsCreateWorkflowData): CancelablePromise<WorkflowsCreateWorkflowResponse> => { return __request(OpenAPI, {
@@ -311,7 +313,7 @@ export const workflowsCreateWorkflow = (data: WorkflowsCreateWorkflowData): Canc
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.workspaceId
- * @returns WorkflowResponse Successful Response
+ * @returns WorkflowRead Successful Response
  * @throws ApiError
  */
 export const workflowsGetWorkflow = (data: WorkflowsGetWorkflowData): CancelablePromise<WorkflowsGetWorkflowResponse> => { return __request(OpenAPI, {
@@ -385,7 +387,7 @@ export const workflowsDeleteWorkflow = (data: WorkflowsDeleteWorkflowData): Canc
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.workspaceId
- * @returns CommitWorkflowResponse Successful Response
+ * @returns WorkflowCommitResponse Successful Response
  * @throws ApiError
  */
 export const workflowsCommitWorkflow = (data: WorkflowsCommitWorkflowData): CancelablePromise<WorkflowsCommitWorkflowResponse> => { return __request(OpenAPI, {
@@ -810,6 +812,79 @@ export const actionsDeleteAction = (data: ActionsDeleteActionData): CancelablePr
 }); };
 
 /**
+ * List Tags
+ * List all tags for a workflow.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @returns TagRead Successful Response
+ * @throws ApiError
+ */
+export const workflowsListTags = (data: WorkflowsListTagsData): CancelablePromise<WorkflowsListTagsResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/workflows/{workflow_id}/tags',
+    path: {
+        workflow_id: data.workflowId
+    },
+    query: {
+        workspace_id: data.workspaceId
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Add Tag
+ * Add a tag to a workflow.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const workflowsAddTag = (data: WorkflowsAddTagData): CancelablePromise<WorkflowsAddTagResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/workflows/{workflow_id}/tags',
+    path: {
+        workflow_id: data.workflowId
+    },
+    query: {
+        workspace_id: data.workspaceId
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Remove Tag
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.tagId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const workflowsRemoveTag = (data: WorkflowsRemoveTagData): CancelablePromise<WorkflowsRemoveTagResponse> => { return __request(OpenAPI, {
+    method: 'DELETE',
+    url: '/workflows/{workflow_id}/tags/{tag_id}',
+    path: {
+        workflow_id: data.workflowId,
+        tag_id: data.tagId
+    },
+    query: {
+        workspace_id: data.workspaceId
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
  * Search Secrets
  * Search secrets.
  * @param data The data for the request.
@@ -1086,6 +1161,119 @@ export const schedulesSearchSchedules = (data: SchedulesSearchSchedulesData): Ca
     },
     body: data.requestBody,
     mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * List Tags
+ * List all tags for the current workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns TagRead Successful Response
+ * @throws ApiError
+ */
+export const tagsListTags = (data: TagsListTagsData): CancelablePromise<TagsListTagsResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/tags',
+    query: {
+        workspace_id: data.workspaceId
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Create Tag
+ * Create a new tag.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TagRead Successful Response
+ * @throws ApiError
+ */
+export const tagsCreateTag = (data: TagsCreateTagData): CancelablePromise<TagsCreateTagResponse> => { return __request(OpenAPI, {
+    method: 'POST',
+    url: '/tags',
+    query: {
+        workspace_id: data.workspaceId
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Get Tag
+ * Get a specific tag by ID.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @returns TagRead Successful Response
+ * @throws ApiError
+ */
+export const tagsGetTag = (data: TagsGetTagData): CancelablePromise<TagsGetTagResponse> => { return __request(OpenAPI, {
+    method: 'GET',
+    url: '/tags/{tag_id}',
+    path: {
+        tag_id: data.tagId
+    },
+    query: {
+        workspace_id: data.workspaceId
+    },
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Update Tag
+ * Update an existing tag.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TagRead Successful Response
+ * @throws ApiError
+ */
+export const tagsUpdateTag = (data: TagsUpdateTagData): CancelablePromise<TagsUpdateTagResponse> => { return __request(OpenAPI, {
+    method: 'PATCH',
+    url: '/tags/{tag_id}',
+    path: {
+        tag_id: data.tagId
+    },
+    query: {
+        workspace_id: data.workspaceId
+    },
+    body: data.requestBody,
+    mediaType: 'application/json',
+    errors: {
+        422: 'Validation Error'
+    }
+}); };
+
+/**
+ * Delete Tag
+ * Delete a tag.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const tagsDeleteTag = (data: TagsDeleteTagData): CancelablePromise<TagsDeleteTagResponse> => { return __request(OpenAPI, {
+    method: 'DELETE',
+    url: '/tags/{tag_id}',
+    path: {
+        tag_id: data.tagId
+    },
+    query: {
+        workspace_id: data.workspaceId
+    },
     errors: {
         422: 'Validation Error'
     }

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Sequence
 
 from sqlalchemy import func
 from sqlmodel import select
@@ -9,30 +8,20 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.authz.controls import require_access_level
 from tracecat.authz.models import OwnerType
-from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Membership, Ownership, User
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
-from tracecat.logger import logger
+from tracecat.service import BaseService
 from tracecat.types.auth import AccessLevel, Role
 
 
-class AuthorizationService:
+class AuthorizationService(BaseService):
     """Manage simple authorization operations."""
 
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        self.session = session
-        self.role = role or ctx_role.get()
-        self.logger = logger.bind(service="authorization")
-        self._membership_service = MembershipService(session)
+    service_name = "authorization"
 
-    @asynccontextmanager
-    @staticmethod
-    async def with_session(
-        role: Role | None = None,
-    ) -> AsyncGenerator[AuthorizationService, None]:
-        async with get_async_session_context_manager() as session:
-            yield AuthorizationService(session, role=role)
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role=role)
+        self._membership_service = MembershipService(session)
 
     async def add_resource_owner(
         self, resource_id: str, owner_id: OwnerID, resource_type: str, owner_type: str
@@ -94,21 +83,10 @@ class AuthorizationService:
         pass
 
 
-class MembershipService:
+class MembershipService(BaseService):
     """Manage workspace memberships."""
 
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        self.session = session
-        self.role = role or ctx_role.get()
-        self.logger = logger.bind(service="membership")
-
-    @asynccontextmanager
-    @staticmethod
-    async def with_session(
-        role: Role | None = None,
-    ) -> AsyncGenerator[MembershipService, None]:
-        async with get_async_session_context_manager() as session:
-            yield MembershipService(session, role=role)
+    service_name = "membership"
 
     async def list_memberships(self, workspace_id: WorkspaceID) -> Sequence[Membership]:
         """List all workspace memberships."""

@@ -1,21 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 from temporalio import activity
 
 from tracecat.auth.credentials import TemporaryRole
-from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Schedule
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.logger import logger
-from tracecat.types.auth import Role
+from tracecat.service import BaseService
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatServiceError
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.models import (
@@ -26,21 +22,10 @@ from tracecat.workflow.schedules.models import (
 )
 
 
-class WorkflowSchedulesService:
+class WorkflowSchedulesService(BaseService):
     """Manages schedules for Workflows."""
 
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        self.role = role or ctx_role.get()
-        self.session = session
-        self.logger = logger.bind(service="workflow-schedules")
-
-    @asynccontextmanager
-    @staticmethod
-    async def with_session(
-        role: Role | None = None,
-    ) -> AsyncGenerator[WorkflowSchedulesService, None]:
-        async with get_async_session_context_manager() as session:
-            yield WorkflowSchedulesService(session, role=role)
+    service_name = "workflow_schedules"
 
     async def list_schedules(
         self, workflow_id: WorkflowID | None = None

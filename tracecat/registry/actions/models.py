@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import traceback
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar, cast
@@ -16,12 +17,16 @@ from pydantic import (
     computed_field,
     model_validator,
 )
-from tracecat_registry import RegistrySecret, RegistryValidationError
+from tracecat_registry import RegistrySecret
 
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
-from tracecat.types.exceptions import RegistryActionError, TracecatValidationError
+from tracecat.types.exceptions import (
+    RegistryActionError,
+    RegistryValidationError,
+    TracecatValidationError,
+)
 from tracecat.validation.models import ValidationResult
 
 ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
@@ -133,7 +138,8 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
             # Use cases would be transforming a UTC string to a datetime object
             # We return the validated input arguments as a dictionary
             validated: BaseModel = self.args_cls.model_validate(kwargs)
-            return cast(T, validated.model_dump())
+            validated_args = cast(T, validated.model_dump(mode="json"))
+            return validated_args
         except ValidationError as e:
             logger.error(
                 f"Validation error for bound registry action {self.action!r}. {e.errors()!r}"
@@ -145,7 +151,7 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
             ) from e
         except Exception as e:
             raise RegistryValidationError(
-                f"Unexpected error when validating input arguments for bound registry action {self.action!r}. {e}",
+                f"Unexpected error when validating input arguments for bound registry action {self.action!r}. {e!r}",
                 key=self.action,
             ) from e
 
@@ -502,4 +508,17 @@ class RegistryActionErrorInfo(BaseModel):
             f"\nFile: {self.filename}"
             f"\nFunction: {self.function}"
             f"\nLine: {self.lineno}"
+        )
+
+    @staticmethod
+    def from_exc(e: Exception, action_name: str) -> RegistryActionErrorInfo:
+        """Create an error info from an exception."""
+        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
+        return RegistryActionErrorInfo(
+            action_name=action_name,
+            type=e.__class__.__name__,
+            message=str(e),
+            filename=tb.filename,
+            function=tb.name,
+            lineno=tb.lineno,
         )

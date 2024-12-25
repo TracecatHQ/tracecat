@@ -14,13 +14,8 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.enums import JoinStrategy
-from tracecat.dsl.models import (
-    ActionRetryPolicy,
-    DSLContext,
-    RunActionInput,
-    TriggerInputs,
-)
-from tracecat.identifiers import WorkflowExecutionID, WorkflowID, WorkflowScheduleID
+from tracecat.dsl.models import ActionRetryPolicy, RunActionInput, TriggerInputs
+from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.types.auth import Role
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
@@ -34,8 +29,6 @@ WorkflowExecutionStatusLiteral = Literal[
     "TIMED_OUT",
 ]
 """Mapped literal types for workflow execution statuses."""
-
-ExecutionOrScheduleID = WorkflowExecutionID | WorkflowScheduleID
 
 
 class EventHistoryType(StrEnum):
@@ -137,7 +130,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
     retry_policy: ActionRetryPolicy = Field(default_factory=ActionRetryPolicy)
     start_delay: float = 0.0
     join_strategy: JoinStrategy = JoinStrategy.ALL
-    related_wf_exec_id: ExecutionOrScheduleID | None = None
+    related_wf_exec_id: WorkflowExecutionID | None = None
 
     @staticmethod
     def from_scheduled_activity(
@@ -196,7 +189,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
             raise ValueError("Event is not a child workflow initiated event.")
 
         wf_exec_id = cast(
-            ExecutionOrScheduleID,
+            WorkflowExecutionID,
             event.start_child_workflow_execution_initiated_event_attributes.workflow_id,
         )
         # Load the input data
@@ -270,7 +263,7 @@ class EventHistoryResponse(BaseModel, Generic[EventInput]):
     failure: EventFailure | None = None
     result: Any | None = None
     role: Role | None = None
-    parent_wf_exec_id: ExecutionOrScheduleID | None = None
+    parent_wf_exec_id: WorkflowExecutionID | None = None
     workflow_timeout: float | None = None
 
 
@@ -287,7 +280,7 @@ class CreateWorkflowExecutionResponse(TypedDict):
 
 class DispatchWorkflowResult(TypedDict):
     wf_id: WorkflowID
-    final_context: DSLContext
+    result: Any
 
 
 class TerminateWorkflowExecutionParams(BaseModel):

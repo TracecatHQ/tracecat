@@ -13,7 +13,7 @@ from tracecat.api.common import (
     tracecat_exception_handler,
 )
 from tracecat.executor.engine import setup_ray
-from tracecat.executor.router import router
+from tracecat.executor.router import router as executor_router
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry.repositories.service import RegistryReposService
@@ -23,7 +23,10 @@ from tracecat.types.exceptions import TracecatException
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await setup_oss_models()
+    try:
+        await setup_oss_models()
+    except Exception as e:
+        logger.error("Failed to preload OSS models", error=e)
     try:
         await setup_custom_remote_repository()
     except Exception as e:
@@ -79,7 +82,7 @@ def create_app(**kwargs) -> FastAPI:
     app.logger = logger  # type: ignore
 
     # Routers
-    app.include_router(router)
+    app.include_router(executor_router)
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
@@ -89,6 +92,7 @@ def create_app(**kwargs) -> FastAPI:
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
         CORSMiddleware,
+        # XXX(security): We should be more restrictive here
         allow_origins=allow_origins,
         allow_credentials=True,
         allow_methods=["*"],
@@ -99,7 +103,6 @@ def create_app(**kwargs) -> FastAPI:
         "Executor service started",
         env=config.TRACECAT__APP_ENV,
         origins=allow_origins,
-        auth_types=config.TRACECAT__AUTH_TYPES,
     )
 
     return app
