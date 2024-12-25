@@ -2,6 +2,7 @@
 type: action
 definition:
   name: list_computer_inventory
+  namespace: integrations.jamf
   title: List Computer Inventory
   description: List all computers in the Jamf Pro inventory
   display_group: Jamf
@@ -13,6 +14,7 @@ definition:
   steps:
     - ref: get_auth_token
       action: integrations.jamf.get_auth_token
+      args: {}
     - ref: list_computer_inventory
       action: core.http_request
       args:

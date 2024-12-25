@@ -2,12 +2,13 @@
 type: action
 definition:
   name: post_mdm_command
+  namespace: integrations.jamf
   title: Post MDM Command
   description: Post an MDM command to a device
   display_group: Jamf
   expects:
     command:
-      type: enum[APPLY_REDEMPTION_CODE,CLEAR_RESTRICTIONS_PASSWORD,DECLARATIVE_MANAGEMENT,DELETE_USER,DEVICE_LOCK,ENABLE_LOST_MODE,ERASE_DEVICE,LOG_OUT_USER,RESTART_DEVICE,SETTINGS,SET_RECOVERY_LOCK,SET_AUTO_ADMIN_PASSWORD,SHUT_DOWN_DEVICE,DEVICE_INFORMATION]
+      type: enum["APPLY_REDEMPTION_CODE","CLEAR_RESTRICTIONS_PASSWORD","DECLARATIVE_MANAGEMENT","DELETE_USER","DEVICE_LOCK","ENABLE_LOST_MODE","ERASE_DEVICE","LOG_OUT_USER","RESTART_DEVICE","SETTINGS","SET_RECOVERY_LOCK","SET_AUTO_ADMIN_PASSWORD","SHUT_DOWN_DEVICE","DEVICE_INFORMATION"]
       description: The type of command to post.
     message:
       type: str
@@ -21,6 +22,7 @@ definition:
   steps:
     - ref: get_auth_token
       action: integrations.jamf.get_auth_token
+      args: {}
     - ref: post_mdm_command
       action: core.http_request
       args:
