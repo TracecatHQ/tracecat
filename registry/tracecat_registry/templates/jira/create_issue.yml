@@ -12,23 +12,18 @@ definition:
     domain:
       type: str
       description: Domain of the Jira instance
-      default: null
     summary:
       type: str
       description: Summary of the issue
-      default: null
     project_id:
       type: str
       description: Jira project id
-      default: null
     priority_id:
       type: str
       description: Priority ID
-      default: null
     issue_type_id:
       type: str
       description: Issue Type ID
-      default: null
   steps:
     - ref: create_issue
       action: core.http_request

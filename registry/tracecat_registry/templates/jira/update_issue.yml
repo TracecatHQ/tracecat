@@ -12,20 +12,16 @@ definition:
     domain:
       type: str
       description: Domain of the Jira instance
-      default: null
     fields:
       type: any
       description: Key-value pairs of issue screen fields to update
-      default: null
     update:
       type: any
       description: Key-value pairs of issue screen fields mapped to a list of
         operations to perform on issue
-      default: null
     issue_id:
       type: str
       description: Jira issue id
-      default: null
     return_issue:
       type: bool
       description: If true, returns the updated issue
