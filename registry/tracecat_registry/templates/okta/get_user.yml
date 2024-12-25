@@ -1,0 +1,23 @@
+type: action
+definition:
+  title: Get Okta User
+  description: Get an Okta user by ID or Login
+  display_group: Okta
+  namespace: integrations.okta
+  name: get_user
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN", "OKTA_BASE_URL"]
+  expects:
+    user_id:
+      type: str
+      description: User ID, login (e.g. `jdoe@example.com`), or login shortname (e.g. `jdoe`) of the user to retrieve.
+  steps:
+    - ref: get_user
+      action: core.http_request
+      args:
+        method: GET
+        url: https://${{ SECRETS.okta.OKTA_BASE_URL }}/api/v1/users/${{ input.user_id }}
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+  returns: ${{ steps.get_user.result }}

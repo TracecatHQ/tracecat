@@ -1,19 +1,19 @@
 type: action
 definition:
-  title: Find Okta Users
-  description: Find Okta users by username or email address
+  title: Get Okta User by Email
+  description: Get an Okta user by email address
   display_group: Okta
   namespace: integrations.okta
-  name: find_users
+  name: get_user_by_email
   secrets:
     - name: okta
       keys: ["OKTA_API_TOKEN", "OKTA_BASE_URL"]
   expects:
-    username_or_email:
+    email:
       type: str
-      description: Username or email address of the user to find
+      description: Email address of the user to find
   steps:
-    - ref: find_users
+    - ref: get_user_by_email
       action: core.http_request
       args:
         method: GET
@@ -21,5 +21,5 @@ definition:
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
         params:
-          search: profile.login eq "${{ input.username_or_email }}" or profile.email eq "${{ input.username_or_email }}"
-  returns: ${{ steps.find_users.result }}
+          search: profile.email eq "${{ input.email }}"
+  returns: ${{ steps.get_user_by_email.result }}
