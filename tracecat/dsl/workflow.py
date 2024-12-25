@@ -513,7 +513,7 @@ class DSLWorkflow:
             # Return the context
             # XXX: Don't return ENV context for now
             self.logger.trace("Returning DSL context")
-            self.context.pop(ExprContext.ENV.value, None)
+            self.context.pop(ExprContext.ENV, None)
             return self.context
         # Return some custom value that should be evaluated
         self.logger.trace("Returning value from expression")

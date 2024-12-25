@@ -200,11 +200,9 @@ async def run_template_action(
         )
         # Store the result of the step
         logger.trace("Storing step result", step=step.ref, result=result)
-        template_context[str(ExprContext.TEMPLATE_ACTION_STEPS)][step.ref] = (
-            DSLNodeResult(
-                result=result,
-                result_typename=type(result).__name__,
-            )
+        template_context[ExprContext.TEMPLATE_ACTION_STEPS][step.ref] = DSLNodeResult(
+            result=result,
+            result_typename=type(result).__name__,
         )
 
     # Handle returns
