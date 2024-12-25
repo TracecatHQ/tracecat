@@ -64,6 +64,7 @@ Owners can be Workspaces or the Organization.
 
 SecretID = Annotated[str, StringConstraints(pattern=r"secret-[0-9a-f]{32}")]
 SessionID = UUID4
+TagID = UUID4
 
 InternalServiceID = Literal[
     "tracecat-runner",
@@ -85,6 +86,7 @@ __all__ = [
     "ScheduleID",
     "UserID",
     "WorkspaceID",
+    "TagID",
     "SessionID",
     "id_factory",
     "action",

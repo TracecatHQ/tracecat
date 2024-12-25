@@ -63,10 +63,15 @@ class RegistryActionError(RegistryError):
 class RegistryValidationError(RegistryError):
     """Exception raised when a registry validation error occurs."""
 
-    def __init__(self, *args, key: str, err: ValidationError | str | None = None):
+    def __init__(
+        self, *args, key: str | None = None, err: ValidationError | str | None = None
+    ):
         super().__init__(*args)
         self.key = key
         self.err = err
+
+    def __reduce__(self):
+        return (self.__class__, (self.key, self.err))
 
 
 class RegistryNotFound(RegistryError):
@@ -75,3 +80,7 @@ class RegistryNotFound(RegistryError):
 
 class TaskUnreachable(TracecatException):
     """Raised when a task is unreachable."""
+
+
+class ActionExecutionError(TracecatException):
+    """Exception raised when an action execution error occurs."""

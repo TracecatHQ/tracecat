@@ -12,18 +12,14 @@ from tracecat.dsl.models import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import OwnerID, WorkflowID, WorkspaceID
 from tracecat.registry.actions.models import RegistryActionValidateResponse
+from tracecat.tags.models import TagRead
 from tracecat.types.auth import Role
 from tracecat.webhooks.models import WebhookResponse
 from tracecat.workflow.actions.models import ActionRead
 
 
-class CreateWorkflowFromDSLResponse(BaseModel):
-    workflow: Workflow | None = None
-    errors: list[RegistryActionValidateResponse] | None = None
-
-
-class WorkflowResponse(BaseModel):
-    id: str
+class WorkflowRead(BaseModel):
+    id: WorkflowID
     title: str
     description: str
     status: str
@@ -40,7 +36,19 @@ class WorkflowResponse(BaseModel):
     config: DSLConfig | None
 
 
-class UpdateWorkflowParams(BaseModel):
+class WorkflowReadMinimal(BaseModel):
+    id: WorkflowID
+    title: str
+    description: str
+    status: str
+    icon_url: str | None
+    created_at: datetime
+    updated_at: datetime
+    version: int | None
+    tags: list[TagRead] | None = None
+
+
+class WorkflowUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     status: Literal["online", "offline"] | None = None
@@ -54,18 +62,7 @@ class UpdateWorkflowParams(BaseModel):
     config: DSLConfig | None = None
 
 
-class WorkflowMetadataResponse(BaseModel):
-    id: str
-    title: str
-    description: str
-    status: str
-    icon_url: str | None
-    created_at: datetime
-    updated_at: datetime
-    version: int | None
-
-
-class CreateWorkflowParams(BaseModel):
+class WorkflowCreate(BaseModel):
     title: str | None = None
     description: str | None = None
 
@@ -120,7 +117,7 @@ class ExternalWorkflowDefinition(BaseModel):
         )
 
 
-class CommitWorkflowResponse(BaseModel):
+class WorkflowCommitResponse(BaseModel):
     workflow_id: str
     status: Literal["success", "failure"]
     message: str
@@ -131,3 +128,8 @@ class CommitWorkflowResponse(BaseModel):
         return ORJSONResponse(
             status_code=status_code, content=self.model_dump(exclude_none=True)
         )
+
+
+class WorkflowDSLCreateResponse(BaseModel):
+    workflow: Workflow | None = None
+    errors: list[RegistryActionValidateResponse] | None = None

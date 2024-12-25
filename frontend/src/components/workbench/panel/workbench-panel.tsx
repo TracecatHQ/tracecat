@@ -1,5 +1,5 @@
 import React from "react"
-import { WorkflowResponse } from "@/client"
+import { WorkflowRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 
@@ -51,7 +51,7 @@ function NodePanel({
   workflow,
 }: {
   node: NodeType
-  workflow: WorkflowResponse
+  workflow: WorkflowRead
 }) {
   switch (node.type) {
     case "udf":

@@ -453,52 +453,6 @@ export const $Body_workflows_create_workflow = {
     title: 'Body_workflows-create_workflow'
 } as const;
 
-export const $CommitWorkflowResponse = {
-    properties: {
-        workflow_id: {
-            type: 'string',
-            title: 'Workflow Id'
-        },
-        status: {
-            type: 'string',
-            enum: ['success', 'failure'],
-            title: 'Status'
-        },
-        message: {
-            type: 'string',
-            title: 'Message'
-        },
-        errors: {
-            anyOf: [
-                {
-                    items: {
-                        '$ref': '#/components/schemas/RegistryActionValidateResponse'
-                    },
-                    type: 'array'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Errors'
-        },
-        metadata: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Metadata'
-        }
-    },
-    type: 'object',
-    required: ['workflow_id', 'status', 'message'],
-    title: 'CommitWorkflowResponse'
-} as const;
-
 export const $CreateWorkflowExecutionParams = {
     properties: {
         workflow_id: {
@@ -508,13 +462,12 @@ export const $CreateWorkflowExecutionParams = {
         },
         inputs: {
             anyOf: [
-                {
-                    '$ref': '#/components/schemas/JsonValue'
-                },
+                {},
                 {
                     type: 'null'
                 }
-            ]
+            ],
+            title: 'Inputs'
         }
     },
     type: 'object',
@@ -535,7 +488,7 @@ export const $CreateWorkflowExecutionResponse = {
         },
         wf_exec_id: {
             type: 'string',
-            pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+',
+            pattern: 'wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)',
             title: 'Wf Exec Id'
         }
     },
@@ -640,32 +593,6 @@ export const $DSLConfig_Output = {
 Activities don't need access to this.`
 } as const;
 
-export const $DSLContext = {
-    properties: {
-        INPUTS: {
-            type: 'object',
-            title: 'Inputs'
-        },
-        ACTIONS: {
-            type: 'object',
-            title: 'Actions'
-        },
-        TRIGGER: {
-            '$ref': '#/components/schemas/JsonValue'
-        },
-        ENV: {
-            '$ref': '#/components/schemas/DSLEnvironment'
-        },
-        SECRETS: {
-            type: 'object',
-            title: 'Secrets'
-        }
-    },
-    type: 'object',
-    title: 'DSLContext',
-    description: 'DSL Context. Contains all the context needed to execute a DSL workflow.'
-} as const;
-
 export const $DSLEntrypoint = {
     properties: {
         ref: {
@@ -698,30 +625,6 @@ export const $DSLEntrypoint = {
     },
     type: 'object',
     title: 'DSLEntrypoint'
-} as const;
-
-export const $DSLEnvironment = {
-    properties: {
-        workflow: {
-            type: 'object',
-            title: 'Workflow'
-        },
-        environment: {
-            type: 'string',
-            title: 'Environment'
-        },
-        variables: {
-            type: 'object',
-            title: 'Variables'
-        },
-        registry_version: {
-            type: 'string',
-            title: 'Registry Version'
-        }
-    },
-    type: 'object',
-    title: 'DSLEnvironment',
-    description: 'DSL Environment context. Has metadata about the workflow.'
 } as const;
 
 export const $DSLInput = {
@@ -805,13 +708,12 @@ export const $DSLRunArgs = {
         },
         trigger_inputs: {
             anyOf: [
-                {
-                    '$ref': '#/components/schemas/JsonValue'
-                },
+                {},
                 {
                     type: 'null'
                 }
-            ]
+            ],
+            title: 'Trigger Inputs'
         },
         parent_run_context: {
             anyOf: [
@@ -1071,11 +973,7 @@ export const $EventGroup = {
             anyOf: [
                 {
                     type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
-                },
-                {
-                    type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*'
+                    pattern: 'wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)'
                 },
                 {
                     type: 'null'
@@ -1151,11 +1049,7 @@ export const $EventHistoryResponse = {
             anyOf: [
                 {
                     type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
-                },
-                {
-                    type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*'
+                    pattern: 'wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)'
                 },
                 {
                     type: 'null'
@@ -1219,6 +1113,13 @@ export const $ExpectedField = {
     title: 'ExpectedField'
 } as const;
 
+export const $ExprContext = {
+    type: 'string',
+    enum: ['ACTIONS', 'SECRETS', 'FN', 'INPUTS', 'ENV', 'TRIGGER', 'var', 'inputs', 'steps'],
+    title: 'ExprContext',
+    description: 'Expression contexts.'
+} as const;
+
 export const $GetWorkflowDefinitionActivityInputs = {
     properties: {
         role: {
@@ -1275,8 +1176,6 @@ export const $JoinStrategy = {
     enum: ['any', 'all'],
     title: 'JoinStrategy'
 } as const;
-
-export const $JsonValue = {} as const;
 
 export const $OAuth2AuthorizeResponse = {
     properties: {
@@ -2082,7 +1981,8 @@ export const $RunActionInput = {
             '$ref': '#/components/schemas/ActionStatement'
         },
         exec_context: {
-            '$ref': '#/components/schemas/DSLContext'
+            type: 'object',
+            title: 'Exec Context'
         },
         run_context: {
             '$ref': '#/components/schemas/RunContext'
@@ -2102,16 +2002,8 @@ export const $RunContext = {
             title: 'Wf Id'
         },
         wf_exec_id: {
-            anyOf: [
-                {
-                    type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:exec-[\\w-]+'
-                },
-                {
-                    type: 'string',
-                    pattern: 'wf-[0-9a-f]{32}:sch-[0-9a-f]{32}-.*'
-                }
-            ],
+            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)',
             title: 'Wf Exec Id'
         },
         wf_run_id: {
@@ -2253,7 +2145,7 @@ export const $Schedule = {
         }
     },
     type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'every', 'workflow_id'],
+    required: ['owner_id', 'every', 'workflow_id'],
     title: 'Schedule'
 } as const;
 
@@ -2834,6 +2726,86 @@ export const $SessionRead = {
     title: 'SessionRead'
 } as const;
 
+export const $TagCreate = {
+    properties: {
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        color: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Color'
+        }
+    },
+    type: 'object',
+    required: ['name'],
+    title: 'TagCreate'
+} as const;
+
+export const $TagRead = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Id'
+        },
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        color: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Color'
+        }
+    },
+    type: 'object',
+    required: ['id', 'name'],
+    title: 'TagRead'
+} as const;
+
+export const $TagUpdate = {
+    properties: {
+        name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Name'
+        },
+        color: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Color'
+        }
+    },
+    type: 'object',
+    title: 'TagUpdate'
+} as const;
+
 export const $TemplateAction_Input = {
     properties: {
         type: {
@@ -2987,135 +2959,6 @@ export const $Trigger = {
     type: 'object',
     required: ['type', 'ref'],
     title: 'Trigger'
-} as const;
-
-export const $UpdateWorkflowParams = {
-    properties: {
-        title: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Title'
-        },
-        description: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Description'
-        },
-        status: {
-            anyOf: [
-                {
-                    type: 'string',
-                    enum: ['online', 'offline']
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Status'
-        },
-        object: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Object'
-        },
-        version: {
-            anyOf: [
-                {
-                    type: 'integer'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Version'
-        },
-        entrypoint: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Entrypoint'
-        },
-        icon_url: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Icon Url'
-        },
-        static_inputs: {
-            anyOf: [
-                {
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Static Inputs'
-        },
-        expects: {
-            anyOf: [
-                {
-                    additionalProperties: {
-                        '$ref': '#/components/schemas/ExpectedField'
-                    },
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Expects'
-        },
-        returns: {
-            anyOf: [
-                {},
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Returns'
-        },
-        config: {
-            anyOf: [
-                {
-                    '$ref': '#/components/schemas/DSLConfig-Input'
-                },
-                {
-                    type: 'null'
-                }
-            ]
-        }
-    },
-    type: 'object',
-    title: 'UpdateWorkflowParams'
 } as const;
 
 export const $UpdateWorkspaceParams = {
@@ -3539,8 +3382,54 @@ export const $WebhookResponse = {
         }
     },
     type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'id', 'secret', 'status', 'filters', 'method', 'workflow_id', 'url'],
+    required: ['owner_id', 'id', 'secret', 'status', 'filters', 'method', 'workflow_id', 'url'],
     title: 'WebhookResponse'
+} as const;
+
+export const $WorkflowCommitResponse = {
+    properties: {
+        workflow_id: {
+            type: 'string',
+            title: 'Workflow Id'
+        },
+        status: {
+            type: 'string',
+            enum: ['success', 'failure'],
+            title: 'Status'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        },
+        errors: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/RegistryActionValidateResponse'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Errors'
+        },
+        metadata: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Metadata'
+        }
+    },
+    type: 'object',
+    required: ['workflow_id', 'status', 'message'],
+    title: 'WorkflowCommitResponse'
 } as const;
 
 export const $WorkflowDefinition = {
@@ -3579,7 +3468,7 @@ export const $WorkflowDefinition = {
         }
     },
     type: 'object',
-    required: ['owner_id', 'created_at', 'updated_at', 'version', 'workflow_id', 'content'],
+    required: ['owner_id', 'version', 'workflow_id', 'content'],
     title: 'WorkflowDefinition',
     description: `A workflow definition.
 
@@ -3668,66 +3557,11 @@ export const $WorkflowExecutionResponse = {
     title: 'WorkflowExecutionResponse'
 } as const;
 
-export const $WorkflowMetadataResponse = {
+export const $WorkflowRead = {
     properties: {
         id: {
             type: 'string',
-            title: 'Id'
-        },
-        title: {
-            type: 'string',
-            title: 'Title'
-        },
-        description: {
-            type: 'string',
-            title: 'Description'
-        },
-        status: {
-            type: 'string',
-            title: 'Status'
-        },
-        icon_url: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Icon Url'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        updated_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Updated At'
-        },
-        version: {
-            anyOf: [
-                {
-                    type: 'integer'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Version'
-        }
-    },
-    type: 'object',
-    required: ['id', 'title', 'description', 'status', 'icon_url', 'created_at', 'updated_at', 'version'],
-    title: 'WorkflowMetadataResponse'
-} as const;
-
-export const $WorkflowResponse = {
-    properties: {
-        id: {
-            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}',
             title: 'Id'
         },
         title: {
@@ -3831,7 +3665,220 @@ export const $WorkflowResponse = {
     },
     type: 'object',
     required: ['id', 'title', 'description', 'status', 'actions', 'object', 'owner_id', 'webhook', 'schedules', 'entrypoint', 'static_inputs', 'returns', 'config'],
-    title: 'WorkflowResponse'
+    title: 'WorkflowRead'
+} as const;
+
+export const $WorkflowReadMinimal = {
+    properties: {
+        id: {
+            type: 'string',
+            pattern: 'wf-[0-9a-f]{32}',
+            title: 'Id'
+        },
+        title: {
+            type: 'string',
+            title: 'Title'
+        },
+        description: {
+            type: 'string',
+            title: 'Description'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        icon_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Icon Url'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        updated_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Updated At'
+        },
+        version: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Version'
+        },
+        tags: {
+            anyOf: [
+                {
+                    items: {
+                        '$ref': '#/components/schemas/TagRead'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Tags'
+        }
+    },
+    type: 'object',
+    required: ['id', 'title', 'description', 'status', 'icon_url', 'created_at', 'updated_at', 'version'],
+    title: 'WorkflowReadMinimal'
+} as const;
+
+export const $WorkflowTagCreate = {
+    properties: {
+        tag_id: {
+            type: 'string',
+            format: 'uuid4',
+            title: 'Tag Id'
+        }
+    },
+    type: 'object',
+    required: ['tag_id'],
+    title: 'WorkflowTagCreate'
+} as const;
+
+export const $WorkflowUpdate = {
+    properties: {
+        title: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Title'
+        },
+        description: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Description'
+        },
+        status: {
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['online', 'offline']
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Status'
+        },
+        object: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Object'
+        },
+        version: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Version'
+        },
+        entrypoint: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Entrypoint'
+        },
+        icon_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Icon Url'
+        },
+        static_inputs: {
+            anyOf: [
+                {
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Static Inputs'
+        },
+        expects: {
+            anyOf: [
+                {
+                    additionalProperties: {
+                        '$ref': '#/components/schemas/ExpectedField'
+                    },
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expects'
+        },
+        returns: {
+            anyOf: [
+                {},
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Returns'
+        },
+        config: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/DSLConfig-Input'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        }
+    },
+    type: 'object',
+    title: 'WorkflowUpdate'
 } as const;
 
 export const $WorkspaceMember = {

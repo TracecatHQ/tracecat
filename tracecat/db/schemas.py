@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, ConfigDict, computed_field, field_validator
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, text
+from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
@@ -21,15 +21,6 @@ from tracecat.db.adapter import (
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
-DEFAULT_CASE_ACTIONS = [
-    "Active compromise",
-    "Ignore",
-    "Informational",
-    "Investigate",
-    "Quarantined",
-    "Sinkholed",
-]
-
 DEFAULT_SA_RELATIONSHIP_KWARGS = {
     "lazy": "selectin",
 }
@@ -41,17 +32,19 @@ class Resource(SQLModel):
     surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
     owner_id: OwnerID
     created_at: datetime = Field(
-        sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
+        default_factory=datetime.now,  # Appease type checker
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
         sa_column_kwargs={
-            "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
+            "server_default": func.now(),
             "nullable": False,
         },
     )
     updated_at: datetime = Field(
-        sa_type=TIMESTAMP(timezone=True),  # UTC Timestamp
+        default_factory=datetime.now,  # Appease type checker
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
         sa_column_kwargs={
-            "server_default": text("(now() AT TIME ZONE 'utc'::text)"),
-            "onupdate": text("(now() AT TIME ZONE 'utc'::text)"),
+            "server_default": func.now(),
+            "onupdate": func.now(),
             "nullable": False,
         },
     )
@@ -105,6 +98,13 @@ class Workspace(Resource, table=True):
         },
     )
     secrets: list["Secret"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+    tags: list["Tag"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={
             "cascade": "all, delete",
@@ -228,6 +228,35 @@ class WorkflowDefinition(Resource, table=True):
     )
 
 
+class WorkflowTag(SQLModel, table=True):
+    """Link table for workflows and tags with optional metadata."""
+
+    tag_id: UUID4 = Field(foreign_key="tag.id", primary_key=True)
+    workflow_id: str = Field(foreign_key="workflow.id", primary_key=True)
+
+
+class Tag(Resource, table=True):
+    """A tag for organizing and filtering entities."""
+
+    __table_args__ = (UniqueConstraint("name", "owner_id"),)
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    name: str = Field(index=True, nullable=False)
+    color: str | None = Field(default=None)
+    # Relationships
+    owner: "Workspace" = Relationship(back_populates="tags")
+    workflows: list["Workflow"] = Relationship(
+        back_populates="tags",
+        link_model=WorkflowTag,
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
+
+
 class Workflow(Resource, table=True):
     """The workflow state.
 
@@ -312,6 +341,11 @@ class Workflow(Resource, table=True):
             "cascade": "all, delete",
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
+    )
+    tags: list["Tag"] = Relationship(
+        back_populates="workflows",
+        link_model=WorkflowTag,
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
 
 

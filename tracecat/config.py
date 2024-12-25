@@ -105,19 +105,22 @@ XMLSEC_BINARY_PATH = os.environ.get("XMLSEC_BINARY_PATH", "/usr/bin/xmlsec1")
 TRACECAT__ALLOW_ORIGINS = os.environ.get("TRACECAT__ALLOW_ORIGINS")
 
 # === Temporal config === #
+TEMPORAL__CONNECT_RETRIES = int(os.environ.get("TEMPORAL__CONNECT_RETRIES", 10))
 TEMPORAL__CLUSTER_URL = os.environ.get(
     "TEMPORAL__CLUSTER_URL", "http://localhost:7233"
-)  # AKA Temporal target host
+)  # AKA TEMPORAL_HOST_URL
 TEMPORAL__CLUSTER_NAMESPACE = os.environ.get(
     "TEMPORAL__CLUSTER_NAMESPACE", "default"
-)  # Temporal namespace
+)  # AKA TEMPORAL_NAMESPACE
 TEMPORAL__CLUSTER_QUEUE = os.environ.get(
     "TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"
-)  # Temporal task queue
-TEMPORAL__TLS_ENABLED = os.environ.get("TEMPORAL__TLS_ENABLED", False)
-TEMPORAL__TLS_ENABLED = os.environ.get("TEMPORAL__TLS_ENABLED", False)
-TEMPORAL__TLS_CLIENT_CERT = os.environ.get("TEMPORAL__TLS_CLIENT_CERT")
-TEMPORAL__TLS_CLIENT_PRIVATE_KEY = os.environ.get("TEMPORAL__TLS_CLIENT_PRIVATE_KEY")
+)
+TEMPORAL__API_KEY__ARN = os.environ.get("TEMPORAL__API_KEY__ARN")
+TEMPORAL__MTLS_ENABLED = os.environ.get("TEMPORAL__MTLS_ENABLED", "").lower() in (
+    "1",
+    "true",
+)
+TEMPORAL__MTLS_CERT__ARN = os.environ.get("TEMPORAL__MTLS_CERT__ARN")
 TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT")
 """RPC timeout for Temporal workflows in seconds."""
 

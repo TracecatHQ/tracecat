@@ -1,5 +1,5 @@
 from tracecat.expressions.functions import eval_jsonpath
-from tracecat.parse import traverse_leaves
+from tracecat.parse import traverse_expressions, traverse_leaves
 
 
 def test_iter_dict_leaves():
@@ -43,3 +43,44 @@ def test_more_iter_dict_leaves():
     obj4 = {"a": 1, "b": [2, 3], "c": "hello"}
     expected4 = [("a", 1), ("b[0]", 2), ("b[1]", 3), ("c", "hello")]
     assert list(traverse_leaves(obj4)) == expected4
+
+
+def test_traverse_expressions():
+    # Test case 1: Single expression in string
+    data = {
+        "test": "Hello, ${{ var.name }}",
+    }
+    assert list(traverse_expressions(data)) == ["var.name"]
+
+    # Test case 2: Multiple expressions in string
+    data = {
+        "test": "This is a ${{ 1 }} or ${{ 2 }}",
+    }
+    assert list(traverse_expressions(data)) == ["1", "2"]
+
+    # Test case 3: Nested expressions in objects and lists
+    data = {
+        "test": "This is a ${{ 1 }} or ${{ 2 }}",
+        "list": [
+            "This is a ${{ 3 }} or ${{ 4 }}",
+            "second",
+            {
+                "test": "This is a ${{ 5 }} or ${{ 6 }}",
+            },
+        ],
+        "data": "${{ 7 }}${{ 8 }}",
+    }
+    assert list(traverse_expressions(data)) == ["1", "2", "3", "4", "5", "6", "7", "8"]
+
+    # Test case 4: No expressions
+    data = {
+        "test": "Hello world",
+        "list": ["no expressions", {"test": 123}],
+    }
+    assert list(traverse_expressions(data)) == []
+
+    # Test case 5: Empty data structures
+    data = {}
+    assert list(traverse_expressions(data)) == []
+    data = {"test": {}, "list": []}
+    assert list(traverse_expressions(data)) == []

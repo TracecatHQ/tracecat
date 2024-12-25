@@ -22,7 +22,7 @@ build:
 	docker compose build --no-cache
 
 lint-ui:
-	cd frontend && pnpm lint:fix && cd ..
+	cd frontend && pnpm lint:fix && pnpm typecheck && cd ..
 lint-app:
 	ruff check .
 
@@ -45,5 +45,8 @@ _check-cli:
 gen-api: _check-cli
 	LOG_LEVEL=ERROR tracecat dev generate-spec --update-docs
 
-gen-secrets: _check-cli
-	tracecat dev generate-secrets
+gen-integrations: _check-cli
+	tracecat dev gen-integrations
+
+gen-functions: _check-cli
+	tracecat dev gen-functions

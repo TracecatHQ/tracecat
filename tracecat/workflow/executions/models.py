@@ -14,12 +14,7 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.enums import JoinStrategy
-from tracecat.dsl.models import (
-    ActionRetryPolicy,
-    DSLContext,
-    RunActionInput,
-    TriggerInputs,
-)
+from tracecat.dsl.models import ActionRetryPolicy, RunActionInput, TriggerInputs
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.types.auth import Role
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
@@ -285,7 +280,7 @@ class CreateWorkflowExecutionResponse(TypedDict):
 
 class DispatchWorkflowResult(TypedDict):
     wf_id: WorkflowID
-    final_context: DSLContext
+    result: Any
 
 
 class TerminateWorkflowExecutionParams(BaseModel):

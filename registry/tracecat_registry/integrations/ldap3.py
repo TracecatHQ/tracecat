@@ -138,10 +138,10 @@ class LdapClient:
 
 def get_ldap_secrets() -> dict[str, Any]:
     return {
-        "LDAP_HOST": secrets.get("LDAP_HOST"),
-        "LDAP_PORT": int(secrets.get("LDAP_PORT")),
-        "LDAP_USER": secrets.get("LDAP_USER"),
-        "LDAP_PASSWORD": secrets.get("LDAP_PASSWORD"),
+        "host": secrets.get("LDAP_HOST"),
+        "port": int(secrets.get("LDAP_PORT")),
+        "user": secrets.get("LDAP_USER"),
+        "password": secrets.get("LDAP_PASSWORD"),
     }
 
 
@@ -166,15 +166,8 @@ def add_entry(
         Field(..., description="Additional connection parameters"),
     ] = None,
 ) -> None:
-    host = secrets.get("LDAP_HOST")
-    port = int(secrets.get("LDAP_PORT"))
-    user = secrets.get("LDAP_USER")
-    password = secrets.get("LDAP_PASSWORD")
     with LdapClient(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
+        **get_ldap_secrets(),
         server_kwargs=server_kwargs,
         connection_kwargs=connection_kwargs,
     ) as client:

@@ -10,15 +10,15 @@ from tracecat.logger import logger
 from tracecat.types.auth import Role
 
 
-class Service:
+class BaseService:
     """Base class for services."""
 
-    _service_name: str
+    service_name: str
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         self.session = session
         self.role = role or ctx_role.get()
-        self.logger = logger.bind(service=self._service_name)
+        self.logger = logger.bind(service=self.service_name)
 
     @classmethod
     @asynccontextmanager

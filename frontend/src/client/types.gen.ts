@@ -146,21 +146,9 @@ export type Body_workflows_create_workflow = {
     file?: (Blob | File) | null;
 };
 
-export type CommitWorkflowResponse = {
-    workflow_id: string;
-    status: 'success' | 'failure';
-    message: string;
-    errors?: Array<RegistryActionValidateResponse> | null;
-    metadata?: {
-    [key: string]: unknown;
-} | null;
-};
-
-export type status = 'success' | 'failure';
-
 export type CreateWorkflowExecutionParams = {
     workflow_id: string;
-    inputs?: JsonValue | null;
+    inputs?: unknown | null;
 };
 
 export type CreateWorkflowExecutionResponse = {
@@ -222,23 +210,6 @@ export type DSLConfig_Output = {
     timeout?: number;
 };
 
-/**
- * DSL Context. Contains all the context needed to execute a DSL workflow.
- */
-export type DSLContext = {
-    INPUTS?: {
-        [key: string]: unknown;
-    };
-    ACTIONS?: {
-        [key: string]: unknown;
-    };
-    TRIGGER?: JsonValue;
-    ENV?: DSLEnvironment;
-    SECRETS?: {
-        [key: string]: unknown;
-    };
-};
-
 export type DSLEntrypoint = {
     /**
      * The entrypoint action ref
@@ -250,20 +221,6 @@ export type DSLEntrypoint = {
     expects?: {
     [key: string]: ExpectedField;
 } | null;
-};
-
-/**
- * DSL Environment context. Has metadata about the workflow.
- */
-export type DSLEnvironment = {
-    workflow?: {
-        [key: string]: unknown;
-    };
-    environment?: string;
-    variables?: {
-        [key: string]: unknown;
-    };
-    registry_version?: string;
 };
 
 /**
@@ -299,7 +256,7 @@ export type DSLRunArgs = {
     role: Role;
     dsl?: DSLInput | null;
     wf_id: string;
-    trigger_inputs?: JsonValue | null;
+    trigger_inputs?: unknown | null;
     parent_run_context?: RunContext | null;
     /**
      * Runtime configuration that can be set on workflow entry. Note that this can override the default config in DSLInput.
@@ -396,6 +353,11 @@ export type ExpectedField = {
     default?: unknown | null;
 };
 
+/**
+ * Expression contexts.
+ */
+export type ExprContext = 'ACTIONS' | 'SECRETS' | 'FN' | 'INPUTS' | 'ENV' | 'TRIGGER' | 'var' | 'inputs' | 'steps';
+
 export type GetWorkflowDefinitionActivityInputs = {
     role: Role;
     workflow_id: string;
@@ -408,8 +370,6 @@ export type HTTPValidationError = {
 };
 
 export type JoinStrategy = 'any' | 'all';
-
-export type JsonValue = unknown;
 
 export type OAuth2AuthorizeResponse = {
     authorization_url: string;
@@ -699,7 +659,9 @@ export type service_id = 'tracecat-runner' | 'tracecat-api' | 'tracecat-cli' | '
  */
 export type RunActionInput = {
     task: ActionStatement;
-    exec_context: DSLContext;
+    exec_context: {
+        [key: string]: unknown;
+    };
     run_context: RunContext;
 };
 
@@ -719,8 +681,8 @@ export type SAMLDatabaseLoginResponse = {
 
 export type Schedule = {
     owner_id: string;
-    created_at: string;
-    updated_at: string;
+    created_at?: string;
+    updated_at?: string;
     id?: string;
     status?: string;
     cron?: string | null;
@@ -779,7 +741,7 @@ export type ScheduleCreate = {
     timeout?: number;
 };
 
-export type status2 = 'online' | 'offline';
+export type status = 'online' | 'offline';
 
 export type ScheduleSearch = {
     workflow_id?: string | null;
@@ -901,6 +863,22 @@ export type SessionRead = {
     user_email: string;
 };
 
+export type TagCreate = {
+    name: string;
+    color?: string | null;
+};
+
+export type TagRead = {
+    id: string;
+    name: string;
+    color?: string | null;
+};
+
+export type TagUpdate = {
+    name?: string | null;
+    color?: string | null;
+};
+
 export type TemplateAction_Input = {
     type?: "action";
     definition: TemplateActionDefinition;
@@ -968,26 +946,6 @@ export type Trigger = {
 
 export type type3 = 'schedule' | 'webhook';
 
-export type UpdateWorkflowParams = {
-    title?: string | null;
-    description?: string | null;
-    status?: 'online' | 'offline' | null;
-    object?: {
-    [key: string]: unknown;
-} | null;
-    version?: number | null;
-    entrypoint?: string | null;
-    icon_url?: string | null;
-    static_inputs?: {
-    [key: string]: unknown;
-} | null;
-    expects?: {
-    [key: string]: ExpectedField;
-} | null;
-    returns?: unknown | null;
-    config?: DSLConfig_Input | null;
-};
-
 export type UpdateWorkspaceParams = {
     name?: string | null;
     settings?: {
@@ -1050,8 +1008,8 @@ export type ValidationError = {
 
 export type WebhookResponse = {
     owner_id: string;
-    created_at: string;
-    updated_at: string;
+    created_at?: string;
+    updated_at?: string;
     id: string;
     secret: string;
     status: 'online' | 'offline';
@@ -1065,6 +1023,18 @@ export type WebhookResponse = {
 };
 
 export type method = 'GET' | 'POST';
+
+export type WorkflowCommitResponse = {
+    workflow_id: string;
+    status: 'success' | 'failure';
+    message: string;
+    errors?: Array<RegistryActionValidateResponse> | null;
+    metadata?: {
+    [key: string]: unknown;
+} | null;
+};
+
+export type status2 = 'success' | 'failure';
 
 /**
  * A workflow definition.
@@ -1088,8 +1058,8 @@ export type method = 'GET' | 'POST';
  */
 export type WorkflowDefinition = {
     owner_id: string;
-    created_at: string;
-    updated_at: string;
+    created_at?: string;
+    updated_at?: string;
     id?: string;
     /**
      * DSL spec version
@@ -1133,18 +1103,7 @@ export type WorkflowExecutionResponse = {
 
 export type status3 = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'TERMINATED' | 'CONTINUED_AS_NEW' | 'TIMED_OUT';
 
-export type WorkflowMetadataResponse = {
-    id: string;
-    title: string;
-    description: string;
-    status: string;
-    icon_url: string | null;
-    created_at: string;
-    updated_at: string;
-    version: number | null;
-};
-
-export type WorkflowResponse = {
+export type WorkflowRead = {
     id: string;
     title: string;
     description: string;
@@ -1168,6 +1127,42 @@ export type WorkflowResponse = {
 } | null;
     returns: unknown;
     config: DSLConfig_Output | null;
+};
+
+export type WorkflowReadMinimal = {
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+    icon_url: string | null;
+    created_at: string;
+    updated_at: string;
+    version: number | null;
+    tags?: Array<TagRead> | null;
+};
+
+export type WorkflowTagCreate = {
+    tag_id: string;
+};
+
+export type WorkflowUpdate = {
+    title?: string | null;
+    description?: string | null;
+    status?: 'online' | 'offline' | null;
+    object?: {
+    [key: string]: unknown;
+} | null;
+    version?: number | null;
+    entrypoint?: string | null;
+    icon_url?: string | null;
+    static_inputs?: {
+    [key: string]: unknown;
+} | null;
+    expects?: {
+    [key: string]: ExpectedField;
+} | null;
+    returns?: unknown | null;
+    config?: DSLConfig_Input | null;
 };
 
 export type WorkspaceMember = {
@@ -1223,7 +1218,7 @@ export type PublicIncomingWebhookWaitData = {
     secret: string;
 };
 
-export type PublicIncomingWebhookWaitResponse = DSLContext;
+export type PublicIncomingWebhookWaitResponse = unknown;
 
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>;
 
@@ -1286,27 +1281,31 @@ export type WorkspacesDeleteWorkspaceMembershipData = {
 export type WorkspacesDeleteWorkspaceMembershipResponse = void;
 
 export type WorkflowsListWorkflowsData = {
+    /**
+     * Filter workflows by tags
+     */
+    tag?: Array<(string)> | null;
     workspaceId: string;
 };
 
-export type WorkflowsListWorkflowsResponse = Array<WorkflowMetadataResponse>;
+export type WorkflowsListWorkflowsResponse = Array<WorkflowReadMinimal>;
 
 export type WorkflowsCreateWorkflowData = {
     formData?: Body_workflows_create_workflow;
     workspaceId: string;
 };
 
-export type WorkflowsCreateWorkflowResponse = WorkflowMetadataResponse;
+export type WorkflowsCreateWorkflowResponse = WorkflowReadMinimal;
 
 export type WorkflowsGetWorkflowData = {
     workflowId: string;
     workspaceId: string;
 };
 
-export type WorkflowsGetWorkflowResponse = WorkflowResponse;
+export type WorkflowsGetWorkflowResponse = WorkflowRead;
 
 export type WorkflowsUpdateWorkflowData = {
-    requestBody: UpdateWorkflowParams;
+    requestBody: WorkflowUpdate;
     workflowId: string;
     workspaceId: string;
 };
@@ -1325,7 +1324,7 @@ export type WorkflowsCommitWorkflowData = {
     workspaceId: string;
 };
 
-export type WorkflowsCommitWorkflowResponse = CommitWorkflowResponse;
+export type WorkflowsCommitWorkflowResponse = WorkflowCommitResponse;
 
 export type WorkflowsExportWorkflowData = {
     /**
@@ -1460,6 +1459,29 @@ export type ActionsDeleteActionData = {
 
 export type ActionsDeleteActionResponse = void;
 
+export type WorkflowsListTagsData = {
+    workflowId: string;
+    workspaceId: string;
+};
+
+export type WorkflowsListTagsResponse = Array<TagRead>;
+
+export type WorkflowsAddTagData = {
+    requestBody: WorkflowTagCreate;
+    workflowId: string;
+    workspaceId: string;
+};
+
+export type WorkflowsAddTagResponse = unknown;
+
+export type WorkflowsRemoveTagData = {
+    tagId: string;
+    workflowId: string;
+    workspaceId: string;
+};
+
+export type WorkflowsRemoveTagResponse = void;
+
 export type SecretsSearchSecretsData = {
     environment: string;
     /**
@@ -1568,6 +1590,41 @@ export type SchedulesSearchSchedulesData = {
 };
 
 export type SchedulesSearchSchedulesResponse = Array<Schedule>;
+
+export type TagsListTagsData = {
+    workspaceId: string;
+};
+
+export type TagsListTagsResponse = Array<TagRead>;
+
+export type TagsCreateTagData = {
+    requestBody: TagCreate;
+    workspaceId: string;
+};
+
+export type TagsCreateTagResponse = TagRead;
+
+export type TagsGetTagData = {
+    tagId: string;
+    workspaceId: string;
+};
+
+export type TagsGetTagResponse = TagRead;
+
+export type TagsUpdateTagData = {
+    requestBody: TagUpdate;
+    tagId: string;
+    workspaceId: string;
+};
+
+export type TagsUpdateTagResponse = TagRead;
+
+export type TagsDeleteTagData = {
+    tagId: string;
+    workspaceId: string;
+};
+
+export type TagsDeleteTagResponse = unknown;
 
 export type UsersSearchUserData = {
     email?: string | null;
@@ -1792,7 +1849,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: DSLContext;
+                200: unknown;
                 /**
                  * Validation Error
                  */
@@ -1942,7 +1999,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: Array<WorkflowMetadataResponse>;
+                200: Array<WorkflowReadMinimal>;
                 /**
                  * Validation Error
                  */
@@ -1955,7 +2012,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                201: WorkflowMetadataResponse;
+                201: WorkflowReadMinimal;
                 /**
                  * Validation Error
                  */
@@ -1970,7 +2027,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: WorkflowResponse;
+                200: WorkflowRead;
                 /**
                  * Validation Error
                  */
@@ -2011,7 +2068,7 @@ export type $OpenApiTs = {
                 /**
                  * Successful Response
                  */
-                200: CommitWorkflowResponse;
+                200: WorkflowCommitResponse;
                 /**
                  * Validation Error
                  */
@@ -2260,6 +2317,49 @@ export type $OpenApiTs = {
             };
         };
     };
+    '/workflows/{workflow_id}/tags': {
+        get: {
+            req: WorkflowsListTagsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<TagRead>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        post: {
+            req: WorkflowsAddTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                201: unknown;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/workflows/{workflow_id}/tags/{tag_id}': {
+        delete: {
+            req: WorkflowsRemoveTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
     '/secrets/search': {
         get: {
             req: SecretsSearchSecretsData;
@@ -2423,6 +2523,75 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 200: Array<Schedule>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/tags': {
+        get: {
+            req: TagsListTagsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<TagRead>;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        post: {
+            req: TagsCreateTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: TagRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/tags/{tag_id}': {
+        get: {
+            req: TagsGetTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: TagRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        patch: {
+            req: TagsUpdateTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: TagRead;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+        delete: {
+            req: TagsDeleteTagData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: unknown;
                 /**
                  * Validation Error
                  */

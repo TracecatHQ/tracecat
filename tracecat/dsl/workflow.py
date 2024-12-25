@@ -4,9 +4,9 @@ import asyncio
 import itertools
 import json
 import uuid
-from collections.abc import Generator, Iterable
+from collections.abc import Generator, Iterable, Iterator
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -42,10 +42,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.models import (
         ActionStatement,
         DSLConfig,
-        DSLContext,
         DSLEnvironment,
         DSLExecutionError,
         DSLNodeResult,
+        ExecutionContext,
         RunActionInput,
         TriggerInputs,
     )
@@ -225,11 +225,11 @@ class DSLWorkflow:
             ) from e
 
         # Prepare user facing context
-        self.context = DSLContext(
-            ACTIONS={},
-            INPUTS=self.dsl.inputs,
-            TRIGGER=trigger_inputs,
-            ENV=DSLEnvironment(
+        self.context: ExecutionContext = {
+            ExprContext.ACTIONS: {},
+            ExprContext.INPUTS: self.dsl.inputs,
+            ExprContext.TRIGGER: trigger_inputs,
+            ExprContext.ENV: DSLEnvironment(
                 workflow={
                     "start_time": wf_info.start_time,
                     "dispatch_type": self.dispatch_type,
@@ -237,7 +237,7 @@ class DSLWorkflow:
                 environment=self.runtime_config.environment,
                 variables={},
             ),
-        )
+        }
 
         # All the starting config has been consolidated, can safely set the run context
         # Internal facing context
@@ -428,7 +428,10 @@ class DSLWorkflow:
             fail_strategy=fail_strategy,
         )
 
-        iterator = iter_for_each(task=task, context=self.context)
+        iterator = cast(
+            Iterator[ExecuteChildWorkflowArgs],
+            iter_for_each(task=task, context=self.context),
+        )
         if loop_strategy == LoopStrategy.PARALLEL:
             action_result = await self._execute_child_workflow_batch(
                 batch=iterator,
@@ -513,7 +516,7 @@ class DSLWorkflow:
             # Return the context
             # XXX: Don't return ENV context for now
             self.logger.trace("Returning DSL context")
-            self.context.pop(ExprContext.ENV.value, None)
+            self.context.pop(ExprContext.ENV, None)
             return self.context
         # Return some custom value that should be evaluated
         self.logger.trace("Returning value from expression")
@@ -560,7 +563,7 @@ class DSLWorkflow:
 
     async def _get_schedule_trigger_inputs(
         self, schedule_id: identifiers.ScheduleID, worflow_id: identifiers.WorkflowID
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         """Get the trigger inputs for a schedule.
 
         Raises

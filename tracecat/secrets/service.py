@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncGenerator, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Sequence
 from itertools import chain
 from typing import Literal, overload
 
@@ -11,8 +10,6 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import BaseSecret, OrganizationSecret, Secret
 from tracecat.identifiers import SecretID
 from tracecat.logger import logger
@@ -24,29 +21,22 @@ from tracecat.secrets.models import (
     SecretSearch,
     SecretUpdate,
 )
+from tracecat.service import BaseService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
 
-class SecretsService:
+class SecretsService(BaseService):
     """Secrets manager service."""
 
+    service_name = "secrets"
+
     def __init__(self, session: AsyncSession, role: Role | None = None):
-        self.role = role or ctx_role.get()
-        self.session = session
+        super().__init__(session, role=role)
         try:
             self._encryption_key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
         except KeyError as e:
             raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set") from e
-        self.logger = logger.bind(service="secrets")
-
-    @asynccontextmanager
-    @staticmethod
-    async def with_session(
-        role: Role | None = None,
-    ) -> AsyncGenerator[SecretsService, None]:
-        async with get_async_session_context_manager() as session:
-            yield SecretsService(session, role=role)
 
     async def _update_secret(self, secret: BaseSecret, params: SecretUpdate) -> None:
         set_fields = params.model_dump(exclude_unset=True)

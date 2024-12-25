@@ -11,14 +11,14 @@ from temporalio.exceptions import ApplicationError
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.dsl.common import context_locator
 from tracecat.dsl.models import ActionStatement, DSLTaskErrorInfo, RunActionInput
+from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.registry.client import RegistryClient
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import RegistryActionError
+from tracecat.types.exceptions import ActionExecutionError
 
 
-def _contextualize_message(
+def contextualize_message(
     task: ActionStatement,
     msg: str | BaseException,
     *,
@@ -61,7 +61,7 @@ class DSLActivities:
         - Validate the action arguments against the UDF spec.
         - Return the validated arguments.
         """
-        client = RegistryClient(role=input.role)
+        client = ExecutorClient(role=input.role)
         return await client.validate_action(
             action_name=input.task.action, args=input.task.args
         )
@@ -104,13 +104,13 @@ class DSLActivities:
 
         try:
             # Delegate to the registry client
-            client = RegistryClient(role=role)
-            return await client.call_action(input)
-        except RegistryActionError as e:
-            # We only expect RegistryActionError to be raised from the registry client
+            client = ExecutorClient(role=role)
+            return await client.run_action_memory_backend(input)
+        except ActionExecutionError as e:
+            # We only expect ActionExecutionError to be raised from the executor client
             kind = e.__class__.__name__
             msg = str(e)
-            err_locator = _contextualize_message(task, msg, attempt=attempt)
+            err_locator = contextualize_message(task, msg, attempt=attempt)
             act_logger.error(
                 "Application exception occurred", error=msg, detail=e.detail
             )
@@ -131,7 +131,7 @@ class DSLActivities:
                 attempt=attempt,
             )
             raise ApplicationError(
-                _contextualize_message(task, e.message, attempt=attempt),
+                contextualize_message(task, e.message, attempt=attempt),
                 err_info,
                 non_retryable=e.non_retryable,
                 type=e.type,
@@ -149,7 +149,7 @@ class DSLActivities:
                 attempt=attempt,
             )
             raise ApplicationError(
-                _contextualize_message(task, raw_msg, attempt=attempt),
+                contextualize_message(task, raw_msg, attempt=attempt),
                 err_info,
                 type=kind,
                 non_retryable=True,
