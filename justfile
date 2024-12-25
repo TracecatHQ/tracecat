@@ -47,3 +47,6 @@ gen-api: _check-cli
 
 gen-integrations: _check-cli
 	tracecat dev gen-integrations
+
+gen-functions: _check-cli
+	tracecat dev gen-functions
