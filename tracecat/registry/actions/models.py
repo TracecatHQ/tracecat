@@ -4,7 +4,7 @@ import inspect
 import traceback
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar, cast
+from typing import Annotated, Any, Literal, TypedDict, TypeVar, cast
 
 import yaml
 from pydantic import (
@@ -35,7 +35,7 @@ RegistryActionType = Literal["udf", "template"]
 """Registry related"""
 
 
-class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
+class BoundRegistryAction(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     # Bound Implementation
     fn: Callable[..., Any]
@@ -50,7 +50,7 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
     # Secrets
     secrets: list[RegistrySecret] | None = None
     # Bound Interface
-    args_cls: ArgsClsT
+    args_cls: type[BaseModel]
     args_docs: dict[str, str] = Field(default_factory=dict)
     rtype_cls: Any | None = None
     rtype_adapter: TypeAdapter[Any] | None = None
@@ -117,7 +117,7 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
         else:
             raise ValueError(f"Invalid registry action type: {self.type}")
 
-    def validate_args[T](self, *args, **kwargs) -> T:
+    def validate_args(self, *args, **kwargs) -> dict[str, Any]:
         """Validate the input arguments for a Bound registry action.
 
         Checks:
@@ -137,8 +137,8 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
             # Note that we're allowing type coercion for the input arguments
             # Use cases would be transforming a UTC string to a datetime object
             # We return the validated input arguments as a dictionary
-            validated: BaseModel = self.args_cls.model_validate(kwargs)
-            validated_args = cast(T, validated.model_dump(mode="json"))
+            validated = self.args_cls.model_validate(kwargs)
+            validated_args = validated.model_dump(mode="json")
             return validated_args
         except ValidationError as e:
             logger.error(
