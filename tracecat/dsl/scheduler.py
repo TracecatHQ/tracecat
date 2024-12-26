@@ -3,8 +3,6 @@ from collections import defaultdict
 from collections.abc import Coroutine
 from typing import Any
 
-from temporalio.exceptions import ApplicationError
-
 from tracecat.contexts import ctx_logger
 from tracecat.dsl.common import AdjDst, DSLEdge, DSLInput, edge_components_from_dep
 from tracecat.dsl.enums import EdgeMarker, EdgeType, JoinStrategy, SkipStrategy
@@ -199,8 +197,8 @@ class DSLScheduler:
             self.logger.info("Task completed", ref=ref)
             self.completed_tasks.add(ref)
 
-    async def start(self) -> None:
-        """Run the scheduler in dynamic mode."""
+    async def start(self) -> list[BaseException] | None:
+        """Run the scheduler and return any exceptions that occurred."""
         # Instead of explicitly setting the entrypoint, we set all zero-indegree
         # tasks to the queue.
         for task_ref, indegree in self.indegrees.items():
@@ -224,21 +222,20 @@ class DSLScheduler:
 
             asyncio.create_task(self._schedule_task(task_ref))
         if self.task_exceptions:
-            self.logger.error(
+            self.logger.warning(
                 "DSLScheduler got task exceptions, stopping...",
                 n_exceptions=len(self.task_exceptions),
                 exceptions=self.task_exceptions,
                 n_visited=len(self.completed_tasks),
                 n_tasks=len(self.tasks),
             )
-            raise ApplicationError(
-                "Task exceptions occurred", *self.task_exceptions.values()
-            )
+            return list(self.task_exceptions.values())
         self.logger.info(
             "All tasks completed",
             visited_tasks=self.completed_tasks,
             tasks=self.tasks,
         )
+        return None
 
     def _is_reachable(self, task: ActionStatement) -> bool:
         """Check whether a task is reachable based on its dependencies' outcomes.
