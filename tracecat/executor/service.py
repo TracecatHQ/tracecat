@@ -35,10 +35,7 @@ from tracecat.expressions.eval import (
 )
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
-from tracecat.registry.actions.models import (
-    ArgsClsT,
-    BoundRegistryAction,
-)
+from tracecat.registry.actions.models import BoundRegistryAction
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -52,7 +49,7 @@ from tracecat.types.exceptions import TracecatException
 type ArgsT = Mapping[str, Any]
 
 
-def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
+def sync_executor_entrypoint(input: RunActionInput, role: Role) -> Any:
     """We run this on the ray cluster."""
 
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
@@ -78,9 +75,7 @@ def sync_executor_entrypoint(input: RunActionInput[ArgsT], role: Role) -> Any:
         loop.close()  # We always close the loop
 
 
-async def _run_action_direct(
-    *, action: BoundRegistryAction[ArgsClsT], args: ArgsT
-) -> Any:
+async def _run_action_direct(*, action: BoundRegistryAction, args: ArgsT) -> Any:
     """Execute the UDF directly.
 
     At this point, the UDF cannot be a template.
@@ -105,7 +100,7 @@ async def _run_action_direct(
 
 async def run_single_action(
     *,
-    action: BoundRegistryAction[ArgsClsT],
+    action: BoundRegistryAction,
     args: ArgsT,
     context: ExecutionContext,
 ) -> Any:
@@ -150,7 +145,7 @@ async def run_single_action(
 
 async def run_template_action(
     *,
-    action: BoundRegistryAction[ArgsClsT],
+    action: BoundRegistryAction,
     args: ArgsT,
     context: ExecutionContext | None = None,
 ) -> Any:

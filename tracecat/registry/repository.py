@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from itertools import chain
 from pathlib import Path
 from timeit import default_timer
-from types import FunctionType, GenericAlias, ModuleType
+from types import ModuleType
 from typing import Annotated, Any, Literal, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 
@@ -50,6 +50,7 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryError
 
 ArgsClsT = type[BaseModel]
+type F = Callable[..., Any]
 
 
 class RegisterKwargs(BaseModel):
@@ -137,7 +138,7 @@ class Repository:
     def register_udf(
         self,
         *,
-        fn: FunctionType,
+        fn: F,
         name: str,
         type: Literal["udf", "template"],
         namespace: str,
@@ -315,7 +316,7 @@ class Repository:
 
     def _register_udf_from_function(
         self,
-        fn: FunctionType,
+        fn: F,
         *,
         name: str,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
@@ -330,7 +331,7 @@ class Repository:
         args_docs = get_signature_docs(fn)
         # Generate the model from the function signature
         args_cls, rtype, rtype_adapter = generate_model_from_function(
-            func=fn, namespace=validated_kwargs.namespace
+            func=fn, udf_kwargs=validated_kwargs
         )
 
         self.register_udf(
@@ -486,14 +487,11 @@ def import_and_reload(module_name: str) -> ModuleType:
     return reloaded_module
 
 
-def attach_validators(func: FunctionType, *validators: Callable):
+def attach_validators(func: F, *validators: Any):
     sig = inspect.signature(func)
 
     new_annotations = {
-        name: Annotated[
-            param.annotation,
-            *validators,
-        ]
+        name: Annotated[param.annotation, *validators]
         for name, param in sig.parameters.items()
     }
     if sig.return_annotation is not sig.empty:
@@ -502,8 +500,8 @@ def attach_validators(func: FunctionType, *validators: Callable):
 
 
 def generate_model_from_function(
-    func: FunctionType, namespace: str
-) -> tuple[type[BaseModel], type | GenericAlias | None, TypeAdapter | None]:
+    func: F, udf_kwargs: RegisterKwargs
+) -> tuple[type[BaseModel], Any, TypeAdapter]:
     # Get the signature of the function
     sig = inspect.signature(func)
     # Create a dictionary to hold field definitions
@@ -523,10 +521,10 @@ def generate_model_from_function(
         fields[name] = (field_type, field_info)
     # Dynamically create and return the Pydantic model class
     input_model = create_model(
-        _udf_slug_camelcase(func, namespace),
+        _udf_slug_camelcase(func, udf_kwargs.namespace),
         __config__=ConfigDict(extra="forbid"),
         **fields,
-    )  # type: ignore
+    )
     # Capture the return type of the function
     rtype = sig.return_annotation if sig.return_annotation is not sig.empty else Any
     rtype_adapter = TypeAdapter(rtype)
@@ -534,7 +532,7 @@ def generate_model_from_function(
     return input_model, rtype, rtype_adapter
 
 
-def get_signature_docs(fn: FunctionType) -> dict[str, str]:
+def get_signature_docs(fn: F) -> dict[str, str]:
     param_docs = {}
 
     sig = inspect.signature(fn)
@@ -546,7 +544,7 @@ def get_signature_docs(fn: FunctionType) -> dict[str, str]:
     return param_docs
 
 
-def _udf_slug_camelcase(func: FunctionType, namespace: str) -> str:
+def _udf_slug_camelcase(func: F, namespace: str) -> str:
     # Use slugify to preprocess the string
     slugified_string = re.sub(r"[^a-zA-Z0-9]+", " ", namespace)
     slugified_name = re.sub(r"[^a-zA-Z0-9]+", " ", func.__name__)
@@ -558,18 +556,18 @@ def _udf_slug_camelcase(func: FunctionType, namespace: str) -> str:
     return "".join(word.capitalize() for word in words)
 
 
-def _enforce_restrictions(fn: FunctionType) -> FunctionType:
+def _enforce_restrictions(fn: F) -> F:
     """
     Ensure that a function does not access os.environ, os.getenv, or import os.
 
     Parameters
     ----------
-    fn : FunctionType
+    fn : F
         The function to be checked.
 
     Returns
     -------
-    FunctionType
+    F
         The original function if no access to os.environ, os.getenv, or import os is found.
 
     Raises
