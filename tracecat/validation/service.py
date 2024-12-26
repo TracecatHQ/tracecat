@@ -1,8 +1,8 @@
 from collections.abc import Mapping, Sequence
 from itertools import chain
-from typing import Any, cast
+from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry import RegistrySecret
@@ -169,8 +169,8 @@ async def validate_registry_action_args(
             # Note that we're allowing type coercion for the input arguments
             # Use cases would be transforming a UTC string to a datetime object
             # We return the validated input arguments as a dictionary
-            validated: BaseModel = model.model_validate(args)
-            validated_args = cast(Mapping[str, Any], validated.model_dump())
+            validated = model.model_validate(args)
+            validated_args = validated.model_dump()
         except ValidationError as e:
             logger.warning(f"Validation error for UDF {action_name!r}. {e.errors()!r}")
             raise RegistryValidationError(

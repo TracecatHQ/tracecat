@@ -44,7 +44,7 @@ def get_bound_action_impl(
         args_docs = get_signature_docs(fn)
         # Generate the model from the function signature
         args_cls, rtype, rtype_adapter = generate_model_from_function(
-            func=fn, namespace=validated_kwargs.namespace
+            func=fn, udf_kwargs=validated_kwargs
         )
         return BoundRegistryAction(
             fn=fn,
