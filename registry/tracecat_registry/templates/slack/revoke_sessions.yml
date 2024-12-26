@@ -6,9 +6,6 @@ definition:
   title: Revoke Slack Sessions
   description: Revoke the sessions of a Slack user
   display_group: Slack
-  secrets:
-    - name: slack
-      keys: ["SLACK_API_TOKEN"]
   expects:
     user_id:
       type: str
