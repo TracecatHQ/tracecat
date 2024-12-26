@@ -21,13 +21,10 @@ definition:
     priority_id:
       type: str
       description: Priority ID
+      default: null
     issue_type_id:
       type: str
       description: Issue Type ID
-      default: null
-    issue_type_name:
-      type: str
-      description: Issue Type Name
       default: null
   steps:
     - ref: create_issue
@@ -39,12 +36,11 @@ definition:
           Authorization: Basic ${{ SECRETS.jira.JIRA_BASE64_TOKEN || FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
         payload:
           fields:
+            summary: ${{ inputs.summary }}
             project:
               id: ${{ inputs.project_id }}
-            summary: ${{ inputs.summary }}
             priority:
               id: ${{ inputs.priority_id }}
             issuetype:
               id: ${{ inputs.issue_type_id }}
-              name: ${{ inputs.issue_type_name }}
   returns: ${{ steps.create_issue.result }}
