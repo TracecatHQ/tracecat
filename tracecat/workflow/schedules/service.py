@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
-
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from temporalio import activity
@@ -242,15 +239,6 @@ class WorkflowSchedulesService(BaseService):
                 "Schedule was already deleted from the database",
                 schedule_id=schedule_id,
             )
-
-    @classmethod
-    def get_activities(cls) -> list[Callable[..., Any]]:
-        """Get all loaded activities in the class."""
-        return [
-            getattr(cls, method_name)
-            for method_name in dir(cls)
-            if hasattr(getattr(cls, method_name), "__temporal_activity_definition")
-        ]
 
     @staticmethod
     @activity.defn
