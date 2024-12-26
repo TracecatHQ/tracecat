@@ -263,18 +263,18 @@ class DSLWorkflow:
             context=self.context,
         )
         try:
-            await self.scheduler.start()
-        except ApplicationError as e:
-            raise ApplicationError(
-                e.message, non_retryable=True, type=e.__class__.__name__
-            ) from e
+            exceptions = await self.scheduler.start()
         except Exception as e:
-            msg = f"DSL workflow execution failed with unexpected error: {e}"
+            msg = f"DSL scheduler failed with unexpected error: {e}"
             raise ApplicationError(
-                msg,
-                non_retryable=True,
-                type=e.__class__.__name__,
+                msg, non_retryable=True, type=e.__class__.__name__
             ) from e
+
+        if exceptions:
+            msg = f"Workflow failed with task exceptions:\n\n{'\n'.join(str(e) for e in exceptions)}"
+            raise ApplicationError(
+                msg, non_retryable=True, type=ApplicationError.__name__
+            )
 
         try:
             self.logger.info("DSL workflow completed")
@@ -344,6 +344,12 @@ class DSLWorkflow:
                 case _:
                     task_result.update(error=e.message, error_typename=err_type)
             raise ApplicationError(e.message, non_retryable=True, type=err_type) from e
+
+        except TracecatExpressionError as e:
+            err_type = e.__class__.__name__
+            detail = e.detail or "Error occurred when handling an expression"
+            raise ApplicationError(detail, non_retryable=True, type=err_type) from e
+
         except ValidationError as e:
             logger.error("Runtime validation error", error=e.errors())
             task_result.update(
@@ -353,7 +359,11 @@ class DSLWorkflow:
         except Exception as e:
             err_type = e.__class__.__name__
             msg = f"Task execution failed with unexpected error: {e}"
-            logger.error("Activity execution failed with unexpected error", error=msg)
+            logger.error(
+                "Activity execution failed with unexpected error",
+                error=msg,
+                type=err_type,
+            )
             task_result.update(error=msg, error_typename=err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
