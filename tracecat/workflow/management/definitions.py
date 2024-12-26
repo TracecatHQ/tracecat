@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy.exc import MultipleResultsFound
 from sqlmodel import select
 from temporalio import activity
 
 from tracecat import identifiers
-from tracecat.db.schemas import Workflow, WorkflowDefinition
+from tracecat.db.schemas import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.logger import logger
 from tracecat.service import BaseService
@@ -30,51 +29,6 @@ class WorkflowDefinitionsService(BaseService):
             statement = statement.order_by(WorkflowDefinition.version.desc())  # type: ignore
 
         result = await self.session.exec(statement)
-        return result.first()
-
-    async def get_definition_by_workflow_title(
-        self, workflow_title: str, *, version: int | None = None
-    ) -> WorkflowDefinition | None:
-        self.logger.warning(
-            "Getting workflow definition by ref",
-            workflow_title=workflow_title,
-            role=self.role,
-        )
-        wf_statement = select(Workflow.id).where(
-            Workflow.owner_id == self.role.workspace_id,
-            Workflow.title == workflow_title,
-        )
-
-        try:
-            result = await self.session.exec(wf_statement)
-            wf_id = result.one_or_none()
-        except MultipleResultsFound as e:
-            self.logger.error(
-                "Multiple workflows found with the same title. Please ensure that the workflow title is unique.",
-                workflow_title=workflow_title,
-            )
-            raise e
-        self.logger.warning("Workflow ID", wf_id=wf_id)
-        if not wf_id:
-            self.logger.error("Workflow name not found", workflow_title=workflow_title)
-            return None
-
-        wf_defn_statement = select(WorkflowDefinition).where(
-            WorkflowDefinition.owner_id == self.role.workspace_id,
-            WorkflowDefinition.workflow_id == wf_id,
-        )
-
-        if version:
-            wf_defn_statement = wf_defn_statement.where(
-                WorkflowDefinition.version == version
-            )
-        else:
-            # Get the latest version
-            wf_defn_statement = wf_defn_statement.order_by(
-                WorkflowDefinition.version.desc()  # type: ignore
-            )
-
-        result = await self.session.exec(wf_defn_statement)
         return result.first()
 
     async def list_workflow_defitinions(
