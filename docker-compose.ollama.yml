@@ -1,0 +1,10 @@
+services:
+  ollama:
+    image: ollama/ollama:${OLLAMA__VERSION}
+    ports:
+      - 11434:11434
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  ollama:
