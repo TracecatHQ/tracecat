@@ -1,14 +1,15 @@
+# https://api.slack.com/methods/conversations.history
 type: action
 definition:
-  title: List Slack conversations
+  title: List Slack Conversation History
   description: List messages from a Slack channel
   display_group: Slack
   namespace: integrations.slack
-  name: list_conversations
+  name: list_conversations_history
   expects:
     channel:
       type: str
-      description: ID of the channel to list conversations from
+      description: ID of the channel to list conversation history from
     latest:
       type: datetime
       description: Latest ISO datetime to include in the list
@@ -20,7 +21,7 @@ definition:
       description: Maximum number of messages to return
       default: 100
   steps:
-    - ref: list_conversations
+    - ref: list_conversations_history
       action: integrations.slack.call_paginated_slack_api
       args:
         sdk_method: conversations_history
@@ -29,4 +30,4 @@ definition:
           latest: ${{ str(FN.to_timestamp(inputs.latest)) }}
           oldest: ${{ str(FN.to_timestamp(inputs.oldest)) }}
         limit: ${{ inputs.limit }}
-  returns: ${{ FN.flatten(steps.list_conversations.result[*].messages) }}
+  returns: ${{ FN.flatten(steps.list_conversations_history.result[*].messages) }}
