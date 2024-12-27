@@ -35,12 +35,13 @@ dotenv_replace() {
 
 echo -e "${YELLOW}Creating .env...${NC}"
 
-# Check that docker and ngrok exist
-if ! command -v docker &> /dev/null
+# Check that docker exists and is running 
+if !  docker ps &> /dev/null
 then
-    echo -e "${RED}Docker could not be found. Please install Docker and try again.${NC}"
+    echo -e "${RED}Docker could not be found. Please check if installed and running.${NC}"
     exit
 fi
+
 
 
 # If .env exists, ask user if they want to overwrite it
@@ -54,9 +55,21 @@ if [ -f .env ]; then
 fi
 
 # Create .env file
+
+if [ ! -e ".env.example" ] ; then
+  echo "No .env.example file in current directory: $(pwd)"
+  exit 1
+fi
 env_file=".env"
 
 echo -e "${YELLOW}Generating new service key and signing secret...${NC}"
+q
+if ! openssl &> /dev/null
+then
+  echo  -e "${RED}Could not run openssl exiting."
+  exit 1
+fi
+
 service_key=$(openssl rand -hex 32)
 signing_secret=$(openssl rand -hex 32)
 
