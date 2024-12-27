@@ -57,18 +57,18 @@ fi
 # Create .env file
 
 if [ ! -e ".env.example" ] ; then
-  echo "No .env.example file in current directory: $(pwd)"
+  echo "${RED}No .env.example file found in current directory: $(pwd). Please download .env.example from the Tracecat GitHub repo and rerun the env.sh script."
   exit 1
 fi
 env_file=".env"
 
-echo -e "${YELLOW}Generating new service key and signing secret...${NC}"
-
 if ! openssl &> /dev/null
 then
-  echo  -e "${RED}Could not run openssl exiting."
+  echo  -e "${RED}Could not run openssl. Please check if openssl is correctly installed."
   exit 1
 fi
+
+echo -e "${YELLOW}Generating new service key and signing secret...${NC}"
 
 service_key=$(openssl rand -hex 32)
 signing_secret=$(openssl rand -hex 32)
