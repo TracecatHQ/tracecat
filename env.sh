@@ -63,7 +63,7 @@ fi
 env_file=".env"
 
 echo -e "${YELLOW}Generating new service key and signing secret...${NC}"
-q
+
 if ! openssl &> /dev/null
 then
   echo  -e "${RED}Could not run openssl exiting."
