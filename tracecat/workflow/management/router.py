@@ -220,7 +220,7 @@ async def update_workflow(
     """Update a workflow."""
     service = WorkflowsManagementService(session, role=role)
     try:
-        await service.update_wrkflow(workflow_id, params=params)
+        await service.update_workflow(workflow_id, params=params)
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"

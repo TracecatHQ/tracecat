@@ -66,7 +66,7 @@ class WorkflowsManagementService(BaseService):
         result = await self.session.exec(statement)
         return result.one_or_none()
 
-    async def update_wrkflow(
+    async def update_workflow(
         self, workflow_id: WorkflowID, params: WorkflowUpdate
     ) -> Workflow:
         statement = select(Workflow).where(
