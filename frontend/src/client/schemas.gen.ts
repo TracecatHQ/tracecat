@@ -3661,6 +3661,17 @@ export const $WorkflowRead = {
                     type: 'null'
                 }
             ]
+        },
+        alias: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Alias'
         }
     },
     type: 'object',
@@ -3732,6 +3743,17 @@ export const $WorkflowReadMinimal = {
                 }
             ],
             title: 'Tags'
+        },
+        alias: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Alias'
         }
     },
     type: 'object',
@@ -3875,6 +3897,17 @@ export const $WorkflowUpdate = {
                     type: 'null'
                 }
             ]
+        },
+        alias: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Alias'
         }
     },
     type: 'object',

@@ -1127,6 +1127,7 @@ export type WorkflowRead = {
 } | null;
     returns: unknown;
     config: DSLConfig_Output | null;
+    alias?: string | null;
 };
 
 export type WorkflowReadMinimal = {
@@ -1139,6 +1140,7 @@ export type WorkflowReadMinimal = {
     updated_at: string;
     version: number | null;
     tags?: Array<TagRead> | null;
+    alias?: string | null;
 };
 
 export type WorkflowTagCreate = {
@@ -1163,6 +1165,7 @@ export type WorkflowUpdate = {
 } | null;
     returns?: unknown | null;
     config?: DSLConfig_Input | null;
+    alias?: string | null;
 };
 
 export type WorkspaceMember = {
