@@ -1,6 +1,7 @@
 import asyncio
 import dataclasses
 import os
+from collections.abc import Callable
 
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import (
@@ -16,6 +17,7 @@ from tracecat.logger import logger
 from tracecat.workflow.management.definitions import (
     get_workflow_definition_activity,
 )
+from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 
@@ -45,16 +47,21 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 interrupt_event = asyncio.Event()
 
 
-async def main() -> None:
-    client = await get_temporal_client()
-
-    # Run a worker for the activities and workflow
-    activities = [
+def get_activities() -> list[Callable]:
+    return [
         *DSLActivities.load(),
         get_workflow_definition_activity,
         *WorkflowSchedulesService.get_activities(),
         validate_trigger_inputs_activity,
+        *WorkflowsManagementService.get_activities(),
     ]
+
+
+async def main() -> None:
+    client = await get_temporal_client()
+
+    # Run a worker for the activities and workflow
+    activities = get_activities()
     logger.debug(
         "Activities loaded",
         activities=[
