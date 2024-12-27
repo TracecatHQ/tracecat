@@ -68,13 +68,13 @@ You'll be prompted to input the following:
   - `n` (no to postgres SSL mode).
 </Info>
 
-<Accordion title="Production Mode">
+<Note>
+  Setting production mode to `n` changes where Tracecat's remote repository is installed.
+  Do not set production mode to `n` unless you are a Tracecat developer.
 
-  Note: setting production mode to `n` changes where Tracecat's remote repository is installed.
   By default, Tracecat will install the remote repository to the user's home directory at `~/.local/lib/python3.12/site-packages/`.
-  Setting production mode to `y` will install the remote repository to the PYTHONUSERBASE directory specified in the `.env` file.
-
-</Accordion>
+  Setting production mode to `y` will install the remote repository to the `PYTHONUSERBASE` directory specified in the `.env` file.
+</Note>
 
 ![env.sh](/img/self-hosting/env-script.png)
 
