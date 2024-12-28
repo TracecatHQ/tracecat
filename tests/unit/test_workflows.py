@@ -28,8 +28,9 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Workflow
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLInput, DSLRunArgs
-from tracecat.dsl.models import DSLConfig, ExecutionContext
+from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.enums import LoopStrategy
+from tracecat.dsl.models import ActionStatement, DSLConfig, ExecutionContext
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.executor.service import run_action_on_ray_cluster
@@ -40,6 +41,7 @@ from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.management.models import WorkflowUpdate
 
 
 @pytest.fixture(scope="module")
@@ -540,7 +542,9 @@ async def test_workflow_default_environment_correct(test_role, temporal_client):
 """Child workflow"""
 
 
-async def _create_and_commit_workflow(dsl: DSLInput, role: Role) -> Workflow:
+async def _create_and_commit_workflow(
+    dsl: DSLInput, role: Role, *, alias: str | None = None
+) -> Workflow:
     async with get_async_session_context_manager() as session:
         # Create the child workflow
         mgmt_service = WorkflowsManagementService(session, role=role)
@@ -550,6 +554,8 @@ async def _create_and_commit_workflow(dsl: DSLInput, role: Role) -> Workflow:
         workflow = res.workflow
         if not workflow:
             return pytest.fail("Workflow wasn't created")
+        if alias:
+            await mgmt_service.update_workflow(workflow.id, WorkflowUpdate(alias=alias))
         constructed_dsl = await mgmt_service.build_dsl_from_workflow(workflow)
 
         # Commit the child workflow
@@ -775,6 +781,280 @@ async def test_child_workflow_context_passing(test_role, temporal_client):
         "TRIGGER": {"data": "__EXPECTED_DATA__"},
     }
     assert result == expected
+
+
+@pytest.fixture
+def child_dsl():
+    child_dsl = DSLInput(
+        entrypoint=DSLEntrypoint(expects={}, ref="reshape"),
+        actions=[
+            ActionStatement(
+                ref="reshape",
+                action="core.transform.reshape",
+                args={
+                    "value": {
+                        "data": "${{ TRIGGER.data }}",
+                        "index": "${{ TRIGGER.index }}",
+                    },
+                },
+                depends_on=[],
+                description="",
+                run_if=None,
+                for_each=None,
+            )
+        ],
+        description="Testing child workflow",
+        inputs={},
+        returns="${{ ACTIONS.reshape.result }}",
+        title="Child",
+        triggers=[],
+    )
+    return child_dsl
+
+
+@pytest.mark.parametrize(
+    "loop_strategy,loop_kwargs",
+    [
+        pytest.param(LoopStrategy.PARALLEL, {}, id="parallel"),
+        pytest.param(LoopStrategy.SEQUENTIAL, {}, id="sequential"),
+        pytest.param(LoopStrategy.BATCH, {"batch_size": 2}, id="batch"),
+    ],
+)
+@pytest.mark.anyio
+async def test_child_workflow_loop(
+    test_role: Role,
+    temporal_client: Client,
+    child_dsl: DSLInput,
+    loop_strategy: LoopStrategy,
+    loop_kwargs: dict[str, Any],
+):
+    # Setup
+    test_name = test_child_workflow_loop.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Child
+
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
+
+    # Parent
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test parent workflow can pass context to child",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_id": child_workflow.id,
+                    "trigger_inputs": {
+                        "data": "Parent sent child ${{ TRIGGER.data }}",  # This is the parent's trigger data
+                        "index": "${{ var.x }}",
+                    },
+                    "loop_strategy": loop_strategy.value,
+                    **loop_kwargs,
+                },
+                depends_on=[],
+                description="",
+                for_each="${{ for var.x in FN.range(0, 5) }}",
+                run_if=None,
+            ),
+        ],
+        inputs={},
+        returns=None,
+        triggers=[],
+    )
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id="wf-00000000000000000000000000000002",
+        trigger_inputs={
+            "data": "__EXPECTED_DATA__",
+        },
+    )
+
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    # Parent expected
+    expected = {
+        "ACTIONS": {
+            "run_child": {
+                "result": [
+                    {
+                        "index": 0,
+                        "data": "Parent sent child __EXPECTED_DATA__",
+                    },
+                    {
+                        "index": 1,
+                        "data": "Parent sent child __EXPECTED_DATA__",
+                    },
+                    {
+                        "index": 2,
+                        "data": "Parent sent child __EXPECTED_DATA__",
+                    },
+                    {
+                        "index": 3,
+                        "data": "Parent sent child __EXPECTED_DATA__",
+                    },
+                    {
+                        "index": 4,
+                        "data": "Parent sent child __EXPECTED_DATA__",
+                    },
+                ],
+                "result_typename": "list",
+            },
+        },
+        "INPUTS": {},
+        "TRIGGER": {"data": "__EXPECTED_DATA__"},
+    }
+    assert result == expected
+
+
+# Test workflow alias
+@pytest.mark.anyio
+async def test_single_child_workflow_alias(
+    test_role: Role, temporal_client: Client, child_dsl: DSLInput
+):
+    test_name = test_single_child_workflow_alias.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+    child_workflow = await _create_and_commit_workflow(
+        child_dsl, test_role, alias="the_child"
+    )
+
+    assert child_workflow.alias == "the_child"
+
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test parent workflow can pass context to child",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_alias": "the_child",
+                    "trigger_inputs": {
+                        "data": "Test",
+                        "index": 0,
+                    },
+                },
+                depends_on=[],
+                description="",
+                for_each=None,
+                run_if=None,
+            ),
+        ],
+        inputs={},
+        returns="${{ ACTIONS.run_child.result }}",
+        triggers=[],
+    )
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id="wf-00000000000000000000000000000002",
+    )
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    # Parent expected
+    assert result == {"data": "Test", "index": 0}
+
+
+@pytest.mark.parametrize(
+    "alias,loop_strategy,loop_kwargs",
+    [
+        pytest.param(
+            "basic_alias",
+            LoopStrategy.PARALLEL,
+            {},
+            id="basic_alias",
+        ),
+        pytest.param(
+            "sequential_child",
+            LoopStrategy.SEQUENTIAL,
+            {},
+            id="sequential_alias",
+        ),
+        pytest.param(
+            "batch_child",
+            LoopStrategy.BATCH,
+            {"batch_size": 2},
+            id="batch_size_2",
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_child_workflow_alias_with_loop(
+    test_role: Role,
+    temporal_client: Client,
+    child_dsl: DSLInput,
+    alias: str,
+    loop_strategy: LoopStrategy,
+    loop_kwargs: dict[str, Any],
+):
+    """Test that child workflows can be executed using aliases."""
+    test_name = test_single_child_workflow_alias.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+    child_workflow = await _create_and_commit_workflow(
+        child_dsl, test_role, alias=alias
+    )
+
+    assert child_workflow.alias == alias
+
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test parent workflow can pass context to child",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_alias": alias,
+                    "trigger_inputs": {
+                        "data": "Parent sent child ${{ TRIGGER }}",  # This is the parent's trigger data
+                        "index": "${{ var.x }}",
+                    },
+                    "loop_strategy": loop_strategy.value,
+                    **loop_kwargs,
+                },
+                depends_on=[],
+                description="",
+                for_each="${{ for var.x in FN.range(0, 5) }}",
+                run_if=None,
+            ),
+        ],
+        inputs={},
+        returns="${{ ACTIONS.run_child.result }}",
+        triggers=[],
+    )
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id="wf-00000000000000000000000000000002",
+        trigger_inputs="__EXPECTED_DATA__",
+    )
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    # Parent expected
+    assert result == [
+        {
+            "index": 0,
+            "data": "Parent sent child __EXPECTED_DATA__",
+        },
+        {
+            "index": 1,
+            "data": "Parent sent child __EXPECTED_DATA__",
+        },
+        {
+            "index": 2,
+            "data": "Parent sent child __EXPECTED_DATA__",
+        },
+        {
+            "index": 3,
+            "data": "Parent sent child __EXPECTED_DATA__",
+        },
+        {
+            "index": 4,
+            "data": "Parent sent child __EXPECTED_DATA__",
+        },
+    ]
 
 
 @pytest.mark.anyio

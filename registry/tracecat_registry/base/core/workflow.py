@@ -1,7 +1,7 @@
 from typing import Annotated, Any, Literal
 
 from pydantic import Field
-from tracecat import identifiers
+from tracecat.identifiers import WorkflowID
 
 from tracecat_registry import RegistryActionError, registry
 
@@ -13,13 +13,25 @@ from tracecat_registry import RegistryActionError, registry
     display_group="Workflows",
 )
 async def execute(
+    *,
     workflow_id: Annotated[
-        identifiers.WorkflowID,
+        WorkflowID | None,
         Field(
-            ...,
-            description=("The title of the child workflow. "),
+            default=None,
+            description=(
+                "The ID of the child workflow to execute. Must be provided if workflow_alias is not provided."
+            ),
         ),
-    ],
+    ] = None,
+    workflow_alias: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "The alias of the child workflow to execute. Must be provided if workflow_id is not provided."
+            ),
+        ),
+    ] = None,
     trigger_inputs: Annotated[
         dict[str, Any],
         Field(

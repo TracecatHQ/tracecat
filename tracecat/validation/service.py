@@ -10,7 +10,8 @@ from tracecat_registry import RegistrySecret
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryAction
-from tracecat.dsl.common import DSLInput, context_locator
+from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs, context_locator
+from tracecat.dsl.constants import CHILD_WORKFLOW_EXECUTE_ACTION
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
@@ -161,15 +162,18 @@ async def validate_registry_action_args(
     # 2. construct a pydantic model from the schema
     # 3. validate the args against the pydantic model
     try:
-        service = RegistryActionsService(session)
-        action = await service.get_action(action_name=action_name)
-        interface = RegistryActionInterface(**action.interface)
-        model = json_schema_to_pydantic(interface["expects"])
         try:
-            # Note that we're allowing type coercion for the input arguments
-            # Use cases would be transforming a UTC string to a datetime object
-            # We return the validated input arguments as a dictionary
-            validated = model.model_validate(args)
+            if action_name == CHILD_WORKFLOW_EXECUTE_ACTION:
+                validated = ExecuteChildWorkflowArgs.model_validate(args)
+            else:
+                service = RegistryActionsService(session)
+                action = await service.get_action(action_name=action_name)
+                interface = RegistryActionInterface(**action.interface)
+                model = json_schema_to_pydantic(interface["expects"])
+                # Note that we're allowing type coercion for the input arguments
+                # Use cases would be transforming a UTC string to a datetime object
+                # We return the validated input arguments as a dictionary
+                validated = model.model_validate(args)
             validated_args = validated.model_dump()
         except ValidationError as e:
             logger.warning(f"Validation error for UDF {action_name!r}. {e.errors()!r}")
