@@ -4,9 +4,9 @@ import asyncio
 import itertools
 import json
 import uuid
-from collections.abc import Generator, Iterable, Iterator
+from collections.abc import Generator, Iterable
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -18,9 +18,9 @@ from temporalio.exceptions import (
 )
 
 with workflow.unsafe.imports_passed_through():
+    import jsonpath_ng.ext.parser  # noqa: F401
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
-    import jsonpath_ng.ext.parser  # noqa: F401
     import tracecat_registry  # noqa
     from pydantic import ValidationError
 
@@ -54,10 +54,10 @@ with workflow.unsafe.imports_passed_through():
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
     )
-    from tracecat.expressions.eval import eval_templated_object
-    from tracecat.expressions.common import ExprContext
-    from tracecat.logger import logger
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
+    from tracecat.expressions.common import ExprContext
+    from tracecat.expressions.eval import eval_templated_object
+    from tracecat.logger import logger
     from tracecat.types.exceptions import (
         TracecatCredentialsError,
         TracecatDSLError,
@@ -70,7 +70,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
-    from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
+    from tracecat.workflow.management.management import WorkflowsManagementService
+    from tracecat.workflow.management.models import (
+        GetWorkflowDefinitionActivityInputs,
+        ResolveWorkflowAliasActivityInputs,
+    )
     from tracecat.workflow.schedules.models import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
@@ -438,34 +442,24 @@ class DSLWorkflow:
             fail_strategy=fail_strategy,
         )
 
-        iterator = cast(
-            Iterator[ExecuteChildWorkflowArgs],
-            iter_for_each(task=task, context=self.context),
-        )
-        if loop_strategy == LoopStrategy.PARALLEL:
-            action_result = await self._execute_child_workflow_batch(
-                batch=iterator,
+        def iterator() -> Generator[ExecuteChildWorkflowArgs]:
+            for args in iter_for_each(task=task, context=self.context):
+                yield ExecuteChildWorkflowArgs(**args)
+
+        batch_size = {
+            LoopStrategy.SEQUENTIAL: 1,
+            LoopStrategy.BATCH: int(task.args.get("batch_size") or 16),
+            LoopStrategy.PARALLEL: 16,
+        }[loop_strategy]
+
+        action_result = []
+        for batch in itertools.batched(iterator(), batch_size):
+            batch_result = await self._execute_child_workflow_batch(
+                batch=batch,
                 base_run_args=child_run_args,
                 fail_strategy=fail_strategy,
             )
-
-        elif loop_strategy == LoopStrategy.BATCH:
-            action_result = []
-            batch_size = task.args.get("batch_size") or 16
-            for batch in itertools.batched(iterator, batch_size):
-                results = await self._execute_child_workflow_batch(
-                    batch=batch,
-                    base_run_args=child_run_args,
-                    fail_strategy=fail_strategy,
-                )
-                action_result.extend(results)
-        else:
-            # Sequential
-            action_result = []
-            for patched_args in iterator:
-                child_run_args.trigger_inputs = patched_args.get("trigger_inputs", {})
-                result = await self._run_child_workflow(child_run_args)
-                action_result.append(result)
+            action_result.extend(batch_result)
         return action_result
 
     async def _execute_child_workflow_batch(
@@ -476,16 +470,15 @@ class DSLWorkflow:
         fail_strategy: FailStrategy = FailStrategy.ISOLATED,
     ) -> list[Any]:
         def iter_patched_args() -> Generator[DSLRunArgs]:
-            for patched_args in batch:
+            for args in batch:
                 cloned_args = base_run_args.model_copy()
-                cloned_args.trigger_inputs = patched_args.get("trigger_inputs", {})
+                cloned_args.trigger_inputs = args.trigger_inputs
                 cloned_args.runtime_config = base_run_args.runtime_config.model_copy()
                 cloned_args.runtime_config.environment = (
-                    patched_args.get("environment")
-                    or base_run_args.runtime_config.environment
+                    args.environment or base_run_args.runtime_config.environment
                 )
                 cloned_args.runtime_config.timeout = (
-                    patched_args.get("timeout") or base_run_args.runtime_config.timeout
+                    args.timeout or base_run_args.runtime_config.timeout
                 )
 
                 yield cloned_args
@@ -531,6 +524,20 @@ class DSLWorkflow:
         # Return some custom value that should be evaluated
         self.logger.trace("Returning value from expression")
         return eval_templated_object(self.dsl.returns, operand=self.context)
+
+    async def _resolve_workflow_alias(self, wf_alias: str) -> identifiers.WorkflowID:
+        activity_inputs = ResolveWorkflowAliasActivityInputs(
+            workflow_alias=wf_alias, role=self.role
+        )
+        wf_id = await workflow.execute_activity(
+            WorkflowsManagementService.resolve_workflow_alias_activity,
+            arg=activity_inputs,
+            start_to_close_timeout=self.start_to_close_timeout,
+            retry_policy=retry_policies["activity:fail_fast"],
+        )
+        if not wf_id:
+            raise ValueError(f"Workflow alias {wf_alias} not found")
+        return wf_id
 
     async def _get_workflow_definition(
         self, workflow_id: identifiers.WorkflowID, version: int | None = None
@@ -614,18 +621,20 @@ class DSLWorkflow:
     async def _prepare_child_workflow(self, task: ActionStatement) -> DSLRunArgs:
         """Grab a workflow definition and create child workflow run args"""
 
-        await self._validate_action(task)
+        args = ExecuteChildWorkflowArgs.model_validate(task.args)
+        # If wfid already exists don't do anything
+        # Before we execute the child workflow, resolve the workflow alias
         # environment is None here. This is coming from the action
         self.logger.trace("Validated child workflow args", task=task)
 
-        args = task.args
-        child_wf_id = args["workflow_id"]
-        # Use the override if given, else fallback to the main registry version
-        child_wfd_version = args.get("version")
-        self.logger.debug("Child using version", version=child_wfd_version)
-        dsl = await self._get_workflow_definition(
-            workflow_id=child_wf_id, version=child_wfd_version
-        )
+        if args.workflow_id:
+            child_wf_id = args.workflow_id
+        elif args.workflow_alias:
+            child_wf_id = await self._resolve_workflow_alias(args.workflow_alias)
+        else:
+            raise ValueError("Either workflow_id or workflow_alias must be provided")
+
+        dsl = await self._get_workflow_definition(child_wf_id, version=args.version)
 
         self.logger.debug(
             "Got workflow definition",
@@ -637,8 +646,8 @@ class DSLWorkflow:
         runtime_config = DSLConfig(
             # Override the environment in the runtime config,
             # otherwise use the default provided in the workflow definition
-            environment=args.get("environment") or dsl.config.environment,
-            timeout=args.get("timeout") or dsl.config.timeout,
+            environment=args.environment or dsl.config.environment,
+            timeout=args.timeout or dsl.config.timeout,
         )
         self.logger.debug("Runtime config", runtime_config=runtime_config)
 
@@ -647,7 +656,7 @@ class DSLWorkflow:
             dsl=dsl,
             wf_id=child_wf_id,
             parent_run_context=ctx_run.get(),
-            trigger_inputs=args["trigger_inputs"],
+            trigger_inputs=args.trigger_inputs,
             runtime_config=runtime_config,
         )
 

@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 from sqlmodel import and_, col, select
+from temporalio import activity
 
 from tracecat.db.schemas import Action, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, build_action_statements
@@ -19,6 +20,7 @@ from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.models import (
     ExternalWorkflowDefinition,
+    ResolveWorkflowAliasActivityInputs,
     WorkflowCreate,
     WorkflowDSLCreateResponse,
     WorkflowUpdate,
@@ -62,6 +64,13 @@ class WorkflowsManagementService(BaseService):
     async def get_workflow(self, workflow_id: WorkflowID) -> Workflow | None:
         statement = select(Workflow).where(
             Workflow.owner_id == self.role.workspace_id, Workflow.id == workflow_id
+        )
+        result = await self.session.exec(statement)
+        return result.one_or_none()
+
+    async def resolve_workflow_alias(self, alias: str) -> WorkflowID | None:
+        statement = select(Workflow.id).where(
+            Workflow.owner_id == self.role.workspace_id, Workflow.alias == alias
         )
         result = await self.session.exec(statement)
         return result.one_or_none()
@@ -342,3 +351,11 @@ class WorkflowsManagementService(BaseService):
             await self.session.delete(action)
         await self.session.commit()
         self.logger.info(f"Deleted orphaned action: {action.title}")
+
+    @staticmethod
+    @activity.defn
+    async def resolve_workflow_alias_activity(
+        input: ResolveWorkflowAliasActivityInputs,
+    ) -> WorkflowID | None:
+        async with WorkflowsManagementService.with_session(input.role) as service:
+            return await service.resolve_workflow_alias(input.workflow_alias)

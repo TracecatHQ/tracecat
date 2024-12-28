@@ -6,10 +6,17 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
-from typing import Any, Self, TypedDict, cast
+from typing import Any, Self, cast
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
+from pydantic_core import PydanticCustomError
 
 from tracecat.contexts import RunContext
 from tracecat.db.schemas import Action
@@ -224,14 +231,31 @@ class DSLRunArgs(BaseModel):
     )
 
 
-class ExecuteChildWorkflowArgs(TypedDict):
-    workflow_id: WorkflowID
+class ExecuteChildWorkflowArgs(BaseModel):
+    workflow_id: WorkflowID | None = None
+    workflow_alias: str | None = None
     trigger_inputs: TriggerInputs
-    environment: str | None
-    version: int | None
-    loop_strategy: LoopStrategy | None
-    batch_size: int | None
-    fail_strategy: FailStrategy | None
+    environment: str | None = None
+    version: int | None = None
+    loop_strategy: LoopStrategy = LoopStrategy.BATCH
+    batch_size: int = 16
+    fail_strategy: FailStrategy = FailStrategy.ISOLATED
+    timeout: float | None = None
+
+    @model_validator(mode="after")
+    def validate_workflow_id_or_alias(self) -> Self:
+        if self.workflow_id is None and self.workflow_alias is None:
+            # This class enables proper serialization of the error
+            raise PydanticCustomError(
+                "value_error.missing_workflow_identifier",
+                "Either workflow_id or workflow_alias must be provided",
+                {
+                    "workflow_id": self.workflow_id,
+                    "workflow_alias": self.workflow_alias,
+                    "loc": ["workflow_id", "workflow_alias"],
+                },
+            )
+        return self
 
 
 AdjDst = tuple[str, EdgeType]

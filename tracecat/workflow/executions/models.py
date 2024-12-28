@@ -17,6 +17,7 @@ from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import ActionRetryPolicy, RunActionInput, TriggerInputs
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.types.auth import Role
+from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
 WorkflowExecutionStatusLiteral = Literal[
@@ -112,6 +113,7 @@ IGNORED_UTILITY_ACTIONS = {
     "get_schedule_activity",
     "validate_trigger_inputs_activity",
     "validate_action_activity",
+    WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
 }
 
 
