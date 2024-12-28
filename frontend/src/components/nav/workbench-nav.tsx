@@ -134,7 +134,17 @@ export function WorkbenchNav() {
             <BreadcrumbSeparator className="shrink-0 font-semibold">
               {"/"}
             </BreadcrumbSeparator>
-            <BreadcrumbItem>{workflow.title}</BreadcrumbItem>
+            <BreadcrumbItem>
+              <span>{workflow.title}</span>
+              {workflow.alias && (
+                <Badge
+                  variant="secondary"
+                  className="font-mono text-xs font-normal tracking-tighter text-muted-foreground hover:cursor-default"
+                >
+                  {workflow.alias}
+                </Badge>
+              )}
+            </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
       </div>
