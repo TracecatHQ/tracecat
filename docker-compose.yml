@@ -172,21 +172,9 @@ services:
     depends_on:
       - temporal_postgres_db
 
-  ollama:
-    container_name: ollama
-    tty: true
-    restart: unless-stopped
-    networks:
-      - core
-    image: ollama/ollama:${OLLAMA__VERSION}
-    ports:
-      - 11434:11434
-    volumes:
-      - ollama:/root/.ollama
 volumes:
   core-db:
   temporal-db:
-  ollama:
 
 networks:
   core:

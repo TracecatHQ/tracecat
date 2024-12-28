@@ -90,7 +90,8 @@
           "group": "Deployment Options",
           "pages": [
             "self-hosting/deployment-options/docker-compose",
-            "self-hosting/deployment-options/aws-ecs"
+            "self-hosting/deployment-options/aws-ecs",
+            "self-hosting/deployment-options/ollama"
           ]
         },
         {
