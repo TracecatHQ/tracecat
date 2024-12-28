@@ -32,6 +32,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -50,9 +51,10 @@ import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 
-const workflowConfigFormSchema = z.object({
+const workflowUpdateFormSchema = z.object({
   title: z.string(),
   description: z.string(),
+  alias: z.string().nullish(),
   config: z.string().transform((val, ctx) => {
     try {
       return YAML.parse(val) || {}
@@ -102,7 +104,7 @@ const workflowConfigFormSchema = z.object({
   }),
 })
 
-type WorkflowConfigForm = z.infer<typeof workflowConfigFormSchema>
+type WorkflowUpdateForm = z.infer<typeof workflowUpdateFormSchema>
 
 export function WorkflowPanel({
   workflow,
@@ -116,11 +118,12 @@ export function WorkflowPanel({
   )
 
   const { updateWorkflow } = useWorkflow()
-  const methods = useForm<WorkflowConfigForm>({
-    resolver: zodResolver(workflowConfigFormSchema),
+  const methods = useForm<WorkflowUpdateForm>({
+    resolver: zodResolver(workflowUpdateFormSchema),
     defaultValues: {
       title: workflow.title || "",
       description: workflow.description || "",
+      alias: workflow.alias,
       config: isEmptyObjectOrNullish(workflow.config)
         ? YAML.stringify({
             environment: null,
@@ -137,8 +140,9 @@ export function WorkflowPanel({
         : YAML.stringify(workflow.returns),
     },
   })
+  console.log("workflow alias", workflow.alias)
 
-  const onSubmit = async (values: WorkflowConfigForm) => {
+  const onSubmit = async (values: WorkflowUpdateForm) => {
     console.log("Saving changes...", values)
     try {
       await updateWorkflow(values)
@@ -159,7 +163,7 @@ export function WorkflowPanel({
       // Save whenever focus changes, regardless of where it's going
       const values = methods.getValues()
       // Parse values through zod schema first
-      const result = await workflowConfigFormSchema.safeParseAsync(values)
+      const result = await workflowUpdateFormSchema.safeParseAsync(values)
       if (!result.success) {
         console.error("Validation failed:", result.error)
         return
@@ -224,6 +228,7 @@ export function WorkflowPanel({
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel className="text-xs">Name</FormLabel>
+
                             <FormControl>
                               <Input
                                 className="text-xs"
@@ -248,6 +253,40 @@ export function WorkflowPanel({
                                 className="text-xs"
                                 placeholder="Describe your workflow..."
                                 {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={methods.control}
+                        name="alias"
+                        render={({ field }) => (
+                          <FormItem>
+                            <div className="flex items-center gap-2">
+                              <FormLabel className="text-xs">
+                                <span>Alias</span>
+                              </FormLabel>
+                              {field.value && (
+                                <CopyButton
+                                  value={field.value}
+                                  toastMessage="Copied workflow alias to clipboard"
+                                />
+                              )}
+                            </div>
+                            <FormDescription className="text-xs">
+                              A name that can be used to uniquely identify this
+                              workflow.
+                            </FormDescription>
+                            <FormControl>
+                              <Input
+                                className="text-xs"
+                                placeholder="A name that can be used to uniquely identify this workflow"
+                                {...field}
+                                value={field.value || ""}
+                                onChange={field.onChange}
                               />
                             </FormControl>
                             <FormMessage />
