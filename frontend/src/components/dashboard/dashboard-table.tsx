@@ -89,21 +89,32 @@ export function WorkflowsDashboardTable() {
             enableHiding: false,
           },
           {
-            accessorKey: "description",
+            accessorKey: "alias",
             header: ({ column }) => (
               <DataTableColumnHeader
                 className="text-xs"
                 column={column}
-                title="Description"
+                title="Alias"
               />
             ),
-            cell: ({ row }) => (
-              <div className="text-xs text-foreground/80">
-                {row.getValue<WorkflowReadMinimal["description"]>(
-                  "description"
-                ) || "-"}
-              </div>
-            ),
+            cell: ({ row }) => {
+              const alias = row.getValue<WorkflowReadMinimal["alias"]>("alias")
+              if (!alias) {
+                return (
+                  <span className="text-xs text-muted-foreground/80">
+                    No alias
+                  </span>
+                )
+              }
+              return (
+                <Badge
+                  className="font-mono text-xs font-medium tracking-tighter text-foreground/80"
+                  variant="secondary"
+                >
+                  {alias}
+                </Badge>
+              )
+            },
             enableSorting: true,
             enableHiding: false,
           },
