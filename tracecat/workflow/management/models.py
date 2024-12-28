@@ -34,6 +34,7 @@ class WorkflowRead(BaseModel):
     expects: dict[str, ExpectedField] | None = None
     returns: Any
     config: DSLConfig | None
+    alias: str | None = None
 
 
 class WorkflowReadMinimal(BaseModel):
@@ -46,6 +47,7 @@ class WorkflowReadMinimal(BaseModel):
     updated_at: datetime
     version: int | None
     tags: list[TagRead] | None = None
+    alias: str | None = None
 
 
 class WorkflowUpdate(BaseModel):
@@ -60,6 +62,7 @@ class WorkflowUpdate(BaseModel):
     expects: dict[str, ExpectedField] | None = None
     returns: Any | None = None
     config: DSLConfig | None = None
+    alias: str | None = None
 
 
 class WorkflowCreate(BaseModel):
@@ -72,6 +75,11 @@ class GetWorkflowDefinitionActivityInputs(BaseModel):
     workflow_id: WorkflowID
     version: int | None = None
     task: ActionStatement | None = None
+
+
+class ResolveWorkflowAliasActivityInputs(BaseModel):
+    workflow_alias: str
+    role: Role
 
 
 WorkflowExportFormat = Literal["json", "yaml"]

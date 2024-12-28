@@ -272,6 +272,10 @@ class Workflow(Resource, table=True):
     - 1 Workflow to many WorkflowDefinitions
     """
 
+    __table_args__ = (
+        UniqueConstraint("alias", "owner_id", name="uq_workflow_alias_owner_id"),
+    )
+
     id: str = Field(
         default_factory=id_factory("wf"), nullable=False, unique=True, index=True
     )
@@ -280,7 +284,7 @@ class Workflow(Resource, table=True):
     status: str = "offline"  # "online" or "offline"
     version: int | None = None
     entrypoint: str | None = Field(
-        None,
+        default=None,
         description="ID of the node directly connected to the trigger.",
     )
     static_inputs: dict[str, Any] = Field(
@@ -294,17 +298,20 @@ class Workflow(Resource, table=True):
         description="Input schema for the workflow",
     )
     returns: Any | None = Field(
-        None,
+        default=None,
         sa_column=Column(JSONB),
         description="Workflow return values",
     )
     object: dict[str, Any] | None = Field(
-        sa_column=Column(JSONB), description="React flow graph object"
+        default=None, sa_column=Column(JSONB), description="React flow graph object"
     )
     config: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),
         description="Workflow configuration",
+    )
+    alias: str | None = Field(
+        default=None, description="Alias for the workflow", index=True
     )
     icon_url: str | None = None
     # Owner
