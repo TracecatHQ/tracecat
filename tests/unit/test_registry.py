@@ -69,6 +69,13 @@ def mock_package(tmp_path):
         del sys.modules["test_module"]
 
 
+def test_udf_can_be_registered(mock_package):
+    """Test that a UDF can be registered."""
+    repo = Repository()
+    repo._register_udfs_from_package(mock_package)
+    assert repo.get("test.test_function") is not None
+
+
 def test_udf_validate_args(mock_package):
     """This tests the UDF.validate_args method, which shouldn't raise any exceptions
     when given a templated expression.
