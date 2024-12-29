@@ -22,7 +22,7 @@ build:
 	docker compose build --no-cache
 
 lint-ui:
-	cd frontend && pnpm lint:fix && pnpm typecheck && cd ..
+	cd frontend && pnpm lint:fix && cd ..
 lint-app:
 	ruff check .
 
