@@ -33,7 +33,6 @@ from tracecat.dsl.enums import LoopStrategy
 from tracecat.dsl.models import ActionStatement, DSLConfig, ExecutionContext
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.executor.service import run_action_on_ray_cluster
 from tracecat.expressions.common import ExprContext
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
@@ -1603,8 +1602,8 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
         "Cannot divide by zero\n"
         "\n"
         "------------------------------\n"
-        f"File: /app/{"/".join(run_action_on_ray_cluster.__module__.split('.'))}.py\n"
-        f"Function: {run_action_on_ray_cluster.__name__}\n"
+        # f"File: /app/{"/".join(run_action_on_ray_cluster.__module__.split('.'))}.py\n"
+        # f"Function: {run_action_on_ray_cluster.__name__}\n"
         # f"Line: {run_action_on_ray_cluster.__code__.co_firstlineno}"
     ),
     "type": "ActionExecutionError",
