@@ -499,6 +499,10 @@ class RegistryAction(Resource, table=True):
     namespace: str = Field(..., description="The namespace of the action")
     origin: str = Field(..., description="The origin of the action as a url")
     type: str = Field(..., description="The type of the action")
+    doc_url: str = Field(
+        ..., description="The url of the action's documentation", nullable=True
+    )
+    author: str = Field(..., description="The author of the action")
     default_title: str | None = Field(
         None, description="The default title of the action", nullable=True
     )
