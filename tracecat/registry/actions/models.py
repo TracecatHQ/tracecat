@@ -45,6 +45,8 @@ class BoundRegistryAction(BaseModel):
     description: str
     namespace: str
     type: RegistryActionType
+    doc_url: str
+    author: str
     # Registry details
     origin: str
     # Secrets
@@ -169,6 +171,8 @@ class TemplateActionDefinition(BaseModel):
     name: str = Field(..., description="The action name")
     namespace: str = Field(..., description="The namespace of the action")
     title: str = Field(..., description="The title of the action")
+    doc_url: str = Field(..., description="The url of the action's documentation")
+    author: str = Field(..., description="The author of the action")
     description: str = Field("", description="The description of the action")
     display_group: str = Field(..., description="The display group of the action")
     secrets: list[RegistrySecret] | None = Field(
@@ -233,6 +237,8 @@ class TemplateAction(BaseModel):
                 title=template_action.default_title,
                 description=template_action.description,
                 display_group=template_action.display_group,
+                doc_url=template_action.doc_url,
+                author=template_action.author,
                 secrets=template_action.secrets,
                 expects=intf["expects"],
                 returns=intf["returns"],
@@ -253,6 +259,8 @@ class RegistryActionBase(BaseModel):
     namespace: str = Field(..., description="The namespace of the action")
     type: RegistryActionType = Field(..., description="The type of the action")
     origin: str = Field(..., description="The origin of the action as a url")
+    doc_url: str = Field(..., description="The url of the action's documentation")
+    author: str = Field(..., description="The author of the action")
     secrets: list[RegistrySecret] | None = Field(
         None, description="The secrets required by the action"
     )
@@ -300,6 +308,8 @@ class RegistryActionRead(RegistryActionBase):
             description=action.description,
             namespace=action.namespace,
             type=cast(RegistryActionType, action.type),
+            doc_url=action.doc_url,
+            author=action.author,
             interface=model_converters.db_to_interface(action),
             implementation=impl,
             default_title=action.default_title,
@@ -323,6 +333,8 @@ class RegistryActionCreate(RegistryActionBase):
             description=action.description,
             namespace=action.namespace,
             type=action.type,
+            doc_url=action.doc_url,
+            author=action.author,
             interface=action.get_interface(),
             implementation=action.get_implementation(),
             default_title=action.default_title,
