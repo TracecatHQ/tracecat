@@ -15,6 +15,7 @@ from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     ActionStep,
     RegistryActionCreate,
+    RegistryActionErrorInfo,
     TemplateAction,
     TemplateActionDefinition,
 )
@@ -22,6 +23,7 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
+from tracecat.types.auth import Role
 
 
 @pytest.fixture
@@ -70,6 +72,7 @@ def mock_package(tmp_path):
         del sys.modules["test_module"]
 
 
+@pytest.mark.integration
 @pytest.mark.anyio
 async def test_executor_can_run_udf_with_secrets(
     mock_package, test_role, db_session_with_repo, mock_run_context, monkeysession
@@ -132,6 +135,7 @@ async def test_executor_can_run_udf_with_secrets(
         await sec_service.delete_secret_by_id(secret.id)
 
 
+@pytest.mark.integration
 @pytest.mark.anyio
 async def test_executor_can_run_template_action_with_secret(
     mock_package, test_role, db_session_with_repo, mock_run_context
@@ -240,27 +244,62 @@ async def mock_action(input: Any, **kwargs):
     return input
 
 
-def test_sync_executor_entrypoint(test_role, mock_run_context):
+@pytest.mark.integration
+def test_sync_executor_entrypoint(
+    test_role: Role, mock_run_context: RunContext, monkeypatch: pytest.MonkeyPatch
+):
     """Test that the sync executor entrypoint properly handles async operations."""
 
-    # Create a test input
-
     # Mock the run_action_from_input function
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("tracecat.executor.service.run_action_from_input", mock_action)
+    monkeypatch.setattr("tracecat.executor.service.run_action_from_input", mock_action)
 
-        # Run the entrypoint
-        for i in range(10):
-            input = RunActionInput(
-                task=ActionStatement(
-                    ref="test",
-                    action="test.mock_action",
-                    args={"value": i},
-                    run_if=None,
-                    for_each=None,
-                ),
-                exec_context=create_default_execution_context(),
-                run_context=mock_run_context,
-            )
-            result = sync_executor_entrypoint(input, test_role)
-            assert result == input
+    # Run the entrypoint
+    for i in range(10):
+        input = RunActionInput(
+            task=ActionStatement(
+                ref="test",
+                action="test.mock_action",
+                args={"value": i},
+                run_if=None,
+                for_each=None,
+            ),
+            exec_context=create_default_execution_context(),
+            run_context=mock_run_context,
+        )
+        result = sync_executor_entrypoint(input, test_role)
+        assert result == input
+
+
+async def mock_error(*args, **kwargs):
+    """Mock run_action_from_input to raise an error"""
+    raise ValueError("__EXPECTED_MESSAGE__")
+
+
+@pytest.mark.integration
+def test_sync_executor_entrypoint_returns_wrapped_error(
+    test_role: Role, mock_run_context: RunContext, monkeypatch: pytest.MonkeyPatch
+):
+    """Test that the sync executor entrypoint properly handles wrapped errors."""
+    # Create a test input with an action that will raise an error
+    monkeypatch.setattr("tracecat.executor.service.run_action_from_input", mock_error)
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="test.error_action",
+            args={},
+            run_if=None,
+            for_each=None,
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+    )
+
+    # Run the entrypoint and verify it returns a RegistryActionErrorInfo
+    result = sync_executor_entrypoint(input, test_role)
+    assert isinstance(result, RegistryActionErrorInfo)
+    assert result.type == "ValueError"
+    assert result.message == "__EXPECTED_MESSAGE__"
+    assert result.action_name == "test.error_action"
+    assert result.filename == __file__
+    assert result.function == "mock_error"
