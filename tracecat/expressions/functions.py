@@ -805,6 +805,7 @@ _FUNCTION_MAPPING = {
     "strip": strip,
     "titleize": titleize,
     "uppercase": uppercase,
+    "replace": replace,
     # Comparison
     "less_than": less_than,
     "less_than_or_equal": less_than_or_equal,
