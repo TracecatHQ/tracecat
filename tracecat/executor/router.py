@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger, ctx_role
@@ -16,6 +17,7 @@ from tracecat.registry.actions.models import (
 )
 from tracecat.registry.repository import RegistryReposService, Repository
 from tracecat.types.auth import Role
+from tracecat.types.exceptions import WrappedExecutionError
 from tracecat.validation.service import validate_registry_action_args
 
 router = APIRouter()
@@ -64,12 +66,25 @@ async def run_action(
     act_logger.info("Starting action")
     try:
         return await dispatch_action_on_cluster(input=action_input, role=role)
-    except Exception as e:
-        err_info = RegistryActionErrorInfo.from_exc(e, action_name)
-        act_logger.error("Error running action", **err_info.model_dump())
+    except WrappedExecutionError as e:
+        # This is an error that occurred inside an executing action
+        err = e.error
+        if isinstance(err, BaseModel):
+            err_info_dict = err.model_dump(mode="json")
+        else:
+            err_info_dict = {"message": str(err)}
+        act_logger.error("Error in action", **err_info_dict)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=err_info.model_dump(mode="json"),
+            detail=err_info_dict,
+        ) from e
+    except Exception as e:
+        err_info = RegistryActionErrorInfo.from_exc(e, action_name)
+        err_info_dict = err_info.model_dump(mode="json")
+        act_logger.error("Error running action", **err_info_dict)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=err_info_dict,
         ) from e
 
 

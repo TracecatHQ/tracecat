@@ -84,3 +84,11 @@ class TaskUnreachable(TracecatException):
 
 class ActionExecutionError(TracecatException):
     """Exception raised when an action execution error occurs."""
+
+
+class WrappedExecutionError(TracecatException):
+    """Exception raised when an error occurs during action execution.
+    Use this to wrap errors from the executor so that we should reraise"""
+
+    def __init__(self, error: Any):
+        self.error = error
