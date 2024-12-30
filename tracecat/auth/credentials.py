@@ -120,6 +120,65 @@ OptionalUserDep = Annotated[User | None, Depends(optional_current_active_user)]
 OptionalApiKeyDep = Annotated[str | None, Security(api_key_header_scheme)]
 
 
+async def _role_dependency(
+    *,
+    request: Request,
+    session: AsyncSession,
+    workspace_id: UUID4 | None = None,
+    user: User | None = None,
+    api_key: str | None = None,
+    allow_user: bool,
+    allow_service: bool,
+    require_workspace: Literal["yes", "no", "optional"],
+    min_access_level: AccessLevel | None = None,
+) -> Role:
+    if user and allow_user:
+        role = get_role_from_user(user, workspace_id=workspace_id)
+        if is_unprivileged(user) and workspace_id is not None:
+            # Check if unprivileged user is a member of the workspace
+            authz_service = AuthorizationService(session)
+            if not await authz_service.user_is_workspace_member(
+                user_id=user.id, workspace_id=workspace_id
+            ):
+                logger.warning(
+                    "User is not a member of this workspace",
+                    role=role,
+                    workspace_id=workspace_id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                )
+    elif api_key and allow_service:
+        role = await _authenticate_service(request, api_key)
+    else:
+        logger.warning("Invalid authentication or authorization", user=user)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    if role is None:
+        logger.warning("Invalid role", role=role)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+        )
+
+    if require_workspace == "yes" and role.workspace_id is None:
+        logger.warning("User does not have access to this workspace", role=role)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    if min_access_level is not None:
+        if role.access_level < min_access_level:
+            logger.warning(
+                "User does not have the appropriate access level",
+                role=role,
+                min_access_level=min_access_level,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+            )
+    ctx_role.set(role)
+    return role
+
+
 def RoleACL(
     *,
     allow_user: bool = True,
@@ -135,63 +194,6 @@ def RoleACL(
     if not any((allow_user, allow_service, require_workspace)):
         raise ValueError("Must allow either user, service, or require workspace")
 
-    async def role_dependency(
-        request: Request,
-        session: AsyncSession,
-        workspace_id: UUID4 | None = None,
-        user: User | None = None,
-        api_key: str | None = None,
-    ) -> Role:
-        if user and allow_user:
-            role = get_role_from_user(user, workspace_id=workspace_id)
-            if is_unprivileged(user) and workspace_id is not None:
-                # Check if unprivileged user is a member of the workspace
-                authz_service = AuthorizationService(session)
-                if not await authz_service.user_is_workspace_member(
-                    user_id=user.id, workspace_id=workspace_id
-                ):
-                    logger.warning(
-                        "User is not a member of this workspace",
-                        role=role,
-                        workspace_id=workspace_id,
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-                    )
-        elif api_key and allow_service:
-            role = await _authenticate_service(request, api_key)
-        else:
-            logger.warning("Invalid authentication or authorization", user=user)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-            )
-
-        if role is None:
-            logger.warning("Invalid role", role=role)
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Unauthorized",
-            )
-
-        if require_workspace == "yes" and role.workspace_id is None:
-            logger.warning("User does not have access to this workspace", role=role)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-            )
-
-        if min_access_level is not None:
-            if role.access_level < min_access_level:
-                logger.warning(
-                    "User does not have the appropriate access level",
-                    role=role,
-                    min_access_level=min_access_level,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-                )
-        ctx_role.set(role)
-        return role
-
     if require_workspace == "yes":
         GetWsDep = Path if workspace_id_in_path else Query
 
@@ -203,12 +205,16 @@ def RoleACL(
             user: OptionalUserDep = None,
             api_key: OptionalApiKeyDep = None,
         ) -> Role:
-            return await role_dependency(
+            return await _role_dependency(
                 request=request,
                 session=session,
                 workspace_id=workspace_id,
                 user=user,
                 api_key=api_key,
+                allow_user=allow_user,
+                allow_service=allow_service,
+                min_access_level=min_access_level,
+                require_workspace=require_workspace,
             )
 
         return Depends(role_dependency_req_ws)
@@ -226,12 +232,16 @@ def RoleACL(
             user: OptionalUserDep = None,
             api_key: OptionalApiKeyDep = None,
         ) -> Role:
-            return await role_dependency(
+            return await _role_dependency(
                 request=request,
                 session=session,
                 workspace_id=workspace_id,
                 user=user,
                 api_key=api_key,
+                allow_user=allow_user,
+                allow_service=allow_service,
+                min_access_level=min_access_level,
+                require_workspace=require_workspace,
             )
 
         return Depends(role_dependency_opt_ws)
@@ -245,11 +255,15 @@ def RoleACL(
             user: OptionalUserDep = None,
             api_key: OptionalApiKeyDep = None,
         ) -> Role:
-            return await role_dependency(
+            return await _role_dependency(
                 request=request,
                 session=session,
                 user=user,
                 api_key=api_key,
+                allow_user=allow_user,
+                allow_service=allow_service,
+                min_access_level=min_access_level,
+                require_workspace=require_workspace,
             )
 
         return Depends(role_dependency_not_req_ws)
