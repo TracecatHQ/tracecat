@@ -206,6 +206,11 @@ def b64url_to_str(x: str) -> str:
     return base64.urlsafe_b64decode(x).decode()
 
 
+def replace(x: str, old: str, new: str) -> str:
+    """Replace all occurrences of old substring with new substring."""
+    return x.replace(old, new)
+
+
 def regex_extract(pattern: str, text: str) -> str | None:
     """Extract first match of regex pattern from text."""
     match = re.search(pattern, text)
