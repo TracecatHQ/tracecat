@@ -35,21 +35,25 @@ from tracecat.expressions.eval import (
 )
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
-from tracecat.registry.actions.models import BoundRegistryAction
+from tracecat.registry.actions.models import (
+    BoundRegistryAction,
+    RegistryActionErrorInfo,
+)
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatException
+from tracecat.types.exceptions import TracecatException, WrappedExecutionError
 
 """All these methods are used in the registry executor, not on the worker"""
 
 
 type ArgsT = Mapping[str, Any]
+type ExecutionResult = Any | RegistryActionErrorInfo
 
 
-def sync_executor_entrypoint(input: RunActionInput, role: Role) -> Any:
+def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResult:
     """We run this on the ray cluster."""
 
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
@@ -63,13 +67,14 @@ def sync_executor_entrypoint(input: RunActionInput, role: Role) -> Any:
         coro = run_action_from_input(input=input, role=role)
         return loop.run_until_complete(coro)
     except Exception as e:
+        # Raise the error proxy here
         logger.error(
-            "Error running action",
+            "Error running action, raising error proxy",
             error=e,
             type=type(e).__name__,
             traceback=traceback.format_exc(),
         )
-        raise e
+        return RegistryActionErrorInfo.from_exc(e, input.task.action)
     finally:
         loop.run_until_complete(async_engine.dispose())
         loop.close()  # We always close the loop
@@ -308,18 +313,24 @@ def flatten_secrets(secrets: dict[str, Any]):
 
 
 @ray.remote
-def run_action_task(input: RunActionInput, role: Role) -> Any:
+def run_action_task(input: RunActionInput, role: Role) -> ExecutionResult:
     """Ray task that runs an action."""
     return sync_executor_entrypoint(input, role)
 
 
-async def run_action_on_ray_cluster(input: RunActionInput, role: Role) -> Any:
-    """Run an action on the ray cluster."""
+async def run_action_on_ray_cluster(
+    input: RunActionInput, role: Role
+) -> ExecutionResult:
+    """Run an action on the ray cluster.
+
+    If any exceptions are thrown here, they're platform level errors.
+    All application/user level errors are caught by the executor and returned as values.
+    """
 
     obj_ref = run_action_task.remote(input, role)
     try:
         coro = asyncio.to_thread(ray.get, obj_ref)
-        return await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
+        exec_result = await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
     except TimeoutError as e:
         logger.error("Action timed out, cancelling task", error=e)
         ray.cancel(obj_ref, force=True)
@@ -330,9 +341,32 @@ async def run_action_on_ray_cluster(input: RunActionInput, role: Role) -> Any:
             raise e.cause from None
         raise e
 
+    # Here, we have some result or error.
+    # Reconstruct the error and raise some kind of proxy
+    if isinstance(exec_result, RegistryActionErrorInfo):
+        logger.info("Raising executor error proxy")
+        raise WrappedExecutionError(error=exec_result)
+    return exec_result
+
 
 async def dispatch_action_on_cluster(input: RunActionInput, role: Role) -> Any:
-    """Schedule actions on the ray cluster."""
+    """Schedule actions on the ray cluster.
+
+    This function handles dispatching actions to be executed on a Ray cluster. It supports
+    both single action execution and parallel execution using for_each loops.
+
+    Args:
+        input: The RunActionInput containing the task definition and execution context
+        role: The Role used for authorization
+
+    Returns:
+        Any: For single actions, returns the ExecutionResult. For for_each loops, returns
+             a list of results from all parallel executions.
+
+    Raises:
+        TracecatException: If there are errors evaluating for_each expressions or during execution
+        ExecutorErrorWrapper: If there are errors from the executor itself
+    """
 
     task = input.task
 
