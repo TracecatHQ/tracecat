@@ -105,16 +105,12 @@ export const $ActionRead = {
             type: 'object',
             title: 'Inputs'
         },
-        key: {
-            type: 'string',
-            title: 'Key'
-        },
         control_flow: {
             '$ref': '#/components/schemas/ActionControlFlow'
         }
     },
     type: 'object',
-    required: ['id', 'type', 'title', 'description', 'status', 'inputs', 'key'],
+    required: ['id', 'type', 'title', 'description', 'status', 'inputs'],
     title: 'ActionRead'
 } as const;
 
@@ -143,14 +139,10 @@ export const $ActionReadMinimal = {
         status: {
             type: 'string',
             title: 'Status'
-        },
-        key: {
-            type: 'string',
-            title: 'Key'
         }
     },
     type: 'object',
-    required: ['id', 'workflow_id', 'type', 'title', 'description', 'status', 'key'],
+    required: ['id', 'workflow_id', 'type', 'title', 'description', 'status'],
     title: 'ActionReadMinimal'
 } as const;
 
