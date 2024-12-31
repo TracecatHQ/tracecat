@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from pydantic import UUID4, ConfigDict, computed_field, field_validator
+from pydantic import UUID4, ConfigDict, computed_field
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
@@ -409,15 +409,6 @@ class Schedule(Resource, table=True):
         back_populates="schedules",
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
-
-    # Custom validator for the cron field
-    @field_validator("cron")
-    def validate_cron(cls, v):
-        import croniter
-
-        if not croniter.is_valid(v):
-            raise ValueError("Invalid cron string")
-        return v
 
 
 class Action(Resource, table=True):
