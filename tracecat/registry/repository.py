@@ -307,11 +307,11 @@ class Repository:
             logger.info("Importing remote repository module", module_name=module_name)
             # We only need to call this at the root level because
             # this deletes all the submodules as well
-            module = import_and_reload(module_name)
+            package_or_module = import_and_reload(module_name)
 
-            # # Reload the module to ensure fresh execution
-            self._register_udfs_from_package(module, origin=repo_url)
-            logger.trace("AFTER", keys=self.keys)
+            # Reload the module to ensure fresh execution
+            logger.info("Registering UDFs from package", module_name=package_or_module)
+            self._register_udfs_from_package(package_or_module, origin=repo_url)
         except ImportError as e:
             logger.error("Error importing remote repository udfs", error=e)
             raise
@@ -323,7 +323,7 @@ class Repository:
         except Exception as e:
             logger.error("Error importing remote repository template actions", error=e)
             raise
-        return module
+        return package_or_module
 
     def _register_udf_from_function(
         self,
