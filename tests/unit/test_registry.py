@@ -151,7 +151,26 @@ async def test_registry_async_function_can_be_called(mock_package):
                 branch="branch",
             ),
         ),
-        # ... rest of existing test cases ...
+        # GitLab
+        (
+            "git+ssh://git@gitlab.com/tracecat/custom-registry-template.git",
+            GitUrl(
+                host="gitlab.com",
+                org="tracecat",
+                repo="custom-registry-template",
+                branch="main",
+            ),
+        ),
+        # GitLab (with branch)
+        (
+            "git+ssh://git@gitlab.com/tracecat/custom-registry-template.git@main",
+            GitUrl(
+                host="gitlab.com",
+                org="tracecat",
+                repo="custom-registry-template",
+                branch="main",
+            ),
+        ),
     ],
 )
 def test_parse_git_url(url: str, expected: GitUrl):
