@@ -142,7 +142,9 @@ TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
 
 # === Remote registry === #
 TRACECAT__ALLOWED_GIT_DOMAINS = set(
-    os.environ.get("TRACECAT__ALLOWED_GIT_DOMAINS", "").split(",")
+    os.environ.get(
+        "TRACECAT__ALLOWED_GIT_DOMAINS", "github.com,gitlab.com,bitbucket.org"
+    ).split(",")
 )
 # If you wish to use a remote registry, set the URL here
 # If the url is unset, this will be set to None
