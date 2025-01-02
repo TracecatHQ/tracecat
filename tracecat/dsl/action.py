@@ -15,7 +15,7 @@ from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import ActionExecutionError
+from tracecat.types.exceptions import ExecutorClientError
 
 
 def contextualize_message(
@@ -106,7 +106,7 @@ class DSLActivities:
             # Delegate to the registry client
             client = ExecutorClient(role=role)
             return await client.run_action_memory_backend(input)
-        except ActionExecutionError as e:
+        except ExecutorClientError as e:
             # We only expect ActionExecutionError to be raised from the executor client
             kind = e.__class__.__name__
             msg = str(e)
