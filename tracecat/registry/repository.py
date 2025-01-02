@@ -12,6 +12,7 @@ import sys
 import tempfile
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
 from timeit import default_timer
@@ -33,6 +34,7 @@ from tracecat_registry import RegistrySecret
 from typing_extensions import Doc
 
 from tracecat import config
+from tracecat.config import TRACECAT__ALLOWED_GIT_DOMAINS
 from tracecat.contexts import ctx_role
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
@@ -41,7 +43,7 @@ from tracecat.registry.actions.models import BoundRegistryAction, TemplateAction
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
-    GITHUB_SSH_KEY_SECRET_NAME,
+    GIT_SSH_KEY_SECRET_NAME,
 )
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -199,7 +201,7 @@ class Repository:
             args_docs={
                 key: schema.description or "-" for key, schema in expectation.items()
             },
-            rtype=Any,
+            rtype=Any,  # type: ignore
             rtype_adapter=TypeAdapter(Any),
             default_title=defn.title,
             display_group=defn.display_group,
@@ -237,20 +239,29 @@ class Repository:
         logger.info("Loading UDFs from origin", origin=self._origin)
 
         try:
-            org, repo_name, branch = parse_github_url(self._origin)
+            git_url = parse_git_url(self._origin)
+            host = git_url.host
+            org = git_url.org
+            repo_name = git_url.repo
+            branch = git_url.branch
         except ValueError as e:
             raise RegistryError(
-                "Invalid GitHub URL. Please provide a valid Github SSH URL (git+ssh)."
+                "Invalid Git repository URL. Please provide a valid Git SSH URL (git+ssh)."
             ) from e
         logger.debug(
-            "Parsed GitHub URL", org=org, package_name=repo_name, branch=branch
+            "Parsed Git repository URL",
+            host=host,
+            org=org,
+            package_name=repo_name,
+            branch=branch,
         )
-
         package_name = config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME or repo_name
 
         cleaned_url = self.safe_remote_url(self._origin)
         logger.debug("Cleaned URL", url=cleaned_url)
-        commit_sha = await self._install_remote_repository(cleaned_url, commit_sha)
+        commit_sha = await self._install_remote_repository(
+            host=host, repo_url=cleaned_url, commit_sha=commit_sha
+        )
         module = await self._load_remote_repository(cleaned_url, package_name)
         logger.info(
             "Imported and reloaded remote repository",
@@ -260,18 +271,18 @@ class Repository:
         return commit_sha
 
     async def _install_remote_repository(
-        self, repo_url: str, commit_sha: str | None = None
+        self, host: str, repo_url: str, commit_sha: str | None = None
     ) -> str:
         """Install the remote repository into the filesystem and return the commit sha."""
 
         logger.info("Getting SSH key", role=self.role)
         async with SecretsService.with_session(role=self.role) as service:
-            secret = await service.get_ssh_key(GITHUB_SSH_KEY_SECRET_NAME)
+            secret = await service.get_ssh_key(GIT_SSH_KEY_SECRET_NAME)
 
         async with temporary_ssh_agent() as env:
             logger.info("Entered temporary SSH agent context")
             await add_ssh_key_to_agent(secret.reveal().value, env=env)
-            await add_host_to_known_hosts("github.com", env=env)
+            await add_host_to_known_hosts(host, env=env)
             if commit_sha is None:
                 commit_sha = await get_git_repository_sha(repo_url, env=env)
             await install_remote_repository(repo_url, commit_sha=commit_sha, env=env)
@@ -416,7 +427,7 @@ class Repository:
         """Load template actions from a package."""
         start_time = default_timer()
         pkg_root = importlib.resources.files(package_name)
-        pkg_path = Path(pkg_root)
+        pkg_path = Path(pkg_root)  # type: ignore
         n_loaded = self.load_template_actions_from_path(path=pkg_path, origin=origin)
         time_elapsed = default_timer() - start_time
         if n_loaded > 0:
@@ -612,32 +623,45 @@ def safe_url(url: str) -> str:
     return cleaned_url
 
 
-def parse_github_url(url: str) -> tuple[str, str, str]:
+@dataclass
+class GitUrl:
+    host: str
+    org: str
+    repo: str
+    branch: str
+
+
+def parse_git_url(url: str) -> GitUrl:
     """
-    Parse a GitHub URL to extract organization, package name, and branch.
-    Handles both standard GitHub URLs and 'git+' prefixed URLs with optional '@' for branch specification.
-    Currently only supports git+ssh.
+    Parse a Git repository URL to extract organization, package name, and branch.
+    Handles Git SSH URLs with 'git+ssh' prefix and optional '@' for branch specification.
 
     Args:
-        url (str): The GitHub URL to parse.
+        url (str): The repository URL to parse.
 
     Returns:
-        tuple[str, str, str]: A tuple containing (organization, package_name, branch).
+        tuple[str, str, str, str]: A tuple containing (host, organization, package_name, branch).
 
     Raises:
-        ValueError: If the URL is not a valid GitHub repository URL.
+        ValueError: If the URL is not a valid repository URL.
     """
-    # Define regex patterns with atomic groups and no nested quantifiers
-    ssh_pattern = r"^git\+ssh://git@github\.com/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<branch>[^/]+))?$"
+    pattern = r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<branch>[^/]+))?$"
 
-    # Try matching SSH pattern
-    if ssh_match := re.match(ssh_pattern, url):
-        org = ssh_match.group("org")
-        repo = ssh_match.group("repo")
-        branch = ssh_match.group("branch") or "main"
-        return org, repo, branch
+    if match := re.match(pattern, url):
+        host = match.group("host")
+        if host not in TRACECAT__ALLOWED_GIT_DOMAINS:
+            raise ValueError(
+                f"Domain {host} not in allowed domains. Must be configured in TRACECAT__ALLOWED_GIT_DOMAINS."
+            )
 
-    raise ValueError(f"Unsupported URL format: {url}")
+        return GitUrl(
+            host=host,
+            org=match.group("org"),
+            repo=match.group("repo"),
+            branch=match.group("branch") or "main",
+        )
+
+    raise ValueError(f"Unsupported URL format: {url}. Must be a valid Git SSH URL.")
 
 
 async def ensure_base_repository(
