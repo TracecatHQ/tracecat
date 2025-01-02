@@ -1606,7 +1606,7 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
         # f"Function: {run_action_on_ray_cluster.__name__}\n"
         # f"Line: {run_action_on_ray_cluster.__code__.co_firstlineno}"
     ),
-    "type": "ActionExecutionError",
+    "type": "ExecutorClientError",
     "expr_context": "ACTIONS",
     "attempt": 1,
 }
