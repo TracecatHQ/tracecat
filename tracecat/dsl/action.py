@@ -107,7 +107,7 @@ class DSLActivities:
             client = ExecutorClient(role=role)
             return await client.run_action_memory_backend(input)
         except ExecutorClientError as e:
-            # We only expect ActionExecutionError to be raised from the executor client
+            # We only expect ExecutorClientError to be raised from the executor client
             kind = e.__class__.__name__
             msg = str(e)
             err_locator = contextualize_message(task, msg, attempt=attempt)
