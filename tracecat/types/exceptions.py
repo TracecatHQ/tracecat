@@ -82,8 +82,8 @@ class TaskUnreachable(TracecatException):
     """Raised when a task is unreachable."""
 
 
-class ActionExecutionError(TracecatException):
-    """Exception raised when an action execution error occurs."""
+class ExecutorClientError(TracecatException):
+    """Exception raised when an error occurs in the executor client."""
 
 
 class WrappedExecutionError(TracecatException):
