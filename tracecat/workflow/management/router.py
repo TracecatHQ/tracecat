@@ -74,6 +74,7 @@ async def list_workflows(
                 version=workflow.version,
                 tags=tags,
                 alias=workflow.alias,
+                error_handler=workflow.error_handler,
             )
         )
     return res
@@ -165,6 +166,7 @@ async def create_workflow(
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
         version=workflow.version,
+        error_handler=workflow.error_handler,
     )
 
 
@@ -205,6 +207,7 @@ async def get_workflow(
         webhook=WebhookResponse(**workflow.webhook.model_dump()),
         schedules=workflow.schedules or [],
         alias=workflow.alias,
+        error_handler=workflow.error_handler,
     )
 
 
