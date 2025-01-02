@@ -35,6 +35,7 @@ class WorkflowRead(BaseModel):
     returns: Any
     config: DSLConfig | None
     alias: str | None = None
+    error_handler: str | None = None
 
 
 class WorkflowReadMinimal(BaseModel):
@@ -48,6 +49,7 @@ class WorkflowReadMinimal(BaseModel):
     version: int | None
     tags: list[TagRead] | None = None
     alias: str | None = None
+    error_handler: str | None = None
 
 
 class WorkflowUpdate(BaseModel):
@@ -63,6 +65,7 @@ class WorkflowUpdate(BaseModel):
     returns: Any | None = None
     config: DSLConfig | None = None
     alias: str | None = None
+    error_handler: str | None = None
 
 
 class WorkflowCreate(BaseModel):

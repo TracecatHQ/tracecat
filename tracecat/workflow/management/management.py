@@ -229,6 +229,7 @@ class WorkflowsManagementService(BaseService):
             inputs=workflow.static_inputs,
             config=DSLConfig(**workflow.config),
             returns=workflow.returns,
+            error_handler=workflow.error_handler,
         )
 
     async def create_workflow_from_external_definition(
