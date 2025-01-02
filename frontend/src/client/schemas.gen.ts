@@ -671,6 +671,18 @@ export const $DSLInput = {
             ],
             title: 'Returns',
             description: 'The action ref or value to return.'
+        },
+        error_handler: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Handler',
+            description: 'The action ref to handle errors.'
         }
     },
     type: 'object',
@@ -3672,6 +3684,17 @@ export const $WorkflowRead = {
                 }
             ],
             title: 'Alias'
+        },
+        error_handler: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Handler'
         }
     },
     type: 'object',
@@ -3754,6 +3777,17 @@ export const $WorkflowReadMinimal = {
                 }
             ],
             title: 'Alias'
+        },
+        error_handler: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Handler'
         }
     },
     type: 'object',
@@ -3908,6 +3942,17 @@ export const $WorkflowUpdate = {
                 }
             ],
             title: 'Alias'
+        },
+        error_handler: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Handler'
         }
     },
     type: 'object',
