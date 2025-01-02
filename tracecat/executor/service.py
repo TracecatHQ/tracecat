@@ -27,6 +27,7 @@ from tracecat.dsl.models import (
     RunActionInput,
 )
 from tracecat.executor.engine import EXECUTION_TIMEOUT
+from tracecat.executor.models import ExecutorActionErrorInfo
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
     eval_templated_object,
@@ -37,7 +38,6 @@ from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.models import (
     BoundRegistryAction,
-    RegistryActionErrorInfo,
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
@@ -50,7 +50,7 @@ from tracecat.types.exceptions import TracecatException, WrappedExecutionError
 
 
 type ArgsT = Mapping[str, Any]
-type ExecutionResult = Any | RegistryActionErrorInfo
+type ExecutionResult = Any | ExecutorActionErrorInfo
 
 
 def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResult:
@@ -74,7 +74,7 @@ def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResu
             type=type(e).__name__,
             traceback=traceback.format_exc(),
         )
-        return RegistryActionErrorInfo.from_exc(e, input.task.action)
+        return ExecutorActionErrorInfo.from_exc(e, input.task.action)
     finally:
         loop.run_until_complete(async_engine.dispose())
         loop.close()  # We always close the loop
@@ -343,7 +343,7 @@ async def run_action_on_ray_cluster(
 
     # Here, we have some result or error.
     # Reconstruct the error and raise some kind of proxy
-    if isinstance(exec_result, RegistryActionErrorInfo):
+    if isinstance(exec_result, ExecutorActionErrorInfo):
         logger.info("Raising executor error proxy")
         raise WrappedExecutionError(error=exec_result)
     return exec_result
