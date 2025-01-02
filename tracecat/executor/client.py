@@ -19,10 +19,9 @@ from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
-from tracecat.executor.models import ExecutorSyncInput
+from tracecat.executor.models import ExecutorActionErrorInfo, ExecutorSyncInput
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
-    RegistryActionErrorInfo,
     RegistryActionValidateResponse,
 )
 from tracecat.types.auth import Role
@@ -192,7 +191,7 @@ class ExecutorClient:
             and (detail := resp.get("detail"))
             and isinstance(detail, Mapping)
         ):
-            val_detail = RegistryActionErrorInfo(**detail)
+            val_detail = ExecutorActionErrorInfo(**detail)
             detail = str(val_detail)
         else:
             detail = e.response.text

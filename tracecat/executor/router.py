@@ -7,11 +7,10 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.models import RunActionInput
-from tracecat.executor.models import ExecutorSyncInput
+from tracecat.executor.models import ExecutorActionErrorInfo, ExecutorSyncInput
 from tracecat.executor.service import dispatch_action_on_cluster
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
-    RegistryActionErrorInfo,
     RegistryActionValidate,
     RegistryActionValidateResponse,
 )
@@ -79,7 +78,7 @@ async def run_action(
             detail=err_info_dict,
         ) from e
     except Exception as e:
-        err_info = RegistryActionErrorInfo.from_exc(e, action_name)
+        err_info = ExecutorActionErrorInfo.from_exc(e, action_name)
         err_info_dict = err_info.model_dump(mode="json")
         act_logger.error("Error running action", **err_info_dict)
         raise HTTPException(
