@@ -114,26 +114,6 @@ async def test_registry_async_function_can_be_called(mock_package):
     [
         # GitHub (no branch)
         (
-            "git+ssh://git@github.com/tracecat-dev/tracecat-registry.git",
-            GitUrl(
-                host="github.com",
-                org="tracecat-dev",
-                repo="tracecat-registry",
-                branch="main",
-            ),
-        ),
-        # GitHub (with branch)
-        (
-            "git+ssh://git@github.com/tracecat-dev/tracecat-registry.git@main",
-            GitUrl(
-                host="github.com",
-                org="tracecat-dev",
-                repo="tracecat-registry",
-                branch="main",
-            ),
-        ),
-        # Simple GitHub URLs (from old test)
-        (
             "git+ssh://git@github.com/org/repo",
             GitUrl(
                 host="github.com",
@@ -142,6 +122,7 @@ async def test_registry_async_function_can_be_called(mock_package):
                 branch="main",
             ),
         ),
+        # GitHub (with branch)
         (
             "git+ssh://git@github.com/org/repo@branch",
             GitUrl(
@@ -153,22 +134,22 @@ async def test_registry_async_function_can_be_called(mock_package):
         ),
         # GitLab
         (
-            "git+ssh://git@gitlab.com/tracecat/custom-registry-template.git",
+            "git+ssh://git@gitlab.com/org/repo",
             GitUrl(
                 host="gitlab.com",
-                org="tracecat",
-                repo="custom-registry-template",
+                org="org",
+                repo="repo",
                 branch="main",
             ),
         ),
         # GitLab (with branch)
         (
-            "git+ssh://git@gitlab.com/tracecat/custom-registry-template.git@main",
+            "git+ssh://git@gitlab.com/org/repo@branch",
             GitUrl(
                 host="gitlab.com",
-                org="tracecat",
-                repo="custom-registry-template",
-                branch="main",
+                org="org",
+                repo="repo",
+                branch="branch",
             ),
         ),
     ],
