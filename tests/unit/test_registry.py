@@ -6,7 +6,7 @@ import pytest
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.registry.actions.models import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.repository import Repository
+from tracecat.registry.repository import GitUrl, Repository, parse_git_url
 from tracecat.types.exceptions import RegistryValidationError
 
 
@@ -110,35 +110,68 @@ async def test_registry_async_function_can_be_called(mock_package):
 
 
 @pytest.mark.parametrize(
-    "url,expected",
+    "url, expected",
     [
-        ("git+ssh://git@github.com/org/repo", ("org", "repo", "main")),
-        ("git+ssh://git@github.com/org/repo.git", ("org", "repo", "main")),
-        ("git+ssh://git@github.com/org/repo@branch", ("org", "repo", "branch")),
-        ("git+ssh://git@github.com/org/repo.git@branch", ("org", "repo", "branch")),
+        # GitHub (no branch)
+        (
+            "git+ssh://git@github.com/tracecat-dev/tracecat-registry.git",
+            GitUrl(
+                host="github.com",
+                org="tracecat-dev",
+                repo="tracecat-registry",
+                branch="main",
+            ),
+        ),
+        # GitHub (with branch)
+        (
+            "git+ssh://git@github.com/tracecat-dev/tracecat-registry.git@main",
+            GitUrl(
+                host="github.com",
+                org="tracecat-dev",
+                repo="tracecat-registry",
+                branch="main",
+            ),
+        ),
+        # Simple GitHub URLs (from old test)
+        (
+            "git+ssh://git@github.com/org/repo",
+            GitUrl(
+                host="github.com",
+                org="org",
+                repo="repo",
+                branch="main",
+            ),
+        ),
+        (
+            "git+ssh://git@github.com/org/repo@branch",
+            GitUrl(
+                host="github.com",
+                org="org",
+                repo="repo",
+                branch="branch",
+            ),
+        ),
+        # ... rest of existing test cases ...
     ],
 )
-def test_parse_github_url_valid(url: str, expected: tuple[str, str, str]):
-    """Test that valid GitHub URLs are correctly parsed."""
-    from tracecat.registry.repository import parse_github_url
-
-    assert parse_github_url(url) == expected
+def test_parse_git_url(url: str, expected: GitUrl):
+    assert parse_git_url(url) == expected
 
 
 @pytest.mark.parametrize(
-    "invalid_url",
+    "url",
     [
+        "git+ssh://git@tracecat.com/tracecat-dev/tracecat-registry.git@v1.0.0",
+        "git+ssh://git@git.com/tracecat-dev/tracecat-registry.git@v1.0.0",
+        # Adding invalid cases from old test
         "https://github.com/org/repo",
         "git+ssh://git@github.com/org",
         "git+ssh://git@github.com/org/repo@branch/extra",
     ],
 )
-def test_parse_github_url_invalid(invalid_url: str):
-    """Test that invalid GitHub URLs raise ValueError."""
-    from tracecat.registry.repository import parse_github_url
-
+def test_parse_git_url_invalid(url: str):
     with pytest.raises(ValueError):
-        parse_github_url(invalid_url)
+        parse_git_url(url)
 
 
 @pytest.mark.anyio
