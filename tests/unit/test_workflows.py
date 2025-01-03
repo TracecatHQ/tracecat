@@ -2662,16 +2662,14 @@ async def test_workflow_error_handler_success(
 
 
 @pytest.mark.parametrize(
-    "mode,id_or_alias,expected_err_msg",
+    "id_or_alias,expected_err_msg",
     [
         pytest.param(
-            "id",
             "wf-00000000000000000000000000000000",
             "TracecatException: Workflow definition not found for 'wf-00000000000000000000000000000000', version=None",
             id="id-no-match",
         ),
         pytest.param(
-            "alias",
             "invalid_error_handler",
             "RuntimeError: Couldn't find matching workflow for alias 'invalid_error_handler'",
             id="alias-no-match",
@@ -2684,7 +2682,6 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     test_role: Role,
     temporal_client: Client,
     failing_dsl: DSLInput,
-    mode: Literal["id", "alias"],
     id_or_alias: str,
     expected_err_msg: str,
 ):
