@@ -62,7 +62,6 @@ please reach out to [founders@tracecat.com](mailto:founders@tracecat.com) for he
     The variables are:
     - `oauth_client_id_arn`
     - `oauth_client_secret_arn`
-    - `saml_idp_certificate_arn`
     - `saml_idp_metadata_url_arn`
 
     These variables are the ARNs of the AWS Secrets Manager secrets that contain the Google OAuth or SAML SSO configuration.
@@ -87,7 +86,6 @@ please reach out to [founders@tracecat.com](mailto:founders@tracecat.com) for he
     export TF_VAR_oauth_client_secret_arn=<secret-arn>
 
     # Or: Set SAML SSO variables
-    export TF_VAR_saml_idp_certificate_arn=<secret-arn>
     export TF_VAR_saml_idp_metadata_url_arn=<secret-arn>
 
     # Create Terraform stack

@@ -35,12 +35,7 @@ TRACECAT__AUTH_TYPES=saml
     </Step>
     <Step title="Configure SAML settings in environment variables">
         Set the following environment variables in your `.env` file:
-        - `SAML_IDP_CERTIFICATE`: Okta SAML X.509 certificate as text
         - `SAML_IDP_METADATA_URL`: Okta metadata URL
-
-        <Note>
-            Do not include `-----BEGIN CERTIFICATE-----` and `-----END CERTIFICATE-----` in the `SAML_IDP_CERTIFICATE` environment variable.
-        </Note>
     </Step>
     <Step title="Restart Tracecat instance">
         Restart Tracecat to apply the changes.
@@ -62,12 +57,7 @@ TRACECAT__AUTH_TYPES=saml
     </Step>
     <Step title="Configure SAML settings in environment variables">
         Set the following environment variables in your `.env` file:
-        - `SAML_IDP_CERTIFICATE`: Microsoft Entra ID SAML Base64-encoded certificate as text
         - `SAML_IDP_METADATA_URL`: Microsoft Entra ID metadata URL
-
-        <Note>
-            Do not include `-----BEGIN CERTIFICATE-----` and `-----END CERTIFICATE-----` in the `SAML_IDP_CERTIFICATE` environment variable.
-        </Note>
     </Step>
     <Step title="Restart Tracecat instance">
         Restart Tracecat to apply the changes.
