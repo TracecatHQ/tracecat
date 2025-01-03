@@ -9,6 +9,7 @@ Objectives
 """
 
 import asyncio
+import json
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -17,7 +18,8 @@ from typing import Any
 import pytest
 import yaml
 from pydantic import SecretStr
-from temporalio.client import Client
+from pydantic_core import to_jsonable_python
+from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
 
@@ -30,14 +32,26 @@ from tracecat.db.schemas import Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import LoopStrategy
-from tracecat.dsl.models import ActionStatement, DSLConfig, ExecutionContext
+from tracecat.dsl.models import (
+    ActionStatement,
+    DSLConfig,
+    ExecutionContext,
+    RunActionInput,
+)
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.expressions.common import ExprContext
+from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
+from tracecat.workflow.executions.models import (
+    EventGroup,
+    EventHistoryResponse,
+    EventHistoryType,
+)
+from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import WorkflowUpdate
@@ -2343,3 +2357,253 @@ async def test_workflow_runs_template_for_each(
             ),
         )
     assert result == [101, 102, 103, 104, 105]
+
+
+@pytest.mark.anyio
+async def test_workflow_error_handler(test_role: Role, temporal_client: Client):
+    """
+    Test that the error handler can capture errors.
+    Then, verify that the error handler was run.
+
+    1. Create an error handler
+    2. Create failing workflow (1/0)
+    3. Run the failing workflow
+    4.Check that the error handler is called
+    5. Check that the error handler has the correct context
+    """
+
+    # 1. Create an error handler
+
+    # Handler dsl
+    handler_dsl = DSLInput(
+        title="Testing Error Handler",
+        description="This is a test error handler",
+        entrypoint=DSLEntrypoint(),
+        actions=[
+            ActionStatement(
+                ref="error_handler",
+                action="core.transform.reshape",
+                args={"value": "ERROR_HANDLER_WAS_CALLED"},
+                run_if=None,
+                for_each=None,
+            ),
+        ],
+    )
+    err_handler_wf = await _create_and_commit_workflow(
+        handler_dsl, test_role, alias="testing.error_handler"
+    )
+    if not err_handler_wf.alias:
+        raise ValueError("Error handler workflow alias is not set")
+
+    logger.info(f"Error handler workflow alias: {err_handler_wf.alias}")
+    # 2. Create a failing workflow
+    wf_exec_id = generate_test_exec_id(test_workflow_error_handler.__name__)
+    failing_dsl = DSLInput(
+        title="Division by zero",
+        description="Test that the error handler can capture errors",
+        entrypoint=DSLEntrypoint(),
+        actions=[
+            ActionStatement(
+                ref="failing_action",
+                action="core.transform.reshape",
+                args={"value": "${{ 1/0 }}"},
+                run_if=None,
+                for_each=None,
+            ),
+        ],
+        error_handler="testing.error_handler",  # Assert that this is the workflow that was called
+    )
+
+    # 3. Run the failing workflow
+    run_args = DSLRunArgs(
+        dsl=failing_dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    with pytest.raises(WorkflowFailureError) as exc_info:
+        _ = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    assert str(exc_info.value) == "Workflow execution failed"
+
+    # Check temporal event history
+    exec_svc = await WorkflowExecutionsService.connect(role=test_role)
+    events = await exec_svc.list_workflow_execution_event_history(wf_exec_id)
+    assert len(events) > 0
+    logger.info(f"{json.dumps(to_jsonable_python(events), indent=2)}")
+
+    # 4. Verify the failing task is in the event history
+    fail_evt = assert_erroneous_task_failed_correctly(events)
+
+    # 5. Verify the error handler was called
+    eh_init_evt = assert_error_handler_initiated_correctly(
+        events,
+        handler_dsl=handler_dsl,
+        handler_wf=err_handler_wf,
+        failing_wf_id=TEST_WF_ID,
+        failing_wf_exec_id=wf_exec_id,
+    )
+
+    # 6. Verify that the error handler started and completed
+    eh_start_evt = assert_error_handler_started(events)
+    eh_complete_evt = assert_error_handler_completed(events)
+
+    # N. Verify that the error handler was called after the failing task
+    logger.info(f"Failing event id: {fail_evt.event_id}")
+    logger.info(f"Error handler init event id: {eh_init_evt.event_id}")
+    logger.info(f"Error handler start event id: {eh_start_evt.event_id}")
+    logger.info(f"Error handler complete event id: {eh_complete_evt.event_id}")
+    assert (
+        fail_evt.event_id
+        < eh_init_evt.event_id
+        < eh_start_evt.event_id
+        < eh_complete_evt.event_id
+    ), f"Event order is not correct: {fail_evt.event_id} < {eh_init_evt.event_id} < {eh_start_evt.event_id} < {eh_complete_evt.event_id}"
+
+
+def assert_erroneous_task_failed_correctly(
+    events: list[EventHistoryResponse],
+) -> EventHistoryResponse[RunActionInput]:
+    # 4.1 Match the failing task:
+    #  - event_type == "ACTIVITY_TASK_FAILED"
+    # - Matching action ref
+    # - Matching acation input
+    evt = next(
+        event
+        for event in events
+        if (
+            event.event_type == EventHistoryType.ACTIVITY_TASK_FAILED
+            and event.event_group
+            and event.event_group.action_ref == "failing_action"
+        )
+    )
+    assert evt is not None, "No failing task event found"
+
+    # Check fail_evt group exists and type
+    assert evt.event_group is not None
+    assert isinstance(evt.event_group, EventGroup)
+
+    # Check fail_evt group attributes
+    group = evt.event_group
+    assert group.udf_namespace == "core.transform"
+    assert group.udf_name == "reshape"
+    assert group.udf_key == "core.transform.reshape"
+    assert group.action_ref == "failing_action"
+    assert group.action_title == "Failing action"
+
+    # Check action input exists and type
+    assert isinstance(group.action_input, RunActionInput)
+
+    # Check task exists and type
+    assert isinstance(group.action_input.task, ActionStatement)
+
+    # Check task attributes
+    task = group.action_input.task
+    assert task.ref == "failing_action"
+    assert task.action == "core.transform.reshape"
+    assert task.args == {"value": "${{ 1/0 }}"}
+
+    # Check that the failure event was set
+    assert evt.failure is not None
+    return evt
+
+
+def assert_error_handler_initiated_correctly(
+    events: list[EventHistoryResponse],
+    *,
+    handler_dsl: DSLInput,
+    handler_wf: Workflow,
+    failing_wf_id: WorkflowID,
+    failing_wf_exec_id: WorkflowExecutionID,
+) -> EventHistoryResponse[RunActionInput]:
+    # # 5.1 Find the event where the error handler was called
+    evt = next(
+        (
+            event
+            for event in events
+            if (
+                event.event_type
+                == EventHistoryType.START_CHILD_WORKFLOW_EXECUTION_INITIATED
+                and event.event_group
+                and event.event_group.action_ref is None
+                and event.event_group.action_title == "Testing Error Handler"
+            )
+        ),
+        None,
+    )
+    assert evt is not None, "No error handler event found"
+    assert evt.event_group is not None
+    assert isinstance(evt.event_group, EventGroup)
+    group = evt.event_group
+    assert isinstance(group.action_input, DSLRunArgs)
+    # Check that the error handler DSL was passed correctly
+    assert group.action_input.dsl == handler_dsl
+
+    # # This would be the actual error handler workflow execution
+    # assert group.related_wf_exec_id == failing_wf_exec_id
+
+    # Check that the error handler's parent is the failing workflow
+    assert (
+        group.action_input.parent_run_context
+        and group.action_input.parent_run_context.wf_id == failing_wf_id
+    )
+    assert (
+        group.action_input.parent_run_context
+        and group.action_input.parent_run_context.wf_exec_id == failing_wf_exec_id
+    )
+
+    # Check that the error handler received the correct error context
+    assert group.action_input.trigger_inputs == {
+        "errors": {
+            "failing_action": {
+                "attempt": 1,
+                "expr_context": "ACTIONS",
+                "message": "There was an error in the executor when calling action 'core.transform.reshape' (500).\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 74",
+                "ref": "failing_action",
+                "type": "ExecutorClientError",
+            }
+        },
+        "handler_wf_id": handler_wf.id,
+        "message": "Workflow failed with 1 task exception(s)\n\n==================== (1/1) ACTIONS.failing_action ====================\n\nExecutorClientError: [ACTIONS.failing_action -> run_action] (Attempt 1)\n\nThere was an error in the executor when calling action 'core.transform.reshape' (500).\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 74",
+        "orig_wf_exec_id": failing_wf_exec_id,
+        "orig_wf_id": failing_wf_id,
+    }
+    return evt
+
+
+def assert_error_handler_started(
+    events: list[EventHistoryResponse],
+) -> EventHistoryResponse:
+    evt = next(
+        (
+            event
+            for event in events
+            if (
+                event.event_type == EventHistoryType.CHILD_WORKFLOW_EXECUTION_STARTED
+                and event.event_group
+                and event.event_group.action_ref is None
+                and event.event_group.action_title == "Testing Error Handler"
+            )
+        ),
+        None,
+    )
+    assert evt is not None, "No error handler started event found"
+    return evt
+
+
+def assert_error_handler_completed(
+    events: list[EventHistoryResponse],
+) -> EventHistoryResponse:
+    evt = next(
+        (
+            event
+            for event in events
+            if (
+                event.event_type == EventHistoryType.CHILD_WORKFLOW_EXECUTION_COMPLETED
+                and event.event_group
+                and event.event_group.action_ref is None
+                and event.event_group.action_title == "Testing Error Handler"
+            )
+        ),
+        None,
+    )
+    assert evt is not None, "No error handler completed event found"
+    return evt
