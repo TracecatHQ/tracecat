@@ -102,6 +102,8 @@ const workflowUpdateFormSchema = z.object({
       return z.NEVER
     }
   }),
+  /* Error Handler */
+  error_handler: z.string().nullish(),
 })
 
 type WorkflowUpdateForm = z.infer<typeof workflowUpdateFormSchema>
@@ -138,6 +140,7 @@ export function WorkflowPanel({
       returns: isEmptyObjectOrNullish(workflow.returns)
         ? ""
         : YAML.stringify(workflow.returns),
+      error_handler: workflow.error_handler || "",
     },
   })
   console.log("workflow alias", workflow.alias)
@@ -284,6 +287,39 @@ export function WorkflowPanel({
                               <Input
                                 className="text-xs"
                                 placeholder="A name that can be used to uniquely identify this workflow"
+                                {...field}
+                                value={field.value || ""}
+                                onChange={field.onChange}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={methods.control}
+                        name="error_handler"
+                        render={({ field }) => (
+                          <FormItem>
+                            <div className="flex items-center gap-2">
+                              <FormLabel className="text-xs">
+                                <span>Error Handler</span>
+                              </FormLabel>
+                              {field.value && (
+                                <CopyButton
+                                  value={field.value}
+                                  toastMessage="Copied workflow error handler to clipboard"
+                                />
+                              )}
+                            </div>
+                            <FormDescription className="text-xs">
+                              The workflow ID or alias of the error handler
+                              workflow.
+                            </FormDescription>
+                            <FormControl>
+                              <Input
+                                className="text-xs"
+                                placeholder="The workflow ID or alias of the error handler workflow"
                                 {...field}
                                 value={field.value || ""}
                                 onChange={field.onChange}
