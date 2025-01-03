@@ -315,10 +315,10 @@ export type EventGroup = {
     udf_namespace: string;
     udf_name: string;
     udf_key: string;
-    action_id: string | null;
-    action_ref: string;
-    action_title: string;
-    action_description: string;
+    action_id?: string | null;
+    action_ref?: string | null;
+    action_title?: string | null;
+    action_description?: string | null;
     action_input: RunActionInput | DSLRunArgs | GetWorkflowDefinitionActivityInputs;
     action_result?: unknown | null;
     current_attempt?: number | null;

@@ -912,15 +912,36 @@ export const $EventGroup = {
             title: 'Action Id'
         },
         action_ref: {
-            type: 'string',
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Action Ref'
         },
         action_title: {
-            type: 'string',
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Action Title'
         },
         action_description: {
-            type: 'string',
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Action Description'
         },
         action_input: {
@@ -987,7 +1008,7 @@ export const $EventGroup = {
         }
     },
     type: 'object',
-    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_id', 'action_ref', 'action_title', 'action_description', 'action_input'],
+    required: ['event_id', 'udf_namespace', 'udf_name', 'udf_key', 'action_input'],
     title: 'EventGroup'
 } as const;
 
