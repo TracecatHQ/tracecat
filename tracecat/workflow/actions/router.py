@@ -37,7 +37,6 @@ async def list_actions(
             title=action.title,
             description=action.description,
             status=action.status,
-            key=action.key,
         )
         for action in actions
     ]
@@ -82,7 +81,6 @@ async def create_action(
         title=action.title,
         description=action.description,
         status=action.status,
-        key=action.key,
     )
     return action_metadata
 
@@ -115,7 +113,6 @@ async def get_action(
         description=action.description,
         status=action.status,
         inputs=action.inputs,
-        key=action.key,
         control_flow=ActionControlFlow(**action.control_flow),
     )
 
@@ -163,7 +160,6 @@ async def update_action(
         description=action.description,
         status=action.status,
         inputs=action.inputs,
-        key=action.key,
     )
 
 
