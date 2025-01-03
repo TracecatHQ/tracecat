@@ -9,7 +9,6 @@ Objectives
 """
 
 import asyncio
-import json
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -18,7 +17,6 @@ from typing import Any
 import pytest
 import yaml
 from pydantic import SecretStr
-from pydantic_core import to_jsonable_python
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.worker import Worker
@@ -2428,7 +2426,6 @@ async def test_workflow_error_handler(test_role: Role, temporal_client: Client):
     exec_svc = await WorkflowExecutionsService.connect(role=test_role)
     events = await exec_svc.list_workflow_execution_event_history(wf_exec_id)
     assert len(events) > 0
-    logger.info(f"{json.dumps(to_jsonable_python(events), indent=2)}")
 
     # 4. Verify the failing task is in the event history
     fail_evt = assert_erroneous_task_failed_correctly(events)
