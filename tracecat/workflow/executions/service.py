@@ -436,7 +436,9 @@ class WorkflowExecutionsService:
                 **kwargs,
             )
         except WorkflowFailureError as e:
-            self.logger.error(str(e), role=self.role, wf_exec_id=wf_exec_id, e=e)
+            self.logger.error(
+                str(e), role=self.role, wf_exec_id=wf_exec_id, cause=e.cause
+            )
             raise e
         except RPCError as e:
             self.logger.error(
