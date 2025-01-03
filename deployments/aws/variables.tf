@@ -5,11 +5,23 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
+variable "aws_account_id" {
+  type        = string
+  description = "The AWS account to deploy Tracecat into"
+  default     = null
+}
+
+variable "aws_role_name" {
+  type        = string
+  description = "The name of the AWS role for Terraform to assume to deploy Tracecat"
+  default     = null
+}
+
 ### DNS
 
 variable "domain_name" {
   type        = string
-  description = "The domain name to use for the application"
+  description = "The domain name to use for Tracecat"
 }
 
 variable "hosted_zone_id" {
