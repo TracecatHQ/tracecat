@@ -10,9 +10,11 @@ Objectives
 
 import asyncio
 import os
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 import yaml
@@ -2357,23 +2359,18 @@ async def test_workflow_runs_template_for_each(
     assert result == [101, 102, 103, 104, 105]
 
 
-@pytest.mark.anyio
-async def test_workflow_error_handler(test_role: Role, temporal_client: Client):
-    """
-    Test that the error handler can capture errors.
-    Then, verify that the error handler was run.
+@dataclass
+class ErrorHandlerWfAndDslT:
+    dsl: DSLInput
+    wf: Workflow
 
-    1. Create an error handler
-    2. Create failing workflow (1/0)
-    3. Run the failing workflow
-    4.Check that the error handler is called
-    5. Check that the error handler has the correct context
-    """
 
-    # 1. Create an error handler
-
+@pytest.fixture
+async def error_handler_wf_and_dsl(
+    test_role: Role,
+) -> AsyncGenerator[ErrorHandlerWfAndDslT, None]:
     # Handler dsl
-    handler_dsl = DSLInput(
+    dsl = DSLInput(
         title="Testing Error Handler",
         description="This is a test error handler",
         entrypoint=DSLEntrypoint(),
@@ -2387,15 +2384,66 @@ async def test_workflow_error_handler(test_role: Role, temporal_client: Client):
             ),
         ],
     )
-    err_handler_wf = await _create_and_commit_workflow(
-        handler_dsl, test_role, alias="testing.error_handler"
-    )
-    if not err_handler_wf.alias:
-        raise ValueError("Error handler workflow alias is not set")
+    alias = "testing.error_handler"
 
-    logger.info(f"Error handler workflow alias: {err_handler_wf.alias}")
+    async with get_async_session_context_manager() as session:
+        # Create the child workflow
+        mgmt_service = WorkflowsManagementService(session, role=test_role)
+        res = await mgmt_service.create_workflow_from_dsl(
+            dsl.model_dump(), skip_secret_validation=True
+        )
+        workflow = res.workflow
+        if not workflow:
+            raise ValueError("Workflow wasn't created")
+        if alias:
+            await mgmt_service.update_workflow(workflow.id, WorkflowUpdate(alias=alias))
+        constructed_dsl = await mgmt_service.build_dsl_from_workflow(workflow)
+
+        # Commit the child workflow
+        defn_service = WorkflowDefinitionsService(session, role=test_role)
+        await defn_service.create_workflow_definition(
+            workflow_id=workflow.id, dsl=constructed_dsl
+        )
+        try:
+            yield ErrorHandlerWfAndDslT(dsl, workflow)
+        finally:
+            # Delete the workflow
+            await mgmt_service.delete_workflow(workflow.id)
+
+
+@pytest.mark.parametrize("mode", ["id", "alias"])
+@pytest.mark.anyio
+async def test_workflow_error_handler(
+    test_role: Role,
+    temporal_client: Client,
+    mode: Literal["id", "alias"],
+    error_handler_wf_and_dsl: ErrorHandlerWfAndDslT,
+):
+    """
+    Test that the error handler can capture errors.
+    Then, verify that the error handler was run.
+    Run with both workflow id and alias.
+
+    1. Create an error handler
+    2. Create failing workflow (1/0)
+    3. Run the failing workflow
+    4.Check that the error handler is called
+    5. Check that the error handler has the correct context
+    """
+
+    # 1. Create an error handler
+    handler_dsl = error_handler_wf_and_dsl.dsl
+    handler_wf = error_handler_wf_and_dsl.wf
+
     # 2. Create a failing workflow
     wf_exec_id = generate_test_exec_id(test_workflow_error_handler.__name__)
+
+    match mode:
+        case "id":
+            error_handler = handler_wf.id
+        case "alias":
+            error_handler = handler_wf.alias
+
     failing_dsl = DSLInput(
         title="Division by zero",
         description="Test that the error handler can capture errors",
@@ -2409,7 +2457,7 @@ async def test_workflow_error_handler(test_role: Role, temporal_client: Client):
                 for_each=None,
             ),
         ],
-        error_handler="testing.error_handler",  # Assert that this is the workflow that was called
+        error_handler=error_handler,  # Assert that this is the workflow that was called
     )
 
     # 3. Run the failing workflow
@@ -2434,7 +2482,7 @@ async def test_workflow_error_handler(test_role: Role, temporal_client: Client):
     eh_init_evt = assert_error_handler_initiated_correctly(
         events,
         handler_dsl=handler_dsl,
-        handler_wf=err_handler_wf,
+        handler_wf=handler_wf,
         failing_wf_id=TEST_WF_ID,
         failing_wf_exec_id=wf_exec_id,
     )
