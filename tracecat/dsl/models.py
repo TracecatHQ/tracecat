@@ -33,7 +33,9 @@ class DSLNodeResult(TypedDict, total=False):
 
 
 @dataclass(frozen=True)
-class DSLTaskErrorInfo:
+class ActionErrorInfo:
+    """Contains information about an action error."""
+
     ref: str
     """The task reference."""
 
@@ -48,6 +50,10 @@ class DSLTaskErrorInfo:
 
     attempt: int = 1
     """The attempt number."""
+
+    def format(self, loc: str = "run_action") -> str:
+        locator = f"{self.expr_context}.{self.ref} -> {loc}"
+        return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
 
 
 class ActionRetryPolicy(BaseModel):

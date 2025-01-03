@@ -10,7 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.dsl.common import context_locator
-from tracecat.dsl.models import ActionStatement, DSLTaskErrorInfo, RunActionInput
+from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
 from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
@@ -110,31 +110,29 @@ class DSLActivities:
             # We only expect ExecutorClientError to be raised from the executor client
             kind = e.__class__.__name__
             msg = str(e)
-            err_locator = contextualize_message(task, msg, attempt=attempt)
             act_logger.error(
                 "Application exception occurred", error=msg, detail=e.detail
             )
-            err_info = DSLTaskErrorInfo(
+            err_info = ActionErrorInfo(
                 ref=task.ref,
                 message=msg,
                 type=kind,
                 attempt=attempt,
             )
-            raise ApplicationError(err_locator, err_info, type=kind) from e
+            err_msg = err_info.format("run_action")
+            raise ApplicationError(err_msg, err_info, type=kind) from e
         except ApplicationError as e:
             # Unexpected application error - depends
             act_logger.error("ApplicationError occurred", error=e)
-            err_info = DSLTaskErrorInfo(
+            err_info = ActionErrorInfo(
                 ref=task.ref,
                 message=str(e),
                 type=e.type or e.__class__.__name__,
                 attempt=attempt,
             )
+            err_msg = err_info.format("run_action")
             raise ApplicationError(
-                contextualize_message(task, e.message, attempt=attempt),
-                err_info,
-                non_retryable=e.non_retryable,
-                type=e.type,
+                err_msg, err_info, non_retryable=e.non_retryable, type=e.type
             ) from e
         except Exception as e:
             # Unexpected errors - non-retryable
@@ -142,15 +140,13 @@ class DSLActivities:
             raw_msg = f"{kind} occurred:\n{e}"
             act_logger.error(raw_msg)
 
-            err_info = DSLTaskErrorInfo(
+            err_info = ActionErrorInfo(
                 ref=task.ref,
                 message=raw_msg,
                 type=kind,
                 attempt=attempt,
             )
+            err_msg = err_info.format("run_action")
             raise ApplicationError(
-                contextualize_message(task, raw_msg, attempt=attempt),
-                err_info,
-                type=kind,
-                non_retryable=True,
+                err_msg, err_info, type=kind, non_retryable=True
             ) from e
