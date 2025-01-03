@@ -156,6 +156,10 @@ TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME = os.getenv(
 )
 """If not provided, the package name will be inferred from the git remote URL."""
 
+# === Email settings === #
+TRACECAT__ALLOWED_EMAIL_ATTRIBUTES = os.environ.get(
+    "TRACECAT__ALLOWED_EMAIL_ATTRIBUTES"
+)
 # === AI settings === #
 TRACECAT__PRELOAD_OSS_MODELS = (
     (models := os.getenv("TRACECAT__PRELOAD_OSS_MODELS")) and models.split(",")

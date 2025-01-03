@@ -1,27 +1,27 @@
 terraform {
   required_version = ">= 1.0.0"
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
 }
-provider "aws" {
-  region = var.aws_region
+
+locals {
+  # Only set aws_role_arn if both aws_account_id and aws_role_name are provided
+  aws_role_arn = var.aws_account_id != null && var.aws_role_name != null ? "arn:aws:iam::${var.aws_account_id}:role/${var.aws_role_name}" : null
 }
 
 module "network" {
   source = "./network"
 
   aws_region     = var.aws_region
+  aws_role_arn   = local.aws_role_arn
   domain_name    = var.domain_name
   hosted_zone_id = var.hosted_zone_id
 }
 
 module "ecs" {
   source = "./ecs"
+
+  # AWS provider
+  aws_region   = var.aws_region
+  aws_role_arn = local.aws_role_arn
 
   # Network configuration from network module
   vpc_id             = module.network.vpc_id
@@ -31,7 +31,7 @@ module "ecs" {
   # Get certificate from ACM module
   acm_certificate_arn = module.network.acm_certificate_arn
 
-  aws_region     = var.aws_region
+  # DNS
   domain_name    = var.domain_name
   hosted_zone_id = var.hosted_zone_id
 
