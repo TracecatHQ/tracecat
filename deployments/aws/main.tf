@@ -3,8 +3,8 @@ terraform {
 }
 
 locals {
-  # Only set aws_role_arn if aws_account_id is provided
-  aws_role_arn = var.aws_account_id != null ? "arn:aws:iam::${var.aws_account_id}:role/${var.aws_role_name}" : null
+  # Only set aws_role_arn if both aws_account_id and aws_role_name are provided
+  aws_role_arn = var.aws_account_id != null && var.aws_role_name != null ? "arn:aws:iam::${var.aws_account_id}:role/${var.aws_role_name}" : null
 }
 
 module "network" {
