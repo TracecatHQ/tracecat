@@ -2661,12 +2661,32 @@ async def test_workflow_error_handler_success(
     ), f"Event order is not correct: {fail_evt.event_id} < {eh_init_evt.event_id} < {eh_start_evt.event_id} < {eh_complete_evt.event_id}"
 
 
+@pytest.mark.parametrize(
+    "mode,id_or_alias,expected_err_msg",
+    [
+        pytest.param(
+            "id",
+            "wf-" + "0" * 32,
+            "TracecatException: Workflow definition not found for 'wf-00000000000000000000000000000000', version=None",
+            id="id-no-match",
+        ),
+        pytest.param(
+            "alias",
+            "invalid_error_handler",
+            "RuntimeError: Couldn't find matching workflow for alias 'invalid_error_handler'",
+            id="alias-no-match",
+        ),
+    ],
+)
 @pytest.mark.integration
 @pytest.mark.anyio
 async def test_workflow_error_handler_invalid_handler_fail_no_match(
     test_role: Role,
     temporal_client: Client,
     failing_dsl: DSLInput,
+    mode: Literal["id", "alias"],
+    id_or_alias: str,
+    expected_err_msg: str,
 ):
     """
     Test that the error handler fails with an invalid error handler that has no matching workflow
@@ -2679,7 +2699,7 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     test_name = test_workflow_error_handler_invalid_handler_fail_no_match.__name__
 
     # Set an invalid error handler
-    failing_dsl.error_handler = "invalid_error_handler"
+    failing_dsl.error_handler = id_or_alias
 
     # Run the failing workflow
     wf_exec_id = generate_test_exec_id(test_name)
@@ -2695,7 +2715,4 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     assert isinstance(cause0, ActivityError)
     cause1 = cause0.cause
     assert isinstance(cause1, ApplicationError)
-    assert (
-        str(cause1)
-        == "RuntimeError: Couldn't find matching workflow for alias 'invalid_error_handler'"
-    )
+    assert str(cause1) == expected_err_msg
