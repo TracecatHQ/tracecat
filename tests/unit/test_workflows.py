@@ -21,6 +21,7 @@ import yaml
 from pydantic import SecretStr
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
@@ -2407,44 +2408,12 @@ async def error_handler_wf_and_dsl(
         try:
             yield ErrorHandlerWfAndDslT(dsl, workflow)
         finally:
-            # Delete the workflow
             await mgmt_service.delete_workflow(workflow.id)
 
 
-@pytest.mark.parametrize("mode", ["id", "alias"])
-@pytest.mark.anyio
-async def test_workflow_error_handler(
-    test_role: Role,
-    temporal_client: Client,
-    mode: Literal["id", "alias"],
-    error_handler_wf_and_dsl: ErrorHandlerWfAndDslT,
-):
-    """
-    Test that the error handler can capture errors.
-    Then, verify that the error handler was run.
-    Run with both workflow id and alias.
-
-    1. Create an error handler
-    2. Create failing workflow (1/0)
-    3. Run the failing workflow
-    4.Check that the error handler is called
-    5. Check that the error handler has the correct context
-    """
-
-    # 1. Create an error handler
-    handler_dsl = error_handler_wf_and_dsl.dsl
-    handler_wf = error_handler_wf_and_dsl.wf
-
-    # 2. Create a failing workflow
-    wf_exec_id = generate_test_exec_id(test_workflow_error_handler.__name__)
-
-    match mode:
-        case "id":
-            error_handler = handler_wf.id
-        case "alias":
-            error_handler = handler_wf.alias
-
-    failing_dsl = DSLInput(
+@pytest.fixture
+def failing_dsl():
+    return DSLInput(
         title="Division by zero",
         description="Test that the error handler can capture errors",
         entrypoint=DSLEntrypoint(),
@@ -2457,51 +2426,7 @@ async def test_workflow_error_handler(
                 for_each=None,
             ),
         ],
-        error_handler=error_handler,  # Assert that this is the workflow that was called
     )
-
-    # 3. Run the failing workflow
-    run_args = DSLRunArgs(
-        dsl=failing_dsl,
-        role=test_role,
-        wf_id=TEST_WF_ID,
-    )
-    with pytest.raises(WorkflowFailureError) as exc_info:
-        _ = await _run_workflow(temporal_client, wf_exec_id, run_args)
-    assert str(exc_info.value) == "Workflow execution failed"
-
-    # Check temporal event history
-    exec_svc = await WorkflowExecutionsService.connect(role=test_role)
-    events = await exec_svc.list_workflow_execution_event_history(wf_exec_id)
-    assert len(events) > 0
-
-    # 4. Verify the failing task is in the event history
-    fail_evt = assert_erroneous_task_failed_correctly(events)
-
-    # 5. Verify the error handler was called
-    eh_init_evt = assert_error_handler_initiated_correctly(
-        events,
-        handler_dsl=handler_dsl,
-        handler_wf=handler_wf,
-        failing_wf_id=TEST_WF_ID,
-        failing_wf_exec_id=wf_exec_id,
-    )
-
-    # 6. Verify that the error handler started and completed
-    eh_start_evt = assert_error_handler_started(events)
-    eh_complete_evt = assert_error_handler_completed(events)
-
-    # N. Verify that the error handler was called after the failing task
-    logger.info(f"Failing event id: {fail_evt.event_id}")
-    logger.info(f"Error handler init event id: {eh_init_evt.event_id}")
-    logger.info(f"Error handler start event id: {eh_start_evt.event_id}")
-    logger.info(f"Error handler complete event id: {eh_complete_evt.event_id}")
-    assert (
-        fail_evt.event_id
-        < eh_init_evt.event_id
-        < eh_start_evt.event_id
-        < eh_complete_evt.event_id
-    ), f"Event order is not correct: {fail_evt.event_id} < {eh_init_evt.event_id} < {eh_start_evt.event_id} < {eh_complete_evt.event_id}"
 
 
 def assert_erroneous_task_failed_correctly(
@@ -2652,3 +2577,125 @@ def assert_error_handler_completed(
     )
     assert evt is not None, "No error handler completed event found"
     return evt
+
+
+@pytest.mark.parametrize("mode", ["id", "alias"])
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_workflow_error_handler_success(
+    test_role: Role,
+    temporal_client: Client,
+    mode: Literal["id", "alias"],
+    error_handler_wf_and_dsl: ErrorHandlerWfAndDslT,
+    failing_dsl: DSLInput,
+):
+    """
+    Test that the error handler can capture errors.
+    Then, verify that the error handler was run.
+    Run with both workflow id and alias.
+
+    1. Create an error handler
+    2. Create failing workflow (1/0)
+    3. Run the failing workflow
+    4.Check that the error handler is called
+    5. Check that the error handler has the correct context
+    """
+
+    # 1. Create an error handler
+    handler_dsl = error_handler_wf_and_dsl.dsl
+    handler_wf = error_handler_wf_and_dsl.wf
+
+    # 2. Create a failing workflow
+    wf_exec_id = generate_test_exec_id(test_workflow_error_handler_success.__name__)
+
+    match mode:
+        case "id":
+            error_handler = handler_wf.id
+        case "alias":
+            error_handler = handler_wf.alias
+        case _:
+            raise ValueError(f"Invalid mode: {mode}")
+    failing_dsl.error_handler = error_handler
+
+    # 3. Run the failing workflow
+    run_args = DSLRunArgs(
+        dsl=failing_dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    with pytest.raises(WorkflowFailureError) as exc_info:
+        _ = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    assert str(exc_info.value) == "Workflow execution failed"
+
+    # Check temporal event history
+    exec_svc = await WorkflowExecutionsService.connect(role=test_role)
+    events = await exec_svc.list_workflow_execution_event_history(wf_exec_id)
+    assert len(events) > 0
+
+    # 4. Verify the failing task is in the event history
+    fail_evt = assert_erroneous_task_failed_correctly(events)
+
+    # 5. Verify the error handler was called
+    eh_init_evt = assert_error_handler_initiated_correctly(
+        events,
+        handler_dsl=handler_dsl,
+        handler_wf=handler_wf,
+        failing_wf_id=TEST_WF_ID,
+        failing_wf_exec_id=wf_exec_id,
+    )
+
+    # 6. Verify that the error handler started and completed
+    eh_start_evt = assert_error_handler_started(events)
+    eh_complete_evt = assert_error_handler_completed(events)
+
+    # N. Verify that the error handler was called after the failing task
+    logger.info(f"Failing event id: {fail_evt.event_id}")
+    logger.info(f"Error handler init event id: {eh_init_evt.event_id}")
+    logger.info(f"Error handler start event id: {eh_start_evt.event_id}")
+    logger.info(f"Error handler complete event id: {eh_complete_evt.event_id}")
+    assert (
+        fail_evt.event_id
+        < eh_init_evt.event_id
+        < eh_start_evt.event_id
+        < eh_complete_evt.event_id
+    ), f"Event order is not correct: {fail_evt.event_id} < {eh_init_evt.event_id} < {eh_start_evt.event_id} < {eh_complete_evt.event_id}"
+
+
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_workflow_error_handler_invalid_handler_fail_no_match(
+    test_role: Role,
+    temporal_client: Client,
+    failing_dsl: DSLInput,
+):
+    """
+    Test that the error handler fails with an invalid error handler that has no matching workflow
+
+    1. Create an error handler
+    2. Create a failing workflow
+    3. Run the failing workflow
+    4. Check that the error handler fails
+    """
+    test_name = test_workflow_error_handler_invalid_handler_fail_no_match.__name__
+
+    # Set an invalid error handler
+    failing_dsl.error_handler = "invalid_error_handler"
+
+    # Run the failing workflow
+    wf_exec_id = generate_test_exec_id(test_name)
+    run_args = DSLRunArgs(
+        dsl=failing_dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    with pytest.raises(WorkflowFailureError) as exc_info:
+        _ = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    assert str(exc_info.value) == "Workflow execution failed"
+    cause0 = exc_info.value.cause
+    assert isinstance(cause0, ActivityError)
+    cause1 = cause0.cause
+    assert isinstance(cause1, ApplicationError)
+    assert (
+        str(cause1)
+        == "RuntimeError: Couldn't find matching workflow for alias 'invalid_error_handler'"
+    )
