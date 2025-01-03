@@ -1,4 +1,3 @@
-import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from typing import Annotated, Any
@@ -12,7 +11,6 @@ from saml2.config import Config as Saml2Config
 
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
-    SAML_IDP_CERTIFICATE,
     SAML_IDP_METADATA_URL,
     SAML_SP_ACS_URL,
     TRACECAT__PUBLIC_API_URL,
@@ -152,34 +150,22 @@ def create_saml_client() -> Saml2Client:
                 "want_response_signed": False,
             },
         },
-    }
-    # Save the cert to a temporary file
-    with tempfile.NamedTemporaryFile(mode="w+", suffix=".crt") as tmp_file:
-        if not SAML_IDP_CERTIFICATE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="SAML SSO certificate has not been configured.",
-            )
-        tmp_file.write(
-            f"-----BEGIN CERTIFICATE-----\n{SAML_IDP_CERTIFICATE}\n-----END CERTIFICATE-----\n"
-        )
-        tmp_file.flush()
-        saml_settings["metadata"] = {
+        "metadata": {
             "remote": [
                 {
                     "url": SAML_IDP_METADATA_URL,
-                    "cert": tmp_file.name,  # Path to cert
                 }
             ]
-        }
-        try:
-            config = Saml2Config()
-            config.load(saml_settings)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to load SAML configuration",
-            ) from e
+        },
+    }
+    try:
+        config = Saml2Config()
+        config.load(saml_settings)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to load SAML configuration",
+        ) from e
 
     client = Saml2Client(config)
     return client
