@@ -187,12 +187,6 @@ variable "oauth_client_secret_arn" {
   default     = null
 }
 
-variable "saml_idp_certificate_arn" {
-  type        = string
-  description = "The ARN of the secret containing the SAML IDP certificate (optional)"
-  default     = null
-}
-
 variable "saml_idp_metadata_url_arn" {
   type        = string
   description = "The ARN of the secret containing the SAML IDP metadata URL (optional)"

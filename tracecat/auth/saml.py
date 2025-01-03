@@ -1,4 +1,3 @@
-import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from typing import Annotated, Any
@@ -12,7 +11,6 @@ from saml2.config import Config as Saml2Config
 
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
-    SAML_IDP_CERTIFICATE,
     SAML_IDP_METADATA_URL,
     SAML_SP_ACS_URL,
     TRACECAT__PUBLIC_API_URL,
@@ -130,6 +128,7 @@ def create_saml_client() -> Saml2Client:
             detail="SAML SSO metadata URL has not been configured.",
         )
 
+    # Specify the SAML settings
     saml_settings = {
         "strict": True,
         # The global unique identifier for this service provider
@@ -152,35 +151,29 @@ def create_saml_client() -> Saml2Client:
                 "want_response_signed": False,
             },
         },
-    }
-    # Save the cert to a temporary file
-    with tempfile.NamedTemporaryFile(mode="w+", suffix=".crt") as tmp_file:
-        if not SAML_IDP_CERTIFICATE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="SAML SSO certificate has not been configured.",
-            )
-        tmp_file.write(
-            f"-----BEGIN CERTIFICATE-----\n{SAML_IDP_CERTIFICATE}\n-----END CERTIFICATE-----\n"
-        )
-        tmp_file.flush()
-        saml_settings["metadata"] = {
+        # Remove any signing configuration
+        "signature_algorithm": None,
+        "digest_algorithm": None,
+        "metadata": {
             "remote": [
                 {
                     "url": SAML_IDP_METADATA_URL,
-                    "cert": tmp_file.name,  # Path to cert
                 }
             ]
-        }
-        try:
-            config = Saml2Config()
-            config.load(saml_settings)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to load SAML configuration",
-            ) from e
+        },
+    }
 
+    # Load the SAML settings
+    try:
+        config = Saml2Config()
+        config.load(saml_settings)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to load SAML configuration",
+        ) from e
+
+    # Finally, create the SAML client
     client = Saml2Client(config)
     return client
 
