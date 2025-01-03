@@ -7,8 +7,8 @@ resource "aws_ecs_task_definition" "temporal_ui_task_definition" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = "256"
   memory                   = "512"
-  execution_role_arn       = aws_iam_role.temporal_ui_execution.arn
-  task_role_arn            = aws_iam_role.temporal_ui_task.arn
+  execution_role_arn       = aws_iam_role.temporal_ui_execution[count.index].arn
+  task_role_arn            = aws_iam_role.temporal_ui_task[count.index].arn
 
   runtime_platform {
     operating_system_family = "LINUX"

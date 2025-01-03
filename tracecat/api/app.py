@@ -195,17 +195,20 @@ def create_app(**kwargs) -> FastAPI:
             prefix="/auth/oauth",
             tags=["auth"],
         )
+
+    if AuthType.SAML in config.TRACECAT__AUTH_TYPES:
+        from tracecat.auth.saml import router as saml_router
+
+        logger.info("SAML auth type enabled")
+        app.include_router(saml_router)
+
+    if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
         # Need basic auth router for `logout` endpoint
         app.include_router(
             fastapi_users.get_logout_router(auth_backend),
             prefix="/auth",
             tags=["auth"],
         )
-    if AuthType.SAML in config.TRACECAT__AUTH_TYPES:
-        from tracecat.auth.saml import router as saml_router
-
-        logger.info("SAML auth type enabled")
-        app.include_router(saml_router)
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
