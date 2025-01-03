@@ -31,7 +31,6 @@ class SAMLAttribute:
 
     name: str
     value: str
-    name_format: str = ""
 
 
 class SAMLParser:
@@ -55,20 +54,14 @@ class SAMLParser:
 
     def _extract_attribute(self, attribute_elem: ET.Element) -> SAMLAttribute:
         """Extract a single SAML attribute from an XML element"""
+
         name = attribute_elem.get("Name")
-        name_format = attribute_elem.get("NameFormat")
         value_elem = attribute_elem.find("saml2:AttributeValue", self.NAMESPACES)
 
         if not name:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="SAML response failed: AttributeName is empty",
-            )
-
-        if not name_format:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="SAML response failed: AttributeNameFormat is empty",
+                detail=f"SAML response failed: AttributeName for {attribute_elem} is empty",
             )
 
         if value_elem is None:
@@ -84,7 +77,7 @@ class SAMLParser:
                 detail=f"SAML response failed: AttributeValue for {name} is empty",
             )
 
-        return SAMLAttribute(name=name, value=value_text, name_format=name_format)
+        return SAMLAttribute(name=name, value=value_text)
 
     def get_attribute_value(self, attribute_name: str) -> str:
         """Helper method to easily get an attribute value"""
@@ -206,13 +199,28 @@ async def sso_acs(
         saml_response, BINDING_HTTP_POST
     )
     parser = SAMLParser(str(authn_response))
-    email = parser.get_attribute_value("email")
 
-    # Validate email
+    # Try to get the email from SAML attributes
+    email = (
+        parser.get_attribute_value("email")
+        # Okta
+        or parser.get_attribute_value(
+            "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+        )
+        # Microsoft Entra ID
+        or parser.get_attribute_value(
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+        )
+        or parser.get_attribute_value(
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+        )
+    )
+
     if not email:
+        attributes = parser.attributes or {}
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email not found in the SAML response.",
+            detail=f"Expected attribute 'email' in the SAML response, but got: {list(attributes.keys())}",
         )
 
     # Try to get the user from the database
