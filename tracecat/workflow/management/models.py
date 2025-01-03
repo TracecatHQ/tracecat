@@ -7,7 +7,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 
 from tracecat.db.schemas import Schedule, Workflow, WorkflowDefinition
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import OwnerID, WorkflowID, WorkspaceID
@@ -83,6 +83,11 @@ class GetWorkflowDefinitionActivityInputs(BaseModel):
 class ResolveWorkflowAliasActivityInputs(BaseModel):
     workflow_alias: str
     role: Role
+
+
+class GetErrorHandlerWorkflowIDActivityInputs(BaseModel):
+    role: Role
+    args: DSLRunArgs
 
 
 WorkflowExportFormat = Literal["json", "yaml"]
