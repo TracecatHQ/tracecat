@@ -82,6 +82,7 @@ module "ecs" {
   oauth_client_secret_arn = var.oauth_client_secret_arn
 
   # SAML SSO
+  saml_idp_certificate_arn  = var.saml_idp_certificate_arn
   saml_idp_metadata_url_arn = var.saml_idp_metadata_url_arn
 
   # Temporal UI authentication

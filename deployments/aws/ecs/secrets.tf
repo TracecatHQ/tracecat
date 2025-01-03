@@ -34,6 +34,11 @@ data "aws_secretsmanager_secret" "oauth_client_secret" {
   arn   = var.oauth_client_secret_arn
 }
 
+data "aws_secretsmanager_secret" "saml_idp_certificate" {
+  count = var.saml_idp_certificate_arn != null ? 1 : 0
+  arn   = var.saml_idp_certificate_arn
+}
+
 data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
   count = var.saml_idp_metadata_url_arn != null ? 1 : 0
   arn   = var.saml_idp_metadata_url_arn
@@ -75,6 +80,11 @@ data "aws_secretsmanager_secret_version" "oauth_client_id" {
 data "aws_secretsmanager_secret_version" "oauth_client_secret" {
   count     = var.oauth_client_secret_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.oauth_client_secret[0].id
+}
+
+data "aws_secretsmanager_secret_version" "saml_idp_certificate" {
+  count     = var.saml_idp_certificate_arn != null ? 1 : 0
+  secret_id = data.aws_secretsmanager_secret.saml_idp_certificate[0].id
 }
 
 data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
@@ -144,6 +154,13 @@ locals {
     }
   ] : []
 
+  saml_idp_certificate_secret = var.saml_idp_certificate_arn != null ? [
+    {
+      name      = "SAML_IDP_CERTIFICATE"
+      valueFrom = data.aws_secretsmanager_secret_version.saml_idp_certificate[0].arn
+    }
+  ] : []
+
   saml_idp_metadata_url_secret = var.saml_idp_metadata_url_arn != null ? [
     {
       name      = "SAML_IDP_METADATA_URL"
@@ -169,6 +186,7 @@ locals {
     local.tracecat_base_secrets,
     local.oauth_client_id_secret,
     local.oauth_client_secret_secret,
+    local.saml_idp_certificate_secret,
     local.saml_idp_metadata_url_secret
   )
 
