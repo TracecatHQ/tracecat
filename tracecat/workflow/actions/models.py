@@ -23,7 +23,6 @@ class ActionRead(BaseModel):
     description: str
     status: str
     inputs: dict[str, Any]
-    key: str  # Computed field
     control_flow: ActionControlFlow = Field(default_factory=ActionControlFlow)
 
 
@@ -34,7 +33,6 @@ class ActionReadMinimal(BaseModel):
     title: str
     description: str
     status: str
-    key: str
 
 
 class ActionCreate(BaseModel):

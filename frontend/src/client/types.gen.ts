@@ -31,7 +31,6 @@ export type ActionRead = {
     inputs: {
         [key: string]: unknown;
     };
-    key: string;
     control_flow?: ActionControlFlow;
 };
 
@@ -42,7 +41,6 @@ export type ActionReadMinimal = {
     title: string;
     description: string;
     status: string;
-    key: string;
 };
 
 export type ActionRetryPolicy = {
