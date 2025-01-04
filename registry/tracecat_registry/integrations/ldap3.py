@@ -13,7 +13,6 @@ from typing import Annotated, Any, Literal
 import ldap3
 import orjson
 from ldap3.utils.conv import escape_filter_chars
-from ldap3.utils.dn import escape_rdn
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -51,7 +50,6 @@ class LdapClient:
         self.connection_kwargs = connection_kwargs or {}
 
     def __enter__(self):
-        user = escape_rdn(self.user)  # LDAP injection mitigation
         server = ldap3.Server(
             self.host,
             port=self.port,
@@ -59,7 +57,7 @@ class LdapClient:
         )
         self.connection = ldap3.Connection(
             server,
-            user=user,
+            user=self.user,
             password=self.password,
             auto_bind=True,
             auto_escape=True,
@@ -77,24 +75,16 @@ class LdapClient:
         object_class: str,
         attributes: dict[str, Any],
     ) -> None:
-        escaped_dn = escape_rdn(dn)  # LDAP injection mitigation
-        # Escape attribute values
-        escaped_attributes = {
-            k: escape_filter_chars(v) if isinstance(v, str) else v
-            for k, v in attributes.items()
-        }
-
         result = self.connection.add(
-            escaped_dn,
+            dn,
             object_class=object_class,
-            attributes=escaped_attributes,
+            attributes=attributes,
         )
         if not result:
             raise PermissionError(self.connection.result)
 
     def delete_entry(self, dn: str) -> None:
-        escaped_dn = escape_rdn(dn)  # LDAP injection mitigation
-        result = self.connection.delete(escaped_dn)
+        result = self.connection.delete(dn)
         if not result:
             raise PermissionError(self.connection.result)
 
@@ -103,8 +93,7 @@ class LdapClient:
         dn: str,
         changes: dict[str, list[tuple[str, list[str | int]]]],
     ) -> None:
-        escaped_dn = escape_rdn(dn)  # LDAP injection mitigation
-        result = self.connection.modify(escaped_dn, changes)
+        result = self.connection.modify(dn, changes)
         if not result:
             raise PermissionError(self.connection.result)
 
@@ -117,7 +106,6 @@ class LdapClient:
         | list[str] = "ALL_ATTRIBUTES",
         **kwargs,
     ) -> list[dict[str, Any]]:
-        escaped_base = escape_rdn(search_base)  # LDAP injection mitigation
         escaped_filter = escape_filter_chars(search_filter)  # LDAP injection mitigation
 
         scope = getattr(ldap3, search_scope)
@@ -125,7 +113,7 @@ class LdapClient:
             attributes = getattr(ldap3, attributes)
 
         entries = self.connection.search(
-            search_base=escaped_base,
+            search_base=search_base,
             search_filter=escaped_filter,
             search_scope=scope,
             attributes=attributes,
