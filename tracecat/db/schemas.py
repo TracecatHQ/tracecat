@@ -313,6 +313,10 @@ class Workflow(Resource, table=True):
     alias: str | None = Field(
         default=None, description="Alias for the workflow", index=True
     )
+    error_handler: str | None = Field(
+        default=None,
+        description="Workflow alias or ID for the workflow to run when this fails.",
+    )
     icon_url: str | None = None
     # Owner
     owner_id: OwnerID = Field(

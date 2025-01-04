@@ -9,13 +9,13 @@ from pydantic import SecretStr
 from tracecat.contexts import RunContext
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.models import ActionStatement, RunActionInput
+from tracecat.executor.models import ExecutorActionErrorInfo
 from tracecat.executor.service import run_action_from_input, sync_executor_entrypoint
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     ActionStep,
     RegistryActionCreate,
-    RegistryActionErrorInfo,
     TemplateAction,
     TemplateActionDefinition,
 )
@@ -297,7 +297,7 @@ def test_sync_executor_entrypoint_returns_wrapped_error(
 
     # Run the entrypoint and verify it returns a RegistryActionErrorInfo
     result = sync_executor_entrypoint(input, test_role)
-    assert isinstance(result, RegistryActionErrorInfo)
+    assert isinstance(result, ExecutorActionErrorInfo)
     assert result.type == "ValueError"
     assert result.message == "__EXPECTED_MESSAGE__"
     assert result.action_name == "test.error_action"

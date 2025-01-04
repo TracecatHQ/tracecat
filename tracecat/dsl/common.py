@@ -79,6 +79,9 @@ class DSLInput(BaseModel):
     returns: Any | None = Field(
         default=None, description="The action ref or value to return."
     )
+    error_handler: str | None = Field(
+        default=None, description="The action ref to handle errors."
+    )
 
     @model_validator(mode="after")
     def validate_structure(self) -> Self:

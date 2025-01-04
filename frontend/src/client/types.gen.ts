@@ -250,6 +250,10 @@ export type DSLInput = {
      * The action ref or value to return.
      */
     returns?: unknown | null;
+    /**
+     * The action ref to handle errors.
+     */
+    error_handler?: string | null;
 };
 
 export type DSLRunArgs = {
@@ -1128,6 +1132,7 @@ export type WorkflowRead = {
     returns: unknown;
     config: DSLConfig_Output | null;
     alias?: string | null;
+    error_handler?: string | null;
 };
 
 export type WorkflowReadMinimal = {
@@ -1141,6 +1146,7 @@ export type WorkflowReadMinimal = {
     version: number | null;
     tags?: Array<TagRead> | null;
     alias?: string | null;
+    error_handler?: string | null;
 };
 
 export type WorkflowTagCreate = {
@@ -1166,6 +1172,7 @@ export type WorkflowUpdate = {
     returns?: unknown | null;
     config?: DSLConfig_Input | null;
     alias?: string | null;
+    error_handler?: string | null;
 };
 
 export type WorkspaceMember = {

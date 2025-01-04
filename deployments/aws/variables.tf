@@ -5,11 +5,23 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
+variable "aws_account_id" {
+  type        = string
+  description = "The AWS account to deploy Tracecat into"
+  default     = null
+}
+
+variable "aws_role_name" {
+  type        = string
+  description = "The name of the AWS role for Terraform to assume to deploy Tracecat"
+  default     = null
+}
+
 ### DNS
 
 variable "domain_name" {
   type        = string
-  description = "The domain name to use for the application"
+  description = "The domain name to use for Tracecat"
 }
 
 variable "hosted_zone_id" {
@@ -45,7 +57,7 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.19.0"
+  default = "0.19.1"
 }
 
 variable "temporal_server_image" {
@@ -172,12 +184,6 @@ variable "oauth_client_id_arn" {
 variable "oauth_client_secret_arn" {
   type        = string
   description = "The ARN of the secret containing the OAuth client secret (optional)"
-  default     = null
-}
-
-variable "saml_idp_certificate_arn" {
-  type        = string
-  description = "The ARN of the secret containing the SAML IDP certificate (optional)"
   default     = null
 }
 
