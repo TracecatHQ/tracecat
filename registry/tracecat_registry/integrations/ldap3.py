@@ -12,7 +12,6 @@ from typing import Annotated, Any, Literal
 
 import ldap3
 import orjson
-from ldap3.utils.conv import escape_filter_chars
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -106,15 +105,13 @@ class LdapClient:
         | list[str] = "ALL_ATTRIBUTES",
         **kwargs,
     ) -> list[dict[str, Any]]:
-        escaped_filter = escape_filter_chars(search_filter)  # LDAP injection mitigation
-
         scope = getattr(ldap3, search_scope)
         if isinstance(attributes, str):
             attributes = getattr(ldap3, attributes)
 
         entries = self.connection.search(
             search_base=search_base,
-            search_filter=escaped_filter,
+            search_filter=search_filter,
             search_scope=scope,
             attributes=attributes,
             **kwargs,
