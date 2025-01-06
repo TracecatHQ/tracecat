@@ -2,7 +2,7 @@ import os
 import uuid
 from typing import Literal
 
-from tracecat.auth.constants import AuthType
+from tracecat.auth.enums import AuthType
 
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = os.environ.get(

@@ -16,7 +16,7 @@ from tracecat.api.common import (
     setup_registry,
     tracecat_exception_handler,
 )
-from tracecat.auth.constants import AuthType
+from tracecat.auth.enums import AuthType
 from tracecat.auth.models import UserCreate, UserRead, UserUpdate
 from tracecat.auth.router import router as users_router
 from tracecat.auth.users import (
