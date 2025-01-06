@@ -93,16 +93,33 @@ def db() -> Iterator[None]:
 
 @pytest.fixture(scope="function")
 async def session() -> AsyncGenerator[AsyncSession, None]:
-    """Creates a new database session with (with working transaction)
-    for test duration. Use this for unit tests."""
-    async_engine = create_async_engine(TEST_DB_CONFIG.test_url)
-    async_session = AsyncSession(async_engine, expire_on_commit=False)
-    try:
-        await async_session.begin_nested()
-        yield async_session
-    finally:
-        await async_session.rollback()  # Rollback any changes made during the test
-        await async_engine.dispose()
+    """Creates a new database session joined to an external transaction.
+
+    This fixture creates a nested transaction using SAVEPOINT, allowing
+    each test to commit/rollback without affecting other tests.
+    """
+    async_engine = create_async_engine(
+        TEST_DB_CONFIG.test_url, isolation_level="SERIALIZABLE"
+    )
+
+    # Connect and begin the outer transaction
+    async with async_engine.connect() as connection:
+        await connection.begin()
+
+        # Create session bound to this connection
+        async_session = AsyncSession(
+            bind=connection,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
+
+        try:
+            yield async_session
+        finally:
+            await async_session.close()
+            # Rollback the outer transaction, invalidating everything done in the test
+            await connection.rollback()
+            await async_engine.dispose()
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -353,6 +370,7 @@ async def svc_workspace(
     try:
         yield workspace
     finally:
+        logger.info("Cleaning up test workspace")
         await session.delete(workspace)
         await session.commit()
 
