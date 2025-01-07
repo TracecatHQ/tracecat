@@ -5,7 +5,7 @@ Revises: f2e840c9fb2c
 Create Date: 2025-01-06 20:10:46.871277
 
 """
-import sqlmodel
+import sqlmodel.sql.sqltypes
 from typing import Sequence
 
 from alembic import op
