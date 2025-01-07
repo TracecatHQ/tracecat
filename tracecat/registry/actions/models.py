@@ -218,34 +218,6 @@ class TemplateAction(BaseModel):
     def to_yaml(self) -> str:
         return yaml.dump(self.model_dump(mode="json"))
 
-    @staticmethod
-    def from_db(template_action: RegistryAction) -> TemplateAction:
-        intf = cast(RegistryActionInterface, template_action.interface)
-        impl = RegistryActionImplValidator.validate_python(
-            template_action.implementation
-        )
-        if impl.type != "template":
-            raise ValueError(
-                f"Invalid implementation type {impl.type!r} for template action"
-            )
-        return TemplateAction(
-            type="action",
-            definition=TemplateActionDefinition(
-                name=template_action.name,
-                namespace=template_action.namespace,
-                title=template_action.default_title or template_action.name,
-                description=template_action.description,
-                display_group=template_action.display_group
-                or template_action.namespace,
-                doc_url=template_action.doc_url,
-                author=template_action.author,
-                secrets=template_action.secrets,
-                expects=intf["expects"],
-                returns=intf["returns"],
-                steps=impl.template_action.definition.steps,
-            ),
-        )
-
 
 # API models
 
