@@ -30,8 +30,8 @@ definition:
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
         params:
-          filter: actor.id eq "${{ input.user_id }}"
-          since: ${{ FN.to_datestring(input.start_time, "%Y-%m-%dT%H:%M:%S") }}
-          until: ${{ FN.to_datestring(input.end_time, "%Y-%m-%dT%H:%M:%S") }}
-          limit: ${{ input.limit }}
+          filter: actor.id eq "${{ inputs.user_id }}"
+          since: ${{ FN.to_datestring(inputs.start_time, "%Y-%m-%dT%H:%M:%S") }}
+          until: ${{ FN.to_datestring(inputs.end_time, "%Y-%m-%dT%H:%M:%S") }}
+          limit: ${{ inputs.limit }}
   returns: ${{ steps.list_user_events.result }}

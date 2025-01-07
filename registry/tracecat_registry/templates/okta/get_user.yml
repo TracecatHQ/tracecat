@@ -17,7 +17,7 @@ definition:
       action: core.http_request
       args:
         method: GET
-        url: https://${{ SECRETS.okta.OKTA_BASE_URL }}/api/v1/users/${{ input.user_id }}
+        url: https://${{ SECRETS.okta.OKTA_BASE_URL }}/api/v1/users/${{ inputs.user_id }}
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
   returns: ${{ steps.get_user.result }}

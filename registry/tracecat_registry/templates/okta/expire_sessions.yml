@@ -17,7 +17,7 @@ definition:
       action: core.http_request
       args:
         method: DELETE
-        url: https://${{ SECRETS.okta.OKTA_BASE_URL }}/api/v1/users/${{ input.user_id }}/sessions
+        url: https://${{ SECRETS.okta.OKTA_BASE_URL }}/api/v1/users/${{ inputs.user_id }}/sessions
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
   returns: ${{ steps.expire_sessions.result }}

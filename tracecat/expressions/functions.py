@@ -7,6 +7,7 @@ import itertools
 import json
 import math
 import re
+import urllib.parse
 import zoneinfo
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -88,6 +89,11 @@ def _bool(x: Any) -> bool:
 
 
 # String functions
+
+
+def url_encode(x: str) -> str:
+    """Converts URL-unsafe characters into percent-encoded characters."""
+    return urllib.parse.quote(x)
 
 
 def from_timestamp(x: int, unit: str) -> datetime:
@@ -806,6 +812,7 @@ _FUNCTION_MAPPING = {
     "titleize": titleize,
     "uppercase": uppercase,
     "replace": replace,
+    "url_encode": url_encode,
     # Comparison
     "less_than": less_than,
     "less_than_or_equal": less_than_or_equal,
