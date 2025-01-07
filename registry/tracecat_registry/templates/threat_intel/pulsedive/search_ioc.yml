@@ -3,6 +3,8 @@ definition:
   title: Search IoC with Pulsedive
   description: Get threat intel report an IoC in Pulsedive.
   display_group: Pulsedive
+  doc_url: https://pulsedive.com/api/explore
+  author: topher-lo
   namespace: integrations.pulsedive
   name: search_ioc
   secrets:

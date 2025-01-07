@@ -3,6 +3,8 @@ definition:
   title: List VirusTotal comments on URL
   description: List comments on a URL from the VirusTotal community.
   display_group: VirusTotal
+  doc_url: https://docs.virustotal.com/reference/urls-comments-get
+  author: topher-lo
   namespace: integrations.virustotal
   name: list_comments
   secrets:

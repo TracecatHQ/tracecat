@@ -3,6 +3,8 @@ definition:
   title: Search IP Address with AlienVault
   description: Get threat intel report for an IP address from AlienVault.
   display_group: AlienVault
+  doc_url: https://otx.alienvault.com/api
+  author: topher-lo
   namespace: integrations.alienvault
   name: search_ip_address
   secrets:

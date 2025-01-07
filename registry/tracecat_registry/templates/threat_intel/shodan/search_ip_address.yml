@@ -3,6 +3,8 @@ definition:
   title: Search IP Address with Shodan
   description: Get threat intel report for an IP address from Shodan.
   display_group: Shodan
+  doc_url: https://developer.shodan.io/api
+  author: topher-lo
   namespace: integrations.shodan
   name: search_ip_address
   secrets:

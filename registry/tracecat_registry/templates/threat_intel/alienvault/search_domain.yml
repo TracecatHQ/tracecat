@@ -3,6 +3,8 @@ definition:
   title: Search domain with AlienVault
   description: Get threat intel report for a domain from AlienVault.
   display_group: AlienVault
+  doc_url: https://otx.alienvault.com/api
+  author: topher-lo
   namespace: integrations.alienvault
   name: search_domain
   secrets:

@@ -3,6 +3,8 @@ definition:
   title: Search IP Address with VirusTotal
   description: Get threat intel report for an IP address from VirusTotal.
   display_group: VirusTotal
+  doc_url: https://docs.virustotal.com/reference/ip-info
+  author: topher-lo
   namespace: integrations.virustotal
   name: search_ip_address
   secrets:

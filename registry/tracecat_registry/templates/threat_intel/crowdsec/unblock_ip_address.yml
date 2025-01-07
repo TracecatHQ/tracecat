@@ -5,6 +5,8 @@ definition:
   title: Unblock an IP address in CrowdSec
   description: Sends a request to CrowdSec to unblock a specific IP address.
   display_group: CrowdSec
+  doc_url: https://crowdsecurity.github.io/api_doc/lapi/#/watchers/DeleteDecision
+  author: bouddha-fr
   secrets:
     - name: crowdsec
       keys:

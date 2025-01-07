@@ -5,6 +5,8 @@ definition:
   title: Search for an IP address using the CTI CrowdSec API.
   description: Get threat intel report for an IP address from CrowdSec.
   display_group: CrowdSec
+  doc_url: https://crowdsecurity.github.io/api_doc/lapi/#/watchers/searchAlerts
+  author: bouddha-fr
   secrets:
     - name: crowdsec_cti
       keys:

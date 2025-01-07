@@ -3,6 +3,8 @@ definition:
   title: Search URL with VirusTotal
   description: Get threat intel report for a URL from VirusTotal.
   display_group: VirusTotal
+  doc_url: https://docs.virustotal.com/reference/url-info
+  author: topher-lo
   namespace: integrations.virustotal
   name: search_url
   secrets:
