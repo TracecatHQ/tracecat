@@ -5,7 +5,8 @@ Revises: f2e840c9fb2c
 Create Date: 2025-01-06 20:10:46.871277
 
 """
-from typing import Sequence, Union
+import sqlmodel
+from typing import Sequence
 
 from alembic import op
 import sqlalchemy as sa
@@ -13,9 +14,9 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '9194fb66b4ea'
-down_revision: Union[str, None] = 'f2e840c9fb2c'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = 'f2e840c9fb2c'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
