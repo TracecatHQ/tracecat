@@ -56,10 +56,12 @@ type F = Callable[..., Any]
 
 
 class RegisterKwargs(BaseModel):
-    default_title: str | None
-    display_group: str | None
     namespace: str
     description: str
+    default_title: str | None
+    display_group: str | None
+    doc_url: str | None
+    author: str | None
     secrets: list[RegistrySecret] | None
     include_in_schema: bool
 
@@ -145,6 +147,8 @@ class Repository:
         type: Literal["udf", "template"],
         namespace: str,
         description: str,
+        doc_url: str,
+        author: str,
         secrets: list[RegistrySecret] | None,
         args_cls: ArgsClsT,
         args_docs: dict[str, str],
@@ -162,6 +166,8 @@ class Repository:
             namespace=namespace,
             description=description,
             type=type,
+            doc_url=doc_url,
+            author=author,
             secrets=secrets,
             args_cls=args_cls,
             args_docs=args_docs,
@@ -192,6 +198,8 @@ class Repository:
             name=defn.name,
             namespace=defn.namespace,
             description=defn.description,
+            doc_url=defn.doc_url,
+            author=defn.author,
             secrets=defn.secrets,
             args_cls=create_expectation_model(
                 expectation, defn.action.replace(".", "__")
@@ -351,6 +359,8 @@ class Repository:
             name=name,
             namespace=validated_kwargs.namespace,
             description=validated_kwargs.description,
+            doc_url=validated_kwargs.doc_url,
+            author=validated_kwargs.author,
             secrets=validated_kwargs.secrets,
             default_title=validated_kwargs.default_title,
             display_group=validated_kwargs.display_group,

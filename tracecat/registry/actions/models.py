@@ -44,8 +44,6 @@ class BoundRegistryAction(BaseModel):
     description: str
     namespace: str
     type: RegistryActionType
-    doc_url: str
-    author: str
     # Registry details
     origin: str
     # Secrets
@@ -58,6 +56,8 @@ class BoundRegistryAction(BaseModel):
     # Presentation
     default_title: str | None
     display_group: str | None
+    doc_url: str | None
+    author: str | None
     # Options
     include_in_schema: bool = True
 

@@ -39,6 +39,8 @@ def mock_package(tmp_path):
                 @registry.register(
                     description="This is a test function",
                     namespace="test",
+                    doc_url="https://example.com/docs",
+                    author="Tracecat",
                 )
                 def test_function(num: int) -> int:
                     return num
@@ -56,6 +58,8 @@ def mock_package(tmp_path):
                 @registry.register(
                     description="This is an async test function",
                     namespace="test",
+                    doc_url="https://example.com/docs",
+                    author="Tracecat",
                 )
                 async def async_test_function(num: int) -> int:
                     return num

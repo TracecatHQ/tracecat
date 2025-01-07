@@ -499,15 +499,17 @@ class RegistryAction(Resource, table=True):
     namespace: str = Field(..., description="The namespace of the action")
     origin: str = Field(..., description="The origin of the action as a url")
     type: str = Field(..., description="The type of the action")
-    doc_url: str = Field(
-        ..., description="The url of the action's documentation", nullable=True
-    )
-    author: str = Field(..., description="The author of the action")
     default_title: str | None = Field(
         None, description="The default title of the action", nullable=True
     )
     display_group: str | None = Field(
         None, description="The presentation group of the action", nullable=True
+    )
+    doc_url: str | None = Field(
+        None, description="Link to documentation", nullable=True
+    )
+    author: str | None = Field(
+        None, description="The author of the action", nullable=True
     )
     secrets: list[dict[str, Any]] | None = Field(
         None, sa_column=Column(JSONB), description="The secrets required by the action"
