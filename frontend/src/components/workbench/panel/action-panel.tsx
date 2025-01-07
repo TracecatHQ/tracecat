@@ -342,7 +342,7 @@ export function ActionPanel({
                             <TooltipTrigger asChild>
                               <div className="mt-2 flex items-center text-xs text-muted-foreground">
                               <LinkIcon className="mr-1 size-3 stroke-2" />
-                              <span>{registryAction.doc_url || "No link to docs"}</span>
+                              <span>{registryAction.doc_url}</span>
                             </div>
                           </TooltipTrigger>
                           <TooltipContent side="left" sideOffset={10}>
