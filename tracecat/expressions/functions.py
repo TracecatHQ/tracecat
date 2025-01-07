@@ -812,6 +812,7 @@ _FUNCTION_MAPPING = {
     "titleize": titleize,
     "uppercase": uppercase,
     "replace": replace,
+    "url_encode": url_encode,
     # Comparison
     "less_than": less_than,
     "less_than_or_equal": less_than_or_equal,
