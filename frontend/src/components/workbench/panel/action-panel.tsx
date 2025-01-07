@@ -341,12 +341,19 @@ export function ActionPanel({
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                              <LinkIcon className="mr-1 size-3 stroke-2" />
-                              <span>{registryAction.doc_url}</span>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="left" sideOffset={10}>
-                            Link to docs
+                                <LinkIcon className="mr-1 size-3 stroke-2" />
+                                <a
+                                  href={registryAction.doc_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hover:text-primary hover:underline"
+                                >
+                                  {registryAction.doc_url}
+                                </a>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="left" sideOffset={10}>
+                              Link to docs
                             </TooltipContent>
                           </Tooltip>
                         )}

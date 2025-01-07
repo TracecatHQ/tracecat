@@ -233,9 +233,10 @@ class TemplateAction(BaseModel):
             definition=TemplateActionDefinition(
                 name=template_action.name,
                 namespace=template_action.namespace,
-                title=template_action.default_title,
+                title=template_action.default_title or template_action.name,
                 description=template_action.description,
-                display_group=template_action.display_group,
+                display_group=template_action.display_group
+                or template_action.namespace,
                 doc_url=template_action.doc_url,
                 author=template_action.author,
                 secrets=template_action.secrets,
@@ -332,12 +333,12 @@ class RegistryActionCreate(RegistryActionBase):
             description=action.description,
             namespace=action.namespace,
             type=action.type,
-            doc_url=action.doc_url,
-            author=action.author,
             interface=action.get_interface(),
             implementation=action.get_implementation(),
             default_title=action.default_title,
             display_group=action.display_group,
+            doc_url=action.doc_url,
+            author=action.author,
             origin=action.origin,
             secrets=action.secrets,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
@@ -366,6 +367,12 @@ class RegistryActionUpdate(BaseModel):
     display_group: str | None = Field(
         default=None, description="Update the display group of the action"
     )
+    doc_url: str | None = Field(
+        default=None, description="Update the doc url of the action"
+    )
+    author: str | None = Field(
+        default=None, description="Update the author of the action"
+    )
     options: RegistryActionOptions | None = Field(
         default=None, description="Update the options of the action"
     )
@@ -379,6 +386,7 @@ class RegistryActionUpdate(BaseModel):
             implementation=action.get_implementation(),
             default_title=action.default_title,
             display_group=action.display_group,
+            doc_url=action.doc_url,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
         )
 

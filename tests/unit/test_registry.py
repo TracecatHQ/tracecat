@@ -98,6 +98,12 @@ def test_udf_validate_args(mock_package):
     # Get the registered UDF
     udf = repo.get("test.test_function")
 
+    # Check descriptors
+    assert udf.description == "This is a test function"
+    assert udf.namespace == "test"
+    assert udf.doc_url == "https://example.com/docs"
+    assert udf.author == "Tracecat"
+
     # Test the UDF
     udf.validate_args(num="${{ path.to.number }}")
     udf.validate_args(num=1)
@@ -329,6 +335,8 @@ async def test_template_action_run(test_args, expected_result, should_raise):
                 "name": "wrapper",
                 "namespace": "integrations.test",
                 "display_group": "Testing",
+                "doc_url": "https://example.com/docs",
+                "author": "Tracecat",
                 "secrets": [{"name": "test_secret", "keys": ["KEY"]}],
                 "expects": {
                     # Required field
@@ -448,6 +456,8 @@ async def test_enum_template_action(test_args, expected_result, should_raise):
             "name": "alert",
             "namespace": "integrations.test",
             "display_group": "Testing",
+            "doc_url": "https://example.com/docs",
+            "author": "Tracecat",
             "expects": {
                 "status": {
                     "type": 'enum["critical", "warning", "info"]',

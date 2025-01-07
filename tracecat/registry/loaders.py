@@ -59,6 +59,8 @@ def get_bound_action_impl(
             rtype_adapter=rtype_adapter,
             default_title=action.default_title,
             display_group=action.display_group,
+            doc_url=action.doc_url,
+            author=action.author,
             origin=action.origin,
         )
     else:
@@ -83,6 +85,8 @@ def get_bound_action_impl(
             rtype_adapter=TypeAdapter(Any),
             default_title=action.default_title,
             display_group=action.display_group,
+            doc_url=action.doc_url,
+            author=action.author,
             include_in_schema=True,
             template_action=impl.template_action,
             origin=action.origin,
