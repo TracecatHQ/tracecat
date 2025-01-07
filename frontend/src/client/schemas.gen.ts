@@ -1712,6 +1712,30 @@ export const $RegistryActionUpdate = {
             title: 'Display Group',
             description: 'Update the display group of the action'
         },
+        doc_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Doc Url',
+            description: 'Update the doc url of the action'
+        },
+        author: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Author',
+            description: 'Update the author of the action'
+        },
         options: {
             anyOf: [
                 {

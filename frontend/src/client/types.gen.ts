@@ -590,6 +590,14 @@ export type RegistryActionUpdate = {
      */
     display_group?: string | null;
     /**
+     * Update the doc url of the action
+     */
+    doc_url?: string | null;
+    /**
+     * Update the author of the action
+     */
+    author?: string | null;
+    /**
      * Update the options of the action
      */
     options?: RegistryActionOptions | null;
