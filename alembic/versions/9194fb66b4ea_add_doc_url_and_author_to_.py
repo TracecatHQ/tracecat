@@ -1,20 +1,19 @@
 """Add doc_url and author to BoundRegistryAction
 
-Revision ID: fc35519b23ac
-Revises: 8be6393b2ee0
-Create Date: 2025-01-06 16:22:55.740238
+Revision ID: 9194fb66b4ea
+Revises: f2e840c9fb2c
+Create Date: 2025-01-06 20:10:46.871277
 
 """
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-import sqlmodel
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'fc35519b23ac'
-down_revision: Union[str, None] = '8be6393b2ee0'
+revision: str = '9194fb66b4ea'
+down_revision: Union[str, None] = 'f2e840c9fb2c'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
