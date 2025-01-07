@@ -258,8 +258,6 @@ class RegistryActionBase(BaseModel):
     namespace: str = Field(..., description="The namespace of the action")
     type: RegistryActionType = Field(..., description="The type of the action")
     origin: str = Field(..., description="The origin of the action as a url")
-    doc_url: str = Field(..., description="The url of the action's documentation")
-    author: str = Field(..., description="The author of the action")
     secrets: list[RegistrySecret] | None = Field(
         None, description="The secrets required by the action"
     )
@@ -271,6 +269,10 @@ class RegistryActionBase(BaseModel):
     display_group: str | None = Field(
         None, description="The presentation group of the action"
     )
+    doc_url: str | None = Field(
+        None, description="The url of the action's documentation"
+    )
+    author: str | None = Field(None, description="The author of the action")
     options: RegistryActionOptions = Field(
         default_factory=lambda: RegistryActionOptions(),
         description="The options for the action",
