@@ -37,7 +37,6 @@ dependencies = [
     "slack-sdk==3.28.0",
     "tenacity==8.3.0",
     "types-aioboto3[guardduty,s3]==13.0.1",
-    "pyvelociraptor==0.1.8",
 ]
 dynamic = ["version"]
 
