@@ -16,10 +16,6 @@ definition:
       type: str
       description: The IP address to unblock
       default: null
-    url_server:
-      type: str
-      description: The IP address server
-      default: null
   steps:
     - ref: unblock_ip_address
       action: core.http_request
