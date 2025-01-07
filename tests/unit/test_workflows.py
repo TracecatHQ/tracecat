@@ -2268,6 +2268,8 @@ async def test_workflow_runs_template_for_each(
             name="template_action",
             namespace="testing",
             display_group="Testing",
+            doc_url=None,
+            author=None,
             expects={
                 "num": ExpectedField(
                     type="int",
