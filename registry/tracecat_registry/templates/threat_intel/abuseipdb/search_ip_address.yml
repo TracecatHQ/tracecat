@@ -3,6 +3,8 @@ definition:
   title: Search IP Address with AbuseIPDB
   description: Get threat intel report for an IP address from AbuseIPDB.
   display_group: AbuseIPDB
+  doc_url: https://docs.abuseipdb.com/#check-endpoint
+  author: topher-lo
   namespace: integrations.abuseipdb
   name: search_ip_address
   secrets:

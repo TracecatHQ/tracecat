@@ -1341,6 +1341,30 @@ export const $RegistryActionCreate = {
             title: 'Display Group',
             description: 'The presentation group of the action'
         },
+        doc_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Doc Url',
+            description: 'Link to documentation'
+        },
+        author: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Author',
+            description: 'Author of the action'
+        },
         options: {
             allOf: [
                 {
@@ -1469,6 +1493,30 @@ export const $RegistryActionRead = {
             ],
             title: 'Display Group',
             description: 'The presentation group of the action'
+        },
+        doc_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Doc Url',
+            description: 'Link to documentation'
+        },
+        author: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Author',
+            description: 'Author of the action'
         },
         options: {
             allOf: [
@@ -1663,6 +1711,30 @@ export const $RegistryActionUpdate = {
             ],
             title: 'Display Group',
             description: 'Update the display group of the action'
+        },
+        doc_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Doc Url',
+            description: 'Update the doc url of the action'
+        },
+        author: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Author',
+            description: 'Update the author of the action'
         },
         options: {
             anyOf: [
@@ -2869,6 +2941,30 @@ export const $TemplateActionDefinition = {
             type: 'string',
             title: 'Display Group',
             description: 'The display group of the action'
+        },
+        doc_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Doc Url',
+            description: 'Link to documentation'
+        },
+        author: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Author',
+            description: 'Author of the action'
         },
         secrets: {
             anyOf: [

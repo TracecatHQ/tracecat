@@ -56,6 +56,8 @@ class BoundRegistryAction(BaseModel):
     # Presentation
     default_title: str | None
     display_group: str | None
+    doc_url: str | None
+    author: str | None
     # Options
     include_in_schema: bool = True
 
@@ -168,10 +170,12 @@ class TemplateActionDefinition(BaseModel):
     name: str = Field(..., description="The action name")
     namespace: str = Field(..., description="The namespace of the action")
     title: str = Field(..., description="The title of the action")
-    description: str = Field("", description="The description of the action")
+    description: str = Field(default="", description="The description of the action")
     display_group: str = Field(..., description="The display group of the action")
+    doc_url: str | None = Field(default=None, description="Link to documentation")
+    author: str | None = Field(default=None, description="Author of the action")
     secrets: list[RegistrySecret] | None = Field(
-        None, description="The secrets to pass to the action"
+        default=None, description="The secrets to pass to the action"
     )
     expects: dict[str, ExpectedField] = Field(
         ..., description="The arguments to pass to the action"
@@ -214,31 +218,6 @@ class TemplateAction(BaseModel):
     def to_yaml(self) -> str:
         return yaml.dump(self.model_dump(mode="json"))
 
-    @staticmethod
-    def from_db(template_action: RegistryAction) -> TemplateAction:
-        intf = cast(RegistryActionInterface, template_action.interface)
-        impl = RegistryActionImplValidator.validate_python(
-            template_action.implementation
-        )
-        if impl.type != "template":
-            raise ValueError(
-                f"Invalid implementation type {impl.type!r} for template action"
-            )
-        return TemplateAction(
-            type="action",
-            definition=TemplateActionDefinition(
-                name=template_action.name,
-                namespace=template_action.namespace,
-                title=template_action.default_title,
-                description=template_action.description,
-                display_group=template_action.display_group,
-                secrets=template_action.secrets,
-                expects=intf["expects"],
-                returns=intf["returns"],
-                steps=impl.template_action.definition.steps,
-            ),
-        )
-
 
 # API models
 
@@ -263,6 +242,8 @@ class RegistryActionBase(BaseModel):
     display_group: str | None = Field(
         None, description="The presentation group of the action"
     )
+    doc_url: str | None = Field(None, description="Link to documentation")
+    author: str | None = Field(None, description="Author of the action")
     options: RegistryActionOptions = Field(
         default_factory=lambda: RegistryActionOptions(),
         description="The options for the action",
@@ -299,6 +280,8 @@ class RegistryActionRead(RegistryActionBase):
             description=action.description,
             namespace=action.namespace,
             type=cast(RegistryActionType, action.type),
+            doc_url=action.doc_url,
+            author=action.author,
             interface=model_converters.db_to_interface(action),
             implementation=impl,
             default_title=action.default_title,
@@ -326,6 +309,8 @@ class RegistryActionCreate(RegistryActionBase):
             implementation=action.get_implementation(),
             default_title=action.default_title,
             display_group=action.display_group,
+            doc_url=action.doc_url,
+            author=action.author,
             origin=action.origin,
             secrets=action.secrets,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
@@ -354,6 +339,12 @@ class RegistryActionUpdate(BaseModel):
     display_group: str | None = Field(
         default=None, description="Update the display group of the action"
     )
+    doc_url: str | None = Field(
+        default=None, description="Update the doc url of the action"
+    )
+    author: str | None = Field(
+        default=None, description="Update the author of the action"
+    )
     options: RegistryActionOptions | None = Field(
         default=None, description="Update the options of the action"
     )
@@ -367,6 +358,7 @@ class RegistryActionUpdate(BaseModel):
             implementation=action.get_implementation(),
             default_title=action.default_title,
             display_group=action.display_group,
+            doc_url=action.doc_url,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
         )
 

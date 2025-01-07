@@ -3414,9 +3414,6 @@ components:
         inputs:
           type: object
           title: Inputs
-        key:
-          type: string
-          title: Key
         control_flow:
           $ref: '#/components/schemas/ActionControlFlow'
       type: object
@@ -3427,7 +3424,6 @@ components:
       - description
       - status
       - inputs
-      - key
       title: ActionRead
     ActionReadMinimal:
       properties:
@@ -3449,9 +3445,6 @@ components:
         status:
           type: string
           title: Status
-        key:
-          type: string
-          title: Key
       type: object
       required:
       - id
@@ -3460,7 +3453,6 @@ components:
       - title
       - description
       - status
-      - key
       title: ActionReadMinimal
     ActionRetryPolicy:
       properties:
@@ -3819,6 +3811,12 @@ components:
           - type: 'null'
           title: Returns
           description: The action ref or value to return.
+        error_handler:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Handler
+          description: The action ref to handle errors.
       type: object
       required:
       - title
@@ -4297,6 +4295,18 @@ components:
           - type: 'null'
           title: Display Group
           description: The presentation group of the action
+        doc_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doc Url
+          description: Link to documentation
+        author:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Author
+          description: Author of the action
         options:
           allOf:
           - $ref: '#/components/schemas/RegistryActionOptions'
@@ -4389,6 +4399,18 @@ components:
           - type: 'null'
           title: Display Group
           description: The presentation group of the action
+        doc_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doc Url
+          description: Link to documentation
+        author:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Author
+          description: Author of the action
         options:
           allOf:
           - $ref: '#/components/schemas/RegistryActionOptions'
@@ -4519,6 +4541,18 @@ components:
           - type: 'null'
           title: Display Group
           description: Update the display group of the action
+        doc_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doc Url
+          description: Update the doc url of the action
+        author:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Author
+          description: Update the author of the action
         options:
           anyOf:
           - $ref: '#/components/schemas/RegistryActionOptions'
@@ -5316,6 +5350,18 @@ components:
           type: string
           title: Display Group
           description: The display group of the action
+        doc_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doc Url
+          description: Link to documentation
+        author:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Author
+          description: Author of the action
         secrets:
           anyOf:
           - items:
@@ -5867,6 +5913,16 @@ components:
           anyOf:
           - $ref: '#/components/schemas/DSLConfig-Output'
           - type: 'null'
+        alias:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Alias
+        error_handler:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Handler
       type: object
       required:
       - id
@@ -5923,6 +5979,16 @@ components:
             type: array
           - type: 'null'
           title: Tags
+        alias:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Alias
+        error_handler:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Handler
       type: object
       required:
       - id
@@ -6005,6 +6071,16 @@ components:
           anyOf:
           - $ref: '#/components/schemas/DSLConfig-Input'
           - type: 'null'
+        alias:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Alias
+        error_handler:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Handler
       type: object
       title: WorkflowUpdate
     WorkspaceMember:

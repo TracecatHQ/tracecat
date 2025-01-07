@@ -2,9 +2,16 @@ import os
 import textwrap
 
 import pytest
+from tracecat_registry import RegistrySecret
 
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.registry.actions.models import RegistryActionRead
+from tracecat.executor import service
+from tracecat.expressions.expectations import ExpectedField
+from tracecat.registry.actions.models import (
+    ActionStep,
+    RegistryActionRead,
+    TemplateAction,
+)
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import GitUrl, Repository, parse_git_url
 from tracecat.types.exceptions import RegistryValidationError
@@ -39,6 +46,8 @@ def mock_package(tmp_path):
                 @registry.register(
                     description="This is a test function",
                     namespace="test",
+                    doc_url="https://example.com/docs",
+                    author="Tracecat",
                 )
                 def test_function(num: int) -> int:
                     return num
@@ -56,6 +65,8 @@ def mock_package(tmp_path):
                 @registry.register(
                     description="This is an async test function",
                     namespace="test",
+                    doc_url="https://example.com/docs",
+                    author="Tracecat",
                 )
                 async def async_test_function(num: int) -> int:
                     return num
@@ -69,6 +80,13 @@ def mock_package(tmp_path):
         del sys.modules["test_module"]
 
 
+def test_udf_can_be_registered(mock_package):
+    """Test that a UDF can be registered."""
+    repo = Repository()
+    repo._register_udfs_from_package(mock_package)
+    assert repo.get("test.test_function") is not None
+
+
 def test_udf_validate_args(mock_package):
     """This tests the UDF.validate_args method, which shouldn't raise any exceptions
     when given a templated expression.
@@ -79,6 +97,12 @@ def test_udf_validate_args(mock_package):
 
     # Get the registered UDF
     udf = repo.get("test.test_function")
+
+    # Check descriptors
+    assert udf.description == "This is a test function"
+    assert udf.namespace == "test"
+    assert udf.doc_url == "https://example.com/docs"
+    assert udf.author == "Tracecat"
 
     # Test the UDF
     udf.validate_args(num="${{ path.to.number }}")
@@ -186,3 +210,301 @@ async def test_list_registry_actions(test_role):
         results = tg.results()
 
         assert len(results) == len(actions)
+
+
+def test_construct_template_action():
+    data = {
+        "type": "action",
+        "definition": {
+            "title": "Test Action",
+            "description": "This is just a test",
+            "name": "wrapper",
+            "namespace": "integrations.test",
+            "display_group": "Testing",
+            "secrets": [{"name": "test_secret", "keys": ["KEY"]}],
+            "expects": {
+                "service_source": {
+                    "type": "str",
+                    "description": "The service source",
+                    "default": "elastic",
+                },
+                "limit": {"type": "int | None", "description": "The limit"},
+            },
+            "steps": [
+                {
+                    "ref": "base",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": {
+                            "service_source": "${{ inputs.service_source }}",
+                            "data": 100,
+                        }
+                    },
+                },
+                {
+                    "ref": "final",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": [
+                            "${{ steps.base.result.data + 100 }}",
+                            "${{ steps.base.result.service_source }}",
+                        ]
+                    },
+                },
+            ],
+            "returns": "${{ steps.final.result }}",
+        },
+    }
+
+    # Parse and validate the action
+    action = TemplateAction.model_validate(data)
+
+    # Check the action definition
+    assert action.definition.title == "Test Action"
+    assert action.definition.description == "This is just a test"
+    assert action.definition.action == "integrations.test.wrapper"
+    assert action.definition.namespace == "integrations.test"
+    assert action.definition.display_group == "Testing"
+    assert action.definition.secrets == [
+        RegistrySecret(name="test_secret", keys=["KEY"])
+    ]
+    assert action.definition.expects == {
+        "service_source": ExpectedField(
+            type="str",
+            description="The service source",
+            default="elastic",
+        ),
+        "limit": ExpectedField(
+            type="int | None",
+            description="The limit",
+        ),
+    }
+    assert action.definition.steps == [
+        ActionStep(
+            ref="base",
+            action="core.transform.reshape",
+            args={
+                "value": {
+                    "service_source": "${{ inputs.service_source }}",
+                    "data": 100,
+                }
+            },
+        ),
+        ActionStep(
+            ref="final",
+            action="core.transform.reshape",
+            args={
+                "value": [
+                    "${{ steps.base.result.data + 100 }}",
+                    "${{ steps.base.result.service_source }}",
+                ]
+            },
+        ),
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "test_args,expected_result,should_raise",
+    [
+        (
+            {"user_id": "john@tracecat.com", "service_source": "custom", "limit": 99},
+            ["john@tracecat.com", "custom", 99],
+            False,
+        ),
+        (
+            {"user_id": "john@tracecat.com"},
+            ["john@tracecat.com", "elastic", 100],
+            False,
+        ),
+        (
+            {},
+            None,
+            True,
+        ),
+    ],
+    ids=["valid", "with_defaults", "missing_required"],
+)
+async def test_template_action_run(test_args, expected_result, should_raise):
+    action = TemplateAction(
+        **{
+            "type": "action",
+            "definition": {
+                "title": "Test Action",
+                "description": "This is just a test",
+                "name": "wrapper",
+                "namespace": "integrations.test",
+                "display_group": "Testing",
+                "doc_url": "https://example.com/docs",
+                "author": "Tracecat",
+                "secrets": [{"name": "test_secret", "keys": ["KEY"]}],
+                "expects": {
+                    # Required field
+                    "user_id": {
+                        "type": "str",
+                        "description": "The user ID",
+                    },
+                    # Optional field with string defaultß
+                    "service_source": {
+                        "type": "str",
+                        "description": "The service source",
+                        "default": "elastic",
+                    },
+                    # Optional field with None as default
+                    "limit": {
+                        "type": "int | None",
+                        "description": "The limit",
+                        "default": None,
+                    },
+                },
+                "steps": [
+                    {
+                        "ref": "base",
+                        "action": "core.transform.reshape",
+                        "args": {
+                            "value": {
+                                "service_source": "${{ inputs.service_source }}",
+                                "data": "${{ inputs.limit || 100 }}",
+                            }
+                        },
+                    },
+                    {
+                        "ref": "final",
+                        "action": "core.transform.reshape",
+                        "args": {
+                            "value": [
+                                "${{ inputs.user_id }}",
+                                "${{ steps.base.result.service_source }}",
+                                "${{ steps.base.result.data }}",
+                            ]
+                        },
+                    },
+                ],
+                "returns": "${{ steps.final.result }}",
+            },
+        }
+    )
+
+    # Register the action
+    registry = Repository()
+    registry.init(include_base=True, include_templates=False)
+    registry.register_template_action(action)
+
+    # Check that the action is registered
+    assert action.definition.action == "integrations.test.wrapper"
+    assert "core.transform.reshape" in registry
+    assert action.definition.action in registry
+
+    # Get the registered action
+    bound_action = registry.get(action.definition.action)
+
+    # Run the action
+    if should_raise:
+        with pytest.raises(RegistryValidationError):
+            await service.run_template_action(
+                action=bound_action,
+                args=test_args,
+                context={},
+            )
+    else:
+        result = await service.run_template_action(
+            action=bound_action,
+            args=test_args,
+            context={},
+        )
+        assert result == expected_result
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "test_args,expected_result,should_raise",
+    [
+        (
+            {"status": "critical", "message": "System CPU usage above 90%"},
+            {"alert_status": "critical", "alert_message": "System CPU usage above 90%"},
+            False,
+        ),
+        (
+            {"message": "Informational message"},
+            {"alert_status": "info", "alert_message": "Informational message"},
+            False,
+        ),
+        (
+            {
+                "status": "emergency",
+                "message": "This should fail",
+            },
+            None,
+            True,
+        ),
+    ],
+    ids=["valid_status", "default_status", "invalid_status"],
+)
+async def test_enum_template_action(test_args, expected_result, should_raise):
+    """Test template action with enum status.
+    This test verifies that:
+    1. The action can be constructed with an enum status
+    2. The action can be run with a valid enum status
+    3. The action can be run with a default enum status
+    4. Invalid enum values are properly rejected
+    """
+    data = {
+        "type": "action",
+        "definition": {
+            "title": "Test Alert Action",
+            "description": "Test action with enum status",
+            "name": "alert",
+            "namespace": "integrations.test",
+            "display_group": "Testing",
+            "doc_url": "https://example.com/docs",
+            "author": "Tracecat",
+            "expects": {
+                "status": {
+                    "type": 'enum["critical", "warning", "info"]',
+                    "description": "Alert severity level",
+                    "default": "info",
+                },
+                "message": {"type": "str", "description": "Alert message"},
+            },
+            "steps": [
+                {
+                    "ref": "format",
+                    "action": "core.transform.reshape",
+                    "args": {
+                        "value": {
+                            "alert_status": "${{ inputs.status }}",
+                            "alert_message": "${{ inputs.message }}",
+                        }
+                    },
+                }
+            ],
+            "returns": "${{ steps.format.result }}",
+        },
+    }
+
+    # Parse and validate the action
+    action = TemplateAction.model_validate(data)
+
+    # Register the action
+    registry = Repository()
+    registry.init(include_base=True, include_templates=False)
+    registry.register_template_action(action)
+
+    # Get the registered action
+    bound_action = registry.get(action.definition.action)
+
+    # Run the action
+    if should_raise:
+        with pytest.raises(RegistryValidationError):
+            await service.run_template_action(
+                action=bound_action,
+                args=test_args,
+                context={},
+            )
+    else:
+        result = await service.run_template_action(
+            action=bound_action,
+            args=test_args,
+            context={},
+        )
+        assert result == expected_result

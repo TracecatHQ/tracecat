@@ -428,6 +428,14 @@ export type RegistryActionCreate = {
      */
     display_group?: string | null;
     /**
+     * Link to documentation
+     */
+    doc_url?: string | null;
+    /**
+     * Author of the action
+     */
+    author?: string | null;
+    /**
      * The options for the action
      */
     options?: RegistryActionOptions;
@@ -491,6 +499,14 @@ export type RegistryActionRead = {
      * The presentation group of the action
      */
     display_group?: string | null;
+    /**
+     * Link to documentation
+     */
+    doc_url?: string | null;
+    /**
+     * Author of the action
+     */
+    author?: string | null;
     /**
      * The options for the action
      */
@@ -573,6 +589,14 @@ export type RegistryActionUpdate = {
      * Update the display group of the action
      */
     display_group?: string | null;
+    /**
+     * Update the doc url of the action
+     */
+    doc_url?: string | null;
+    /**
+     * Update the author of the action
+     */
+    author?: string | null;
     /**
      * Update the options of the action
      */
@@ -912,6 +936,14 @@ export type TemplateActionDefinition = {
      * The display group of the action
      */
     display_group: string;
+    /**
+     * Link to documentation
+     */
+    doc_url?: string | null;
+    /**
+     * Author of the action
+     */
+    author?: string | null;
     /**
      * The secrets to pass to the action
      */

@@ -500,13 +500,21 @@ class RegistryAction(Resource, table=True):
     origin: str = Field(..., description="The origin of the action as a url")
     type: str = Field(..., description="The type of the action")
     default_title: str | None = Field(
-        None, description="The default title of the action", nullable=True
+        default=None, description="The default title of the action", nullable=True
     )
     display_group: str | None = Field(
-        None, description="The presentation group of the action", nullable=True
+        default=None, description="The presentation group of the action", nullable=True
+    )
+    doc_url: str | None = Field(
+        default=None, description="Link to documentation", nullable=True
+    )
+    author: str | None = Field(
+        default=None, description="Author of the action", nullable=True
     )
     secrets: list[dict[str, Any]] | None = Field(
-        None, sa_column=Column(JSONB), description="The secrets required by the action"
+        default=None,
+        sa_column=Column(JSONB),
+        description="The secrets required by the action",
     )
     interface: dict[str, Any] = Field(
         ..., sa_column=Column(JSONB), description="The interface of the action"
