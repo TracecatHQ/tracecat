@@ -170,12 +170,12 @@ class TemplateActionDefinition(BaseModel):
     name: str = Field(..., description="The action name")
     namespace: str = Field(..., description="The namespace of the action")
     title: str = Field(..., description="The title of the action")
-    description: str = Field("", description="The description of the action")
+    description: str = Field(default="", description="The description of the action")
     display_group: str = Field(..., description="The display group of the action")
-    doc_url: str | None = Field(None, description="Link to documentation")
-    author: str | None = Field(None, description="Author of the action")
+    doc_url: str | None = Field(default=None, description="Link to documentation")
+    author: str | None = Field(default=None, description="Author of the action")
     secrets: list[RegistrySecret] | None = Field(
-        None, description="The secrets to pass to the action"
+        default=None, description="The secrets to pass to the action"
     )
     expects: dict[str, ExpectedField] = Field(
         ..., description="The arguments to pass to the action"
