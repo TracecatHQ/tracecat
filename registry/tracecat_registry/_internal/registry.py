@@ -12,10 +12,11 @@ def register(
     *,
     default_title: str | None = None,
     display_group: str | None = None,
+    doc_url: str | None = None,
+    author: str | None = None,
     namespace: str = DEFAULT_NAMESPACE,
     description: str,
     secrets: list[RegistrySecret] | None = None,
-    version: str | None = None,  # Backwards compatibility
     include_in_schema: bool = True,
 ) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Decorator factory to register a new UDF (User-Defined Function) with additional parameters.
@@ -29,6 +30,10 @@ def register(
         The default title for the UDF in the catalog, by default None.
     display_group : str | None, optional
         The group under which the UDF should be displayed in the catalog, by default None.
+    doc_url : str | None, optional
+        The URL to the documentation for the UDF, by default None.
+    author : str | None, optional
+        The author of the UDF, by default None.
     namespace : str, optional
         The namespace to register the UDF under, by default 'core'.
     description : str
@@ -50,11 +55,6 @@ def register(
     The decorated function will be wrapped to handle argument validation and secret injection.
     Both synchronous and asynchronous functions are supported.
     """
-    if version is not None:
-        raise ValueError(
-            "Setting version is no longer supported. UDFs are versioned by their registry."
-            "If you are seeing this, please remove the `version` parameter from your registry decorator."
-        )
 
     def decorator_register(fn: Callable[P, R]) -> Callable[P, R]:
         """The decorator function to register a new UDF.
@@ -89,10 +89,10 @@ def register(
             {
                 "default_title": default_title,
                 "display_group": display_group,
+                "doc_url": doc_url,
+                "author": author,
                 "include_in_schema": include_in_schema,
                 "namespace": namespace,
-                # TODO: Remove this once we have a version field in the registry
-                "version": version,
                 "description": description,
                 "secrets": secrets,
             },
