@@ -3193,6 +3193,99 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /auth/oauth/authorize:
+    get:
+      tags:
+      - auth
+      summary: Oauth:Google.Database.Authorize
+      operationId: auth-oauth:google.database.authorize
+      parameters:
+      - name: scopes
+        in: query
+        required: false
+        schema:
+          type: array
+          items:
+            type: string
+          title: Scopes
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2AuthorizeResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/oauth/callback:
+    get:
+      tags:
+      - auth
+      summary: Oauth:Google.Database.Callback
+      description: The response varies based on the authentication backend used.
+      operationId: auth-oauth:google.database.callback
+      parameters:
+      - name: code
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Code
+      - name: code_verifier
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Code Verifier
+      - name: state
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: State
+      - name: error
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '400':
+          content:
+            application/json:
+              examples:
+                INVALID_STATE_TOKEN:
+                  summary: Invalid state token.
+                LOGIN_BAD_CREDENTIALS:
+                  summary: User is inactive.
+                  value:
+                    detail: LOGIN_BAD_CREDENTIALS
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Bad Request
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /auth/saml/login:
     get:
       tags:
@@ -3321,9 +3414,6 @@ components:
         inputs:
           type: object
           title: Inputs
-        key:
-          type: string
-          title: Key
         control_flow:
           $ref: '#/components/schemas/ActionControlFlow'
       type: object
@@ -3334,7 +3424,6 @@ components:
       - description
       - status
       - inputs
-      - key
       title: ActionRead
     ActionReadMinimal:
       properties:
@@ -3356,9 +3445,6 @@ components:
         status:
           type: string
           title: Status
-        key:
-          type: string
-          title: Key
       type: object
       required:
       - id
@@ -3367,7 +3453,6 @@ components:
       - title
       - description
       - status
-      - key
       title: ActionReadMinimal
     ActionRetryPolicy:
       properties:
@@ -3726,6 +3811,12 @@ components:
           - type: 'null'
           title: Returns
           description: The action ref or value to return.
+        error_handler:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Handler
+          description: The action ref to handle errors.
       type: object
       required:
       - title
@@ -4094,6 +4185,15 @@ components:
       - any
       - all
       title: JoinStrategy
+    OAuth2AuthorizeResponse:
+      properties:
+        authorization_url:
+          type: string
+          title: Authorization Url
+      type: object
+      required:
+      - authorization_url
+      title: OAuth2AuthorizeResponse
     OrgMemberRead:
       properties:
         user_id:
@@ -4200,13 +4300,13 @@ components:
           - type: string
           - type: 'null'
           title: Doc Url
-          description: The url of the action's documentation
+          description: Link to documentation
         author:
           anyOf:
           - type: string
           - type: 'null'
           title: Author
-          description: The author of the action
+          description: Author of the action
         options:
           allOf:
           - $ref: '#/components/schemas/RegistryActionOptions'
@@ -4304,13 +4404,13 @@ components:
           - type: string
           - type: 'null'
           title: Doc Url
-          description: The url of the action's documentation
+          description: Link to documentation
         author:
           anyOf:
           - type: string
           - type: 'null'
           title: Author
-          description: The author of the action
+          description: Author of the action
         options:
           allOf:
           - $ref: '#/components/schemas/RegistryActionOptions'
@@ -4441,6 +4541,18 @@ components:
           - type: 'null'
           title: Display Group
           description: Update the display group of the action
+        doc_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Doc Url
+          description: Update the doc url of the action
+        author:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Author
+          description: Update the author of the action
         options:
           anyOf:
           - $ref: '#/components/schemas/RegistryActionOptions'
@@ -5243,13 +5355,13 @@ components:
           - type: string
           - type: 'null'
           title: Doc Url
-          description: The url of the action's documentation
+          description: Link to documentation
         author:
           anyOf:
           - type: string
           - type: 'null'
           title: Author
-          description: The author of the action
+          description: Author of the action
         secrets:
           anyOf:
           - items:
@@ -5806,6 +5918,11 @@ components:
           - type: string
           - type: 'null'
           title: Alias
+        error_handler:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Handler
       type: object
       required:
       - id
@@ -5867,6 +5984,11 @@ components:
           - type: string
           - type: 'null'
           title: Alias
+        error_handler:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Handler
       type: object
       required:
       - id
@@ -5954,6 +6076,11 @@ components:
           - type: string
           - type: 'null'
           title: Alias
+        error_handler:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Handler
       type: object
       title: WorkflowUpdate
     WorkspaceMember:
