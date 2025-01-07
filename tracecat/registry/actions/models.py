@@ -172,10 +172,8 @@ class TemplateActionDefinition(BaseModel):
     title: str = Field(..., description="The title of the action")
     description: str = Field("", description="The description of the action")
     display_group: str = Field(..., description="The display group of the action")
-    doc_url: str | None = Field(
-        None, description="The url of the action's documentation"
-    )
-    author: str | None = Field(None, description="The author of the action")
+    doc_url: str | None = Field(None, description="Link to documentation")
+    author: str | None = Field(None, description="Author of the action")
     secrets: list[RegistrySecret] | None = Field(
         None, description="The secrets to pass to the action"
     )
@@ -271,10 +269,8 @@ class RegistryActionBase(BaseModel):
     display_group: str | None = Field(
         None, description="The presentation group of the action"
     )
-    doc_url: str | None = Field(
-        None, description="The url of the action's documentation"
-    )
-    author: str | None = Field(None, description="The author of the action")
+    doc_url: str | None = Field(None, description="Link to documentation")
+    author: str | None = Field(None, description="Author of the action")
     options: RegistryActionOptions = Field(
         default_factory=lambda: RegistryActionOptions(),
         description="The options for the action",

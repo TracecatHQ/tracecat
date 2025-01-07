@@ -508,9 +508,7 @@ class RegistryAction(Resource, table=True):
     doc_url: str | None = Field(
         None, description="Link to documentation", nullable=True
     )
-    author: str | None = Field(
-        None, description="The author of the action", nullable=True
-    )
+    author: str | None = Field(None, description="Author of the action", nullable=True)
     secrets: list[dict[str, Any]] | None = Field(
         None, sa_column=Column(JSONB), description="The secrets required by the action"
     )
