@@ -31,6 +31,11 @@ autolabeler:
       # Example: feat(engine): ...
       - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*engine.*\))?\!?\: /'
 
+  - label: app
+    title:
+      # Example: feat(app): ...
+      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*app.*\))?\!?\: /'
+
   - label: breaking
     title:
       # Example: feat!: ...
@@ -45,6 +50,11 @@ autolabeler:
     title:
       # Example: feat(engine!): ...
       - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*engine\!.*\)\: /'
+
+  - label: breaking app
+    title:
+      # Example: feat(app!): ...
+      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*app\!.*\)\: /'
 
   - label: build
     title:
@@ -87,6 +97,8 @@ categories:
       - breaking
       - breaking ui
       - breaking frontend
+      - breaking engine
+      - breaking app
 
   - title: ⚠️ Deprecations
     labels: deprecation
