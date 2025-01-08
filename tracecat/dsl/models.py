@@ -196,3 +196,9 @@ class DSLExecutionError(TypedDict, total=False):
 
     message: str
     """The message of the exception."""
+
+
+@dataclass(frozen=True)
+class TaskExceptionInfo:
+    exception: Exception
+    details: ActionErrorInfo | None = None

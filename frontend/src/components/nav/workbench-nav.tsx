@@ -14,7 +14,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
   DownloadIcon,
-  GitPullRequestCreateArrowIcon,
+  SaveIcon,
   MoreHorizontal,
   PlayIcon,
   SquarePlay,
@@ -101,7 +101,7 @@ export function WorkbenchNav() {
   const { workspaceId, workspace, workspaceLoading } = useWorkspace()
 
   const handleCommit = async () => {
-    console.log("Committing changes...")
+    console.log("Saving changes...")
     try {
       const response = await commitWorkflow()
       const { status, errors } = response
@@ -111,7 +111,7 @@ export function WorkbenchNav() {
         setValidationErrors(null)
       }
     } catch (error) {
-      console.error("Failed to commit workflow:", error)
+      console.error("Failed to save workflow:", error)
     }
   }
 
@@ -158,7 +158,7 @@ export function WorkbenchNav() {
           disabled={manualTriggerDisabled}
           workflowId={workflow.id}
         />
-        {/* Commit button */}
+        {/* Save button */}
         <div className="flex items-center space-x-2">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -174,15 +174,15 @@ export function WorkbenchNav() {
                 {validationErrors ? (
                   <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
                 ) : (
-                  <GitPullRequestCreateArrowIcon className="mr-2 size-4" />
+                  <SaveIcon className="mr-2 size-4" />
                 )}
-                Commit
+                Save
               </Button>
             </TooltipTrigger>
 
             <TooltipContent
               side="bottom"
-              className="w-auto min-w-72 max-w-lg space-y-2 border bg-background p-0 text-xs text-muted-foreground shadow-lg"
+              className="w-fit p-0 border bg-background text-xs text-muted-foreground shadow-lg"
             >
               {validationErrors ? (
                 <div className="space-y-2 rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
@@ -205,8 +205,7 @@ export function WorkbenchNav() {
               ) : (
                 <div className="p-2">
                   <span>
-                    Create workflow definition v{(workflow.version || 0) + 1}{" "}
-                    with your changes.
+                    Save workflow v{(workflow.version || 0) + 1}{" "} with your changes.
                   </span>
                 </div>
               )}
@@ -217,7 +216,7 @@ export function WorkbenchNav() {
             variant="secondary"
             className="h-7 text-xs font-normal text-muted-foreground hover:cursor-default"
           >
-            {workflow.version ? `v${workflow.version}` : "Not Committed"}
+            {workflow.version ? `v${workflow.version}` : "Draft"}
           </Badge>
         </div>
 
@@ -246,8 +245,8 @@ export function WorkbenchNav() {
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {isOnline
-                    ? "Are you sure you want to disable the workflow? This will stop new executions and event processing."
-                    : "Are you sure you want to enable the workflow? This will start new executions and event processing."}
+                    ? "Are you sure you want to disable the workflow? This will pause all schedules and block webhook events."
+                    : "Are you sure you want to enable the workflow? This will resume all schedules and allow webhook events."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -260,10 +259,11 @@ export function WorkbenchNav() {
           </AlertDialog>
           <TooltipContent
             side="bottom"
-            className="max-w-48 border bg-background text-xs text-muted-foreground shadow-lg"
+            className="w-72 border bg-background text-xs text-muted-foreground shadow-lg"
           >
-            {isOnline ? "Disable" : "Enable"} the workflow to{" "}
-            {isOnline ? "stop" : "start"} new executions and receive events.
+            {isOnline
+              ? "Disable the workflow to pause all schedules and block webhook events."
+              : "Enable the workflow to resume all schedules and allow webhook events."}
           </TooltipContent>
         </Tooltip>
 
@@ -467,10 +467,10 @@ function WorkflowManualTrigger({
                   <span>Run</span>
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-96 p-3">
+              <PopoverContent className="w-fit p-3">
                 <form onSubmit={form.handleSubmit(handleSubmit)}>
-                  <div className="flex flex-col space-y-2">
-                    <span className="text-xs text-muted-foreground">
+                  <div className="flex flex-col h-fit">
+                    <span className="text-xs text-muted-foreground mb-2">
                       Edit the JSON payload below.
                     </span>
                     <FormField
@@ -480,7 +480,7 @@ function WorkflowManualTrigger({
                         <FormItem>
                           <FormControl>
                             <DynamicCustomEditor
-                              className="size-full h-36"
+                              className="min-h-60 min-w-[30rem] max-w-[50rem] max-h-[50rem] resize overflow-auto"
                               defaultLanguage="yaml-extended"
                               value={field.value}
                               onChange={field.onChange}
@@ -492,11 +492,10 @@ function WorkflowManualTrigger({
                         </FormItem>
                       )}
                     />
-
                     <Button
                       type="submit"
                       variant="default"
-                      className="group flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
+                      className="group flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white mt-2"
                     >
                       <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
                       <span>Run</span>
@@ -510,7 +509,7 @@ function WorkflowManualTrigger({
         <TooltipContent
           side="bottom"
           className={cn(
-            "w-[300px] border bg-background text-xs text-muted-foreground shadow-lg",
+            "w-96 border bg-background text-xs text-muted-foreground shadow-lg",
             manualTriggerErrors && "p-0"
           )}
         >
@@ -526,7 +525,7 @@ function WorkflowManualTrigger({
               </div>
             </div>
           ) : disabled ? (
-            "Please commit changes to enable manual trigger."
+            "Please save changes to enable manual trigger."
           ) : (
             "Run the workflow manually without a webhook. Click to configure inputs."
           )}

@@ -3,10 +3,17 @@ from collections import defaultdict
 from collections.abc import Coroutine
 from typing import Any
 
+from temporalio.exceptions import ApplicationError
+
 from tracecat.contexts import ctx_logger
 from tracecat.dsl.common import AdjDst, DSLEdge, DSLInput, edge_components_from_dep
 from tracecat.dsl.enums import EdgeMarker, EdgeType, JoinStrategy, SkipStrategy
-from tracecat.dsl.models import ActionStatement, ExecutionContext
+from tracecat.dsl.models import (
+    ActionErrorInfo,
+    ActionStatement,
+    ExecutionContext,
+    TaskExceptionInfo,
+)
 from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
@@ -49,7 +56,7 @@ class DSLScheduler:
 
         """
         self.skip_strategy = skip_strategy
-        self.task_exceptions: dict[str, BaseException] = {}
+        self.task_exceptions: dict[str, TaskExceptionInfo] = {}
 
         self.executor = executor
         self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
@@ -70,8 +77,10 @@ class DSLScheduler:
             edges=self.edges,
         )
 
-    async def _handle_error_path(self, ref: str, exc: BaseException) -> None:
-        self.logger.debug("Handling error path", ref=ref)
+    async def _handle_error_path(self, ref: str, exc: Exception) -> None:
+        self.logger.debug(
+            "Handling error path", ref=ref, type=exc.__class__.__name__, exc=exc
+        )
         # Prune any non-error paths and queue the rest
         non_err_edges: set[DSLEdge] = {
             DSLEdge(src=ref, dst=dst, type=edge_type)
@@ -82,7 +91,14 @@ class DSLScheduler:
             await self._queue_tasks(ref, unreachable=non_err_edges)
         else:
             self.logger.error("Task failed with no error paths", ref=ref)
-            self.task_exceptions[ref] = exc
+            if isinstance(exc, ApplicationError) and exc.details:
+                details = ActionErrorInfo(**exc.details[0])
+            else:
+                details = None
+
+            self.task_exceptions[ref] = TaskExceptionInfo(
+                exception=exc, details=details
+            )
 
     async def _handle_success_path(self, ref: str) -> None:
         self.logger.debug("Handling success path", ref=ref)
@@ -197,7 +213,7 @@ class DSLScheduler:
             self.logger.info("Task completed", ref=ref)
             self.completed_tasks.add(ref)
 
-    async def start(self) -> list[BaseException] | None:
+    async def start(self) -> dict[str, TaskExceptionInfo] | None:
         """Run the scheduler and return any exceptions that occurred."""
         # Instead of explicitly setting the entrypoint, we set all zero-indegree
         # tasks to the queue.
@@ -229,7 +245,7 @@ class DSLScheduler:
                 n_visited=len(self.completed_tasks),
                 n_tasks=len(self.tasks),
             )
-            return list(self.task_exceptions.values())
+            return self.task_exceptions
         self.logger.info(
             "All tasks completed",
             visited_tasks=self.completed_tasks,

@@ -291,10 +291,7 @@ export function ActionPanel({
     <div className="size-full overflow-auto" onBlur={onPanelBlur} tabIndex={0}>
       <Tabs defaultValue="inputs">
         <FormProvider {...methods}>
-          <form
-            onSubmit={methods.handleSubmit(onSubmit)}
-            className="flex max-w-full flex-col overflow-auto"
-          >
+          <form onSubmit={methods.handleSubmit(onSubmit)}>
             <div className="relative">
               <h3 className="p-4 py-6">
                 <div className="flex w-full items-start space-x-4">
@@ -398,7 +395,7 @@ export function ActionPanel({
               {/* Metadata */}
               <Accordion
                 type="multiple"
-                defaultValue={["action-schema", "action-inputs"]}
+                defaultValue={["action-inputs"]}
                 className="pb-10"
               >
                 <AccordionItem value="action-settings">
@@ -561,12 +558,17 @@ export function ActionPanel({
                         control={methods.control}
                         render={({ field }) => (
                           <DynamicCustomEditor
-                            className="h-72 w-full"
+                            className="min-h-[40rem] w-full resize-y overflow-auto"
                             value={field.value}
                             onChange={field.onChange}
                             defaultLanguage="yaml-extended"
                             workspaceId={workspaceId}
                             workflowId={workflowId}
+                            options={{
+                              scrollbar: {
+                                handleMouseWheel: false,
+                              },
+                            }}
                           />
                         )}
                       />
@@ -624,8 +626,7 @@ export function ActionPanel({
                         </HoverCard>
 
                         <span className="text-xs text-muted-foreground">
-                          Define a conditional expression that determines if the
-                          action executes.
+                          Define a conditional expression that determines if the action executes.
                         </span>
                       </div>
 
@@ -639,7 +640,6 @@ export function ActionPanel({
                             value={field.value}
                             onChange={field.onChange}
                             workspaceId={workspaceId}
-                            workflowId={workflowId}
                           />
                         )}
                       />
