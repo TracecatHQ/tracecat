@@ -354,7 +354,9 @@ export function ActionPanel({
                                 className="h-auto p-0 text-xs text-muted-foreground"
                               >
                                 <Link href={registryAction.doc_url} target="_blank">
-                                  {registryAction.doc_url}
+                                  {registryAction.doc_url.length > 32
+                                    ? registryAction.doc_url.substring(0, 32) + "..."
+                                    : registryAction.doc_url}
                                 </Link>
                               </Button>
                             </div>
@@ -374,21 +376,21 @@ export function ActionPanel({
             <div className="flex items-center justify-start">
               <TabsList className="h-8 rounded-none bg-transparent p-0">
                 <TabsTrigger
-                  className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  className="h-full min-w-24 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                   value="inputs"
                 >
                   <LayoutListIcon className="mr-2 size-4" />
                   <span>Inputs</span>
                 </TabsTrigger>
                 <TabsTrigger
-                  className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  className="h-full min-w-24 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                   value="control-flow"
                 >
                   <SplitIcon className="mr-2 size-4" />
-                  <span>If-condition and loops</span>
+                  <span>If-condition / Loops</span>
                 </TabsTrigger>
                 <TabsTrigger
-                  className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  className="h-full min-w-24 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                   value="retry-policy"
                 >
                   <RotateCcwIcon className="mr-2 size-4" />
@@ -396,7 +398,7 @@ export function ActionPanel({
                 </TabsTrigger>
                 {registryAction.is_template && (
                   <TabsTrigger
-                    className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="h-full min-w-24 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="template-inputs"
                   >
                     <FileTextIcon className="mr-2 size-4" />
