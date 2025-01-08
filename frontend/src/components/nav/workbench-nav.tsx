@@ -14,7 +14,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
   DownloadIcon,
-  GitPullRequestCreateArrowIcon,
+  SaveIcon,
   MoreHorizontal,
   PlayIcon,
   SquarePlay,
@@ -101,7 +101,7 @@ export function WorkbenchNav() {
   const { workspaceId, workspace, workspaceLoading } = useWorkspace()
 
   const handleCommit = async () => {
-    console.log("Publishing changes...")
+    console.log("Saving changes...")
     try {
       const response = await commitWorkflow()
       const { status, errors } = response
@@ -111,7 +111,7 @@ export function WorkbenchNav() {
         setValidationErrors(null)
       }
     } catch (error) {
-      console.error("Failed to publish workflow:", error)
+      console.error("Failed to save workflow:", error)
     }
   }
 
@@ -158,7 +158,7 @@ export function WorkbenchNav() {
           disabled={manualTriggerDisabled}
           workflowId={workflow.id}
         />
-        {/* Publish button */}
+        {/* Save button */}
         <div className="flex items-center space-x-2">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -174,9 +174,9 @@ export function WorkbenchNav() {
                 {validationErrors ? (
                   <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
                 ) : (
-                  <GitPullRequestCreateArrowIcon className="mr-2 size-4" />
+                  <SaveIcon className="mr-2 size-4" />
                 )}
-                Publish
+                Save
               </Button>
             </TooltipTrigger>
 
@@ -205,8 +205,7 @@ export function WorkbenchNav() {
               ) : (
                 <div className="p-2">
                   <span>
-                    Create workflow definition v{(workflow.version || 0) + 1}{" "}
-                    with your changes.
+                    Save workflow v{(workflow.version || 0) + 1}{" "} with your changes.
                   </span>
                 </div>
               )}
@@ -527,7 +526,7 @@ function WorkflowManualTrigger({
               </div>
             </div>
           ) : disabled ? (
-            "Please publish changes to enable manual trigger."
+            "Please save changes to enable manual trigger."
           ) : (
             "Run the workflow manually without a webhook. Click to configure inputs."
           )}
