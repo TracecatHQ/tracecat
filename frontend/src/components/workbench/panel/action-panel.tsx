@@ -398,7 +398,7 @@ export function ActionPanel({
               {/* Metadata */}
               <Accordion
                 type="multiple"
-                defaultValue={["action-schema", "action-inputs"]}
+                defaultValue={["action-inputs"]}
                 className="pb-10"
               >
                 <AccordionItem value="action-settings">
@@ -561,18 +561,12 @@ export function ActionPanel({
                         control={methods.control}
                         render={({ field }) => (
                           <DynamicCustomEditor
-                            className="min-h-80 min-w-full resize-y overflow-auto"
+                            className="resize-y overflow-auto"
                             value={field.value}
                             onChange={field.onChange}
                             defaultLanguage="yaml-extended"
                             workspaceId={workspaceId}
                             workflowId={workflowId}
-                            options={{
-                              scrollbar: {
-                                vertical: 'hidden',
-                                handleMouseWheel: false,
-                              },
-                            }}
                           />
                         )}
                       />
@@ -806,12 +800,6 @@ export function ActionPanel({
                             onChange={field.onChange}
                             workspaceId={workspaceId}
                             workflowId={workflowId}
-                            options={{
-                              scrollbar: {
-                                vertical: 'hidden',
-                                handleMouseWheel: false,
-                              },
-                            }}
                           />
                         )}
                       />
