@@ -300,9 +300,10 @@ export function ActionPanel({
       <Tabs defaultValue="inputs" value={activeTab} onValueChange={setActiveTab} className="w-full">
         <FormProvider {...methods}>
           <form onSubmit={methods.handleSubmit(onSubmit)}>
-            <h3 className="p-4 py-6">
-              <div className="flex w-full items-start space-x-4">
-                <div className="flex-col">
+            <div className="relative">
+              <h3 className="p-4 py-6">
+                <div className="flex w-full items-start space-x-4">
+                  <div className="flex-col">
                   {getIcon(registryAction.action, {
                     className: "size-10 p-2",
                     flairsize: "md",
@@ -370,9 +371,10 @@ export function ActionPanel({
                   </div>
                 </div>
               </div>
-            </h3>
+              <SaveStateIcon saveState={saveState} />
+              </h3>
+            </div>
 
-            <SaveStateIcon saveState={saveState} />
             <div className="min-w-[30rem] w-full">
               <div className="flex items-center justify-start">
                 <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
