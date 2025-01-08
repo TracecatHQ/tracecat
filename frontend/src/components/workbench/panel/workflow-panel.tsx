@@ -32,7 +32,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -262,31 +261,46 @@ export function WorkflowPanel({
                           </FormItem>
                         )}
                       />
-
                       <FormField
                         control={methods.control}
-                        name="alias"
+                        name="error_handler"
                         render={({ field }) => (
                           <FormItem>
                             <div className="flex items-center gap-2">
-                              <FormLabel className="text-xs">
-                                <span>Alias</span>
+                              <FormLabel className="flex items-center text-xs">
+                                <HoverCard openDelay={100} closeDelay={100}>
+                                  <HoverCardTrigger asChild className="hover:border-none">
+                                    <Info className="mr-1 size-3 stroke-muted-foreground" />
+                                  </HoverCardTrigger>
+                                  <HoverCardContent
+                                    className="w-[300px] p-3 font-mono text-xs tracking-tight"
+                                    side="right"
+                                    sideOffset={20}
+                                  >
+                                    <div className="w-full space-y-4">
+                                      <div className="flex w-full items-center justify-between text-muted-foreground">
+                                        <span className="font-mono text-sm font-semibold">Error handler workflow</span>
+                                        <span className="text-xs text-muted-foreground/80">(optional)</span>
+                                      </div>
+                                      <span className="text-muted-foreground">
+                                        The ID or alias of another workflow to run when this workflow encounters an error.
+                                      </span>
+                                    </div>
+                                  </HoverCardContent>
+                                </HoverCard>
+                                <span>Error workflow</span>
                               </FormLabel>
                               {field.value && (
                                 <CopyButton
                                   value={field.value}
-                                  toastMessage="Copied workflow alias to clipboard"
+                                  toastMessage="Copied error workflow to clipboard"
                                 />
                               )}
                             </div>
-                            <FormDescription className="text-xs">
-                              A name that can be used to uniquely identify this
-                              workflow.
-                            </FormDescription>
                             <FormControl>
                               <Input
                                 className="text-xs"
-                                placeholder="A name that can be used to uniquely identify this workflow"
+                                placeholder="Workflow to run when an error occurs."
                                 {...field}
                                 value={field.value || ""}
                                 onChange={field.onChange}
@@ -298,28 +312,45 @@ export function WorkflowPanel({
                       />
                       <FormField
                         control={methods.control}
-                        name="error_handler"
+                        name="alias"
                         render={({ field }) => (
                           <FormItem>
                             <div className="flex items-center gap-2">
-                              <FormLabel className="text-xs">
-                                <span>Error Handler</span>
+                              <FormLabel className="flex items-center text-xs">
+                                <HoverCard openDelay={100} closeDelay={100}>
+                                  <HoverCardTrigger asChild className="hover:border-none">
+                                    <Info className="mr-1 size-3 stroke-muted-foreground" />
+                                  </HoverCardTrigger>
+                                  <HoverCardContent
+                                    className="w-[300px] p-3 font-mono text-xs tracking-tight"
+                                    side="right"
+                                    sideOffset={20}
+                                  >
+                                    <div className="w-full space-y-4">
+                                      <div className="flex w-full items-center justify-between text-muted-foreground">
+                                        <span className="font-mono text-sm font-semibold">Workflow alias</span>
+                                        <span className="text-xs text-muted-foreground/80">(optional)</span>
+                                      </div>
+                                      <span className="text-muted-foreground">
+                                        A unique identifier for the workflow that can be used instead of the workflow ID.
+                                        Must be unique within your workspace.
+                                      </span>
+                                    </div>
+                                  </HoverCardContent>
+                                </HoverCard>
+                                <span>Alias</span>
                               </FormLabel>
                               {field.value && (
                                 <CopyButton
                                   value={field.value}
-                                  toastMessage="Copied workflow error handler to clipboard"
+                                  toastMessage="Copied workflow alias to clipboard"
                                 />
                               )}
                             </div>
-                            <FormDescription className="text-xs">
-                              The workflow ID or alias of the error handler
-                              workflow.
-                            </FormDescription>
                             <FormControl>
                               <Input
                                 className="text-xs"
-                                placeholder="The workflow ID or alias of the error handler workflow"
+                                placeholder="Unique identifier for this workflow."
                                 {...field}
                                 value={field.value || ""}
                                 onChange={field.onChange}
