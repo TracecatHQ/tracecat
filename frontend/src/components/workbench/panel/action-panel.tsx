@@ -297,7 +297,7 @@ export function ActionPanel({
   const ActionIcon = typeToLabel[registryAction.type].icon
   return (
     <div onBlur={onPanelBlur}>
-      <Tabs defaultValue="inputs" value={activeTab} onValueChange={setActiveTab}>
+      <Tabs defaultValue="inputs" value={activeTab} onValueChange={setActiveTab} className="w-full">
         <FormProvider {...methods}>
           <form onSubmit={methods.handleSubmit(onSubmit)}>
             <h3 className="p-4 py-6">
@@ -373,484 +373,488 @@ export function ActionPanel({
             </h3>
 
             <SaveStateIcon saveState={saveState} />
-            <div className="flex items-center justify-start">
-              <TabsList className="h-8 rounded-none bg-transparent p-0">
-                <TabsTrigger
-                  className="h-full min-w-24 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                  value="inputs"
-                >
-                  <LayoutListIcon className="mr-2 size-4" />
-                  <span>Inputs</span>
-                </TabsTrigger>
-                <TabsTrigger
-                  className="h-full min-w-24 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                  value="control-flow"
-                >
-                  <SplitIcon className="mr-2 size-4" />
-                  <span>If-condition / Loops</span>
-                </TabsTrigger>
-                <TabsTrigger
-                  className="h-full min-w-24 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                  value="retry-policy"
-                >
-                  <RotateCcwIcon className="mr-2 size-4" />
-                  <span>Retries</span>
-                </TabsTrigger>
-                {registryAction.is_template && (
+            <div className="w-[800px] min-w-full">
+              <div className="flex items-center justify-start">
+                <TabsList className="h-8 w-full justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
-                    className="h-full min-w-24 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="template-inputs"
+                    className="h-full min-w-[120px] flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    value="inputs"
                   >
-                    <FileTextIcon className="mr-2 size-4" />
-                    <span>View template</span>
+                    <LayoutListIcon className="mr-2 size-4" />
+                    <span>Inputs</span>
                   </TabsTrigger>
-                )}
-              </TabsList>
-            </div>
-            <Separator />
-            <TabsContent value="inputs">
-              {/* Metadata */}
-              <Accordion
-                type="multiple"
-                defaultValue={["action-inputs"]}
-                className="pb-10"
-              >
-                <AccordionItem value="action-settings">
-                  <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-                    <div className="flex items-center">
-                      <SettingsIcon className="mr-3 size-4" />
-                      <span>General</span>
-                    </div>
-                  </AccordionTrigger>
-                  {/* General settings for the action */}
-                  <AccordionContent>
-                    <div className="my-4 space-y-2 px-4">
-                      <FormField
-                        control={methods.control}
-                        name="title"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">Name</FormLabel>
-                            <FormControl>
+                  <TabsTrigger
+                    className="h-full min-w-[120px] flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    value="control-flow"
+                  >
+                    <SplitIcon className="mr-2 size-4" />
+                    <span>If-condition / Loops</span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    className="h-full min-w-[120px] flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    value="retry-policy"
+                  >
+                    <RotateCcwIcon className="mr-2 size-4" />
+                    <span>Retries</span>
+                  </TabsTrigger>
+                  {registryAction.is_template && (
+                    <TabsTrigger
+                      className="h-full min-w-[120px] flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      value="template-inputs"
+                    >
+                      <FileTextIcon className="mr-2 size-4" />
+                      <span>View template</span>
+                    </TabsTrigger>
+                  )}
+                </TabsList>
+              </div>
+              <Separator />
+              <div className="w-full overflow-x-auto">
+                <TabsContent value="inputs">
+                  {/* Metadata */}
+                  <Accordion
+                    type="multiple"
+                    defaultValue={["action-inputs"]}
+                    className="pb-10"
+                  >
+                    <AccordionItem value="action-settings">
+                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                        <div className="flex items-center">
+                          <SettingsIcon className="mr-3 size-4" />
+                          <span>General</span>
+                        </div>
+                      </AccordionTrigger>
+                      {/* General settings for the action */}
+                      <AccordionContent>
+                        <div className="my-4 space-y-2 px-4">
+                          <FormField
+                            control={methods.control}
+                            name="title"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs">Name</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    className="text-xs"
+                                    placeholder="Name your workflow..."
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={methods.control}
+                            name="description"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs">
+                                  Description
+                                </FormLabel>
+                                <FormControl>
+                                  <Textarea
+                                    className="text-xs"
+                                    placeholder="Describe your workflow..."
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <div className="space-y-2">
+                            <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>Action ID</span>
+                              <CopyButton
+                                value={action.id}
+                                toastMessage="Copied workflow ID to clipboard"
+                              />
+                            </Label>
+                            <div className="rounded-md border shadow-sm">
                               <Input
-                                className="text-xs"
-                                placeholder="Name your workflow..."
-                                {...field}
+                                value={action.id}
+                                className="rounded-md border-none text-xs shadow-none"
+                                readOnly
+                                disabled
                               />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={methods.control}
-                        name="description"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">
-                              Description
-                            </FormLabel>
-                            <FormControl>
-                              <Textarea
-                                className="text-xs"
-                                placeholder="Describe your workflow..."
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <div className="space-y-2">
-                        <Label className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>Action ID</span>
-                          <CopyButton
-                            value={action.id}
-                            toastMessage="Copied workflow ID to clipboard"
-                          />
-                        </Label>
-                        <div className="rounded-md border shadow-sm">
-                          <Input
-                            value={action.id}
-                            className="rounded-md border-none text-xs shadow-none"
-                            readOnly
-                            disabled
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-
-                {/* Schema */}
-                <AccordionItem value="action-schema">
-                  <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-                    <div className="flex items-center">
-                      <ShapesIcon className="mr-3 size-4" />
-                      <span>Input Schema</span>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-4">
-                    {/* Action secrets */}
-                    <div className="space-y-4 px-4">
-                      {registryAction.secrets &&
-                      registryAction.secrets.length > 0 ? (
-                        <div className="text-xs text-muted-foreground">
-                          <span>
-                            This action requires the following secrets:
-                          </span>
-                          <Table>
-                            <TableHeader>
-                              <TableRow className="h-6  text-xs capitalize">
-                                <TableHead className="font-bold" colSpan={1}>
-                                  Secret Name
-                                </TableHead>
-                                <TableHead className="font-bold" colSpan={1}>
-                                  Required Keys
-                                </TableHead>
-                                <TableHead className="font-bold" colSpan={1}>
-                                  Optional Keys
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {registryAction.secrets.map((secret, idx) => (
-                                <TableRow
-                                  key={idx}
-                                  className="font-mono text-xs tracking-tight text-muted-foreground"
-                                >
-                                  <TableCell>{secret.name}</TableCell>
-                                  <TableCell>
-                                    {secret.keys?.join(", ") || "-"}
-                                  </TableCell>
-                                  <TableCell>
-                                    {secret.optional_keys?.join(", ") || "-"}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          No secrets required.
-                        </span>
-                      )}
-                    </div>
-                    {/* Action inputs */}
-                    <div className="space-y-4 px-4">
-                      <span className="text-xs text-muted-foreground">
-                        Hover over each row for details.
-                      </span>
-                      <JSONSchemaTable
-                        schema={registryAction.interface.expects}
-                      />
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-
-                {/* Inputs */}
-                <AccordionItem value="action-inputs">
-                  <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-                    <div className="flex items-center">
-                      <LayoutListIcon className="mr-3 size-4" />
-                      <span>Inputs</span>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="flex flex-col space-y-4 px-4">
-                      {!!finalValErrors && finalValErrors.length > 0 && (
-                        <div className="flex items-center space-x-2">
-                          <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
-                          <span className="text-xs text-rose-500">
-                            Validation errors occurred, please see below.
-                          </span>
-                        </div>
-                      )}
-                      <span className="text-xs text-muted-foreground">
-                        Define action inputs in YAML below.
-                      </span>
-                      <Controller
-                        name="inputs"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <DynamicCustomEditor
-                            className="min-h-[40rem] w-full resize-y overflow-auto"
-                            value={field.value}
-                            onChange={field.onChange}
-                            defaultLanguage="yaml-extended"
-                            workspaceId={workspaceId}
-                            workflowId={workflowId}
-                            options={{
-                              scrollbar: {
-                                handleMouseWheel: false,
-                              },
-                            }}
-                          />
-                        )}
-                      />
-                      {!!finalValErrors && finalValErrors.length > 0 && (
-                        <div className="rounded-md border border-rose-400 bg-rose-100 p-4 font-mono text-xs text-rose-500">
-                          <span className="font-bold">Validation Errors</span>
-                          <Separator className="my-2 bg-rose-400" />
-                          {finalValErrors.map((error, index) => (
-                            <div key={index} className="mb-4">
-                              <span>{error.message}</span>
-                              <pre>{YAML.stringify(error.detail)}</pre>
                             </div>
-                          ))}
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </TabsContent>
-            <TabsContent value="control-flow">
-              <Accordion
-                type="multiple"
-                defaultValue={["action-control-flow"]}
-                className="pb-10"
-              >
-                <AccordionItem value="action-control-flow">
-                  <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-                    <div className="flex items-center">
-                      <SplitIcon className="mr-3 size-4" />
-                      <span>Control Flow</span>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-4">
-                    {/* Run if */}
-                    <div className="flex flex-col space-y-4 px-4">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>Run If</span>
-                      </FormLabel>
-                      <div className="flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <RunIfTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
+                      </AccordionContent>
+                    </AccordionItem>
 
-                        <span className="text-xs text-muted-foreground">
-                          Define a conditional expression that determines if the action executes.
-                        </span>
-                      </div>
-
-                      <Controller
-                        name="control_flow.run_if"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <DynamicCustomEditor
-                            className="h-24 w-full"
-                            defaultLanguage="yaml-extended"
-                            value={field.value}
-                            onChange={field.onChange}
-                            workspaceId={workspaceId}
-                          />
-                        )}
-                      />
-                    </div>
-                    {/* Loop */}
-                    <div className="flex flex-col space-y-4 px-4">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>Loop Iteration</span>
-                      </FormLabel>
-                      <div className="flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <ForEachTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
-
-                        <span className="text-xs text-muted-foreground">
-                          Define one or more loop expressions for the action to iterate over.
-                        </span>
-                      </div>
-
-                      <Controller
-                        name="control_flow.for_each"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <DynamicCustomEditor
-                            className="h-24 w-full"
-                            defaultLanguage="yaml-extended"
-                            value={field.value}
-                            onChange={field.onChange}
-                            workspaceId={workspaceId}
-                            workflowId={workflowId}
-                          />
-                        )}
-                      />
-                    </div>
-                    {/* Other options */}
-                    <div className="flex flex-col space-y-4 px-4">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>Options</span>
-                      </FormLabel>
-                      <div className="flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <ControlFlowOptionsTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
-
-                        <span className="text-xs text-muted-foreground">
-                          Define additional control flow options for the action.
-                        </span>
-                      </div>
-                      <Controller
-                        name="control_flow.options"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <DynamicCustomEditor
-                            className="h-24 w-full"
-                            defaultLanguage="yaml-extended"
-                            value={field.value}
-                            onChange={field.onChange}
-                            workspaceId={workspaceId}
-                            workflowId={workflowId}
-                          />
-                        )}
-                      />
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </TabsContent>
-            <TabsContent value="retry-policy">
-              <Accordion
-                type="multiple"
-                defaultValue={["action-retry-policy"]}
-                className="pb-10"
-              >
-                <AccordionItem value="action-retry-policy">
-                  <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-                    <div className="flex items-center">
-                      <RotateCcwIcon className="mr-3 size-4" />
-                      <span>Retry Policy</span>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="space-y-4">
-                    {/* Retry Policy */}
-                    <div className="flex flex-col space-y-4 px-4">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>Retry Policy</span>
-                      </FormLabel>
-                      <div className="flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <RetryPolicyTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
-
-                        <span className="text-xs text-muted-foreground">
-                          Define the retry policy for the action.
-                        </span>
-                      </div>
-                      <Controller
-                        name="control_flow.retry_policy"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <DynamicCustomEditor
-                            className="h-24 w-full"
-                            defaultLanguage="yaml-extended"
-                            value={field.value}
-                            onChange={field.onChange}
-                            workspaceId={workspaceId}
-                            workflowId={workflowId}
-                          />
-                        )}
-                      />
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </TabsContent>
-            {/* Template */}
-            {registryAction?.implementation && (
-              <TabsContent value="template-inputs">
-                <Accordion
-                  type="multiple"
-                  defaultValue={["action-template"]}
-                  className="pb-10"
-                >
-                  <AccordionItem value="action-template">
-                    <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-                      <div className="flex items-center">
-                        <FileTextIcon className="mr-3 size-4" />
-                        <span>Template Definition</span>
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="space-y-4">
-                      <div className="flex flex-col space-y-4 px-4">
-                        <span className="text-xs text-muted-foreground">
-                          Template action definition in YAML format.
-                        </span>
-                        <DynamicCustomEditor
-                          className="min-h-[30rem] w-full resize-y overflow-auto"
-                          value={YAML.stringify(
-                            'type' in registryAction.implementation &&
-                            registryAction.implementation.type === 'template' ?
-                            registryAction.implementation.template_action : {},
-                            null,
-                            2
+                    {/* Schema */}
+                    <AccordionItem value="action-schema">
+                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                        <div className="flex items-center">
+                          <ShapesIcon className="mr-3 size-4" />
+                          <span>Input Schema</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="space-y-4">
+                        {/* Action secrets */}
+                        <div className="space-y-4 px-4">
+                          {registryAction.secrets &&
+                          registryAction.secrets.length > 0 ? (
+                            <div className="text-xs text-muted-foreground">
+                              <span>
+                                This action requires the following secrets:
+                              </span>
+                              <Table>
+                                <TableHeader>
+                                  <TableRow className="h-6  text-xs capitalize">
+                                    <TableHead className="font-bold" colSpan={1}>
+                                      Secret Name
+                                    </TableHead>
+                                    <TableHead className="font-bold" colSpan={1}>
+                                      Required Keys
+                                    </TableHead>
+                                    <TableHead className="font-bold" colSpan={1}>
+                                      Optional Keys
+                                    </TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {registryAction.secrets.map((secret, idx) => (
+                                    <TableRow
+                                      key={idx}
+                                      className="font-mono text-xs tracking-tight text-muted-foreground"
+                                    >
+                                      <TableCell>{secret.name}</TableCell>
+                                      <TableCell>
+                                        {secret.keys?.join(", ") || "-"}
+                                      </TableCell>
+                                      <TableCell>
+                                        {secret.optional_keys?.join(", ") || "-"}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              No secrets required.
+                            </span>
                           )}
-                          defaultLanguage="yaml"
-                          options={{
-                            readOnly: true,
-                            minimap: {
-                              enabled: false,
-                            },
-                            fontSize: 11
-                          }}
-                        />
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-              </TabsContent>
-            )}
+                        </div>
+                        {/* Action inputs */}
+                        <div className="space-y-4 px-4">
+                          <span className="text-xs text-muted-foreground">
+                            Hover over each row for details.
+                          </span>
+                          <JSONSchemaTable
+                            schema={registryAction.interface.expects}
+                          />
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+
+                    {/* Inputs */}
+                    <AccordionItem value="action-inputs">
+                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                        <div className="flex items-center">
+                          <LayoutListIcon className="mr-3 size-4" />
+                          <span>Inputs</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="flex flex-col space-y-4 px-4">
+                          {!!finalValErrors && finalValErrors.length > 0 && (
+                            <div className="flex items-center space-x-2">
+                              <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
+                              <span className="text-xs text-rose-500">
+                                Validation errors occurred, please see below.
+                              </span>
+                            </div>
+                          )}
+                          <span className="text-xs text-muted-foreground">
+                            Define action inputs in YAML below.
+                          </span>
+                          <Controller
+                            name="inputs"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <DynamicCustomEditor
+                                className="min-h-[40rem] w-full resize-y overflow-auto"
+                                value={field.value}
+                                onChange={field.onChange}
+                                defaultLanguage="yaml-extended"
+                                workspaceId={workspaceId}
+                                workflowId={workflowId}
+                                options={{
+                                  scrollbar: {
+                                    handleMouseWheel: false,
+                                  },
+                                }}
+                              />
+                            )}
+                          />
+                          {!!finalValErrors && finalValErrors.length > 0 && (
+                            <div className="rounded-md border border-rose-400 bg-rose-100 p-4 font-mono text-xs text-rose-500">
+                              <span className="font-bold">Validation Errors</span>
+                              <Separator className="my-2 bg-rose-400" />
+                              {finalValErrors.map((error, index) => (
+                                <div key={index} className="mb-4">
+                                  <span>{error.message}</span>
+                                  <pre>{YAML.stringify(error.detail)}</pre>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                </TabsContent>
+                <TabsContent value="control-flow">
+                  <Accordion
+                    type="multiple"
+                    defaultValue={["action-control-flow"]}
+                    className="pb-10"
+                  >
+                    <AccordionItem value="action-control-flow">
+                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                        <div className="flex items-center">
+                          <SplitIcon className="mr-3 size-4" />
+                          <span>Control Flow</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="space-y-4">
+                        {/* Run if */}
+                        <div className="flex flex-col space-y-4 px-4">
+                          <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                            <span>Run If</span>
+                          </FormLabel>
+                          <div className="flex items-center">
+                            <HoverCard openDelay={100} closeDelay={100}>
+                              <HoverCardTrigger
+                                asChild
+                                className="hover:border-none"
+                              >
+                                <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
+                              </HoverCardTrigger>
+                              <HoverCardContent
+                                className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                                side="left"
+                                sideOffset={20}
+                              >
+                                <RunIfTooltip />
+                              </HoverCardContent>
+                            </HoverCard>
+
+                            <span className="text-xs text-muted-foreground">
+                              Define a conditional expression that determines if the action executes.
+                            </span>
+                          </div>
+
+                          <Controller
+                            name="control_flow.run_if"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <DynamicCustomEditor
+                                className="h-24 w-full"
+                                defaultLanguage="yaml-extended"
+                                value={field.value}
+                                onChange={field.onChange}
+                                workspaceId={workspaceId}
+                              />
+                            )}
+                          />
+                        </div>
+                        {/* Loop */}
+                        <div className="flex flex-col space-y-4 px-4">
+                          <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                            <span>Loop Iteration</span>
+                          </FormLabel>
+                          <div className="flex items-center">
+                            <HoverCard openDelay={100} closeDelay={100}>
+                              <HoverCardTrigger
+                                asChild
+                                className="hover:border-none"
+                              >
+                                <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
+                              </HoverCardTrigger>
+                              <HoverCardContent
+                                className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                                side="left"
+                                sideOffset={20}
+                              >
+                                <ForEachTooltip />
+                              </HoverCardContent>
+                            </HoverCard>
+
+                            <span className="text-xs text-muted-foreground">
+                              Define one or more loop expressions for the action to iterate over.
+                            </span>
+                          </div>
+
+                          <Controller
+                            name="control_flow.for_each"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <DynamicCustomEditor
+                                className="h-24 w-full"
+                                defaultLanguage="yaml-extended"
+                                value={field.value}
+                                onChange={field.onChange}
+                                workspaceId={workspaceId}
+                                workflowId={workflowId}
+                              />
+                            )}
+                          />
+                        </div>
+                        {/* Other options */}
+                        <div className="flex flex-col space-y-4 px-4">
+                          <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                            <span>Options</span>
+                          </FormLabel>
+                          <div className="flex items-center">
+                            <HoverCard openDelay={100} closeDelay={100}>
+                              <HoverCardTrigger
+                                asChild
+                                className="hover:border-none"
+                              >
+                                <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
+                              </HoverCardTrigger>
+                              <HoverCardContent
+                                className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                                side="left"
+                                sideOffset={20}
+                              >
+                                <ControlFlowOptionsTooltip />
+                              </HoverCardContent>
+                            </HoverCard>
+
+                            <span className="text-xs text-muted-foreground">
+                              Define additional control flow options for the action.
+                            </span>
+                          </div>
+                          <Controller
+                            name="control_flow.options"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <DynamicCustomEditor
+                                className="h-24 w-full"
+                                defaultLanguage="yaml-extended"
+                                value={field.value}
+                                onChange={field.onChange}
+                                workspaceId={workspaceId}
+                                workflowId={workflowId}
+                              />
+                            )}
+                          />
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                </TabsContent>
+                <TabsContent value="retry-policy">
+                  <Accordion
+                    type="multiple"
+                    defaultValue={["action-retry-policy"]}
+                    className="pb-10"
+                  >
+                    <AccordionItem value="action-retry-policy">
+                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                        <div className="flex items-center">
+                          <RotateCcwIcon className="mr-3 size-4" />
+                          <span>Retry Policy</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="space-y-4">
+                        {/* Retry Policy */}
+                        <div className="flex flex-col space-y-4 px-4">
+                          <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                            <span>Retry Policy</span>
+                          </FormLabel>
+                          <div className="flex items-center">
+                            <HoverCard openDelay={100} closeDelay={100}>
+                              <HoverCardTrigger
+                                asChild
+                                className="hover:border-none"
+                              >
+                                <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
+                              </HoverCardTrigger>
+                              <HoverCardContent
+                                className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                                side="left"
+                                sideOffset={20}
+                              >
+                                <RetryPolicyTooltip />
+                              </HoverCardContent>
+                            </HoverCard>
+
+                            <span className="text-xs text-muted-foreground">
+                              Define the retry policy for the action.
+                            </span>
+                          </div>
+                          <Controller
+                            name="control_flow.retry_policy"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <DynamicCustomEditor
+                                className="h-24 w-full"
+                                defaultLanguage="yaml-extended"
+                                value={field.value}
+                                onChange={field.onChange}
+                                workspaceId={workspaceId}
+                                workflowId={workflowId}
+                              />
+                            )}
+                          />
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                </TabsContent>
+                {/* Template */}
+                {registryAction?.implementation && (
+                  <TabsContent value="template-inputs">
+                    <Accordion
+                      type="multiple"
+                      defaultValue={["action-template"]}
+                      className="pb-10"
+                    >
+                      <AccordionItem value="action-template">
+                        <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                          <div className="flex items-center">
+                            <FileTextIcon className="mr-3 size-4" />
+                            <span>Template Definition</span>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="space-y-4">
+                          <div className="flex flex-col space-y-4 px-4">
+                            <span className="text-xs text-muted-foreground">
+                              Template action definition in YAML format.
+                            </span>
+                            <DynamicCustomEditor
+                              className="min-h-[30rem] w-full resize-y overflow-auto"
+                              value={YAML.stringify(
+                                'type' in registryAction.implementation &&
+                                registryAction.implementation.type === 'template' ?
+                                registryAction.implementation.template_action : {},
+                                null,
+                                2
+                              )}
+                              defaultLanguage="yaml"
+                              options={{
+                                readOnly: true,
+                                minimap: {
+                                  enabled: false,
+                                },
+                                fontSize: 11
+                              }}
+                            />
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+                  </TabsContent>
+                )}
+              </div>
+            </div>
           </form>
         </FormProvider>
       </Tabs>
