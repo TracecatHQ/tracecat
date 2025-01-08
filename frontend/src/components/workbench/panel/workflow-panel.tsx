@@ -181,27 +181,27 @@ export function WorkflowPanel({
         <Form {...methods}>
           <form
             onSubmit={methods.handleSubmit(onSubmit)}
-            className="flex max-w-full flex-col overflow-auto"
+            className="flex flex-col overflow-auto"
           >
-            <div className="w-[800px] min-w-full">
+            <div className="min-w-[30rem] w-full">
               <div className="mt-2 flex items-center justify-start">
-                <TabsList className="h-8 w-full justify-start rounded-none bg-transparent p-0">
+                <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
-                    className="h-full min-w-[120px] flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="h-full min-w-28 flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="workflow-settings"
                   >
                     <LayoutListIcon className="mr-2 size-4" />
                     <span>General</span>
                   </TabsTrigger>
                   <TabsTrigger
-                    className="h-full min-w-[120px] rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="workflow-schema"
                   >
                     <ShapesIcon className="mr-2 size-4" />
                     <span>Schema</span>
                   </TabsTrigger>
                   <TabsTrigger
-                    className="h-full min-w-[120px] rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="workflow-static-inputs"
                   >
                     <FileInputIcon className="mr-2 size-4" />

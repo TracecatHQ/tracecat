@@ -373,25 +373,25 @@ export function ActionPanel({
             </h3>
 
             <SaveStateIcon saveState={saveState} />
-            <div className="w-[800px] min-w-full">
+            <div className="min-w-[30rem] w-full">
               <div className="flex items-center justify-start">
-                <TabsList className="h-8 w-full justify-start rounded-none bg-transparent p-0">
+                <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
-                    className="h-full min-w-[120px] flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="h-full min-w-24 flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="inputs"
                   >
                     <LayoutListIcon className="mr-2 size-4" />
                     <span>Inputs</span>
                   </TabsTrigger>
                   <TabsTrigger
-                    className="h-full min-w-[120px] flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="h-full min-w-24 flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="control-flow"
                   >
                     <SplitIcon className="mr-2 size-4" />
                     <span>If-condition / Loops</span>
                   </TabsTrigger>
                   <TabsTrigger
-                    className="h-full min-w-[120px] flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="h-full min-w-24 flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="retry-policy"
                   >
                     <RotateCcwIcon className="mr-2 size-4" />
@@ -399,7 +399,7 @@ export function ActionPanel({
                   </TabsTrigger>
                   {registryAction.is_template && (
                     <TabsTrigger
-                      className="h-full min-w-[120px] flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      className="h-full min-w-24 flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                       value="template-inputs"
                     >
                       <FileTextIcon className="mr-2 size-4" />
