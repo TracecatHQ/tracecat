@@ -296,83 +296,81 @@ export function ActionPanel({
   ].filter((error) => error.action_ref === slugify(action.title))
   const ActionIcon = typeToLabel[registryAction.type].icon
   return (
-    <div className="size-full overflow-auto" onBlur={onPanelBlur} tabIndex={0}>
+    <div onBlur={onPanelBlur}>
       <Tabs defaultValue="inputs" value={activeTab} onValueChange={setActiveTab}>
         <FormProvider {...methods}>
           <form onSubmit={methods.handleSubmit(onSubmit)}>
-            <div className="relative">
-              <h3 className="p-4 py-6">
-                <div className="flex w-full items-start space-x-4">
-                  <div className="flex-col">
-                    {getIcon(registryAction.action, {
-                      className: "size-10 p-2",
-                      flairsize: "md",
-                    })}
-                  </div>
-                  <div className="flex w-full flex-1 justify-between space-x-12">
-                    <div className="flex flex-col">
-                      <div className="flex w-full items-center justify-between text-xs font-medium leading-none">
-                        <div className="flex w-full">{action.title}</div>
-                      </div>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {action.description || (
-                          <span className="italic">No description</span>
-                        )}
-                      </p>
-                      <div className="mt-2 hover:cursor-default">
+            <h3 className="p-4 py-6">
+              <div className="flex w-full items-start space-x-4">
+                <div className="flex-col">
+                  {getIcon(registryAction.action, {
+                    className: "size-10 p-2",
+                    flairsize: "md",
+                  })}
+                </div>
+                <div className="flex w-full flex-1 justify-between space-x-12">
+                  <div className="flex flex-col">
+                    <div className="flex w-full items-center justify-between text-xs font-medium leading-none">
+                      <div className="flex w-full">{action.title}</div>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {action.description || (
+                        <span className="italic">No description</span>
+                      )}
+                    </p>
+                    <div className="mt-2 hover:cursor-default">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="mt-2 flex items-center text-xs text-muted-foreground">
+                            <ActionIcon className="mr-1 size-3 stroke-2" />
+                            <span>
+                              {typeToLabel[registryAction.type].label}
+                            </span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" sideOffset={10}>
+                          Action type
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="mt-2 flex items-center text-xs text-muted-foreground">
+                            <Database className="mr-1 size-3 stroke-2" />
+                            <span>{registryAction.origin}</span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" sideOffset={10}>
+                          Origin
+                        </TooltipContent>
+                      </Tooltip>
+                      {registryAction.doc_url && (
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                              <ActionIcon className="mr-1 size-3 stroke-2" />
-                              <span>
-                                {typeToLabel[registryAction.type].label}
-                              </span>
+                              <LinkIcon className="mr-1 size-3 stroke-2" />
+                              <Button
+                                variant="link"
+                                asChild
+                                className="h-auto p-0 text-xs text-muted-foreground"
+                              >
+                                <Link href={registryAction.doc_url} target="_blank">
+                                  {registryAction.doc_url}
+                                </Link>
+                              </Button>
                             </div>
                           </TooltipTrigger>
                           <TooltipContent side="left" sideOffset={10}>
-                            Action type
+                            Link to docs
                           </TooltipContent>
                         </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                              <Database className="mr-1 size-3 stroke-2" />
-                              <span>{registryAction.origin}</span>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="left" sideOffset={10}>
-                            Origin
-                          </TooltipContent>
-                        </Tooltip>
-                        {registryAction.doc_url && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                                <LinkIcon className="mr-1 size-3 stroke-2" />
-                                <Button
-                                  variant="link"
-                                  asChild
-                                  className="h-auto p-0 text-xs text-muted-foreground"
-                                >
-                                  <Link href={registryAction.doc_url} target="_blank">
-                                    {registryAction.doc_url}
-                                  </Link>
-                                </Button>
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="left" sideOffset={10}>
-                              Link to docs
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-                      </div>
+                      )}
                     </div>
                   </div>
                 </div>
-              </h3>
+              </div>
+            </h3>
 
-              <SaveStateIcon saveState={saveState} />
-            </div>
+            <SaveStateIcon saveState={saveState} />
             <div className="flex items-center justify-start">
               <TabsList className="h-8 rounded-none bg-transparent p-0">
                 <TabsTrigger
