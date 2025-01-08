@@ -27,7 +27,7 @@ definition:
       description: Maximum number of events to return
   steps:
     - ref: create_query
-      action: core.reshape
+      action: core.transform.reshape
       args:
         query: actor.id eq ${{ inputs.user_id }}
     - ref: list_user_events

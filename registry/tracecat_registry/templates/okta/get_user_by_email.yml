@@ -18,7 +18,7 @@ definition:
       description: Email address of the user to find
   steps:
     - ref: create_query
-      action: core.reshape
+      action: core.transform.reshape
       args:
         query: profile.email eq ${{ inputs.email }}
     - ref: get_user_by_email
