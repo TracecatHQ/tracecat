@@ -808,13 +808,47 @@ export function ActionPanel({
               </Accordion>
             </TabsContent>
             {/* Template */}
-            {registryAction.is_template && (
-              <TabsContent value="action-template">
-                <div className="flex flex-col space-y-4 px-4">
-                  <span className="text-xs text-muted-foreground">
-                    Template inputs
-                  </span>
-                </div>
+            {registryAction?.implementation && (
+              <TabsContent value="template-inputs">
+                <Accordion
+                  type="multiple"
+                  defaultValue={["action-template"]}
+                  className="pb-10"
+                >
+                  <AccordionItem value="action-template">
+                    <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                      <div className="flex items-center">
+                        <FileTextIcon className="mr-3 size-4" />
+                        <span>Template Definition</span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-4">
+                      <div className="flex flex-col space-y-4 px-4">
+                        <span className="text-xs text-muted-foreground">
+                          Template action definition in YAML format.
+                        </span>
+                        <DynamicCustomEditor
+                          className="min-h-[30rem] w-full resize-y overflow-auto"
+                          value={YAML.stringify(
+                            'type' in registryAction.implementation &&
+                            registryAction.implementation.type === 'template' ?
+                            registryAction.implementation.template_action : {},
+                            null,
+                            2
+                          )}
+                          defaultLanguage="yaml"
+                          options={{
+                            readOnly: true,
+                            minimap: {
+                              enabled: false,
+                            },
+                            fontSize: 11
+                          }}
+                        />
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
               </TabsContent>
             )}
           </form>
