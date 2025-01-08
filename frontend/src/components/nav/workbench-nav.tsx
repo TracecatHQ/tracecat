@@ -182,7 +182,7 @@ export function WorkbenchNav() {
 
             <TooltipContent
               side="bottom"
-              className="w-fit p-0 border bg-background text-xs text-muted-foreground shadow-lg"
+              className="w-fit border bg-background p-0 text-xs text-muted-foreground shadow-lg"
             >
               {validationErrors ? (
                 <div className="space-y-2 rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
@@ -469,8 +469,8 @@ function WorkflowManualTrigger({
               </PopoverTrigger>
               <PopoverContent className="w-fit p-3">
                 <form onSubmit={form.handleSubmit(handleSubmit)}>
-                  <div className="flex flex-col h-fit">
-                    <span className="text-xs text-muted-foreground mb-2">
+                  <div className="flex h-fit flex-col">
+                    <span className="mb-2 text-xs text-muted-foreground">
                       Edit the JSON payload below.
                     </span>
                     <FormField
@@ -480,7 +480,7 @@ function WorkflowManualTrigger({
                         <FormItem>
                           <FormControl>
                             <DynamicCustomEditor
-                              className="min-h-60 min-w-[30rem] max-w-[50rem] max-h-[50rem] resize overflow-auto"
+                              className="max-h-[50rem] min-h-60 min-w-[30rem] max-w-[50rem] resize overflow-auto"
                               defaultLanguage="yaml-extended"
                               value={field.value}
                               onChange={field.onChange}
@@ -495,7 +495,7 @@ function WorkflowManualTrigger({
                     <Button
                       type="submit"
                       variant="default"
-                      className="group flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white mt-2"
+                      className="group mt-2 flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
                     >
                       <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
                       <span>Run</span>

@@ -3,11 +3,6 @@ import { Schedule, WebhookResponse } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import {
   CalendarCheck,
-  ChevronDownIcon,
-  CircleCheckBigIcon,
-  EyeIcon,
-  LayoutListIcon,
-  ScanSearchIcon,
   TimerOffIcon,
   UnplugIcon,
   WebhookIcon,
@@ -17,20 +12,14 @@ import { Node, NodeProps } from "reactflow"
 import { useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+
+
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
