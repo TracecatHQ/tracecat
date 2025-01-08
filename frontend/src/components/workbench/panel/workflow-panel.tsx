@@ -266,7 +266,28 @@ export function WorkflowPanel({
                         render={({ field }) => (
                           <FormItem>
                             <div className="flex items-center gap-2">
-                              <FormLabel className="text-xs">
+                              <FormLabel className="text-xs flex items-center">
+                                <HoverCard openDelay={100} closeDelay={100}>
+                                  <HoverCardTrigger asChild className="hover:border-none">
+                                    <Info className="mr-1 size-3 stroke-muted-foreground" />
+                                  </HoverCardTrigger>
+                                  <HoverCardContent
+                                    className="w-[300px] p-3 font-mono text-xs tracking-tight"
+                                    side="right"
+                                    sideOffset={20}
+                                  >
+                                    <div className="w-full space-y-4">
+                                      <div className="flex w-full items-center justify-between text-muted-foreground">
+                                        <span className="font-mono text-sm font-semibold">Workflow alias</span>
+                                        <span className="text-xs text-muted-foreground/80">(optional)</span>
+                                      </div>
+                                      <span className="text-muted-foreground">
+                                        A unique identifier for the workflow that can be used instead of the workflow ID.
+                                        Must be unique within your workspace.
+                                      </span>
+                                    </div>
+                                  </HoverCardContent>
+                                </HoverCard>
                                 <span>Alias</span>
                               </FormLabel>
                               {field.value && (
@@ -279,7 +300,6 @@ export function WorkflowPanel({
                             <FormControl>
                               <Input
                                 className="text-xs"
-                                placeholder="A name that can be used to uniquely identify this workflow"
                                 {...field}
                                 value={field.value || ""}
                                 onChange={field.onChange}
