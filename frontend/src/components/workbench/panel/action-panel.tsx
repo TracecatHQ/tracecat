@@ -561,12 +561,18 @@ export function ActionPanel({
                         control={methods.control}
                         render={({ field }) => (
                           <DynamicCustomEditor
-                            className="h-72 w-full"
+                            className="min-h-80 min-w-full resize-y overflow-auto"
                             value={field.value}
                             onChange={field.onChange}
                             defaultLanguage="yaml-extended"
                             workspaceId={workspaceId}
                             workflowId={workflowId}
+                            options={{
+                              scrollbar: {
+                                vertical: 'hidden',
+                                handleMouseWheel: false,
+                              },
+                            }}
                           />
                         )}
                       />
@@ -624,8 +630,7 @@ export function ActionPanel({
                         </HoverCard>
 
                         <span className="text-xs text-muted-foreground">
-                          Define a conditional expression that determines if the
-                          action executes.
+                          Define a conditional expression that determines if the action executes.
                         </span>
                       </div>
 
@@ -640,6 +645,12 @@ export function ActionPanel({
                             onChange={field.onChange}
                             workspaceId={workspaceId}
                             workflowId={workflowId}
+                            options={{
+                              scrollbar: {
+                                vertical: 'hidden',
+                                handleMouseWheel: false,
+                              },
+                            }}
                           />
                         )}
                       />
@@ -683,6 +694,12 @@ export function ActionPanel({
                             onChange={field.onChange}
                             workspaceId={workspaceId}
                             workflowId={workflowId}
+                            options={{
+                              scrollbar: {
+                                vertical: 'hidden',
+                                handleMouseWheel: false,
+                              },
+                            }}
                           />
                         )}
                       />
@@ -724,6 +741,12 @@ export function ActionPanel({
                             onChange={field.onChange}
                             workspaceId={workspaceId}
                             workflowId={workflowId}
+                            options={{
+                              scrollbar: {
+                                vertical: 'hidden',
+                                handleMouseWheel: false,
+                              },
+                            }}
                           />
                         )}
                       />
@@ -783,6 +806,12 @@ export function ActionPanel({
                             onChange={field.onChange}
                             workspaceId={workspaceId}
                             workflowId={workflowId}
+                            options={{
+                              scrollbar: {
+                                vertical: 'hidden',
+                                handleMouseWheel: false,
+                              },
+                            }}
                           />
                         )}
                       />
