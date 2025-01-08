@@ -56,6 +56,11 @@ autolabeler:
       # Example: feat(app!): ...
       - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*app\!.*\)\: /'
 
+  - label: breaking infra
+    title:
+      # Example: feat(infra!): ...
+      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*infra\!.*\)\: /'
+
   - label: build
     title:
       - "/^build/"
@@ -88,6 +93,11 @@ autolabeler:
     title:
       - "/^release/"
 
+  - label: infra
+    title:
+      # Example: feat(infra): ...
+      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*infra.*\))?\!?\: /'
+
 categories:
   - title: 🏆 Highlights
     labels: highlight
@@ -99,6 +109,7 @@ categories:
       - breaking frontend
       - breaking engine
       - breaking app
+      - breaking infra
 
   - title: ⚠️ Deprecations
     labels: deprecation
