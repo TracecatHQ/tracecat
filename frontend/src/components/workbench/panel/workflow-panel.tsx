@@ -279,7 +279,7 @@ export function WorkflowPanel({
                                   >
                                     <div className="w-full space-y-4">
                                       <div className="flex w-full items-center justify-between text-muted-foreground">
-                                        <span className="font-mono text-sm font-semibold">Error handler</span>
+                                        <span className="font-mono text-sm font-semibold">Error handler workflow</span>
                                         <span className="text-xs text-muted-foreground/80">(optional)</span>
                                       </div>
                                       <span className="text-muted-foreground">
