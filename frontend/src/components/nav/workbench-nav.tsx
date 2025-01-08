@@ -467,10 +467,10 @@ function WorkflowManualTrigger({
                   <span>Run</span>
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-96 p-3">
+              <PopoverContent className="w-fit p-3">
                 <form onSubmit={form.handleSubmit(handleSubmit)}>
-                  <div className="flex flex-col space-y-2">
-                    <span className="text-xs text-muted-foreground">
+                  <div className="flex flex-col h-fit">
+                    <span className="text-xs text-muted-foreground mb-2">
                       Edit the JSON payload below.
                     </span>
                     <FormField
@@ -480,7 +480,7 @@ function WorkflowManualTrigger({
                         <FormItem>
                           <FormControl>
                             <DynamicCustomEditor
-                              className="size-full h-36"
+                              className="min-h-60 min-w-[30rem] max-w-[50rem] max-h-[50rem] resize overflow-auto"
                               defaultLanguage="yaml-extended"
                               value={field.value}
                               onChange={field.onChange}
@@ -492,11 +492,10 @@ function WorkflowManualTrigger({
                         </FormItem>
                       )}
                     />
-
                     <Button
                       type="submit"
                       variant="default"
-                      className="group flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
+                      className="group flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white mt-2"
                     >
                       <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
                       <span>Run</span>
@@ -510,7 +509,7 @@ function WorkflowManualTrigger({
         <TooltipContent
           side="bottom"
           className={cn(
-            "w-[300px] border bg-background text-xs text-muted-foreground shadow-lg",
+            "w-96 border bg-background text-xs text-muted-foreground shadow-lg",
             manualTriggerErrors && "p-0"
           )}
         >
