@@ -17,9 +17,9 @@ autolabeler:
     title:
       - "/^playbook/"
 
-  - label: integration
+  - label: integrations
     title:
-      - "/^integration/"
+      - "/^integrations/"
 
   - label: frontend
     title:
@@ -95,7 +95,7 @@ categories:
     labels: playbook
 
   - title: 🧩 Integrations
-    labels: integration
+    labels: integrations
 
   - title: 🚀 Performance improvements
     labels: performance
