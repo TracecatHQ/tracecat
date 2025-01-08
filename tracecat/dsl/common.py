@@ -45,7 +45,7 @@ from tracecat.workflow.actions.models import ActionControlFlow
 class DSLEntrypoint(BaseModel):
     ref: str | None = Field(default=None, description="The entrypoint action ref")
     expects: dict[str, ExpectedField] | None = Field(
-        None,
+        default=None,
         description=(
             "Expected trigger input schema. "
             "Use this to specify the expected shape of the trigger input."
