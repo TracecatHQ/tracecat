@@ -213,11 +213,10 @@ function EditTemplateActionForm({
                 <div className="flex flex-col space-y-2">
                   <Label htmlFor="definition">Definition</Label>
                   <span className="text-xs text-muted-foreground">
-                    Edit the action template in YAML. Changes will be reflected
-                    in workflows immediately.
+                    Edit the action template in YAML. Changes will be reflected in workflows immediately.
                   </span>
                   <DynamicCustomEditor
-                    className="h-96 w-full"
+                    className="min-h-96 min-w-full resize-y overflow-auto"
                     defaultLanguage="yaml-extended"
                     value={field.value}
                     onChange={field.onChange}

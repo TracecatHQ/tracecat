@@ -211,7 +211,7 @@ function NewTemplateActionForm({
               control={methods.control}
               render={({ field }) => (
                 <DynamicCustomEditor
-                  className="h-96 w-full"
+                  className="min-h-96 min-w-full resize-y overflow-auto"
                   defaultLanguage="yaml-extended"
                   value={field.value}
                   onChange={field.onChange}
