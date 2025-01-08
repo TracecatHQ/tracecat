@@ -102,8 +102,8 @@ export function WorkflowProvider({
       if (response.status === "success") {
         queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
         toast({
-          title: "Published changes to workflow",
-          description: "New workflow version published successfully.",
+          title: "Saved changes to workflow",
+          description: "New workflow version saved successfully.",
         })
       } else {
         toast({
@@ -112,9 +112,9 @@ export function WorkflowProvider({
             <div className="flex flex-col space-y-2">
               <p>
                 {response.message ||
-                  "Could not publish workflow due to validation errors."}
+                  "Could not save workflow due to validation errors."}
               </p>
-              <p>Please hover over the publish button to view errors.</p>
+              <p>Please hover over the save button to view errors.</p>
             </div>
           ),
           variant: "destructive",
@@ -122,12 +122,12 @@ export function WorkflowProvider({
       }
     },
     onError: (error: ApiError) => {
-      console.warn("Failed to publish workflow:", error)
+      console.warn("Failed to save workflow:", error)
       toast({
-        title: "Error publishing workflow",
+        title: "Error saving workflow",
         description:
           (error.body as TracecatErrorMessage).message ||
-          "Could not publish workflow. Please try again.",
+          "Could not save workflow. Please try again.",
         variant: "destructive",
       })
     },

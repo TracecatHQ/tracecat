@@ -143,7 +143,7 @@ class WorkflowsManagementService(BaseService):
             # Convert the workflow into a WorkflowDefinition
             # XXX: When we commit from the workflow, we have action IDs
             dsl = DSLInput.model_validate(dsl_data)
-            self.logger.info("Publishing workflow from database")
+            self.logger.info("Creating workflow from database")
         except* TracecatValidationError as eg:
             self.logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
@@ -191,12 +191,12 @@ class WorkflowsManagementService(BaseService):
         # If it still falsy, raise a user facing error
         if not actions:
             raise TracecatValidationError(
-                "Workflow has no actions. Please add an action to the workflow before publishing."
+                "Workflow has no actions. Please add an action to the workflow before saving."
             )
         graph = RFGraph.from_workflow(workflow)
         if not graph.entrypoints:
             raise TracecatValidationError(
-                "Workflow has no entrypoints. Please add an action to the workflow before publishing."
+                "Workflow has no entrypoints. Please add an action to the workflow before saving."
             )
         graph_actions = graph.action_nodes()
         if len(graph_actions) != len(actions):
@@ -214,7 +214,7 @@ class WorkflowsManagementService(BaseService):
             actions = workflow.actions
             if not actions:
                 raise TracecatValidationError(
-                    "Workflow has no actions. Please add an action to the workflow before publishing."
+                    "Workflow has no actions. Please add an action to the workflow before saving."
                 )
             if len(graph_actions) != len(actions):
                 raise TracecatValidationError(
