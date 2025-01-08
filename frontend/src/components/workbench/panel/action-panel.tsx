@@ -291,10 +291,7 @@ export function ActionPanel({
     <div className="size-full overflow-auto" onBlur={onPanelBlur} tabIndex={0}>
       <Tabs defaultValue="inputs">
         <FormProvider {...methods}>
-          <form
-            onSubmit={methods.handleSubmit(onSubmit)}
-            className="flex max-w-full flex-col overflow-auto"
-          >
+          <form onSubmit={methods.handleSubmit(onSubmit)}>
             <div className="relative">
               <h3 className="p-4 py-6">
                 <div className="flex w-full items-start space-x-4">
@@ -561,12 +558,17 @@ export function ActionPanel({
                         control={methods.control}
                         render={({ field }) => (
                           <DynamicCustomEditor
-                            className="resize-y overflow-auto"
+                            className="min-h-[40rem] w-full resize-y overflow-auto"
                             value={field.value}
                             onChange={field.onChange}
                             defaultLanguage="yaml-extended"
                             workspaceId={workspaceId}
                             workflowId={workflowId}
+                            options={{
+                              scrollbar: {
+                                handleMouseWheel: false,
+                              },
+                            }}
                           />
                         )}
                       />
@@ -638,13 +640,6 @@ export function ActionPanel({
                             value={field.value}
                             onChange={field.onChange}
                             workspaceId={workspaceId}
-                            workflowId={workflowId}
-                            options={{
-                              scrollbar: {
-                                vertical: 'hidden',
-                                handleMouseWheel: false,
-                              },
-                            }}
                           />
                         )}
                       />
@@ -688,12 +683,6 @@ export function ActionPanel({
                             onChange={field.onChange}
                             workspaceId={workspaceId}
                             workflowId={workflowId}
-                            options={{
-                              scrollbar: {
-                                vertical: 'hidden',
-                                handleMouseWheel: false,
-                              },
-                            }}
                           />
                         )}
                       />
@@ -735,12 +724,6 @@ export function ActionPanel({
                             onChange={field.onChange}
                             workspaceId={workspaceId}
                             workflowId={workflowId}
-                            options={{
-                              scrollbar: {
-                                vertical: 'hidden',
-                                handleMouseWheel: false,
-                              },
-                            }}
                           />
                         )}
                       />
