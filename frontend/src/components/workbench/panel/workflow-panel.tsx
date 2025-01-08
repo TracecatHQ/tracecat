@@ -276,10 +276,6 @@ export function WorkflowPanel({
                                 />
                               )}
                             </div>
-                            <FormDescription className="text-xs">
-                              A name that can be used to uniquely identify this
-                              workflow.
-                            </FormDescription>
                             <FormControl>
                               <Input
                                 className="text-xs"
