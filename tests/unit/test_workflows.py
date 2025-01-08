@@ -2447,11 +2447,11 @@ def assert_erroneous_task_failed_correctly(
     )
     assert evt is not None, "No failing task event found"
 
-    # Check fail_evt group exists and type
+    # Check event group exists and type
     assert evt.event_group is not None
     assert isinstance(evt.event_group, EventGroup)
 
-    # Check fail_evt group attributes
+    # Check event group attributes
     group = evt.event_group
     assert group.udf_namespace == "core.transform"
     assert group.udf_name == "reshape"
@@ -2506,9 +2506,6 @@ def assert_error_handler_initiated_correctly(
     assert isinstance(group.action_input, DSLRunArgs)
     # Check that the error handler DSL was passed correctly
     assert group.action_input.dsl == handler_dsl
-
-    # # This would be the actual error handler workflow execution
-    # assert group.related_wf_exec_id == failing_wf_exec_id
 
     # Check that the error handler's parent is the failing workflow
     assert (
