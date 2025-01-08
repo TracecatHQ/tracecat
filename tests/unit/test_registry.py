@@ -4,17 +4,27 @@ import textwrap
 import pytest
 from tracecat_registry import RegistrySecret
 
-from tracecat.concurrency import GatheringTaskGroup
 from tracecat.executor import service
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.registry.actions.models import (
     ActionStep,
-    RegistryActionRead,
     TemplateAction,
 )
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import GitUrl, Repository, parse_git_url
 from tracecat.types.exceptions import RegistryValidationError
+
+
+@pytest.mark.anyio
+async def test_list_registry_actions(test_role):
+    """Test that the list_registry_actions endpoint returns the correct number of actions."""
+    async with RegistryActionsService.with_session(test_role) as service:
+        actions = await service.list_actions()
+        results = []
+        # Call serially instead of calling in parallel to avoid hiding exceptions
+        for action in actions:
+            results.append(await service.read_action_with_implicit_secrets(action))
+        assert len(results) == len(actions)
 
 
 @pytest.fixture
@@ -196,20 +206,6 @@ def test_parse_git_url(url: str, expected: GitUrl):
 def test_parse_git_url_invalid(url: str):
     with pytest.raises(ValueError):
         parse_git_url(url)
-
-
-@pytest.mark.anyio
-async def test_list_registry_actions(test_role):
-    """Test that the list_registry_actions endpoint returns the correct number of actions."""
-    async with RegistryActionsService.with_session(test_role) as service:
-        actions = await service.list_actions()
-
-        async with GatheringTaskGroup[RegistryActionRead]() as tg:
-            for action in actions:
-                tg.create_task(service.read_action_with_implicit_secrets(action))
-        results = tg.results()
-
-        assert len(results) == len(actions)
 
 
 def test_construct_template_action():
