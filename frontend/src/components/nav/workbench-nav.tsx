@@ -182,7 +182,7 @@ export function WorkbenchNav() {
 
             <TooltipContent
               side="bottom"
-              className="w-auto min-w-72 max-w-lg space-y-2 border bg-background p-0 text-xs text-muted-foreground shadow-lg"
+              className="w-fit p-0 border bg-background text-xs text-muted-foreground shadow-lg"
             >
               {validationErrors ? (
                 <div className="space-y-2 rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
@@ -259,7 +259,7 @@ export function WorkbenchNav() {
           </AlertDialog>
           <TooltipContent
             side="bottom"
-            className="max-w-48 border bg-background text-xs text-muted-foreground shadow-lg"
+            className="w-72 border bg-background text-xs text-muted-foreground shadow-lg"
           >
             {isOnline
               ? "Disable the workflow to pause all schedules and block webhook events."
