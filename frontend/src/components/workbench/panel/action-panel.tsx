@@ -17,15 +17,16 @@ import {
   AlertTriangleIcon,
   CircleCheckIcon,
   Database,
+  FileTextIcon,
   InfoIcon,
   LayoutListIcon,
   LinkIcon,
   Loader2Icon,
   LucideIcon,
-  RepeatIcon,
   RotateCcwIcon,
   SaveIcon,
   SettingsIcon,
+  SplitIcon,
   ShapesIcon,
   SquareFunctionIcon,
   ToyBrickIcon,
@@ -164,6 +165,13 @@ export function ActionPanel({
     RegistryActionValidateResponse[]
   >([])
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
+  const [activeTab, setActiveTab] = useState("inputs")
+
+  useEffect(() => {
+    setActiveTab("inputs")
+    setSaveState(SaveState.IDLE)
+    setActionValidationErrors([])
+  }, [actionId])
 
   const handleSave = useCallback(
     async (values: ActionFormSchema) => {
@@ -289,7 +297,7 @@ export function ActionPanel({
   const ActionIcon = typeToLabel[registryAction.type].icon
   return (
     <div className="size-full overflow-auto" onBlur={onPanelBlur} tabIndex={0}>
-      <Tabs defaultValue="inputs">
+      <Tabs defaultValue="inputs" value={activeTab} onValueChange={setActiveTab}>
         <FormProvider {...methods}>
           <form onSubmit={methods.handleSubmit(onSubmit)}>
             <div className="relative">
@@ -366,28 +374,37 @@ export function ActionPanel({
               <SaveStateIcon saveState={saveState} />
             </div>
             <div className="flex items-center justify-start">
-              <TabsList className="grid h-8 grid-cols-3 rounded-none bg-transparent p-0">
+              <TabsList className="h-8 rounded-none bg-transparent p-0">
                 <TabsTrigger
-                  className="size-full w-full min-w-[120px] rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                   value="inputs"
                 >
                   <LayoutListIcon className="mr-2 size-4" />
                   <span>Inputs</span>
                 </TabsTrigger>
                 <TabsTrigger
-                  className="size-full w-full min-w-[120px] rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                   value="control-flow"
                 >
-                  <RepeatIcon className="mr-2 size-4" />
-                  <span>Control Flow</span>
+                  <SplitIcon className="mr-2 size-4" />
+                  <span>If-condition and loops</span>
                 </TabsTrigger>
                 <TabsTrigger
-                  className="size-full w-full min-w-[120px] rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                   value="retry-policy"
                 >
                   <RotateCcwIcon className="mr-2 size-4" />
-                  <span>Retry Policy</span>
+                  <span>Retries</span>
                 </TabsTrigger>
+                {registryAction.is_template && (
+                  <TabsTrigger
+                    className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    value="template-inputs"
+                  >
+                    <FileTextIcon className="mr-2 size-4" />
+                    <span>View template</span>
+                  </TabsTrigger>
+                )}
               </TabsList>
             </div>
             <Separator />
@@ -598,7 +615,7 @@ export function ActionPanel({
                 <AccordionItem value="action-control-flow">
                   <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
                     <div className="flex items-center">
-                      <RepeatIcon className="mr-3 size-4" />
+                      <SplitIcon className="mr-3 size-4" />
                       <span>Control Flow</span>
                     </div>
                   </AccordionTrigger>
@@ -667,8 +684,7 @@ export function ActionPanel({
                         </HoverCard>
 
                         <span className="text-xs text-muted-foreground">
-                          Define one or more loop expressions for the action to
-                          iterate over.
+                          Define one or more loop expressions for the action to iterate over.
                         </span>
                       </div>
 
@@ -791,6 +807,16 @@ export function ActionPanel({
                 </AccordionItem>
               </Accordion>
             </TabsContent>
+            {/* Template */}
+            {registryAction.is_template && (
+              <TabsContent value="action-template">
+                <div className="flex flex-col space-y-4 px-4">
+                  <span className="text-xs text-muted-foreground">
+                    Template inputs
+                  </span>
+                </div>
+              </TabsContent>
+            )}
           </form>
         </FormProvider>
       </Tabs>
