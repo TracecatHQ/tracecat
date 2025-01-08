@@ -83,23 +83,6 @@ export default React.memo(function TriggerNode({
                 Workflow triggers
               </CardDescription>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="m-0 size-6 p-0">
-                  <ChevronDownIcon className="m-1 size-4 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem disabled>
-                  <ScanSearchIcon className="mr-2 size-4" />
-                  <span className="text-xs">Search events</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled>
-                  <EyeIcon className="mr-2 size-4" />
-                  <span className="text-xs">View logs</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         </div>
       </CardHeader>
@@ -133,19 +116,6 @@ export default React.memo(function TriggerNode({
         </div>
       </div>
       <Separator />
-      <CardContent className="p-4 py-2">
-        <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
-          <div className="flex items-center space-x-2">
-            {isConfigured ? (
-              <CircleCheckBigIcon className="size-4 text-emerald-500" />
-            ) : (
-              <LayoutListIcon className="size-4 text-gray-400" />
-            )}
-            <span className="text-xs capitalize">{"Not configured"}</span>
-          </div>
-        </div>
-      </CardContent>
-
       <TriggerSourceHandle />
     </Card>
   )
