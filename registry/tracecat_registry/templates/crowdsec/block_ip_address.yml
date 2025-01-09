@@ -9,6 +9,7 @@ definition:
     - name: crowdsec
       keys:
         - CROWDSEC_API_TOKEN
+        - CROWDSEC_API_URL
       optional_keys: null
   expects:
     cn:
@@ -27,10 +28,6 @@ definition:
       type: str
       description: The IP address to block
       default: null
-    url_server:
-      type: str
-      description: Your local url api crowdsec
-      default: null
     timestamp:
       type: str
       description: Time
@@ -39,7 +36,7 @@ definition:
     - ref: block_ip_address
       action: core.http_request
       args:
-        url: ${{ inputs.url_server }}/v1/alerts
+        url: ${{ SECRETS.crowdsec.CROWDSEC_API_URL }}/v1/alerts
         method: POST
         headers:
           accept: application/json
