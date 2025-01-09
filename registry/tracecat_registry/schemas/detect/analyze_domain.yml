@@ -1,0 +1,7 @@
+type: object
+properties:
+  domain:
+    type: str
+    description: The domain to analyze or scan.
+required:
+  - domain

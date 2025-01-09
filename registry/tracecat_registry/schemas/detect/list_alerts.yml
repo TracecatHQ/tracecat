@@ -1,0 +1,19 @@
+type: object
+properties:
+  start_time:
+    type: datetime
+    description: Start time for the query (inclusive) in ISO 8601 format.
+  end_time:
+    type: datetime
+    description: End time for the query (exclusive) in ISO 8601 format.
+  query:
+    type: str
+    description: (Optional) Query or filter to apply to alerts. If specified, overrides `start_time` and `end_time`.
+    default: null
+  limit:
+    type: int
+    description: Maximum number of alerts to return. Defaults to 100.
+    default: 100
+required:
+  - start_time
+  - end_time

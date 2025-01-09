@@ -1,0 +1,7 @@
+type: object
+properties:
+  url:
+    type: str
+    description: The URL to analyze or scan.
+required:
+  - url
