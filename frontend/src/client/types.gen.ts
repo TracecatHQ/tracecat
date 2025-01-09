@@ -117,6 +117,37 @@ export type ActionUpdate = {
     control_flow?: ActionControlFlow | null;
 };
 
+export type AuthSettingsRead = {
+    auth_basic_enabled: boolean;
+    auth_require_email_verification: boolean;
+    auth_allowed_email_domains: Array<(string)>;
+    auth_min_password_length: number;
+    auth_session_expire_time_seconds: number;
+};
+
+export type AuthSettingsUpdate = {
+    /**
+     * Whether basic auth is enabled.
+     */
+    auth_basic_enabled?: boolean;
+    /**
+     * Whether email verification is required for authentication.
+     */
+    auth_require_email_verification?: boolean;
+    /**
+     * Allowed email domains for authentication. If empty, all domains are allowed.
+     */
+    auth_allowed_email_domains?: Array<(string)>;
+    /**
+     * Minimum password length for authentication.
+     */
+    auth_min_password_length?: number;
+    /**
+     * Session expiration time in seconds.
+     */
+    auth_session_expire_time_seconds?: number;
+};
+
 export type Body_auth_reset_forgot_password = {
     email: string;
 };
@@ -367,6 +398,21 @@ export type GetWorkflowDefinitionActivityInputs = {
     task?: ActionStatement | null;
 };
 
+export type GitSettingsRead = {
+    git_allowed_domains: Array<(string)>;
+    git_repo_url?: string | null;
+    git_repo_package_name?: string | null;
+};
+
+export type GitSettingsUpdate = {
+    /**
+     * Allowed git domains for authentication.
+     */
+    git_allowed_domains?: Array<(string)>;
+    git_repo_url?: string | null;
+    git_repo_package_name?: string | null;
+};
+
 export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
@@ -375,6 +421,23 @@ export type JoinStrategy = 'any' | 'all';
 
 export type OAuth2AuthorizeResponse = {
     authorization_url: string;
+};
+
+/**
+ * Settings for OAuth authentication.
+ */
+export type OAuthSettingsRead = {
+    oauth_google_enabled: boolean;
+};
+
+/**
+ * Settings for OAuth authentication.
+ */
+export type OAuthSettingsUpdate = {
+    /**
+     * Whether OAuth is enabled.
+     */
+    oauth_google_enabled?: boolean;
 };
 
 export type OrgMemberRead = {
@@ -705,6 +768,26 @@ export type SAMLDatabaseLoginResponse = {
     redirect_url: string;
 };
 
+export type SAMLSettingsRead = {
+    saml_enabled: boolean;
+    saml_enforced: boolean;
+    saml_idp_metadata_url?: string | null;
+    saml_sp_acs_url?: string | null;
+};
+
+export type SAMLSettingsUpdate = {
+    /**
+     * Whether SAML is enabled.
+     */
+    saml_enabled?: boolean;
+    /**
+     * Whether SAML is enforced. If true, users can only use SAML to authenticate. Requires SAML to be enabled.
+     */
+    saml_enforced?: boolean;
+    saml_idp_metadata_url?: string | null;
+    saml_sp_acs_url?: string | null;
+};
+
 export type Schedule = {
     owner_id: string;
     created_at?: string;
@@ -889,6 +972,12 @@ export type SessionRead = {
     user_email: string;
 };
 
+export type SettingRead = {
+    key: string;
+    value_type: ValueType;
+    value: unknown;
+};
+
 export type TagCreate = {
     name: string;
     color?: string | null;
@@ -1039,6 +1128,8 @@ export type ValidationError = {
     msg: string;
     type: string;
 };
+
+export type ValueType = "json";
 
 export type WebhookResponse = {
     owner_id: string;
@@ -1708,6 +1799,8 @@ export type EditorListActionsData = {
 
 export type EditorListActionsResponse = Array<EditorActionRead>;
 
+export type RegistryRepositoriesReloadRegistryRepositoriesResponse = void;
+
 export type RegistryRepositoriesSyncRegistryRepositoryData = {
     repositoryId: string;
 };
@@ -1773,6 +1866,44 @@ export type RegistryActionsDeleteRegistryActionData = {
 };
 
 export type RegistryActionsDeleteRegistryActionResponse = void;
+
+export type SettingsGetGitSettingsResponse = GitSettingsRead;
+
+export type SettingsUpdateGitSettingsData = {
+    requestBody: GitSettingsUpdate;
+};
+
+export type SettingsUpdateGitSettingsResponse = void;
+
+export type SettingsGetSamlSettingsResponse = SAMLSettingsRead;
+
+export type SettingsUpdateSamlSettingsData = {
+    requestBody: SAMLSettingsUpdate;
+};
+
+export type SettingsUpdateSamlSettingsResponse = void;
+
+export type SettingsGetAuthSettingsResponse = AuthSettingsRead;
+
+export type SettingsUpdateAuthSettingsData = {
+    requestBody: AuthSettingsUpdate;
+};
+
+export type SettingsUpdateAuthSettingsResponse = void;
+
+export type SettingsGetOauthSettingsResponse = OAuthSettingsRead;
+
+export type SettingsUpdateOauthSettingsData = {
+    requestBody: OAuthSettingsUpdate;
+};
+
+export type SettingsUpdateOauthSettingsResponse = void;
+
+export type SettingsListSettingsData = {
+    key?: Array<(string)> | null;
+};
+
+export type SettingsListSettingsResponse = Array<SettingRead>;
 
 export type UsersUsersCurrentUserResponse = UserRead;
 
@@ -2747,6 +2878,16 @@ export type $OpenApiTs = {
             };
         };
     };
+    '/registry/repos/reload': {
+        post: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+            };
+        };
+    };
     '/registry/repos/{repository_id}/sync': {
         post: {
             req: RegistryRepositoriesSyncRegistryRepositoryData;
@@ -2898,6 +3039,113 @@ export type $OpenApiTs = {
                  * Successful Response
                  */
                 204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/settings/git': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: GitSettingsRead;
+            };
+        };
+        patch: {
+            req: SettingsUpdateGitSettingsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/settings/saml': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: SAMLSettingsRead;
+            };
+        };
+        patch: {
+            req: SettingsUpdateSamlSettingsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/settings/auth': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: AuthSettingsRead;
+            };
+        };
+        patch: {
+            req: SettingsUpdateAuthSettingsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/settings/oauth': {
+        get: {
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: OAuthSettingsRead;
+            };
+        };
+        patch: {
+            req: SettingsUpdateOauthSettingsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                204: void;
+                /**
+                 * Validation Error
+                 */
+                422: HTTPValidationError;
+            };
+        };
+    };
+    '/settings': {
+        get: {
+            req: SettingsListSettingsData;
+            res: {
+                /**
+                 * Successful Response
+                 */
+                200: Array<SettingRead>;
                 /**
                  * Validation Error
                  */
