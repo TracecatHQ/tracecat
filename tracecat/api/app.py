@@ -34,6 +34,7 @@ from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.secrets.router import router as secrets_router
+from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService
 from tracecat.tags.router import router as tags_router
 from tracecat.types.auth import Role
@@ -154,6 +155,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
+    app.include_router(org_settings_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",
