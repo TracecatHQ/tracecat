@@ -32,7 +32,7 @@ class SAMLSettingsRead(BaseSettingsGroup):
     saml_enabled: bool
     saml_enforced: bool
     saml_idp_metadata_url: str | None = Field(default=None)
-    saml_sp_acs_url: str | None = Field(default=None)
+    saml_sp_acs_url: str  # Read only
 
     @field_validator("saml_enforced", mode="before")
     @classmethod
@@ -51,7 +51,6 @@ class SAMLSettingsUpdate(BaseSettingsGroup):
         " Requires SAML to be enabled.",
     )
     saml_idp_metadata_url: str | None = Field(default=None)
-    saml_sp_acs_url: str | None = Field(default=None)
 
 
 class AuthSettingsRead(BaseSettingsGroup):
