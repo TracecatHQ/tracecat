@@ -6,7 +6,6 @@ from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.enums import AuthType
-from tracecat.logger import logger
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
 from tracecat.settings.service import get_setting
 from tracecat.types.auth import Role
@@ -36,9 +35,7 @@ def require_auth_type_enabled(auth_type: AuthType) -> Any:
             )
         # 2. Check that the setting is enabled
         key = AUTH_TYPE_TO_SETTING_KEY[auth_type]
-        logger.warning("Checking auth type enabled", key=key)
         setting = await get_setting(key=key, role=bootstrap_role())
-        logger.warning("Setting", setting=setting)
         if setting is None or not isinstance(setting, bool):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
