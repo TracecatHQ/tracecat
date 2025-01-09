@@ -58,7 +58,7 @@
     "js-cookie": "^3.0.5",
     "lucide-react": "^0.359.0",
     "monaco-editor": "0.52.2",
-    "next": "14.2.15",
+    "next": "14.2.23",
     "next-runtime-env": "^3.2.2",
     "next-themes": "^0.2.1",
     "posthog-js": "^1.146.0",
