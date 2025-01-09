@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.enums import AuthType
+from tracecat.contexts import ctx_role
 from tracecat.settings.models import (
     AuthSettingsUpdate,
     GitSettingsUpdate,
@@ -169,7 +170,7 @@ async def test_delete_system_setting(
 
 
 @pytest.mark.anyio
-async def test_delete_mortal_setting(
+async def test_delete_non_system_setting(
     settings_service: SettingsService,
     create_params: SettingCreate,
 ) -> None:
@@ -283,28 +284,33 @@ async def test_get_setting_shorthand(
     svc_admin_role: Role,
 ) -> None:
     """Test the get_setting shorthand function with and without roles."""
-    # Create a test setting first
-    curr_session = settings_service.session
+    token = ctx_role.set(None)  # type: ignore
+    assert ctx_role.get() is None, "Role should be cleared"
+    try:
+        # Create a test setting first
+        curr_session = settings_service.session
 
-    created_setting = await settings_service.create_org_setting(create_params)
+        created_setting = await settings_service.create_org_setting(create_params)
 
-    # Test with valid role (should return value)
-    value = await get_setting(
-        created_setting.key, role=svc_admin_role, session=curr_session
-    )
-    assert value == create_params.value
+        # Test with valid role (should return value)
+        value = await get_setting(
+            created_setting.key, role=svc_admin_role, session=curr_session
+        )
+        assert value == create_params.value
 
-    # Test with no role (should return None)
-    no_role_value = await get_setting(
-        created_setting.key, role=None, session=curr_session
-    )
-    assert no_role_value is None
+        # Test with no role (should return None)
+        no_role_value = await get_setting(
+            created_setting.key, role=None, session=curr_session
+        )
+        assert no_role_value is None
 
-    # Test retrieving non-existent setting
-    nonexistent_value = await get_setting(
-        "nonexistent-key", role=svc_admin_role, session=curr_session
-    )
-    assert nonexistent_value is None
+        # Test retrieving non-existent setting
+        nonexistent_value = await get_setting(
+            "nonexistent-key", role=svc_admin_role, session=curr_session
+        )
+        assert nonexistent_value is None
+    finally:
+        ctx_role.set(token)  # type: ignore
 
 
 @pytest.mark.anyio
