@@ -8,9 +8,12 @@ class BaseSettingsGroup(BaseModel):
     """Base class for configurable settings."""
 
     @classmethod
-    def keys(cls) -> set[str]:
+    def keys(cls, *, exclude: set[str] | None = None) -> set[str]:
         """Get the setting keys as a set."""
-        return set(cls.model_fields.keys())
+        all_keys = set(cls.model_fields.keys())
+        if exclude:
+            all_keys -= exclude
+        return all_keys
 
 
 class GitSettingsRead(BaseSettingsGroup):
