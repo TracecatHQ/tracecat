@@ -338,6 +338,77 @@ export const $ActionUpdate = {
     title: 'ActionUpdate'
 } as const;
 
+export const $AuthSettingsRead = {
+    properties: {
+        auth_basic_enabled: {
+            type: 'boolean',
+            title: 'Auth Basic Enabled'
+        },
+        auth_require_email_verification: {
+            type: 'boolean',
+            title: 'Auth Require Email Verification'
+        },
+        auth_allowed_email_domains: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Auth Allowed Email Domains'
+        },
+        auth_min_password_length: {
+            type: 'integer',
+            title: 'Auth Min Password Length'
+        },
+        auth_session_expire_time_seconds: {
+            type: 'integer',
+            title: 'Auth Session Expire Time Seconds'
+        }
+    },
+    type: 'object',
+    required: ['auth_basic_enabled', 'auth_require_email_verification', 'auth_allowed_email_domains', 'auth_min_password_length', 'auth_session_expire_time_seconds'],
+    title: 'AuthSettingsRead'
+} as const;
+
+export const $AuthSettingsUpdate = {
+    properties: {
+        auth_basic_enabled: {
+            type: 'boolean',
+            title: 'Auth Basic Enabled',
+            description: 'Whether basic auth is enabled.',
+            default: true
+        },
+        auth_require_email_verification: {
+            type: 'boolean',
+            title: 'Auth Require Email Verification',
+            description: 'Whether email verification is required for authentication.',
+            default: false
+        },
+        auth_allowed_email_domains: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            uniqueItems: true,
+            title: 'Auth Allowed Email Domains',
+            description: 'Allowed email domains for authentication. If empty, all domains are allowed.'
+        },
+        auth_min_password_length: {
+            type: 'integer',
+            title: 'Auth Min Password Length',
+            description: 'Minimum password length for authentication.',
+            default: 12
+        },
+        auth_session_expire_time_seconds: {
+            type: 'integer',
+            title: 'Auth Session Expire Time Seconds',
+            description: 'Session expiration time in seconds.',
+            default: 604800
+        }
+    },
+    type: 'object',
+    title: 'AuthSettingsUpdate'
+} as const;
+
 export const $Body_auth_reset_forgot_password = {
     properties: {
         email: {
@@ -1182,6 +1253,80 @@ export const $GetWorkflowDefinitionActivityInputs = {
     title: 'GetWorkflowDefinitionActivityInputs'
 } as const;
 
+export const $GitSettingsRead = {
+    properties: {
+        git_allowed_domains: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Git Allowed Domains'
+        },
+        git_repo_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Git Repo Url'
+        },
+        git_repo_package_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Git Repo Package Name'
+        }
+    },
+    type: 'object',
+    required: ['git_allowed_domains'],
+    title: 'GitSettingsRead'
+} as const;
+
+export const $GitSettingsUpdate = {
+    properties: {
+        git_allowed_domains: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Git Allowed Domains',
+            description: 'Allowed git domains for authentication.'
+        },
+        git_repo_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Git Repo Url'
+        },
+        git_repo_package_name: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Git Repo Package Name'
+        }
+    },
+    type: 'object',
+    title: 'GitSettingsUpdate'
+} as const;
+
 export const $HTTPValidationError = {
     properties: {
         detail: {
@@ -1212,6 +1357,33 @@ export const $OAuth2AuthorizeResponse = {
     type: 'object',
     required: ['authorization_url'],
     title: 'OAuth2AuthorizeResponse'
+} as const;
+
+export const $OAuthSettingsRead = {
+    properties: {
+        oauth_google_enabled: {
+            type: 'boolean',
+            title: 'Oauth Google Enabled'
+        }
+    },
+    type: 'object',
+    required: ['oauth_google_enabled'],
+    title: 'OAuthSettingsRead',
+    description: 'Settings for OAuth authentication.'
+} as const;
+
+export const $OAuthSettingsUpdate = {
+    properties: {
+        oauth_google_enabled: {
+            type: 'boolean',
+            title: 'Oauth Google Enabled',
+            description: 'Whether OAuth is enabled.',
+            default: true
+        }
+    },
+    type: 'object',
+    title: 'OAuthSettingsUpdate',
+    description: 'Settings for OAuth authentication.'
 } as const;
 
 export const $OrgMemberRead = {
@@ -2131,6 +2303,85 @@ export const $SAMLDatabaseLoginResponse = {
     title: 'SAMLDatabaseLoginResponse'
 } as const;
 
+export const $SAMLSettingsRead = {
+    properties: {
+        saml_enabled: {
+            type: 'boolean',
+            title: 'Saml Enabled'
+        },
+        saml_enforced: {
+            type: 'boolean',
+            title: 'Saml Enforced'
+        },
+        saml_idp_metadata_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Saml Idp Metadata Url'
+        },
+        saml_sp_acs_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Saml Sp Acs Url'
+        }
+    },
+    type: 'object',
+    required: ['saml_enabled', 'saml_enforced'],
+    title: 'SAMLSettingsRead'
+} as const;
+
+export const $SAMLSettingsUpdate = {
+    properties: {
+        saml_enabled: {
+            type: 'boolean',
+            title: 'Saml Enabled',
+            description: 'Whether SAML is enabled.',
+            default: false
+        },
+        saml_enforced: {
+            type: 'boolean',
+            title: 'Saml Enforced',
+            description: 'Whether SAML is enforced. If true, users can only use SAML to authenticate. Requires SAML to be enabled.',
+            default: false
+        },
+        saml_idp_metadata_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Saml Idp Metadata Url'
+        },
+        saml_sp_acs_url: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Saml Sp Acs Url'
+        }
+    },
+    type: 'object',
+    title: 'SAMLSettingsUpdate'
+} as const;
+
 export const $Schedule = {
     properties: {
         owner_id: {
@@ -2823,6 +3074,24 @@ export const $SessionRead = {
     title: 'SessionRead'
 } as const;
 
+export const $SettingRead = {
+    properties: {
+        key: {
+            type: 'string',
+            title: 'Key'
+        },
+        value_type: {
+            '$ref': '#/components/schemas/ValueType'
+        },
+        value: {
+            title: 'Value'
+        }
+    },
+    type: 'object',
+    required: ['key', 'value_type', 'value'],
+    title: 'SettingRead'
+} as const;
+
 export const $TagCreate = {
     properties: {
         name: {
@@ -3441,6 +3710,12 @@ export const $ValidationError = {
     type: 'object',
     required: ['loc', 'msg', 'type'],
     title: 'ValidationError'
+} as const;
+
+export const $ValueType = {
+    type: 'string',
+    const: 'json',
+    title: 'ValueType'
 } as const;
 
 export const $WebhookResponse = {

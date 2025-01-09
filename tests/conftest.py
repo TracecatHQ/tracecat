@@ -21,7 +21,7 @@ from tracecat.db.schemas import User, Workspace
 from tracecat.logger import logger
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
-from tracecat.types.auth import Role
+from tracecat.types.auth import AccessLevel, Role
 from tracecat.workspaces.models import WorkspaceMetadataResponse
 
 
@@ -380,6 +380,19 @@ async def svc_role(svc_workspace: Workspace) -> Role:
     """Service test fixture. Create a function scoped test role."""
     return Role(
         type="user",
+        access_level=AccessLevel.BASIC,
+        workspace_id=svc_workspace.id,
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+
+
+@pytest.fixture
+async def svc_admin_role(svc_workspace: Workspace) -> Role:
+    """Service test fixture. Create a function scoped test role."""
+    return Role(
+        type="user",
+        access_level=AccessLevel.ADMIN,
         workspace_id=svc_workspace.id,
         user_id=uuid.uuid4(),
         service_id="tracecat-api",

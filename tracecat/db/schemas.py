@@ -538,3 +538,30 @@ class RegistryAction(Resource, table=True):
     @property
     def action(self):
         return f"{self.namespace}.{self.name}"
+
+
+class OrganizationSetting(Resource, table=True):
+    """An organization setting."""
+
+    __tablename__: str = "organization_settings"
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    key: str = Field(
+        ...,
+        description="A unique key that identifies the setting",
+        index=True,
+        unique=True,
+    )
+    value: bytes
+    value_type: str = Field(
+        ...,
+        description="The data type of the setting value",
+    )
+    is_encrypted: bool = Field(
+        default=False, description="Whether the setting is encrypted"
+    )
