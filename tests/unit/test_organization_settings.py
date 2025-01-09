@@ -221,7 +221,6 @@ async def test_update_saml_settings(
     test_params = SAMLSettingsUpdate(
         saml_enabled=True,
         saml_idp_metadata_url="https://test-idp.com",
-        saml_sp_acs_url="https://test-sp.com",
     )
     await service.update_saml_settings(test_params)
 
@@ -231,7 +230,6 @@ async def test_update_saml_settings(
     }
     assert settings_dict["saml_enabled"] is True
     assert settings_dict["saml_idp_metadata_url"] == "https://test-idp.com"
-    assert settings_dict["saml_sp_acs_url"] == "https://test-sp.com"
 
 
 @pytest.mark.anyio
