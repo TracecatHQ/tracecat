@@ -17,7 +17,7 @@ export default function OrganizationLayout({
       {/* DynamicNavbar needs a WorkflowProvider and a WorkspaceProvider */}
       <DynamicNavbar />
       <div className="container h-full space-y-6 overflow-auto md:block">
-        <div className="flex h-full flex-col space-y-8 lg:flex-row lg:space-x-12 lg:space-y-0">
+        <div className="flex h-full flex-col space-y-8 lg:flex-row lg:space-y-0">
           <aside className="-mx-4 h-full lg:w-1/5">
             <OrganizationSidebarNav />
           </aside>
