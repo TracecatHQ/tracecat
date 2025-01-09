@@ -11,12 +11,12 @@ from saml2.config import Config as Saml2Config
 
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
-    SAML_IDP_METADATA_URL,
     SAML_SP_ACS_URL,
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
 )
 from tracecat.logger import logger
+from tracecat.settings.service import get_setting
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
 
@@ -114,11 +114,17 @@ class SAMLParser:
         return attributes
 
 
-def create_saml_client() -> Saml2Client:
-    if not SAML_IDP_METADATA_URL:
+async def create_saml_client() -> Saml2Client:
+    saml_idp_metadata_url = await get_setting("saml_idp_metadata_url")
+    if not saml_idp_metadata_url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="SAML SSO metadata URL has not been configured.",
+        )
+    if not isinstance(saml_idp_metadata_url, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="SAML SSO metadata URL is not a string.",
         )
 
     saml_settings = {
@@ -146,7 +152,7 @@ def create_saml_client() -> Saml2Client:
         "metadata": {
             "remote": [
                 {
-                    "url": SAML_IDP_METADATA_URL,
+                    "url": saml_idp_metadata_url,
                 }
             ]
         },
