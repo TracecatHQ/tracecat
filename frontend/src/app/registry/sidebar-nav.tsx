@@ -32,7 +32,7 @@ interface SidebarNavProps extends React.HTMLAttributes<HTMLElement> {
 
 export function RegistrySidebarNav() {
   return (
-    <div className="h-full space-y-4 border-r pr-4 pt-16">
+    <div className="h-full space-y-4 pr-4 pt-16">
       <div className="space-y-0.5">
         <h2 className="text-xl font-bold tracking-tight">Registry</h2>
       </div>

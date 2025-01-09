@@ -42,7 +42,7 @@ interface SidebarNavProps extends React.HTMLAttributes<HTMLElement> {
 
 export function SidebarNav() {
   return (
-    <div className="h-full space-y-4 border-r pr-4 pt-16">
+    <div className="h-full space-y-4 pr-4 pt-16">
       <div className="space-y-0.5">
         <h2 className="text-xl font-bold tracking-tight">Settings</h2>
       </div>
