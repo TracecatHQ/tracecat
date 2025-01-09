@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/form"
 import { Switch } from "@/components/ui/switch"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import { CustomTagInput } from "@/components/tags-input"
 
 const authFormSchema = z.object({
@@ -40,6 +41,7 @@ export function OrgSettingsAuthForm() {
   const {
     authSettings,
     authSettingsIsLoading,
+    authSettingsError,
     updateAuthSettings,
     updateAuthSettingsIsPending,
   } = useOrgAuthSettings()
@@ -86,6 +88,14 @@ export function OrgSettingsAuthForm() {
 
   if (authSettingsIsLoading) {
     return <CenteredSpinner />
+  }
+  if (authSettingsError || !authSettings) {
+    return (
+      <AlertNotification
+        level="error"
+        message={`Error loading Auth settings: ${authSettingsError?.message || "Unknown error"}`}
+      />
+    )
   }
 
   return (

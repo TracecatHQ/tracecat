@@ -16,6 +16,8 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import { CustomTagInput } from "@/components/tags-input"
 
 const gitFormSchema = z.object({
@@ -38,8 +40,13 @@ const gitFormSchema = z.object({
 type GitFormValues = z.infer<typeof gitFormSchema>
 
 export function OrgSettingsGitForm() {
-  const { gitSettings, updateGitSettings, updateGitSettingsIsPending } =
-    useOrgGitSettings()
+  const {
+    gitSettings,
+    gitSettingsIsLoading,
+    gitSettingsError,
+    updateGitSettings,
+    updateGitSettingsIsPending,
+  } = useOrgGitSettings()
 
   const form = useForm<GitFormValues>({
     resolver: zodResolver(gitFormSchema),
@@ -68,6 +75,18 @@ export function OrgSettingsGitForm() {
     } catch {
       console.error("Failed to update Git settings")
     }
+  }
+
+  if (gitSettingsIsLoading) {
+    return <CenteredSpinner />
+  }
+  if (gitSettingsError || !gitSettings) {
+    return (
+      <AlertNotification
+        level="error"
+        message={`Error loading Git settings: ${gitSettingsError?.message || "Unknown error"}`}
+      />
+    )
   }
 
   return (

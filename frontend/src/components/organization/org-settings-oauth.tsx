@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/form"
 import { Switch } from "@/components/ui/switch"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 
 const authFormSchema = z.object({
   oauth_google_enabled: z.boolean(),
@@ -29,6 +30,7 @@ export function OrgSettingsOAuthForm() {
   const {
     oauthSettings,
     oauthSettingsIsLoading,
+    oauthSettingsError,
     updateOAuthSettings,
     updateOAuthSettingsIsPending,
   } = useOrgOAuthSettings()
@@ -57,6 +59,14 @@ export function OrgSettingsOAuthForm() {
 
   if (oauthSettingsIsLoading) {
     return <CenteredSpinner />
+  }
+  if (oauthSettingsError || !oauthSettings) {
+    return (
+      <AlertNotification
+        level="error"
+        message={`Error loading OAuth settings: ${oauthSettingsError?.message || "Unknown error"}`}
+      />
+    )
   }
 
   return (
