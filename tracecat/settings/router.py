@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import Role
 from tracecat.auth.enums import AuthType
@@ -85,10 +86,13 @@ async def get_saml_settings(
     session: AsyncDBSession,
 ) -> SAMLSettingsRead:
     service = SettingsService(session, role)
-    keys = SAMLSettingsRead.keys()
+
+    # Exclude read-only keys
+    keys = SAMLSettingsRead.keys(exclude={"saml_sp_acs_url"})
     settings = await service.list_org_settings(keys=keys)
     settings_dict = {setting.key: service.get_value(setting) for setting in settings}
-    return SAMLSettingsRead(**settings_dict)
+
+    return SAMLSettingsRead(**settings_dict, saml_sp_acs_url=config.SAML_SP_ACS_URL)
 
 
 @router.patch("/saml", status_code=status.HTTP_204_NO_CONTENT)

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -128,13 +129,17 @@ export function OrgSettingsSsoForm() {
           name="saml_sp_acs_url"
           render={({ field }) => (
             <FormItem className="flex flex-col">
-              <FormLabel>Service Provider ACS URL</FormLabel>
-              {field.value && (
-                <CopyButton
-                  value={field.value}
-                  toastMessage="Copied Service Provider ACS URL to clipboard"
-                />
-              )}
+              <FormLabel className="flex items-center gap-2">
+                <span>Service Provider ACS URL</span>
+                <TooltipProvider>
+                  {field.value && (
+                    <CopyButton
+                      value={field.value}
+                      toastMessage="Copied Service Provider ACS URL to clipboard"
+                    />
+                  )}
+                </TooltipProvider>
+              </FormLabel>
               <FormControl>
                 <Input
                   placeholder="http://localhost/api/auth/saml/acs"

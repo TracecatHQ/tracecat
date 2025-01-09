@@ -8,9 +8,12 @@ class BaseSettingsGroup(BaseModel):
     """Base class for configurable settings."""
 
     @classmethod
-    def keys(cls) -> set[str]:
+    def keys(cls, *, exclude: set[str] | None = None) -> set[str]:
         """Get the setting keys as a set."""
-        return set(cls.model_fields.keys())
+        all_keys = set(cls.model_fields.keys())
+        if exclude:
+            all_keys -= exclude
+        return all_keys
 
 
 class GitSettingsRead(BaseSettingsGroup):
@@ -32,7 +35,7 @@ class SAMLSettingsRead(BaseSettingsGroup):
     saml_enabled: bool
     saml_enforced: bool
     saml_idp_metadata_url: str | None = Field(default=None)
-    saml_sp_acs_url: str | None = Field(default=None)
+    saml_sp_acs_url: str  # Read only
 
     @field_validator("saml_enforced", mode="before")
     @classmethod
@@ -51,7 +54,6 @@ class SAMLSettingsUpdate(BaseSettingsGroup):
         " Requires SAML to be enabled.",
     )
     saml_idp_metadata_url: str | None = Field(default=None)
-    saml_sp_acs_url: str | None = Field(default=None)
 
 
 class AuthSettingsRead(BaseSettingsGroup):
