@@ -5,6 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from httpx_oauth.clients.google import GoogleOAuth2
+from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -26,6 +27,7 @@ from tracecat.auth.users import (
     fastapi_users,
 )
 from tracecat.contexts import ctx_role
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
 from tracecat.logger import logger
@@ -256,9 +258,30 @@ def root() -> dict[str, str]:
     return {"message": "Hello world. I am the API."}
 
 
+class AppInfo(BaseModel):
+    public_app_url: str
+    auth_allowed_types: list[AuthType]
+    auth_basic_enabled: bool
+    oauth_google_enabled: bool
+    saml_enabled: bool
+
+
 @app.get("/info", include_in_schema=False)
-def info() -> dict[str, str]:
-    return {"public_app_url": config.TRACECAT__PUBLIC_APP_URL}
+async def info(session: AsyncDBSession) -> AppInfo:
+    """Non-sensitive information about the platform, for frontend configuration."""
+
+    keys = {"auth_basic_enabled", "oauth_google_enabled", "saml_enabled"}
+
+    service = SettingsService(session, role=bootstrap_role())
+    settings = await service.list_org_settings(keys=keys)
+    keyvalues = {s.key: service.get_value(s) for s in settings}
+    return AppInfo(
+        public_app_url=config.TRACECAT__PUBLIC_APP_URL,
+        auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
+        auth_basic_enabled=keyvalues["auth_basic_enabled"],
+        oauth_google_enabled=keyvalues["oauth_google_enabled"],
+        saml_enabled=keyvalues["saml_enabled"],
+    )
 
 
 @app.get("/health", tags=["public"])
