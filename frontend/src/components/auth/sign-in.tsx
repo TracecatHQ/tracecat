@@ -71,7 +71,7 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
         </CardHeader>
         <CardContent className="flex-col space-y-2">
           {showBasicAuth && <BasicLoginForm />}
-          {(showGoogleOauthAuth || showSamlAuth) && (
+          {showBasicAuth && (showGoogleOauthAuth || showSamlAuth) && (
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t" />
