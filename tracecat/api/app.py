@@ -188,7 +188,6 @@ def create_app(**kwargs) -> FastAPI:
             tags=["auth"],
         )
 
-    # if AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES:
     oauth_client = GoogleOAuth2(
         client_id=config.OAUTH_CLIENT_ID, client_secret=config.OAUTH_CLIENT_SECRET
     )
