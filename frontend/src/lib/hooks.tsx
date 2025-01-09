@@ -144,10 +144,6 @@ export function useAction(
     },
     onError: (error) => {
       console.error("Failed to update action:", error)
-      toast({
-        title: "Failed to save action",
-        description: "Could not update your action. Please try again.",
-      })
       setIsSaving(false)
     },
   })
