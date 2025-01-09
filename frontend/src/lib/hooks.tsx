@@ -6,8 +6,11 @@ import {
   actionsUpdateAction,
   ActionUpdate,
   ApiError,
+  AuthSettingsRead,
   CreateWorkspaceParams,
   EventHistoryResponse,
+  GitSettingsRead,
+  OAuthSettingsRead,
   organizationDeleteOrgMember,
   OrganizationDeleteOrgMemberData,
   organizationDeleteSession,
@@ -29,11 +32,13 @@ import {
   registryRepositoriesDeleteRegistryRepository,
   RegistryRepositoriesDeleteRegistryRepositoryData,
   registryRepositoriesListRegistryRepositories,
+  registryRepositoriesReloadRegistryRepositories,
   registryRepositoriesSyncExecutorFromRegistryRepository,
   RegistryRepositoriesSyncExecutorFromRegistryRepositoryData,
   registryRepositoriesSyncRegistryRepository,
   RegistryRepositoriesSyncRegistryRepositoryData,
   RegistryRepositoryReadMinimal,
+  SAMLSettingsRead,
   Schedule,
   schedulesCreateSchedule,
   SchedulesCreateScheduleData,
@@ -50,6 +55,18 @@ import {
   secretsUpdateSecretById,
   SecretUpdate,
   SessionRead,
+  settingsGetAuthSettings,
+  settingsGetGitSettings,
+  settingsGetOauthSettings,
+  settingsGetSamlSettings,
+  settingsUpdateAuthSettings,
+  SettingsUpdateAuthSettingsData,
+  settingsUpdateGitSettings,
+  SettingsUpdateGitSettingsData,
+  settingsUpdateOauthSettings,
+  SettingsUpdateOauthSettingsData,
+  settingsUpdateSamlSettings,
+  SettingsUpdateSamlSettingsData,
   TagRead,
   tagsCreateTag,
   TagsCreateTagData,
@@ -83,8 +100,26 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
 import { CircleCheck } from "lucide-react"
 
+import { getBaseUrl } from "@/lib/api"
 import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { toast } from "@/components/ui/use-toast"
+
+export function useAppInfo() {
+  const { data: appInfo, isLoading: appInfoIsLoading } = useQuery<{
+    public_app_url: string
+    auth_allowed_types: string[]
+    auth_basic_enabled: boolean
+    oauth_google_enabled: boolean
+    saml_enabled: boolean
+  }>({
+    queryKey: ["app-info"],
+    queryFn: async () => {
+      const resp = await fetch(getBaseUrl() + "/info")
+      return await resp.json()
+    },
+  })
+  return { appInfo, appInfoIsLoading }
+}
 
 export function useLocalStorage<T>(
   key: string,
@@ -1411,5 +1446,261 @@ export function useTags(workspaceId: string) {
     deleteTag,
     deleteTagIsPending,
     deleteTagError,
+  }
+}
+
+export function useOrgGitSettings() {
+  const queryClient = useQueryClient()
+  // Get Git settings
+  const {
+    data: gitSettings,
+    isLoading: gitSettingsIsLoading,
+    error: gitSettingsError,
+  } = useQuery<GitSettingsRead>({
+    queryKey: ["org-git-settings"],
+    queryFn: async () => await settingsGetGitSettings(),
+  })
+
+  // Update Git settings
+  const {
+    mutateAsync: updateGitSettings,
+    isPending: updateGitSettingsIsPending,
+    error: updateGitSettingsError,
+  } = useMutation({
+    mutationFn: async (params: SettingsUpdateGitSettingsData) =>
+      await settingsUpdateGitSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-git-settings"] })
+      toast({
+        title: "Updated Git settings",
+        description: "Git settings updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to update Git settings", error)
+          toast({
+            title: "Failed to update Git settings",
+            description: `An error occurred while updating the Git settings: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    // Get
+    gitSettings,
+    gitSettingsIsLoading,
+    gitSettingsError,
+    // Update
+    updateGitSettings,
+    updateGitSettingsIsPending,
+    updateGitSettingsError,
+  }
+}
+
+export function useOrgSamlSettings() {
+  const queryClient = useQueryClient()
+
+  // Get SAML settings
+  const {
+    data: samlSettings,
+    isLoading: samlSettingsIsLoading,
+    error: samlSettingsError,
+  } = useQuery<SAMLSettingsRead>({
+    queryKey: ["org-saml-settings"],
+    queryFn: async () => await settingsGetSamlSettings(),
+  })
+
+  // Update SAML settings
+  const {
+    mutateAsync: updateSamlSettings,
+    isPending: updateSamlSettingsIsPending,
+    error: updateSamlSettingsError,
+  } = useMutation({
+    mutationFn: async (params: SettingsUpdateSamlSettingsData) =>
+      await settingsUpdateSamlSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-saml-settings"] })
+      toast({
+        title: "Updated SAML settings",
+        description: "SAML settings updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to update SAML settings", error)
+          toast({
+            title: "Failed to update SAML settings",
+            description: `An error occurred while updating the SAML settings: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    // Get
+    samlSettings,
+    samlSettingsIsLoading,
+    samlSettingsError,
+    // Update
+    updateSamlSettings,
+    updateSamlSettingsIsPending,
+    updateSamlSettingsError,
+  }
+}
+
+export function useRegistryRepositoriesReload() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: reloadRegistryRepositories,
+    isPending: reloadRegistryRepositoriesIsPending,
+    error: reloadRegistryRepositoriesError,
+  } = useMutation({
+    mutationFn: async () =>
+      await registryRepositoriesReloadRegistryRepositories(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
+      toast({
+        title: "Reloaded repositories",
+        description: "Repositories reloaded successfully.",
+      })
+    },
+  })
+
+  return {
+    reloadRegistryRepositories,
+    reloadRegistryRepositoriesIsPending,
+    reloadRegistryRepositoriesError,
+  }
+}
+
+export function useOrgAuthSettings() {
+  const queryClient = useQueryClient()
+
+  // Get Auth settings
+  const {
+    data: authSettings,
+    isLoading: authSettingsIsLoading,
+    error: authSettingsError,
+  } = useQuery<AuthSettingsRead>({
+    queryKey: ["org-auth-settings"],
+    queryFn: async () => await settingsGetAuthSettings(),
+  })
+
+  // Update Auth settings
+  const {
+    mutateAsync: updateAuthSettings,
+    isPending: updateAuthSettingsIsPending,
+    error: updateAuthSettingsError,
+  } = useMutation({
+    mutationFn: async (params: SettingsUpdateAuthSettingsData) =>
+      await settingsUpdateAuthSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-auth-settings"] })
+      toast({
+        title: "Updated Auth settings",
+        description: "Auth settings updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to update Auth settings", error)
+          toast({
+            title: "Failed to update Auth settings",
+            description: `An error occurred while updating the Auth settings: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    // Get
+    authSettings,
+    authSettingsIsLoading,
+    authSettingsError,
+    // Update
+    updateAuthSettings,
+    updateAuthSettingsIsPending,
+    updateAuthSettingsError,
+  }
+}
+
+export function useOrgOAuthSettings() {
+  const queryClient = useQueryClient()
+
+  // Get OAuth settings
+  const {
+    data: oauthSettings,
+    isLoading: oauthSettingsIsLoading,
+    error: oauthSettingsError,
+  } = useQuery<OAuthSettingsRead>({
+    queryKey: ["org-oauth-settings"],
+    queryFn: async () => await settingsGetOauthSettings(),
+  })
+
+  // Update OAuth settings
+  const {
+    mutateAsync: updateOAuthSettings,
+    isPending: updateOAuthSettingsIsPending,
+    error: updateOAuthSettingsError,
+  } = useMutation({
+    mutationFn: async (params: SettingsUpdateOauthSettingsData) =>
+      await settingsUpdateOauthSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-oauth-settings"] })
+      toast({
+        title: "Updated OAuth settings",
+        description: "OAuth settings updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to update OAuth settings", error)
+          toast({
+            title: "Failed to update OAuth settings",
+            description: `An error occurred while updating the OAuth settings: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    // Get
+    oauthSettings,
+    oauthSettingsIsLoading,
+    oauthSettingsError,
+    // Update
+    updateOAuthSettings,
+    updateOAuthSettingsIsPending,
+    updateOAuthSettingsError,
   }
 }
