@@ -1,10 +1,10 @@
 "use client"
 
 import { ComponentPropsWithoutRef, useState } from "react"
+import { authSamlDatabaseLogin } from "@/client"
 
 import { Button } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
-import { authSamlDatabaseLogin } from "@/client"
 
 type SamlSSOButtonProps = ComponentPropsWithoutRef<typeof Button>
 export function SamlSSOButton(props: SamlSSOButtonProps) {
