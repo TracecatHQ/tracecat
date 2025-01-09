@@ -5,6 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.enums import AuthType
 from tracecat.contexts import ctx_role
+from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.models import (
     AuthSettingsUpdate,
     GitSettingsUpdate,
@@ -349,3 +350,36 @@ async def test_check_other_auth_enabled_failure(
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "At least one other auth type must be enabled"
+
+
+@pytest.mark.anyio
+async def test_init_default_settings(
+    settings_service: SettingsService,
+) -> None:
+    """Test that default settings are initialized correctly."""
+    # Execute
+    await settings_service.init_default_settings()
+
+    # Verify all settings were created
+    expected_keys = {key for group in settings_service.groups for key in group.keys()}
+
+    settings = await settings_service.list_org_settings(keys=expected_keys)
+    created_keys = {setting.key for setting in settings}
+
+    # Check all expected keys were created
+    assert created_keys == expected_keys
+
+    # Verify sensitive settings are encrypted
+    sensitive_settings = [s for s in settings if s.key in SENSITIVE_SETTINGS_KEYS]
+    assert all(s.is_encrypted for s in sensitive_settings)
+
+    # Get the expected defaults
+    defaults = {key: value for cls in settings_service.groups for key, value in cls()}
+    for setting in settings:
+        value = settings_service.get_value(setting)
+        assert value == defaults[setting.key]
+
+    # Test idempotency - running again shouldn't create duplicates
+    await settings_service.init_default_settings()
+    settings_after = await settings_service.list_org_settings(keys=expected_keys)
+    assert len(settings) == len(settings_after)

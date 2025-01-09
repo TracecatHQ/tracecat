@@ -34,6 +34,7 @@ from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.secrets.router import router as secrets_router
+from tracecat.settings.service import SettingsService
 from tracecat.tags.router import router as tags_router
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
@@ -51,9 +52,16 @@ from tracecat.workspaces.service import WorkspaceService
 async def lifespan(app: FastAPI):
     role = bootstrap_role()
     async with get_async_session_context_manager() as session:
+        # Org
+        await setup_org_settings(session, role)
         await setup_workspace_defaults(session, role)
         await setup_registry(session, role)
     yield
+
+
+async def setup_org_settings(session: AsyncSession, admin_role: Role):
+    settings_service = SettingsService(session, role=admin_role)
+    await settings_service.init_default_settings()
 
 
 async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
