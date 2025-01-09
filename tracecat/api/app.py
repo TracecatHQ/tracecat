@@ -16,9 +16,11 @@ from tracecat.api.common import (
     generic_exception_handler,
     tracecat_exception_handler,
 )
+from tracecat.auth.dependencies import require_auth_type_enabled
 from tracecat.auth.enums import AuthType
 from tracecat.auth.models import UserCreate, UserRead, UserUpdate
 from tracecat.auth.router import router as users_router
+from tracecat.auth.saml import router as saml_router
 from tracecat.auth.users import (
     FastAPIUsersException,
     InvalidDomainException,
@@ -186,33 +188,31 @@ def create_app(**kwargs) -> FastAPI:
             tags=["auth"],
         )
 
-    if AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES:
-        oauth_client = GoogleOAuth2(
-            client_id=config.OAUTH_CLIENT_ID, client_secret=config.OAUTH_CLIENT_SECRET
-        )
-        # This is the frontend URL that the user will be redirected to after authenticating
-        redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
-        logger.info("OAuth redirect URL", url=redirect_url)
-        app.include_router(
-            fastapi_users.get_oauth_router(
-                oauth_client,
-                auth_backend,
-                config.USER_AUTH_SECRET,
-                # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
-                associate_by_email=True,
-                is_verified_by_default=True,
-                # Points the user back to the login page
-                redirect_url=redirect_url,
-            ),
-            prefix="/auth/oauth",
-            tags=["auth"],
-        )
-
-    if AuthType.SAML in config.TRACECAT__AUTH_TYPES:
-        from tracecat.auth.saml import router as saml_router
-
-        logger.info("SAML auth type enabled")
-        app.include_router(saml_router)
+    oauth_client = GoogleOAuth2(
+        client_id=config.OAUTH_CLIENT_ID, client_secret=config.OAUTH_CLIENT_SECRET
+    )
+    # This is the frontend URL that the user will be redirected to after authenticating
+    redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
+    logger.info("OAuth redirect URL", url=redirect_url)
+    app.include_router(
+        fastapi_users.get_oauth_router(
+            oauth_client,
+            auth_backend,
+            config.USER_AUTH_SECRET,
+            # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
+            associate_by_email=True,
+            is_verified_by_default=True,
+            # Points the user back to the login page
+            redirect_url=redirect_url,
+        ),
+        prefix="/auth/oauth",
+        tags=["auth"],
+        dependencies=[require_auth_type_enabled(AuthType.GOOGLE_OAUTH)],
+    )
+    app.include_router(
+        saml_router,
+        dependencies=[require_auth_type_enabled(AuthType.SAML)],
+    )
 
     if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
         # Need basic auth router for `logout` endpoint

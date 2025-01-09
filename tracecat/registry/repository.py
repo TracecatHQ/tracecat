@@ -34,7 +34,6 @@ from tracecat_registry import RegistrySecret
 from typing_extensions import Doc
 
 from tracecat import config
-from tracecat.config import TRACECAT__ALLOWED_GIT_DOMAINS
 from tracecat.contexts import ctx_role
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
@@ -48,6 +47,7 @@ from tracecat.registry.constants import (
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets.service import SecretsService
+from tracecat.settings.service import get_setting
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryError
 
@@ -246,8 +246,13 @@ class Repository:
         # Load from remote
         logger.info("Loading UDFs from origin", origin=self._origin)
 
+        allowed_domains = cast(
+            set[str],
+            await get_setting("git_allowed_domains", role=self.role) or {"github.com"},
+        )
+
         try:
-            git_url = parse_git_url(self._origin)
+            git_url = parse_git_url(self._origin, allowed_domains=allowed_domains)
             host = git_url.host
             org = git_url.org
             repo_name = git_url.repo
@@ -263,7 +268,9 @@ class Repository:
             package_name=repo_name,
             branch=branch,
         )
-        package_name = config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME or repo_name
+        package_name = (
+            await get_setting("git_repo_package_name", role=self.role) or repo_name
+        )
 
         cleaned_url = self.safe_remote_url(self._origin)
         logger.debug("Cleaned URL", url=cleaned_url)
@@ -641,7 +648,7 @@ class GitUrl:
     branch: str
 
 
-def parse_git_url(url: str) -> GitUrl:
+def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUrl:
     """
     Parse a Git repository URL to extract organization, package name, and branch.
     Handles Git SSH URLs with 'git+ssh' prefix and optional '@' for branch specification.
@@ -659,9 +666,9 @@ def parse_git_url(url: str) -> GitUrl:
 
     if match := re.match(pattern, url):
         host = match.group("host")
-        if host not in TRACECAT__ALLOWED_GIT_DOMAINS:
+        if allowed_domains and host not in allowed_domains:
             raise ValueError(
-                f"Domain {host} not in allowed domains. Must be configured in TRACECAT__ALLOWED_GIT_DOMAINS."
+                f"Domain {host} not in allowed domains. Must be configured in `git_allowed_domains` organization setting."
             )
 
         return GitUrl(

@@ -195,17 +195,32 @@ def test_parse_git_url(url: str, expected: GitUrl):
 @pytest.mark.parametrize(
     "url",
     [
-        "git+ssh://git@tracecat.com/tracecat-dev/tracecat-registry.git@v1.0.0",
-        "git+ssh://git@git.com/tracecat-dev/tracecat-registry.git@v1.0.0",
-        # Adding invalid cases from old test
-        "https://github.com/org/repo",
-        "git+ssh://git@github.com/org",
-        "git+ssh://git@github.com/org/repo@branch/extra",
+        pytest.param(
+            "git+ssh://git@tracecat.com/tracecat-dev/tracecat-registry.git@v1.0.0",
+            id="Invalid host domain tracecat.com",
+        ),
+        pytest.param(
+            "git+ssh://git@git.com/tracecat-dev/tracecat-registry.git@v1.0.0",
+            id="Invalid host domain git.com",
+        ),
+        pytest.param(
+            "https://github.com/org/repo",
+            id="Invalid URL scheme - must be git+ssh",
+        ),
+        pytest.param(
+            "git+ssh://git@github.com/org",
+            id="Missing repository name",
+        ),
+        pytest.param(
+            "git+ssh://git@github.com/org/repo@branch/extra",
+            id="Invalid branch format with extra path component",
+        ),
     ],
 )
 def test_parse_git_url_invalid(url: str):
+    allowed_domains = {"github.com", "gitlab.com"}
     with pytest.raises(ValueError):
-        parse_git_url(url)
+        parse_git_url(url, allowed_domains=allowed_domains)
 
 
 def test_construct_template_action():
