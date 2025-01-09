@@ -244,7 +244,7 @@ async def test_update_auth_settings(
     test_params = AuthSettingsUpdate(
         auth_basic_enabled=True,
         auth_require_email_verification=True,
-        auth_allowed_email_domains={"test.com"},
+        auth_allowed_email_domains=["test.com"],
         auth_min_password_length=16,
         auth_session_expire_time_seconds=3600,
     )
