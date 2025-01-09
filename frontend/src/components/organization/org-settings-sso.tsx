@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 
 const ssoFormSchema = z.object({
   saml_enabled: z.boolean(),
@@ -34,6 +35,7 @@ export function OrgSettingsSsoForm() {
   const {
     samlSettings,
     samlSettingsIsLoading,
+    samlSettingsError,
     updateSamlSettings,
     updateSamlSettingsIsPending,
   } = useOrgSamlSettings()
@@ -64,8 +66,17 @@ export function OrgSettingsSsoForm() {
       console.error("Failed to update SAML settings", error)
     }
   }
+
   if (samlSettingsIsLoading) {
     return <CenteredSpinner />
+  }
+  if (samlSettingsError || !samlSettings) {
+    return (
+      <AlertNotification
+        level="error"
+        message={`Error loading SAML settings: ${samlSettingsError?.message || "Unknown error"}`}
+      />
+    )
   }
 
   return (
