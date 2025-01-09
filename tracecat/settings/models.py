@@ -71,8 +71,8 @@ class AuthSettingsUpdate(BaseSettingsGroup):
         default=False,
         description="Whether email verification is required for authentication.",
     )
-    auth_allowed_email_domains: set[str] = Field(
-        default_factory=set,
+    auth_allowed_email_domains: list[str] = Field(
+        default_factory=list,
         description="Allowed email domains for authentication. If empty, all domains are allowed.",
     )
     auth_min_password_length: int = Field(
