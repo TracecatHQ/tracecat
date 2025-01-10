@@ -51,8 +51,14 @@ import { CopyButton } from "@/components/copy-button"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 
 const workflowUpdateFormSchema = z.object({
-  title: z.string(),
-  description: z.string(),
+  title: z
+    .string()
+    .min(1, { message: "Name is required" })
+    .max(100, { message: "Name cannot exceed 100 characters" }),
+  description: z
+    .string()
+    .max(1000, { message: "Description cannot exceed 1000 characters" })
+    .optional(),
   alias: z.string().nullish(),
   config: z.string().transform((val, ctx) => {
     try {
@@ -168,6 +174,15 @@ export function WorkflowPanel({
       const result = await workflowUpdateFormSchema.safeParseAsync(values)
       if (!result.success) {
         console.error("Validation failed:", result.error)
+        // Set form errors with field name and message
+        Object.entries(result.error.formErrors.fieldErrors).forEach(
+          ([fieldName, error]) => {
+            methods.setError(fieldName as keyof WorkflowUpdateForm, {
+              type: "validation",
+              message: error[0] || "Invalid value",
+            })
+          }
+        )
         return
       }
       await onSubmit(result.data)
