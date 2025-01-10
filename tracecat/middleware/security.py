@@ -1,9 +1,10 @@
 """Security headers middleware.
 """
 
+import os
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-import os
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
