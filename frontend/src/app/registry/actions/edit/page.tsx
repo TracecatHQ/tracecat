@@ -112,8 +112,14 @@ function EditTemplateActionView({
 }
 
 const editTemplateActionFormSchema = z.object({
-  origin: z.string(),
-  definition: z.string(),
+  origin: z
+    .string()
+    .min(1, "Origin is required")
+    .max(1000, "Origin cannot exceed 1000 characters"),
+  definition: z
+    .string()
+    .min(1, "Definition is required")
+    .max(50000, "Definition cannot exceed 50,000 characters"),
 })
 
 type EditTemplateActionFormSchema = z.infer<typeof editTemplateActionFormSchema>

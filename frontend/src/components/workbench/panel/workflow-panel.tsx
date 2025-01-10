@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useCallback, useState } from "react"
+import React, { useCallback } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 
 import "@radix-ui/react-dialog"
@@ -18,10 +18,11 @@ import {
   ShapesIcon,
   Undo2Icon,
 } from "lucide-react"
-import { Controller, useForm } from "react-hook-form"
+import { useForm } from "react-hook-form"
 import YAML from "yaml"
 import { z } from "zod"
 
+import { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { isEmptyObjectOrNullish } from "@/lib/utils"
 import {
   Accordion,
@@ -46,67 +47,89 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 
 const workflowUpdateFormSchema = z.object({
-  title: z.string(),
-  description: z.string(),
-  alias: z.string().nullish(),
-  config: z.string().transform((val, ctx) => {
-    try {
-      return YAML.parse(val) || {}
-    } catch (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "Invalid YAML format. Please check workflow definition for errors.",
-      })
-      return z.NEVER
-    }
-  }),
-  static_inputs: z.string().transform((val, ctx) => {
-    try {
-      return YAML.parse(val) || {}
-    } catch (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Invalid YAML format",
-      })
-      return z.NEVER
-    }
-  }),
+  title: z
+    .string()
+    .min(1, { message: "Name is required" })
+    .max(100, { message: "Name cannot exceed 100 characters" }),
+  description: z
+    .string()
+    .max(1000, { message: "Description cannot exceed 1000 characters" })
+    .optional(),
+  alias: z
+    .string()
+    .max(100, { message: "Alias cannot exceed 100 characters" })
+    .nullish(),
+  config: z
+    .string()
+    .max(10000, { message: "Config cannot exceed 10000 characters" })
+    .transform((val, ctx) => {
+      try {
+        return YAML.parse(val) || {}
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Invalid YAML format. Please check workflow definition for errors.",
+        })
+        return z.NEVER
+      }
+    }),
+  static_inputs: z
+    .string()
+    .max(1000, { message: "Static inputs cannot exceed 10000 characters" })
+    .transform((val, ctx) => {
+      try {
+        return YAML.parse(val) || {}
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid YAML format",
+        })
+        return z.NEVER
+      }
+    }),
   /* Input Schema */
-  expects: z.string().transform((val, ctx) => {
-    try {
-      return YAML.parse(val) || {}
-    } catch (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Invalid YAML format",
-      })
-      return z.NEVER
-    }
-  }),
+  expects: z
+    .string()
+    .max(10000, { message: "Input schema cannot exceed 10000 characters" })
+    .transform((val, ctx) => {
+      try {
+        return YAML.parse(val) || {}
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid YAML format",
+        })
+        return z.NEVER
+      }
+    }),
   /* Output Schema */
-  returns: z.string().transform((val, ctx) => {
-    try {
-      return YAML.parse(val) || null
-    } catch (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Invalid YAML format",
-      })
-      return z.NEVER
-    }
-  }),
+  returns: z
+    .string()
+    .max(10000, { message: "Output schema cannot exceed 10000 characters" })
+    .transform((val, ctx) => {
+      try {
+        return YAML.parse(val) || null
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid YAML format",
+        })
+        return z.NEVER
+      }
+    }),
   /* Error Handler */
-  error_handler: z.string().nullish(),
+  error_handler: z
+    .string()
+    .max(100, { message: "Error handler cannot exceed 100 characters" })
+    .nullish(),
 })
 
 type WorkflowUpdateForm = z.infer<typeof workflowUpdateFormSchema>
-
 export function WorkflowPanel({
   workflow,
 }: {
@@ -114,9 +137,6 @@ export function WorkflowPanel({
 }): React.JSX.Element {
   const { workspaceId } = useWorkspace()
   const { workflowId } = useWorkflow()
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "success">(
-    "idle"
-  )
 
   const { updateWorkflow } = useWorkflow()
   const methods = useForm<WorkflowUpdateForm>({
@@ -142,7 +162,6 @@ export function WorkflowPanel({
       error_handler: workflow.error_handler || "",
     },
   })
-  console.log("workflow alias", workflow.alias)
 
   const onSubmit = async (values: WorkflowUpdateForm) => {
     console.log("Saving changes...", values)
@@ -150,12 +169,18 @@ export function WorkflowPanel({
       await updateWorkflow(values)
     } catch (error) {
       if (error instanceof ApiError) {
-        console.error("Error saving changes", error)
-        toast({
-          title: "Error saving changes",
-          description: error.message,
-          variant: "destructive",
+        const apiError = error as TracecatApiError
+        console.error("Application failed to validate action", apiError.body)
+
+        // Set form errors from API validation errors
+        const details = apiError.body.detail as RequestValidationError[]
+        details.forEach((detail) => {
+          methods.setError(detail.loc[1] as keyof WorkflowUpdateForm, {
+            message: detail.msg,
+          })
         })
+      } else {
+        console.error("Validation failed, unknown error", error)
       }
     }
   }
@@ -168,6 +193,15 @@ export function WorkflowPanel({
       const result = await workflowUpdateFormSchema.safeParseAsync(values)
       if (!result.success) {
         console.error("Validation failed:", result.error)
+        // Set form errors with field name and message
+        Object.entries(result.error.formErrors.fieldErrors).forEach(
+          ([fieldName, error]) => {
+            methods.setError(fieldName as keyof WorkflowUpdateForm, {
+              type: "validation",
+              message: error[0] || "Invalid value",
+            })
+          }
+        )
         return
       }
       await onSubmit(result.data)
@@ -231,7 +265,6 @@ export function WorkflowPanel({
                             render={({ field }) => (
                               <FormItem>
                                 <FormLabel className="text-xs">Name</FormLabel>
-
                                 <FormControl>
                                   <Input
                                     className="text-xs"
@@ -469,18 +502,23 @@ export function WorkflowPanel({
                               Define the runtime configuration for the workflow.
                             </span>
                           </div>
-                          <Controller
+                          <FormField
                             name="config"
                             control={methods.control}
                             render={({ field }) => (
-                              <DynamicCustomEditor
-                                className="h-48 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
-                              />
+                              <FormItem>
+                                <FormMessage />
+                                <FormControl>
+                                  <DynamicCustomEditor
+                                    className="h-48 w-full"
+                                    defaultLanguage="yaml-extended"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    workspaceId={workspaceId}
+                                    workflowId={workflowId}
+                                  />
+                                </FormControl>
+                              </FormItem>
                             )}
                           />
                         </div>
@@ -526,18 +564,23 @@ export function WorkflowPanel({
                             If undefined, the workflow will not validate the
                             trigger inputs.
                           </span>
-                          <Controller
+                          <FormField
                             name="expects"
                             control={methods.control}
                             render={({ field }) => (
-                              <DynamicCustomEditor
-                                className="h-48 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
-                              />
+                              <FormItem>
+                                <FormMessage />
+                                <FormControl>
+                                  <DynamicCustomEditor
+                                    className="h-48 w-full"
+                                    defaultLanguage="yaml-extended"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    workspaceId={workspaceId}
+                                    workflowId={workflowId}
+                                  />
+                                </FormControl>
+                              </FormItem>
                             )}
                           />
                         </div>
@@ -576,18 +619,23 @@ export function WorkflowPanel({
                             If undefined, the entire workflow run context is
                             returned.
                           </span>
-                          <Controller
+                          <FormField
                             name="returns"
                             control={methods.control}
                             render={({ field }) => (
-                              <DynamicCustomEditor
-                                className="h-48 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
-                              />
+                              <FormItem>
+                                <FormMessage />
+                                <FormControl>
+                                  <DynamicCustomEditor
+                                    className="h-48 w-full"
+                                    defaultLanguage="yaml-extended"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    workspaceId={workspaceId}
+                                    workflowId={workflowId}
+                                  />
+                                </FormControl>
+                              </FormItem>
                             )}
                           />
                         </div>
@@ -629,18 +677,23 @@ export function WorkflowPanel({
                               Define optional static inputs for the workflow.
                             </span>
                           </div>
-                          <Controller
+                          <FormField
                             name="static_inputs"
                             control={methods.control}
                             render={({ field }) => (
-                              <DynamicCustomEditor
-                                className="h-48 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
-                              />
+                              <FormItem>
+                                <FormControl>
+                                  <DynamicCustomEditor
+                                    className="h-48 w-full"
+                                    defaultLanguage="yaml-extended"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    workspaceId={workspaceId}
+                                    workflowId={workflowId}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
                             )}
                           />
                         </div>

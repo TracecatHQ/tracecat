@@ -11,7 +11,7 @@ import TracecatIcon from "public/icon.png"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { TracecatApiError } from "@/lib/errors"
+import { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -30,6 +30,28 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Icons } from "@/components/icons"
+
+// Move type definition outside the function for reuse
+type EmailLoginValidationError = {
+  code: string
+  reason: string
+}
+
+// Add type guard function
+function isEmailLoginValidationError(
+  detail: EmailLoginValidationError | RequestValidationError[]
+): detail is EmailLoginValidationError {
+  // not an array
+  if (!Array.isArray(detail)) {
+    return false
+  }
+  return (
+    "code" in detail &&
+    "reason" in detail &&
+    typeof detail.code === "string" &&
+    typeof detail.reason === "string"
+  )
+}
 
 export function SignUp({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
@@ -131,22 +153,29 @@ export function BasicRegistrationForm() {
           typeof apiError.body.detail === "object" &&
           apiError.body.detail !== null
         ) {
-          // Handle structured error details
-          // Type assertion to access code and reason properties
-          const detail = apiError.body.detail as {
-            code: string
-            reason: string
-          }
-          switch (detail.code) {
-            case "REGISTER_INVALID_PASSWORD":
-              form.setError("password", {
-                message: detail.reason,
-              })
-              break
-            default:
-              form.setError("email", {
-                message: String(detail.reason || "Unknown error"),
-              })
+          const detail = apiError.body.detail as
+            | EmailLoginValidationError
+            | RequestValidationError[]
+
+          if (isEmailLoginValidationError(detail)) {
+            switch (detail.code) {
+              case "REGISTER_INVALID_PASSWORD":
+                form.setError("password", {
+                  message: detail.reason,
+                })
+                break
+              default:
+                console.error("Unknown email validation error", detail)
+                form.setError("email", {
+                  message: detail.reason,
+                })
+            }
+          } else {
+            // Handle RequestValidationError case
+            console.error("Validation error", detail)
+            form.setError("email", {
+              message: detail[0].msg || "Unknown error",
+            })
           }
         }
       } else {

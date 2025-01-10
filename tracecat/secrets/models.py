@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     SecretStr,
     StringConstraints,
     field_validator,
@@ -87,9 +88,9 @@ class SecretCreate(BaseModel):
     - `oauth2`: OAuth2 Client Credentials (TBC)"""
 
     type: SecretType = SecretType.CUSTOM
-    name: str
-    description: str | None = None
-    keys: list[SecretKeyValue]
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str | None = Field(default=None, min_length=0, max_length=1000)
+    keys: list[SecretKeyValue] = Field(..., min_length=1, max_length=100)
     tags: dict[str, str] | None = None
     environment: str = DEFAULT_SECRETS_ENVIRONMENT
 
@@ -118,12 +119,14 @@ class SecretUpdate(BaseModel):
     - `oauth2`: OAuth2 Client Credentials (TBC)"""
 
     type: SecretType | None = None
-    name: str | None = None
-    description: str | None = None
-    keys: list[SecretKeyValue] | None = None
-    tags: dict[str, str] | None = None
-    environment: str | None = None
-    level: SecretLevel | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, min_length=0, max_length=1000)
+    keys: list[SecretKeyValue] | None = Field(
+        default=None, min_length=1, max_length=100
+    )
+    tags: dict[str, str] | None = Field(default=None, min_length=0, max_length=1000)
+    environment: str | None = Field(default=None, min_length=1, max_length=100)
+    level: SecretLevel | None = Field(default=None, min_length=1, max_length=100)
 
 
 class SecretSearch(BaseModel):

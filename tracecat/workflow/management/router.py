@@ -84,9 +84,9 @@ async def list_workflows(
 async def create_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    title: str | None = Form(None),
-    description: str | None = Form(None),
-    file: UploadFile | None = File(None),
+    title: str | None = Form(default=None, min_length=1, max_length=100),
+    description: str | None = Form(default=None, max_length=1000),
+    file: UploadFile | None = File(default=None),
 ) -> WorkflowReadMinimal:
     """Create a new Workflow.
 

@@ -87,10 +87,14 @@ async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
 # Catch-all exception handler to prevent stack traces from leaking
 def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Improves visiblity of 422 errors."""
-    exc_str = f"{exc}".replace("\n", " ").replace("   ", " ")
-    logger.error(f"{request}: {exc_str}")
+    errors = exc.errors()
+    logger.error(
+        "API Model Validation error",
+        request=request,
+        errors=errors,
+    )
     return ORJSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=exc_str
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": errors}
     )
 
 

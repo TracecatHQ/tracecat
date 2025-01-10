@@ -707,6 +707,9 @@ export type RegistryActionValidateResponse = {
 }
 
 export type RegistryRepositoryCreate = {
+  /**
+   * The origin of the repository
+   */
   origin: string
 }
 
@@ -727,7 +730,13 @@ export type RegistryRepositoryReadMinimal = {
 
 export type RegistryRepositoryUpdate = {
   last_synced_at?: string | null
+  /**
+   * The commit SHA of the repository
+   */
   commit_sha?: string | null
+  /**
+   * The origin of the repository
+   */
   origin?: string | null
 }
 
@@ -954,11 +963,6 @@ export type SecretKeyValue = {
   value: string
 }
 
-/**
- * The level of a secret.
- */
-export type SecretLevel = "workspace" | "organization"
-
 export type SecretRead = {
   id: string
   type: SecretType
@@ -1006,7 +1010,7 @@ export type SecretUpdate = {
     [key: string]: string
   } | null
   environment?: string | null
-  level?: SecretLevel | null
+  level?: tracecat__secrets__enums__SecretLevel__1 | null
 }
 
 export type SessionRead = {
@@ -1016,19 +1020,37 @@ export type SessionRead = {
   user_email: string
 }
 
+/**
+ * Model for creating new tags with validation.
+ */
 export type TagCreate = {
   name: string
+  /**
+   * Hex color code
+   */
   color?: string | null
 }
 
+/**
+ * Model for reading tag data with validation.
+ */
 export type TagRead = {
   id: string
   name: string
+  /**
+   * Hex color code
+   */
   color?: string | null
 }
 
+/**
+ * Model for updating existing tags with validation.
+ */
 export type TagUpdate = {
   name?: string | null
+  /**
+   * Hex color code
+   */
   color?: string | null
 }
 
@@ -1328,7 +1350,13 @@ export type WorkflowTagCreate = {
 }
 
 export type WorkflowUpdate = {
+  /**
+   * Workflow title, between 3 and 100 characters
+   */
   title?: string | null
+  /**
+   * Optional workflow description, up to 1000 characters
+   */
   description?: string | null
   status?: "online" | "offline" | null
   object?: {
@@ -1387,6 +1415,16 @@ export type login = {
   client_id?: string | null
   client_secret?: string | null
 }
+
+/**
+ * The level of a secret.
+ */
+export type tracecat__secrets__enums__SecretLevel__1 =
+  | "workspace"
+  | "organization"
+
+export type tracecat__secrets__enums__SecretLevel__2 =
+  tracecat__secrets__enums__SecretLevel__1
 
 export type PublicIncomingWebhookData = {
   contentType?: string | null
@@ -1682,7 +1720,7 @@ export type SecretsSearchSecretsData = {
   /**
    * Filter by secret level
    */
-  level?: Array<SecretLevel> | null
+  level?: Array<tracecat__secrets__enums__SecretLevel__1> | null
   /**
    * Filter by secret name
    */
@@ -1700,7 +1738,7 @@ export type SecretsListSecretsData = {
   /**
    * Filter by secret level
    */
-  level?: SecretLevel | null
+  level?: tracecat__secrets__enums__SecretLevel__1 | null
   /**
    * Filter by secret type
    */

@@ -53,8 +53,17 @@ class WorkflowReadMinimal(BaseModel):
 
 
 class WorkflowUpdate(BaseModel):
-    title: str | None = None
-    description: str | None = None
+    title: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=100,
+        description="Workflow title, between 3 and 100 characters",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Optional workflow description, up to 1000 characters",
+    )
     status: Literal["online", "offline"] | None = None
     object: dict[str, Any] | None = None
     version: int | None = None
@@ -69,8 +78,17 @@ class WorkflowUpdate(BaseModel):
 
 
 class WorkflowCreate(BaseModel):
-    title: str | None = None
-    description: str | None = None
+    title: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=100,
+        description="Workflow title, between 3 and 100 characters",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Optional workflow description, up to 1000 characters",
+    )
 
 
 class GetWorkflowDefinitionActivityInputs(BaseModel):
