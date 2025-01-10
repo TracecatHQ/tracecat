@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import traceback
-from tracecat.config import TRACECAT__APP_ENV
 
 from pydantic import UUID4, BaseModel
+
+from tracecat.config import TRACECAT__APP_ENV
 
 
 class ExecutorSyncInput(BaseModel):
