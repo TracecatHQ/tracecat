@@ -84,10 +84,6 @@ export function WorkflowExecutionEventDetailView({
             <AccordionContent>
               <div className="my-4 flex flex-col space-y-8 px-4">
                 <CodeBlock title="Message">{event.failure.message}</CodeBlock>
-                <CodeBlock title="Stack Trace">
-                  {event.failure.stack_trace}
-                </CodeBlock>
-                <JsonViewWithControls src={event.failure} />
               </div>
             </AccordionContent>
           </AccordionItem>
