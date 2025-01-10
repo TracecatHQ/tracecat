@@ -59,56 +59,74 @@ const workflowUpdateFormSchema = z.object({
     .string()
     .max(1000, { message: "Description cannot exceed 1000 characters" })
     .optional(),
-  alias: z.string().nullish(),
-  config: z.string().transform((val, ctx) => {
-    try {
-      return YAML.parse(val) || {}
-    } catch (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "Invalid YAML format. Please check workflow definition for errors.",
-      })
-      return z.NEVER
-    }
-  }),
-  static_inputs: z.string().transform((val, ctx) => {
-    try {
-      return YAML.parse(val) || {}
-    } catch (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Invalid YAML format",
-      })
-      return z.NEVER
-    }
-  }),
+  alias: z
+    .string()
+    .max(100, { message: "Alias cannot exceed 100 characters" })
+    .nullish(),
+  config: z
+    .string()
+    .max(10000, { message: "Config cannot exceed 10000 characters" })
+    .transform((val, ctx) => {
+      try {
+        return YAML.parse(val) || {}
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Invalid YAML format. Please check workflow definition for errors.",
+        })
+        return z.NEVER
+      }
+    }),
+  static_inputs: z
+    .string()
+    .max(10000, { message: "Static inputs cannot exceed 10000 characters" })
+    .transform((val, ctx) => {
+      try {
+        return YAML.parse(val) || {}
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid YAML format",
+        })
+        return z.NEVER
+      }
+    }),
   /* Input Schema */
-  expects: z.string().transform((val, ctx) => {
-    try {
-      return YAML.parse(val) || {}
-    } catch (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Invalid YAML format",
-      })
-      return z.NEVER
-    }
-  }),
+  expects: z
+    .string()
+    .max(10000, { message: "Input schema cannot exceed 10000 characters" })
+    .transform((val, ctx) => {
+      try {
+        return YAML.parse(val) || {}
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid YAML format",
+        })
+        return z.NEVER
+      }
+    }),
   /* Output Schema */
-  returns: z.string().transform((val, ctx) => {
-    try {
-      return YAML.parse(val) || null
-    } catch (error) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Invalid YAML format",
-      })
-      return z.NEVER
-    }
-  }),
+  returns: z
+    .string()
+    .max(10000, { message: "Output schema cannot exceed 10000 characters" })
+    .transform((val, ctx) => {
+      try {
+        return YAML.parse(val) || null
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid YAML format",
+        })
+        return z.NEVER
+      }
+    }),
   /* Error Handler */
-  error_handler: z.string().nullish(),
+  error_handler: z
+    .string()
+    .max(100, { message: "Error handler cannot exceed 100 characters" })
+    .nullish(),
 })
 
 type WorkflowUpdateForm = z.infer<typeof workflowUpdateFormSchema>
@@ -148,7 +166,6 @@ export function WorkflowPanel({
       error_handler: workflow.error_handler || "",
     },
   })
-  console.log("workflow alias", workflow.alias)
 
   const onSubmit = async (values: WorkflowUpdateForm) => {
     console.log("Saving changes...", values)
