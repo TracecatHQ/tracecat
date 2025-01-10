@@ -78,7 +78,8 @@ class WorkflowUpdate(BaseModel):
 
 
 class WorkflowCreate(BaseModel):
-    title: str = Field(
+    title: str | None = Field(
+        default=None,
         min_length=3,
         max_length=100,
         description="Workflow title, between 3 and 100 characters",
