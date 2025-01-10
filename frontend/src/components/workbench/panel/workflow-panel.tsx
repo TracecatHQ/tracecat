@@ -183,11 +183,11 @@ export function WorkflowPanel({
             onSubmit={methods.handleSubmit(onSubmit)}
             className="flex flex-col overflow-auto"
           >
-            <div className="min-w-[30rem] w-full">
+            <div className="w-full min-w-[30rem]">
               <div className="mt-2 flex items-center justify-start">
                 <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
-                    className="h-full min-w-28 flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="flex h-full min-w-28 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="workflow-settings"
                   >
                     <LayoutListIcon className="mr-2 size-4" />
@@ -270,7 +270,10 @@ export function WorkflowPanel({
                                 <div className="flex items-center gap-2">
                                   <FormLabel className="flex items-center text-xs">
                                     <HoverCard openDelay={100} closeDelay={100}>
-                                      <HoverCardTrigger asChild className="hover:border-none">
+                                      <HoverCardTrigger
+                                        asChild
+                                        className="hover:border-none"
+                                      >
                                         <Info className="mr-1 size-3 stroke-muted-foreground" />
                                       </HoverCardTrigger>
                                       <HoverCardContent
@@ -280,11 +283,17 @@ export function WorkflowPanel({
                                       >
                                         <div className="w-full space-y-4">
                                           <div className="flex w-full items-center justify-between text-muted-foreground">
-                                            <span className="font-mono text-sm font-semibold">Error handler workflow</span>
-                                            <span className="text-xs text-muted-foreground/80">(optional)</span>
+                                            <span className="font-mono text-sm font-semibold">
+                                              Error handler workflow
+                                            </span>
+                                            <span className="text-xs text-muted-foreground/80">
+                                              (optional)
+                                            </span>
                                           </div>
                                           <span className="text-muted-foreground">
-                                            The ID or alias of another workflow to run when this workflow encounters an error.
+                                            The ID or alias of another workflow
+                                            to run when this workflow encounters
+                                            an error.
                                           </span>
                                         </div>
                                       </HoverCardContent>
@@ -319,7 +328,10 @@ export function WorkflowPanel({
                                 <div className="flex items-center gap-2">
                                   <FormLabel className="flex items-center text-xs">
                                     <HoverCard openDelay={100} closeDelay={100}>
-                                      <HoverCardTrigger asChild className="hover:border-none">
+                                      <HoverCardTrigger
+                                        asChild
+                                        className="hover:border-none"
+                                      >
                                         <Info className="mr-1 size-3 stroke-muted-foreground" />
                                       </HoverCardTrigger>
                                       <HoverCardContent
@@ -329,12 +341,18 @@ export function WorkflowPanel({
                                       >
                                         <div className="w-full space-y-4">
                                           <div className="flex w-full items-center justify-between text-muted-foreground">
-                                            <span className="font-mono text-sm font-semibold">Workflow alias</span>
-                                            <span className="text-xs text-muted-foreground/80">(optional)</span>
+                                            <span className="font-mono text-sm font-semibold">
+                                              Workflow alias
+                                            </span>
+                                            <span className="text-xs text-muted-foreground/80">
+                                              (optional)
+                                            </span>
                                           </div>
                                           <span className="text-muted-foreground">
-                                            A unique identifier for the workflow that can be used instead of the workflow ID.
-                                            Must be unique within your workspace.
+                                            A unique identifier for the workflow
+                                            that can be used instead of the
+                                            workflow ID. Must be unique within
+                                            your workspace.
                                           </span>
                                         </div>
                                       </HoverCardContent>
@@ -437,9 +455,9 @@ export function WorkflowPanel({
                                         <b>timeout</b>
                                         {": float"}
                                         <p className="text-muted-foreground">
-                                          # The maximum number of seconds to wait
-                                          for the workflow to complete. Defaults to
-                                          300 seconds (5 minutes).
+                                          # The maximum number of seconds to
+                                          wait for the workflow to complete.
+                                          Defaults to 300 seconds (5 minutes).
                                         </p>
                                       </div>
                                     </pre>
@@ -505,8 +523,8 @@ export function WorkflowPanel({
                             </span>
                           </div>
                           <span className="text-xs text-muted-foreground">
-                            If undefined, the workflow will not validate the trigger
-                            inputs.
+                            If undefined, the workflow will not validate the
+                            trigger inputs.
                           </span>
                           <Controller
                             name="expects"

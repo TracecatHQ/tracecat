@@ -14,9 +14,9 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
   DownloadIcon,
-  SaveIcon,
   MoreHorizontal,
   PlayIcon,
+  SaveIcon,
   SquarePlay,
   Trash2Icon,
   WorkflowIcon,
@@ -205,7 +205,8 @@ export function WorkbenchNav() {
               ) : (
                 <div className="p-2">
                   <span>
-                    Save workflow v{(workflow.version || 0) + 1}{" "} with your changes.
+                    Save workflow v{(workflow.version || 0) + 1} with your
+                    changes.
                   </span>
                 </div>
               )}

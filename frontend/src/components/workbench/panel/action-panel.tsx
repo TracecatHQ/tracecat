@@ -3,6 +3,7 @@
 import "react18-json-view/src/style.css"
 
 import React, { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
 import {
   ActionControlFlow,
   ActionUpdate,
@@ -26,8 +27,8 @@ import {
   RotateCcwIcon,
   SaveIcon,
   SettingsIcon,
-  SplitIcon,
   ShapesIcon,
+  SplitIcon,
   SquareFunctionIcon,
   ToyBrickIcon,
 } from "lucide-react"
@@ -42,6 +43,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { Button } from "@/components/ui/button"
 import {
   FormControl,
   FormField,
@@ -84,8 +86,6 @@ import {
   RetryPolicyTooltip,
   RunIfTooltip,
 } from "@/components/workbench/panel/action-panel-tooltips"
-import { Button } from "@/components/ui/button"
-import Link from "next/link"
 
 // These are YAML strings
 type ActionFormSchema = {
@@ -297,103 +297,114 @@ export function ActionPanel({
   const ActionIcon = typeToLabel[registryAction.type].icon
   return (
     <div onBlur={onPanelBlur}>
-      <Tabs defaultValue="inputs" value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs
+        defaultValue="inputs"
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="w-full"
+      >
         <FormProvider {...methods}>
           <form onSubmit={methods.handleSubmit(onSubmit)}>
             <div className="relative">
               <h3 className="p-4 py-6">
                 <div className="flex w-full items-start space-x-4">
                   <div className="flex-col">
-                  {getIcon(registryAction.action, {
-                    className: "size-10 p-2",
-                    flairsize: "md",
-                  })}
-                </div>
-                <div className="flex w-full flex-1 justify-between space-x-12">
-                  <div className="flex flex-col">
-                    <div className="flex w-full items-center justify-between text-xs font-medium leading-none">
-                      <div className="flex w-full">{action.title}</div>
-                    </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {action.description || (
-                        <span className="italic">No description</span>
-                      )}
-                    </p>
-                    <div className="mt-2 hover:cursor-default">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                            <ActionIcon className="mr-1 size-3 stroke-2" />
-                            <span>
-                              {typeToLabel[registryAction.type].label}
-                            </span>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent side="left" sideOffset={10}>
-                          Action type
-                        </TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                            <Database className="mr-1 size-3 stroke-2" />
-                            <span>{registryAction.origin}</span>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent side="left" sideOffset={10}>
-                          Origin
-                        </TooltipContent>
-                      </Tooltip>
-                      {registryAction.doc_url && (
+                    {getIcon(registryAction.action, {
+                      className: "size-10 p-2",
+                      flairsize: "md",
+                    })}
+                  </div>
+                  <div className="flex w-full flex-1 justify-between space-x-12">
+                    <div className="flex flex-col">
+                      <div className="flex w-full items-center justify-between text-xs font-medium leading-none">
+                        <div className="flex w-full">{action.title}</div>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {action.description || (
+                          <span className="italic">No description</span>
+                        )}
+                      </p>
+                      <div className="mt-2 hover:cursor-default">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                              <LinkIcon className="mr-1 size-3 stroke-2" />
-                              <Button
-                                variant="link"
-                                asChild
-                                className="h-auto p-0 text-xs text-muted-foreground"
-                              >
-                                <Link href={registryAction.doc_url} target="_blank">
-                                  {registryAction.doc_url.length > 32
-                                    ? registryAction.doc_url.substring(0, 32) + "..."
-                                    : registryAction.doc_url}
-                                </Link>
-                              </Button>
+                              <ActionIcon className="mr-1 size-3 stroke-2" />
+                              <span>
+                                {typeToLabel[registryAction.type].label}
+                              </span>
                             </div>
                           </TooltipTrigger>
                           <TooltipContent side="left" sideOffset={10}>
-                            Link to docs
+                            Action type
                           </TooltipContent>
                         </Tooltip>
-                      )}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="mt-2 flex items-center text-xs text-muted-foreground">
+                              <Database className="mr-1 size-3 stroke-2" />
+                              <span>{registryAction.origin}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="left" sideOffset={10}>
+                            Origin
+                          </TooltipContent>
+                        </Tooltip>
+                        {registryAction.doc_url && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="mt-2 flex items-center text-xs text-muted-foreground">
+                                <LinkIcon className="mr-1 size-3 stroke-2" />
+                                <Button
+                                  variant="link"
+                                  asChild
+                                  className="h-auto p-0 text-xs text-muted-foreground"
+                                >
+                                  <Link
+                                    href={registryAction.doc_url}
+                                    target="_blank"
+                                  >
+                                    {registryAction.doc_url.length > 32
+                                      ? registryAction.doc_url.substring(
+                                          0,
+                                          32
+                                        ) + "..."
+                                      : registryAction.doc_url}
+                                  </Link>
+                                </Button>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="left" sideOffset={10}>
+                              Link to docs
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-              <SaveStateIcon saveState={saveState} />
+                <SaveStateIcon saveState={saveState} />
               </h3>
             </div>
 
-            <div className="min-w-[30rem] w-full">
+            <div className="w-full min-w-[30rem]">
               <div className="flex items-center justify-start">
                 <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
-                    className="h-full min-w-24 flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="inputs"
                   >
                     <LayoutListIcon className="mr-2 size-4" />
                     <span>Inputs</span>
                   </TabsTrigger>
                   <TabsTrigger
-                    className="h-full min-w-24 flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="control-flow"
                   >
                     <SplitIcon className="mr-2 size-4" />
                     <span>If-condition / Loops</span>
                   </TabsTrigger>
                   <TabsTrigger
-                    className="h-full min-w-24 flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="retry-policy"
                   >
                     <RotateCcwIcon className="mr-2 size-4" />
@@ -401,7 +412,7 @@ export function ActionPanel({
                   </TabsTrigger>
                   {registryAction.is_template && (
                     <TabsTrigger
-                      className="h-full min-w-24 flex items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                      className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                       value="template-inputs"
                     >
                       <FileTextIcon className="mr-2 size-4" />
@@ -506,13 +517,22 @@ export function ActionPanel({
                               <Table>
                                 <TableHeader>
                                   <TableRow className="h-6  text-xs capitalize">
-                                    <TableHead className="font-bold" colSpan={1}>
+                                    <TableHead
+                                      className="font-bold"
+                                      colSpan={1}
+                                    >
                                       Secret Name
                                     </TableHead>
-                                    <TableHead className="font-bold" colSpan={1}>
+                                    <TableHead
+                                      className="font-bold"
+                                      colSpan={1}
+                                    >
                                       Required Keys
                                     </TableHead>
-                                    <TableHead className="font-bold" colSpan={1}>
+                                    <TableHead
+                                      className="font-bold"
+                                      colSpan={1}
+                                    >
                                       Optional Keys
                                     </TableHead>
                                   </TableRow>
@@ -528,7 +548,8 @@ export function ActionPanel({
                                         {secret.keys?.join(", ") || "-"}
                                       </TableCell>
                                       <TableCell>
-                                        {secret.optional_keys?.join(", ") || "-"}
+                                        {secret.optional_keys?.join(", ") ||
+                                          "-"}
                                       </TableCell>
                                     </TableRow>
                                   ))}
@@ -595,7 +616,9 @@ export function ActionPanel({
                           />
                           {!!finalValErrors && finalValErrors.length > 0 && (
                             <div className="rounded-md border border-rose-400 bg-rose-100 p-4 font-mono text-xs text-rose-500">
-                              <span className="font-bold">Validation Errors</span>
+                              <span className="font-bold">
+                                Validation Errors
+                              </span>
                               <Separator className="my-2 bg-rose-400" />
                               {finalValErrors.map((error, index) => (
                                 <div key={index} className="mb-4">
@@ -647,7 +670,8 @@ export function ActionPanel({
                             </HoverCard>
 
                             <span className="text-xs text-muted-foreground">
-                              Define a conditional expression that determines if the action executes.
+                              Define a conditional expression that determines if
+                              the action executes.
                             </span>
                           </div>
 
@@ -688,7 +712,8 @@ export function ActionPanel({
                             </HoverCard>
 
                             <span className="text-xs text-muted-foreground">
-                              Define one or more loop expressions for the action to iterate over.
+                              Define one or more loop expressions for the action
+                              to iterate over.
                             </span>
                           </div>
 
@@ -730,7 +755,8 @@ export function ActionPanel({
                             </HoverCard>
 
                             <span className="text-xs text-muted-foreground">
-                              Define additional control flow options for the action.
+                              Define additional control flow options for the
+                              action.
                             </span>
                           </div>
                           <Controller
@@ -834,9 +860,12 @@ export function ActionPanel({
                             <DynamicCustomEditor
                               className="min-h-[30rem] w-full resize-y overflow-auto"
                               value={YAML.stringify(
-                                'type' in registryAction.implementation &&
-                                registryAction.implementation.type === 'template' ?
-                                registryAction.implementation.template_action : {},
+                                "type" in registryAction.implementation &&
+                                  registryAction.implementation.type ===
+                                    "template"
+                                  ? registryAction.implementation
+                                      .template_action
+                                  : {},
                                 null,
                                 2
                               )}
@@ -846,7 +875,7 @@ export function ActionPanel({
                                 minimap: {
                                   enabled: false,
                                 },
-                                fontSize: 11
+                                fontSize: 11,
                               }}
                             />
                           </div>

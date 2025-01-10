@@ -5,12 +5,12 @@ Revises: f2e840c9fb2c
 Create Date: 2025-01-06 20:10:46.871277
 
 """
+from collections.abc import Sequence
+
+import sqlalchemy as sa
 import sqlmodel.sql.sqltypes
-from typing import Sequence
 
 from alembic import op
-import sqlalchemy as sa
-
 
 # revision identifiers, used by Alembic.
 revision: str = '9194fb66b4ea'

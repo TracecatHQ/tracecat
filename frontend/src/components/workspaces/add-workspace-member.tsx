@@ -66,7 +66,8 @@ export function AddWorkspaceMember({
       }
       toast({
         title: "Couldn't find a user with this email. ",
-        description: "Users must first sign-up via email/password or OAuth2.0 before getting invited to a workspace.",
+        description:
+          "Users must first sign-up via email/password or OAuth2.0 before getting invited to a workspace.",
       })
       return
     }
