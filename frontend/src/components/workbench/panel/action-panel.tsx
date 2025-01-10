@@ -5,15 +5,14 @@ import "react18-json-view/src/style.css"
 import React, { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import {
-  ActionControlFlow,
   ActionUpdate,
   ApiError,
-  JoinStrategy,
   RegistryActionRead,
   RegistryActionValidateResponse,
 } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
+import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
   CircleCheckIcon,
@@ -34,6 +33,7 @@ import {
 } from "lucide-react"
 import { FormProvider, useForm } from "react-hook-form"
 import YAML from "yaml"
+import { z } from "zod"
 
 import { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useWorkbenchRegistryActions } from "@/lib/hooks"
@@ -89,21 +89,39 @@ import {
 } from "@/components/workbench/panel/action-panel-tooltips"
 
 // These are YAML strings
-type ActionFormSchema = {
-  title?: string
-  description?: string
-  inputs?: string
-  control_flow: {
-    for_each?: string
-    run_if?: string
-    retry_policy?: string
-    options?: string
-  }
-}
-type ControlFlowOptions = {
-  start_delay?: number
-  join_strategy?: JoinStrategy
-}
+const actionFormSchema = z.object({
+  title: z
+    .string()
+    .max(100, "Title must be less than 100 characters")
+    .optional(),
+  description: z
+    .string()
+    .max(500, "Description must be less than 500 characters")
+    .optional(),
+  inputs: z
+    .string()
+    .max(10000, "Inputs must be less than 10000 characters")
+    .optional(),
+  control_flow: z.object({
+    for_each: z
+      .string()
+      .max(1000, "For each must be less than 1000 characters")
+      .optional(),
+    run_if: z
+      .string()
+      .max(1000, "Run if must be less than 1000 characters")
+      .optional(),
+    retry_policy: z
+      .string()
+      .max(1000, "Retry policy must be less than 1000 characters")
+      .optional(),
+    options: z
+      .string()
+      .max(1000, "Options must be less than 1000 characters")
+      .optional(),
+  }),
+})
+type ActionFormSchema = z.infer<typeof actionFormSchema>
 
 const typeToLabel: Record<
   RegistryActionRead["type"],
@@ -154,6 +172,7 @@ export function ActionPanel({
   const { for_each, run_if, retry_policy, ...options } =
     action?.control_flow ?? {}
   const methods = useForm<ActionFormSchema>({
+    resolver: zodResolver(actionFormSchema),
     values: {
       title: action?.title,
       description: action?.description,
