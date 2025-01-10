@@ -102,8 +102,6 @@ import type {
   SettingsGetGitSettingsResponse,
   SettingsGetOauthSettingsResponse,
   SettingsGetSamlSettingsResponse,
-  SettingsListSettingsData,
-  SettingsListSettingsResponse,
   SettingsUpdateAuthSettingsData,
   SettingsUpdateAuthSettingsResponse,
   SettingsUpdateGitSettingsData,
@@ -2258,29 +2256,6 @@ export const settingsUpdateOauthSettings = (
     url: "/settings/oauth",
     body: data.requestBody,
     mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Settings
- * List organization settings with optional filters.
- * @param data The data for the request.
- * @param data.key
- * @returns SettingRead Successful Response
- * @throws ApiError
- */
-export const settingsListSettings = (
-  data: SettingsListSettingsData = {}
-): CancelablePromise<SettingsListSettingsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/settings",
-    query: {
-      key: data.key,
-    },
     errors: {
       422: "Validation Error",
     },

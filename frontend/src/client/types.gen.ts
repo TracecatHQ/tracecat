@@ -817,7 +817,7 @@ export type SAMLSettingsRead = {
   saml_enabled: boolean
   saml_enforced: boolean
   saml_idp_metadata_url?: string | null
-  saml_sp_acs_url?: string | null
+  saml_sp_acs_url: string
 }
 
 export type SAMLSettingsUpdate = {
@@ -830,7 +830,6 @@ export type SAMLSettingsUpdate = {
    */
   saml_enforced?: boolean
   saml_idp_metadata_url?: string | null
-  saml_sp_acs_url?: string | null
 }
 
 export type Schedule = {
@@ -1017,12 +1016,6 @@ export type SessionRead = {
   user_email: string
 }
 
-export type SettingRead = {
-  key: string
-  value_type: ValueType
-  value: unknown
-}
-
 export type TagCreate = {
   name: string
   color?: string | null
@@ -1176,8 +1169,6 @@ export type ValidationError = {
   msg: string
   type: string
 }
-
-export type ValueType = "json"
 
 export type WebhookResponse = {
   owner_id: string
@@ -1973,12 +1964,6 @@ export type SettingsUpdateOauthSettingsData = {
 }
 
 export type SettingsUpdateOauthSettingsResponse = void
-
-export type SettingsListSettingsData = {
-  key?: Array<string> | null
-}
-
-export type SettingsListSettingsResponse = Array<SettingRead>
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -3206,21 +3191,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/settings": {
-    get: {
-      req: SettingsListSettingsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<SettingRead>
         /**
          * Validation Error
          */

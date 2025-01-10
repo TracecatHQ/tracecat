@@ -397,7 +397,6 @@ export const $AuthSettingsUpdate = {
         type: "string",
       },
       type: "array",
-      uniqueItems: true,
       title: "Auth Allowed Email Domains",
       description:
         "Allowed email domains for authentication. If empty, all domains are allowed.",
@@ -2412,19 +2411,12 @@ export const $SAMLSettingsRead = {
       title: "Saml Idp Metadata Url",
     },
     saml_sp_acs_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
       title: "Saml Sp Acs Url",
     },
   },
   type: "object",
-  required: ["saml_enabled", "saml_enforced"],
+  required: ["saml_enabled", "saml_enforced", "saml_sp_acs_url"],
   title: "SAMLSettingsRead",
 } as const
 
@@ -2453,17 +2445,6 @@ export const $SAMLSettingsUpdate = {
         },
       ],
       title: "Saml Idp Metadata Url",
-    },
-    saml_sp_acs_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Saml Sp Acs Url",
     },
   },
   type: "object",
@@ -3173,24 +3154,6 @@ export const $SessionRead = {
   title: "SessionRead",
 } as const
 
-export const $SettingRead = {
-  properties: {
-    key: {
-      type: "string",
-      title: "Key",
-    },
-    value_type: {
-      $ref: "#/components/schemas/ValueType",
-    },
-    value: {
-      title: "Value",
-    },
-  },
-  type: "object",
-  required: ["key", "value_type", "value"],
-  title: "SettingRead",
-} as const
-
 export const $TagCreate = {
   properties: {
     name: {
@@ -3817,12 +3780,6 @@ export const $ValidationError = {
   type: "object",
   required: ["loc", "msg", "type"],
   title: "ValidationError",
-} as const
-
-export const $ValueType = {
-  type: "string",
-  const: "json",
-  title: "ValueType",
 } as const
 
 export const $WebhookResponse = {
