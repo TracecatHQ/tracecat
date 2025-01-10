@@ -32,7 +32,7 @@ import {
   SquareFunctionIcon,
   ToyBrickIcon,
 } from "lucide-react"
-import { Controller, FormProvider, useForm } from "react-hook-form"
+import { FormProvider, useForm } from "react-hook-form"
 import YAML from "yaml"
 
 import { RequestValidationError, TracecatApiError } from "@/lib/errors"
@@ -600,23 +600,29 @@ export function ActionPanel({
                           <span className="text-xs text-muted-foreground">
                             Define action inputs in YAML below.
                           </span>
-                          <Controller
+                          <FormField
                             name="inputs"
                             control={methods.control}
                             render={({ field }) => (
-                              <DynamicCustomEditor
-                                className="min-h-[40rem] w-full resize-y overflow-auto"
-                                value={field.value}
-                                onChange={field.onChange}
-                                defaultLanguage="yaml-extended"
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
-                                options={{
-                                  scrollbar: {
-                                    handleMouseWheel: false,
-                                  },
-                                }}
-                              />
+                              <FormItem>
+                                {/* Place form message above because it's not visible otherwise */}
+                                <FormMessage />
+                                <FormControl>
+                                  <DynamicCustomEditor
+                                    className="min-h-[40rem] w-full resize-y overflow-auto"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    defaultLanguage="yaml-extended"
+                                    workspaceId={workspaceId}
+                                    workflowId={workflowId}
+                                    options={{
+                                      scrollbar: {
+                                        handleMouseWheel: false,
+                                      },
+                                    }}
+                                  />
+                                </FormControl>
+                              </FormItem>
                             )}
                           />
                           {!!finalValErrors && finalValErrors.length > 0 && (
@@ -679,18 +685,22 @@ export function ActionPanel({
                               the action executes.
                             </span>
                           </div>
-
-                          <Controller
+                          <FormField
                             name="control_flow.run_if"
                             control={methods.control}
                             render={({ field }) => (
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                              />
+                              <FormItem>
+                                <FormControl>
+                                  <DynamicCustomEditor
+                                    className="h-24 w-full"
+                                    defaultLanguage="yaml-extended"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    workspaceId={workspaceId}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
                             )}
                           />
                         </div>
@@ -721,19 +731,23 @@ export function ActionPanel({
                               to iterate over.
                             </span>
                           </div>
-
-                          <Controller
+                          <FormField
                             name="control_flow.for_each"
                             control={methods.control}
                             render={({ field }) => (
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
-                              />
+                              <FormItem>
+                                <FormControl>
+                                  <DynamicCustomEditor
+                                    className="h-24 w-full"
+                                    defaultLanguage="yaml-extended"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    workspaceId={workspaceId}
+                                    workflowId={workflowId}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
                             )}
                           />
                         </div>
@@ -764,18 +778,23 @@ export function ActionPanel({
                               action.
                             </span>
                           </div>
-                          <Controller
+                          <FormField
                             name="control_flow.options"
                             control={methods.control}
                             render={({ field }) => (
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
-                              />
+                              <FormItem>
+                                <FormControl>
+                                  <DynamicCustomEditor
+                                    className="h-24 w-full"
+                                    defaultLanguage="yaml-extended"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    workspaceId={workspaceId}
+                                    workflowId={workflowId}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
                             )}
                           />
                         </div>
@@ -823,18 +842,23 @@ export function ActionPanel({
                               Define the retry policy for the action.
                             </span>
                           </div>
-                          <Controller
+                          <FormField
                             name="control_flow.retry_policy"
                             control={methods.control}
                             render={({ field }) => (
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
-                              />
+                              <FormItem>
+                                <FormControl>
+                                  <DynamicCustomEditor
+                                    className="h-24 w-full"
+                                    defaultLanguage="yaml-extended"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    workspaceId={workspaceId}
+                                    workflowId={workflowId}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
                             )}
                           />
                         </div>
