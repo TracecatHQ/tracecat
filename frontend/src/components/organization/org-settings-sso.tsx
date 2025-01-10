@@ -59,7 +59,6 @@ export function OrgSettingsSsoForm() {
       await updateSamlSettings({
         requestBody: {
           saml_idp_metadata_url: data.saml_idp_metadata_url,
-          saml_sp_acs_url: data.saml_sp_acs_url,
           ...conditional,
         },
       })
