@@ -43,6 +43,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -55,6 +56,7 @@ const createTagSchema = z.object({
   name: z
     .string()
     .min(1, "Tag name cannot be empty")
+    .max(50, "Tag name cannot be longer than 50 characters")
     .trim()
     .refine(
       (name) => name.trim().length > 0,
@@ -92,7 +94,6 @@ export function WorkflowTagsSidebar({ workspaceId }: { workspaceId: string }) {
         return
       }
 
-      console.log("createTag", params)
       await createTag({
         workspaceId: workspaceId,
         requestBody: params,
@@ -169,6 +170,9 @@ export function WorkflowTagsSidebar({ workspaceId }: { workspaceId: string }) {
                         {...methods.register("name")}
                       />
                     </FormControl>
+                    <FormDescription>
+                      Max 50 alphanumeric characters
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -216,6 +220,23 @@ enum TagItemAction {
   Delete = "delete",
 }
 
+const updateTagSchema = z.object({
+  name: z
+    .string()
+    .min(1, "Tag name cannot be empty")
+    .max(50, "Tag name cannot be longer than 50 characters")
+    .trim()
+    .refine(
+      (name) => name.trim().length > 0,
+      "Tag name cannot be only whitespace"
+    )
+    .optional(),
+  color: z
+    .string()
+    .regex(/^#[0-9A-Fa-f]{6}$/, "Color must be a valid hex color code")
+    .optional(),
+})
+
 function TagItemActionDialogContent({
   action,
   tag,
@@ -227,6 +248,7 @@ function TagItemActionDialogContent({
   const { workspaceId } = useWorkspace()
   const { updateTag, deleteTag } = useTags(workspaceId)
   const methods = useForm<TagUpdate>({
+    resolver: zodResolver(updateTagSchema),
     defaultValues: {
       name: tag.name,
       color: tag.color || "#aabbcc",
@@ -316,6 +338,9 @@ function TagItemActionDialogContent({
                           value={field.value ?? ""}
                         />
                       </FormControl>
+                      <FormDescription>
+                        Max 50 alphanumeric characters
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
