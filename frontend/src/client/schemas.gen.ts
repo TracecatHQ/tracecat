@@ -13,6 +13,7 @@ export const $ActionControlFlow = {
       anyOf: [
         {
           type: "string",
+          maxLength: 1000,
         },
         {
           type: "null",
@@ -23,13 +24,18 @@ export const $ActionControlFlow = {
     for_each: {
       anyOf: [
         {
-          type: "string",
-        },
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
+          anyOf: [
+            {
+              type: "string",
+            },
+            {
+              items: {
+                type: "string",
+              },
+              type: "array",
+            },
+          ],
+          maxLength: 1000,
         },
         {
           type: "null",
@@ -63,6 +69,7 @@ export const $ActionCreate = {
   properties: {
     workflow_id: {
       type: "string",
+      pattern: "wf-[0-9a-f]{32}",
       title: "Workflow Id",
     },
     type: {
@@ -71,6 +78,8 @@ export const $ActionCreate = {
     },
     title: {
       type: "string",
+      maxLength: 100,
+      minLength: 1,
       title: "Title",
     },
   },
@@ -83,6 +92,7 @@ export const $ActionRead = {
   properties: {
     id: {
       type: "string",
+      pattern: "act-[0-9a-f]{32}",
       title: "Id",
     },
     type: {
@@ -118,10 +128,12 @@ export const $ActionReadMinimal = {
   properties: {
     id: {
       type: "string",
+      pattern: "act-[0-9a-f]{32}",
       title: "Id",
     },
     workflow_id: {
       type: "string",
+      pattern: "wf-[0-9a-f]{32}",
       title: "Workflow Id",
     },
     type: {
@@ -286,6 +298,8 @@ export const $ActionUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -297,6 +311,7 @@ export const $ActionUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 1000,
         },
         {
           type: "null",
@@ -338,6 +353,7 @@ export const $ActionUpdate = {
     },
   },
   type: "object",
+  required: ["title", "description"],
   title: "ActionUpdate",
 } as const
 
@@ -490,6 +506,8 @@ export const $Body_workflows_create_workflow = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -501,6 +519,7 @@ export const $Body_workflows_create_workflow = {
       anyOf: [
         {
           type: "string",
+          maxLength: 1000,
         },
         {
           type: "null",
@@ -586,6 +605,8 @@ export const $CreateWorkspaceParams = {
   properties: {
     name: {
       type: "string",
+      maxLength: 100,
+      minLength: 1,
       title: "Name",
     },
     settings: {
@@ -1516,11 +1537,14 @@ export const $RegistryActionCreate = {
   properties: {
     name: {
       type: "string",
+      maxLength: 100,
+      minLength: 1,
       title: "Name",
       description: "The name of the action",
     },
     description: {
       type: "string",
+      maxLength: 1000,
       title: "Description",
       description: "The description of the action",
     },
@@ -1537,6 +1561,8 @@ export const $RegistryActionCreate = {
     },
     origin: {
       type: "string",
+      maxLength: 1000,
+      minLength: 1,
       title: "Origin",
       description: "The origin of the action as a url",
     },
@@ -1573,6 +1599,8 @@ export const $RegistryActionCreate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1585,6 +1613,8 @@ export const $RegistryActionCreate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1597,6 +1627,8 @@ export const $RegistryActionCreate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 1000,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1609,6 +1641,8 @@ export const $RegistryActionCreate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1677,11 +1711,14 @@ export const $RegistryActionRead = {
   properties: {
     name: {
       type: "string",
+      maxLength: 100,
+      minLength: 1,
       title: "Name",
       description: "The name of the action",
     },
     description: {
       type: "string",
+      maxLength: 1000,
       title: "Description",
       description: "The description of the action",
     },
@@ -1698,6 +1735,8 @@ export const $RegistryActionRead = {
     },
     origin: {
       type: "string",
+      maxLength: 1000,
+      minLength: 1,
       title: "Origin",
       description: "The origin of the action as a url",
     },
@@ -1734,6 +1773,8 @@ export const $RegistryActionRead = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1746,6 +1787,8 @@ export const $RegistryActionRead = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1758,6 +1801,8 @@ export const $RegistryActionRead = {
       anyOf: [
         {
           type: "string",
+          maxLength: 1000,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1770,6 +1815,8 @@ export const $RegistryActionRead = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1897,6 +1944,8 @@ export const $RegistryActionUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1909,6 +1958,7 @@ export const $RegistryActionUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 1000,
         },
         {
           type: "null",
@@ -1962,6 +2012,8 @@ export const $RegistryActionUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1974,6 +2026,8 @@ export const $RegistryActionUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1986,6 +2040,8 @@ export const $RegistryActionUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 1000,
+          minLength: 1,
         },
         {
           type: "null",
@@ -1998,6 +2054,8 @@ export const $RegistryActionUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -2063,7 +2121,10 @@ export const $RegistryRepositoryCreate = {
   properties: {
     origin: {
       type: "string",
+      maxLength: 255,
+      minLength: 1,
       title: "Origin",
+      description: "The origin of the repository",
     },
   },
   type: "object",
@@ -2176,23 +2237,29 @@ export const $RegistryRepositoryUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 255,
+          minLength: 1,
         },
         {
           type: "null",
         },
       ],
       title: "Commit Sha",
+      description: "The commit SHA of the repository",
     },
     origin: {
       anyOf: [
         {
           type: "string",
+          maxLength: 255,
+          minLength: 1,
         },
         {
           type: "null",
         },
       ],
       title: "Origin",
+      description: "The origin of the repository",
     },
   },
   type: "object",
@@ -2829,12 +2896,16 @@ export const $SecretCreate = {
     },
     name: {
       type: "string",
+      maxLength: 100,
+      minLength: 1,
       title: "Name",
     },
     description: {
       anyOf: [
         {
           type: "string",
+          maxLength: 1000,
+          minLength: 0,
         },
         {
           type: "null",
@@ -2847,6 +2918,8 @@ export const $SecretCreate = {
         $ref: "#/components/schemas/SecretKeyValue",
       },
       type: "array",
+      maxItems: 100,
+      minItems: 1,
       title: "Keys",
     },
     tags: {
@@ -2897,13 +2970,6 @@ export const $SecretKeyValue = {
   type: "object",
   required: ["key", "value"],
   title: "SecretKeyValue",
-} as const
-
-export const $SecretLevel = {
-  type: "string",
-  enum: ["workspace", "organization"],
-  title: "SecretLevel",
-  description: "The level of a secret.",
 } as const
 
 export const $SecretRead = {
@@ -3047,6 +3113,8 @@ export const $SecretUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -3058,6 +3126,8 @@ export const $SecretUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 1000,
+          minLength: 0,
         },
         {
           type: "null",
@@ -3072,6 +3142,8 @@ export const $SecretUpdate = {
             $ref: "#/components/schemas/SecretKeyValue",
           },
           type: "array",
+          maxItems: 100,
+          minItems: 1,
         },
         {
           type: "null",
@@ -3086,6 +3158,8 @@ export const $SecretUpdate = {
             type: "string",
           },
           type: "object",
+          maxProperties: 1000,
+          minProperties: 0,
         },
         {
           type: "null",
@@ -3097,6 +3171,8 @@ export const $SecretUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -3107,7 +3183,13 @@ export const $SecretUpdate = {
     level: {
       anyOf: [
         {
-          $ref: "#/components/schemas/SecretLevel",
+          allOf: [
+            {
+              $ref: "#/components/schemas/tracecat__secrets__enums__SecretLevel__1",
+            },
+          ],
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -3158,6 +3240,8 @@ export const $TagCreate = {
   properties: {
     name: {
       type: "string",
+      maxLength: 50,
+      minLength: 1,
       title: "Name",
     },
     color: {
@@ -3170,11 +3254,13 @@ export const $TagCreate = {
         },
       ],
       title: "Color",
+      description: "Hex color code",
     },
   },
   type: "object",
   required: ["name"],
   title: "TagCreate",
+  description: "Model for creating new tags with validation.",
 } as const
 
 export const $TagRead = {
@@ -3186,6 +3272,8 @@ export const $TagRead = {
     },
     name: {
       type: "string",
+      maxLength: 50,
+      minLength: 1,
       title: "Name",
     },
     color: {
@@ -3198,11 +3286,13 @@ export const $TagRead = {
         },
       ],
       title: "Color",
+      description: "Hex color code",
     },
   },
   type: "object",
   required: ["id", "name"],
   title: "TagRead",
+  description: "Model for reading tag data with validation.",
 } as const
 
 export const $TagUpdate = {
@@ -3211,6 +3301,8 @@ export const $TagUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 50,
+          minLength: 1,
         },
         {
           type: "null",
@@ -3228,10 +3320,12 @@ export const $TagUpdate = {
         },
       ],
       title: "Color",
+      description: "Hex color code",
     },
   },
   type: "object",
   title: "TagUpdate",
+  description: "Model for updating existing tags with validation.",
 } as const
 
 export const $TemplateAction_Input = {
@@ -3427,6 +3521,8 @@ export const $UpdateWorkspaceParams = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 1,
         },
         {
           type: "null",
@@ -4310,23 +4406,28 @@ export const $WorkflowUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 100,
+          minLength: 3,
         },
         {
           type: "null",
         },
       ],
       title: "Title",
+      description: "Workflow title, between 3 and 100 characters",
     },
     description: {
       anyOf: [
         {
           type: "string",
+          maxLength: 1000,
         },
         {
           type: "null",
         },
       ],
       title: "Description",
+      description: "Optional workflow description, up to 1000 characters",
     },
     status: {
       anyOf: [
@@ -4637,4 +4738,16 @@ export const $login = {
   type: "object",
   required: ["username", "password"],
   title: "Body_auth-auth:database.login",
+} as const
+
+export const $tracecat__secrets__enums__SecretLevel__1 = {
+  type: "string",
+  enum: ["workspace", "organization"],
+  title: "SecretLevel",
+  description: "The level of a secret.",
+} as const
+
+export const $tracecat__secrets__enums__SecretLevel__2 = {
+  $ref: "#/components/schemas/tracecat__secrets__enums__SecretLevel__1",
+  minLength: 1,
 } as const
