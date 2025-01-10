@@ -226,24 +226,54 @@ class RegistryActionBase(BaseModel):
     """API read model for a registered action."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    name: str = Field(..., description="The name of the action")
-    description: str = Field(..., description="The description of the action")
+    name: str = Field(
+        ...,
+        description="The name of the action",
+        min_length=1,
+        max_length=100,
+    )
+    description: str = Field(
+        ...,
+        description="The description of the action",
+        max_length=1000,
+    )
     namespace: str = Field(..., description="The namespace of the action")
     type: RegistryActionType = Field(..., description="The type of the action")
-    origin: str = Field(..., description="The origin of the action as a url")
+    origin: str = Field(
+        ...,
+        description="The origin of the action as a url",
+        min_length=1,
+        max_length=1000,
+    )
     secrets: list[RegistrySecret] | None = Field(
         None, description="The secrets required by the action"
     )
     interface: RegistryActionInterface
     implementation: AnnotatedRegistryActionImpl
     default_title: str | None = Field(
-        None, description="The default title of the action"
+        None,
+        description="The default title of the action",
+        min_length=1,
+        max_length=100,
     )
     display_group: str | None = Field(
-        None, description="The presentation group of the action"
+        None,
+        description="The presentation group of the action",
+        min_length=1,
+        max_length=100,
     )
-    doc_url: str | None = Field(None, description="Link to documentation")
-    author: str | None = Field(None, description="Author of the action")
+    doc_url: str | None = Field(
+        None,
+        description="Link to documentation",
+        min_length=1,
+        max_length=1000,
+    )
+    author: str | None = Field(
+        None,
+        description="Author of the action",
+        min_length=1,
+        max_length=100,
+    )
     options: RegistryActionOptions = Field(
         default_factory=lambda: RegistryActionOptions(),
         description="The options for the action",
@@ -320,33 +350,56 @@ class RegistryActionCreate(RegistryActionBase):
 class RegistryActionUpdate(BaseModel):
     """API update model for a registered action."""
 
-    name: str | None = Field(default=None, description="Update the name of the action")
+    name: str | None = Field(
+        default=None,
+        description="Update the name of the action",
+        min_length=1,
+        max_length=100,
+    )
     description: str | None = Field(
-        default=None, description="Update the description of the action"
+        default=None,
+        description="Update the description of the action",
+        max_length=1000,
     )
     secrets: list[RegistrySecret] | None = Field(
-        default=None, description="Update the secrets of the action"
+        default=None,
+        description="Update the secrets of the action",
     )
     interface: RegistryActionInterface | None = Field(
-        default=None, description="Update the interface of the action"
+        default=None,
+        description="Update the interface of the action",
     )
     implementation: AnnotatedRegistryActionImpl | None = Field(
-        default=None, description="Update the implementation of the action"
+        default=None,
+        description="Update the implementation of the action",
     )
     default_title: str | None = Field(
-        default=None, description="Update the default title of the action"
+        default=None,
+        description="Update the default title of the action",
+        min_length=1,
+        max_length=100,
     )
     display_group: str | None = Field(
-        default=None, description="Update the display group of the action"
+        default=None,
+        description="Update the display group of the action",
+        min_length=1,
+        max_length=100,
     )
     doc_url: str | None = Field(
-        default=None, description="Update the doc url of the action"
+        default=None,
+        description="Update the doc url of the action",
+        min_length=1,
+        max_length=1000,
     )
     author: str | None = Field(
-        default=None, description="Update the author of the action"
+        default=None,
+        description="Update the author of the action",
+        min_length=1,
+        max_length=100,
     )
     options: RegistryActionOptions | None = Field(
-        default=None, description="Update the options of the action"
+        default=None,
+        description="Update the options of the action",
     )
 
     @staticmethod
