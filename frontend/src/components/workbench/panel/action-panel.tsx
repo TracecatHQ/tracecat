@@ -35,6 +35,7 @@ import {
 import { Controller, FormProvider, useForm } from "react-hook-form"
 import YAML from "yaml"
 
+import { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useWorkbenchRegistryActions } from "@/lib/hooks"
 import { cn, itemOrEmptyString, slugify } from "@/lib/utils"
 import {
@@ -210,7 +211,14 @@ export function ActionPanel({
         setTimeout(() => setSaveState(SaveState.SAVED), 300)
       } catch (error) {
         if (error instanceof ApiError) {
-          console.error("Application failed to validate action", error.body)
+          const apiError = error as TracecatApiError
+          console.error("Application failed to validate action", apiError.body)
+          const details = apiError.body.detail as RequestValidationError[]
+          details.forEach((detail: RequestValidationError) => {
+            methods.setError(detail.loc[1] as keyof ActionFormSchema, {
+              message: detail.msg,
+            })
+          })
         } else {
           console.error("Validation failed, unknown error", error)
         }
@@ -449,7 +457,7 @@ export function ActionPanel({
                                 <FormControl>
                                   <Input
                                     className="text-xs"
-                                    placeholder="Name your workflow..."
+                                    placeholder="Name your action..."
                                     {...field}
                                   />
                                 </FormControl>
@@ -468,7 +476,7 @@ export function ActionPanel({
                                 <FormControl>
                                   <Textarea
                                     className="text-xs"
-                                    placeholder="Describe your workflow..."
+                                    placeholder="Describe your action..."
                                     {...field}
                                   />
                                 </FormControl>
@@ -481,7 +489,7 @@ export function ActionPanel({
                               <span>Action ID</span>
                               <CopyButton
                                 value={action.id}
-                                toastMessage="Copied workflow ID to clipboard"
+                                toastMessage="Copied action ID to clipboard"
                               />
                             </Label>
                             <div className="rounded-md border shadow-sm">
