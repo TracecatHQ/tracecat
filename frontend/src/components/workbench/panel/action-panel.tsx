@@ -126,6 +126,11 @@ enum SaveState {
   SAVED = "saved",
   ERROR = "error",
 }
+// Helper function to safely parse YAML
+const parseYaml = (str: string | undefined) =>
+  str ? YAML.parse(str) : undefined
+const stringifyYaml = (obj: unknown | undefined) =>
+  obj ? YAML.stringify(obj) : undefined
 
 export function ActionPanel({
   actionId,
@@ -154,10 +159,10 @@ export function ActionPanel({
       description: action?.description,
       inputs: itemOrEmptyString(action?.inputs),
       control_flow: {
-        for_each: for_each ? YAML.stringify(for_each) : "",
-        run_if: run_if ? YAML.stringify(run_if) : "",
-        retry_policy: retry_policy ? YAML.stringify(retry_policy) : "",
-        options: options ? YAML.stringify(options) : "",
+        for_each: stringifyYaml(for_each),
+        run_if: stringifyYaml(run_if),
+        retry_policy: stringifyYaml(retry_policy),
+        options: stringifyYaml(options),
       },
     },
   })
@@ -180,41 +185,33 @@ export function ActionPanel({
         console.error("Action not found")
         return
       }
+
       setSaveState(SaveState.SAVING)
       setActionValidationErrors([])
-      const { inputs, title, description, control_flow } = values
-      const actionInputs = inputs ? YAML.parse(inputs) : {}
-      const options: ControlFlowOptions | undefined = control_flow.options
-        ? YAML.parse(control_flow.options)
-        : undefined
-      const actionControlFlow = {
-        for_each: control_flow.for_each
-          ? YAML.parse(control_flow.for_each)
-          : undefined,
-        run_if: control_flow.run_if
-          ? YAML.parse(control_flow.run_if)
-          : undefined,
-        retry_policy: control_flow?.retry_policy
-          ? YAML.parse(control_flow.retry_policy)
-          : undefined,
-        ...options,
-      } as ActionControlFlow
-      const params = {
-        title: title,
-        description: description,
-        inputs: actionInputs,
-        control_flow: actionControlFlow,
-      } as ActionUpdate
 
       try {
+        const params: ActionUpdate = {
+          title: values.title,
+          description: values.description,
+          inputs: parseYaml(values.inputs) ?? {},
+          control_flow: {
+            ...parseYaml(values.control_flow.options),
+            for_each: parseYaml(values.control_flow.for_each),
+            run_if: parseYaml(values.control_flow.run_if),
+            retry_policy: parseYaml(values.control_flow.retry_policy),
+          },
+        }
+
         await updateAction(params)
         setTimeout(() => setSaveState(SaveState.SAVED), 300)
       } catch (error) {
         if (error instanceof ApiError) {
           const apiError = error as TracecatApiError
           console.error("Application failed to validate action", apiError.body)
+
+          // Set form errors from API validation errors
           const details = apiError.body.detail as RequestValidationError[]
-          details.forEach((detail: RequestValidationError) => {
+          details.forEach((detail) => {
             methods.setError(detail.loc[1] as keyof ActionFormSchema, {
               message: detail.msg,
             })
