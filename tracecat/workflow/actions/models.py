@@ -38,12 +38,12 @@ class ActionReadMinimal(BaseModel):
 class ActionCreate(BaseModel):
     workflow_id: str
     type: str
-    title: str
+    title: str = Field(min_length=1, max_length=100)
 
 
 class ActionUpdate(BaseModel):
-    title: str | None = None
-    description: str | None = None
+    title: str | None = Field(min_length=1, max_length=100)
+    description: str | None = Field(max_length=1000)
     status: str | None = None
     inputs: dict[str, Any] | None = None
     control_flow: ActionControlFlow | None = None
