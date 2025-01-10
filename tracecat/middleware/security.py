@@ -1,6 +1,3 @@
-"""Security headers middleware.
-"""
-
 import os
 
 from fastapi import Request
