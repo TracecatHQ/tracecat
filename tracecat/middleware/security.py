@@ -34,7 +34,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "Content-Security-Policy": "; ".join(csp_directives),
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "strict-origin-when-cross-origin",
-            "Permissions-Policy": "document-domain=()"
+            "Permissions-Policy": "document-domain=()",
         }
         response.headers.update(headers)
         return response
