@@ -353,7 +353,6 @@ export const $ActionUpdate = {
     },
   },
   type: "object",
-  required: ["title", "description"],
   title: "ActionUpdate",
 } as const
 

@@ -108,8 +108,8 @@ export type ActionStep = {
 }
 
 export type ActionUpdate = {
-  title: string | null
-  description: string | null
+  title?: string | null
+  description?: string | null
   status?: string | null
   inputs?: {
     [key: string]: unknown
