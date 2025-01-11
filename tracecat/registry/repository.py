@@ -617,15 +617,13 @@ def _enforce_restrictions(fn: F) -> F:
     # Check for direct access to os.environ
     if "os" in names and "environ" in names:
         raise ValueError(
-            "`os.environ` usage is not allowed in user-defined code."
-            f" Found in: {path}"
+            f"`os.environ` usage is not allowed in user-defined code. Found in: {path}"
         )
 
     # Check for invocations of os.getenv
     if "os" in names and "getenv" in names:
         raise ValueError(
-            "`os.getenv()` usage is not allowed in user-defined code."
-            f" Found in: {path}"
+            f"`os.getenv()` usage is not allowed in user-defined code. Found in: {path}"
         )
 
     return fn

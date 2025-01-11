@@ -33,7 +33,7 @@ class ExecutorActionErrorInfo(BaseModel):
     def __str__(self) -> str:
         return (
             f"{self.type}: {self.message}"
-            f"\n\n{'-'*30}"
+            f"\n\n{'-' * 30}"
             f"\nFile: {self.filename}"
             f"\nFunction: {self.function}"
             f"\nLine: {self.lineno}"
