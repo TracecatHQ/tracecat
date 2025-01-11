@@ -338,7 +338,7 @@ class WorkflowExecutionsService:
                         )
                     )
                 case _:
-                    logger.debug("Unhandled event type", event_type=event.event_type)
+                    logger.trace("Unhandled event type", event_type=event.event_type)
                     continue
         return events
 
