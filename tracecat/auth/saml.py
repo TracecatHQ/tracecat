@@ -9,6 +9,7 @@ from saml2 import BINDING_HTTP_POST
 from saml2.client import Saml2Client
 from saml2.config import Config as Saml2Config
 
+from tracecat.api.common import bootstrap_role
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
     SAML_IDP_METADATA_URL,
@@ -116,8 +117,10 @@ class SAMLParser:
 
 
 async def create_saml_client() -> Saml2Client:
+    role = bootstrap_role()
     saml_idp_metadata_url = await get_setting(
         "saml_idp_metadata_url",
+        role=role,
         default=SAML_IDP_METADATA_URL,
     )
     if not saml_idp_metadata_url:
