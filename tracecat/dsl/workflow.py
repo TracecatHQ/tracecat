@@ -17,6 +17,8 @@ from temporalio.exceptions import (
     FailureError,
 )
 
+from tracecat.dsl.models import RunContext
+
 with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.ext.parser  # noqa: F401
     import jsonpath_ng.lexer  # noqa
@@ -26,7 +28,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import identifiers
     from tracecat.concurrency import GatheringTaskGroup
-    from tracecat.contexts import RunContext, ctx_logger, ctx_role, ctx_run
+    from tracecat.contexts import ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.action import (
         DSLActivities,
         ValidateActionActivityInput,
@@ -341,7 +343,7 @@ class DSLWorkflow:
         if task_exceptions:
             n_exc = len(task_exceptions)
             formatted_exc = "\n".join(
-                f"{'='*20} ({i+1}/{n_exc}) {details.expr_context}.{ref} {'='*20}\n\n{info.exception!s}"
+                f"{'=' * 20} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 20}\n\n{info.exception!s}"
                 for i, (ref, info) in enumerate(task_exceptions.items())
                 if (details := info.details)
             )

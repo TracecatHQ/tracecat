@@ -6,11 +6,11 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
-from tracecat.contexts import RunContext
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
+from tracecat.identifiers import WorkflowExecutionID, WorkflowID, WorkflowRunID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
@@ -172,6 +172,15 @@ class DSLEnvironment(TypedDict, total=False):
 
     registry_version: str
     """The registry version to use for the workflow."""
+
+
+class RunContext(BaseModel):
+    """This is the runtime context model for a workflow run. Passed into activities."""
+
+    wf_id: WorkflowID
+    wf_exec_id: WorkflowExecutionID
+    wf_run_id: WorkflowRunID
+    environment: str
 
 
 class RunActionInput(BaseModel):
