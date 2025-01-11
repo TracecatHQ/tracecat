@@ -282,13 +282,12 @@ async def test_get_setting_shorthand(
     create_params: SettingCreate,
     svc_admin_role: Role,
 ) -> None:
-    """Test the get_setting shorthand function with and without roles."""
+    """Test the get_setting shorthand function with roles and defaults."""
     token = ctx_role.set(None)  # type: ignore
     assert ctx_role.get() is None, "Role should be cleared"
     try:
         # Create a test setting first
         curr_session = settings_service.session
-
         created_setting = await settings_service.create_org_setting(create_params)
 
         # Test with valid role (should return value)
@@ -303,11 +302,21 @@ async def test_get_setting_shorthand(
         )
         assert no_role_value is None
 
-        # Test retrieving non-existent setting
-        nonexistent_value = await get_setting(
+        # Test retrieving non-existent setting with default
+        default_value = {"default": "value"}
+        nonexistent_with_default = await get_setting(
+            "nonexistent-key",
+            role=svc_admin_role,
+            session=curr_session,
+            default=default_value,
+        )
+        assert nonexistent_with_default == default_value
+
+        # Test retrieving non-existent setting without default
+        nonexistent_no_default = await get_setting(
             "nonexistent-key", role=svc_admin_role, session=curr_session
         )
-        assert nonexistent_value is None
+        assert nonexistent_no_default is None
     finally:
         ctx_role.set(token)  # type: ignore
 
