@@ -47,7 +47,12 @@ async def setup_custom_remote_repository():
     3. If it does exist, sync it
     """
     role = bootstrap_role()
-    url = await get_setting("git_repo_url", role=role)
+    url = await get_setting(
+        "git_repo_url",
+        role=role,
+        # TODO: Deprecate in future version
+        default=config.TRACECAT__REMOTE_REPOSITORY_URL,
+    )
     if not url:
         logger.info("Remote repository URL not set, skipping")
         return

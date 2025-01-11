@@ -248,7 +248,13 @@ class Repository:
 
         allowed_domains = cast(
             set[str],
-            await get_setting("git_allowed_domains", role=self.role) or {"github.com"},
+            await get_setting(
+                "git_allowed_domains",
+                role=self.role,
+                # TODO: Deprecate in future version
+                default=config.TRACECAT__ALLOWED_GIT_DOMAINS,
+            )
+            or {"github.com"},
         )
 
         try:
@@ -269,7 +275,13 @@ class Repository:
             branch=branch,
         )
         package_name = (
-            await get_setting("git_repo_package_name", role=self.role) or repo_name
+            await get_setting(
+                "git_repo_package_name",
+                role=self.role,
+                # TODO: Deprecate in future version
+                default=config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME,
+            )
+            or repo_name
         )
 
         cleaned_url = self.safe_remote_url(self._origin)

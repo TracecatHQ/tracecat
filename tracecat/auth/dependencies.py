@@ -40,6 +40,8 @@ async def verify_auth_type(auth_type: AuthType) -> None:
 
     # 2. Check that the setting is enabled
     key = AUTH_TYPE_TO_SETTING_KEY[auth_type]
+    # NOTE: These settings werek introduced after org settings implemented
+    # so no defaults required
     setting = await get_setting(key=key, role=bootstrap_role())
     if setting is None or not isinstance(setting, bool):
         raise HTTPException(

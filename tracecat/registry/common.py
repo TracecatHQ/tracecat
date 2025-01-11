@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat import config
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import (
@@ -45,7 +46,12 @@ async def reload_registry(session: AsyncSession, role: Role):
         logger.info("Custom repository already exists", origin=custom_origin)
 
     # Setup custom remote repository
-    if maybe_remote_url := await get_setting("git_repo_url", role=role):
+    if maybe_remote_url := await get_setting(
+        "git_repo_url",
+        role=role,
+        # TODO: Deprecate in future version
+        default=config.TRACECAT__REMOTE_REPOSITORY_URL,
+    ):
         remote_url = cast(str, maybe_remote_url)
         parsed_url = urlparse(remote_url)
         logger.info("Setting up remote registry repository", url=parsed_url)
