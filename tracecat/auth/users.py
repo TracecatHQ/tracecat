@@ -68,7 +68,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     async def validate_email(self, email: str) -> None:
         allowed_domains = cast(
             list[str] | None,
-            await get_setting("auth_allowed_email_domains", role=self.role),
+            await get_setting(
+                "auth_allowed_email_domains",
+                role=self.role,
+                # TODO: Deprecate in future version
+                default=list(config.TRACECAT__AUTH_ALLOWED_DOMAINS),
+            ),
         )
         validate_email(email=email, allowed_domains=allowed_domains)
 

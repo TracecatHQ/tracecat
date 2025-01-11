@@ -256,15 +256,23 @@ class SettingsService(BaseService):
 
 
 async def get_setting(
-    key: str, *, role: Role | None = None, session: AsyncSession | None = None
+    key: str,
+    *,
+    role: Role | None = None,
+    session: AsyncSession | None = None,
+    default: Any | None = None,
 ) -> Any | None:
     """Shorthand to get a setting value from the database."""
     if session:
         service = SettingsService(session=session, role=role)
         setting = await service.get_org_setting(key)
-        return service.get_value(setting) if setting else None
+        no_default_val = service.get_value(setting) if setting else None
 
     else:
         async with SettingsService.with_session(role=role) as service:
             setting = await service.get_org_setting(key)
-            return service.get_value(setting) if setting else None
+            no_default_val = service.get_value(setting) if setting else None
+
+    if no_default_val is None and default:
+        return default
+    return no_default_val
