@@ -22,7 +22,6 @@ from tracecat.dsl.models import (
     TriggerInputs,
 )
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
-from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
@@ -200,8 +199,6 @@ class EventGroup(BaseModel, Generic[EventInput]):
 
         attrs = event.start_child_workflow_execution_initiated_event_attributes
         wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
-        # Load the input data
-        logger.info("Child workflow initiated event attributes:", attrs=attrs)
         input = orjson.loads(attrs.input.payloads[0].data)
         dsl_run_args = DSLRunArgs(**input)
         # Create an event group
