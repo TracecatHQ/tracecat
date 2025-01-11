@@ -226,9 +226,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
 
 class EventFailure(BaseModel):
     message: str
-    stack_trace: str
     cause: dict[str, Any] | None = None
-    application_failure_info: dict[str, Any] = Field(default_factory=dict)
 
     @staticmethod
     def from_history_event(
@@ -254,9 +252,7 @@ class EventFailure(BaseModel):
 
         return EventFailure(
             message=failure.message,
-            stack_trace=failure.stack_trace,
             cause=MessageToDict(failure.cause) if failure.cause is not None else None,
-            application_failure_info=MessageToDict(failure.application_failure_info),
         )
 
 

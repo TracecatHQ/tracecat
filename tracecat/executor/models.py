@@ -4,6 +4,8 @@ import traceback
 
 from pydantic import UUID4, BaseModel
 
+from tracecat.config import TRACECAT__APP_ENV
+
 
 class ExecutorSyncInput(BaseModel):
     repository_id: UUID4
@@ -31,13 +33,16 @@ class ExecutorActionErrorInfo(BaseModel):
     """Line number where the error occurred."""
 
     def __str__(self) -> str:
-        return (
-            f"{self.type}: {self.message}"
-            f"\n\n{'-' * 30}"
-            f"\nFile: {self.filename}"
-            f"\nFunction: {self.function}"
-            f"\nLine: {self.lineno}"
-        )
+        if TRACECAT__APP_ENV == "development":
+            return (
+                f"{self.type}: {self.message}"
+                f"\n\n{'-' * 30}"
+                f"\nFile: {self.filename}"
+                f"\nFunction: {self.function}"
+                f"\nLine: {self.lineno}"
+            )
+        else:
+            return f"{self.type}: {self.message}"
 
     @staticmethod
     def from_exc(e: Exception, action_name: str) -> ExecutorActionErrorInfo:
