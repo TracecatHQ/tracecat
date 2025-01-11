@@ -17,8 +17,6 @@ from temporalio.exceptions import (
     FailureError,
 )
 
-from tracecat.dsl.models import RunContext
-
 with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.ext.parser  # noqa: F401
     import jsonpath_ng.lexer  # noqa
@@ -50,6 +48,7 @@ with workflow.unsafe.imports_passed_through():
         DSLNodeResult,
         ExecutionContext,
         RunActionInput,
+        RunContext,
         TriggerInputs,
     )
     from tracecat.dsl.scheduler import DSLScheduler
