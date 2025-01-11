@@ -11,6 +11,7 @@ from saml2.config import Config as Saml2Config
 
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
+    SAML_IDP_METADATA_URL,
     SAML_SP_ACS_URL,
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
@@ -115,7 +116,10 @@ class SAMLParser:
 
 
 async def create_saml_client() -> Saml2Client:
-    saml_idp_metadata_url = await get_setting("saml_idp_metadata_url")
+    saml_idp_metadata_url = await get_setting(
+        "saml_idp_metadata_url",
+        default=SAML_IDP_METADATA_URL,
+    )
     if not saml_idp_metadata_url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
