@@ -11,6 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat import config
 from tracecat.authz.controls import require_access_level
 from tracecat.db.schemas import OrganizationSetting
+from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseService
 from tracecat.settings.constants import PUBLIC_SETTINGS_KEYS, SENSITIVE_SETTINGS_KEYS
@@ -274,5 +275,6 @@ async def get_setting(
             no_default_val = service.get_value(setting) if setting else None
 
     if no_default_val is None and default:
+        logger.warning("Setting not found, using default value", key=key)
         return default
     return no_default_val
