@@ -32,6 +32,8 @@ import "react18-json-view/src/style.css"
 
 import { ERROR_EVENT_TYPES, parseEventType } from "@/lib/event-history"
 
+const REFETCH_INTERVAL = 2000 // 2 seconds
+
 /**
  * Event history for a specific workflow execution
  * @param param0
@@ -47,7 +49,9 @@ export function WorkflowExecutionEventHistory({
   setSelectedEvent: (event: EventHistoryResponse) => void
 }) {
   const { eventHistory, eventHistoryLoading, eventHistoryError } =
-    useWorkflowExecutionEventHistory(executionId)
+    useWorkflowExecutionEventHistory(executionId, {
+      refetchInterval: REFETCH_INTERVAL,
+    })
 
   if (eventHistoryLoading) {
     return <CenteredSpinner />

@@ -446,6 +446,9 @@ export function useWorkspaceManager() {
 export function useWorkflowExecutions(
   workflowId: string,
   options?: {
+    /**
+     * Refetch interval in milliseconds
+     */
     refetchInterval?: number
   }
 ) {
@@ -470,7 +473,15 @@ export function useWorkflowExecutions(
   }
 }
 
-export function useWorkflowExecutionEventHistory(workflowExecutionId: string) {
+export function useWorkflowExecutionEventHistory(
+  workflowExecutionId: string,
+  options?: {
+    /**
+     * Refetch interval in milliseconds
+     */
+    refetchInterval?: number
+  }
+) {
   const { workspaceId } = useWorkspace()
   const {
     data: eventHistory,
@@ -483,6 +494,7 @@ export function useWorkflowExecutionEventHistory(workflowExecutionId: string) {
         workspaceId,
         executionId: workflowExecutionId,
       }),
+    ...options,
   })
   return {
     eventHistory,
