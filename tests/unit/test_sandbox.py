@@ -6,7 +6,7 @@ import pytest_mock
 
 from tracecat.auth.credentials import TemporaryRole
 from tracecat.auth.sandbox import AuthSandbox
-from tracecat.contexts import ctx_env, ctx_role
+from tracecat.contexts import ctx_role, get_env
 from tracecat.db.schemas import BaseSecret
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
@@ -175,13 +175,13 @@ def test_env_sandbox_initial_env():
 
 def test_env_sandbox_isolation():
     """Test that changes inside the sandbox don't affect the outer environment."""
-    outer_env = ctx_env.get()
+    outer_env = get_env()
     with secrets_manager.env_sandbox({"TEMP_KEY": "temp_value"}):
         secrets_manager.set("NEW_KEY", "new_value")
         assert secrets_manager.get("NEW_KEY") == "new_value"
 
-    assert "NEW_KEY" not in ctx_env.get()
-    assert ctx_env.get() == outer_env
+    assert "NEW_KEY" not in get_env()
+    assert get_env() == outer_env
 
 
 def test_env_sandbox_nested():
@@ -208,14 +208,14 @@ async def test_env_sandbox_async():
 
 def test_env_sandbox_exception():
     """Test that env_sandbox resets the environment even if an exception occurs."""
-    outer_env = ctx_env.get()
+    outer_env = get_env()
     try:
         with secrets_manager.env_sandbox({"EXCEPTION_KEY": "exception_value"}):
             raise ValueError("Test exception")
     except ValueError:
         pass
 
-    assert ctx_env.get() == outer_env
+    assert get_env() == outer_env
     assert secrets_manager.get("EXCEPTION_KEY") is None
 
 
