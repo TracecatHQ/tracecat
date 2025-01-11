@@ -4,7 +4,7 @@ import contextlib
 from collections.abc import Iterator
 from typing import overload
 
-from tracecat.contexts import ctx_env
+from tracecat.contexts import ctx_env, get_env
 
 
 @overload
@@ -17,16 +17,13 @@ def get(name: str, default: str, /) -> str: ...
 
 def get(name: str, default: str | None = None, /) -> str | None:
     """Get a secret that was set in the current context."""
-    _env = ctx_env.get()
-    try:
-        return _env[name]
-    except KeyError:
-        return default
+    _env = get_env()
+    return _env.get(name, default)
 
 
 def set(name: str, value: str, /) -> None:
     """Set a secret in the current context."""
-    _env = ctx_env.get()
+    _env = get_env()
     _env[name] = value
     ctx_env.set(_env)
 

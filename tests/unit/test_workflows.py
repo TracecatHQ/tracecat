@@ -2655,7 +2655,9 @@ async def test_workflow_error_handler_success(
         < eh_init_evt.event_id
         < eh_start_evt.event_id
         < eh_complete_evt.event_id
-    ), f"Event order is not correct: {fail_evt.event_id} < {eh_init_evt.event_id} < {eh_start_evt.event_id} < {eh_complete_evt.event_id}"
+    ), (
+        f"Event order is not correct: {fail_evt.event_id} < {eh_init_evt.event_id} < {eh_start_evt.event_id} < {eh_complete_evt.event_id}"
+    )
 
 
 @pytest.mark.parametrize(

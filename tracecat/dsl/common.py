@@ -18,7 +18,6 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
-from tracecat.contexts import RunContext
 from tracecat.db.schemas import Action
 from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy
 from tracecat.dsl.models import (
@@ -27,6 +26,7 @@ from tracecat.dsl.models import (
     DSLEnvironment,
     DSLExecutionError,
     ExecutionContext,
+    RunContext,
     Trigger,
     TriggerInputs,
 )

@@ -153,7 +153,7 @@ def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
     return contextlib.contextmanager(get_session)()
 
 
-def get_async_session_context_manager() -> (
-    contextlib.AbstractAsyncContextManager[AsyncSession]
-):
+def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManager[
+    AsyncSession
+]:
     return contextlib.asynccontextmanager(get_async_session)()

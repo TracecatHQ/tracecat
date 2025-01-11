@@ -5,6 +5,7 @@ Revises: 307c3bb9fad5
 Create Date: 2024-12-04 13:00:57.251229
 
 """
+
 # Import uuid for generating IDs
 from collections.abc import Sequence
 

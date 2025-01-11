@@ -6,9 +6,8 @@ from typing import Any
 import pytest
 from pydantic import SecretStr
 
-from tracecat.contexts import RunContext
 from tracecat.dsl.common import create_default_execution_context
-from tracecat.dsl.models import ActionStatement, RunActionInput
+from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.models import ExecutorActionErrorInfo
 from tracecat.executor.service import run_action_from_input, sync_executor_entrypoint
 from tracecat.expressions.expectations import ExpectedField

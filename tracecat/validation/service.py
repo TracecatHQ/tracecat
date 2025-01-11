@@ -240,14 +240,14 @@ async def validate_dsl_args(
             ref=act_stmt.ref,
         )
         if result.status == "error":
-            result.msg = f"[{context_locator(act_stmt, "inputs")}]\n\n{result.msg}"
+            result.msg = f"[{context_locator(act_stmt, 'inputs')}]\n\n{result.msg}"
             val_res.append(result)
         # Validate `run_if`
         if act_stmt.run_if and not is_template_only(act_stmt.run_if):
             val_res.append(
                 ValidationResult(
                     status="error",
-                    msg=f"[{context_locator(act_stmt, "run_if")}]\n\n"
+                    msg=f"[{context_locator(act_stmt, 'run_if')}]\n\n"
                     "`run_if` must only contain an expression.",
                     ref=act_stmt.ref,
                 )
@@ -260,7 +260,7 @@ async def validate_dsl_args(
                     val_res.append(
                         ValidationResult(
                             status="error",
-                            msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                            msg=f"[{context_locator(act_stmt, 'for_each')}]\n\n"
                             "`for_each` must be an expression or list of expressions.",
                             ref=act_stmt.ref,
                         )
@@ -271,7 +271,7 @@ async def validate_dsl_args(
                         val_res.append(
                             ValidationResult(
                                 status="error",
-                                msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                                msg=f"[{context_locator(act_stmt, 'for_each')}]\n\n"
                                 "`for_each` must be an expression or list of expressions.",
                                 ref=act_stmt.ref,
                             )
@@ -282,7 +282,7 @@ async def validate_dsl_args(
                 val_res.append(
                     ValidationResult(
                         status="error",
-                        msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                        msg=f"[{context_locator(act_stmt, 'for_each')}]\n\n"
                         "Invalid `for_each` of type {type(act_stmt.for_each)}.",
                         ref=act_stmt.ref,
                     )

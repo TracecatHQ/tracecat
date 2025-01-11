@@ -746,9 +746,9 @@ def test_set_timezone(
     assert offset is not None
     offset_hours = offset.total_seconds() / 3600
     min_offset, max_offset = expected_range
-    assert (
-        min_offset <= offset_hours <= max_offset
-    ), f"Offset {offset_hours} not in expected range [{min_offset}, {max_offset}]"
+    assert min_offset <= offset_hours <= max_offset, (
+        f"Offset {offset_hours} not in expected range [{min_offset}, {max_offset}]"
+    )
 
 
 @pytest.mark.parametrize(
