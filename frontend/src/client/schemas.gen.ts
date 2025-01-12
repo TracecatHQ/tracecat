@@ -3171,22 +3171,6 @@ export const $SecretUpdate = {
       ],
       title: "Environment",
     },
-    level: {
-      anyOf: [
-        {
-          allOf: [
-            {
-              $ref: "#/components/schemas/tracecat__secrets__enums__SecretLevel__1",
-            },
-          ],
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
   },
   type: "object",
   title: "SecretUpdate",
@@ -4729,16 +4713,4 @@ export const $login = {
   type: "object",
   required: ["username", "password"],
   title: "Body_auth-auth:database.login",
-} as const
-
-export const $tracecat__secrets__enums__SecretLevel__1 = {
-  type: "string",
-  enum: ["workspace", "organization"],
-  title: "SecretLevel",
-  description: "The level of a secret.",
-} as const
-
-export const $tracecat__secrets__enums__SecretLevel__2 = {
-  $ref: "#/components/schemas/tracecat__secrets__enums__SecretLevel__1",
-  minLength: 1,
 } as const

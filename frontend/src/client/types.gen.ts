@@ -1006,7 +1006,6 @@ export type SecretUpdate = {
     [key: string]: string
   } | null
   environment?: string | null
-  level?: tracecat__secrets__enums__SecretLevel__1 | null
 }
 
 export type SessionRead = {
@@ -1411,16 +1410,6 @@ export type login = {
   client_id?: string | null
   client_secret?: string | null
 }
-
-/**
- * The level of a secret.
- */
-export type tracecat__secrets__enums__SecretLevel__1 =
-  | "workspace"
-  | "organization"
-
-export type tracecat__secrets__enums__SecretLevel__2 =
-  tracecat__secrets__enums__SecretLevel__1
 
 export type PublicIncomingWebhookData = {
   contentType?: string | null
