@@ -9,7 +9,6 @@ import os
 import re
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
 from timeit import default_timer
@@ -33,13 +32,12 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
-from tracecat.git import get_git_repository_sha
+from tracecat.git import get_git_repository_sha, parse_git_url
 from tracecat.logger import logger
 from tracecat.registry.actions.models import BoundRegistryAction, TemplateAction
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
-    GIT_SSH_KEY_SECRET_NAME,
 )
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -308,7 +306,7 @@ class Repository:
 
         logger.info("Getting SSH key", role=self.role)
         async with SecretsService.with_session(role=self.role) as service:
-            secret = await service.get_ssh_key(GIT_SSH_KEY_SECRET_NAME)
+            secret = await service.get_ssh_key()
 
         async with temporary_ssh_agent() as env:
             logger.info("Entered temporary SSH agent context")
@@ -652,47 +650,6 @@ def safe_url(url: str) -> str:
     # Note that we do not recommend passing credentials in the url.
     cleaned_url = urlunparse((url_obj.scheme, url_obj.netloc, url_obj.path, "", "", ""))
     return cleaned_url
-
-
-@dataclass
-class GitUrl:
-    host: str
-    org: str
-    repo: str
-    branch: str
-
-
-def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUrl:
-    """
-    Parse a Git repository URL to extract organization, package name, and branch.
-    Handles Git SSH URLs with 'git+ssh' prefix and optional '@' for branch specification.
-
-    Args:
-        url (str): The repository URL to parse.
-
-    Returns:
-        tuple[str, str, str, str]: A tuple containing (host, organization, package_name, branch).
-
-    Raises:
-        ValueError: If the URL is not a valid repository URL.
-    """
-    pattern = r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<branch>[^/]+))?$"
-
-    if match := re.match(pattern, url):
-        host = match.group("host")
-        if allowed_domains and host not in allowed_domains:
-            raise ValueError(
-                f"Domain {host} not in allowed domains. Must be configured in `git_allowed_domains` organization setting."
-            )
-
-        return GitUrl(
-            host=host,
-            org=match.group("org"),
-            repo=match.group("repo"),
-            branch=match.group("branch") or "main",
-        )
-
-    raise ValueError(f"Unsupported URL format: {url}. Must be a valid Git SSH URL.")
 
 
 async def ensure_base_repository(

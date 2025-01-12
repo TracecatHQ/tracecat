@@ -1,7 +1,17 @@
 import asyncio
+import re
+from dataclasses import dataclass
 
 from tracecat.logger import logger
 from tracecat.ssh import SshEnv
+
+
+@dataclass
+class GitUrl:
+    host: str
+    org: str
+    repo: str
+    branch: str
 
 
 async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
@@ -30,3 +40,36 @@ async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
     except Exception as e:
         logger.error("Error getting repository SHA", error=str(e))
         raise RuntimeError(f"Error getting repository SHA: {str(e)}") from e
+
+
+def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUrl:
+    """
+    Parse a Git repository URL to extract organization, package name, and branch.
+    Handles Git SSH URLs with 'git+ssh' prefix and optional '@' for branch specification.
+
+    Args:
+        url (str): The repository URL to parse.
+
+    Returns:
+        tuple[str, str, str, str]: A tuple containing (host, organization, package_name, branch).
+
+    Raises:
+        ValueError: If the URL is not a valid repository URL.
+    """
+    pattern = r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<branch>[^/]+))?$"
+
+    if match := re.match(pattern, url):
+        host = match.group("host")
+        if allowed_domains and host not in allowed_domains:
+            raise ValueError(
+                f"Domain {host} not in allowed domains. Must be configured in `git_allowed_domains` organization setting."
+            )
+
+        return GitUrl(
+            host=host,
+            org=match.group("org"),
+            repo=match.group("repo"),
+            branch=match.group("branch") or "main",
+        )
+
+    raise ValueError(f"Unsupported URL format: {url}. Must be a valid Git SSH URL.")
