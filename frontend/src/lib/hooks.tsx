@@ -17,6 +17,10 @@ import {
   OrganizationDeleteSessionData,
   organizationListOrgMembers,
   organizationListSessions,
+  organizationSecretsCreateOrgSecret,
+  organizationSecretsDeleteOrgSecretById,
+  organizationSecretsListOrgSecrets,
+  organizationSecretsUpdateOrgSecretById,
   organizationUpdateOrgMember,
   OrganizationUpdateOrgMemberData,
   OrgMemberRead,
@@ -606,7 +610,6 @@ export function useWorkspaceSecrets() {
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
-        level: "workspace",
         type: ["custom"],
       }),
   })
@@ -715,8 +718,7 @@ export function useOrgSecrets() {
   } = useQuery<SecretReadMinimal[]>({
     queryKey: ["org-custom-secrets"],
     queryFn: async () =>
-      await secretsListSecrets({
-        level: "organization",
+      await organizationSecretsListOrgSecrets({
         type: ["custom"],
       }),
   })
@@ -729,8 +731,7 @@ export function useOrgSecrets() {
   } = useQuery<SecretReadMinimal[]>({
     queryKey: ["org-ssh-keys"],
     queryFn: async () =>
-      await secretsListSecrets({
-        level: "organization",
+      await organizationSecretsListOrgSecrets({
         type: ["ssh-key"],
       }),
   })
@@ -738,7 +739,7 @@ export function useOrgSecrets() {
   // create
   const { mutateAsync: createSecret } = useMutation({
     mutationFn: async (params: SecretCreate) =>
-      await secretsCreateSecret({ requestBody: params }),
+      await organizationSecretsCreateOrgSecret({ requestBody: params }),
     onSuccess: (_, variables) => {
       switch (variables.type) {
         case "ssh-key":
@@ -766,7 +767,11 @@ export function useOrgSecrets() {
     }: {
       secretId: string
       params: SecretUpdate
-    }) => await secretsUpdateSecretById({ secretId, requestBody: params }),
+    }) =>
+      await organizationSecretsUpdateOrgSecretById({
+        secretId,
+        requestBody: params,
+      }),
     onSuccess: (_, variables) => {
       switch (variables.params.type) {
         case "ssh-key":
@@ -789,7 +794,7 @@ export function useOrgSecrets() {
   // delete
   const { mutateAsync: deleteSecretById } = useMutation({
     mutationFn: async (secret: SecretReadMinimal) =>
-      await secretsDeleteSecretById({ secretId: secret.id }),
+      await organizationSecretsDeleteOrgSecretById({ secretId: secret.id }),
     onSuccess: (_, variables) => {
       switch (variables.type) {
         case "ssh-key":

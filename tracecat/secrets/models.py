@@ -16,7 +16,7 @@ from pydantic import (
 from tracecat.db.schemas import BaseSecret
 from tracecat.identifiers import OwnerID, SecretID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.enums import SecretLevel, SecretType
+from tracecat.secrets.enums import SecretType
 
 SecretName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
 """Validator for a secret name. e.g. 'aws_access_key_id'"""
@@ -126,7 +126,6 @@ class SecretUpdate(BaseModel):
     )
     tags: dict[str, str] | None = Field(default=None, min_length=0, max_length=1000)
     environment: str | None = Field(default=None, min_length=1, max_length=100)
-    level: SecretLevel | None = Field(default=None, min_length=1, max_length=100)
 
 
 class SecretSearch(BaseModel):
@@ -135,7 +134,6 @@ class SecretSearch(BaseModel):
     environment: str
     owner_ids: set[UUID] | None = None
     types: set[SecretType] | None = None
-    levels: set[SecretLevel] | None = None
 
 
 class SecretReadMinimal(BaseModel):

@@ -130,8 +130,8 @@ async def test_executor_can_run_udf_with_secrets(
         # Assert
         assert result == "__SECRET_VALUE_UDF__"
     finally:
-        secret = await sec_service.get_secret_by_name("test", raise_on_error=True)
-        await sec_service.delete_secret_by_id(secret.id)
+        secret = await sec_service.get_secret_by_name("test")
+        await sec_service.delete_secret(secret)
 
 
 @pytest.mark.integration
@@ -233,8 +233,8 @@ async def test_executor_can_run_template_action_with_secret(
         # Assert
         assert result == "__SECRET_VALUE__"
     finally:
-        secret = await sec_service.get_secret_by_name("test", raise_on_error=True)
-        await sec_service.delete_secret_by_id(secret.id)
+        secret = await sec_service.get_secret_by_name("test")
+        await sec_service.delete_secret(secret)
 
 
 async def mock_action(input: Any, **kwargs):

@@ -46,7 +46,6 @@ async def validate_single_secret(
     try:
         defined_secret = await secrets_service.get_secret_by_name(
             registry_secret.name,
-            raise_on_error=True,
             environment=environment,
         )
     except (NoResultFound, MultipleResultsFound) as e:
