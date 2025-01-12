@@ -8,7 +8,7 @@ import json
 import os
 import re
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
@@ -733,7 +733,7 @@ async def install_remote_repository(
             f"{repo_url}@{commit_sha}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=cast(Mapping[str, str], os.environ.copy() | env),
+            env=os.environ.copy() | env.to_dict(),
         )
         _, stderr = await process.communicate()
         if process.returncode != 0:

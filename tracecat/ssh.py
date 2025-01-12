@@ -2,19 +2,26 @@ import asyncio
 import os
 import subprocess
 import tempfile
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict, cast
 
 import paramiko
 
 from tracecat.logger import logger
 
 
-class SshEnv(TypedDict):
-    SSH_AUTH_SOCK: str
-    SSH_AGENT_PID: str
+@dataclass
+class SshEnv:
+    ssh_auth_sock: str
+    ssh_agent_pid: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "SSH_AUTH_SOCK": self.ssh_auth_sock,
+            "SSH_AGENT_PID": self.ssh_agent_pid,
+        }
 
 
 @asynccontextmanager
@@ -54,8 +61,8 @@ async def temporary_ssh_agent() -> AsyncIterator[SshEnv]:
             SSH_AGENT_PID=ssh_agent_pid,
         )
         yield SshEnv(
-            SSH_AUTH_SOCK=ssh_auth_sock,
-            SSH_AGENT_PID=ssh_agent_pid,
+            ssh_auth_sock=ssh_auth_sock,
+            ssh_agent_pid=ssh_agent_pid,
         )
     finally:
         if "SSH_AGENT_PID" in os.environ:
@@ -88,7 +95,7 @@ async def add_host_to_known_hosts(url: str, *, env: SshEnv) -> None:
             url,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=cast(Mapping[str, str], env),
+            env=env.to_dict(),
         )
         stdout, stderr = await process.communicate()
 
@@ -128,7 +135,7 @@ async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
                 temp_key_file.name,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=cast(Mapping[str, str], env),
+                env=env.to_dict(),
             )
             _, stderr = await process.communicate()
 

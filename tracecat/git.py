@@ -15,7 +15,7 @@ async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
             "HEAD",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env,  # type: ignore
+            env=env.to_dict(),
         )
         stdout, stderr = await process.communicate()
 
