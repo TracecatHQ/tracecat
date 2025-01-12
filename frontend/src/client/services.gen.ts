@@ -44,6 +44,16 @@ import type {
   OrganizationDeleteSessionResponse,
   OrganizationListOrgMembersResponse,
   OrganizationListSessionsResponse,
+  OrganizationSecretsCreateOrgSecretData,
+  OrganizationSecretsCreateOrgSecretResponse,
+  OrganizationSecretsDeleteOrgSecretByIdData,
+  OrganizationSecretsDeleteOrgSecretByIdResponse,
+  OrganizationSecretsGetOrgSecretByNameData,
+  OrganizationSecretsGetOrgSecretByNameResponse,
+  OrganizationSecretsListOrgSecretsData,
+  OrganizationSecretsListOrgSecretsResponse,
+  OrganizationSecretsUpdateOrgSecretByIdData,
+  OrganizationSecretsUpdateOrgSecretByIdResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
   PublicCheckHealthResponse,
@@ -1229,11 +1239,10 @@ export const workflowsRemoveTag = (
  * Search secrets.
  * @param data The data for the request.
  * @param data.environment
+ * @param data.workspaceId
  * @param data.name Filter by secret name
  * @param data.id Filter by secret ID
  * @param data.type Filter by secret type
- * @param data.level Filter by secret level
- * @param data.workspaceId
  * @returns SecretRead Successful Response
  * @throws ApiError
  */
@@ -1248,7 +1257,6 @@ export const secretsSearchSecrets = (
       name: data.name,
       id: data.id,
       type: data.type,
-      level: data.level,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -1261,21 +1269,19 @@ export const secretsSearchSecrets = (
  * List Secrets
  * List user secrets.
  * @param data The data for the request.
- * @param data.type Filter by secret type
- * @param data.level Filter by secret level
  * @param data.workspaceId
+ * @param data.type Filter by secret type
  * @returns SecretReadMinimal Successful Response
  * @throws ApiError
  */
 export const secretsListSecrets = (
-  data: SecretsListSecretsData = {}
+  data: SecretsListSecretsData
 ): CancelablePromise<SecretsListSecretsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/secrets",
     query: {
       type: data.type,
-      level: data.level,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -1288,8 +1294,8 @@ export const secretsListSecrets = (
  * Create Secret
  * Create a secret.
  * @param data The data for the request.
- * @param data.requestBody
  * @param data.workspaceId
+ * @param data.requestBody
  * @returns unknown Successful Response
  * @throws ApiError
  */
@@ -1342,8 +1348,8 @@ export const secretsGetSecretByName = (
  * Update a secret by ID.
  * @param data The data for the request.
  * @param data.secretId
- * @param data.requestBody
  * @param data.workspaceId
+ * @param data.requestBody
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -2256,6 +2262,127 @@ export const settingsUpdateOauthSettings = (
     url: "/settings/oauth",
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Org Secrets
+ * List organization secrets.
+ * @param data The data for the request.
+ * @param data.type Filter by secret type
+ * @returns SecretReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretsListOrgSecrets = (
+  data: OrganizationSecretsListOrgSecretsData = {}
+): CancelablePromise<OrganizationSecretsListOrgSecretsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/secrets",
+    query: {
+      type: data.type,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Org Secret
+ * Create an organization secret.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretsCreateOrgSecret = (
+  data: OrganizationSecretsCreateOrgSecretData
+): CancelablePromise<OrganizationSecretsCreateOrgSecretResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/secrets",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Org Secret By Name
+ * Get an organization secret by name.
+ * @param data The data for the request.
+ * @param data.secretName
+ * @param data.environment
+ * @returns SecretRead Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretsGetOrgSecretByName = (
+  data: OrganizationSecretsGetOrgSecretByNameData
+): CancelablePromise<OrganizationSecretsGetOrgSecretByNameResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/secrets/{secret_name}",
+    path: {
+      secret_name: data.secretName,
+    },
+    query: {
+      environment: data.environment,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Org Secret By Id
+ * Update an organization secret by ID.
+ * @param data The data for the request.
+ * @param data.secretId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretsUpdateOrgSecretById = (
+  data: OrganizationSecretsUpdateOrgSecretByIdData
+): CancelablePromise<OrganizationSecretsUpdateOrgSecretByIdResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/secrets/{secret_id}",
+    path: {
+      secret_id: data.secretId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Org Secret By Id
+ * Delete an organization secret by ID.
+ * @param data The data for the request.
+ * @param data.secretId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretsDeleteOrgSecretById = (
+  data: OrganizationSecretsDeleteOrgSecretByIdData
+): CancelablePromise<OrganizationSecretsDeleteOrgSecretByIdResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization/secrets/{secret_id}",
+    path: {
+      secret_id: data.secretId,
+    },
     errors: {
       422: "Validation Error",
     },

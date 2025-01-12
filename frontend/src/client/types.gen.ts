@@ -1714,10 +1714,6 @@ export type SecretsSearchSecretsData = {
    */
   id?: Array<string> | null
   /**
-   * Filter by secret level
-   */
-  level?: Array<tracecat__secrets__enums__SecretLevel__1> | null
-  /**
    * Filter by secret name
    */
   name?: Array<string> | null
@@ -1725,35 +1721,31 @@ export type SecretsSearchSecretsData = {
    * Filter by secret type
    */
   type?: Array<SecretType> | null
-  workspaceId?: string | null
+  workspaceId: string
 }
 
 export type SecretsSearchSecretsResponse = Array<SecretRead>
 
 export type SecretsListSecretsData = {
   /**
-   * Filter by secret level
-   */
-  level?: tracecat__secrets__enums__SecretLevel__1
-  /**
    * Filter by secret type
    */
   type?: Array<SecretType> | null
-  workspaceId?: string | null
+  workspaceId: string
 }
 
 export type SecretsListSecretsResponse = Array<SecretReadMinimal>
 
 export type SecretsCreateSecretData = {
   requestBody: SecretCreate
-  workspaceId?: string | null
+  workspaceId: string
 }
 
 export type SecretsCreateSecretResponse = unknown
 
 export type SecretsGetSecretByNameData = {
   secretName: string
-  workspaceId?: string | null
+  workspaceId: string
 }
 
 export type SecretsGetSecretByNameResponse = SecretRead
@@ -1761,14 +1753,14 @@ export type SecretsGetSecretByNameResponse = SecretRead
 export type SecretsUpdateSecretByIdData = {
   requestBody: SecretUpdate
   secretId: string
-  workspaceId?: string | null
+  workspaceId: string
 }
 
 export type SecretsUpdateSecretByIdResponse = void
 
 export type SecretsDeleteSecretByIdData = {
   secretId: string
-  workspaceId?: string | null
+  workspaceId: string
 }
 
 export type SecretsDeleteSecretByIdResponse = void
@@ -1998,6 +1990,41 @@ export type SettingsUpdateOauthSettingsData = {
 }
 
 export type SettingsUpdateOauthSettingsResponse = void
+
+export type OrganizationSecretsListOrgSecretsData = {
+  /**
+   * Filter by secret type
+   */
+  type?: Array<SecretType> | null
+}
+
+export type OrganizationSecretsListOrgSecretsResponse = Array<SecretReadMinimal>
+
+export type OrganizationSecretsCreateOrgSecretData = {
+  requestBody: SecretCreate
+}
+
+export type OrganizationSecretsCreateOrgSecretResponse = unknown
+
+export type OrganizationSecretsGetOrgSecretByNameData = {
+  environment?: string | null
+  secretName: string
+}
+
+export type OrganizationSecretsGetOrgSecretByNameResponse = SecretRead
+
+export type OrganizationSecretsUpdateOrgSecretByIdData = {
+  requestBody: SecretUpdate
+  secretId: string
+}
+
+export type OrganizationSecretsUpdateOrgSecretByIdResponse = void
+
+export type OrganizationSecretsDeleteOrgSecretByIdData = {
+  secretId: string
+}
+
+export type OrganizationSecretsDeleteOrgSecretByIdResponse = void
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -3220,6 +3247,77 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateOauthSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secrets": {
+    get: {
+      req: OrganizationSecretsListOrgSecretsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<SecretReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: OrganizationSecretsCreateOrgSecretData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secrets/{secret_name}": {
+    get: {
+      req: OrganizationSecretsGetOrgSecretByNameData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SecretRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secrets/{secret_id}": {
+    post: {
+      req: OrganizationSecretsUpdateOrgSecretByIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: OrganizationSecretsDeleteOrgSecretByIdData
       res: {
         /**
          * Successful Response
