@@ -5,6 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.logger import logger
+from tracecat.parse import safe_url
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
@@ -12,7 +13,6 @@ from tracecat.registry.constants import (
 )
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
-from tracecat.registry.repository import safe_url
 from tracecat.settings.service import get_setting
 from tracecat.types.auth import Role
 
