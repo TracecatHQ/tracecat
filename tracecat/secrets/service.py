@@ -13,6 +13,7 @@ from tracecat import config
 from tracecat.db.schemas import BaseSecret, OrganizationSecret, Secret
 from tracecat.identifiers import SecretID
 from tracecat.logger import logger
+from tracecat.registry.constants import GIT_SSH_KEY_SECRET_NAME
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.models import (
@@ -348,7 +349,9 @@ class SecretsService(BaseService):
             return self.role.workspace_id, Secret
         return config.TRACECAT__DEFAULT_ORG_ID, OrganizationSecret
 
-    async def get_ssh_key(self, key_name: str) -> SecretKeyValue:
+    async def get_ssh_key(
+        self, key_name: str = GIT_SSH_KEY_SECRET_NAME
+    ) -> SecretKeyValue:
         # NOTE: Don't set the workspace_id, as we want to search for
         # organization secrets if it's not set.
         logger.info("Getting SSH key", key_name=key_name, role=self.role)

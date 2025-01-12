@@ -7,20 +7,14 @@ import inspect
 import json
 import os
 import re
-import subprocess
 import sys
-import tempfile
-from collections.abc import AsyncIterator, Callable, Mapping
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from collections.abc import Callable
 from itertools import chain
 from pathlib import Path
 from timeit import default_timer
 from types import ModuleType
-from typing import Annotated, Any, Literal, TypedDict, cast
-from urllib.parse import urlparse, urlunparse
+from typing import Annotated, Any, Literal, cast
 
-import paramiko
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -37,17 +31,24 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
+from tracecat.git import get_git_repository_sha, parse_git_url
 from tracecat.logger import logger
+from tracecat.parse import safe_url
 from tracecat.registry.actions.models import BoundRegistryAction, TemplateAction
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
-    GIT_SSH_KEY_SECRET_NAME,
 )
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets.service import SecretsService
 from tracecat.settings.service import get_setting
+from tracecat.ssh import (
+    SshEnv,
+    add_host_to_known_hosts,
+    add_ssh_key_to_agent,
+    temporary_ssh_agent,
+)
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryError
 
@@ -267,13 +268,6 @@ class Repository:
             raise RegistryError(
                 "Invalid Git repository URL. Please provide a valid Git SSH URL (git+ssh)."
             ) from e
-        logger.debug(
-            "Parsed Git repository URL",
-            host=host,
-            org=org,
-            package_name=repo_name,
-            branch=branch,
-        )
         package_name = (
             await get_setting(
                 "git_repo_package_name",
@@ -282,6 +276,14 @@ class Repository:
                 default=config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME,
             )
             or repo_name
+        )
+        logger.debug(
+            "Parsed Git repository URL",
+            host=host,
+            org=org,
+            repo=repo_name,
+            package_name=package_name,
+            ref=branch,
         )
 
         cleaned_url = self.safe_remote_url(self._origin)
@@ -304,7 +306,7 @@ class Repository:
 
         logger.info("Getting SSH key", role=self.role)
         async with SecretsService.with_session(role=self.role) as service:
-            secret = await service.get_ssh_key(GIT_SSH_KEY_SECRET_NAME)
+            secret = await service.get_ssh_key()
 
         async with temporary_ssh_agent() as env:
             logger.info("Entered temporary SSH agent context")
@@ -641,56 +643,6 @@ def _enforce_restrictions(fn: F) -> F:
     return fn
 
 
-def safe_url(url: str) -> str:
-    """Remove credentials from a url."""
-    url_obj = urlparse(url)
-    # XXX(safety): Reconstruct url without credentials.
-    # Note that we do not recommend passing credentials in the url.
-    cleaned_url = urlunparse((url_obj.scheme, url_obj.netloc, url_obj.path, "", "", ""))
-    return cleaned_url
-
-
-@dataclass
-class GitUrl:
-    host: str
-    org: str
-    repo: str
-    branch: str
-
-
-def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUrl:
-    """
-    Parse a Git repository URL to extract organization, package name, and branch.
-    Handles Git SSH URLs with 'git+ssh' prefix and optional '@' for branch specification.
-
-    Args:
-        url (str): The repository URL to parse.
-
-    Returns:
-        tuple[str, str, str, str]: A tuple containing (host, organization, package_name, branch).
-
-    Raises:
-        ValueError: If the URL is not a valid repository URL.
-    """
-    pattern = r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<branch>[^/]+))?$"
-
-    if match := re.match(pattern, url):
-        host = match.group("host")
-        if allowed_domains and host not in allowed_domains:
-            raise ValueError(
-                f"Domain {host} not in allowed domains. Must be configured in `git_allowed_domains` organization setting."
-            )
-
-        return GitUrl(
-            host=host,
-            org=match.group("org"),
-            repo=match.group("repo"),
-            branch=match.group("branch") or "main",
-        )
-
-    raise ValueError(f"Unsupported URL format: {url}. Must be a valid Git SSH URL.")
-
-
 async def ensure_base_repository(
     *,
     session: AsyncSession,
@@ -705,134 +657,6 @@ async def ensure_base_repository(
         logger.info("Created base registry repository", origin=origin)
     else:
         logger.info("Base registry repository already exists", origin=origin)
-
-
-class SshEnv(TypedDict):
-    SSH_AUTH_SOCK: str
-    SSH_AGENT_PID: str
-
-
-@asynccontextmanager
-async def temporary_ssh_agent() -> AsyncIterator[SshEnv]:
-    """Set up a temporary SSH agent and yield the SSH_AUTH_SOCK."""
-    original_ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
-    try:
-        # Start ssh-agent
-        logger.debug("Starting ssh-agent")
-        try:
-            # We're using asyncio.to_thread to run the ssh-agent in a separate thread
-            # because for some reason, asyncio.create_subprocess_exec stalls and times out
-            result = await asyncio.to_thread(
-                subprocess.run,
-                ["ssh-agent", "-s"],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=10.0,
-            )
-            stdout = result.stdout
-            stderr = result.stderr
-            logger.debug("Started ssh-agent process", stdout=stdout, stderr=stderr)
-        except subprocess.TimeoutExpired as e:
-            logger.error("SSH-agent execution timed out")
-            raise RuntimeError("SSH-agent execution timed out") from e
-        except subprocess.CalledProcessError as e:
-            logger.error("Failed to start ssh-agent", stderr=e.stderr)
-            raise RuntimeError("Failed to start ssh-agent") from e
-
-        ssh_auth_sock = stdout.split("SSH_AUTH_SOCK=")[1].split(";")[0]
-        ssh_agent_pid = stdout.split("SSH_AGENT_PID=")[1].split(";")[0]
-
-        logger.debug(
-            "Started ssh-agent",
-            SSH_AUTH_SOCK=ssh_auth_sock,
-            SSH_AGENT_PID=ssh_agent_pid,
-        )
-        yield SshEnv(
-            SSH_AUTH_SOCK=ssh_auth_sock,
-            SSH_AGENT_PID=ssh_agent_pid,
-        )
-    finally:
-        if "SSH_AGENT_PID" in os.environ:
-            logger.debug("Killing ssh-agent")
-            await asyncio.create_subprocess_exec("ssh-agent", "-k")
-
-        # Restore original SSH_AUTH_SOCK if it existed
-        if original_ssh_auth_sock is not None:
-            logger.debug(
-                "Restoring original SSH_AUTH_SOCK", SSH_AUTH_SOCK=original_ssh_auth_sock
-            )
-            os.environ["SSH_AUTH_SOCK"] = original_ssh_auth_sock
-        else:
-            os.environ.pop("SSH_AUTH_SOCK", None)
-        logger.debug("Killed ssh-agent")
-
-
-async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
-    """Add the SSH key to the agent then remove it."""
-    with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp_key_file:
-        temp_key_file.write(key_data)
-        temp_key_file.write("\n")
-        temp_key_file.flush()
-        logger.debug("Added SSH key to temp file", key_file=temp_key_file.name)
-        os.chmod(temp_key_file.name, 0o600)
-
-        try:
-            # Validate the key using paramiko
-            paramiko.Ed25519Key.from_private_key_file(temp_key_file.name)
-        except paramiko.SSHException as e:
-            logger.error(f"Invalid SSH key: {str(e)}")
-            raise
-
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "ssh-add",
-                temp_key_file.name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=cast(Mapping[str, str], env),
-            )
-            _, stderr = await process.communicate()
-
-            if process.returncode != 0:
-                raise Exception(f"Failed to add SSH key: {stderr.decode().strip()}")
-
-            logger.info("Added SSH key to agent")
-        except Exception as e:
-            logger.error("Error adding SSH key", error=e)
-            raise
-
-
-async def add_host_to_known_hosts(url: str, *, env: SshEnv) -> None:
-    """Add the host to the known hosts file."""
-    try:
-        # Ensure the ~/.ssh directory exists
-        ssh_dir = Path.home() / ".ssh"
-        ssh_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-
-        known_hosts_file = ssh_dir / "known_hosts"
-
-        # Use ssh-keyscan to get the host key
-        process = await asyncio.create_subprocess_exec(
-            "ssh-keyscan",
-            url,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=cast(Mapping[str, str], env),
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            raise Exception(f"Failed to get host key: {stderr.decode().strip()}")
-
-        # Append the host key to the known_hosts file
-        with known_hosts_file.open("a") as f:
-            f.write(stdout.decode())
-
-        logger.info("Added host to known hosts", url=url)
-    except Exception as e:
-        logger.error(f"Error adding host to known hosts: {str(e)}")
-        raise
 
 
 async def install_remote_repository(
@@ -857,7 +681,7 @@ async def install_remote_repository(
             f"{repo_url}@{commit_sha}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=cast(Mapping[str, str], os.environ.copy() | env),
+            env=os.environ.copy() | env.to_dict(),
         )
         _, stderr = await process.communicate()
         if process.returncode != 0:
@@ -869,31 +693,3 @@ async def install_remote_repository(
     except Exception as e:
         logger.error(f"Error while fetching repository: {str(e)}")
         raise RuntimeError(f"Error while fetching repository: {str(e)}") from e
-
-
-async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
-    """Get the SHA of the HEAD commit of a Git repository."""
-    try:
-        # Use git ls-remote to get the HEAD SHA without cloning
-        process = await asyncio.create_subprocess_exec(
-            "git",
-            "ls-remote",
-            repo_url,
-            "HEAD",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,  # type: ignore
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            error_message = stderr.decode().strip()
-            raise RuntimeError(f"Failed to get repository SHA: {error_message}")
-
-        # The output format is: "<SHA>\tHEAD"
-        sha = stdout.decode().split()[0]
-        return sha
-
-    except Exception as e:
-        logger.error("Error getting repository SHA", error=str(e))
-        raise RuntimeError(f"Error getting repository SHA: {str(e)}") from e
