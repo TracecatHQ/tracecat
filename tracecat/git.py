@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from tracecat.logger import logger
 from tracecat.ssh import SshEnv
 
+GIT_SSH_URL_REGEX = re.compile(
+    r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<branch>[^/]+))?$"
+)
+
 
 @dataclass
 class GitUrl:
@@ -56,9 +60,8 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
     Raises:
         ValueError: If the URL is not a valid repository URL.
     """
-    pattern = r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<branch>[^/]+))?$"
 
-    if match := re.match(pattern, url):
+    if match := GIT_SSH_URL_REGEX.match(url):
         host = match.group("host")
         if allowed_domains and host not in allowed_domains:
             raise ValueError(
