@@ -6,12 +6,13 @@ from tracecat_registry import RegistrySecret
 
 from tracecat.executor import service
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.git import GitUrl, parse_git_url
 from tracecat.registry.actions.models import (
     ActionStep,
     TemplateAction,
 )
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.repository import GitUrl, Repository, parse_git_url
+from tracecat.registry.repository import Repository
 from tracecat.types.exceptions import RegistryValidationError
 
 
