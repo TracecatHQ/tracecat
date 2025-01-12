@@ -14,7 +14,6 @@ from pathlib import Path
 from timeit import default_timer
 from types import ModuleType
 from typing import Annotated, Any, Literal, cast
-from urllib.parse import urlparse, urlunparse
 
 from pydantic import (
     BaseModel,
@@ -34,6 +33,7 @@ from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.git import get_git_repository_sha, parse_git_url
 from tracecat.logger import logger
+from tracecat.parse import safe_url
 from tracecat.registry.actions.models import BoundRegistryAction, TemplateAction
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
@@ -641,15 +641,6 @@ def _enforce_restrictions(fn: F) -> F:
         )
 
     return fn
-
-
-def safe_url(url: str) -> str:
-    """Remove credentials from a url."""
-    url_obj = urlparse(url)
-    # XXX(safety): Reconstruct url without credentials.
-    # Note that we do not recommend passing credentials in the url.
-    cleaned_url = urlunparse((url_obj.scheme, url_obj.netloc, url_obj.path, "", "", ""))
-    return cleaned_url
 
 
 async def ensure_base_repository(
