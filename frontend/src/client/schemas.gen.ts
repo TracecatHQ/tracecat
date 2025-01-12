@@ -963,10 +963,6 @@ export const $EventFailure = {
       type: "string",
       title: "Message",
     },
-    stack_trace: {
-      type: "string",
-      title: "Stack Trace",
-    },
     cause: {
       anyOf: [
         {
@@ -978,13 +974,9 @@ export const $EventFailure = {
       ],
       title: "Cause",
     },
-    application_failure_info: {
-      type: "object",
-      title: "Application Failure Info",
-    },
   },
   type: "object",
-  required: ["message", "stack_trace"],
+  required: ["message"],
   title: "EventFailure",
 } as const
 

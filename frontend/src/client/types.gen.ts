@@ -334,13 +334,9 @@ export type ErrorModel = {
 
 export type EventFailure = {
   message: string
-  stack_trace: string
   cause?: {
     [key: string]: unknown
   } | null
-  application_failure_info?: {
-    [key: string]: unknown
-  }
 }
 
 export type EventGroup = {
@@ -1738,7 +1734,7 @@ export type SecretsListSecretsData = {
   /**
    * Filter by secret level
    */
-  level?: tracecat__secrets__enums__SecretLevel__1 | null
+  level?: tracecat__secrets__enums__SecretLevel__1
   /**
    * Filter by secret type
    */
