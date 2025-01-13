@@ -77,6 +77,11 @@ variable "auth_allowed_domains" {
   description = "Comma separated list of allowed domains for authentication (e.g. `acme.com,acme.ai`)"
   default     = null
 }
+variable "setting_override_saml_enabled" {
+  type        = string
+  description = "Override the SAML setting"
+  default     = null
+}
 
 ### Images and Versions
 

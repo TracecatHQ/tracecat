@@ -48,6 +48,7 @@ locals {
       TRACECAT__APP_ENV                        = var.tracecat_app_env
       TRACECAT__AUTH_ALLOWED_DOMAINS           = var.auth_allowed_domains
       TRACECAT__AUTH_TYPES                     = var.auth_types
+      TRACECAT__SETTING_OVERRIDE_SAML_ENABLED  = var.setting_override_saml_enabled
       TRACECAT__DB_ENDPOINT                    = local.core_db_hostname
       TRACECAT__EXECUTOR_URL                   = local.internal_executor_url
       TRACECAT__PUBLIC_API_URL                 = local.public_api_url

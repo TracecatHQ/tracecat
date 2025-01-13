@@ -43,6 +43,14 @@ variable "auth_allowed_domains" {
   default     = null
 }
 
+
+variable "setting_override_saml_enabled" {
+  type        = string
+  description = "Override the SAML setting"
+  default     = null
+}
+
+
 ### Images and Versions
 
 variable "tracecat_image" {
