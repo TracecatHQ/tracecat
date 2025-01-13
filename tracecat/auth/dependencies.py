@@ -6,8 +6,9 @@ from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.enums import AuthType
+from tracecat.logger import logger
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
-from tracecat.settings.service import get_setting
+from tracecat.settings.service import get_setting, get_setting_override
 from tracecat.types.auth import Role
 
 WorkspaceUserRole = Annotated[
@@ -40,6 +41,16 @@ async def verify_auth_type(auth_type: AuthType) -> None:
 
     # 2. Check that the setting is enabled
     key = AUTH_TYPE_TO_SETTING_KEY[auth_type]
+    # 2.5. Check for overrides
+    override = get_setting_override(key)
+    if override is not None:
+        logger.warning(
+            "Overriding auth setting from environment variables. "
+            "This is not recommended for production environments.",
+            key=key,
+            override=override,
+        )
+        return
     # NOTE: These settings werek introduced after org settings implemented
     # so no defaults required
     setting = await get_setting(key=key, role=bootstrap_role())
