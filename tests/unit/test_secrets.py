@@ -1,7 +1,15 @@
 import os
 
+import pytest
+from cryptography.fernet import Fernet, InvalidToken
+
 from tracecat.secrets.common import apply_masks, apply_masks_object
-from tracecat.secrets.encryption import decrypt_bytes, encrypt_bytes
+from tracecat.secrets.encryption import (
+    decrypt_bytes,
+    decrypt_value,
+    encrypt_bytes,
+    encrypt_value,
+)
 
 
 def test_encrypt_decrypt_object(env_sandbox):
@@ -11,6 +19,8 @@ def test_encrypt_decrypt_object(env_sandbox):
         "client_secret": "TEST_CLIENT_SECRET",
         "metadata": {"value": 1},
     }
+    assert key is not None
+
     encrypted_obj = encrypt_bytes(obj, key=key)
     decrypted_obj = decrypt_bytes(encrypted_obj, key=key)
     assert decrypted_obj == obj
@@ -186,3 +196,43 @@ def test_apply_masks_object_with_heavily_nested_structures():
         }
     }
     assert apply_masks_object(input_data, masks) == expected_data
+
+
+@pytest.fixture
+def test_encryption_key() -> str:
+    """Generate a valid Fernet encryption key for testing.
+
+    Returns:
+        str: A base64-encoded 32-byte key suitable for Fernet encryption
+    """
+    return Fernet.generate_key().decode()
+
+
+def test_encrypt_decrypt_value(test_encryption_key):
+    """Test successful encryption and decryption of a value."""
+    original_value = b"test secret value"
+
+    # Test encryption
+    encrypted_value = encrypt_value(original_value, key=test_encryption_key)
+    assert isinstance(encrypted_value, bytes)
+    assert encrypted_value != original_value
+
+    # Test decryption
+    decrypted_value = decrypt_value(encrypted_value, key=test_encryption_key)
+    assert decrypted_value == original_value
+
+
+def test_decrypt_value_invalid_key(test_encryption_key):
+    """Test decryption with invalid key raises ValueError."""
+    encrypted_value = encrypt_value(b"test value", key=test_encryption_key)
+
+    with pytest.raises(ValueError):
+        decrypt_value(encrypted_value, key="invalid_key")
+
+
+def test_decrypt_value_corrupted_token(test_encryption_key):
+    """Test decryption with corrupted token raises InvalidToken."""
+    corrupted_value = b"corrupted_token"
+
+    with pytest.raises(InvalidToken):
+        decrypt_value(corrupted_value, key=test_encryption_key)

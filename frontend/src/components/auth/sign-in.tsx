@@ -10,7 +10,7 @@ import TracecatIcon from "public/icon.png"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { authConfig } from "@/config/auth"
+import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,14 +33,27 @@ import { toast } from "@/components/ui/use-toast"
 import { GoogleOAuthButton } from "@/components/auth/oauth-buttons"
 import { SamlSSOButton } from "@/components/auth/saml"
 import { Icons } from "@/components/icons"
+import { CenteredSpinner } from "@/components/loading/spinner"
 
 export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
+  const { appInfo, appInfoIsLoading } = useAppInfo()
   const router = useRouter()
   if (user) {
     router.push("/workspaces")
   }
 
+  if (appInfoIsLoading) {
+    return <CenteredSpinner />
+  }
+
+  const allowedAuthTypes: string[] = appInfo?.auth_allowed_types ?? []
+  const showBasicAuth =
+    allowedAuthTypes.includes("basic") && appInfo?.auth_basic_enabled
+  const showGoogleOauthAuth =
+    allowedAuthTypes.includes("google_oauth") && appInfo?.oauth_google_enabled
+  const showSamlAuth =
+    allowedAuthTypes.includes("saml") && appInfo?.saml_enabled
   return (
     <div
       className={cn(
@@ -57,8 +70,8 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex-col space-y-2">
-          {authConfig.authTypes.includes("basic") && <BasicLoginForm />}
-          {authConfig.authTypes.length > 1 && (
+          {showBasicAuth && <BasicLoginForm />}
+          {showBasicAuth && (showGoogleOauthAuth || showSamlAuth) && (
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t" />
@@ -70,15 +83,11 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
               </div>
             </div>
           )}
-          {authConfig.authTypes.includes("google_oauth") && (
-            <GoogleOAuthButton className="w-full" />
-          )}
-          {authConfig.authTypes.includes("saml") && (
-            <SamlSSOButton className="w-full" />
-          )}
+          {showGoogleOauthAuth && <GoogleOAuthButton className="w-full" />}
+          {showSamlAuth && <SamlSSOButton className="w-full" />}
           {/* <GithubOAuthButton disabled className="hover:cur" /> */}
         </CardContent>
-        {authConfig.authTypes.includes("basic") && (
+        {showBasicAuth && (
           <CardFooter className="flex items-center justify-center text-sm text-muted-foreground">
             <div className="mt-4 text-center">
               Don&apos;t have an account?{" "}

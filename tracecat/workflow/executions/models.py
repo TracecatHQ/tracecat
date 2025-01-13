@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar, cast
@@ -14,9 +15,15 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.enums import JoinStrategy
-from tracecat.dsl.models import ActionRetryPolicy, RunActionInput, TriggerInputs
+from tracecat.dsl.models import (
+    ActionErrorInfo,
+    ActionRetryPolicy,
+    RunActionInput,
+    TriggerInputs,
+)
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.types.auth import Role
+from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
 WorkflowExecutionStatusLiteral = Literal[
@@ -112,6 +119,8 @@ IGNORED_UTILITY_ACTIONS = {
     "get_schedule_activity",
     "validate_trigger_inputs_activity",
     "validate_action_activity",
+    WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
+    WorkflowsManagementService.get_error_handler_workflow_id.__name__,
 }
 
 
@@ -120,10 +129,10 @@ class EventGroup(BaseModel, Generic[EventInput]):
     udf_namespace: str
     udf_name: str
     udf_key: str
-    action_id: str | None
-    action_ref: str
-    action_title: str
-    action_description: str
+    action_id: str | None = None
+    action_ref: str | None = None
+    action_title: str | None = None
+    action_description: str | None = None
     action_input: EventInput
     action_result: Any | None = None
     current_attempt: int | None = None
@@ -188,27 +197,28 @@ class EventGroup(BaseModel, Generic[EventInput]):
         ):
             raise ValueError("Event is not a child workflow initiated event.")
 
-        wf_exec_id = cast(
-            WorkflowExecutionID,
-            event.start_child_workflow_execution_initiated_event_attributes.workflow_id,
-        )
-        # Load the input data
-        input = orjson.loads(
-            event.start_child_workflow_execution_initiated_event_attributes.input.payloads[
-                0
-            ].data
-        )
+        attrs = event.start_child_workflow_execution_initiated_event_attributes
+        wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
+        input = orjson.loads(attrs.input.payloads[0].data)
         dsl_run_args = DSLRunArgs(**input)
         # Create an event group
+
+        if dsl := dsl_run_args.dsl:
+            action_title = dsl.title
+            action_description = dsl.description
+        else:
+            action_title = None
+            action_description = None
+
         return EventGroup(
             event_id=event.event_id,
             udf_namespace="core.workflow",
             udf_name="execute",
             udf_key="core.workflow.execute",
             action_id=dsl_run_args.wf_id,
-            action_ref=dsl_run_args.dsl.title,
-            action_title=dsl_run_args.dsl.title,
-            action_description=dsl_run_args.dsl.description,
+            action_ref=None,
+            action_title=action_title,
+            action_description=action_description,
             action_input=dsl_run_args,
             related_wf_exec_id=wf_exec_id,
         )
@@ -216,9 +226,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
 
 class EventFailure(BaseModel):
     message: str
-    stack_trace: str
     cause: dict[str, Any] | None = None
-    application_failure_info: dict[str, Any] = Field(default_factory=dict)
 
     @staticmethod
     def from_history_event(
@@ -244,9 +252,7 @@ class EventFailure(BaseModel):
 
         return EventFailure(
             message=failure.message,
-            stack_trace=failure.stack_trace,
             cause=MessageToDict(failure.cause) if failure.cause is not None else None,
-            application_failure_info=MessageToDict(failure.application_failure_info),
         )
 
 
@@ -285,3 +291,12 @@ class DispatchWorkflowResult(TypedDict):
 
 class TerminateWorkflowExecutionParams(BaseModel):
     reason: str | None = None
+
+
+@dataclass(frozen=True)
+class ErrorHandlerWorkflowInput:
+    message: str
+    handler_wf_id: WorkflowID
+    orig_wf_id: WorkflowID
+    orig_wf_exec_id: WorkflowExecutionID
+    errors: dict[str, ActionErrorInfo] | None

@@ -22,13 +22,20 @@ build:
 	docker compose build --no-cache
 
 lint-ui:
-	cd frontend && pnpm lint:fix && pnpm typecheck && cd ..
+	cd frontend && pnpm lint:fix && cd ..
 lint-app:
-	ruff check .
+	ruff check
+
+lint-fix-ui:
+	cd frontend && pnpm lint:fix && pnpm format:write && cd ..
+lint-fix-app:
+	ruff check . && ruff format .
 
 lint: lint-ui lint-app
+lint-fix: lint-fix-ui lint-fix-app
+
 mypy path:
-	mypy --ignore-missing-imports --enable-incomplete-feature=NewGenericSyntax {{path}}
+	mypy --ignore-missing-imports {{path}}
 gen-client:
 	cd frontend && pnpm generate-client && cd ..
 # Update version number. If no version is provided, increments patch version.
@@ -45,5 +52,8 @@ _check-cli:
 gen-api: _check-cli
 	LOG_LEVEL=ERROR tracecat dev generate-spec --update-docs
 
-gen-secrets: _check-cli
-	tracecat dev generate-secrets
+gen-integrations: _check-cli
+	tracecat dev gen-integrations
+
+gen-functions: _check-cli
+	tracecat dev gen-functions

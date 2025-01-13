@@ -1,6 +1,7 @@
 import re
 from collections.abc import Iterator
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 from tracecat.expressions import patterns
 
@@ -52,3 +53,12 @@ def traverse_expressions(obj: Any) -> Iterator[str]:
         for match in re.finditer(patterns.TEMPLATE_STRING, value):
             if expr := match.group("expr"):
                 yield expr
+
+
+def safe_url(url: str) -> str:
+    """Remove credentials from a url."""
+    url_obj = urlparse(url)
+    # XXX(safety): Reconstruct url without credentials.
+    # Note that we do not recommend passing credentials in the url.
+    cleaned_url = urlunparse((url_obj.scheme, url_obj.netloc, url_obj.path, "", "", ""))
+    return cleaned_url

@@ -90,7 +90,8 @@
           "group": "Deployment Options",
           "pages": [
             "self-hosting/deployment-options/docker-compose",
-            "self-hosting/deployment-options/aws-ecs"
+            "self-hosting/deployment-options/aws-ecs",
+            "self-hosting/deployment-options/ollama"
           ]
         },
         {
@@ -160,7 +161,10 @@
                 "api-reference/reference/workflows/commit-workflow",
                 "api-reference/reference/workflows/export-workflow",
                 "api-reference/reference/workflows/get-workflow-definition",
-                "api-reference/reference/workflows/create-workflow-definition"
+                "api-reference/reference/workflows/create-workflow-definition",
+                "api-reference/reference/workflows/list-tags",
+                "api-reference/reference/workflows/add-tag",
+                "api-reference/reference/workflows/remove-tag"
               ]
             },
             {
@@ -215,6 +219,16 @@
               ]
             },
             {
+              "group": "tags",
+              "pages": [
+                "api-reference/reference/tags/list-tags",
+                "api-reference/reference/tags/create-tag",
+                "api-reference/reference/tags/get-tag",
+                "api-reference/reference/tags/delete-tag",
+                "api-reference/reference/tags/update-tag"
+              ]
+            },
+            {
               "group": "users",
               "pages": [
                 "api-reference/reference/users/search-user",
@@ -226,14 +240,32 @@
               ]
             },
             {
+              "group": "organization",
+              "pages": [
+                "api-reference/reference/organization/list-org-members",
+                "api-reference/reference/organization/delete-org-member",
+                "api-reference/reference/organization/update-org-member",
+                "api-reference/reference/organization/list-sessions",
+                "api-reference/reference/organization/delete-session"
+              ]
+            },
+            {
+              "group": "editor",
+              "pages": [
+                "api-reference/reference/editor/list-functions",
+                "api-reference/reference/editor/list-actions"
+              ]
+            },
+            {
               "group": "registry-repositories",
               "pages": [
-                "api-reference/reference/registry-repositories/sync-registry-repositories",
+                "api-reference/reference/registry-repositories/sync-registry-repository",
+                "api-reference/reference/registry-repositories/sync-executor-from-registry-repository",
                 "api-reference/reference/registry-repositories/list-registry-repositories",
                 "api-reference/reference/registry-repositories/create-registry-repository",
                 "api-reference/reference/registry-repositories/get-registry-repository",
-                "api-reference/reference/registry-repositories/update-registry-repository",
-                "api-reference/reference/registry-repositories/delete-registry-repository"
+                "api-reference/reference/registry-repositories/delete-registry-repository",
+                "api-reference/reference/registry-repositories/update-registry-repository"
               ]
             },
             {
@@ -243,9 +275,7 @@
                 "api-reference/reference/registry-actions/create-registry-action",
                 "api-reference/reference/registry-actions/get-registry-action",
                 "api-reference/reference/registry-actions/delete-registry-action",
-                "api-reference/reference/registry-actions/update-registry-action",
-                "api-reference/reference/registry-actions/run-registry-action",
-                "api-reference/reference/registry-actions/validate-registry-action"
+                "api-reference/reference/registry-actions/update-registry-action"
               ]
             },
             {

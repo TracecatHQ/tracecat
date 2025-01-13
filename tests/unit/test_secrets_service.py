@@ -45,9 +45,7 @@ class TestSecretsService:
         await service.create_secret(secret_create_params)
 
         # Retrieve by name
-        secret = await service.get_secret_by_name(
-            secret_create_params.name, raise_on_error=True
-        )
+        secret = await service.get_secret_by_name(secret_create_params.name)
         assert secret is not None
         assert secret.name == secret_create_params.name
         assert secret.type == secret_create_params.type
@@ -74,13 +72,15 @@ class TestSecretsService:
             keys=[SecretKeyValue(key="new_key", value=SecretStr("new_value"))],
         )
 
+        # Get secret
+        secret = await service.get_secret_by_name(secret_create_params.name)
+        assert secret is not None
+
         # Update secret
-        await service.update_secret_by_name(secret_create_params.name, update_params)
+        await service.update_secret(secret, update_params)
 
         # Verify updates
-        updated_secret = await service.get_secret_by_name(
-            secret_create_params.name, raise_on_error=True
-        )
+        updated_secret = await service.get_secret_by_name(secret_create_params.name)
         assert updated_secret.description == update_params.description
         decrypted_keys = service.decrypt_keys(updated_secret.encrypted_keys)
         assert len(decrypted_keys) == 1
@@ -95,19 +95,15 @@ class TestSecretsService:
         await service.create_secret(secret_create_params)
 
         # Get secret to obtain ID
-        secret = await service.get_secret_by_name(
-            secret_create_params.name, raise_on_error=True
-        )
+        secret = await service.get_secret_by_name(secret_create_params.name)
         assert secret is not None
 
         # Delete secret
-        await service.delete_secret_by_id(secret.id)
+        await service.delete_secret(secret)
 
         # Verify deletion
-        deleted_secret = await service.get_secret_by_name(
-            secret_create_params.name, raise_on_error=False
-        )
-        assert deleted_secret is None
+        with pytest.raises(TracecatNotFoundError):
+            await service.get_secret_by_name(secret_create_params.name)
 
     async def test_list_secrets(
         self, service: SecretsService, secret_create_params: SecretCreate
@@ -140,10 +136,12 @@ class TestSecretsService:
     ) -> None:
         """Test retrieving SSH key."""
         # Create SSH key secret
-        await service.create_secret(secret_create_params)
+        await service.create_org_secret(secret_create_params)
 
         # Retrieve SSH key
-        ssh_key = await service.get_ssh_key(secret_create_params.name)
+        ssh_key = await service.get_ssh_key(
+            secret_create_params.name, secret_create_params.environment
+        )
         assert ssh_key.key == "private_key"
         assert ssh_key.value.get_secret_value() == "test-private-key"
 

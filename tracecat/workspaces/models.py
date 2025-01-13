@@ -9,13 +9,13 @@ from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 
 # Params
 class CreateWorkspaceParams(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=100)
     settings: dict[str, str] | None = None
     owner_id: OwnerID = Field(default=config.TRACECAT__DEFAULT_ORG_ID)
 
 
 class UpdateWorkspaceParams(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=100)
     settings: dict[str, str] | None = None
 
 

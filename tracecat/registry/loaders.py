@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Callable
-from types import FunctionType
 from typing import Any, NoReturn
 
 from pydantic import BaseModel, TypeAdapter
+from tracecat_registry import RegistrySecret
 
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import create_expectation_model
@@ -16,6 +16,7 @@ from tracecat.registry.actions.models import (
     RegistryActionImpl,
     RegistryActionImplValidator,
     RegistryActionTemplateImpl,
+    RegistryActionType,
     RegistryActionUDFImpl,
 )
 from tracecat.registry.repository import (
@@ -25,7 +26,7 @@ from tracecat.registry.repository import (
     get_signature_docs,
 )
 
-F = FunctionType
+F = Callable[..., Any]
 
 
 def get_bound_action_impl(
@@ -34,6 +35,7 @@ def get_bound_action_impl(
     impl = RegistryActionImplValidator.validate_python(action.implementation)
     impl_loader = _LOADERS[impl.type]
     fn: F = impl_loader(impl)
+    secrets = [RegistrySecret(**secret) for secret in action.secrets or []]
     if impl.type == "udf":
         key = getattr(fn, "__tracecat_udf_key")
         kwargs = getattr(fn, "__tracecat_udf_kwargs")
@@ -44,21 +46,23 @@ def get_bound_action_impl(
         args_docs = get_signature_docs(fn)
         # Generate the model from the function signature
         args_cls, rtype, rtype_adapter = generate_model_from_function(
-            func=fn, namespace=validated_kwargs.namespace
+            func=fn, udf_kwargs=validated_kwargs
         )
         return BoundRegistryAction(
             fn=fn,
-            type=action.type,
+            type=impl.type,
             name=action.name,
             namespace=action.namespace,
             description=action.description,
-            secrets=action.secrets,
+            secrets=secrets,
             args_cls=args_cls,
             args_docs=args_docs,
             rtype_cls=rtype,
             rtype_adapter=rtype_adapter,
             default_title=action.default_title,
             display_group=action.display_group,
+            doc_url=action.doc_url,
+            author=action.author,
             origin=action.origin,
         )
     else:
@@ -66,11 +70,11 @@ def get_bound_action_impl(
         defn = impl.template_action.definition
         return BoundRegistryAction(
             fn=fn,
-            type=action.type,
+            type=impl.type,
             name=action.name,
             namespace=action.namespace,
             description=action.description,
-            secrets=action.secrets,
+            secrets=secrets,
             args_cls=create_expectation_model(
                 defn.expects, defn.action.replace(".", "__")
             )
@@ -83,6 +87,8 @@ def get_bound_action_impl(
             rtype_adapter=TypeAdapter(Any),
             default_title=action.default_title,
             display_group=action.display_group,
+            doc_url=action.doc_url,
+            author=action.author,
             include_in_schema=True,
             template_action=impl.template_action,
             origin=action.origin,
@@ -108,7 +114,7 @@ def _not_implemented() -> NoReturn:
     )
 
 
-_LOADERS: dict[str, Callable[[RegistryActionImpl], F]] = {
-    "udf": load_udf_impl,
-    "template": load_template_impl,
+_LOADERS: dict[RegistryActionType, Callable[[RegistryActionImpl], F]] = {
+    "udf": load_udf_impl,  # type: ignore
+    "template": load_template_impl,  # type: ignore
 }

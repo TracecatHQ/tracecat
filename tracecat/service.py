@@ -1,6 +1,6 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from typing import Self
+from typing import Any, Self
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -28,3 +28,12 @@ class BaseService:
     ) -> AsyncGenerator[Self, None]:
         async with get_async_session_context_manager() as session:
             yield cls(session, role=role)
+
+    @classmethod
+    def get_activities(cls) -> list[Callable[..., Any]]:
+        """Get all temporal activities in the class."""
+        return [
+            getattr(cls, method_name)
+            for method_name in dir(cls)
+            if hasattr(getattr(cls, method_name), "__temporal_activity_definition")
+        ]

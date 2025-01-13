@@ -2,86 +2,125 @@
 title: Functions
 description: A cheatsheet of all operators and functions supported by Tracecat.
 ---
+## Expressions
+| Expression | Arguments | Description |
+| --- | --- | --- |
+| `prefix` | (x: str \| list[str], prefix: str) -> str \| list[str] | Add a prefix to a string or list of strings. |
+| `suffix` | (x: str \| list[str], suffix: str) -> str \| list[str] | Add a suffix to a string or list of strings. |
+| `capitalize` | (x: str) -> str | Capitalize a string. |
+| `endswith` | (x: str, suffix: str) -> bool | Check if a string ends with a specified suffix. |
+| `lowercase` | (x: str) -> str | Convert string to lowercase. |
+| `slice` | (x: str, start_index: int, length: int) -> str | Extract a substring from start_index with given length. |
+| `split` | (x: str, sep: str) -> list[str] | Split a string into a list of strings by a seperator. |
+| `startswith` | (x: str, suffix: str) -> bool | Check if a string starts wit a specified suffix. |
+| `strip` | (x: str, chars: str) -> str | Removes all leading and trailing characters. |
+| `titleize` | (x: str) -> str | Convert a string to titlecase. |
+| `uppercase` | (x: str) -> str | Convert string to uppercase. |
+| `replace` | (x: str, old: str, new: str) -> str | Replace all occurrences of old substring with new substring. |
+| `url_encode` | (x: str) -> str | Converts URL-unsafe characters into percent-encoded characters. |
+| `less_than` | (a: Any, b: Any) -> bool | Check if a is less than b. |
+| `less_than_or_equal` | (a: Any, b: Any) -> bool | Check if a is less than or equal to b. |
+| `greater_than` | (a: Any, b: Any) -> bool | Check if a is greater than b. |
+| `greater_than_or_equal` | (a: Any, b: Any) -> bool | Check if a is greater than or equal to b. |
+| `not_equal` | (a: Any, b: Any) -> bool | Check if a is not equal to b. |
+| `is_equal` | (a: Any, b: Any) -> bool | Check if a is equal to b. |
+| `not_null` | (x: Any) -> bool | Check if value is not None. |
+| `is_null` | (x: Any) -> bool | Check if value is None. |
+| `regex_extract` | (pattern: str, text: str) -> str \| None | Extract first match of regex pattern from text. |
+| `regex_match` | (pattern: str, text: str) -> bool | Check if text matches regex pattern. |
+| `regex_not_match` | (pattern: str, text: str) -> bool | Check if text does not match regex pattern. |
+| `contains` | (item: Any, container: Sequence[Any]) -> bool | Check if item exists in container. |
+| `does_not_contain` | (item: Any, container: Sequence[Any]) -> bool | Check if item does not exist in container. |
+| `length` | (obj, /) | Return the number of items in a container. |
+| `is_empty` | (x: Sequence[Any]) -> bool | Check if sequence is empty. |
+| `not_empty` | (x: Sequence[Any]) -> bool | Check if sequence is not empty. |
+| `flatten` | (iterables: Sequence[Sequence[Any]]) -> list[Any] | Flatten nested sequences into a single list. |
+| `unique` | (items: Sequence[Any]) -> list[Any] | Return unique items from sequence. |
+| `intersect` | (items: Sequence[T], collection: Sequence[T], python_lambda: str \| None = None) -> list[T] | Return the set intersection of two sequences as a list. If a Python lambda is provided, it will be applied to each item before checking for intersection. |
+| `union` | (*collections: Sequence[T]) -> list[T] | Return the set union of multiple sequences as a list. |
+| `difference` | (a: Sequence[T], b: Sequence[T]) -> list[T] | Return the set difference of two sequences as a list. |
+| `add` | (a: float \| int, b: float \| int) -> float \| int | Add two numbers together. |
+| `sub` | (a: float \| int, b: float \| int) -> float \| int | Subtract second number from first number. |
+| `mul` | (a: float \| int, b: float \| int) -> float \| int | Multiply two numbers together. |
+| `div` | (a: float \| int, b: float \| int) -> float | Divide first number by second number. |
+| `mod` | (a: float \| int, b: float \| int) -> float \| int | Calculate modulo (remainder) of first number divided by second. |
+| `pow` | (a: float \| int, b: float \| int) -> float \| int | Raise first number to the power of second number. |
+| `sum` | (iterable: Iterable[float \| int], start: float \| int = 0) -> float \| int | Return the sum of a 'start' value (default: 0) plus an iterable of numbers. |
+| `join` | (items: Sequence[str], sep: str) -> str | Join sequence of strings with separator. |
+| `concat` | (*items: str) -> str | Concatenate multiple strings. |
+| `format` | (template: str, *values: Any) -> str | Format a string with the given arguments. |
+| `apply` | (item: T \| Iterable[T], python_lambda: str) -> T \| list[T] | Apply a Python lambda function to an item or sequence of items. |
+| `filter` | (items: Sequence[T], python_lambda: str) -> list[T] | Filter a collection using a Python lambda expression as a string (e.g. `"lambda x: x > 2"`). |
+| `zip` | (*iterables: Sequence[Any]) -> list[tuple[Any, ...]] | Zip multiple sequences together. |
+| `iter_product` | (*iterables: Sequence[Any]) -> list[tuple[Any, ...]] | Generate cartesian product of sequences. |
+| `range` | (start: int, end: int, step: int = 1) -> range | Create a range of integers from start to end (exclusive), with a step size. |
+| `uuid4` | () -> str | Generate a random UUID string. |
+| `to_keys` | (x: dict[Any, Any]) -> list[Any] | Extract keys from dictionary. |
+| `to_values` | (x: dict[Any, Any]) -> list[Any] | Extract values from dictionary. |
+| `and` | (a: bool, b: bool) -> bool | Logical AND operation. |
+| `or` | (a: bool, b: bool) -> bool | Logical OR operation. |
+| `not` | (x: bool) -> bool | Logical NOT operation. |
+| `serialize_json` | (x: Any) -> str | Convert object to JSON string. |
+| `deserialize_json` | (obj, /) | Deserialize JSON to Python objects. |
+| `prettify_json` | (x: Any) -> str | Convert object to formatted JSON string. |
+| `deserialize_ndjson` | (x: str) -> list[dict[str, Any]] | Parse newline-delimited JSON string into list of dictionaries. |
+| `extract_text_from_html` | (input: str) -> list[str] | Extract text content from HTML string using HTMLToTextParser. |
+| `from_timestamp` | (x: int, unit: str) -> datetime | Convert timestamp to datetime, handling milliseconds if unit is 'ms'. |
+| `get_second` | (x: datetime) -> int | Get second (0-59) from datetime. |
+| `get_minute` | (x: datetime) -> int | Get minute (0-59) from datetime. |
+| `get_hour` | (x: datetime) -> int | Get hour (0-23) from datetime. |
+| `get_day` | (x: datetime) -> int | Get day of month (1-31) from datetime. |
+| `get_day_of_week` | (x: datetime, format: "Literal[number, full, short]" = number) -> int \| str | Extract day of week from datetime. Returns 0-6 (Mon-Sun) or day name if format is "full" or "short". |
+| `get_month` | (x: datetime, format: "Literal[number, full, short]" = number) -> int \| str | Extract month from datetime. Returns 1-12 or month name if format is "full" or "short". |
+| `get_year` | (x: datetime) -> int | Get year from datetime. |
+| `datetime` | (year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0) -> datetime | Create datetime from year, month, day, hour, minute, and second. |
+| `seconds` | (x: int) -> timedelta | Create timedelta with specified seconds. |
+| `minutes` | (x: int) -> timedelta | Create timedelta with specified minutes. |
+| `hours` | (x: int) -> timedelta | Create timedelta with specified hours. |
+| `days` | (x: int) -> timedelta | Create timedelta with specified days. |
+| `weeks` | (x: int) -> timedelta | Create timedelta with spcified weeks |
+| `seconds_between` | (start: datetime, end: datetime) -> float | Seconds between two datetimes. |
+| `minutes_between` | (start: datetime, end: datetime) -> float | Minutes between two datetimes. |
+| `hours_between` | (start: datetime, end: datetime) -> float | Hours between two datetimes. |
+| `days_between` | (start: datetime, end: datetime) -> float | Days between two datetimes. |
+| `weeks_between` | (start: datetime, end: datetime) -> float | Weeks between two datetimes or dates. |
+| `now` | () -> datetime | Return the current datetime. |
+| `utcnow` | () -> datetime | Return the current timezone-aware datetime. |
+| `today` | () -> date | Return the current date. |
+| `set_timezone` | (x: datetime, timezone: str) -> datetime | Convert datetime to different timezone. Timezone must be a valid IANA timezone name (e.g., "America/New_York"). |
+| `unset_timezone` | (x: datetime) -> datetime | Remove timezone information from datetime without changing the time. |
+| `to_datestring` | (x: datetime, format: str) -> str | Format datetime to string using specified format. |
+| `to_datetime` | (x: Any, timezone: str \| None = None) -> datetime | Convert input to datetime object from timestamp, ISO string or existing datetime.
+    Supports timezone-aware datetime objects if IANA timezone is provided.
+     |
+| `to_isoformat` | (x: datetime) -> str | Convert datetime to ISO format string. |
+| `to_timestamp` | (x: datetime) -> float | Convert datetime to timestamp. |
+| `windows_filetime` | (x: datetime) -> int | Convert datetime to Windows filetime. |
+| `to_base64` | (x: str) -> str | Encode string to base64. |
+| `from_base64` | (x: str) -> str | Decode base64 string to string. |
+| `to_base64url` | (x: str) -> str | Encode string to URL-safe base64. |
+| `from_base64url` | (x: str) -> str | Decode URL-safe base64 string to string. |
+| `lookup` | (d: dict[Any, Any], k: Any) -> Any | Safely get value from dictionary. |
+| `ipv4_in_subnet` | (ipv4: str, subnet: str) -> bool | Check if IPv4 address is in the given subnet. |
+| `ipv6_in_subnet` | (ipv6: str, subnet: str) -> bool | Check if IPv6 address is in the given subnet. |
+| `ipv4_is_public` | (ipv4: str) -> bool | Check if IPv4 address is public/global. |
+| `ipv6_is_public` | (ipv6: str) -> bool | Check if IPv6 address is public/global. |
+| `check_ip_version` | (ip: str) -> int | Get IP address version (4 or 6). |
 
-## Operators
-
-| Operator | Description                                                     |
-| -------- | --------------------------------------------------------------- |
-| `\|\|`   | Logical OR operation.                                           |
-| `&&`     | Logical AND operation.                                          |
-| `==`     | Check if a is equal to b.                                       |
-| `!=`     | Check if a is not equal to b.                                   |
-| `<`      | Check if a is less than b.                                      |
-| `<=`     | Check if a is less than or equal to b.                          |
-| `>`      | Check if a is greater than b.                                   |
-| `>=`     | Check if a is greater than or equal to b.                       |
-| `+`      | Add two numbers together.                                       |
-| `-`      | Subtract second number from first number.                       |
-| `*`      | Multiply two numbers together.                                  |
-| `/`      | Divide first number by second number.                           |
-| `%`      | Calculate modulo (remainder) of first number divided by second. |
-| `!`      | Logical NOT operation.                                          |
-
-## Functions
-
-| Function               | Arguments                                                                                                             | Description                                                                           |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `slice`                  | (x: str, start_index: int, length: int) -> str                                                                        | Extract a substring from start_index with given length.                               |
-| `less_than`              | (a: Any, b: Any) -> bool                                                                                              | Check if a is less than b.                                                            |
-| `less_than_or_equal`     | (a: Any, b: Any) -> bool                                                                                              | Check if a is less than or equal to b.                                                |
-| `greater_than`           | (a: Any, b: Any) -> bool                                                                                              | Check if a is greater than b.                                                         |
-| `greater_than_or_equal`  | (a: Any, b: Any) -> bool                                                                                              | Check if a is greater than or equal to b.                                             |
-| `not_equal`              | (a: Any, b: Any) -> bool                                                                                              | Check if a is not equal to b.                                                         |
-| `is_equal`               | (a: Any, b: Any) -> bool                                                                                              | Check if a is equal to b.                                                             |
-| `not_null`               | (x: Any) -> bool                                                                                                      | Check if value is not None.                                                           |
-| `is_null`                | (x: Any) -> bool                                                                                                      | Check if value is None.                                                               |
-| `regex_extract`          | (pattern: str, text: str) -> str                                                                                      | Extract first match of regex pattern from text.                                       |
-| `regex_match`            | (pattern: str, text: str) -> bool                                                                                     | Check if text matches regex pattern.                                                  |
-| `regex_not_match`        | (pattern: str, text: str) -> bool                                                                                     | Check if text does not match regex pattern.                                           |
-| `contains`               | (item: Any, container: Sequence[Any]) -> bool                                                                         | Check if item exists in container.                                                    |
-| `does_not_contain`       | (item: Any, container: Sequence[Any]) -> bool                                                                         | Check if item does not exist in container.                                            |
-| `length`                 | (obj, /)                                                                                                              | Return the number of items in a container.                                            |
-| `is_empty`               | (x: Sequence[Any]) -> bool                                                                                            | Check if sequence is empty.                                                           |
-| `not_empty`              | (x: Sequence[Any]) -> bool                                                                                            | Check if sequence is not empty.                                                       |
-| `flatten`                | (iterables: Sequence[Sequence[Any]]) -> list[Any]                                                                     | Flatten nested sequences into a single list.                                          |
-| `unique`                 | (items: Sequence[Any]) -> list[Any]                                                                                   | Return unique items from sequence.                                                    |
-| `add`                    | (a: float \| int, b: float \| int) -> float \| int                                                                    | Add two numbers together.                                                             |
-| `sub`                    | (a: float \| int, b: float \| int) -> float \| int                                                                    | Subtract second number from first number.                                             |
-| `mul`                    | (a: float \| int, b: float \| int) -> float \| int                                                                    | Multiply two numbers together.                                                        |
-| `div`                    | (a: float \| int, b: float \| int) -> float                                                                           | Divide first number by second number.                                                 |
-| `mod`                    | (a: float \| int, b: float \| int) -> float \| int                                                                    | Calculate modulo (remainder) of first number divided by second.                       |
-| `pow`                    | (a: float \| int, b: float \| int) -> float \| int                                                                    | Raise first number to the power of second number.                                     |
-| `sum`                    | (iterable: Iterable[float \| int], start: float \| int = 0) -> float \| int                                           | Return the sum of a 'start' value (default: 0) plus an iterable of numbers.           |
-| `join`                   | (items: Sequence[str], sep: str) -> str                                                                               | Join sequence of strings with separator.                                              |
-| `concat`                 | (\*items: str) -> str                                                                                                 | Concatenate multiple strings.                                                         |
-| `format`                 | (template: str, \*values: Any) -> str                                                                                 | Format a string with the given arguments.                                             |
-| `filter`                 | (items: list[T], constraint: str \| list[T] \| FunctionConstraint \| OperatorConstraint) -> list[T]                   | Custom collection filter with support for jsonpath, lambda expressions and operators. |
-| `jsonpath`               | (expr: str, operand: dict[str, Any], \*, context_type: ExprContext \| None = None, strict: bool = False) -> T \| None | Evaluate a jsonpath expression on the target object (operand).                        |
-| `zip`                    | (\*iterables: Sequence[Any]) -> list[tuple[Any, ...]]                                                                 | Zip multiple sequences together.                                                      |
-| `iter_product`           | (\*iterables: Sequence[Any]) -> list[tuple[Any, ...]]                                                                 | Generate cartesian product of sequences.                                              |
-| `uuid4`                  | () -> str                                                                                                             | Generate a random UUID string.                                                        |
-| `to_keys`                | (x: dict[Any, Any]) -> list[Any]                                                                                      | Extract keys from dictionary.                                                         |
-| `to_values`              | (x: dict[Any, Any]) -> list[Any]                                                                                      | Extract values from dictionary.                                                       |
-| `and`                    | (a: bool, b: bool) -> bool                                                                                            | Logical AND operation.                                                                |
-| `or`                     | (a: bool, b: bool) -> bool                                                                                            | Logical OR operation.                                                                 |
-| `not`                    | (x: bool) -> bool                                                                                                     | Logical NOT operation.                                                                |
-| `serialize_json`         | (x: Any) -> str                                                                                                       | Convert object to JSON string.                                                        |
-| `deserialize_json`       | (obj, /)                                                                                                              | Deserialize JSON to Python objects.                                                   |
-| `prettify_json`          | (x: Any) -> str                                                                                                       | Convert object to formatted JSON string.                                              |
-| `deserialize_ndjson`     | (x: str) -> list[dict[str, Any]]                                                                                      | Parse newline-delimited JSON string into list of dictionaries.                        |
-| `extract_text_from_html` | (input: str) -> list[str]                                                                                             | Extract text content from HTML string using HTMLToTextParser.                         |
-| `from_timestamp`         | (x: int, unit: str) -> datetime                                                                                       | Convert timestamp to datetime, handling milliseconds if unit is 'ms'.                 |
-| `to_timestamp`           | (x: datetime) -> float                                                                                                | Convert datetime to timestamp.                                                        |
-| `minutes`                | (x: int) -> timedelta                                                                                                 | Create timedelta with specified minutes.                                              |
-| `now`                    | () -> datetime                                                                                                        | Return the current datetime.                                                          |
-| `to_datestring`          | (x: datetime, format: str) -> str                                                                                     | Format datetime to string using specified format.                                     |
-| `to_datetime`            | (x: Any) -> datetime                                                                                                  | Convert input to datetime object from timestamp, ISO string or existing datetime.     |
-| `to_isoformat`           | (x: datetime) -> str                                                                                                  | Convert datetime to ISO format string.                                                |
-| `to_base64`              | (x: str) -> str                                                                                                       | Encode string to base64.                                                              |
-| `from_base64`            | (x: str) -> str                                                                                                       | Decode base64 string to string.                                                       |
-| `lookup`                 | (d: dict[Any, Any], k: Any) -> Any                                                                                    | Safely get value from dictionary.                                                     |
-| `ipv4_in_subnet`         | (ipv4: str, subnet: str) -> bool                                                                                      | Check if IPv4 address is in the given subnet.                                         |
-| `ipv6_in_subnet`         | (ipv6: str, subnet: str) -> bool                                                                                      | Check if IPv6 address is in the given subnet.                                         |
-| `ipv4_is_public`         | (ipv4: str) -> bool                                                                                                   | Check if IPv4 address is public/global.                                               |
-| `ipv6_is_public`         | (ipv6: str) -> bool                                                                                                   | Check if IPv6 address is public/global.                                               |
-| `check_ip_version`       | (ip: str) -> int                                                                                                      | Get IP address version (4 or 6).                                                      |
+## Built-in Operators
+| Operator | Description |
+| --- | --- |
+| `\|\|` | Logical OR operation. |
+| `&&` | Logical AND operation. |
+| `==` | Check if a is equal to b. |
+| `!=` | Check if a is not equal to b. |
+| `<` | Check if a is less than b. |
+| `<=` | Check if a is less than or equal to b. |
+| `>` | Check if a is greater than b. |
+| `>=` | Check if a is greater than or equal to b. |
+| `+` | Add two numbers together. |
+| `-` | Subtract second number from first number. |
+| `*` | Multiply two numbers together. |
+| `/` | Divide first number by second number. |
+| `%` | Calculate modulo (remainder) of first number divided by second. |
+| `!` | Logical NOT operation. |

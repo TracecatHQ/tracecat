@@ -7,19 +7,14 @@ import inspect
 import json
 import os
 import re
-import subprocess
 import sys
-import tempfile
-from collections.abc import AsyncIterator, Callable, Mapping
-from contextlib import asynccontextmanager
+from collections.abc import Callable
 from itertools import chain
 from pathlib import Path
 from timeit import default_timer
-from types import FunctionType, GenericAlias, ModuleType
-from typing import Annotated, Any, Literal, TypedDict, cast
-from urllib.parse import urlparse, urlunparse
+from types import ModuleType
+from typing import Annotated, Any, Literal, cast
 
-import paramiko
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -36,27 +31,38 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
+from tracecat.git import get_git_repository_sha, parse_git_url
 from tracecat.logger import logger
+from tracecat.parse import safe_url
 from tracecat.registry.actions.models import BoundRegistryAction, TemplateAction
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
-    GITHUB_SSH_KEY_SECRET_NAME,
 )
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.secrets.service import SecretsService
+from tracecat.settings.service import get_setting
+from tracecat.ssh import (
+    SshEnv,
+    add_host_to_known_hosts,
+    add_ssh_key_to_agent,
+    temporary_ssh_agent,
+)
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import RegistryError
 
 ArgsClsT = type[BaseModel]
+type F = Callable[..., Any]
 
 
 class RegisterKwargs(BaseModel):
-    default_title: str | None
-    display_group: str | None
     namespace: str
     description: str
+    default_title: str | None
+    display_group: str | None
+    doc_url: str | None
+    author: str | None
     secrets: list[RegistrySecret] | None
     include_in_schema: bool
 
@@ -137,7 +143,7 @@ class Repository:
     def register_udf(
         self,
         *,
-        fn: FunctionType,
+        fn: F,
         name: str,
         type: Literal["udf", "template"],
         namespace: str,
@@ -149,6 +155,8 @@ class Repository:
         rtype_adapter: TypeAdapter,
         default_title: str | None,
         display_group: str | None,
+        doc_url: str | None,
+        author: str | None,
         include_in_schema: bool,
         template_action: TemplateAction | None = None,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
@@ -159,6 +167,8 @@ class Repository:
             namespace=namespace,
             description=description,
             type=type,
+            doc_url=doc_url,
+            author=author,
             secrets=secrets,
             args_cls=args_cls,
             args_docs=args_docs,
@@ -189,6 +199,8 @@ class Repository:
             name=defn.name,
             namespace=defn.namespace,
             description=defn.description,
+            doc_url=defn.doc_url,
+            author=defn.author,
             secrets=defn.secrets,
             args_cls=create_expectation_model(
                 expectation, defn.action.replace(".", "__")
@@ -198,7 +210,7 @@ class Repository:
             args_docs={
                 key: schema.description or "-" for key, schema in expectation.items()
             },
-            rtype=Any,
+            rtype=Any,  # type: ignore
             rtype_adapter=TypeAdapter(Any),
             default_title=defn.title,
             display_group=defn.display_group,
@@ -235,21 +247,50 @@ class Repository:
         # Load from remote
         logger.info("Loading UDFs from origin", origin=self._origin)
 
-        try:
-            org, repo_name, branch = parse_github_url(self._origin)
-        except ValueError as e:
-            raise RegistryError(
-                "Invalid GitHub URL. Please provide a valid Github SSH URL (git+ssh)."
-            ) from e
-        logger.debug(
-            "Parsed GitHub URL", org=org, package_name=repo_name, branch=branch
+        allowed_domains = cast(
+            set[str],
+            await get_setting(
+                "git_allowed_domains",
+                role=self.role,
+                # TODO: Deprecate in future version
+                default=config.TRACECAT__ALLOWED_GIT_DOMAINS,
+            )
+            or {"github.com"},
         )
 
-        package_name = config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME or repo_name
+        try:
+            git_url = parse_git_url(self._origin, allowed_domains=allowed_domains)
+            host = git_url.host
+            org = git_url.org
+            repo_name = git_url.repo
+            branch = git_url.branch
+        except ValueError as e:
+            raise RegistryError(
+                "Invalid Git repository URL. Please provide a valid Git SSH URL (git+ssh)."
+            ) from e
+        package_name = (
+            await get_setting(
+                "git_repo_package_name",
+                role=self.role,
+                # TODO: Deprecate in future version
+                default=config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME,
+            )
+            or repo_name
+        )
+        logger.debug(
+            "Parsed Git repository URL",
+            host=host,
+            org=org,
+            repo=repo_name,
+            package_name=package_name,
+            ref=branch,
+        )
 
         cleaned_url = self.safe_remote_url(self._origin)
         logger.debug("Cleaned URL", url=cleaned_url)
-        commit_sha = await self._install_remote_repository(cleaned_url, commit_sha)
+        commit_sha = await self._install_remote_repository(
+            host=host, repo_url=cleaned_url, commit_sha=commit_sha
+        )
         module = await self._load_remote_repository(cleaned_url, package_name)
         logger.info(
             "Imported and reloaded remote repository",
@@ -259,18 +300,18 @@ class Repository:
         return commit_sha
 
     async def _install_remote_repository(
-        self, repo_url: str, commit_sha: str | None = None
+        self, host: str, repo_url: str, commit_sha: str | None = None
     ) -> str:
         """Install the remote repository into the filesystem and return the commit sha."""
 
         logger.info("Getting SSH key", role=self.role)
         async with SecretsService.with_session(role=self.role) as service:
-            secret = await service.get_ssh_key(GITHUB_SSH_KEY_SECRET_NAME)
+            secret = await service.get_ssh_key()
 
         async with temporary_ssh_agent() as env:
             logger.info("Entered temporary SSH agent context")
             await add_ssh_key_to_agent(secret.reveal().value, env=env)
-            await add_host_to_known_hosts("github.com", env=env)
+            await add_host_to_known_hosts(host, env=env)
             if commit_sha is None:
                 commit_sha = await get_git_repository_sha(repo_url, env=env)
             await install_remote_repository(repo_url, commit_sha=commit_sha, env=env)
@@ -295,11 +336,11 @@ class Repository:
             logger.info("Importing remote repository module", module_name=module_name)
             # We only need to call this at the root level because
             # this deletes all the submodules as well
-            module = import_and_reload(module_name)
+            package_or_module = import_and_reload(module_name)
 
-            # # Reload the module to ensure fresh execution
-            self._register_udfs_from_package(module, origin=repo_url)
-            logger.trace("AFTER", keys=self.keys)
+            # Reload the module to ensure fresh execution
+            logger.info("Registering UDFs from package", module_name=package_or_module)
+            self._register_udfs_from_package(package_or_module, origin=repo_url)
         except ImportError as e:
             logger.error("Error importing remote repository udfs", error=e)
             raise
@@ -311,11 +352,11 @@ class Repository:
         except Exception as e:
             logger.error("Error importing remote repository template actions", error=e)
             raise
-        return module
+        return package_or_module
 
     def _register_udf_from_function(
         self,
-        fn: FunctionType,
+        fn: F,
         *,
         name: str,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
@@ -330,7 +371,7 @@ class Repository:
         args_docs = get_signature_docs(fn)
         # Generate the model from the function signature
         args_cls, rtype, rtype_adapter = generate_model_from_function(
-            func=fn, namespace=validated_kwargs.namespace
+            func=fn, udf_kwargs=validated_kwargs
         )
 
         self.register_udf(
@@ -339,6 +380,8 @@ class Repository:
             name=name,
             namespace=validated_kwargs.namespace,
             description=validated_kwargs.description,
+            doc_url=validated_kwargs.doc_url,
+            author=validated_kwargs.author,
             secrets=validated_kwargs.secrets,
             default_title=validated_kwargs.default_title,
             display_group=validated_kwargs.display_group,
@@ -415,7 +458,7 @@ class Repository:
         """Load template actions from a package."""
         start_time = default_timer()
         pkg_root = importlib.resources.files(package_name)
-        pkg_path = Path(pkg_root)
+        pkg_path = Path(pkg_root)  # type: ignore
         n_loaded = self.load_template_actions_from_path(path=pkg_path, origin=origin)
         time_elapsed = default_timer() - start_time
         if n_loaded > 0:
@@ -486,14 +529,11 @@ def import_and_reload(module_name: str) -> ModuleType:
     return reloaded_module
 
 
-def attach_validators(func: FunctionType, *validators: Callable):
+def attach_validators(func: F, *validators: Any):
     sig = inspect.signature(func)
 
     new_annotations = {
-        name: Annotated[
-            param.annotation,
-            *validators,
-        ]
+        name: Annotated[param.annotation, *validators]
         for name, param in sig.parameters.items()
     }
     if sig.return_annotation is not sig.empty:
@@ -502,8 +542,8 @@ def attach_validators(func: FunctionType, *validators: Callable):
 
 
 def generate_model_from_function(
-    func: FunctionType, namespace: str
-) -> tuple[type[BaseModel], type | GenericAlias | None, TypeAdapter | None]:
+    func: F, udf_kwargs: RegisterKwargs
+) -> tuple[type[BaseModel], Any, TypeAdapter]:
     # Get the signature of the function
     sig = inspect.signature(func)
     # Create a dictionary to hold field definitions
@@ -523,10 +563,10 @@ def generate_model_from_function(
         fields[name] = (field_type, field_info)
     # Dynamically create and return the Pydantic model class
     input_model = create_model(
-        _udf_slug_camelcase(func, namespace),
+        _udf_slug_camelcase(func, udf_kwargs.namespace),
         __config__=ConfigDict(extra="forbid"),
         **fields,
-    )  # type: ignore
+    )
     # Capture the return type of the function
     rtype = sig.return_annotation if sig.return_annotation is not sig.empty else Any
     rtype_adapter = TypeAdapter(rtype)
@@ -534,7 +574,7 @@ def generate_model_from_function(
     return input_model, rtype, rtype_adapter
 
 
-def get_signature_docs(fn: FunctionType) -> dict[str, str]:
+def get_signature_docs(fn: F) -> dict[str, str]:
     param_docs = {}
 
     sig = inspect.signature(fn)
@@ -546,7 +586,7 @@ def get_signature_docs(fn: FunctionType) -> dict[str, str]:
     return param_docs
 
 
-def _udf_slug_camelcase(func: FunctionType, namespace: str) -> str:
+def _udf_slug_camelcase(func: F, namespace: str) -> str:
     # Use slugify to preprocess the string
     slugified_string = re.sub(r"[^a-zA-Z0-9]+", " ", namespace)
     slugified_name = re.sub(r"[^a-zA-Z0-9]+", " ", func.__name__)
@@ -558,18 +598,18 @@ def _udf_slug_camelcase(func: FunctionType, namespace: str) -> str:
     return "".join(word.capitalize() for word in words)
 
 
-def _enforce_restrictions(fn: FunctionType) -> FunctionType:
+def _enforce_restrictions(fn: F) -> F:
     """
     Ensure that a function does not access os.environ, os.getenv, or import os.
 
     Parameters
     ----------
-    fn : FunctionType
+    fn : F
         The function to be checked.
 
     Returns
     -------
-    FunctionType
+    F
         The original function if no access to os.environ, os.getenv, or import os is found.
 
     Raises
@@ -591,55 +631,16 @@ def _enforce_restrictions(fn: FunctionType) -> FunctionType:
     # Check for direct access to os.environ
     if "os" in names and "environ" in names:
         raise ValueError(
-            "`os.environ` usage is not allowed in user-defined code."
-            f" Found in: {path}"
+            f"`os.environ` usage is not allowed in user-defined code. Found in: {path}"
         )
 
     # Check for invocations of os.getenv
     if "os" in names and "getenv" in names:
         raise ValueError(
-            "`os.getenv()` usage is not allowed in user-defined code."
-            f" Found in: {path}"
+            f"`os.getenv()` usage is not allowed in user-defined code. Found in: {path}"
         )
 
     return fn
-
-
-def safe_url(url: str) -> str:
-    """Remove credentials from a url."""
-    url_obj = urlparse(url)
-    # XXX(safety): Reconstruct url without credentials.
-    # Note that we do not recommend passing credentials in the url.
-    cleaned_url = urlunparse((url_obj.scheme, url_obj.netloc, url_obj.path, "", "", ""))
-    return cleaned_url
-
-
-def parse_github_url(url: str) -> tuple[str, str, str]:
-    """
-    Parse a GitHub URL to extract organization, package name, and branch.
-    Handles both standard GitHub URLs and 'git+' prefixed URLs with optional '@' for branch specification.
-    Currently only supports git+ssh.
-
-    Args:
-        url (str): The GitHub URL to parse.
-
-    Returns:
-        tuple[str, str, str]: A tuple containing (organization, package_name, branch).
-
-    Raises:
-        ValueError: If the URL is not a valid GitHub repository URL.
-    """
-    # Define regex patterns with atomic groups and no nested quantifiers
-    ssh_pattern = r"^git\+ssh://git@github\.com/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<branch>[^/]+))?$"
-
-    # Try matching SSH pattern
-    if ssh_match := re.match(ssh_pattern, url):
-        org = ssh_match.group("org")
-        repo = ssh_match.group("repo")
-        branch = ssh_match.group("branch") or "main"
-        return org, repo, branch
-
-    raise ValueError(f"Unsupported URL format: {url}")
 
 
 async def ensure_base_repository(
@@ -656,134 +657,6 @@ async def ensure_base_repository(
         logger.info("Created base registry repository", origin=origin)
     else:
         logger.info("Base registry repository already exists", origin=origin)
-
-
-class SshEnv(TypedDict):
-    SSH_AUTH_SOCK: str
-    SSH_AGENT_PID: str
-
-
-@asynccontextmanager
-async def temporary_ssh_agent() -> AsyncIterator[SshEnv]:
-    """Set up a temporary SSH agent and yield the SSH_AUTH_SOCK."""
-    original_ssh_auth_sock = os.environ.get("SSH_AUTH_SOCK")
-    try:
-        # Start ssh-agent
-        logger.debug("Starting ssh-agent")
-        try:
-            # We're using asyncio.to_thread to run the ssh-agent in a separate thread
-            # because for some reason, asyncio.create_subprocess_exec stalls and times out
-            result = await asyncio.to_thread(
-                subprocess.run,
-                ["ssh-agent", "-s"],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=10.0,
-            )
-            stdout = result.stdout
-            stderr = result.stderr
-            logger.debug("Started ssh-agent process", stdout=stdout, stderr=stderr)
-        except subprocess.TimeoutExpired as e:
-            logger.error("SSH-agent execution timed out")
-            raise RuntimeError("SSH-agent execution timed out") from e
-        except subprocess.CalledProcessError as e:
-            logger.error("Failed to start ssh-agent", stderr=e.stderr)
-            raise RuntimeError("Failed to start ssh-agent") from e
-
-        ssh_auth_sock = stdout.split("SSH_AUTH_SOCK=")[1].split(";")[0]
-        ssh_agent_pid = stdout.split("SSH_AGENT_PID=")[1].split(";")[0]
-
-        logger.debug(
-            "Started ssh-agent",
-            SSH_AUTH_SOCK=ssh_auth_sock,
-            SSH_AGENT_PID=ssh_agent_pid,
-        )
-        yield SshEnv(
-            SSH_AUTH_SOCK=ssh_auth_sock,
-            SSH_AGENT_PID=ssh_agent_pid,
-        )
-    finally:
-        if "SSH_AGENT_PID" in os.environ:
-            logger.debug("Killing ssh-agent")
-            await asyncio.create_subprocess_exec("ssh-agent", "-k")
-
-        # Restore original SSH_AUTH_SOCK if it existed
-        if original_ssh_auth_sock is not None:
-            logger.debug(
-                "Restoring original SSH_AUTH_SOCK", SSH_AUTH_SOCK=original_ssh_auth_sock
-            )
-            os.environ["SSH_AUTH_SOCK"] = original_ssh_auth_sock
-        else:
-            os.environ.pop("SSH_AUTH_SOCK", None)
-        logger.debug("Killed ssh-agent")
-
-
-async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
-    """Add the SSH key to the agent then remove it."""
-    with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp_key_file:
-        temp_key_file.write(key_data)
-        temp_key_file.write("\n")
-        temp_key_file.flush()
-        logger.debug("Added SSH key to temp file", key_file=temp_key_file.name)
-        os.chmod(temp_key_file.name, 0o600)
-
-        try:
-            # Validate the key using paramiko
-            paramiko.Ed25519Key.from_private_key_file(temp_key_file.name)
-        except paramiko.SSHException as e:
-            logger.error(f"Invalid SSH key: {str(e)}")
-            raise
-
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "ssh-add",
-                temp_key_file.name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=cast(Mapping[str, str], env),
-            )
-            _, stderr = await process.communicate()
-
-            if process.returncode != 0:
-                raise Exception(f"Failed to add SSH key: {stderr.decode().strip()}")
-
-            logger.info("Added SSH key to agent")
-        except Exception as e:
-            logger.error("Error adding SSH key", error=e)
-            raise
-
-
-async def add_host_to_known_hosts(url: str, *, env: SshEnv) -> None:
-    """Add the host to the known hosts file."""
-    try:
-        # Ensure the ~/.ssh directory exists
-        ssh_dir = Path.home() / ".ssh"
-        ssh_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-
-        known_hosts_file = ssh_dir / "known_hosts"
-
-        # Use ssh-keyscan to get the host key
-        process = await asyncio.create_subprocess_exec(
-            "ssh-keyscan",
-            url,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=cast(Mapping[str, str], env),
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            raise Exception(f"Failed to get host key: {stderr.decode().strip()}")
-
-        # Append the host key to the known_hosts file
-        with known_hosts_file.open("a") as f:
-            f.write(stdout.decode())
-
-        logger.info("Added host to known hosts", url=url)
-    except Exception as e:
-        logger.error(f"Error adding host to known hosts: {str(e)}")
-        raise
 
 
 async def install_remote_repository(
@@ -808,7 +681,7 @@ async def install_remote_repository(
             f"{repo_url}@{commit_sha}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=cast(Mapping[str, str], os.environ.copy() | env),
+            env=os.environ.copy() | env.to_dict(),
         )
         _, stderr = await process.communicate()
         if process.returncode != 0:
@@ -820,31 +693,3 @@ async def install_remote_repository(
     except Exception as e:
         logger.error(f"Error while fetching repository: {str(e)}")
         raise RuntimeError(f"Error while fetching repository: {str(e)}") from e
-
-
-async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
-    """Get the SHA of the HEAD commit of a Git repository."""
-    try:
-        # Use git ls-remote to get the HEAD SHA without cloning
-        process = await asyncio.create_subprocess_exec(
-            "git",
-            "ls-remote",
-            repo_url,
-            "HEAD",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,  # type: ignore
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            error_message = stderr.decode().strip()
-            raise RuntimeError(f"Failed to get repository SHA: {error_message}")
-
-        # The output format is: "<SHA>\tHEAD"
-        sha = stdout.decode().split()[0]
-        return sha
-
-    except Exception as e:
-        logger.error("Error getting repository SHA", error=str(e))
-        raise RuntimeError(f"Error getting repository SHA: {str(e)}") from e

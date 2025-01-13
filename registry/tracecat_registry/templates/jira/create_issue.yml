@@ -12,15 +12,12 @@ definition:
     domain:
       type: str
       description: Domain of the Jira instance
-      default: null
     summary:
       type: str
       description: Summary of the issue
-      default: null
     project_id:
       type: str
       description: Jira project id
-      default: null
     priority_id:
       type: str
       description: Priority ID
@@ -39,9 +36,9 @@ definition:
           Authorization: Basic ${{ SECRETS.jira.JIRA_BASE64_TOKEN || FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
         payload:
           fields:
+            summary: ${{ inputs.summary }}
             project:
               id: ${{ inputs.project_id }}
-            summary: ${{ inputs.summary }}
             priority:
               id: ${{ inputs.priority_id }}
             issuetype:

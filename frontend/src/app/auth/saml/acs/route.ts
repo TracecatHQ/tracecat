@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
   // Parse the form data from the request
   const formData = await request.formData()
-  const samlResponse = formData.get('SAMLResponse')
+  const samlResponse = formData.get("SAMLResponse")
 
   // Get redirect
   const resp = await fetch(buildUrl("/info"))
@@ -26,11 +26,11 @@ export async function POST(request: NextRequest) {
   // Prepare the request to the FastAPI backend
   const backendUrl = new URL(buildUrl("/auth/saml/acs"))
   const backendFormData = new FormData()
-  backendFormData.append('SAMLResponse', samlResponse)
+  backendFormData.append("SAMLResponse", samlResponse)
 
   // Forward the request to the FastAPI backend
   const backendResponse = await fetch(backendUrl.toString(), {
-    method: 'POST',
+    method: "POST",
     body: backendFormData,
   })
 
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
   console.log("Redirecting to / with GET")
   const redirectUrl = new URL("/", public_app_url)
   const redirectResponse = NextResponse.redirect(redirectUrl, {
-    status: 303 // Force GET request
+    status: 303, // Force GET request
   })
   redirectResponse.headers.set("set-cookie", setCookieHeader)
   return redirectResponse

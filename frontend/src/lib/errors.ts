@@ -15,3 +15,16 @@ export function retryHandler(failureCount: number, error: ApiError) {
   // Retry for all other errors up to 3 times
   return failureCount < 3
 }
+
+/**
+ * Type for request validation errors
+ * Returned with 422 status code
+ */
+export type RequestValidationError = {
+  loc: string[]
+  ctx: {
+    [key: string]: unknown
+  }
+  msg: string
+  type: string
+}

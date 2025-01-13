@@ -1,4 +1,3 @@
-import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from typing import Annotated, Any
@@ -10,15 +9,16 @@ from saml2 import BINDING_HTTP_POST
 from saml2.client import Saml2Client
 from saml2.config import Config as Saml2Config
 
+from tracecat.api.common import bootstrap_role
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
-    SAML_IDP_CERTIFICATE,
     SAML_IDP_METADATA_URL,
     SAML_SP_ACS_URL,
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
 )
 from tracecat.logger import logger
+from tracecat.settings.service import get_setting
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
 
@@ -33,7 +33,6 @@ class SAMLAttribute:
 
     name: str
     value: str
-    name_format: str = ""
 
 
 class SAMLParser:
@@ -57,20 +56,14 @@ class SAMLParser:
 
     def _extract_attribute(self, attribute_elem: ET.Element) -> SAMLAttribute:
         """Extract a single SAML attribute from an XML element"""
+
         name = attribute_elem.get("Name")
-        name_format = attribute_elem.get("NameFormat")
         value_elem = attribute_elem.find("saml2:AttributeValue", self.NAMESPACES)
 
         if not name:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="SAML response failed: AttributeName is empty",
-            )
-
-        if not name_format:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="SAML response failed: AttributeNameFormat is empty",
+                detail=f"SAML response failed: AttributeName for {attribute_elem} is empty",
             )
 
         if value_elem is None:
@@ -86,7 +79,7 @@ class SAMLParser:
                 detail=f"SAML response failed: AttributeValue for {name} is empty",
             )
 
-        return SAMLAttribute(name=name, value=value_text, name_format=name_format)
+        return SAMLAttribute(name=name, value=value_text)
 
     def get_attribute_value(self, attribute_name: str) -> str:
         """Helper method to easily get an attribute value"""
@@ -123,11 +116,22 @@ class SAMLParser:
         return attributes
 
 
-def create_saml_client() -> Saml2Client:
-    if not SAML_IDP_METADATA_URL:
+async def create_saml_client() -> Saml2Client:
+    role = bootstrap_role()
+    saml_idp_metadata_url = await get_setting(
+        "saml_idp_metadata_url",
+        role=role,
+        default=SAML_IDP_METADATA_URL,
+    )
+    if not saml_idp_metadata_url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="SAML SSO metadata URL has not been configured.",
+        )
+    if not isinstance(saml_idp_metadata_url, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="SAML SSO metadata URL is not a string.",
         )
 
     saml_settings = {
@@ -152,34 +156,22 @@ def create_saml_client() -> Saml2Client:
                 "want_response_signed": False,
             },
         },
-    }
-    # Save the cert to a temporary file
-    with tempfile.NamedTemporaryFile(mode="w+", suffix=".crt") as tmp_file:
-        if not SAML_IDP_CERTIFICATE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="SAML SSO certificate has not been configured.",
-            )
-        tmp_file.write(
-            f"-----BEGIN CERTIFICATE-----\n{SAML_IDP_CERTIFICATE}\n-----END CERTIFICATE-----\n"
-        )
-        tmp_file.flush()
-        saml_settings["metadata"] = {
+        "metadata": {
             "remote": [
                 {
-                    "url": SAML_IDP_METADATA_URL,
-                    "cert": tmp_file.name,  # Path to cert
+                    "url": saml_idp_metadata_url,
                 }
             ]
-        }
-        try:
-            config = Saml2Config()
-            config.load(saml_settings)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to load SAML configuration",
-            ) from e
+        },
+    }
+    try:
+        config = Saml2Config()
+        config.load(saml_settings)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to load SAML configuration",
+        ) from e
 
     client = Saml2Client(config)
     return client
@@ -220,13 +212,28 @@ async def sso_acs(
         saml_response, BINDING_HTTP_POST
     )
     parser = SAMLParser(str(authn_response))
-    email = parser.get_attribute_value("email")
 
-    # Validate email
+    # Try to get the email from SAML attributes
+    email = (
+        parser.get_attribute_value("email")
+        # Okta
+        or parser.get_attribute_value(
+            "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+        )
+        # Microsoft Entra ID
+        or parser.get_attribute_value(
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+        )
+        or parser.get_attribute_value(
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+        )
+    )
+
     if not email:
+        attributes = parser.attributes or {}
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email not found in the SAML response.",
+            detail=f"Expected attribute 'email' in the SAML response, but got: {list(attributes.keys())}",
         )
 
     # Try to get the user from the database

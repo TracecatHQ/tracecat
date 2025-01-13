@@ -17,9 +17,9 @@ autolabeler:
     title:
       - "/^playbook/"
 
-  - label: integration
+  - label: integrations
     title:
-      - "/^integration/"
+      - "/^integrations/"
 
   - label: frontend
     title:
@@ -30,6 +30,11 @@ autolabeler:
     title:
       # Example: feat(engine): ...
       - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*engine.*\))?\!?\: /'
+
+  - label: app
+    title:
+      # Example: feat(app): ...
+      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*app.*\))?\!?\: /'
 
   - label: breaking
     title:
@@ -45,6 +50,16 @@ autolabeler:
     title:
       # Example: feat(engine!): ...
       - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*engine\!.*\)\: /'
+
+  - label: breaking app
+    title:
+      # Example: feat(app!): ...
+      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*app\!.*\)\: /'
+
+  - label: breaking infra
+    title:
+      # Example: feat(infra!): ...
+      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)\(.*infra\!.*\)\: /'
 
   - label: build
     title:
@@ -78,6 +93,11 @@ autolabeler:
     title:
       - "/^release/"
 
+  - label: infra
+    title:
+      # Example: feat(infra): ...
+      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|test)(\(.*infra.*\))?\!?\: /'
+
 categories:
   - title: 🏆 Highlights
     labels: highlight
@@ -87,6 +107,9 @@ categories:
       - breaking
       - breaking ui
       - breaking frontend
+      - breaking engine
+      - breaking app
+      - breaking infra
 
   - title: ⚠️ Deprecations
     labels: deprecation
@@ -95,7 +118,7 @@ categories:
     labels: playbook
 
   - title: 🧩 Integrations
-    labels: integration
+    labels: integrations
 
   - title: 🚀 Performance improvements
     labels: performance

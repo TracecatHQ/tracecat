@@ -18,6 +18,7 @@ from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
+from tracecat.settings.service import get_setting
 from tracecat.types.exceptions import TracecatException
 
 
@@ -45,11 +46,17 @@ async def setup_custom_remote_repository():
     2. If it doesn't exist, create it
     3. If it does exist, sync it
     """
-    url = config.TRACECAT__REMOTE_REPOSITORY_URL
+    role = bootstrap_role()
+    url = await get_setting(
+        "git_repo_url",
+        role=role,
+        # TODO: Deprecate in future version
+        default=config.TRACECAT__REMOTE_REPOSITORY_URL,
+    )
     if not url:
         logger.info("Remote repository URL not set, skipping")
         return
-    role = bootstrap_role()
+    logger.info("Remote repository URL found", url=url)
     async with RegistryReposService.with_session(role) as service:
         db_repo = await service.get_repository(url)
         # If it doesn't exist, do nothing

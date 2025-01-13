@@ -5,6 +5,12 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
+variable "aws_role_arn" {
+  type        = string
+  description = "The ARN of the AWS role to assume"
+  default     = null
+}
+
 ### Networking
 
 variable "is_internal" {
@@ -71,6 +77,11 @@ variable "auth_allowed_domains" {
   description = "Comma separated list of allowed domains for authentication (e.g. `acme.com,acme.ai`)"
   default     = null
 }
+variable "setting_override_saml_enabled" {
+  type        = string
+  description = "Override the SAML setting"
+  default     = null
+}
 
 ### Images and Versions
 
@@ -86,7 +97,7 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.18.2"
+  default = "0.20.2"
 }
 
 variable "temporal_server_image" {
@@ -213,12 +224,6 @@ variable "oauth_client_id_arn" {
 variable "oauth_client_secret_arn" {
   type        = string
   description = "The ARN of the secret containing the OAuth client secret (optional)"
-  default     = null
-}
-
-variable "saml_idp_certificate_arn" {
-  type        = string
-  description = "The ARN of the secret containing the SAML IDP certificate (optional)"
   default     = null
 }
 

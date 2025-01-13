@@ -3,10 +3,16 @@ title: Docker Compose
 description: Deploy Tracecat using a Docker Compose template.
 ---
 
+<Note>
+  This deployment has been tested on macOS with Docker Desktop and Ubuntu (22.04 LTS and 24.04 LTS) only.
+  For help with other operating systems, please find us on [Discord](https://discord.gg/n3GF4qxFU8) for support.
+</Note>
+
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/engine/install/)
-- [Docker Compose](https://docs.docker.com/compose/install/)
+- [Docker](https://docs.docker.com/engine/install/) version 26.0.0+
+- [Docker Compose](https://docs.docker.com/compose/install/) version 2.29.0+
+- [openssl](https://www.openssl.org/source/)
 
 ## Verify Prerequisites
 
@@ -24,12 +30,10 @@ docker compose
 
 <Note>
   If you're deploying Tracecat into an external instance (e.g. AWS EC2, GCP Compute Engine, Azure VM),
-  please note that you'll have to set `PUBLIC_APP_URL` and `PUBLIC_API_URL` in the `.env` file
-  to the IP address or host you are accessing Tracecat from.
+  please note that you'll have to set `PUBLIC_APP_URL` and `PUBLIC_API_URL` in the `.env` file to the IP address or host you are accessing Tracecat from.
 
-  For example, if you are port forwarding Tracecat from `http://localhost` (port 80) inside AWS EC2
-  to `http://localhost:8080` on your local machine, you must set `PUBLIC_APP_URL` to `http://localhost:8080`
-  and `PUBLIC_API_URL` to `http://localhost:8080/api/`.
+  For example, if you are port forwarding Tracecat from `http://localhost` (port 80) inside AWS EC2 to `http://localhost:8080` on your local machine,
+  you must set `PUBLIC_APP_URL` to `http://localhost:8080` and `PUBLIC_API_URL` to `http://localhost:8080/api/`.
 
   You can set these options when running the `env.sh` configuration script.
 </Note>
@@ -40,8 +44,13 @@ Use the commands listed below to download the required configuration files
 (`env.sh`, `.env.example`) and generate your own `.env` file.
 
 ```bash
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.18.3/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.18.3/.env.example
+# 1. Download the env.sh installation script
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.20.2/env.sh
+
+# 2. Download the .env.example template file (env.sh needs this to generate your .env file)
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.20.2/.env.example
+
+# 3. Make the env.sh script executable and run it
 chmod +x env.sh && ./env.sh
 ```
 
@@ -59,6 +68,14 @@ You'll be prompted to input the following:
   - `n` (no to postgres SSL mode).
 </Info>
 
+<Note>
+  Setting production mode to `n` changes where Tracecat's remote repository is installed.
+  Do not set production mode to `n` unless you are a Tracecat developer.
+
+  By default, Tracecat will install the remote repository to the user's home directory at `~/.local/lib/python3.12/site-packages/`.
+  Setting production mode to `y` will install the remote repository to the `PYTHONUSERBASE` directory specified in enviroment variables.
+</Note>
+
 ![env.sh](/img/self-hosting/env-script.png)
 
 ## Download Caddyfile
@@ -67,13 +84,13 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.18.3/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.20.2/Caddyfile
 ```
 
 ## Download Docker Compose File
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.18.3/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.20.2/docker-compose.yml
 ```
 
 ## Start Tracecat

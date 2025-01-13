@@ -5,6 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from httpx_oauth.clients.google import GoogleOAuth2
+from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -13,12 +14,13 @@ from tracecat.api.common import (
     bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
-    setup_registry,
     tracecat_exception_handler,
 )
-from tracecat.auth.constants import AuthType
+from tracecat.auth.dependencies import require_auth_type_enabled
+from tracecat.auth.enums import AuthType
 from tracecat.auth.models import UserCreate, UserRead, UserUpdate
 from tracecat.auth.router import router as users_router
+from tracecat.auth.saml import router as saml_router
 from tracecat.auth.users import (
     FastAPIUsersException,
     InvalidDomainException,
@@ -26,14 +28,20 @@ from tracecat.auth.users import (
     fastapi_users,
 )
 from tracecat.contexts import ctx_role
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
+from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
+from tracecat.registry.common import reload_registry
 from tracecat.registry.repositories.router import router as registry_repos_router
+from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
+from tracecat.settings.router import router as org_settings_router
+from tracecat.settings.service import SettingsService, get_setting_override
 from tracecat.tags.router import router as tags_router
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
@@ -51,9 +59,16 @@ from tracecat.workspaces.service import WorkspaceService
 async def lifespan(app: FastAPI):
     role = bootstrap_role()
     async with get_async_session_context_manager() as session:
+        # Org
+        await setup_org_settings(session, role)
+        await reload_registry(session, role)
         await setup_workspace_defaults(session, role)
-        await setup_registry(session, role)
     yield
+
+
+async def setup_org_settings(session: AsyncSession, admin_role: Role):
+    settings_service = SettingsService(session, role=admin_role)
+    await settings_service.init_default_settings()
 
 
 async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
@@ -73,10 +88,14 @@ async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
 # Catch-all exception handler to prevent stack traces from leaking
 def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Improves visiblity of 422 errors."""
-    exc_str = f"{exc}".replace("\n", " ").replace("   ", " ")
-    logger.error(f"{request}: {exc_str}")
+    errors = exc.errors()
+    logger.error(
+        "API Model Validation error",
+        request=request,
+        errors=errors,
+    )
     return ORJSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=exc_str
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": errors}
     )
 
 
@@ -146,6 +165,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
+    app.include_router(org_settings_router)
+    app.include_router(org_secrets_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",
@@ -174,38 +195,39 @@ def create_app(**kwargs) -> FastAPI:
             tags=["auth"],
         )
 
-    if AuthType.GOOGLE_OAUTH in config.TRACECAT__AUTH_TYPES:
-        oauth_client = GoogleOAuth2(
-            client_id=config.OAUTH_CLIENT_ID, client_secret=config.OAUTH_CLIENT_SECRET
-        )
-        # This is the frontend URL that the user will be redirected to after authenticating
-        redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
-        logger.info("OAuth redirect URL", url=redirect_url)
-        app.include_router(
-            fastapi_users.get_oauth_router(
-                oauth_client,
-                auth_backend,
-                config.USER_AUTH_SECRET,
-                # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
-                associate_by_email=True,
-                is_verified_by_default=True,
-                # Points the user back to the login page
-                redirect_url=redirect_url,
-            ),
-            prefix="/auth/oauth",
-            tags=["auth"],
-        )
+    oauth_client = GoogleOAuth2(
+        client_id=config.OAUTH_CLIENT_ID, client_secret=config.OAUTH_CLIENT_SECRET
+    )
+    # This is the frontend URL that the user will be redirected to after authenticating
+    redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
+    logger.info("OAuth redirect URL", url=redirect_url)
+    app.include_router(
+        fastapi_users.get_oauth_router(
+            oauth_client,
+            auth_backend,
+            config.USER_AUTH_SECRET,
+            # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
+            associate_by_email=True,
+            is_verified_by_default=True,
+            # Points the user back to the login page
+            redirect_url=redirect_url,
+        ),
+        prefix="/auth/oauth",
+        tags=["auth"],
+        dependencies=[require_auth_type_enabled(AuthType.GOOGLE_OAUTH)],
+    )
+    app.include_router(
+        saml_router,
+        dependencies=[require_auth_type_enabled(AuthType.SAML)],
+    )
+
+    if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
         # Need basic auth router for `logout` endpoint
         app.include_router(
             fastapi_users.get_logout_router(auth_backend),
             prefix="/auth",
             tags=["auth"],
         )
-    if AuthType.SAML in config.TRACECAT__AUTH_TYPES:
-        from tracecat.auth.saml import router as saml_router
-
-        logger.info("SAML auth type enabled")
-        app.include_router(saml_router)
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
@@ -218,6 +240,7 @@ def create_app(**kwargs) -> FastAPI:
 
     # Middleware
     app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allow_origins,
@@ -243,9 +266,32 @@ def root() -> dict[str, str]:
     return {"message": "Hello world. I am the API."}
 
 
+class AppInfo(BaseModel):
+    public_app_url: str
+    auth_allowed_types: list[AuthType]
+    auth_basic_enabled: bool
+    oauth_google_enabled: bool
+    saml_enabled: bool
+
+
 @app.get("/info", include_in_schema=False)
-def info() -> dict[str, str]:
-    return {"public_app_url": config.TRACECAT__PUBLIC_APP_URL}
+async def info(session: AsyncDBSession) -> AppInfo:
+    """Non-sensitive information about the platform, for frontend configuration."""
+
+    keys = {"auth_basic_enabled", "oauth_google_enabled", "saml_enabled"}
+
+    service = SettingsService(session, role=bootstrap_role())
+    settings = await service.list_org_settings(keys=keys)
+    keyvalues = {s.key: service.get_value(s) for s in settings}
+    for key in keys:
+        keyvalues[key] = get_setting_override(key) or keyvalues[key]
+    return AppInfo(
+        public_app_url=config.TRACECAT__PUBLIC_APP_URL,
+        auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
+        auth_basic_enabled=keyvalues["auth_basic_enabled"],
+        oauth_google_enabled=keyvalues["oauth_google_enabled"],
+        saml_enabled=keyvalues["saml_enabled"],
+    )
 
 
 @app.get("/health", tags=["public"])

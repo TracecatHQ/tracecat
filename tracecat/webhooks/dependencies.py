@@ -20,7 +20,6 @@ async def validate_incoming_webhook(
 
     NOte: The webhook ID here is the workflow ID.
     """
-    logger.info("Validating incoming webhook", path=path, secret=secret)
     async with get_async_session_context_manager() as session:
         result = await session.exec(select(Webhook).where(Webhook.workflow_id == path))
         try:
@@ -112,8 +111,6 @@ async def parse_webhook_payload(
     Returns:
         Parsed payload as TriggerInputs or None if no payload
     """
-    logger.debug("Parsing webhook payload", content_type=content_type)
-
     body = await request.body()
     if not body:
         return None

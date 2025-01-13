@@ -10,37 +10,52 @@ Objectives
 
 import asyncio
 import os
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 import yaml
 from pydantic import SecretStr
-from temporalio.client import Client
+from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import Worker
 
-from tests.shared import DSL_UTILITIES, TEST_WF_ID, generate_test_exec_id
+from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Workflow
-from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLInput, DSLRunArgs
-from tracecat.dsl.models import DSLConfig, ExecutionContext
-from tracecat.dsl.worker import new_sandbox_runner
+from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.enums import LoopStrategy
+from tracecat.dsl.models import (
+    ActionStatement,
+    DSLConfig,
+    ExecutionContext,
+    RunActionInput,
+)
+from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.executor.service import run_action_on_ray_cluster
 from tracecat.expressions.common import ExprContext
+from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
+from tracecat.workflow.executions.models import (
+    EventGroup,
+    EventHistoryResponse,
+    EventHistoryType,
+)
+from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.management.models import WorkflowUpdate
 
 
 @pytest.fixture(scope="module")
@@ -124,7 +139,7 @@ async def test_workflow_can_run_from_yaml(dsl, test_role, temporal_client):
     async with Worker(
         temporal_client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -166,7 +181,7 @@ async def test_workflow_ordering_is_correct(dsl, test_role, temporal_client):
     async with Worker(
         temporal_client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -216,7 +231,7 @@ async def test_workflow_completes_and_correct(
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -253,7 +268,7 @@ async def test_stress_workflow(dsl, test_role):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -333,7 +348,7 @@ async def test_stress_workflow_correctness(runs, test_role, temporal_client):
     async with Worker(
         temporal_client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
         max_concurrent_activities=1000,
@@ -408,7 +423,7 @@ async def test_workflow_set_environment_correct(test_role, temporal_client):
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -467,7 +482,7 @@ async def test_workflow_override_environment_correct(test_role, temporal_client)
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -524,7 +539,7 @@ async def test_workflow_default_environment_correct(test_role, temporal_client):
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -541,7 +556,9 @@ async def test_workflow_default_environment_correct(test_role, temporal_client):
 """Child workflow"""
 
 
-async def _create_and_commit_workflow(dsl: DSLInput, role: Role) -> Workflow:
+async def _create_and_commit_workflow(
+    dsl: DSLInput, role: Role, *, alias: str | None = None
+) -> Workflow:
     async with get_async_session_context_manager() as session:
         # Create the child workflow
         mgmt_service = WorkflowsManagementService(session, role=role)
@@ -551,6 +568,8 @@ async def _create_and_commit_workflow(dsl: DSLInput, role: Role) -> Workflow:
         workflow = res.workflow
         if not workflow:
             return pytest.fail("Workflow wasn't created")
+        if alias:
+            await mgmt_service.update_workflow(workflow.id, WorkflowUpdate(alias=alias))
         constructed_dsl = await mgmt_service.build_dsl_from_workflow(workflow)
 
         # Commit the child workflow
@@ -566,7 +585,7 @@ async def _run_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
     async with Worker(
         client,
         task_queue=queue,
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -776,6 +795,280 @@ async def test_child_workflow_context_passing(test_role, temporal_client):
         "TRIGGER": {"data": "__EXPECTED_DATA__"},
     }
     assert result == expected
+
+
+@pytest.fixture
+def child_dsl():
+    child_dsl = DSLInput(
+        entrypoint=DSLEntrypoint(expects={}, ref="reshape"),
+        actions=[
+            ActionStatement(
+                ref="reshape",
+                action="core.transform.reshape",
+                args={
+                    "value": {
+                        "data": "${{ TRIGGER.data }}",
+                        "index": "${{ TRIGGER.index }}",
+                    },
+                },
+                depends_on=[],
+                description="",
+                run_if=None,
+                for_each=None,
+            )
+        ],
+        description="Testing child workflow",
+        inputs={},
+        returns="${{ ACTIONS.reshape.result }}",
+        title="Child",
+        triggers=[],
+    )
+    return child_dsl
+
+
+@pytest.mark.parametrize(
+    "loop_strategy,loop_kwargs",
+    [
+        pytest.param(LoopStrategy.PARALLEL, {}, id="parallel"),
+        pytest.param(LoopStrategy.SEQUENTIAL, {}, id="sequential"),
+        pytest.param(LoopStrategy.BATCH, {"batch_size": 2}, id="batch"),
+    ],
+)
+@pytest.mark.anyio
+async def test_child_workflow_loop(
+    test_role: Role,
+    temporal_client: Client,
+    child_dsl: DSLInput,
+    loop_strategy: LoopStrategy,
+    loop_kwargs: dict[str, Any],
+):
+    # Setup
+    test_name = test_child_workflow_loop.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Child
+
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
+
+    # Parent
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test parent workflow can pass context to child",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_id": child_workflow.id,
+                    "trigger_inputs": {
+                        "data": "Parent sent child ${{ TRIGGER.data }}",  # This is the parent's trigger data
+                        "index": "${{ var.x }}",
+                    },
+                    "loop_strategy": loop_strategy.value,
+                    **loop_kwargs,
+                },
+                depends_on=[],
+                description="",
+                for_each="${{ for var.x in FN.range(0, 5) }}",
+                run_if=None,
+            ),
+        ],
+        inputs={},
+        returns=None,
+        triggers=[],
+    )
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id="wf-00000000000000000000000000000002",
+        trigger_inputs={
+            "data": "__EXPECTED_DATA__",
+        },
+    )
+
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    # Parent expected
+    expected = {
+        "ACTIONS": {
+            "run_child": {
+                "result": [
+                    {
+                        "index": 0,
+                        "data": "Parent sent child __EXPECTED_DATA__",
+                    },
+                    {
+                        "index": 1,
+                        "data": "Parent sent child __EXPECTED_DATA__",
+                    },
+                    {
+                        "index": 2,
+                        "data": "Parent sent child __EXPECTED_DATA__",
+                    },
+                    {
+                        "index": 3,
+                        "data": "Parent sent child __EXPECTED_DATA__",
+                    },
+                    {
+                        "index": 4,
+                        "data": "Parent sent child __EXPECTED_DATA__",
+                    },
+                ],
+                "result_typename": "list",
+            },
+        },
+        "INPUTS": {},
+        "TRIGGER": {"data": "__EXPECTED_DATA__"},
+    }
+    assert result == expected
+
+
+# Test workflow alias
+@pytest.mark.anyio
+async def test_single_child_workflow_alias(
+    test_role: Role, temporal_client: Client, child_dsl: DSLInput
+):
+    test_name = test_single_child_workflow_alias.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+    child_workflow = await _create_and_commit_workflow(
+        child_dsl, test_role, alias="the_child"
+    )
+
+    assert child_workflow.alias == "the_child"
+
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test parent workflow can pass context to child",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_alias": "the_child",
+                    "trigger_inputs": {
+                        "data": "Test",
+                        "index": 0,
+                    },
+                },
+                depends_on=[],
+                description="",
+                for_each=None,
+                run_if=None,
+            ),
+        ],
+        inputs={},
+        returns="${{ ACTIONS.run_child.result }}",
+        triggers=[],
+    )
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id="wf-00000000000000000000000000000002",
+    )
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    # Parent expected
+    assert result == {"data": "Test", "index": 0}
+
+
+@pytest.mark.parametrize(
+    "alias,loop_strategy,loop_kwargs",
+    [
+        pytest.param(
+            "basic_alias",
+            LoopStrategy.PARALLEL,
+            {},
+            id="basic_alias",
+        ),
+        pytest.param(
+            "sequential_child",
+            LoopStrategy.SEQUENTIAL,
+            {},
+            id="sequential_alias",
+        ),
+        pytest.param(
+            "batch_child",
+            LoopStrategy.BATCH,
+            {"batch_size": 2},
+            id="batch_size_2",
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_child_workflow_alias_with_loop(
+    test_role: Role,
+    temporal_client: Client,
+    child_dsl: DSLInput,
+    alias: str,
+    loop_strategy: LoopStrategy,
+    loop_kwargs: dict[str, Any],
+):
+    """Test that child workflows can be executed using aliases."""
+    test_name = test_single_child_workflow_alias.__name__
+    wf_exec_id = generate_test_exec_id(test_name)
+    child_workflow = await _create_and_commit_workflow(
+        child_dsl, test_role, alias=alias
+    )
+
+    assert child_workflow.alias == alias
+
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test parent workflow can pass context to child",
+        entrypoint=DSLEntrypoint(ref="run_child", expects={}),
+        actions=[
+            ActionStatement(
+                ref="run_child",
+                action="core.workflow.execute",
+                args={
+                    "workflow_alias": alias,
+                    "trigger_inputs": {
+                        "data": "Parent sent child ${{ TRIGGER }}",  # This is the parent's trigger data
+                        "index": "${{ var.x }}",
+                    },
+                    "loop_strategy": loop_strategy.value,
+                    **loop_kwargs,
+                },
+                depends_on=[],
+                description="",
+                for_each="${{ for var.x in FN.range(0, 5) }}",
+                run_if=None,
+            ),
+        ],
+        inputs={},
+        returns="${{ ACTIONS.run_child.result }}",
+        triggers=[],
+    )
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id="wf-00000000000000000000000000000002",
+        trigger_inputs="__EXPECTED_DATA__",
+    )
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    # Parent expected
+    assert result == [
+        {
+            "index": 0,
+            "data": "Parent sent child __EXPECTED_DATA__",
+        },
+        {
+            "index": 1,
+            "data": "Parent sent child __EXPECTED_DATA__",
+        },
+        {
+            "index": 2,
+            "data": "Parent sent child __EXPECTED_DATA__",
+        },
+        {
+            "index": 3,
+            "data": "Parent sent child __EXPECTED_DATA__",
+        },
+        {
+            "index": 4,
+            "data": "Parent sent child __EXPECTED_DATA__",
+        },
+    ]
 
 
 @pytest.mark.anyio
@@ -1324,11 +1617,11 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
         "Cannot divide by zero\n"
         "\n"
         "------------------------------\n"
-        f"File: /app/{"/".join(run_action_on_ray_cluster.__module__.split('.'))}.py\n"
-        f"Function: {run_action_on_ray_cluster.__name__}\n"
+        # f"File: /app/{"/".join(run_action_on_ray_cluster.__module__.split('.'))}.py\n"
+        # f"Function: {run_action_on_ray_cluster.__name__}\n"
         # f"Line: {run_action_on_ray_cluster.__code__.co_firstlineno}"
     ),
-    "type": "ActionExecutionError",
+    "type": "ExecutorClientError",
     "expr_context": "ACTIONS",
     "attempt": 1,
 }
@@ -1754,7 +2047,7 @@ async def test_workflow_error_path(test_role, runtime_config, dsl_data, expected
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -1834,7 +2127,7 @@ async def test_workflow_join_unreachable(test_role, runtime_config):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -1918,7 +2211,7 @@ async def test_workflow_multiple_entrypoints(test_role, runtime_config):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -2041,7 +2334,7 @@ async def test_workflow_runs_template_for_each(
     async with Worker(
         temporal_client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -2065,3 +2358,357 @@ async def test_workflow_runs_template_for_each(
             ),
         )
     assert result == [101, 102, 103, 104, 105]
+
+
+@dataclass
+class ErrorHandlerWfAndDslT:
+    dsl: DSLInput
+    wf: Workflow
+
+
+@pytest.fixture
+async def error_handler_wf_and_dsl(
+    test_role: Role,
+) -> AsyncGenerator[ErrorHandlerWfAndDslT, None]:
+    # Handler dsl
+    dsl = DSLInput(
+        title="Testing Error Handler",
+        description="This is a test error handler",
+        entrypoint=DSLEntrypoint(),
+        actions=[
+            ActionStatement(
+                ref="error_handler",
+                action="core.transform.reshape",
+                args={"value": "ERROR_HANDLER_WAS_CALLED"},
+                run_if=None,
+                for_each=None,
+            ),
+        ],
+    )
+    alias = "testing.error_handler"
+
+    async with get_async_session_context_manager() as session:
+        # Create the child workflow
+        mgmt_service = WorkflowsManagementService(session, role=test_role)
+        res = await mgmt_service.create_workflow_from_dsl(
+            dsl.model_dump(), skip_secret_validation=True
+        )
+        workflow = res.workflow
+        if not workflow:
+            raise ValueError("Workflow wasn't created")
+        if alias:
+            await mgmt_service.update_workflow(workflow.id, WorkflowUpdate(alias=alias))
+        constructed_dsl = await mgmt_service.build_dsl_from_workflow(workflow)
+
+        # Commit the child workflow
+        defn_service = WorkflowDefinitionsService(session, role=test_role)
+        await defn_service.create_workflow_definition(
+            workflow_id=workflow.id, dsl=constructed_dsl
+        )
+        try:
+            yield ErrorHandlerWfAndDslT(dsl, workflow)
+        finally:
+            await mgmt_service.delete_workflow(workflow.id)
+
+
+@pytest.fixture
+def failing_dsl():
+    return DSLInput(
+        title="Division by zero",
+        description="Test that the error handler can capture errors",
+        entrypoint=DSLEntrypoint(),
+        actions=[
+            ActionStatement(
+                ref="failing_action",
+                action="core.transform.reshape",
+                args={"value": "${{ 1/0 }}"},
+                run_if=None,
+                for_each=None,
+            ),
+        ],
+    )
+
+
+def assert_erroneous_task_failed_correctly(
+    events: list[EventHistoryResponse],
+) -> EventHistoryResponse[RunActionInput]:
+    # 4.1 Match the failing task:
+    #  - event_type == "ACTIVITY_TASK_FAILED"
+    # - Matching action ref
+    # - Matching acation input
+    evt = next(
+        event
+        for event in events
+        if (
+            event.event_type == EventHistoryType.ACTIVITY_TASK_FAILED
+            and event.event_group
+            and event.event_group.action_ref == "failing_action"
+        )
+    )
+    assert evt is not None, "No failing task event found"
+
+    # Check event group exists and type
+    assert evt.event_group is not None
+    assert isinstance(evt.event_group, EventGroup)
+
+    # Check event group attributes
+    group = evt.event_group
+    assert group.udf_namespace == "core.transform"
+    assert group.udf_name == "reshape"
+    assert group.udf_key == "core.transform.reshape"
+    assert group.action_ref == "failing_action"
+    assert group.action_title == "Failing action"
+
+    # Check action input exists and type
+    assert isinstance(group.action_input, RunActionInput)
+
+    # Check task exists and type
+    assert isinstance(group.action_input.task, ActionStatement)
+
+    # Check task attributes
+    task = group.action_input.task
+    assert task.ref == "failing_action"
+    assert task.action == "core.transform.reshape"
+    assert task.args == {"value": "${{ 1/0 }}"}
+
+    # Check that the failure event was set
+    assert evt.failure is not None
+    return evt
+
+
+def assert_error_handler_initiated_correctly(
+    events: list[EventHistoryResponse],
+    *,
+    handler_dsl: DSLInput,
+    handler_wf: Workflow,
+    failing_wf_id: WorkflowID,
+    failing_wf_exec_id: WorkflowExecutionID,
+) -> EventHistoryResponse[RunActionInput]:
+    # # 5.1 Find the event where the error handler was called
+    evt = next(
+        (
+            event
+            for event in events
+            if (
+                event.event_type
+                == EventHistoryType.START_CHILD_WORKFLOW_EXECUTION_INITIATED
+                and event.event_group
+                and event.event_group.action_ref is None
+                and event.event_group.action_title == "Testing Error Handler"
+            )
+        ),
+        None,
+    )
+    assert evt is not None, "No error handler event found"
+    assert evt.event_group is not None
+    assert isinstance(evt.event_group, EventGroup)
+    group = evt.event_group
+    assert isinstance(group.action_input, DSLRunArgs)
+    # Check that the error handler DSL was passed correctly
+    assert group.action_input.dsl == handler_dsl
+
+    # Check that the error handler's parent is the failing workflow
+    assert (
+        group.action_input.parent_run_context
+        and group.action_input.parent_run_context.wf_id == failing_wf_id
+    )
+    assert (
+        group.action_input.parent_run_context
+        and group.action_input.parent_run_context.wf_exec_id == failing_wf_exec_id
+    )
+
+    # Check that the error handler received the correct error context
+    assert group.action_input.trigger_inputs == {
+        "errors": {
+            "failing_action": {
+                "attempt": 1,
+                "expr_context": "ACTIONS",
+                "message": "There was an error in the executor when calling action 'core.transform.reshape' (500).\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 74",
+                "ref": "failing_action",
+                "type": "ExecutorClientError",
+            }
+        },
+        "handler_wf_id": handler_wf.id,
+        "message": "Workflow failed with 1 task exception(s)\n\n==================== (1/1) ACTIONS.failing_action ====================\n\nExecutorClientError: [ACTIONS.failing_action -> run_action] (Attempt 1)\n\nThere was an error in the executor when calling action 'core.transform.reshape' (500).\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 74",
+        "orig_wf_exec_id": failing_wf_exec_id,
+        "orig_wf_id": failing_wf_id,
+    }
+    return evt
+
+
+def assert_error_handler_started(
+    events: list[EventHistoryResponse],
+) -> EventHistoryResponse:
+    evt = next(
+        (
+            event
+            for event in events
+            if (
+                event.event_type == EventHistoryType.CHILD_WORKFLOW_EXECUTION_STARTED
+                and event.event_group
+                and event.event_group.action_ref is None
+                and event.event_group.action_title == "Testing Error Handler"
+            )
+        ),
+        None,
+    )
+    assert evt is not None, "No error handler started event found"
+    return evt
+
+
+def assert_error_handler_completed(
+    events: list[EventHistoryResponse],
+) -> EventHistoryResponse:
+    evt = next(
+        (
+            event
+            for event in events
+            if (
+                event.event_type == EventHistoryType.CHILD_WORKFLOW_EXECUTION_COMPLETED
+                and event.event_group
+                and event.event_group.action_ref is None
+                and event.event_group.action_title == "Testing Error Handler"
+            )
+        ),
+        None,
+    )
+    assert evt is not None, "No error handler completed event found"
+    return evt
+
+
+@pytest.mark.parametrize("mode", ["id", "alias"])
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_workflow_error_handler_success(
+    test_role: Role,
+    temporal_client: Client,
+    mode: Literal["id", "alias"],
+    error_handler_wf_and_dsl: ErrorHandlerWfAndDslT,
+    failing_dsl: DSLInput,
+):
+    """
+    Test that the error handler can capture errors.
+    Then, verify that the error handler was run.
+    Run with both workflow id and alias.
+
+    1. Create an error handler
+    2. Create failing workflow (1/0)
+    3. Run the failing workflow
+    4.Check that the error handler is called
+    5. Check that the error handler has the correct context
+    """
+
+    # 1. Create an error handler
+    handler_dsl = error_handler_wf_and_dsl.dsl
+    handler_wf = error_handler_wf_and_dsl.wf
+
+    # 2. Create a failing workflow
+    wf_exec_id = generate_test_exec_id(test_workflow_error_handler_success.__name__)
+
+    match mode:
+        case "id":
+            error_handler = handler_wf.id
+        case "alias":
+            error_handler = handler_wf.alias
+        case _:
+            raise ValueError(f"Invalid mode: {mode}")
+    failing_dsl.error_handler = error_handler
+
+    # 3. Run the failing workflow
+    run_args = DSLRunArgs(
+        dsl=failing_dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    with pytest.raises(WorkflowFailureError) as exc_info:
+        _ = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    assert str(exc_info.value) == "Workflow execution failed"
+
+    # Check temporal event history
+    exec_svc = await WorkflowExecutionsService.connect(role=test_role)
+    events = await exec_svc.list_workflow_execution_event_history(wf_exec_id)
+    assert len(events) > 0
+
+    # 4. Verify the failing task is in the event history
+    fail_evt = assert_erroneous_task_failed_correctly(events)
+
+    # 5. Verify the error handler was called
+    eh_init_evt = assert_error_handler_initiated_correctly(
+        events,
+        handler_dsl=handler_dsl,
+        handler_wf=handler_wf,
+        failing_wf_id=TEST_WF_ID,
+        failing_wf_exec_id=wf_exec_id,
+    )
+
+    # 6. Verify that the error handler started and completed
+    eh_start_evt = assert_error_handler_started(events)
+    eh_complete_evt = assert_error_handler_completed(events)
+
+    # N. Verify that the error handler was called after the failing task
+    logger.info(f"Failing event id: {fail_evt.event_id}")
+    logger.info(f"Error handler init event id: {eh_init_evt.event_id}")
+    logger.info(f"Error handler start event id: {eh_start_evt.event_id}")
+    logger.info(f"Error handler complete event id: {eh_complete_evt.event_id}")
+    assert (
+        fail_evt.event_id
+        < eh_init_evt.event_id
+        < eh_start_evt.event_id
+        < eh_complete_evt.event_id
+    ), (
+        f"Event order is not correct: {fail_evt.event_id} < {eh_init_evt.event_id} < {eh_start_evt.event_id} < {eh_complete_evt.event_id}"
+    )
+
+
+@pytest.mark.parametrize(
+    "id_or_alias,expected_err_msg",
+    [
+        pytest.param(
+            "wf-00000000000000000000000000000000",
+            "TracecatException: Workflow definition not found for 'wf-00000000000000000000000000000000', version=None",
+            id="id-no-match",
+        ),
+        pytest.param(
+            "invalid_error_handler",
+            "RuntimeError: Couldn't find matching workflow for alias 'invalid_error_handler'",
+            id="alias-no-match",
+        ),
+    ],
+)
+@pytest.mark.integration
+@pytest.mark.anyio
+async def test_workflow_error_handler_invalid_handler_fail_no_match(
+    test_role: Role,
+    temporal_client: Client,
+    failing_dsl: DSLInput,
+    id_or_alias: str,
+    expected_err_msg: str,
+):
+    """
+    Test that the error handler fails with an invalid error handler that has no matching workflow
+
+    1. Create an error handler
+    2. Create a failing workflow
+    3. Run the failing workflow
+    4. Check that the error handler fails
+    """
+    test_name = test_workflow_error_handler_invalid_handler_fail_no_match.__name__
+
+    # Set an invalid error handler
+    failing_dsl.error_handler = id_or_alias
+
+    # Run the failing workflow
+    wf_exec_id = generate_test_exec_id(test_name)
+    run_args = DSLRunArgs(
+        dsl=failing_dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    with pytest.raises(WorkflowFailureError) as exc_info:
+        _ = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    assert str(exc_info.value) == "Workflow execution failed"
+    cause0 = exc_info.value.cause
+    assert isinstance(cause0, ActivityError)
+    cause1 = cause0.cause
+    assert isinstance(cause1, ApplicationError)
+    assert str(cause1) == expected_err_msg

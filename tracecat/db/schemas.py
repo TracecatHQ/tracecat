@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from pydantic import UUID4, ConfigDict, computed_field, field_validator
+from pydantic import UUID4, ConfigDict, computed_field
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
@@ -272,6 +272,10 @@ class Workflow(Resource, table=True):
     - 1 Workflow to many WorkflowDefinitions
     """
 
+    __table_args__ = (
+        UniqueConstraint("alias", "owner_id", name="uq_workflow_alias_owner_id"),
+    )
+
     id: str = Field(
         default_factory=id_factory("wf"), nullable=False, unique=True, index=True
     )
@@ -280,7 +284,7 @@ class Workflow(Resource, table=True):
     status: str = "offline"  # "online" or "offline"
     version: int | None = None
     entrypoint: str | None = Field(
-        None,
+        default=None,
         description="ID of the node directly connected to the trigger.",
     )
     static_inputs: dict[str, Any] = Field(
@@ -294,17 +298,24 @@ class Workflow(Resource, table=True):
         description="Input schema for the workflow",
     )
     returns: Any | None = Field(
-        None,
+        default=None,
         sa_column=Column(JSONB),
         description="Workflow return values",
     )
     object: dict[str, Any] | None = Field(
-        sa_column=Column(JSONB), description="React flow graph object"
+        default=None, sa_column=Column(JSONB), description="React flow graph object"
     )
     config: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),
         description="Workflow configuration",
+    )
+    alias: str | None = Field(
+        default=None, description="Alias for the workflow", index=True
+    )
+    error_handler: str | None = Field(
+        default=None,
+        description="Workflow alias or ID for the workflow to run when this fails.",
     )
     icon_url: str | None = None
     # Owner
@@ -403,15 +414,6 @@ class Schedule(Resource, table=True):
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
 
-    # Custom validator for the cron field
-    @field_validator("cron")
-    def validate_cron(cls, v):
-        import croniter
-
-        if not croniter.is_valid(v):
-            raise ValueError("Invalid cron string")
-        return v
-
 
 class Action(Resource, table=True):
     """The workspace action state."""
@@ -432,12 +434,6 @@ class Action(Resource, table=True):
     workflow: Workflow | None = Relationship(
         back_populates="actions", sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
     )
-
-    @computed_field
-    @property
-    def key(self) -> str:
-        """Workflow-relative key for an Action."""
-        return action.key(self.workflow_id, self.id)
 
     @property
     def ref(self) -> str:
@@ -504,13 +500,21 @@ class RegistryAction(Resource, table=True):
     origin: str = Field(..., description="The origin of the action as a url")
     type: str = Field(..., description="The type of the action")
     default_title: str | None = Field(
-        None, description="The default title of the action", nullable=True
+        default=None, description="The default title of the action", nullable=True
     )
     display_group: str | None = Field(
-        None, description="The presentation group of the action", nullable=True
+        default=None, description="The presentation group of the action", nullable=True
+    )
+    doc_url: str | None = Field(
+        default=None, description="Link to documentation", nullable=True
+    )
+    author: str | None = Field(
+        default=None, description="Author of the action", nullable=True
     )
     secrets: list[dict[str, Any]] | None = Field(
-        None, sa_column=Column(JSONB), description="The secrets required by the action"
+        default=None,
+        sa_column=Column(JSONB),
+        description="The secrets required by the action",
     )
     interface: dict[str, Any] = Field(
         ..., sa_column=Column(JSONB), description="The interface of the action"
@@ -534,3 +538,30 @@ class RegistryAction(Resource, table=True):
     @property
     def action(self):
         return f"{self.namespace}.{self.name}"
+
+
+class OrganizationSetting(Resource, table=True):
+    """An organization setting."""
+
+    __tablename__: str = "organization_settings"
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    key: str = Field(
+        ...,
+        description="A unique key that identifies the setting",
+        index=True,
+        unique=True,
+    )
+    value: bytes
+    value_type: str = Field(
+        ...,
+        description="The data type of the setting value",
+    )
+    is_encrypted: bool = Field(
+        default=False, description="Whether the setting is encrypted"
+    )

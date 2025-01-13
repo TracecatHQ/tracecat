@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
 from sqlmodel import and_, col, select
+from temporalio import activity
 
 from tracecat.db.schemas import Action, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, build_action_statements
 from tracecat.dsl.models import DSLConfig
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
+from tracecat.identifiers.workflow import WF_ID_PATTERN
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.service import BaseService
 from tracecat.types.exceptions import TracecatValidationError
@@ -19,6 +22,8 @@ from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.models import (
     ExternalWorkflowDefinition,
+    GetErrorHandlerWorkflowIDActivityInputs,
+    ResolveWorkflowAliasActivityInputs,
     WorkflowCreate,
     WorkflowDSLCreateResponse,
     WorkflowUpdate,
@@ -66,7 +71,14 @@ class WorkflowsManagementService(BaseService):
         result = await self.session.exec(statement)
         return result.one_or_none()
 
-    async def update_wrkflow(
+    async def resolve_workflow_alias(self, alias: str) -> WorkflowID | None:
+        statement = select(Workflow.id).where(
+            Workflow.owner_id == self.role.workspace_id, Workflow.alias == alias
+        )
+        result = await self.session.exec(statement)
+        return result.one_or_none()
+
+    async def update_workflow(
         self, workflow_id: WorkflowID, params: WorkflowUpdate
     ) -> Workflow:
         statement = select(Workflow).where(
@@ -134,7 +146,7 @@ class WorkflowsManagementService(BaseService):
             # Convert the workflow into a WorkflowDefinition
             # XXX: When we commit from the workflow, we have action IDs
             dsl = DSLInput.model_validate(dsl_data)
-            self.logger.info("Commiting workflow from database")
+            self.logger.info("Creating workflow from database")
         except* TracecatValidationError as eg:
             self.logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
@@ -182,12 +194,12 @@ class WorkflowsManagementService(BaseService):
         # If it still falsy, raise a user facing error
         if not actions:
             raise TracecatValidationError(
-                "Workflow has no actions. Please add an action to the workflow before committing."
+                "Workflow has no actions. Please add an action to the workflow before saving."
             )
         graph = RFGraph.from_workflow(workflow)
         if not graph.entrypoints:
             raise TracecatValidationError(
-                "Workflow has no entrypoints. Please add an action to the workflow before committing."
+                "Workflow has no entrypoints. Please add an action to the workflow before saving."
             )
         graph_actions = graph.action_nodes()
         if len(graph_actions) != len(actions):
@@ -205,7 +217,7 @@ class WorkflowsManagementService(BaseService):
             actions = workflow.actions
             if not actions:
                 raise TracecatValidationError(
-                    "Workflow has no actions. Please add an action to the workflow before committing."
+                    "Workflow has no actions. Please add an action to the workflow before saving."
                 )
             if len(graph_actions) != len(actions):
                 raise TracecatValidationError(
@@ -220,6 +232,7 @@ class WorkflowsManagementService(BaseService):
             inputs=workflow.static_inputs,
             config=DSLConfig(**workflow.config),
             returns=workflow.returns,
+            error_handler=workflow.error_handler,
         )
 
     async def create_workflow_from_external_definition(
@@ -342,3 +355,44 @@ class WorkflowsManagementService(BaseService):
             await self.session.delete(action)
         await self.session.commit()
         self.logger.info(f"Deleted orphaned action: {action.title}")
+
+    @staticmethod
+    @activity.defn
+    async def resolve_workflow_alias_activity(
+        input: ResolveWorkflowAliasActivityInputs,
+    ) -> WorkflowID | None:
+        async with WorkflowsManagementService.with_session(input.role) as service:
+            return await service.resolve_workflow_alias(input.workflow_alias)
+
+    @staticmethod
+    @activity.defn
+    async def get_error_handler_workflow_id(
+        input: GetErrorHandlerWorkflowIDActivityInputs,
+    ) -> WorkflowID | None:
+        args = input.args
+        id_or_alias = None
+        async with WorkflowsManagementService.with_session(role=args.role) as service:
+            if args.dsl:
+                # 1. If a DSL was provided, we must use its error handler
+                if not args.dsl.error_handler:
+                    activity.logger.info("DSL has no error handler")
+                    return None
+                id_or_alias = args.dsl.error_handler
+            else:
+                # 2. Otherwise, use the error handler defined in the workflow
+                workflow = await service.get_workflow(args.wf_id)
+                if not workflow or not workflow.error_handler:
+                    activity.logger.info("No workflow or error handler found")
+                    return None
+                id_or_alias = workflow.error_handler
+
+            # 3. Convert the error handler to an ID
+            if re.match(WF_ID_PATTERN, id_or_alias):
+                handler_wf_id = id_or_alias
+            else:
+                handler_wf_id = await service.resolve_workflow_alias(id_or_alias)
+                if not handler_wf_id:
+                    raise RuntimeError(
+                        f"Couldn't find matching workflow for alias {id_or_alias!r}"
+                    )
+            return handler_wf_id

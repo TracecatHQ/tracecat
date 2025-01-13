@@ -10,7 +10,6 @@ definition:
     email:
       type: str
       description: null
-      default: null
   steps:
     - ref: lookup_user
       action: integrations.slack.call_slack_api

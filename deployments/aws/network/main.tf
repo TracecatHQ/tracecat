@@ -19,4 +19,10 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+  dynamic "assume_role" {
+    for_each = var.aws_role_arn != null ? [1] : []
+    content {
+      role_arn = var.aws_role_arn
+    }
+  }
 }

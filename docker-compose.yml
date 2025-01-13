@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.18.3}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.20.2}
     container_name: api
     restart: unless-stopped
     networks:
@@ -44,7 +44,6 @@ services:
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
       RUN_MIGRATIONS: "true"
       # SAML SSO
-      SAML_IDP_CERTIFICATE: ${SAML_IDP_CERTIFICATE}
       SAML_IDP_METADATA_URL: ${SAML_IDP_METADATA_URL}
       SAML_SP_ACS_URL: ${SAML_SP_ACS_URL}
       # Temporal
@@ -52,6 +51,7 @@ services:
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
       TEMPORAL__TASK_TIMEOUT: ${TEMPORAL__TASK_TIMEOUT}
       # Remote registry
+      TRACECAT__ALLOWED_GIT_DOMAINS: ${TRACECAT__ALLOWED_GIT_DOMAINS}
       TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME: ${TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME}
       TRACECAT__REMOTE_REPOSITORY_URL: ${TRACECAT__REMOTE_REPOSITORY_URL}
       # AI
@@ -59,7 +59,7 @@ services:
       OLLAMA__API_URL: ${OLLAMA__API_URL}
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.18.3}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.20.2}
     restart: unless-stopped
     networks:
       - core
@@ -83,7 +83,7 @@ services:
     command: ["python", "tracecat/dsl/worker.py"]
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.18.3}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.20.2}
     restart: unless-stopped
     networks:
       - core
@@ -97,8 +97,11 @@ services:
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       # Remote registry
+      TRACECAT__ALLOWED_GIT_DOMAINS: ${TRACECAT__ALLOWED_GIT_DOMAINS}
       TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME: ${TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME}
       TRACECAT__REMOTE_REPOSITORY_URL: ${TRACECAT__REMOTE_REPOSITORY_URL}
+      # Email
+      TRACECAT__ALLOWED_EMAIL_ATTRIBUTES: ${TRACECAT__ALLOWED_EMAIL_ATTRIBUTES}
       # AI
       TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
       OLLAMA__API_URL: ${OLLAMA__API_URL}
@@ -115,7 +118,7 @@ services:
       ]
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.18.3}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.20.2}
     container_name: ui
     restart: unless-stopped
     networks:
@@ -172,21 +175,9 @@ services:
     depends_on:
       - temporal_postgres_db
 
-  ollama:
-    container_name: ollama
-    tty: true
-    restart: unless-stopped
-    networks:
-      - core
-    image: ollama/ollama:${OLLAMA__VERSION}
-    ports:
-      - 11434:11434
-    volumes:
-      - ollama:/root/.ollama
 volumes:
   core-db:
   temporal-db:
-  ollama:
 
 networks:
   core:

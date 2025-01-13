@@ -10,7 +10,7 @@ from pydantic import Field, UrlConstraints
 
 from tracecat_registry import RegistrySecret, logger, registry, secrets
 
-RequestMethods = Literal["GET", "POST", "PUT", "DELETE"]
+RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
 
 ssl_secret = RegistrySecret(

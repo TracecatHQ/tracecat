@@ -73,6 +73,8 @@ async def list_workflows(
                 updated_at=workflow.updated_at,
                 version=workflow.version,
                 tags=tags,
+                alias=workflow.alias,
+                error_handler=workflow.error_handler,
             )
         )
     return res
@@ -82,9 +84,9 @@ async def list_workflows(
 async def create_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    title: str | None = Form(None),
-    description: str | None = Form(None),
-    file: UploadFile | None = File(None),
+    title: str | None = Form(default=None, min_length=1, max_length=100),
+    description: str | None = Form(default=None, max_length=1000),
+    file: UploadFile | None = File(default=None),
 ) -> WorkflowReadMinimal:
     """Create a new Workflow.
 
@@ -164,6 +166,7 @@ async def create_workflow(
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
         version=workflow.version,
+        error_handler=workflow.error_handler,
     )
 
 
@@ -203,6 +206,8 @@ async def get_workflow(
         actions=actions_responses,
         webhook=WebhookResponse(**workflow.webhook.model_dump()),
         schedules=workflow.schedules or [],
+        alias=workflow.alias,
+        error_handler=workflow.error_handler,
     )
 
 
@@ -220,7 +225,7 @@ async def update_workflow(
     """Update a workflow."""
     service = WorkflowsManagementService(session, role=role)
     try:
-        await service.update_wrkflow(workflow_id, params=params)
+        await service.update_workflow(workflow_id, params=params)
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"

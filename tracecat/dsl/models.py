@@ -6,11 +6,11 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
-from tracecat.contexts import RunContext
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr, TemplateValidator
+from tracecat.identifiers import WorkflowExecutionID, WorkflowID, WorkflowRunID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
@@ -33,7 +33,9 @@ class DSLNodeResult(TypedDict, total=False):
 
 
 @dataclass(frozen=True)
-class DSLTaskErrorInfo:
+class ActionErrorInfo:
+    """Contains information about an action error."""
+
     ref: str
     """The task reference."""
 
@@ -48,6 +50,10 @@ class DSLTaskErrorInfo:
 
     attempt: int = 1
     """The attempt number."""
+
+    def format(self, loc: str = "run_action") -> str:
+        locator = f"{self.expr_context}.{self.ref} -> {loc}"
+        return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
 
 
 class ActionRetryPolicy(BaseModel):
@@ -168,6 +174,15 @@ class DSLEnvironment(TypedDict, total=False):
     """The registry version to use for the workflow."""
 
 
+class RunContext(BaseModel):
+    """This is the runtime context model for a workflow run. Passed into activities."""
+
+    wf_id: WorkflowID
+    wf_exec_id: WorkflowExecutionID
+    wf_run_id: WorkflowRunID
+    environment: str
+
+
 class RunActionInput(BaseModel):
     """This object contains all the information needed to execute an action."""
 
@@ -190,3 +205,9 @@ class DSLExecutionError(TypedDict, total=False):
 
     message: str
     """The message of the exception."""
+
+
+@dataclass(frozen=True)
+class TaskExceptionInfo:
+    exception: Exception
+    details: ActionErrorInfo | None = None

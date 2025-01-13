@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import inspect
-import traceback
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar, cast
+from typing import Annotated, Any, Literal, TypedDict, TypeVar, cast
 
 import yaml
 from pydantic import (
@@ -35,7 +34,7 @@ RegistryActionType = Literal["udf", "template"]
 """Registry related"""
 
 
-class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
+class BoundRegistryAction(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     # Bound Implementation
     fn: Callable[..., Any]
@@ -50,13 +49,15 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
     # Secrets
     secrets: list[RegistrySecret] | None = None
     # Bound Interface
-    args_cls: ArgsClsT
+    args_cls: type[BaseModel]
     args_docs: dict[str, str] = Field(default_factory=dict)
     rtype_cls: Any | None = None
     rtype_adapter: TypeAdapter[Any] | None = None
     # Presentation
     default_title: str | None
     display_group: str | None
+    doc_url: str | None
+    author: str | None
     # Options
     include_in_schema: bool = True
 
@@ -117,7 +118,7 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
         else:
             raise ValueError(f"Invalid registry action type: {self.type}")
 
-    def validate_args[T](self, *args, **kwargs) -> T:
+    def validate_args(self, *args, **kwargs) -> dict[str, Any]:
         """Validate the input arguments for a Bound registry action.
 
         Checks:
@@ -137,8 +138,8 @@ class BoundRegistryAction(BaseModel, Generic[ArgsClsT]):
             # Note that we're allowing type coercion for the input arguments
             # Use cases would be transforming a UTC string to a datetime object
             # We return the validated input arguments as a dictionary
-            validated: BaseModel = self.args_cls.model_validate(kwargs)
-            validated_args = cast(T, validated.model_dump(mode="json"))
+            validated = self.args_cls.model_validate(kwargs)
+            validated_args = validated.model_dump(mode="json")
             return validated_args
         except ValidationError as e:
             logger.error(
@@ -169,10 +170,12 @@ class TemplateActionDefinition(BaseModel):
     name: str = Field(..., description="The action name")
     namespace: str = Field(..., description="The namespace of the action")
     title: str = Field(..., description="The title of the action")
-    description: str = Field("", description="The description of the action")
+    description: str = Field(default="", description="The description of the action")
     display_group: str = Field(..., description="The display group of the action")
+    doc_url: str | None = Field(default=None, description="Link to documentation")
+    author: str | None = Field(default=None, description="Author of the action")
     secrets: list[RegistrySecret] | None = Field(
-        None, description="The secrets to pass to the action"
+        default=None, description="The secrets to pass to the action"
     )
     expects: dict[str, ExpectedField] = Field(
         ..., description="The arguments to pass to the action"
@@ -215,31 +218,6 @@ class TemplateAction(BaseModel):
     def to_yaml(self) -> str:
         return yaml.dump(self.model_dump(mode="json"))
 
-    @staticmethod
-    def from_db(template_action: RegistryAction) -> TemplateAction:
-        intf = cast(RegistryActionInterface, template_action.interface)
-        impl = RegistryActionImplValidator.validate_python(
-            template_action.implementation
-        )
-        if impl.type != "template":
-            raise ValueError(
-                f"Invalid implementation type {impl.type!r} for template action"
-            )
-        return TemplateAction(
-            type="action",
-            definition=TemplateActionDefinition(
-                name=template_action.name,
-                namespace=template_action.namespace,
-                title=template_action.default_title,
-                description=template_action.description,
-                display_group=template_action.display_group,
-                secrets=template_action.secrets,
-                expects=intf["expects"],
-                returns=intf["returns"],
-                steps=impl.template_action.definition.steps,
-            ),
-        )
-
 
 # API models
 
@@ -248,21 +226,53 @@ class RegistryActionBase(BaseModel):
     """API read model for a registered action."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    name: str = Field(..., description="The name of the action")
-    description: str = Field(..., description="The description of the action")
+    name: str = Field(
+        ...,
+        description="The name of the action",
+        min_length=1,
+        max_length=100,
+    )
+    description: str = Field(
+        ...,
+        description="The description of the action",
+        max_length=1000,
+    )
     namespace: str = Field(..., description="The namespace of the action")
     type: RegistryActionType = Field(..., description="The type of the action")
-    origin: str = Field(..., description="The origin of the action as a url")
+    origin: str = Field(
+        ...,
+        description="The origin of the action as a url",
+        min_length=1,
+        max_length=1000,
+    )
     secrets: list[RegistrySecret] | None = Field(
         None, description="The secrets required by the action"
     )
     interface: RegistryActionInterface
     implementation: AnnotatedRegistryActionImpl
     default_title: str | None = Field(
-        None, description="The default title of the action"
+        None,
+        description="The default title of the action",
+        min_length=1,
+        max_length=100,
     )
     display_group: str | None = Field(
-        None, description="The presentation group of the action"
+        None,
+        description="The presentation group of the action",
+        min_length=1,
+        max_length=100,
+    )
+    doc_url: str | None = Field(
+        None,
+        description="Link to documentation",
+        min_length=1,
+        max_length=1000,
+    )
+    author: str | None = Field(
+        None,
+        description="Author of the action",
+        min_length=1,
+        max_length=100,
     )
     options: RegistryActionOptions = Field(
         default_factory=lambda: RegistryActionOptions(),
@@ -300,6 +310,8 @@ class RegistryActionRead(RegistryActionBase):
             description=action.description,
             namespace=action.namespace,
             type=cast(RegistryActionType, action.type),
+            doc_url=action.doc_url,
+            author=action.author,
             interface=model_converters.db_to_interface(action),
             implementation=impl,
             default_title=action.default_title,
@@ -327,6 +339,8 @@ class RegistryActionCreate(RegistryActionBase):
             implementation=action.get_implementation(),
             default_title=action.default_title,
             display_group=action.display_group,
+            doc_url=action.doc_url,
+            author=action.author,
             origin=action.origin,
             secrets=action.secrets,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
@@ -336,27 +350,56 @@ class RegistryActionCreate(RegistryActionBase):
 class RegistryActionUpdate(BaseModel):
     """API update model for a registered action."""
 
-    name: str | None = Field(default=None, description="Update the name of the action")
+    name: str | None = Field(
+        default=None,
+        description="Update the name of the action",
+        min_length=1,
+        max_length=100,
+    )
     description: str | None = Field(
-        default=None, description="Update the description of the action"
+        default=None,
+        description="Update the description of the action",
+        max_length=1000,
     )
     secrets: list[RegistrySecret] | None = Field(
-        default=None, description="Update the secrets of the action"
+        default=None,
+        description="Update the secrets of the action",
     )
     interface: RegistryActionInterface | None = Field(
-        default=None, description="Update the interface of the action"
+        default=None,
+        description="Update the interface of the action",
     )
     implementation: AnnotatedRegistryActionImpl | None = Field(
-        default=None, description="Update the implementation of the action"
+        default=None,
+        description="Update the implementation of the action",
     )
     default_title: str | None = Field(
-        default=None, description="Update the default title of the action"
+        default=None,
+        description="Update the default title of the action",
+        min_length=1,
+        max_length=100,
     )
     display_group: str | None = Field(
-        default=None, description="Update the display group of the action"
+        default=None,
+        description="Update the display group of the action",
+        min_length=1,
+        max_length=100,
+    )
+    doc_url: str | None = Field(
+        default=None,
+        description="Update the doc url of the action",
+        min_length=1,
+        max_length=1000,
+    )
+    author: str | None = Field(
+        default=None,
+        description="Update the author of the action",
+        min_length=1,
+        max_length=100,
     )
     options: RegistryActionOptions | None = Field(
-        default=None, description="Update the options of the action"
+        default=None,
+        description="Update the options of the action",
     )
 
     @staticmethod
@@ -368,6 +411,7 @@ class RegistryActionUpdate(BaseModel):
             implementation=action.get_implementation(),
             default_title=action.default_title,
             display_group=action.display_group,
+            doc_url=action.doc_url,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
         )
 
@@ -489,36 +533,3 @@ class model_converters:
                     f"Unknown implementation type: {action.implementation}"
                 )
         return intf
-
-
-class RegistryActionErrorInfo(BaseModel):
-    """An error that occurred in the registry."""
-
-    action_name: str
-    type: str
-    message: str
-    filename: str
-    function: str
-    lineno: int | None = None
-
-    def __str__(self) -> str:
-        return (
-            f"{self.type}: {self.message}"
-            f"\n\n{'-'*30}"
-            f"\nFile: {self.filename}"
-            f"\nFunction: {self.function}"
-            f"\nLine: {self.lineno}"
-        )
-
-    @staticmethod
-    def from_exc(e: Exception, action_name: str) -> RegistryActionErrorInfo:
-        """Create an error info from an exception."""
-        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
-        return RegistryActionErrorInfo(
-            action_name=action_name,
-            type=e.__class__.__name__,
-            message=str(e),
-            filename=tb.filename,
-            function=tb.name,
-            lineno=tb.lineno,
-        )

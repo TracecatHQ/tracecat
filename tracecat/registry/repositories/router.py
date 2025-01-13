@@ -10,6 +10,7 @@ from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.common import reload_registry
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
@@ -28,6 +29,21 @@ from tracecat.types.exceptions import RegistryError
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 
 # Controls
+
+
+@router.post("/reload", status_code=status.HTTP_204_NO_CONTENT)
+async def reload_registry_repositories(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=AccessLevel.ADMIN,
+    ),
+    session: AsyncDBSession,
+) -> None:
+    """Refresh all registry repositories."""
+    await reload_registry(session, role)
 
 
 @router.post("/{repository_id}/sync", status_code=status.HTTP_204_NO_CONTENT)

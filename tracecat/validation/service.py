@@ -1,8 +1,8 @@
 from collections.abc import Mapping, Sequence
 from itertools import chain
-from typing import Any, cast
+from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry import RegistrySecret
@@ -10,7 +10,8 @@ from tracecat_registry import RegistrySecret
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryAction
-from tracecat.dsl.common import DSLInput, context_locator
+from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs, context_locator
+from tracecat.dsl.constants import CHILD_WORKFLOW_EXECUTE_ACTION
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
@@ -45,7 +46,6 @@ async def validate_single_secret(
     try:
         defined_secret = await secrets_service.get_secret_by_name(
             registry_secret.name,
-            raise_on_error=True,
             environment=environment,
         )
     except (NoResultFound, MultipleResultsFound) as e:
@@ -161,16 +161,19 @@ async def validate_registry_action_args(
     # 2. construct a pydantic model from the schema
     # 3. validate the args against the pydantic model
     try:
-        service = RegistryActionsService(session)
-        action = await service.get_action(action_name=action_name)
-        interface = RegistryActionInterface(**action.interface)
-        model = json_schema_to_pydantic(interface["expects"])
         try:
-            # Note that we're allowing type coercion for the input arguments
-            # Use cases would be transforming a UTC string to a datetime object
-            # We return the validated input arguments as a dictionary
-            validated: BaseModel = model.model_validate(args)
-            validated_args = cast(Mapping[str, Any], validated.model_dump())
+            if action_name == CHILD_WORKFLOW_EXECUTE_ACTION:
+                validated = ExecuteChildWorkflowArgs.model_validate(args)
+            else:
+                service = RegistryActionsService(session)
+                action = await service.get_action(action_name=action_name)
+                interface = RegistryActionInterface(**action.interface)
+                model = json_schema_to_pydantic(interface["expects"])
+                # Note that we're allowing type coercion for the input arguments
+                # Use cases would be transforming a UTC string to a datetime object
+                # We return the validated input arguments as a dictionary
+                validated = model.model_validate(args)
+            validated_args = validated.model_dump()
         except ValidationError as e:
             logger.warning(f"Validation error for UDF {action_name!r}. {e.errors()!r}")
             raise RegistryValidationError(
@@ -236,14 +239,14 @@ async def validate_dsl_args(
             ref=act_stmt.ref,
         )
         if result.status == "error":
-            result.msg = f"[{context_locator(act_stmt, "inputs")}]\n\n{result.msg}"
+            result.msg = f"[{context_locator(act_stmt, 'inputs')}]\n\n{result.msg}"
             val_res.append(result)
         # Validate `run_if`
         if act_stmt.run_if and not is_template_only(act_stmt.run_if):
             val_res.append(
                 ValidationResult(
                     status="error",
-                    msg=f"[{context_locator(act_stmt, "run_if")}]\n\n"
+                    msg=f"[{context_locator(act_stmt, 'run_if')}]\n\n"
                     "`run_if` must only contain an expression.",
                     ref=act_stmt.ref,
                 )
@@ -256,7 +259,7 @@ async def validate_dsl_args(
                     val_res.append(
                         ValidationResult(
                             status="error",
-                            msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                            msg=f"[{context_locator(act_stmt, 'for_each')}]\n\n"
                             "`for_each` must be an expression or list of expressions.",
                             ref=act_stmt.ref,
                         )
@@ -267,7 +270,7 @@ async def validate_dsl_args(
                         val_res.append(
                             ValidationResult(
                                 status="error",
-                                msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                                msg=f"[{context_locator(act_stmt, 'for_each')}]\n\n"
                                 "`for_each` must be an expression or list of expressions.",
                                 ref=act_stmt.ref,
                             )
@@ -278,7 +281,7 @@ async def validate_dsl_args(
                 val_res.append(
                     ValidationResult(
                         status="error",
-                        msg=f"[{context_locator(act_stmt, "for_each")}]\n\n"
+                        msg=f"[{context_locator(act_stmt, 'for_each')}]\n\n"
                         "Invalid `for_each` of type {type(act_stmt.for_each)}.",
                         ref=act_stmt.ref,
                     )

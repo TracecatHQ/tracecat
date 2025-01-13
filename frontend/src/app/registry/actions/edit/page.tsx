@@ -112,8 +112,14 @@ function EditTemplateActionView({
 }
 
 const editTemplateActionFormSchema = z.object({
-  origin: z.string(),
-  definition: z.string(),
+  origin: z
+    .string()
+    .min(1, "Origin is required")
+    .max(1000, "Origin cannot exceed 1000 characters"),
+  definition: z
+    .string()
+    .min(1, "Definition is required")
+    .max(50000, "Definition cannot exceed 50,000 characters"),
 })
 
 type EditTemplateActionFormSchema = z.infer<typeof editTemplateActionFormSchema>
@@ -217,7 +223,7 @@ function EditTemplateActionForm({
                     in workflows immediately.
                   </span>
                   <DynamicCustomEditor
-                    className="h-96 w-full"
+                    className="min-h-96 min-w-full resize-y overflow-auto"
                     defaultLanguage="yaml-extended"
                     value={field.value}
                     onChange={field.onChange}

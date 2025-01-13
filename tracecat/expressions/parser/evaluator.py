@@ -166,7 +166,7 @@ class ExprEvaluator(Transformer):
         fn = functions.FUNCTION_MAPPING.get(fn_name)
         if fn is None:
             raise TracecatExpressionError(
-                f"Unknown function {fn_name!r}." f" ({is_mapped=})"
+                f"Unknown function {fn_name!r}. ({is_mapped=})"
             )
         final_fn = fn.map if is_mapped else fn
         result = final_fn(*fn_args)

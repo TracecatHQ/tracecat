@@ -7,7 +7,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 
 from tracecat.db.schemas import Schedule, Workflow, WorkflowDefinition
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import OwnerID, WorkflowID, WorkspaceID
@@ -34,6 +34,8 @@ class WorkflowRead(BaseModel):
     expects: dict[str, ExpectedField] | None = None
     returns: Any
     config: DSLConfig | None
+    alias: str | None = None
+    error_handler: str | None = None
 
 
 class WorkflowReadMinimal(BaseModel):
@@ -46,11 +48,22 @@ class WorkflowReadMinimal(BaseModel):
     updated_at: datetime
     version: int | None
     tags: list[TagRead] | None = None
+    alias: str | None = None
+    error_handler: str | None = None
 
 
 class WorkflowUpdate(BaseModel):
-    title: str | None = None
-    description: str | None = None
+    title: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=100,
+        description="Workflow title, between 3 and 100 characters",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Optional workflow description, up to 1000 characters",
+    )
     status: Literal["online", "offline"] | None = None
     object: dict[str, Any] | None = None
     version: int | None = None
@@ -60,11 +73,22 @@ class WorkflowUpdate(BaseModel):
     expects: dict[str, ExpectedField] | None = None
     returns: Any | None = None
     config: DSLConfig | None = None
+    alias: str | None = None
+    error_handler: str | None = None
 
 
 class WorkflowCreate(BaseModel):
-    title: str | None = None
-    description: str | None = None
+    title: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=100,
+        description="Workflow title, between 3 and 100 characters",
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Optional workflow description, up to 1000 characters",
+    )
 
 
 class GetWorkflowDefinitionActivityInputs(BaseModel):
@@ -72,6 +96,16 @@ class GetWorkflowDefinitionActivityInputs(BaseModel):
     workflow_id: WorkflowID
     version: int | None = None
     task: ActionStatement | None = None
+
+
+class ResolveWorkflowAliasActivityInputs(BaseModel):
+    workflow_alias: str
+    role: Role
+
+
+class GetErrorHandlerWorkflowIDActivityInputs(BaseModel):
+    role: Role
+    args: DSLRunArgs
 
 
 WorkflowExportFormat = Literal["json", "yaml"]

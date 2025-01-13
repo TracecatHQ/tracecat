@@ -50,7 +50,6 @@ resource "aws_iam_policy" "secrets_access" {
           var.tracecat_signing_secret_arn,
           var.oauth_client_id_arn,
           var.oauth_client_secret_arn,
-          var.saml_idp_certificate_arn,
           var.saml_idp_metadata_url_arn,
         ])
       }
@@ -78,25 +77,6 @@ resource "aws_iam_policy" "temporal_secrets_access" {
   })
 
   depends_on = [aws_db_instance.temporal_database]
-}
-
-resource "aws_iam_policy" "temporal_ui_secrets_access" {
-  name        = "TracecatTemporalUISecretsAccessPolicy"
-  description = "Policy for accessing Temporal UI secrets"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = ["secretsmanager:GetSecretValue"]
-        Resource = [
-          var.temporal_auth_client_id_arn,
-          var.temporal_auth_client_secret_arn
-        ]
-      }
-    ]
-  })
 }
 
 # API execution role
@@ -282,29 +262,54 @@ resource "aws_iam_role_policy_attachment" "caddy_execution_cloudwatch_logs" {
   role       = aws_iam_role.caddy_execution.name
 }
 
-# Temporal UI execution role
+# (Optional) Temporal UI execution role
+resource "aws_iam_policy" "temporal_ui_secrets_access" {
+  count       = var.disable_temporal_ui ? 0 : 1
+  name        = "TracecatTemporalUISecretsAccessPolicy"
+  description = "Policy for accessing Temporal UI secrets"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        Resource = [
+          var.temporal_auth_client_id_arn,
+          var.temporal_auth_client_secret_arn
+        ]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role" "temporal_ui_execution" {
+  count              = var.disable_temporal_ui ? 0 : 1
   name               = "TracecatTemporalUIExecutionRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "temporal_ui_execution_ecs_poll" {
+  count      = var.disable_temporal_ui ? 0 : 1
   policy_arn = aws_iam_policy.ecs_poll.arn
-  role       = aws_iam_role.temporal_ui_execution.name
+  role       = aws_iam_role.temporal_ui_execution[0].name
 }
 
 resource "aws_iam_role_policy_attachment" "temporal_ui_execution_cloudwatch_logs" {
+  count      = var.disable_temporal_ui ? 0 : 1
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
-  role       = aws_iam_role.temporal_ui_execution.name
+  role       = aws_iam_role.temporal_ui_execution[0].name
 }
 
 resource "aws_iam_role_policy_attachment" "temporal_ui_execution_secrets" {
-  policy_arn = aws_iam_policy.temporal_ui_secrets_access.arn
-  role       = aws_iam_role.temporal_ui_execution.name
+  count      = var.disable_temporal_ui ? 0 : 1
+  policy_arn = aws_iam_policy.temporal_ui_secrets_access[0].arn
+  role       = aws_iam_role.temporal_ui_execution[0].name
 }
 
 # Temporal UI task role (minimal permissions)
 resource "aws_iam_role" "temporal_ui_task" {
+  count              = var.disable_temporal_ui ? 0 : 1
   name               = "TracecatTemporalUITaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }

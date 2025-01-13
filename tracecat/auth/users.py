@@ -2,7 +2,7 @@ import contextlib
 import uuid
 from collections.abc import AsyncGenerator, Sequence
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi_users import (
@@ -34,6 +34,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tracecat import config
+from tracecat.api.common import bootstrap_role
 from tracecat.auth.models import UserCreate, UserRole, UserUpdate
 from tracecat.db.adapter import (
     SQLModelAccessTokenDatabaseAsync,
@@ -42,6 +43,7 @@ from tracecat.db.adapter import (
 from tracecat.db.engine import get_async_session, get_async_session_context_manager
 from tracecat.db.schemas import AccessToken, OAuthAccount, User
 from tracecat.logger import logger
+from tracecat.settings.service import get_setting
 
 
 class InvalidDomainException(FastAPIUsersException):
@@ -55,12 +57,25 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     def __init__(self, user_db: SQLAlchemyUserDatabase) -> None:
         super().__init__(user_db)
         self.logger = logger.bind(unit="UserManager")
+        self.role = bootstrap_role()
 
     async def validate_password(self, password: str, user: User) -> None:
         if len(password) < config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH:
             raise InvalidPasswordException(
                 f"Password must be at least {config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH} characters long"
             )
+
+    async def validate_email(self, email: str) -> None:
+        allowed_domains = cast(
+            list[str] | None,
+            await get_setting(
+                "auth_allowed_email_domains",
+                role=self.role,
+                # TODO: Deprecate in future version
+                default=list(config.TRACECAT__AUTH_ALLOWED_DOMAINS),
+            ),
+        )
+        validate_email(email=email, allowed_domains=allowed_domains)
 
     async def oauth_callback(
         self,
@@ -75,7 +90,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         associate_by_email: bool = False,
         is_verified_by_default: bool = False,
     ) -> User:
-        validate_email(account_email)
+        await self.validate_email(account_email)
         return await super().oauth_callback(  # type: ignore
             oauth_name,
             access_token,
@@ -94,7 +109,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         safe: bool = False,
         request: Request | None = None,
     ) -> User:
-        validate_email(email=user_create.email)
+        await self.validate_email(user_create.email)
         return await super().create(user_create, safe, request)
 
     async def on_after_login(
@@ -311,13 +326,12 @@ async def list_users(*, session: SQLModelAsyncSession) -> Sequence[User]:
     return result.all()
 
 
-def validate_email(email: EmailStr) -> None:
+def validate_email(
+    email: EmailStr, *, allowed_domains: list[str] | None = None
+) -> None:
     # Safety: This is already a validated email, so we can split on the first @
     _, domain = email.split("@", 1)
     logger.info(f"Domain: {domain}")
 
-    if (
-        config.TRACECAT__AUTH_ALLOWED_DOMAINS
-        and domain not in config.TRACECAT__AUTH_ALLOWED_DOMAINS
-    ):
+    if allowed_domains and domain not in allowed_domains:
         raise InvalidDomainException(f"You cannot register with the domain {domain!r}")

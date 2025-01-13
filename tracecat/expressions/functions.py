@@ -7,6 +7,7 @@ import itertools
 import json
 import math
 import re
+import urllib.parse
 import zoneinfo
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -88,6 +89,11 @@ def _bool(x: Any) -> bool:
 
 
 # String functions
+
+
+def url_encode(x: str) -> str:
+    """Converts URL-unsafe characters into percent-encoded characters."""
+    return urllib.parse.quote(x)
 
 
 def from_timestamp(x: int, unit: str) -> datetime:
@@ -204,6 +210,11 @@ def str_to_b64url(x: str) -> str:
 def b64url_to_str(x: str) -> str:
     """Decode URL-safe base64 string to string."""
     return base64.urlsafe_b64decode(x).decode()
+
+
+def replace(x: str, old: str, new: str) -> str:
+    """Replace all occurrences of old substring with new substring."""
+    return x.replace(old, new)
 
 
 def regex_extract(pattern: str, text: str) -> str | None:
@@ -727,6 +738,11 @@ def union[T: Any](*collections: Sequence[T]) -> list[T]:
     return list(set().union(*collections))
 
 
+def difference[T: Any](a: Sequence[T], b: Sequence[T]) -> list[T]:
+    """Return the set difference of two sequences as a list."""
+    return list(set(a) - set(b))
+
+
 def apply[T: Any](item: T | Iterable[T], python_lambda: str) -> T | list[T]:
     """Apply a Python lambda function to an item or sequence of items."""
     fn = _build_safe_lambda(python_lambda)
@@ -800,6 +816,8 @@ _FUNCTION_MAPPING = {
     "strip": strip,
     "titleize": titleize,
     "uppercase": uppercase,
+    "replace": replace,
+    "url_encode": url_encode,
     # Comparison
     "less_than": less_than,
     "less_than_or_equal": less_than_or_equal,
@@ -824,6 +842,7 @@ _FUNCTION_MAPPING = {
     # Set operations
     "intersect": intersect,
     "union": union,
+    "difference": difference,
     # Math
     "add": add,
     "sub": sub,

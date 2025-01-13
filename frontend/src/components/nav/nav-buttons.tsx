@@ -2,11 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import {
-  BuildingIcon,
-  ChevronLeftIcon,
-  LibraryBigIcon,
-} from "lucide-react"
+import { BuildingIcon, ChevronLeftIcon, LibraryBigIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 

@@ -19,14 +19,13 @@ from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
-from tracecat.executor.models import ExecutorSyncInput
+from tracecat.executor.models import ExecutorActionErrorInfo, ExecutorSyncInput
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
-    RegistryActionErrorInfo,
     RegistryActionValidateResponse,
 )
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import ActionExecutionError, RegistryError
+from tracecat.types.exceptions import ExecutorClientError, RegistryError
 
 
 class ExecutorHTTPClient(AuthenticatedServiceClient):
@@ -80,15 +79,15 @@ class ExecutorClient:
         except httpx.HTTPStatusError as e:
             self._handle_http_status_error(e, action_type)
         except httpx.ReadTimeout as e:
-            raise ActionExecutionError(
+            raise ExecutorClientError(
                 f"Timeout calling action {action_type!r} in executor: {e}"
             ) from e
         except orjson.JSONDecodeError as e:
-            raise ActionExecutionError(
+            raise ExecutorClientError(
                 f"Error decoding JSON response for action {action_type!r}: {e}"
             ) from e
         except Exception as e:
-            raise ActionExecutionError(
+            raise ExecutorClientError(
                 f"Unexpected error calling action {action_type!r} in executor: {e}"
             ) from e
 
@@ -192,16 +191,16 @@ class ExecutorClient:
             and (detail := resp.get("detail"))
             and isinstance(detail, Mapping)
         ):
-            val_detail = RegistryActionErrorInfo(**detail)
+            val_detail = ExecutorActionErrorInfo(**detail)
             detail = str(val_detail)
         else:
             detail = e.response.text
         self.logger.error("Executor returned an error", error=e, detail=detail)
         if e.response.status_code / 100 == 5:
-            raise ActionExecutionError(
+            raise ExecutorClientError(
                 f"There was an error in the executor when calling action {action_type!r} ({e.response.status_code}).\n\n{detail}"
             ) from e
         else:
-            raise ActionExecutionError(
+            raise ExecutorClientError(
                 f"Unexpected executor error ({e.response.status_code}):\n\n{e}\n\n{detail}"
             ) from e
