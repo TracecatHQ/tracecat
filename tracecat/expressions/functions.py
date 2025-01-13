@@ -738,6 +738,11 @@ def union[T: Any](*collections: Sequence[T]) -> list[T]:
     return list(set().union(*collections))
 
 
+def difference[T: Any](a: Sequence[T], b: Sequence[T]) -> list[T]:
+    """Return the set difference of two sequences as a list."""
+    return list(set(a) - set(b))
+
+
 def apply[T: Any](item: T | Iterable[T], python_lambda: str) -> T | list[T]:
     """Apply a Python lambda function to an item or sequence of items."""
     fn = _build_safe_lambda(python_lambda)
@@ -837,6 +842,7 @@ _FUNCTION_MAPPING = {
     # Set operations
     "intersect": intersect,
     "union": union,
+    "difference": difference,
     # Math
     "add": add,
     "sub": sub,
