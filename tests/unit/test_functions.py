@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -28,6 +29,7 @@ from tracecat.expressions.functions import (
     dict_keys,
     dict_lookup,
     dict_values,
+    difference,
     div,
     does_not_contain,
     endswith,
@@ -912,3 +914,18 @@ def test_create_range(start: int, end: int, step: int, expected: list[int]) -> N
     # Test invalid step
     with pytest.raises(ValueError):
         create_range(0, 5, 0)  # Step cannot be 0
+
+
+@pytest.mark.parametrize(
+    "a,b,expected",
+    [
+        ([1, 2, 3], [2, 3, 4], [1]),  # Basic difference
+        ([1, 2, 2], [2], [1]),  # Duplicates in first sequence
+        ([], [1, 2], []),  # Empty first sequence
+        ([1, 2], [], [1, 2]),  # Empty second sequence
+        (["a", "b"], ["b", "c"], ["a"]),  # String elements
+    ],
+)
+def test_difference(a: Sequence[Any], b: Sequence[Any], expected: list[Any]) -> None:
+    """Test set difference between two sequences."""
+    assert sorted(difference(a, b)) == sorted(expected)
