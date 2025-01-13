@@ -1,0 +1,3 @@
+ip_address:
+  type: str
+  description: The IP address to lookup.

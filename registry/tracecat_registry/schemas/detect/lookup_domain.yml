@@ -1,7 +1,3 @@
-type: object
-properties:
-  domain:
-    type: str
-    description: The domain to lookup.
-required:
-  - domain
+domain:
+  type: str
+  description: The domain to lookup.

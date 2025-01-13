@@ -1,7 +1,3 @@
-type: object
-properties:
-  file_hash:
-    type: str
-    description: The file hash to analyze or scan.
-required:
-  - file_hash
+file_hash:
+  type: str
+  description: The file hash to analyze or scan.
