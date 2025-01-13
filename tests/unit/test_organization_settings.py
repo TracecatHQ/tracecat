@@ -1,3 +1,5 @@
+from typing import Any
+
 import orjson
 import pytest
 from fastapi import HTTPException
@@ -16,7 +18,7 @@ from tracecat.settings.models import (
     ValueType,
 )
 from tracecat.settings.router import check_other_auth_enabled
-from tracecat.settings.service import SettingsService, get_setting
+from tracecat.settings.service import SettingsService, get_setting, get_setting_override
 from tracecat.types.auth import Role
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -390,3 +392,64 @@ async def test_init_default_settings(
     await settings_service.init_default_settings()
     settings_after = await settings_service.list_org_settings(keys=expected_keys)
     assert len(settings) == len(settings_after)
+
+
+@pytest.mark.parametrize(
+    "key,env_value,expected",
+    [
+        ("saml_enabled", "true", "true"),
+        ("auth_basic_enabled", "false", "false"),
+        ("oauth_google_enabled", "1", "1"),
+        ("unauthorized_setting", "true", None),
+    ],
+)
+def test_get_setting_override(
+    key: str, env_value: str, expected: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test environment variable overrides for settings."""
+    if expected is not None:
+        monkeypatch.setenv(f"TRACECAT__SETTING_OVERRIDE_{key.upper()}", env_value)
+
+    assert get_setting_override(key) == expected, f"Expected {expected} for {key}"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "key,env_value,expected",
+    [
+        ("saml_enabled", "true", True),
+        ("auth_basic_enabled", "false", False),
+        ("oauth_google_enabled", "1", True),
+        ("unauthorized_setting", "true", None),
+        ("saml_enabled", "some_string", "some_string"),
+    ],
+)
+async def test_setting_with_override(
+    settings_service: SettingsService,
+    svc_admin_role: Role,
+    key: str,
+    env_value: str,
+    expected: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get_setting with environment overrides."""
+    if key in {"saml_enabled", "auth_basic_enabled", "oauth_google_enabled"}:
+        monkeypatch.setenv(f"TRACECAT__SETTING_OVERRIDE_{key.upper()}", env_value)
+
+    # Test with both session and role
+    value = await get_setting(
+        key,
+        role=svc_admin_role,
+        session=settings_service.session,
+    )
+    assert value == expected
+
+    # Test with default value when no override
+    default_value = {"test": "default"}
+    no_override_value = await get_setting(
+        "nonexistent_key",
+        role=svc_admin_role,
+        session=settings_service.session,
+        default=default_value,
+    )
+    assert no_override_value == default_value

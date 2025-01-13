@@ -41,7 +41,7 @@ from tracecat.registry.repositories.router import router as registry_repos_route
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.settings.router import router as org_settings_router
-from tracecat.settings.service import SettingsService
+from tracecat.settings.service import SettingsService, get_setting_override
 from tracecat.tags.router import router as tags_router
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
@@ -283,6 +283,8 @@ async def info(session: AsyncDBSession) -> AppInfo:
     service = SettingsService(session, role=bootstrap_role())
     settings = await service.list_org_settings(keys=keys)
     keyvalues = {s.key: service.get_value(s) for s in settings}
+    for key in keys:
+        keyvalues[key] = get_setting_override(key) or keyvalues[key]
     return AppInfo(
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,
         auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),

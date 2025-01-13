@@ -264,6 +264,23 @@ async def get_setting(
     default: Any | None = None,
 ) -> Any | None:
     """Shorthand to get a setting value from the database."""
+
+    # If we have an environment override, use it
+    if override_val := get_setting_override(key):
+        logger.warning(
+            "Using environment override for setting. "
+            "This is not recommended for production environments.",
+            key=key,
+            override=override_val,
+        )
+        match override_val.lower():
+            case "true" | "1":
+                return True
+            case "false" | "0":
+                return False
+            case _:
+                return override_val
+
     if session:
         service = SettingsService(session=session, role=role)
         setting = await service.get_org_setting(key)
@@ -278,3 +295,19 @@ async def get_setting(
         logger.warning("Setting not found, using default value", key=key)
         return default
     return no_default_val
+
+
+def get_setting_override(key: str) -> Any | None:
+    """Get an environment override for a setting."""
+    # Only allow overrides for specific settings
+    allowed_override_keys = {
+        "saml_enabled",
+        "oauth_google_enabled",
+        "auth_basic_enabled",
+    }
+
+    if key not in allowed_override_keys:
+        logger.warning(f"Attempted override of unauthorized setting: {key}")
+        return None
+
+    return os.environ.get(f"TRACECAT__SETTING_OVERRIDE_{key.upper()}")
