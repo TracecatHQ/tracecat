@@ -38,6 +38,7 @@ description: A cheatsheet of all operators and functions supported by Tracecat.
 | `unique` | (items: Sequence[Any]) -> list[Any] | Return unique items from sequence. |
 | `intersect` | (items: Sequence[T], collection: Sequence[T], python_lambda: str \| None = None) -> list[T] | Return the set intersection of two sequences as a list. If a Python lambda is provided, it will be applied to each item before checking for intersection. |
 | `union` | (*collections: Sequence[T]) -> list[T] | Return the set union of multiple sequences as a list. |
+| `difference` | (a: Sequence[T], b: Sequence[T]) -> list[T] | Return the set difference of two sequences as a list. |
 | `add` | (a: float \| int, b: float \| int) -> float \| int | Add two numbers together. |
 | `sub` | (a: float \| int, b: float \| int) -> float \| int | Subtract second number from first number. |
 | `mul` | (a: float \| int, b: float \| int) -> float \| int | Multiply two numbers together. |
