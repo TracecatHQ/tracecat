@@ -148,7 +148,7 @@ enum SaveState {
 const parseYaml = (str: string | undefined) =>
   str ? YAML.parse(str) : undefined
 const stringifyYaml = (obj: unknown | undefined) =>
-  obj ? YAML.stringify(obj) : undefined
+  obj ? YAML.stringify(obj) : ""
 
 export function ActionPanel({
   actionId,
