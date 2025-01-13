@@ -78,7 +78,7 @@ By the end of this tutorial, you will learn:
 
         In this case, under the **Control Flow** tab for the `Trigger VirusTotal workflow` action, we can set the loop-iteration config with the following:
         ```yaml
-        - ${{ var.alert for alert in ACTIONS.select_high_severity_alerts.result }}
+        ${{ for var.alert in ACTIONS.select_high_severity_alerts.result }}
         ```
     </Step>
 </Steps>
