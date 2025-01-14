@@ -279,14 +279,14 @@ class SecretsService(BaseService):
         key_name: str = GIT_SSH_KEY_SECRET_NAME,
         environment: str | None = None,
     ) -> SecretKeyValue:
-        # NOTE: Don't set the workspace_id, as we want to search for
-        # organization secrets if it's not set.
         logger.info("Getting SSH key", key_name=key_name, role=self.role)
         try:
             secret = await self.get_org_secret_by_name(key_name, environment)
+            key = self.decrypt_keys(secret.encrypted_keys)[0]
+            logger.debug("SSH key found", key_name=key_name, key_length=len(key.value))
+            return key
         except TracecatNotFoundError as e:
             raise TracecatNotFoundError(
                 f"SSH key {key_name} not found. Please check whether this key exists.\n\n"
                 " If not, please create a key in your organization's credentials page and try again."
             ) from e
-        return self.decrypt_keys(secret.encrypted_keys)[0]
