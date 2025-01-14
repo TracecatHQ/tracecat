@@ -148,7 +148,7 @@ class DSLScheduler:
         )
         async with asyncio.TaskGroup() as tg:
             for next_ref, edge_type in next_tasks:
-                self.logger.warning("Processing next task", ref=ref, next_ref=next_ref)
+                self.logger.debug("Processing next task", ref=ref, next_ref=next_ref)
                 edge = DSLEdge(src=ref, dst=next_ref, type=edge_type)
                 if unreachable and edge in unreachable:
                     self._mark_edge(edge, EdgeMarker.SKIPPED)
@@ -272,7 +272,7 @@ class DSLScheduler:
             # Root nodes are always reachable
             return True
         elif n_deps == 1:
-            logger.warning("Task has only 1 dependency", task=task)
+            logger.debug("Task has only 1 dependency", task=task)
             # If there's only 1 dependency, the node is reachable only if the
             # dependency was successful ignoring the join strategy.
             dep_ref = task.depends_on[0]
