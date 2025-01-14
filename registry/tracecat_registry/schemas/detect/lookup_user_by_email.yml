@@ -1,0 +1,5 @@
+# https://schema.ocsf.io/1.3.0/objects/user
+# Returns single user object.
+email:
+  type: str
+  description: Lookup user by email.

@@ -6,7 +6,7 @@ end_time:
   description: End time for the query (exclusive).
 query:
   type: str
-  description: (Optional) Query or filter to apply to log events. If specified, overrides `start_time` and `end_time`.
+  description: Query or filter to apply to log events. If specified, overrides `start_time` and `end_time`.
   default: null
 limit:
   type: int
