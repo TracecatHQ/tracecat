@@ -105,8 +105,9 @@ while true; do
     esac
 done
 
-# Prompt user for new IP address
+# Prompt user for new IP address and strip http:// or https://
 read -p "Enter the new IP address or domain (default: localhost): " new_ip
+new_ip=$(sed -E 's/^\s*.*:\/\///g' <<< $new_ip)
 new_ip=${new_ip:-localhost}
 
 # Prompt user for PostgreSQL SSL mode
