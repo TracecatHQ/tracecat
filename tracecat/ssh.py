@@ -80,8 +80,16 @@ async def temporary_ssh_agent() -> AsyncIterator[SshEnv]:
         logger.debug("Killed ssh-agent")
 
 
-async def add_host_to_known_hosts(url: str, *, env: SshEnv) -> None:
-    """Add the host to the known hosts file."""
+def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
+    """Synchronously add the host to the known hosts file if not already present.
+
+    Args:
+        url: The host URL to add
+        env: SSH environment variables
+
+    Raises:
+        Exception: If ssh-keyscan fails to get the host key
+    """
     try:
         # Ensure the ~/.ssh directory exists
         ssh_dir = Path.home() / ".ssh"
@@ -89,33 +97,43 @@ async def add_host_to_known_hosts(url: str, *, env: SshEnv) -> None:
 
         known_hosts_file = ssh_dir / "known_hosts"
 
+        # Check if host already exists in known_hosts
+        if known_hosts_file.exists():
+            with known_hosts_file.open("r") as f:
+                # Look for the hostname in existing entries
+                if any(url in line for line in f.readlines()):
+                    logger.debug("Host already in known_hosts file", url=url)
+                    return
         # Use ssh-keyscan to get the host key
-        process = await asyncio.create_subprocess_exec(
-            "ssh-keyscan",
-            url,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        result = subprocess.run(
+            ["ssh-keyscan", url],
+            capture_output=True,
+            text=True,
             env=env.to_dict(),
+            check=False,
         )
-        stdout, stderr = await process.communicate()
 
-        if process.returncode != 0:
-            raise Exception(f"Failed to get host key: {stderr.decode().strip()}")
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to get host key: {result.stderr.strip()}")
 
         # Append the host key to the known_hosts file
         with known_hosts_file.open("a") as f:
-            f.write(stdout.decode())
+            f.write(result.stdout)
 
         logger.info("Added host to known hosts", url=url)
     except Exception as e:
-        logger.error(f"Error adding host to known hosts: {str(e)}")
+        logger.error("Error adding host to known hosts", error=e)
         raise
 
 
-async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
-    """Add the SSH key to the agent then remove it."""
-    # TODO(perf): Improve concurrency
-    with tempfile.NamedTemporaryFile(mode="w", delete=False) as temp_key_file:
+async def add_host_to_known_hosts(url: str, *, env: SshEnv) -> None:
+    """Asynchronously add the host to the known hosts file."""
+    return await asyncio.to_thread(add_host_to_known_hosts_sync, url, env)
+
+
+def add_ssh_key_to_agent_sync(key_data: str, env: SshEnv) -> None:
+    """Synchronously add the SSH key to the agent then remove it."""
+    with tempfile.NamedTemporaryFile(mode="w", delete=True) as temp_key_file:
         temp_key_file.write(key_data)
         temp_key_file.write("\n")
         temp_key_file.flush()
@@ -130,19 +148,23 @@ async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
             raise
 
         try:
-            process = await asyncio.create_subprocess_exec(
-                "ssh-add",
-                temp_key_file.name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            result = subprocess.run(
+                ["ssh-add", temp_key_file.name],
+                capture_output=True,
+                text=True,
                 env=env.to_dict(),
+                check=False,
             )
-            _, stderr = await process.communicate()
 
-            if process.returncode != 0:
-                raise Exception(f"Failed to add SSH key: {stderr.decode().strip()}")
+            if result.returncode != 0:
+                raise RuntimeError(f"Failed to add SSH key: {result.stderr.strip()}")
 
             logger.info("Added SSH key to agent")
         except Exception as e:
             logger.error("Error adding SSH key", error=e)
             raise
+
+
+async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
+    """Asynchronously add the SSH key to the agent then remove it."""
+    return await asyncio.to_thread(add_ssh_key_to_agent_sync, key_data, env)
