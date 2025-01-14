@@ -115,7 +115,18 @@ class SecretsService(BaseService):
         secret_name: str,
         environment: str | None = None,
     ) -> Secret:
-        """Get a workspace secret by name."""
+        """Get a workspace secret by name.
+
+        Args:
+            secret_name: The name of the secret to retrieve
+            environment: Optional environment to filter by. If provided, only returns secrets for that environment.
+
+        Returns:
+            The matching Secret object
+
+        Raises:
+            TracecatNotFoundError: If no secret is found with the given name/environment or if multiple secrets are found
+        """
 
         statement = select(Secret).where(
             Secret.owner_id == self.role.workspace_id,
