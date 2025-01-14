@@ -7,19 +7,12 @@ from typing import Any, NoReturn
 
 import httpx
 import orjson
-from pydantic import UUID4
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
 from tracecat.dsl.models import RunActionInput
-from tracecat.executor.models import ExecutorActionErrorInfo, ExecutorSyncInput
+from tracecat.executor.models import ExecutorActionErrorInfo
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     RegistryActionValidateResponse,
@@ -116,63 +109,6 @@ class ExecutorClient:
         except Exception as e:
             raise RegistryError(
                 f"Unexpected error while listing registries: {str(e)}"
-            ) from e
-
-    # === Management ===
-
-    async def sync_executor(
-        self, repository_id: UUID4, *, max_attempts: int = 3
-    ) -> None:
-        """Sync the executor from the registry.
-
-        Args:
-            origin: The origin of the sync request
-
-        Raises:
-            RegistryError: If the sync fails after all retries
-        """
-
-        @retry(
-            stop=stop_after_attempt(max_attempts),
-            wait=wait_exponential(multiplier=1, min=4, max=10),
-            retry=retry_if_exception_type(
-                (
-                    httpx.HTTPStatusError,
-                    httpx.RequestError,
-                    httpx.TimeoutException,
-                    httpx.ConnectError,
-                )
-            ),
-        )
-        async def _sync_request() -> None:
-            try:
-                async with self._client() as client:
-                    response = await client.post(
-                        "/sync",
-                        content=ExecutorSyncInput(
-                            repository_id=repository_id
-                        ).model_dump_json(),
-                        headers={"Content-Type": "application/json"},
-                    )
-                    response.raise_for_status()
-            except Exception as e:
-                logger.error("Error syncing executor", error=e)
-                raise
-
-        try:
-            logger.info("Syncing executor", repository_id=repository_id)
-            _ = await _sync_request()
-        except httpx.HTTPStatusError as e:
-            raise RegistryError(
-                f"Failed to sync executor: HTTP {e.response.status_code}"
-            ) from e
-        except httpx.RequestError as e:
-            raise RegistryError(
-                f"Network error while syncing executor: {str(e)}"
-            ) from e
-        except Exception as e:
-            raise RegistryError(
-                f"Unexpected error while syncing executor: {str(e)}"
             ) from e
 
     # === Utility ===
