@@ -781,6 +781,7 @@ export type Role = {
     | "tracecat-schedule-runner"
     | "tracecat-service"
     | "tracecat-executor"
+    | "tracecat-bootstrap"
 }
 
 export type type2 = "user" | "service"
@@ -792,6 +793,7 @@ export type service_id =
   | "tracecat-schedule-runner"
   | "tracecat-service"
   | "tracecat-executor"
+  | "tracecat-bootstrap"
 
 /**
  * This object contains all the information needed to execute an action.
@@ -1881,13 +1883,6 @@ export type RegistryRepositoriesSyncRegistryRepositoryData = {
 }
 
 export type RegistryRepositoriesSyncRegistryRepositoryResponse = void
-
-export type RegistryRepositoriesSyncExecutorFromRegistryRepositoryData = {
-  repositoryId: string
-}
-
-export type RegistryRepositoriesSyncExecutorFromRegistryRepositoryResponse =
-  void
 
 export type RegistryRepositoriesListRegistryRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
@@ -3001,21 +2996,6 @@ export type $OpenApiTs = {
   "/registry/repos/{repository_id}/sync": {
     post: {
       req: RegistryRepositoriesSyncRegistryRepositoryData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/registry/repos/{repository_id}/sync-executor": {
-    post: {
-      req: RegistryRepositoriesSyncExecutorFromRegistryRepositoryData
       res: {
         /**
          * Successful Response
