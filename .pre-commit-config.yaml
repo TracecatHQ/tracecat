@@ -2,6 +2,9 @@
 # See https://pre-commit.com/hooks.html for more hooks
 default_language_version:
   python: python3.12
+default_install_hook_types: [pre-commit, commit-msg]
+verbose: true # Enable verbose output globally
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
@@ -21,6 +24,8 @@ repos:
       - id: ruff
         args:
           - --fix
+          - --show-fixes # Show what files were fixed
+          - --verbose
         exclude: ^alembic/versions/
       - id: ruff-format
         verbose: true
