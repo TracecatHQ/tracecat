@@ -1,0 +1,14 @@
+start_time:
+  type: datetime
+  description: Start time for the query (inclusive).
+end_time:
+  type: datetime
+  description: End time for the query (exclusive).
+query:
+  type: str | None
+  description: Query or filter to apply to alerts. If specified, overrides `start_time` and `end_time`.
+  default: null
+limit:
+  type: int
+  description: Maximum number of incidents to return.
+  default: 100

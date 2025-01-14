@@ -1,0 +1,4 @@
+# https://d3fend.mitre.org/technique/d3f:DNSAllowlisting/
+ip_address:
+  type: str
+  description: The IP address to allow.

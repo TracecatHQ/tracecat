@@ -1,0 +1,8 @@
+query:
+  type: str
+  description: Query or filter to apply to agents inventory.
+  default: null
+limit:
+  type: int
+  description: Maximum number of agents to return.
+  default: 100

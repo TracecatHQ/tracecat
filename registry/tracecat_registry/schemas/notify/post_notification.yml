@@ -1,0 +1,27 @@
+# https://www.elastic.co/blog/distributed-alerting-with-elastic-stack
+# https://medium.com/brexeng/elevating-security-alert-management-using-automation-828004ad596c
+# https://support.pagerduty.com/main/docs/slack-user-guide
+# https://slack.com/marketplace-pages/servicenow-for-slack
+summary:
+  type: str
+  description: Brief one-line summary of the notification.
+details:
+  type: any | None
+  description: >-
+    Fields to add to the notification
+    e.g. {"severity": "high", "status": "open"}.
+description:
+  type: str | None
+  description: Detailed description (supports Markdown) of the notification.
+links:
+  type: list[str] | None
+  description: List of links to add to the notification.
+actions:
+  type: list[str] | None
+  description: List of actions (e.g. "Confirm", "Deny")
+action_ids:
+  type: list[str] | None
+  description: List of action IDs (e.g. "true", "false") in the same order as the actions list.
+custom_blocks:
+  type: list[any] | None
+  description: List of custom blocks (e.g. Slack blocks, Microsoft Teams cards) to add to the notification.

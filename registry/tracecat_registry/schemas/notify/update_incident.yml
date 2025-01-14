@@ -1,0 +1,6 @@
+alert_id:
+  type: str
+  description: The ID of the alert to update.
+status:
+  type: str
+  description: The new status of the alert.

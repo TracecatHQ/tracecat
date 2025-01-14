@@ -1,0 +1,4 @@
+agent_ids:
+  type: list[str] | None
+  description: List of agents by ID to update. If not specified, all agents are updated.
+  default: null

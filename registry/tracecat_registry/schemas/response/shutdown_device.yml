@@ -1,0 +1,3 @@
+device_id:
+  type: str
+  description: The ID of the device to shutdown.
