@@ -35,7 +35,7 @@ dotenv_replace() {
 
 echo -e "${YELLOW}Creating .env...${NC}"
 
-# Check that docker exists and is running 
+# Check that docker exists and is running
 if !  docker ps &> /dev/null
 then
     echo -e "${RED}Docker could not be found. Please check if installed and running.${NC}"

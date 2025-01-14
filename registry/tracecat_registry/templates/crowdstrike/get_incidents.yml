@@ -4,7 +4,7 @@ definition:
   namespace: integrations.crowdstrike
   title: Get CrowdStrike CrowdScore Incidents
   description: |
-    Query for CrowdStrike CrowdScore Incident IDs, and get all details for these IDs. 
+    Query for CrowdStrike CrowdScore Incident IDs, and get all details for these IDs.
     Uses the following two falcony operations -
     1. https://falconpy.io/Service-Collections/Incidents.html#queryincidents 2. https://falconpy.io/Service-Collections/Incidents.html#getincidents
   display_group: CrowdStrike

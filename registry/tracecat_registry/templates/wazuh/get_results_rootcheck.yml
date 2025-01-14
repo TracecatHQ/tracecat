@@ -31,4 +31,3 @@ definition:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
         verify_ssl: ${{ inputs.verify_ssl  }}
   returns: ${{ steps.get_results_rootcheck.result }}
-

@@ -10,7 +10,7 @@ definition:
       type: int
       description: 'Must be incident id or display id'
       default: null
-    status:  
+    status:
       type: str
       description: 'Must be one of the following values: "new", "in progress", "close - handled", "close - prevented", "close - false positive", "close - known activity"'
       default: null
