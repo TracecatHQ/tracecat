@@ -331,7 +331,7 @@ async def run_action_on_ray_cluster(
     if ctx.git_url and ctx.git_url.ref:
         url = ctx.git_url.to_url()
         additional_vars["pip"] = [url]
-        logger.info("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
+        logger.trace("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
 
     runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
 
@@ -386,7 +386,7 @@ async def dispatch_action_on_cluster(
     role = ctx_role.get()
 
     async with opt_temp_key_file(git_url=git_url, session=session) as ssh_command:
-        logger.info("SSH command", ssh_command=ssh_command)
+        logger.trace("SSH command", ssh_command=ssh_command)
         ctx = DispatchActionContext(role=role, git_url=git_url, ssh_command=ssh_command)
         result = await _dispatch_action(input=input, ctx=ctx)
     return result

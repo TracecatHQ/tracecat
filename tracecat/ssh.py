@@ -239,7 +239,6 @@ async def ssh_context(
     if git_url is None:
         yield None
     else:
-        logger.info("Getting SSH key", role=role, git_url=git_url)
         sec_svc = SecretsService(session, role=role)
         secret = await sec_svc.get_ssh_key()
         async with temporary_ssh_agent() as env:

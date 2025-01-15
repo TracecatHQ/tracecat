@@ -293,8 +293,6 @@ class Repository:
     ) -> str:
         """Install the remote repository into the filesystem and return the commit sha."""
 
-        logger.info("Getting SSH key", role=self.role, git_url=git_url)
-
         url = git_url.to_url()
         async with (
             get_async_session_context_manager() as session,

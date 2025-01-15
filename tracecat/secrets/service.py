@@ -279,7 +279,6 @@ class SecretsService(BaseService):
         key_name: str = GIT_SSH_KEY_SECRET_NAME,
         environment: str | None = None,
     ) -> SecretKeyValue:
-        logger.info("Getting SSH key", key_name=key_name, role=self.role)
         try:
             secret = await self.get_org_secret_by_name(key_name, environment)
             key = self.decrypt_keys(secret.encrypted_keys)[0]
