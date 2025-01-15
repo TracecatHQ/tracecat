@@ -97,6 +97,8 @@ def mock_package(tmp_path):
                     namespace="test",
                     deprecated="This function is deprecated",
                 )
+                def deprecated_function(num: int) -> int:
+                    return num
             """
                 )
             )
@@ -139,10 +141,10 @@ def test_udf_validate_args(mock_package):
         udf.validate_args(num="not a number")
 
 
-def test_deprecated_function_can_be_registered(mock_deprecated_package):
+def test_deprecated_function_can_be_registered(mock_package):
     """Test that a deprecated function can be registered."""
     repo = Repository()
-    repo._register_udfs_from_package(mock_deprecated_package)
+    repo._register_udfs_from_package(mock_package)
 
     udf = repo.get("test.deprecated_function")
     assert udf is not None
