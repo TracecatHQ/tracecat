@@ -154,17 +154,17 @@ async def test_registry_async_function_can_be_called(mock_package):
                 host="github.com",
                 org="org",
                 repo="repo",
-                branch="main",
+                ref=None,
             ),
         ),
-        # GitHub (with branch)
+        # GitHub (with branch/sha)
         (
-            "git+ssh://git@github.com/org/repo@branch",
+            "git+ssh://git@github.com/org/repo@branchOrSHAOrTag",
             GitUrl(
                 host="github.com",
                 org="org",
                 repo="repo",
-                branch="branch",
+                ref="branchOrSHAOrTag",
             ),
         ),
         # GitLab
@@ -174,7 +174,7 @@ async def test_registry_async_function_can_be_called(mock_package):
                 host="gitlab.com",
                 org="org",
                 repo="repo",
-                branch="main",
+                ref=None,
             ),
         ),
         # GitLab (with branch)
@@ -184,7 +184,7 @@ async def test_registry_async_function_can_be_called(mock_package):
                 host="gitlab.com",
                 org="org",
                 repo="repo",
-                branch="branch",
+                ref="branch",
             ),
         ),
     ],

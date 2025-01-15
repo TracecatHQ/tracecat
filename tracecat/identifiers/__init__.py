@@ -73,6 +73,7 @@ InternalServiceID = Literal[
     "tracecat-schedule-runner",
     "tracecat-service",
     "tracecat-executor",
+    "tracecat-bootstrap",
 ]
 
 __all__ = [

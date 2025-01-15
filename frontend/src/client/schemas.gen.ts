@@ -2353,6 +2353,7 @@ export const $Role = {
         "tracecat-schedule-runner",
         "tracecat-service",
         "tracecat-executor",
+        "tracecat-bootstrap",
       ],
       title: "Service Id",
     },

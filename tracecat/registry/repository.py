@@ -263,7 +263,6 @@ class Repository:
             host = git_url.host
             org = git_url.org
             repo_name = git_url.repo
-            branch = git_url.branch
         except ValueError as e:
             raise RegistryError(
                 "Invalid Git repository URL. Please provide a valid Git SSH URL (git+ssh)."
@@ -283,7 +282,6 @@ class Repository:
             org=org,
             repo=repo_name,
             package_name=package_name,
-            ref=branch,
         )
 
         cleaned_url = self.safe_remote_url(self._origin)
