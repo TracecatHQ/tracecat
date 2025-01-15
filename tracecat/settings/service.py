@@ -10,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.authz.controls import require_access_level
+from tracecat.contexts import ctx_role
 from tracecat.db.schemas import OrganizationSetting
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -264,6 +265,7 @@ async def get_setting(
     default: Any | None = None,
 ) -> Any | None:
     """Shorthand to get a setting value from the database."""
+    role = role or ctx_role.get()
 
     # If we have an environment override, use it
     if override_val := get_setting_override(key):
