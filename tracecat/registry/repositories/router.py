@@ -6,7 +6,6 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionRead
 from tracecat.registry.actions.service import RegistryActionsService
@@ -99,41 +98,6 @@ async def sync_registry_repository(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unexpected error while syncing repository {repo.origin!r}: {e}",
-        ) from e
-
-
-@router.post("/{repository_id}/sync-executor", status_code=status.HTTP_204_NO_CONTENT)
-async def sync_executor_from_registry_repository(
-    *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
-    ),
-    session: AsyncDBSession,
-    repository_id: UUID4,
-):
-    # # We might want to update the executor's view of the repository here
-    # # (3) Update the executor's view of the repository
-    rr_service = RegistryReposService(session, role)
-    try:
-        repo = await rr_service.get_repository_by_id(repository_id)
-    except NoResultFound as e:
-        logger.error("Registry repository not found", repository_id=repository_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Registry repository not found",
-        ) from e
-    logger.info("Syncing executor", origin=repo.origin)
-    client = ExecutorClient(role=role)
-    try:
-        await client.sync_executor(repository_id=repo.id)
-    except RegistryError as e:
-        logger.warning("Error syncing executor", exc=e)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error while syncing executor {repo.origin!r}: {e}",
         ) from e
 
 
