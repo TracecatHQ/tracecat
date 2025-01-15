@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import orjson
-from ansible_runner import run_async
+from ansible_runner import Runner, run_async
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -48,7 +48,7 @@ async def run_ansible_playbook(
         dict[str, Any],
         Field(description="Additional keyword arguments to pass to the Ansible runner"),
     ] = None,
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
     ssh_key = secrets.get("ANSIBLE_SSH_KEY")
     passwords = secrets.get("ANSIBLE_PASSWORDS")
 
@@ -79,7 +79,8 @@ async def run_ansible_playbook(
                 **runner_kwargs,
             )
 
-        result = await loop.run_in_executor(None, run)
-        if result is None:
+        _, result = await loop.run_in_executor(None, run)
+        if isinstance(result, Runner):
+            return list(result.events)
+        else:
             raise ValueError("Ansible runner returned no result.")
-        return result
