@@ -92,3 +92,7 @@ class WrappedExecutionError(TracecatException):
 
     def __init__(self, error: Any):
         self.error = error
+
+
+class TracecatSettingsError(TracecatException):
+    """Exception raised when a setting error occurs."""
