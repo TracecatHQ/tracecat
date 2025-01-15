@@ -204,6 +204,7 @@ class Repository:
             description=defn.description,
             doc_url=defn.doc_url,
             author=defn.author,
+            deprecated=defn.deprecated,
             secrets=defn.secrets,
             args_cls=create_expectation_model(
                 expectation, defn.action.replace(".", "__")
