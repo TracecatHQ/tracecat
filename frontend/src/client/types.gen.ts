@@ -781,6 +781,7 @@ export type Role = {
     | "tracecat-schedule-runner"
     | "tracecat-service"
     | "tracecat-executor"
+    | "tracecat-bootstrap"
 }
 
 export type type2 = "user" | "service"
@@ -792,6 +793,7 @@ export type service_id =
   | "tracecat-schedule-runner"
   | "tracecat-service"
   | "tracecat-executor"
+  | "tracecat-bootstrap"
 
 /**
  * This object contains all the information needed to execute an action.
