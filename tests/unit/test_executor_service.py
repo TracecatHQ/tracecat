@@ -79,7 +79,7 @@ def dispatch_context():
     return DispatchActionContext(
         role=Role(type="service", service_id="tracecat-executor"),
         ssh_command="ssh -i /tmp/key",
-        git_url=GitUrl(host="github.com", org="org", repo="repo", sha="abc123"),
+        git_url=GitUrl(host="github.com", org="org", repo="repo", ref="abc123"),
     )
 
 
@@ -131,7 +131,7 @@ async def test_dispatch_action_with_git_url(mock_session, basic_task_input):
         patch("tracecat.executor.service.opt_temp_key_file") as mock_key_file,
     ):
         mock_git_url.return_value = GitUrl(
-            host="github.com", org="org", repo="repo", sha="abc123"
+            host="github.com", org="org", repo="repo", ref="abc123"
         )
         mock_key_file.return_value.__aenter__.return_value = "ssh -i /tmp/key"
         mock_dispatch.return_value = {"result": "success"}
