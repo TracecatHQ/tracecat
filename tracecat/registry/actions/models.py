@@ -410,6 +410,12 @@ class RegistryActionUpdate(BaseModel):
         min_length=1,
         max_length=100,
     )
+    deprecated: str | None = Field(
+        default=None,
+        description="Update the deprecation message of the action",
+        min_length=1,
+        max_length=1000,
+    )
     options: RegistryActionOptions | None = Field(
         default=None,
         description="Update the options of the action",
@@ -426,6 +432,7 @@ class RegistryActionUpdate(BaseModel):
             display_group=action.display_group,
             doc_url=action.doc_url,
             author=action.author,
+            deprecated=action.deprecated,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
         )
 
