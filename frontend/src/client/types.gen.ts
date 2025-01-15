@@ -1884,13 +1884,6 @@ export type RegistryRepositoriesSyncRegistryRepositoryData = {
 
 export type RegistryRepositoriesSyncRegistryRepositoryResponse = void
 
-export type RegistryRepositoriesSyncExecutorFromRegistryRepositoryData = {
-  repositoryId: string
-}
-
-export type RegistryRepositoriesSyncExecutorFromRegistryRepositoryResponse =
-  void
-
 export type RegistryRepositoriesListRegistryRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
 
@@ -3003,21 +2996,6 @@ export type $OpenApiTs = {
   "/registry/repos/{repository_id}/sync": {
     post: {
       req: RegistryRepositoriesSyncRegistryRepositoryData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/registry/repos/{repository_id}/sync-executor": {
-    post: {
-      req: RegistryRepositoriesSyncExecutorFromRegistryRepositoryData
       res: {
         /**
          * Successful Response
