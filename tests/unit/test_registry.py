@@ -106,7 +106,6 @@ def mock_package(tmp_path):
     finally:
         # Clean up
         del sys.modules["test_module"]
-        del sys.modules["test_deprecated_module"]
 
 
 def test_udf_can_be_registered(mock_package):
