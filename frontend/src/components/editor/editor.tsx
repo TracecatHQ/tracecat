@@ -3,10 +3,12 @@
 import { useEffect } from "react"
 import { EditorFunctionRead, editorListFunctions } from "@/client"
 import {
-  EditorProps,
+  loader,
   Editor as ReactMonacoEditor,
+  type EditorProps,
   type Monaco,
 } from "@monaco-editor/react"
+import * as monaco from "monaco-editor"
 import { editor, IDisposable, IRange, languages } from "monaco-editor"
 
 import { cn } from "@/lib/utils"
@@ -32,6 +34,8 @@ import {
   language as yamlLanguage,
 } from "@/components/editor/yaml-lang"
 import { CenteredSpinner } from "@/components/loading/spinner"
+
+loader.config({ monaco })
 
 const constructDslLang = (): {
   conf: languages.LanguageConfiguration
