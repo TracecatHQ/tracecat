@@ -54,6 +54,7 @@ dependencies = [
     "tenacity==8.3.0",
     "uv==0.4.10",
     "uvicorn==0.29.0",
+    "virtualenv==20.27.0",
 ]
 dynamic = ["version"]
 
