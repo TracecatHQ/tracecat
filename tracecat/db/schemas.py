@@ -511,6 +511,11 @@ class RegistryAction(Resource, table=True):
     author: str | None = Field(
         default=None, description="Author of the action", nullable=True
     )
+    deprecated: str | None = Field(
+        default=None,
+        description="Marks action as deprecated along with message",
+        nullable=True,
+    )
     secrets: list[dict[str, Any]] | None = Field(
         default=None,
         sa_column=Column(JSONB),

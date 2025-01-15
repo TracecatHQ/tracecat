@@ -85,7 +85,26 @@ def mock_package(tmp_path):
                 )
             )
 
+        # Create a file for the deprecated function
+        with open(os.path.join(tmp_path, "deprecated_function.py"), "w") as f:
+            f.write(
+                textwrap.dedent(
+                    """
+                from tracecat_registry import registry
+
+                @registry.register(
+                    description="This is a deprecated function",
+                    namespace="test",
+                    deprecated="This function is deprecated",
+                )
+                def deprecated_function(num: int) -> int:
+                    return num
+            """
+                )
+            )
+
         yield test_module
+
     finally:
         # Clean up
         del sys.modules["test_module"]
@@ -120,6 +139,18 @@ def test_udf_validate_args(mock_package):
     udf.validate_args(num=1)
     with pytest.raises(RegistryValidationError):
         udf.validate_args(num="not a number")
+
+
+def test_deprecated_function_can_be_registered(mock_package):
+    """Test that a deprecated function can be registered."""
+    repo = Repository()
+    repo._register_udfs_from_package(mock_package)
+
+    udf = repo.get("test.deprecated_function")
+    assert udf is not None
+
+    # Check descriptors
+    assert udf.deprecated == "This function is deprecated"
 
 
 def test_registry_function_can_be_called(mock_package):

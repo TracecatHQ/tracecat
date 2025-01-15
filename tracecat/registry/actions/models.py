@@ -58,6 +58,7 @@ class BoundRegistryAction(BaseModel):
     display_group: str | None
     doc_url: str | None
     author: str | None
+    deprecated: str | None
     # Options
     include_in_schema: bool = True
 
@@ -174,6 +175,10 @@ class TemplateActionDefinition(BaseModel):
     display_group: str = Field(..., description="The display group of the action")
     doc_url: str | None = Field(default=None, description="Link to documentation")
     author: str | None = Field(default=None, description="Author of the action")
+    deprecated: str | None = Field(
+        default=None,
+        description="Marks action as deprecated along with message",
+    )
     secrets: list[RegistrySecret] | None = Field(
         default=None, description="The secrets to pass to the action"
     )
@@ -274,6 +279,12 @@ class RegistryActionBase(BaseModel):
         min_length=1,
         max_length=100,
     )
+    deprecated: str | None = Field(
+        None,
+        description="Marks action as deprecated along with message",
+        min_length=1,
+        max_length=1000,
+    )
     options: RegistryActionOptions = Field(
         default_factory=lambda: RegistryActionOptions(),
         description="The options for the action",
@@ -312,6 +323,7 @@ class RegistryActionRead(RegistryActionBase):
             type=cast(RegistryActionType, action.type),
             doc_url=action.doc_url,
             author=action.author,
+            deprecated=action.deprecated,
             interface=model_converters.db_to_interface(action),
             implementation=impl,
             default_title=action.default_title,
@@ -341,6 +353,7 @@ class RegistryActionCreate(RegistryActionBase):
             display_group=action.display_group,
             doc_url=action.doc_url,
             author=action.author,
+            deprecated=action.deprecated,
             origin=action.origin,
             secrets=action.secrets,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
@@ -397,6 +410,12 @@ class RegistryActionUpdate(BaseModel):
         min_length=1,
         max_length=100,
     )
+    deprecated: str | None = Field(
+        default=None,
+        description="Update the deprecation message of the action",
+        min_length=1,
+        max_length=1000,
+    )
     options: RegistryActionOptions | None = Field(
         default=None,
         description="Update the options of the action",
@@ -412,6 +431,8 @@ class RegistryActionUpdate(BaseModel):
             default_title=action.default_title,
             display_group=action.display_group,
             doc_url=action.doc_url,
+            author=action.author,
+            deprecated=action.deprecated,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
         )
 

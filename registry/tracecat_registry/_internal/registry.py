@@ -14,6 +14,7 @@ def register(
     display_group: str | None = None,
     doc_url: str | None = None,
     author: str | None = None,
+    deprecated: str | None = None,
     namespace: str = DEFAULT_NAMESPACE,
     description: str,
     secrets: list[RegistrySecret] | None = None,
@@ -34,6 +35,8 @@ def register(
         The URL to the documentation for the UDF, by default None.
     author : str | None, optional
         The author of the UDF, by default None.
+    deprecated : str | None, optional
+        The deprecation message for the UDF, by default None.
     namespace : str, optional
         The namespace to register the UDF under, by default 'core'.
     description : str
@@ -91,6 +94,7 @@ def register(
                 "display_group": display_group,
                 "doc_url": doc_url,
                 "author": author,
+                "deprecated": deprecated,
                 "include_in_schema": include_in_schema,
                 "namespace": namespace,
                 "description": description,

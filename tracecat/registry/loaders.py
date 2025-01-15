@@ -63,6 +63,7 @@ def get_bound_action_impl(
             display_group=action.display_group,
             doc_url=action.doc_url,
             author=action.author,
+            deprecated=action.deprecated,
             origin=action.origin,
         )
     else:
@@ -89,6 +90,7 @@ def get_bound_action_impl(
             display_group=action.display_group,
             doc_url=action.doc_url,
             author=action.author,
+            deprecated=action.deprecated,
             include_in_schema=True,
             template_action=impl.template_action,
             origin=action.origin,
