@@ -28,7 +28,7 @@ def bootstrap_role():
     return Role(
         type="service",
         access_level=AccessLevel.ADMIN,
-        service_id="tracecat-api",
+        service_id="tracecat-bootstrap",
     )
 
 
