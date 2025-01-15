@@ -13,9 +13,9 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatSettingsError
 
 GIT_SSH_URL_REGEX = re.compile(
-    r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<sha>[^/]+))?$"
+    r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<ref>[^/]+))?$"
 )
-"""Git SSH URL with git user and optional sha."""
+"""Git SSH URL with git user and optional ref."""
 
 
 @dataclass
@@ -23,12 +23,11 @@ class GitUrl:
     host: str
     org: str
     repo: str
-    branch: str | None = None
-    sha: str | None = None
+    ref: str | None = None
 
     def to_url(self) -> str:
         base = f"git+ssh://git@{self.host}/{self.org}/{self.repo}.git"
-        return f"{base}@{self.sha}" if self.sha else base
+        return f"{base}@{self.ref}" if self.ref else base
 
 
 async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
@@ -51,8 +50,8 @@ async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
             raise RuntimeError(f"Failed to get repository SHA: {error_message}")
 
         # The output format is: "<SHA>\tHEAD"
-        sha = stdout.decode().split()[0]
-        return sha
+        ref = stdout.decode().split()[0]
+        return ref
 
     except Exception as e:
         logger.error("Error getting repository SHA", error=str(e))
@@ -78,7 +77,7 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
         host = match.group("host")
         org = match.group("org")
         repo = match.group("repo")
-        sha = match.group("sha")
+        ref = match.group("ref")
 
         if (
             not isinstance(host, str)
@@ -92,7 +91,7 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
                 f"Domain {host} not in allowed domains. Must be configured in `git_allowed_domains` organization setting."
             )
 
-        return GitUrl(host=host, org=org, repo=repo, sha=sha)
+        return GitUrl(host=host, org=org, repo=repo, ref=ref)
 
     raise ValueError(f"Unsupported URL format: {url}. Must be a valid Git SSH URL.")
 
@@ -144,5 +143,5 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
         raise TracecatSettingsError(
             "Invalid Git repository URL. Please provide a valid Git SSH URL (git+ssh)."
         ) from e
-    git_url.sha = sha
+    git_url.ref = sha
     return git_url

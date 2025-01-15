@@ -326,8 +326,20 @@ async def run_action_on_ray_cluster(
     If any exceptions are thrown here, they're platform level errors.
     All application/user level errors are caught by the executor and returned as values.
     """
+    # Initialize runtime environment variables
+    env_vars = {"GIT_SSH_COMMAND": ctx.ssh_command} if ctx.ssh_command else {}
+    additional_vars: dict[str, Any] = {}
 
-    obj_ref = run_action_task.remote(input, role)
+    # Add git URL to pip dependencies if SHA is present
+    if ctx.git_url and ctx.git_url.ref:
+        url = ctx.git_url.to_url()
+        additional_vars["pip"] = [url]
+        logger.warning("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
+
+    runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
+
+    logger.info("Running action on ray cluster", runtime_env=runtime_env)
+    obj_ref = run_action_task.options(runtime_env=runtime_env).remote(input, ctx.role)
     try:
         coro = asyncio.to_thread(ray.get, obj_ref)
         exec_result = await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
