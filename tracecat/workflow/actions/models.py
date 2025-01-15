@@ -61,8 +61,3 @@ class ActionUpdate(BaseModel):
                 {"loc": ["inputs"]},
             )
         return v
-
-
-class DeprecatedAction(BaseModel):
-    name: str
-    replacement: str

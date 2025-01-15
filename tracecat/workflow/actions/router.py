@@ -11,7 +11,6 @@ from tracecat.workflow.actions.models import (
     ActionRead,
     ActionReadMinimal,
     ActionUpdate,
-    DeprecatedAction,
 )
 
 router = APIRouter(prefix="/actions")
@@ -185,21 +184,3 @@ async def delete_action(
     # If the user doesn't own this workflow, they can't delete the action
     await session.delete(action)
     await session.commit()
-
-
-@router.get("/deprecated", tags=["actions"])
-async def list_deprecated_actions(
-    role: WorkspaceUserRole,
-) -> list[DeprecatedAction]:
-    """Get a list of deprecated actions and their replacements."""
-    deprecated_actions = [
-        DeprecatedAction(
-            name="integrations.virustotal.search_ip_address",
-            replacement="integrations.virustotal.lookup_ip_address",
-        ),
-        DeprecatedAction(
-            name="integrations.virustotal.search_hash",
-            replacement="integrations.virustotal.lookup_hash",
-        ),
-    ]
-    return deprecated_actions
