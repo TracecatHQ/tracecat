@@ -9,13 +9,15 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger, ctx_run
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.common import context_locator
 from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
 from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import ExecutorClientError
+from tracecat.types.exceptions import ExecutorClientError, RegistryError
+from tracecat.validation.service import validate_registry_action_args
 
 
 def contextualize_message(
@@ -61,10 +63,25 @@ class DSLActivities:
         - Validate the action arguments against the UDF spec.
         - Return the validated arguments.
         """
-        client = ExecutorClient(role=input.role)
-        return await client.validate_action(
-            action_name=input.task.action, args=input.task.args
-        )
+        try:
+            async with get_async_session_context_manager() as session:
+                result = await validate_registry_action_args(
+                    session=session,
+                    action_name=input.task.action,
+                    args=input.task.args,
+                )
+
+                if result.status == "error":
+                    logger.warning(
+                        "Error validating UDF args",
+                        message=result.msg,
+                        details=result.detail,
+                    )
+                return RegistryActionValidateResponse.from_validation_result(result)
+        except KeyError as e:
+            raise RegistryError(
+                f"Action {input.task.action!r} not found in registry",
+            ) from e
 
     @staticmethod
     @activity.defn
