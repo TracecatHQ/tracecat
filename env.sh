@@ -62,7 +62,7 @@ if [ ! -e ".env.example" ] ; then
 fi
 env_file=".env"
 
-if ! openssl &> /dev/null
+if ! openssl --help &> /dev/null
 then
   echo  -e "${RED}Could not run openssl. Please check if openssl is correctly installed."
   exit 1
