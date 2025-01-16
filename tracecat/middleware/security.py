@@ -15,8 +15,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "frame-ancestors 'none'",
                 "img-src 'self' data:",
                 "object-src 'none'",
-                "script-src 'self' 'unsafe-inline' https://*.posthog.com",
-                "style-src 'self' 'unsafe-inline'",
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js",
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui.css",
             ]
         else:
             csp_directives = [
@@ -26,8 +26,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "frame-ancestors 'none'",
                 "img-src 'self' data:",
                 "object-src 'none'",
-                "script-src 'self' 'unsafe-inline'",
-                "style-src 'self' 'unsafe-inline'",
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js",
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui.css",
             ]
         headers = {
             "Strict-Transport-Security": "max-age=7776000; includeSubDomains",
