@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import orjson
+from async_lru import alru_cache
 from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
 from sqlmodel import col, select
@@ -297,6 +298,29 @@ async def get_setting(
         logger.warning("Setting not found, using default value", key=key)
         return default
     return no_default_val
+
+
+@alru_cache(ttl=30)
+async def get_setting_cached(
+    key: str,
+    *,
+    role: Role | None = None,
+    session: AsyncSession | None = None,
+    default: Any | None = None,
+) -> Any | None:
+    """Cached version of get_setting function.
+
+    Args:
+        key: The setting key to retrieve
+        role: Optional role to use for permissions check
+        session: Optional database session to use
+        default: Optional default value if setting not found. Must be hashable.
+
+    Returns:
+        The setting value or None if not found
+    """
+    logger.debug("Cache miss", key=key)
+    return await get_setting(key, role=role, session=session, default=default)
 
 
 def get_setting_override(key: str) -> Any | None:
