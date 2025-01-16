@@ -1,5 +1,5 @@
 ---
-title: Basic Auth
+title: Email and password
 description: Learn how to authenticate into Tracecat with email and password.
 ---
 
@@ -10,10 +10,15 @@ description: Learn how to authenticate into Tracecat with email and password.
 
 # Configuration
 
-In your `.env` file, make sure you have the following value set.
+In your `.env` file, make sure you have the following environment variables set:
 
 ```bash
 TRACECAT__AUTH_TYPES=basic
+TRACECAT__SETTING_OVERRIDE_AUTH_BASIC_ENABLED=true
 ```
 
-To disable basic auth, just remove `basic` from the comma separated list of `TRACECAT__AUTH_TYPES`.
+## Sign-up
+
+Create a new user to sign-in with a minimum password length of 16 characters.
+
+![Sign-up](/img/self-hosting/signup.png)

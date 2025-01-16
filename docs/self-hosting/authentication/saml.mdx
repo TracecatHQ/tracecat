@@ -14,16 +14,10 @@ In your `.env` file, make sure you have the following value set.
 
 ```bash
 TRACECAT__AUTH_TYPES=saml
+TRACECAT__SETTING_OVERRIDE_SAML_ENABLED=true
 ```
 
-## Prerequisites
-
-- Either: an Okta account. You can sign up for a 30-day free trial [here](https://www.okta.com/free-trial/).
-- Or: a Microsoft Entra ID account. You can sign up for a 90-day free trial [here](https://www.microsoft.com/en-us/security/business/identity-access/microsoft-entra-id).
-
 ## Instructions
-
-### Okta
 
 <Steps>
     <Step title="Create an SAML app">
@@ -31,7 +25,10 @@ TRACECAT__AUTH_TYPES=saml
         Select **SAML 2.0** and click on **Create**.
     </Step>
     <Step title="Configure ACS endpoint">
-        Set the **Single sign-on URL** to `https://<your-tracecat-instance>/api/saml/acs`.
+        Set the **Single sign-on URL** to `https://<your-tracecat-instance>/api/auth/saml/acs`.
+    </Step>
+    <Step title="Configure Audience Restriction">
+        Set the **Audience Restriction** to `https://<your-tracecat-instance>/api`.
     </Step>
     <Step title="Configure SAML settings in environment variables">
         Set the following environment variables in your `.env` file:
@@ -43,27 +40,5 @@ TRACECAT__AUTH_TYPES=saml
     <Step title="Test SSO configuration">
         Navigate to your Tracecat instance and click on the **Login** button.
         You should be redirected to Okta for authentication.
-    </Step>
-</Steps>
-
-### Microsoft Entra ID
-
-<Steps>
-    <Step title="Create an SAML app">
-        Go to **Enteprise applications** and create a new Microsoft Entra SAML Toolkit application.
-    </Step>
-    <Step title="Configure ACS endpoint">
-        Set the **Reply URL** and **Sign-on URL** to `https://<your-tracecat-instance>/api/saml/acs`.
-    </Step>
-    <Step title="Configure SAML settings in environment variables">
-        Set the following environment variables in your `.env` file:
-        - `SAML_IDP_METADATA_URL`: Microsoft Entra ID metadata URL
-    </Step>
-    <Step title="Restart Tracecat instance">
-        Restart Tracecat to apply the changes.
-    </Step>
-    <Step title="Test SSO configuration">
-        Navigate to your Tracecat instance and click on the **Login** button.
-        You should be redirected to Microsoft Entra ID for authentication.
     </Step>
 </Steps>
