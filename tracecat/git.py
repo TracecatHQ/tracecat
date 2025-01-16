@@ -7,7 +7,7 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 from tracecat.registry.repositories.service import RegistryReposService
-from tracecat.settings.service import get_setting
+from tracecat.settings.service import get_setting_cached
 from tracecat.ssh import SshEnv
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatSettingsError
@@ -111,7 +111,7 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
     role = role or ctx_role.get()
 
     # Handle the git repo
-    url = await get_setting(
+    url = await get_setting_cached(
         "git_repo_url",
         # TODO: Deprecate in future version
         default=config.TRACECAT__REMOTE_REPOSITORY_URL,
@@ -122,10 +122,11 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
 
     logger.debug("Runtime environment", url=url)
 
-    allowed_domains_setting = await get_setting(
+    allowed_domains_setting = await get_setting_cached(
         "git_allowed_domains",
         # TODO: Deprecate in future version
-        default=config.TRACECAT__ALLOWED_GIT_DOMAINS,
+        # Must be hashable
+        default=frozenset(config.TRACECAT__ALLOWED_GIT_DOMAINS),
     )
     allowed_domains = cast(set[str], allowed_domains_setting or {"github.com"})
 
