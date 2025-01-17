@@ -39,8 +39,8 @@ definition:
               filter:
                 - range:
                     "@timestamp":
-                      gte: ${{ FN.to_isoformat(inputs.start_time) }}
-                      lte: ${{ FN.to_isoformat(inputs.end_time) }}
+                      gte: ${{ inputs.start_time }}
+                      lte: ${{ inputs.end_time }}
                 - match:
                     signal.status: ${{ inputs.status }}
               must_not:
