@@ -2,7 +2,9 @@
 title: Integrations
 description: A cheatsheet of all the integrations and their required secrets.
 ---
+
 ## API Credentials
+
 The secret keys required by each secret are listed below.
 | Secret Name | Required Keys | Optional Keys |
 | --- | --- | --- |
@@ -22,6 +24,7 @@ The secret keys required by each secret are listed below.
 | `google_api` | `GOOGLE_API_CREDENTIALS` | - |
 | `google_secops_soar` | `API_TOKEN` | - |
 | `hybrid_analysis` | `HYBRID_ANALYSIS_API_KEY` | - |
+| `jamf` | `JAMF_BASE_URL` `JAMF_CLIENT_ID` `JAMF_CLIENT_SECRET` | - |
 | `jira` | - | `JIRA_API_TOKEN` `JIRA_BASE64_TOKEN` `JIRA_USEREMAIL` |
 | `ldap` | `LDAP_HOST` `LDAP_PASSWORD` `LDAP_PORT` `LDAP_USER` | - |
 | `limacharlie` | `LIMACHARLIE_SECRET` `LIMACHARLIE_UID` | `LIMACHARLIE_OID` |
@@ -29,21 +32,23 @@ The secret keys required by each secret are listed below.
 | `malwarebazaar` | `MALWAREBAZAAR_API_KEY` | - |
 | `microsoft_graph` | `MICROSOFT_GRAPH_CLIENT_ID` `MICROSOFT_GRAPH_CLIENT_SECRET` | `MICROSOFT_GRAPH_SCOPES` `MICROSOFT_OIDC_AUTHORITY` `MICROSOFT_TOKEN_AUTHORITY` |
 | `mongodb` | `MONGODB_CONNECTION_STRING` | - |
-| `okta` | `OKTA_API_TOKEN` `OKTA_BASE_URL` | - |
+| `okta` | `OKTA_API_TOKEN` | - |
+| `optional_secret` | `REQUIRED_KEY1` `REQUIRED_KEY2` | `OPTIONAL_KEY1` |
 | `pulsedive` | `PULSEDIVE_API_KEY` | - |
 | `s3` | - | `AWS_ACCESS_KEY_ID` `AWS_PROFILE_NAME` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
+| `secret_name` | `SECRET_NAME` | - |
 | `sentinel_one` | `SENTINEL_ONE_API_TOKEN` `SENTINEL_ONE_BASE_URL` | - |
 | `shodan` | `SHODAN_API_KEY` | - |
 | `slack` | `SLACK_BOT_TOKEN` | - |
 | `smtp` | `SMTP_HOST` `SMTP_PASS` `SMTP_PORT` `SMTP_USER` | - |
 | `ssl` | - | `SSL_CLIENT_CERT` `SSL_CLIENT_KEY` `SSL_CLIENT_PASSWORD` |
-| `velociraptor_ssl` | `CONFIGURATION` | - |
 | `virustotal` | `VIRUSTOTAL_API_KEY` | - |
 | `wazuh_wui` | `WAZUH_WUI_PASSWORD` `WAZUH_WUI_URL` `WAZUH_WUI_USERNAME` | - |
 | `wazuh` | `WAZUH_API_TOKEN` `WAZUH_API_URL` | - |
 | `wiz` | `WIZ_API_URL` `WIZ_AUTH_URL` `WIZ_CLIENT_ID` `WIZ_CLIENT_SECRET` | - |
 
 ## Core Actions
+
 Note that the fully qualified namespace for each Core Action UDF is prefixed with `core.`.
 | Sub-namespace | Function | Secrets |
 | --- | --- | --- |
@@ -55,6 +60,7 @@ Note that the fully qualified namespace for each Core Action UDF is prefixed wit
 | core.workflow | execute | - |
 
 ## Integrations
+
 Note that the fully qualified namespace for each Integration UDF is prefixed with `integrations.`.
 | Sub-namespace | Function | Secrets |
 | --- | --- | --- |
@@ -98,6 +104,9 @@ Note that the fully qualified namespace for each Integration UDF is prefixed wit
 | integrations.google_secops | list_cases_by_title | `google_secops_soar`, `ssl` |
 | integrations.google_secops | list_detections_by_rule_id | `google_api`, `ssl` |
 | integrations.hybrid_analysis | search_malware_sample | `hybrid_analysis`, `ssl` |
+| integrations.jamf | get_auth_token | `jamf` |
+| integrations.jamf | list_computer_inventory | `jamf`, `ssl` |
+| integrations.jamf | post_mdm_command | `jamf`, `ssl` |
 | integrations.jira | create_issue | `jira`, `ssl` |
 | integrations.jira | update_issue | `jira`, `ssl` |
 | integrations.ldap | add_entry | `ldap` |
@@ -117,8 +126,10 @@ Note that the fully qualified namespace for each Integration UDF is prefixed wit
 | integrations.mongodb | list_documents | `mongodb` |
 | integrations.mongodb | perform_mongodb_crud | `mongodb` |
 | integrations.okta | expire_sessions | `okta`, `ssl` |
-| integrations.okta | find_users | `okta`, `ssl` |
+| integrations.okta | get_user | `okta`, `ssl` |
+| integrations.okta | get_user_by_email | `okta`, `ssl` |
 | integrations.okta | list_user_events | `okta`, `ssl` |
+| integrations.okta | reset_password | `okta`, `ssl` |
 | integrations.okta | suspend_user | `okta`, `ssl` |
 | integrations.okta | unsuspend_user | `okta`, `ssl` |
 | integrations.pulsedive | search_ioc | `pulsedive`, `ssl` |
@@ -129,17 +140,19 @@ Note that the fully qualified namespace for each Integration UDF is prefixed wit
 | integrations.sentinel_one | get_firewall_rules | `sentinel_one`, `ssl` |
 | integrations.sentinel_one | isolate_agents | `sentinel_one`, `ssl` |
 | integrations.sentinel_one | list_alerts | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | list_threats | `sentinel_one`, `ssl` |
 | integrations.sentinel_one | unisolate_agents | `sentinel_one`, `ssl` |
 | integrations.sentinel_one | update_alert_status | `sentinel_one`, `ssl` |
 | integrations.sentinel_one | update_firewall_rule | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | update_threat_status | `sentinel_one`, `ssl` |
 | integrations.shodan | search_ip_address | `shodan`, `ssl` |
 | integrations.slack | call_paginated_slack_api | `slack` |
 | integrations.slack | call_slack_api | `slack` |
-| integrations.slack | list_conversations | `slack` |
+| integrations.slack | list_conversations_history | `slack` |
 | integrations.slack | list_users | `slack` |
 | integrations.slack | lookup_user | `slack` |
 | integrations.slack | post_message | `slack` |
-| integrations.velociraptor | run_velociraptor_query | `velociraptor_ssl` |
+| integrations.slack | revoke_sessions | `slack` |
 | integrations.virustotal | list_comments | `virustotal`, `ssl` |
 | integrations.virustotal | search_ip_address | `virustotal`, `ssl` |
 | integrations.virustotal | search_malware_sample | `virustotal`, `ssl` |
@@ -153,6 +166,7 @@ Note that the fully qualified namespace for each Integration UDF is prefixed wit
 | integrations.wiz | get_auth_token | `wiz` |
 
 ## ETL Actions
+
 Note that the fully qualified namespace for each ETL UDF is prefixed with `etl.`.
 | Sub-namespace | Function | Secrets |
 | --- | --- | --- |
