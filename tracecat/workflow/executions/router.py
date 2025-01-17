@@ -55,7 +55,7 @@ async def get_workflow_execution(
 ) -> WorkflowExecutionRead:
     """Get a workflow execution."""
     service = await WorkflowExecutionsService.connect(role=role)
-    execution = await service.get_last_execution(execution_id)
+    execution = await service.get_execution(execution_id)
     if not execution:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
