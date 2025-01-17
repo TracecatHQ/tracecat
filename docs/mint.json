@@ -260,8 +260,8 @@
             {
               "group": "registry-repositories",
               "pages": [
+                "api-reference/reference/registry-repositories/reload-registry-repositories",
                 "api-reference/reference/registry-repositories/sync-registry-repository",
-                "api-reference/reference/registry-repositories/sync-executor-from-registry-repository",
                 "api-reference/reference/registry-repositories/list-registry-repositories",
                 "api-reference/reference/registry-repositories/create-registry-repository",
                 "api-reference/reference/registry-repositories/get-registry-repository",
@@ -277,6 +277,29 @@
                 "api-reference/reference/registry-actions/get-registry-action",
                 "api-reference/reference/registry-actions/delete-registry-action",
                 "api-reference/reference/registry-actions/update-registry-action"
+              ]
+            },
+            {
+              "group": "settings",
+              "pages": [
+                "api-reference/reference/settings/get-git-settings",
+                "api-reference/reference/settings/update-git-settings",
+                "api-reference/reference/settings/get-saml-settings",
+                "api-reference/reference/settings/update-saml-settings",
+                "api-reference/reference/settings/get-auth-settings",
+                "api-reference/reference/settings/update-auth-settings",
+                "api-reference/reference/settings/get-oauth-settings",
+                "api-reference/reference/settings/update-oauth-settings"
+              ]
+            },
+            {
+              "group": "organization-secrets",
+              "pages": [
+                "api-reference/reference/organization-secrets/list-org-secrets",
+                "api-reference/reference/organization-secrets/create-org-secret",
+                "api-reference/reference/organization-secrets/get-org-secret-by-name",
+                "api-reference/reference/organization-secrets/update-org-secret-by-id",
+                "api-reference/reference/organization-secrets/delete-org-secret-by-id"
               ]
             },
             {
