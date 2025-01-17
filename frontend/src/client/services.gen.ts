@@ -212,7 +212,7 @@ import type {
  * @param data.path
  * @param data.secret
  * @param data.contentType
- * @returns CreateWorkflowExecutionResponse Successful Response
+ * @returns WorkflowExecutionCreateResponse Successful Response
  * @throws ApiError
  */
 export const publicIncomingWebhook = (
@@ -854,7 +854,7 @@ export const triggersUpdateWebhook = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.workflowId
- * @returns WorkflowExecutionResponse Successful Response
+ * @returns WorkflowExecutionRead Successful Response
  * @throws ApiError
  */
 export const workflowExecutionsListWorkflowExecutions = (
@@ -879,7 +879,7 @@ export const workflowExecutionsListWorkflowExecutions = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns CreateWorkflowExecutionResponse Successful Response
+ * @returns WorkflowExecutionCreateResponse Successful Response
  * @throws ApiError
  */
 export const workflowExecutionsCreateWorkflowExecution = (
@@ -905,7 +905,7 @@ export const workflowExecutionsCreateWorkflowExecution = (
  * @param data The data for the request.
  * @param data.executionId
  * @param data.workspaceId
- * @returns WorkflowExecutionResponse Successful Response
+ * @returns WorkflowExecutionRead Successful Response
  * @throws ApiError
  */
 export const workflowExecutionsGetWorkflowExecution = (
@@ -932,7 +932,7 @@ export const workflowExecutionsGetWorkflowExecution = (
  * @param data The data for the request.
  * @param data.executionId
  * @param data.workspaceId
- * @returns EventHistoryResponse Successful Response
+ * @returns EventHistoryRead Successful Response
  * @throws ApiError
  */
 export const workflowExecutionsListWorkflowExecutionEventHistory = (

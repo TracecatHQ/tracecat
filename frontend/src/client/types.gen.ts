@@ -175,17 +175,6 @@ export type Body_workflows_create_workflow = {
   file?: (Blob | File) | null
 }
 
-export type CreateWorkflowExecutionParams = {
-  workflow_id: string
-  inputs?: unknown | null
-}
-
-export type CreateWorkflowExecutionResponse = {
-  message: string
-  wf_id: string
-  wf_exec_id: string
-}
-
 export type CreateWorkspaceMembershipParams = {
   user_id: string
 }
@@ -360,7 +349,7 @@ export type EventGroup = {
   related_wf_exec_id?: string | null
 }
 
-export type EventHistoryResponse = {
+export type EventHistoryRead = {
   event_id: number
   event_time: string
   event_type: EventHistoryType
@@ -1131,10 +1120,6 @@ export type TemplateActionDefinition = {
       }
 }
 
-export type TerminateWorkflowExecutionParams = {
-  reason?: string | null
-}
-
 export type Trigger = {
   type: "schedule" | "webhook"
   ref: string
@@ -1270,7 +1255,18 @@ export type WorkflowDefinition = {
   }
 }
 
-export type WorkflowExecutionResponse = {
+export type WorkflowExecutionCreate = {
+  workflow_id: string
+  inputs?: unknown | null
+}
+
+export type WorkflowExecutionCreateResponse = {
+  message: string
+  wf_id: string
+  wf_exec_id: string
+}
+
+export type WorkflowExecutionRead = {
   /**
    * The ID of the workflow execution
    */
@@ -1315,6 +1311,10 @@ export type status3 =
   | "TERMINATED"
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
+
+export type WorkflowExecutionTerminate = {
+  reason?: string | null
+}
 
 export type WorkflowRead = {
   id: string
@@ -1435,7 +1435,7 @@ export type PublicIncomingWebhookData = {
   secret: string
 }
 
-export type PublicIncomingWebhookResponse = CreateWorkflowExecutionResponse
+export type PublicIncomingWebhookResponse = WorkflowExecutionCreateResponse
 
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
@@ -1613,15 +1613,15 @@ export type WorkflowExecutionsListWorkflowExecutionsData = {
 }
 
 export type WorkflowExecutionsListWorkflowExecutionsResponse =
-  Array<WorkflowExecutionResponse>
+  Array<WorkflowExecutionRead>
 
 export type WorkflowExecutionsCreateWorkflowExecutionData = {
-  requestBody: CreateWorkflowExecutionParams
+  requestBody: WorkflowExecutionCreate
   workspaceId: string
 }
 
 export type WorkflowExecutionsCreateWorkflowExecutionResponse =
-  CreateWorkflowExecutionResponse
+  WorkflowExecutionCreateResponse
 
 export type WorkflowExecutionsGetWorkflowExecutionData = {
   executionId: string
@@ -1629,7 +1629,7 @@ export type WorkflowExecutionsGetWorkflowExecutionData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionResponse =
-  WorkflowExecutionResponse
+  WorkflowExecutionRead
 
 export type WorkflowExecutionsListWorkflowExecutionEventHistoryData = {
   executionId: string
@@ -1637,7 +1637,7 @@ export type WorkflowExecutionsListWorkflowExecutionEventHistoryData = {
 }
 
 export type WorkflowExecutionsListWorkflowExecutionEventHistoryResponse =
-  Array<EventHistoryResponse>
+  Array<EventHistoryRead>
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -1648,7 +1648,7 @@ export type WorkflowExecutionsCancelWorkflowExecutionResponse = void
 
 export type WorkflowExecutionsTerminateWorkflowExecutionData = {
   executionId: string
-  requestBody: TerminateWorkflowExecutionParams
+  requestBody: WorkflowExecutionTerminate
   workspaceId: string
 }
 
@@ -2126,7 +2126,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: CreateWorkflowExecutionResponse
+        200: WorkflowExecutionCreateResponse
         /**
          * Validation Error
          */
@@ -2459,7 +2459,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkflowExecutionResponse>
+        200: Array<WorkflowExecutionRead>
         /**
          * Validation Error
          */
@@ -2472,7 +2472,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: CreateWorkflowExecutionResponse
+        200: WorkflowExecutionCreateResponse
         /**
          * Validation Error
          */
@@ -2487,7 +2487,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionResponse
+        200: WorkflowExecutionRead
         /**
          * Validation Error
          */
@@ -2502,7 +2502,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<EventHistoryResponse>
+        200: Array<EventHistoryRead>
         /**
          * Validation Error
          */

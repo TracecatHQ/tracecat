@@ -543,50 +543,6 @@ export const $Body_workflows_create_workflow = {
   title: "Body_workflows-create_workflow",
 } as const
 
-export const $CreateWorkflowExecutionParams = {
-  properties: {
-    workflow_id: {
-      type: "string",
-      pattern: "wf-[0-9a-f]{32}",
-      title: "Workflow Id",
-    },
-    inputs: {
-      anyOf: [
-        {},
-        {
-          type: "null",
-        },
-      ],
-      title: "Inputs",
-    },
-  },
-  type: "object",
-  required: ["workflow_id"],
-  title: "CreateWorkflowExecutionParams",
-} as const
-
-export const $CreateWorkflowExecutionResponse = {
-  properties: {
-    message: {
-      type: "string",
-      title: "Message",
-    },
-    wf_id: {
-      type: "string",
-      pattern: "wf-[0-9a-f]{32}",
-      title: "Wf Id",
-    },
-    wf_exec_id: {
-      type: "string",
-      pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
-      title: "Wf Exec Id",
-    },
-  },
-  type: "object",
-  required: ["message", "wf_id", "wf_exec_id"],
-  title: "CreateWorkflowExecutionResponse",
-} as const
-
 export const $CreateWorkspaceMembershipParams = {
   properties: {
     user_id: {
@@ -1116,7 +1072,7 @@ export const $EventGroup = {
   title: "EventGroup",
 } as const
 
-export const $EventHistoryResponse = {
+export const $EventHistoryRead = {
   properties: {
     event_id: {
       type: "integer",
@@ -1201,7 +1157,7 @@ export const $EventHistoryResponse = {
   },
   type: "object",
   required: ["event_id", "event_time", "event_type", "task_id"],
-  title: "EventHistoryResponse",
+  title: "EventHistoryRead",
 } as const
 
 export const $EventHistoryType = {
@@ -3505,24 +3461,6 @@ export const $TemplateActionDefinition = {
   title: "TemplateActionDefinition",
 } as const
 
-export const $TerminateWorkflowExecutionParams = {
-  properties: {
-    reason: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Reason",
-    },
-  },
-  type: "object",
-  title: "TerminateWorkflowExecutionParams",
-} as const
-
 export const $Trigger = {
   properties: {
     type: {
@@ -4085,7 +4023,51 @@ Relationships
 - 1 Workflow to many WorkflowDefinitions`,
 } as const
 
-export const $WorkflowExecutionResponse = {
+export const $WorkflowExecutionCreate = {
+  properties: {
+    workflow_id: {
+      type: "string",
+      pattern: "wf-[0-9a-f]{32}",
+      title: "Workflow Id",
+    },
+    inputs: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs",
+    },
+  },
+  type: "object",
+  required: ["workflow_id"],
+  title: "WorkflowExecutionCreate",
+} as const
+
+export const $WorkflowExecutionCreateResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    wf_id: {
+      type: "string",
+      pattern: "wf-[0-9a-f]{32}",
+      title: "Wf Id",
+    },
+    wf_exec_id: {
+      type: "string",
+      pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+      title: "Wf Exec Id",
+    },
+  },
+  type: "object",
+  required: ["message", "wf_id", "wf_exec_id"],
+  title: "WorkflowExecutionCreateResponse",
+} as const
+
+export const $WorkflowExecutionRead = {
   properties: {
     id: {
       type: "string",
@@ -4165,7 +4147,25 @@ export const $WorkflowExecutionResponse = {
     "task_queue",
     "history_length",
   ],
-  title: "WorkflowExecutionResponse",
+  title: "WorkflowExecutionRead",
+} as const
+
+export const $WorkflowExecutionTerminate = {
+  properties: {
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  title: "WorkflowExecutionTerminate",
 } as const
 
 export const $WorkflowRead = {
