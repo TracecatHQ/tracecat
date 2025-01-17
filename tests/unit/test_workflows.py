@@ -49,7 +49,7 @@ from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.workflow.executions.models import (
     EventGroup,
-    EventHistoryType,
+    WorkflowEventType,
     WorkflowExecutionEvent,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
@@ -2440,7 +2440,7 @@ def assert_erroneous_task_failed_correctly(
         event
         for event in events
         if (
-            event.event_type == EventHistoryType.ACTIVITY_TASK_FAILED
+            event.event_type == WorkflowEventType.ACTIVITY_TASK_FAILED
             and event.event_group
             and event.event_group.action_ref == "failing_action"
         )
@@ -2491,7 +2491,7 @@ def assert_error_handler_initiated_correctly(
             for event in events
             if (
                 event.event_type
-                == EventHistoryType.START_CHILD_WORKFLOW_EXECUTION_INITIATED
+                == WorkflowEventType.START_CHILD_WORKFLOW_EXECUTION_INITIATED
                 and event.event_group
                 and event.event_group.action_ref is None
                 and event.event_group.action_title == "Testing Error Handler"
@@ -2544,7 +2544,7 @@ def assert_error_handler_started(
             event
             for event in events
             if (
-                event.event_type == EventHistoryType.CHILD_WORKFLOW_EXECUTION_STARTED
+                event.event_type == WorkflowEventType.CHILD_WORKFLOW_EXECUTION_STARTED
                 and event.event_group
                 and event.event_group.action_ref is None
                 and event.event_group.action_title == "Testing Error Handler"
@@ -2564,7 +2564,7 @@ def assert_error_handler_completed(
             event
             for event in events
             if (
-                event.event_type == EventHistoryType.CHILD_WORKFLOW_EXECUTION_COMPLETED
+                event.event_type == WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED
                 and event.event_group
                 and event.event_group.action_ref is None
                 and event.event_group.action_title == "Testing Error Handler"

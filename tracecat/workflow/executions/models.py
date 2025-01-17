@@ -38,7 +38,7 @@ WorkflowExecutionStatusLiteral = Literal[
 """Mapped literal types for workflow execution statuses."""
 
 
-class EventHistoryType(StrEnum):
+class WorkflowEventType(StrEnum):
     """The event types we care about."""
 
     WORKFLOW_EXECUTION_STARTED = "WORKFLOW_EXECUTION_STARTED"
@@ -268,7 +268,7 @@ class WorkflowExecutionEvent(BaseModel, Generic[EventInput]):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     event_id: int
     event_time: datetime
-    event_type: EventHistoryType
+    event_type: WorkflowEventType
     task_id: int
     event_group: EventGroup[EventInput] | None = Field(
         default=None,
