@@ -1072,30 +1072,6 @@ export const $EventGroup = {
   title: "EventGroup",
 } as const
 
-export const $EventHistoryType = {
-  type: "string",
-  enum: [
-    "WORKFLOW_EXECUTION_STARTED",
-    "WORKFLOW_EXECUTION_COMPLETED",
-    "WORKFLOW_EXECUTION_FAILED",
-    "WORKFLOW_EXECUTION_TERMINATED",
-    "WORKFLOW_EXECUTION_CANCELED",
-    "WORKFLOW_EXECUTION_CONTINUED_AS_NEW",
-    "WORKFLOW_EXECUTION_TIMED_OUT",
-    "ACTIVITY_TASK_SCHEDULED",
-    "ACTIVITY_TASK_STARTED",
-    "ACTIVITY_TASK_COMPLETED",
-    "ACTIVITY_TASK_FAILED",
-    "ACTIVITY_TASK_TIMED_OUT",
-    "CHILD_WORKFLOW_EXECUTION_STARTED",
-    "CHILD_WORKFLOW_EXECUTION_COMPLETED",
-    "CHILD_WORKFLOW_EXECUTION_FAILED",
-    "START_CHILD_WORKFLOW_EXECUTION_INITIATED",
-  ],
-  title: "EventHistoryType",
-  description: "The event types we care about.",
-} as const
-
 export const $ExpectedField = {
   properties: {
     type: {
@@ -3935,6 +3911,30 @@ Relationships
 - 1 Workflow to many WorkflowDefinitions`,
 } as const
 
+export const $WorkflowEventType = {
+  type: "string",
+  enum: [
+    "WORKFLOW_EXECUTION_STARTED",
+    "WORKFLOW_EXECUTION_COMPLETED",
+    "WORKFLOW_EXECUTION_FAILED",
+    "WORKFLOW_EXECUTION_TERMINATED",
+    "WORKFLOW_EXECUTION_CANCELED",
+    "WORKFLOW_EXECUTION_CONTINUED_AS_NEW",
+    "WORKFLOW_EXECUTION_TIMED_OUT",
+    "ACTIVITY_TASK_SCHEDULED",
+    "ACTIVITY_TASK_STARTED",
+    "ACTIVITY_TASK_COMPLETED",
+    "ACTIVITY_TASK_FAILED",
+    "ACTIVITY_TASK_TIMED_OUT",
+    "CHILD_WORKFLOW_EXECUTION_STARTED",
+    "CHILD_WORKFLOW_EXECUTION_COMPLETED",
+    "CHILD_WORKFLOW_EXECUTION_FAILED",
+    "START_CHILD_WORKFLOW_EXECUTION_INITIATED",
+  ],
+  title: "WorkflowEventType",
+  description: "The event types we care about.",
+} as const
+
 export const $WorkflowExecutionCreate = {
   properties: {
     workflow_id: {
@@ -3991,7 +3991,7 @@ export const $WorkflowExecutionEvent = {
       title: "Event Time",
     },
     event_type: {
-      $ref: "#/components/schemas/EventHistoryType",
+      $ref: "#/components/schemas/WorkflowEventType",
     },
     task_id: {
       type: "integer",

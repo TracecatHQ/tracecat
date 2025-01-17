@@ -37,8 +37,8 @@ from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.models import (
     EventFailure,
     EventGroup,
-    EventHistoryType,
     WorkflowDispatchResponse,
+    WorkflowEventType,
     WorkflowExecutionCreateResponse,
     WorkflowExecutionEvent,
 )
@@ -121,7 +121,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.START_CHILD_WORKFLOW_EXECUTION_INITIATED,
+                            event_type=WorkflowEventType.START_CHILD_WORKFLOW_EXECUTION_INITIATED,
                             event_group=group,
                             task_id=event.task_id,
                             role=group.action_input.role,
@@ -135,7 +135,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_STARTED,
+                            event_type=WorkflowEventType.CHILD_WORKFLOW_EXECUTION_STARTED,
                             event_group=group,
                             task_id=event.task_id,
                         )
@@ -150,7 +150,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_COMPLETED,
+                            event_type=WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED,
                             event_group=group,
                             task_id=event.task_id,
                             result=result,
@@ -164,7 +164,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_FAILED,
+                            event_type=WorkflowEventType.CHILD_WORKFLOW_EXECUTION_FAILED,
                             event_group=group,
                             task_id=event.task_id,
                             failure=EventFailure.from_history_event(event),
@@ -182,7 +182,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.WORKFLOW_EXECUTION_STARTED,
+                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_STARTED,
                             parent_wf_exec_id=parent_exec_id,
                             task_id=event.task_id,
                             role=dsl_run_args.role,
@@ -197,7 +197,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.WORKFLOW_EXECUTION_COMPLETED,
+                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_COMPLETED,
                             task_id=event.task_id,
                             result=result,
                         )
@@ -207,7 +207,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.WORKFLOW_EXECUTION_FAILED,
+                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_FAILED,
                             task_id=event.task_id,
                             failure=EventFailure.from_history_event(event),
                         )
@@ -217,7 +217,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.WORKFLOW_EXECUTION_TERMINATED,
+                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_TERMINATED,
                             task_id=event.task_id,
                         )
                     )
@@ -226,7 +226,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.WORKFLOW_EXECUTION_CANCELED,
+                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_CANCELED,
                             task_id=event.task_id,
                         )
                     )
@@ -235,7 +235,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.WORKFLOW_EXECUTION_CONTINUED_AS_NEW,
+                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_CONTINUED_AS_NEW,
                             task_id=event.task_id,
                         )
                     )
@@ -244,7 +244,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.WORKFLOW_EXECUTION_TIMED_OUT,
+                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_TIMED_OUT,
                             task_id=event.task_id,
                         )
                     )
@@ -257,7 +257,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.ACTIVITY_TASK_SCHEDULED,
+                            event_type=WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
                             task_id=event.task_id,
                             event_group=group,
                         )
@@ -275,7 +275,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.ACTIVITY_TASK_STARTED,
+                            event_type=WorkflowEventType.ACTIVITY_TASK_STARTED,
                             task_id=event.task_id,
                             event_group=group,
                         )
@@ -293,7 +293,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.ACTIVITY_TASK_COMPLETED,
+                            event_type=WorkflowEventType.ACTIVITY_TASK_COMPLETED,
                             task_id=event.task_id,
                             event_group=group,
                             result=result,
@@ -310,7 +310,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.ACTIVITY_TASK_FAILED,
+                            event_type=WorkflowEventType.ACTIVITY_TASK_FAILED,
                             task_id=event.task_id,
                             event_group=group,
                             failure=EventFailure.from_history_event(event),
@@ -324,7 +324,7 @@ class WorkflowExecutionsService:
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=EventHistoryType.ACTIVITY_TASK_TIMED_OUT,
+                            event_type=WorkflowEventType.ACTIVITY_TASK_TIMED_OUT,
                             task_id=event.task_id,
                             event_group=group,
                         )

@@ -349,27 +349,6 @@ export type EventGroup = {
   related_wf_exec_id?: string | null
 }
 
-/**
- * The event types we care about.
- */
-export type EventHistoryType =
-  | "WORKFLOW_EXECUTION_STARTED"
-  | "WORKFLOW_EXECUTION_COMPLETED"
-  | "WORKFLOW_EXECUTION_FAILED"
-  | "WORKFLOW_EXECUTION_TERMINATED"
-  | "WORKFLOW_EXECUTION_CANCELED"
-  | "WORKFLOW_EXECUTION_CONTINUED_AS_NEW"
-  | "WORKFLOW_EXECUTION_TIMED_OUT"
-  | "ACTIVITY_TASK_SCHEDULED"
-  | "ACTIVITY_TASK_STARTED"
-  | "ACTIVITY_TASK_COMPLETED"
-  | "ACTIVITY_TASK_FAILED"
-  | "ACTIVITY_TASK_TIMED_OUT"
-  | "CHILD_WORKFLOW_EXECUTION_STARTED"
-  | "CHILD_WORKFLOW_EXECUTION_COMPLETED"
-  | "CHILD_WORKFLOW_EXECUTION_FAILED"
-  | "START_CHILD_WORKFLOW_EXECUTION_INITIATED"
-
 export type ExpectedField = {
   type: string
   description?: string | null
@@ -1239,6 +1218,27 @@ export type WorkflowDefinition = {
   }
 }
 
+/**
+ * The event types we care about.
+ */
+export type WorkflowEventType =
+  | "WORKFLOW_EXECUTION_STARTED"
+  | "WORKFLOW_EXECUTION_COMPLETED"
+  | "WORKFLOW_EXECUTION_FAILED"
+  | "WORKFLOW_EXECUTION_TERMINATED"
+  | "WORKFLOW_EXECUTION_CANCELED"
+  | "WORKFLOW_EXECUTION_CONTINUED_AS_NEW"
+  | "WORKFLOW_EXECUTION_TIMED_OUT"
+  | "ACTIVITY_TASK_SCHEDULED"
+  | "ACTIVITY_TASK_STARTED"
+  | "ACTIVITY_TASK_COMPLETED"
+  | "ACTIVITY_TASK_FAILED"
+  | "ACTIVITY_TASK_TIMED_OUT"
+  | "CHILD_WORKFLOW_EXECUTION_STARTED"
+  | "CHILD_WORKFLOW_EXECUTION_COMPLETED"
+  | "CHILD_WORKFLOW_EXECUTION_FAILED"
+  | "START_CHILD_WORKFLOW_EXECUTION_INITIATED"
+
 export type WorkflowExecutionCreate = {
   workflow_id: string
   inputs?: unknown | null
@@ -1253,7 +1253,7 @@ export type WorkflowExecutionCreateResponse = {
 export type WorkflowExecutionEvent = {
   event_id: number
   event_time: string
-  event_type: EventHistoryType
+  event_type: WorkflowEventType
   task_id: number
   /**
    * The action group of the event. We use this to keep track of what events are related to each other.
