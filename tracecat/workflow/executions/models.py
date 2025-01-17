@@ -181,7 +181,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
             action_ref=task.ref,
             action_title=task.title,
             action_description=task.description,
-            action_input=action_input,
+            action_input=cast(EventInput, action_input),
             retry_policy=action_retry_policy,
             start_delay=task.start_delay,
             join_strategy=task.join_strategy,
