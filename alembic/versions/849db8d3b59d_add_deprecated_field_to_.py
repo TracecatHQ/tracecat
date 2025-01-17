@@ -5,11 +5,13 @@ Revises: 496c162975d7
 Create Date: 2025-01-14 19:31:21.421984
 
 """
-from typing import Sequence
 
-from alembic import op
+from collections.abc import Sequence
+
 import sqlalchemy as sa
 import sqlmodel.sql.sqltypes
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "849db8d3b59d"
