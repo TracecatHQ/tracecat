@@ -13,8 +13,6 @@ from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import (
     Client,
     WorkflowExecution,
-    WorkflowExecutionDescription,
-    WorkflowExecutionStatus,
     WorkflowFailureError,
     WorkflowHandle,
     WorkflowHistoryEventFilterType,
@@ -39,10 +37,10 @@ from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.models import (
     EventFailure,
     EventGroup,
-    EventHistoryRead,
     EventHistoryType,
     WorkflowDispatchResponse,
     WorkflowExecutionCreateResponse,
+    WorkflowExecutionEvent,
 )
 
 
@@ -74,16 +72,10 @@ class WorkflowExecutionsService:
 
     async def get_execution(
         self, wf_exec_id: WorkflowExecutionID
-    ) -> WorkflowExecutionDescription:
-        return await self.handle(wf_exec_id).describe()
-
-    async def get_execution_status(
-        self, wf_exec_id: WorkflowExecutionID
-    ) -> WorkflowExecutionStatus | None:
-        """Get the status of a workflow execution."""
-
-        description = await self.handle(wf_exec_id).describe()
-        return description.status if description else None
+    ) -> WorkflowExecution | None:
+        query = f"WorkflowId = {wf_exec_id!r}"
+        it = self._client.list_workflows(query=query, page_size=1)
+        return await anext(it, None)
 
     async def list_executions(self) -> list[WorkflowExecution]:
         """List all workflow executions."""
@@ -106,12 +98,12 @@ class WorkflowExecutionsService:
         executions = await self.list_executions_by_workflow_id(wf_id)
         return max(executions, key=lambda exec: exec.start_time)
 
-    async def list_workflow_execution_event_history(
+    async def list_workflow_execution_events(
         self,
         wf_exec_id: WorkflowExecutionID,
         event_filter_type: WorkflowHistoryEventFilterType = WorkflowHistoryEventFilterType.ALL_EVENT,
         **kwargs,
-    ) -> list[EventHistoryRead]:
+    ) -> list[WorkflowExecutionEvent]:
         """List the event history of a workflow execution."""
 
         history = await self.handle(wf_exec_id).fetch_history(
@@ -126,7 +118,7 @@ class WorkflowExecutionsService:
                     group = EventGroup.from_initiated_child_workflow(event)
                     event_group_names[event.event_id] = group
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.START_CHILD_WORKFLOW_EXECUTION_INITIATED,
@@ -140,7 +132,7 @@ class WorkflowExecutionsService:
                     group = event_group_names.get(parent_event_id)
                     event_group_names[event.event_id] = group
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_STARTED,
@@ -155,7 +147,7 @@ class WorkflowExecutionsService:
                     initiator_event_id = event.child_workflow_execution_completed_event_attributes.initiated_event_id
                     group = event_group_names.get(initiator_event_id)
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_COMPLETED,
@@ -169,7 +161,7 @@ class WorkflowExecutionsService:
                     group = event_group_names.get(gparent_event_id)
                     event_group_names[event.event_id] = group
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.CHILD_WORKFLOW_EXECUTION_FAILED,
@@ -187,7 +179,7 @@ class WorkflowExecutionsService:
                     # Empty strings coerce to None
                     parent_exec_id = attrs.parent_workflow_execution.workflow_id or None
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_STARTED,
@@ -202,7 +194,7 @@ class WorkflowExecutionsService:
                         event.workflow_execution_completed_event_attributes.result
                     )
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_COMPLETED,
@@ -212,7 +204,7 @@ class WorkflowExecutionsService:
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_FAILED,
@@ -222,7 +214,7 @@ class WorkflowExecutionsService:
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_TERMINATED,
@@ -231,7 +223,7 @@ class WorkflowExecutionsService:
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED:
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_CANCELED,
@@ -240,7 +232,7 @@ class WorkflowExecutionsService:
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW:
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_CONTINUED_AS_NEW,
@@ -249,7 +241,7 @@ class WorkflowExecutionsService:
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT:
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.WORKFLOW_EXECUTION_TIMED_OUT,
@@ -262,7 +254,7 @@ class WorkflowExecutionsService:
                         continue
                     event_group_names[event.event_id] = group
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_SCHEDULED,
@@ -280,7 +272,7 @@ class WorkflowExecutionsService:
                         update={"current_attempt": attrs.attempt}
                     )
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_STARTED,
@@ -298,7 +290,7 @@ class WorkflowExecutionsService:
                         event.activity_task_completed_event_attributes.result
                     )
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_COMPLETED,
@@ -315,7 +307,7 @@ class WorkflowExecutionsService:
                         continue
                     event_group_names[event.event_id] = group
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_FAILED,
@@ -329,7 +321,7 @@ class WorkflowExecutionsService:
                     if not (group := event_group_names.get(gparent_event_id)):
                         continue
                     events.append(
-                        EventHistoryRead(
+                        WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=EventHistoryType.ACTIVITY_TASK_TIMED_OUT,

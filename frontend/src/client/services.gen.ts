@@ -151,8 +151,6 @@ import type {
   WorkflowExecutionsCreateWorkflowExecutionResponse,
   WorkflowExecutionsGetWorkflowExecutionData,
   WorkflowExecutionsGetWorkflowExecutionResponse,
-  WorkflowExecutionsListWorkflowExecutionEventHistoryData,
-  WorkflowExecutionsListWorkflowExecutionEventHistoryResponse,
   WorkflowExecutionsListWorkflowExecutionsData,
   WorkflowExecutionsListWorkflowExecutionsResponse,
   WorkflowExecutionsTerminateWorkflowExecutionData,
@@ -854,7 +852,7 @@ export const triggersUpdateWebhook = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.workflowId
- * @returns WorkflowExecutionRead Successful Response
+ * @returns WorkflowExecutionReadMinimal Successful Response
  * @throws ApiError
  */
 export const workflowExecutionsListWorkflowExecutions = (
@@ -914,33 +912,6 @@ export const workflowExecutionsGetWorkflowExecution = (
   return __request(OpenAPI, {
     method: "GET",
     url: "/workflow-executions/{execution_id}",
-    path: {
-      execution_id: data.executionId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Workflow Execution Event History
- * Get a workflow execution.
- * @param data The data for the request.
- * @param data.executionId
- * @param data.workspaceId
- * @returns EventHistoryRead Successful Response
- * @throws ApiError
- */
-export const workflowExecutionsListWorkflowExecutionEventHistory = (
-  data: WorkflowExecutionsListWorkflowExecutionEventHistoryData
-): CancelablePromise<WorkflowExecutionsListWorkflowExecutionEventHistoryResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/workflow-executions/{execution_id}/history",
     path: {
       execution_id: data.executionId,
     },

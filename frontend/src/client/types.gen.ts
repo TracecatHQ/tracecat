@@ -349,22 +349,6 @@ export type EventGroup = {
   related_wf_exec_id?: string | null
 }
 
-export type EventHistoryRead = {
-  event_id: number
-  event_time: string
-  event_type: EventHistoryType
-  task_id: number
-  /**
-   * The action group of the event. We use this to keep track of what events are related to each other.
-   */
-  event_group?: EventGroup | null
-  failure?: EventFailure | null
-  result?: unknown | null
-  role?: Role | null
-  parent_wf_exec_id?: string | null
-  workflow_timeout?: number | null
-}
-
 /**
  * The event types we care about.
  */
@@ -1266,6 +1250,22 @@ export type WorkflowExecutionCreateResponse = {
   wf_exec_id: string
 }
 
+export type WorkflowExecutionEvent = {
+  event_id: number
+  event_time: string
+  event_type: EventHistoryType
+  task_id: number
+  /**
+   * The action group of the event. We use this to keep track of what events are related to each other.
+   */
+  event_group?: EventGroup | null
+  failure?: EventFailure | null
+  result?: unknown | null
+  role?: Role | null
+  parent_wf_exec_id?: string | null
+  workflow_timeout?: number | null
+}
+
 export type WorkflowExecutionRead = {
   /**
    * The ID of the workflow execution
@@ -1301,6 +1301,10 @@ export type WorkflowExecutionRead = {
    * Number of events in the history
    */
   history_length: number
+  /**
+   * The events in the workflow execution
+   */
+  events: Array<WorkflowExecutionEvent>
 }
 
 export type status3 =
@@ -1311,6 +1315,43 @@ export type status3 =
   | "TERMINATED"
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
+
+export type WorkflowExecutionReadMinimal = {
+  /**
+   * The ID of the workflow execution
+   */
+  id: string
+  /**
+   * The run ID of the workflow execution
+   */
+  run_id: string
+  /**
+   * The start time of the workflow execution
+   */
+  start_time: string
+  /**
+   * When this workflow run started or should start.
+   */
+  execution_time?: string | null
+  /**
+   * When the workflow was closed if closed.
+   */
+  close_time?: string | null
+  status:
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELED"
+    | "TERMINATED"
+    | "CONTINUED_AS_NEW"
+    | "TIMED_OUT"
+  workflow_type: string
+  task_queue: string
+  /**
+   * Number of events in the history
+   */
+  history_length: number
+}
 
 export type WorkflowExecutionTerminate = {
   reason?: string | null
@@ -1613,7 +1654,7 @@ export type WorkflowExecutionsListWorkflowExecutionsData = {
 }
 
 export type WorkflowExecutionsListWorkflowExecutionsResponse =
-  Array<WorkflowExecutionRead>
+  Array<WorkflowExecutionReadMinimal>
 
 export type WorkflowExecutionsCreateWorkflowExecutionData = {
   requestBody: WorkflowExecutionCreate
@@ -1630,14 +1671,6 @@ export type WorkflowExecutionsGetWorkflowExecutionData = {
 
 export type WorkflowExecutionsGetWorkflowExecutionResponse =
   WorkflowExecutionRead
-
-export type WorkflowExecutionsListWorkflowExecutionEventHistoryData = {
-  executionId: string
-  workspaceId: string
-}
-
-export type WorkflowExecutionsListWorkflowExecutionEventHistoryResponse =
-  Array<EventHistoryRead>
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -2459,7 +2492,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkflowExecutionRead>
+        200: Array<WorkflowExecutionReadMinimal>
         /**
          * Validation Error
          */
@@ -2488,21 +2521,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowExecutionRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workflow-executions/{execution_id}/history": {
-    get: {
-      req: WorkflowExecutionsListWorkflowExecutionEventHistoryData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<EventHistoryRead>
         /**
          * Validation Error
          */

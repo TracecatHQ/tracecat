@@ -1,12 +1,12 @@
 import { Buffer } from "buffer"
-import { EventHistoryRead } from "@/client"
+import { WorkflowExecutionEvent } from "@/client"
 
 export const decode = (str: string): string =>
   Buffer.from(str, "base64").toString("binary")
 export const encode = (str: string): string =>
   Buffer.from(str, "binary").toString("base64")
 
-export const ERROR_EVENT_TYPES: EventHistoryRead["event_type"][] = [
+export const ERROR_EVENT_TYPES: WorkflowExecutionEvent["event_type"][] = [
   "WORKFLOW_EXECUTION_FAILED",
   "WORKFLOW_EXECUTION_TERMINATED",
   "WORKFLOW_EXECUTION_TIMED_OUT",
@@ -14,12 +14,12 @@ export const ERROR_EVENT_TYPES: EventHistoryRead["event_type"][] = [
   "ACTIVITY_TASK_TIMED_OUT",
   "CHILD_WORKFLOW_EXECUTION_FAILED",
 ] as const
-export const SUCCESS_EVENT_TYPES: EventHistoryRead["event_type"][] = [
+export const SUCCESS_EVENT_TYPES: WorkflowExecutionEvent["event_type"][] = [
   "ACTIVITY_TASK_COMPLETED",
   "WORKFLOW_EXECUTION_COMPLETED",
   "CHILD_WORKFLOW_EXECUTION_COMPLETED",
 ] as const
-export const STARTED_EVENT_TYPES: EventHistoryRead["event_type"][] = [
+export const STARTED_EVENT_TYPES: WorkflowExecutionEvent["event_type"][] = [
   "ACTIVITY_TASK_STARTED",
   "WORKFLOW_EXECUTION_STARTED",
   "CHILD_WORKFLOW_EXECUTION_STARTED",
@@ -37,7 +37,7 @@ export type WorkflowExecutionStartedDetails = {
   input: Input
 }
 export type WorkflowExecutionStartedEvent = Omit<
-  EventHistoryRead,
+  WorkflowExecutionEvent,
   "details"
 > & {
   details: WorkflowExecutionStartedDetails
@@ -49,11 +49,16 @@ export type ActivityTaskScheduledEventDetails = {
   workflowTaskCompletedEventId: string
 }
 
-export type ActivityTaskStartedEvent = Omit<EventHistoryRead, "details"> & {
+export type ActivityTaskStartedEvent = Omit<
+  WorkflowExecutionEvent,
+  "details"
+> & {
   details: ActivityTaskScheduledEventDetails
 }
 
-export function parseEventType(eventType: EventHistoryRead["event_type"]) {
+export function parseEventType(
+  eventType: WorkflowExecutionEvent["event_type"]
+) {
   return eventType
     .toString()
     .split("_")
