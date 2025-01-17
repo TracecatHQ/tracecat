@@ -63,7 +63,7 @@ class EventHistoryType(StrEnum):
     )
 
 
-class WorkflowExecutionResponse(BaseModel):
+class WorkflowExecutionRead(BaseModel):
     id: str = Field(..., description="The ID of the workflow execution")
     run_id: str = Field(..., description="The run ID of the workflow execution")
     start_time: datetime = Field(
@@ -89,8 +89,8 @@ class WorkflowExecutionResponse(BaseModel):
     history_length: int = Field(..., description="Number of events in the history")
 
     @staticmethod
-    def from_dataclass(execution: WorkflowExecution) -> WorkflowExecutionResponse:
-        return WorkflowExecutionResponse(
+    def from_dataclass(execution: WorkflowExecution) -> WorkflowExecutionRead:
+        return WorkflowExecutionRead(
             id=execution.id,
             run_id=execution.run_id,
             start_time=execution.start_time,
@@ -181,7 +181,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
             action_ref=task.ref,
             action_title=task.title,
             action_description=task.description,
-            action_input=action_input,
+            action_input=cast(EventInput, action_input),
             retry_policy=action_retry_policy,
             start_delay=task.start_delay,
             join_strategy=task.join_strategy,
@@ -256,7 +256,7 @@ class EventFailure(BaseModel):
         )
 
 
-class EventHistoryResponse(BaseModel, Generic[EventInput]):
+class EventHistoryRead(BaseModel, Generic[EventInput]):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     event_id: int
     event_time: datetime
@@ -273,23 +273,23 @@ class EventHistoryResponse(BaseModel, Generic[EventInput]):
     workflow_timeout: float | None = None
 
 
-class CreateWorkflowExecutionParams(BaseModel):
+class WorkflowExecutionCreate(BaseModel):
     workflow_id: WorkflowID
     inputs: TriggerInputs | None = None
 
 
-class CreateWorkflowExecutionResponse(TypedDict):
+class WorkflowExecutionCreateResponse(TypedDict):
     message: str
     wf_id: WorkflowID
     wf_exec_id: WorkflowExecutionID
 
 
-class DispatchWorkflowResult(TypedDict):
+class WorkflowDispatchResponse(TypedDict):
     wf_id: WorkflowID
     result: Any
 
 
-class TerminateWorkflowExecutionParams(BaseModel):
+class WorkflowExecutionTerminate(BaseModel):
     reason: str | None = None
 
 

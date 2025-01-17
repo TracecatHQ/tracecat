@@ -1,5 +1,5 @@
 import React from "react"
-import { DSLRunArgs, EventHistoryResponse, RunActionInput } from "@/client"
+import { DSLRunArgs, EventHistoryRead, RunActionInput } from "@/client"
 import JsonView from "react18-json-view"
 
 import {
@@ -44,7 +44,7 @@ import { GenericWorkflowIcon, getIcon } from "@/components/icons"
 export function WorkflowExecutionEventDetailView({
   event,
 }: {
-  event: EventHistoryResponse
+  event: EventHistoryRead
 }) {
   return (
     <div className="size-full overflow-auto">
@@ -142,7 +142,7 @@ export function WorkflowExecutionEventDetailView({
   )
 }
 
-export function EventGeneralInfo({ event }: { event: EventHistoryResponse }) {
+export function EventGeneralInfo({ event }: { event: EventHistoryRead }) {
   const {
     event_group,
     role,

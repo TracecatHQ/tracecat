@@ -49,7 +49,7 @@ from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 from tracecat.workflow.executions.models import (
     EventGroup,
-    EventHistoryResponse,
+    EventHistoryRead,
     EventHistoryType,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
@@ -2430,8 +2430,8 @@ def failing_dsl():
 
 
 def assert_erroneous_task_failed_correctly(
-    events: list[EventHistoryResponse],
-) -> EventHistoryResponse[RunActionInput]:
+    events: list[EventHistoryRead],
+) -> EventHistoryRead[RunActionInput]:
     # 4.1 Match the failing task:
     #  - event_type == "ACTIVITY_TASK_FAILED"
     # - Matching action ref
@@ -2477,13 +2477,13 @@ def assert_erroneous_task_failed_correctly(
 
 
 def assert_error_handler_initiated_correctly(
-    events: list[EventHistoryResponse],
+    events: list[EventHistoryRead],
     *,
     handler_dsl: DSLInput,
     handler_wf: Workflow,
     failing_wf_id: WorkflowID,
     failing_wf_exec_id: WorkflowExecutionID,
-) -> EventHistoryResponse[RunActionInput]:
+) -> EventHistoryRead[RunActionInput]:
     # # 5.1 Find the event where the error handler was called
     evt = next(
         (
@@ -2537,8 +2537,8 @@ def assert_error_handler_initiated_correctly(
 
 
 def assert_error_handler_started(
-    events: list[EventHistoryResponse],
-) -> EventHistoryResponse:
+    events: list[EventHistoryRead],
+) -> EventHistoryRead:
     evt = next(
         (
             event
@@ -2557,8 +2557,8 @@ def assert_error_handler_started(
 
 
 def assert_error_handler_completed(
-    events: list[EventHistoryResponse],
-) -> EventHistoryResponse:
+    events: list[EventHistoryRead],
+) -> EventHistoryRead:
     evt = next(
         (
             event

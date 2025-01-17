@@ -19,11 +19,11 @@ from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.models import (
-    CreateWorkflowExecutionParams,
-    CreateWorkflowExecutionResponse,
-    EventHistoryResponse,
-    TerminateWorkflowExecutionParams,
-    WorkflowExecutionResponse,
+    EventHistoryRead,
+    WorkflowExecutionCreate,
+    WorkflowExecutionCreateResponse,
+    WorkflowExecutionRead,
+    WorkflowExecutionTerminate,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
@@ -35,34 +35,32 @@ async def list_workflow_executions(
     role: WorkspaceUserRole,
     # Filters
     workflow_id: WorkflowID | None = Query(None),
-) -> list[WorkflowExecutionResponse]:
+) -> list[WorkflowExecutionRead]:
     """List all workflow executions."""
     service = await WorkflowExecutionsService.connect(role=role)
     if workflow_id:
         executions = await service.list_executions_by_workflow_id(workflow_id)
     else:
         executions = await service.list_executions()
-    return [
-        WorkflowExecutionResponse.from_dataclass(execution) for execution in executions
-    ]
+    return [WorkflowExecutionRead.from_dataclass(execution) for execution in executions]
 
 
 @router.get("/{execution_id}", tags=["workflow-executions"])
 async def get_workflow_execution(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
-) -> WorkflowExecutionResponse:
+) -> WorkflowExecutionRead:
     """Get a workflow execution."""
     service = await WorkflowExecutionsService.connect(role=role)
     execution = await service.get_execution(execution_id)
-    return WorkflowExecutionResponse.from_dataclass(execution)
+    return WorkflowExecutionRead.from_dataclass(execution)
 
 
 @router.get("/{execution_id}/history", tags=["workflow-executions"])
 async def list_workflow_execution_event_history(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
-) -> list[EventHistoryResponse]:
+) -> list[EventHistoryRead]:
     """Get a workflow execution."""
     service = await WorkflowExecutionsService.connect(role=role)
     events = await service.list_workflow_execution_event_history(execution_id)
@@ -72,9 +70,9 @@ async def list_workflow_execution_event_history(
 @router.post("", tags=["workflow-executions"])
 async def create_workflow_execution(
     role: WorkspaceUserRole,
-    params: CreateWorkflowExecutionParams,
+    params: WorkflowExecutionCreate,
     session: AsyncSession = Depends(get_async_session),
-) -> CreateWorkflowExecutionResponse:
+) -> WorkflowExecutionCreateResponse:
     """Create and schedule a workflow execution."""
     service = await WorkflowExecutionsService.connect(role=role)
     # Get the dslinput from the workflow definition
@@ -143,7 +141,7 @@ async def cancel_workflow_execution(
 async def terminate_workflow_execution(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
-    params: TerminateWorkflowExecutionParams,
+    params: WorkflowExecutionTerminate,
 ) -> None:
     """Get a workflow execution."""
     service = await WorkflowExecutionsService.connect(role=role)
