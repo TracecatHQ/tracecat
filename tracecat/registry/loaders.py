@@ -39,7 +39,7 @@ def get_bound_action_impl(
     if impl.type == "udf":
         key = getattr(fn, "__tracecat_udf_key")
         kwargs = getattr(fn, "__tracecat_udf_kwargs")
-        logger.trace("Binding UDF", key=key, name=action.name)
+        logger.trace("Binding UDF", key=key, name=action.name, kwargs=kwargs)
         # Add validators to the function
         validated_kwargs = RegisterKwargs.model_validate(kwargs)
         attach_validators(fn, TemplateValidator())

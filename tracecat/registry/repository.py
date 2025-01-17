@@ -54,13 +54,13 @@ type F = Callable[..., Any]
 class RegisterKwargs(BaseModel):
     namespace: str
     description: str
-    default_title: str | None
-    display_group: str | None
-    doc_url: str | None
-    author: str | None
-    deprecated: str | None
-    secrets: list[RegistrySecret] | None
-    include_in_schema: bool
+    default_title: str | None = None
+    display_group: str | None = None
+    doc_url: str | None = None
+    author: str | None = None
+    deprecated: str | None = None
+    secrets: list[RegistrySecret] | None = None
+    include_in_schema: bool = True
 
 
 class Repository:
