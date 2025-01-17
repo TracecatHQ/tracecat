@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { EventHistoryRead } from "@/client"
+import { WorkflowExecutionEvent } from "@/client"
 
 import {
   ResizableHandle,
@@ -27,7 +27,7 @@ export default function ExecutionPage() {
   }>()
 
   const [selectedEvent, setSelectedEvent] = React.useState<
-    EventHistoryRead | undefined
+    WorkflowExecutionEvent | undefined
   >()
 
   const fullExecutionId = `${workflowId}:${executionId}`

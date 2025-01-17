@@ -8,7 +8,6 @@ import {
   ApiError,
   AuthSettingsRead,
   CreateWorkspaceParams,
-  EventHistoryRead,
   GitSettingsRead,
   OAuthSettingsRead,
   organizationDeleteOrgMember,
@@ -82,7 +81,8 @@ import {
   usersUsersPatchCurrentUser,
   UserUpdate,
   WorkflowExecutionRead,
-  workflowExecutionsListWorkflowExecutionEventHistory,
+  WorkflowExecutionReadMinimal,
+  workflowExecutionsGetWorkflowExecution,
   workflowExecutionsListWorkflowExecutions,
   WorkflowReadMinimal,
   workflowsAddTag,
@@ -459,7 +459,7 @@ export function useWorkflowExecutions(
     data: workflowExecutions,
     isLoading: workflowExecutionsIsLoading,
     error: workflowExecutionsError,
-  } = useQuery<WorkflowExecutionRead[], Error>({
+  } = useQuery<WorkflowExecutionReadMinimal[], Error>({
     queryKey: ["workflow-executions", workflowId],
     queryFn: async () =>
       await workflowExecutionsListWorkflowExecutions({
@@ -475,7 +475,7 @@ export function useWorkflowExecutions(
   }
 }
 
-export function useWorkflowExecutionEventHistory(
+export function useWorkflowExecution(
   workflowExecutionId: string,
   options?: {
     /**
@@ -486,22 +486,22 @@ export function useWorkflowExecutionEventHistory(
 ) {
   const { workspaceId } = useWorkspace()
   const {
-    data: eventHistory,
-    isLoading: eventHistoryLoading,
-    error: eventHistoryError,
-  } = useQuery<EventHistoryRead[], Error>({
-    queryKey: ["workflow-executions", workflowExecutionId, "event-history"],
+    data: workflowExecution,
+    isLoading: workflowExecutionLoading,
+    error: workflowExecutionError,
+  } = useQuery<WorkflowExecutionRead, Error>({
+    queryKey: ["workflow-executions", workflowExecutionId],
     queryFn: async () =>
-      await workflowExecutionsListWorkflowExecutionEventHistory({
+      await workflowExecutionsGetWorkflowExecution({
         workspaceId,
         executionId: workflowExecutionId,
       }),
     ...options,
   })
   return {
-    eventHistory,
-    eventHistoryLoading,
-    eventHistoryError,
+    workflowExecution,
+    workflowExecutionLoading,
+    workflowExecutionError,
   }
 }
 

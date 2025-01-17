@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { EventHistoryRead } from "@/client"
+import { WorkflowExecutionEvent } from "@/client"
 import {
   AlarmClockOffIcon,
   CalendarCheck,
@@ -15,7 +15,7 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 
-import { useWorkflowExecutionEventHistory } from "@/lib/hooks"
+import { useWorkflowExecution } from "@/lib/hooks"
 import { cn, undoSlugify } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -45,27 +45,30 @@ export function WorkflowExecutionEventHistory({
   setSelectedEvent,
 }: {
   executionId: string
-  selectedEvent?: EventHistoryRead
-  setSelectedEvent: (event: EventHistoryRead) => void
+  selectedEvent?: WorkflowExecutionEvent
+  setSelectedEvent: (event: WorkflowExecutionEvent) => void
 }) {
-  const { eventHistory, eventHistoryLoading, eventHistoryError } =
-    useWorkflowExecutionEventHistory(executionId, {
-      refetchInterval: REFETCH_INTERVAL,
-    })
+  const {
+    workflowExecution,
+    workflowExecutionLoading,
+    workflowExecutionError,
+  } = useWorkflowExecution(executionId, {
+    refetchInterval: REFETCH_INTERVAL,
+  })
 
-  if (eventHistoryLoading) {
+  if (workflowExecutionLoading) {
     return <CenteredSpinner />
   }
-  if (eventHistoryError) {
-    return <AlertNotification message={eventHistoryError.message} />
+  if (workflowExecutionError) {
+    return <AlertNotification message={workflowExecutionError.message} />
   }
-  if (!eventHistory) {
+  if (!workflowExecution) {
     return <NoContent message="No event history found." />
   }
   return (
     <div className="group flex flex-col gap-4 py-2">
       <nav className="grid gap-1 px-2">
-        {eventHistory.map((event, index) => (
+        {workflowExecution.events.map((event, index) => (
           <Button
             key={index}
             className={cn(
@@ -107,7 +110,7 @@ export function WorkflowExecutionEventHistory({
 export function EventDescriptor({
   event,
 }: {
-  event: EventHistoryRead
+  event: WorkflowExecutionEvent
 }): React.ReactNode {
   if (event.event_type.startsWith("ACTIVITY_TASK")) {
     return (
@@ -129,7 +132,7 @@ export function EventHistoryItemIcon({
   eventType,
   className,
 }: {
-  eventType: EventHistoryRead["event_type"]
+  eventType: WorkflowExecutionEvent["event_type"]
 } & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <Tooltip>
@@ -144,7 +147,7 @@ export function EventHistoryItemIcon({
 }
 
 function getEventHistoryIcon(
-  eventType: EventHistoryRead["event_type"],
+  eventType: WorkflowExecutionEvent["event_type"],
   className?: string
 ) {
   switch (eventType) {
