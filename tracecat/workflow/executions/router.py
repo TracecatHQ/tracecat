@@ -19,55 +19,64 @@ from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.models import (
-    EventHistoryRead,
     WorkflowExecutionCreate,
     WorkflowExecutionCreateResponse,
     WorkflowExecutionRead,
+    WorkflowExecutionReadMinimal,
     WorkflowExecutionTerminate,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
-router = APIRouter(prefix="/workflow-executions")
+router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
 
 
-@router.get("", tags=["workflow-executions"])
+@router.get("")
 async def list_workflow_executions(
     role: WorkspaceUserRole,
     # Filters
     workflow_id: WorkflowID | None = Query(None),
-) -> list[WorkflowExecutionRead]:
+) -> list[WorkflowExecutionReadMinimal]:
     """List all workflow executions."""
     service = await WorkflowExecutionsService.connect(role=role)
     if workflow_id:
         executions = await service.list_executions_by_workflow_id(workflow_id)
     else:
         executions = await service.list_executions()
-    return [WorkflowExecutionRead.from_dataclass(execution) for execution in executions]
+    return [
+        WorkflowExecutionReadMinimal.from_dataclass(execution)
+        for execution in executions
+    ]
 
 
-@router.get("/{execution_id}", tags=["workflow-executions"])
+@router.get("/{execution_id}")
 async def get_workflow_execution(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
 ) -> WorkflowExecutionRead:
     """Get a workflow execution."""
     service = await WorkflowExecutionsService.connect(role=role)
-    execution = await service.get_execution(execution_id)
-    return WorkflowExecutionRead.from_dataclass(execution)
+    execution = await service.get_last_execution(execution_id)
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow execution not found",
+        )
+    events = await service.list_workflow_execution_events(execution_id)
+    return WorkflowExecutionRead(
+        id=execution.id,
+        run_id=execution.run_id,
+        start_time=execution.start_time,
+        execution_time=execution.execution_time,
+        close_time=execution.close_time,
+        status=execution.status,
+        workflow_type=execution.workflow_type,
+        task_queue=execution.task_queue,
+        history_length=execution.history_length,
+        events=events,
+    )
 
 
-@router.get("/{execution_id}/history", tags=["workflow-executions"])
-async def list_workflow_execution_event_history(
-    role: WorkspaceUserRole,
-    execution_id: UnquotedExecutionID,
-) -> list[EventHistoryRead]:
-    """Get a workflow execution."""
-    service = await WorkflowExecutionsService.connect(role=role)
-    events = await service.list_workflow_execution_event_history(execution_id)
-    return events
-
-
-@router.post("", tags=["workflow-executions"])
+@router.post("")
 async def create_workflow_execution(
     role: WorkspaceUserRole,
     params: WorkflowExecutionCreate,
@@ -113,7 +122,6 @@ async def create_workflow_execution(
 @router.post(
     "/{execution_id}/cancel",
     status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflow-executions"],
 )
 async def cancel_workflow_execution(
     role: WorkspaceUserRole,
@@ -136,7 +144,6 @@ async def cancel_workflow_execution(
 @router.post(
     "/{execution_id}/terminate",
     status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workflow-executions"],
 )
 async def terminate_workflow_execution(
     role: WorkspaceUserRole,

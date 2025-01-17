@@ -63,7 +63,7 @@ class EventHistoryType(StrEnum):
     )
 
 
-class WorkflowExecutionRead(BaseModel):
+class WorkflowExecutionBase(BaseModel):
     id: str = Field(..., description="The ID of the workflow execution")
     run_id: str = Field(..., description="The run ID of the workflow execution")
     start_time: datetime = Field(
@@ -88,9 +88,11 @@ class WorkflowExecutionRead(BaseModel):
     task_queue: str
     history_length: int = Field(..., description="Number of events in the history")
 
+
+class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
     @staticmethod
-    def from_dataclass(execution: WorkflowExecution) -> WorkflowExecutionRead:
-        return WorkflowExecutionRead(
+    def from_dataclass(execution: WorkflowExecution) -> WorkflowExecutionReadMinimal:
+        return WorkflowExecutionReadMinimal(
             id=execution.id,
             run_id=execution.run_id,
             start_time=execution.start_time,
@@ -101,6 +103,12 @@ class WorkflowExecutionRead(BaseModel):
             task_queue=execution.task_queue,
             history_length=execution.history_length,
         )
+
+
+class WorkflowExecutionRead(WorkflowExecutionBase):
+    events: list[WorkflowExecutionEvent] = Field(
+        ..., description="The events in the workflow execution"
+    )
 
 
 def destructure_slugified_namespace(s: str, delimiter: str = "__") -> tuple[str, str]:
@@ -256,7 +264,7 @@ class EventFailure(BaseModel):
         )
 
 
-class EventHistoryRead(BaseModel, Generic[EventInput]):
+class WorkflowExecutionEvent(BaseModel, Generic[EventInput]):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     event_id: int
     event_time: datetime
