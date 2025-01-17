@@ -8,7 +8,7 @@ import {
   ApiError,
   AuthSettingsRead,
   CreateWorkspaceParams,
-  EventHistoryResponse,
+  EventHistoryRead,
   GitSettingsRead,
   OAuthSettingsRead,
   organizationDeleteOrgMember,
@@ -81,7 +81,7 @@ import {
   UpsertWebhookParams,
   usersUsersPatchCurrentUser,
   UserUpdate,
-  WorkflowExecutionResponse,
+  WorkflowExecutionRead,
   workflowExecutionsListWorkflowExecutionEventHistory,
   workflowExecutionsListWorkflowExecutions,
   WorkflowReadMinimal,
@@ -459,7 +459,7 @@ export function useWorkflowExecutions(
     data: workflowExecutions,
     isLoading: workflowExecutionsIsLoading,
     error: workflowExecutionsError,
-  } = useQuery<WorkflowExecutionResponse[], Error>({
+  } = useQuery<WorkflowExecutionRead[], Error>({
     queryKey: ["workflow-executions", workflowId],
     queryFn: async () =>
       await workflowExecutionsListWorkflowExecutions({
@@ -489,7 +489,7 @@ export function useWorkflowExecutionEventHistory(
     data: eventHistory,
     isLoading: eventHistoryLoading,
     error: eventHistoryError,
-  } = useQuery<EventHistoryResponse[], Error>({
+  } = useQuery<EventHistoryRead[], Error>({
     queryKey: ["workflow-executions", workflowExecutionId, "event-history"],
     queryFn: async () =>
       await workflowExecutionsListWorkflowExecutionEventHistory({

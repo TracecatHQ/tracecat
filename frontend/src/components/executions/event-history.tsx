@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { EventHistoryResponse } from "@/client"
+import { EventHistoryRead } from "@/client"
 import {
   AlarmClockOffIcon,
   CalendarCheck,
@@ -45,8 +45,8 @@ export function WorkflowExecutionEventHistory({
   setSelectedEvent,
 }: {
   executionId: string
-  selectedEvent?: EventHistoryResponse
-  setSelectedEvent: (event: EventHistoryResponse) => void
+  selectedEvent?: EventHistoryRead
+  setSelectedEvent: (event: EventHistoryRead) => void
 }) {
   const { eventHistory, eventHistoryLoading, eventHistoryError } =
     useWorkflowExecutionEventHistory(executionId, {
@@ -107,7 +107,7 @@ export function WorkflowExecutionEventHistory({
 export function EventDescriptor({
   event,
 }: {
-  event: EventHistoryResponse
+  event: EventHistoryRead
 }): React.ReactNode {
   if (event.event_type.startsWith("ACTIVITY_TASK")) {
     return (
@@ -129,7 +129,7 @@ export function EventHistoryItemIcon({
   eventType,
   className,
 }: {
-  eventType: EventHistoryResponse["event_type"]
+  eventType: EventHistoryRead["event_type"]
 } & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <Tooltip>
@@ -144,7 +144,7 @@ export function EventHistoryItemIcon({
 }
 
 function getEventHistoryIcon(
-  eventType: EventHistoryResponse["event_type"],
+  eventType: EventHistoryRead["event_type"],
   className?: string
 ) {
   switch (eventType) {

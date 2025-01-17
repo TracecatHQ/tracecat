@@ -2,7 +2,7 @@
 
 import React from "react"
 import {
-  WorkflowExecutionResponse,
+  WorkflowExecutionRead,
   workflowExecutionsTerminateWorkflowExecution,
 } from "@/client"
 import {
@@ -49,7 +49,7 @@ import { toast } from "@/components/ui/use-toast"
 export function WorkflowExecutionNav({
   executions: workflowExecutions,
 }: {
-  executions?: WorkflowExecutionResponse[]
+  executions?: WorkflowExecutionRead[]
 }) {
   const { executionId: currExecutionId } = useParams<{ executionId: string }>()
   const currExecutionIdDecoded = decodeURIComponent(currExecutionId)
@@ -198,7 +198,7 @@ export function WorkflowExecutionStatusIcon({
   status,
   className,
 }: {
-  status: WorkflowExecutionResponse["status"]
+  status: WorkflowExecutionRead["status"]
 } & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <Tooltip>
@@ -212,7 +212,7 @@ export function WorkflowExecutionStatusIcon({
   )
 }
 export function getExecutionStatusIcon(
-  status: WorkflowExecutionResponse["status"],
+  status: WorkflowExecutionRead["status"],
   className?: string
 ) {
   switch (status) {
