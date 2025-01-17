@@ -1,8 +1,3 @@
-"""Functions for executing actions and templates.
-
-NOTE: This is only used in the API server, not the worker
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +8,8 @@ from typing import Any, cast
 import ray
 import uvloop
 from ray.exceptions import RayTaskError
+from ray.runtime_env import RuntimeEnv
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
@@ -27,22 +24,22 @@ from tracecat.dsl.models import (
     RunActionInput,
 )
 from tracecat.executor.engine import EXECUTION_TIMEOUT
-from tracecat.executor.models import ExecutorActionErrorInfo
+from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorInfo
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
     eval_templated_object,
     extract_templated_secrets,
     get_iterables_from_expression,
 )
+from tracecat.git import GitUrl, prepare_git_url
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
-from tracecat.registry.actions.models import (
-    BoundRegistryAction,
-)
+from tracecat.registry.actions.models import BoundRegistryAction
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
+from tracecat.ssh import opt_temp_key_file
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException, WrappedExecutionError
 
@@ -319,15 +316,27 @@ def run_action_task(input: RunActionInput, role: Role) -> ExecutionResult:
 
 
 async def run_action_on_ray_cluster(
-    input: RunActionInput, role: Role
+    input: RunActionInput, ctx: DispatchActionContext
 ) -> ExecutionResult:
     """Run an action on the ray cluster.
 
     If any exceptions are thrown here, they're platform level errors.
     All application/user level errors are caught by the executor and returned as values.
     """
+    # Initialize runtime environment variables
+    env_vars = {"GIT_SSH_COMMAND": ctx.ssh_command} if ctx.ssh_command else {}
+    additional_vars: dict[str, Any] = {}
 
-    obj_ref = run_action_task.remote(input, role)
+    # Add git URL to pip dependencies if SHA is present
+    if ctx.git_url and ctx.git_url.ref:
+        url = ctx.git_url.to_url()
+        additional_vars["pip"] = [url]
+        logger.trace("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
+
+    runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
+
+    logger.info("Running action on ray cluster", runtime_env=runtime_env)
+    obj_ref = run_action_task.options(runtime_env=runtime_env).remote(input, ctx.role)
     try:
         coro = asyncio.to_thread(ray.get, obj_ref)
         exec_result = await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
@@ -349,7 +358,12 @@ async def run_action_on_ray_cluster(
     return exec_result
 
 
-async def dispatch_action_on_cluster(input: RunActionInput, role: Role) -> Any:
+async def dispatch_action_on_cluster(
+    input: RunActionInput,
+    *,
+    session: AsyncSession,
+    git_url: GitUrl | None = None,
+) -> Any:
     """Schedule actions on the ray cluster.
 
     This function handles dispatching actions to be executed on a Ray cluster. It supports
@@ -358,7 +372,7 @@ async def dispatch_action_on_cluster(input: RunActionInput, role: Role) -> Any:
     Args:
         input: The RunActionInput containing the task definition and execution context
         role: The Role used for authorization
-
+        git_url: The Git URL to use for the action
     Returns:
         Any: For single actions, returns the ExecutionResult. For for_each loops, returns
              a list of results from all parallel executions.
@@ -367,12 +381,26 @@ async def dispatch_action_on_cluster(input: RunActionInput, role: Role) -> Any:
         TracecatException: If there are errors evaluating for_each expressions or during execution
         ExecutorErrorWrapper: If there are errors from the executor itself
     """
+    git_url = await prepare_git_url()
 
+    role = ctx_role.get()
+
+    async with opt_temp_key_file(git_url=git_url, session=session) as ssh_command:
+        logger.trace("SSH command", ssh_command=ssh_command)
+        ctx = DispatchActionContext(role=role, git_url=git_url, ssh_command=ssh_command)
+        result = await _dispatch_action(input=input, ctx=ctx)
+    return result
+
+
+async def _dispatch_action(
+    input: RunActionInput,
+    ctx: DispatchActionContext,
+) -> Any:
     task = input.task
-
+    logger.info("Preparing runtime environment", ctx=ctx)
     # If there's no for_each, execute normally
     if not task.for_each:
-        return await run_action_on_ray_cluster(input, role)
+        return await run_action_on_ray_cluster(input, ctx)
 
     logger.info("Running for_each on action in parallel", action=task.action)
 
@@ -383,7 +411,7 @@ async def dispatch_action_on_cluster(input: RunActionInput, role: Role) -> Any:
     iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
 
     async def coro(patched_input: RunActionInput):
-        return await run_action_on_ray_cluster(patched_input, role)
+        return await run_action_on_ray_cluster(patched_input, ctx)
 
     try:
         async with GatheringTaskGroup() as tg:

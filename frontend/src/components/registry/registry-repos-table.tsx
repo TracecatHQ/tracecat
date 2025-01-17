@@ -5,7 +5,6 @@ import { RegistryRepositoryReadMinimal } from "@/client"
 import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
-  ArrowRightToLineIcon,
   CopyIcon,
   LoaderCircleIcon,
   RefreshCcw,
@@ -54,8 +53,6 @@ export function RegistryRepositoriesTable() {
     syncRepo,
     syncRepoIsPending,
     deleteRepo,
-    syncExecutor,
-    syncExecutorIsPending,
   } = useRegistryRepositories()
   const [selectedRepo, setSelectedRepo] =
     useState<RegistryRepositoryReadMinimal | null>(null)
@@ -101,7 +98,7 @@ export function RegistryRepositoriesTable() {
               label: (
                 <div className="flex items-center space-x-2">
                   <RefreshCcw className="size-4" />
-                  <span>Sync only</span>
+                  <span>Sync</span>
                 </div>
               ),
               action: async () => {
@@ -125,120 +122,6 @@ export function RegistryRepositoriesTable() {
                   })
                 } catch (error) {
                   console.error("Error reloading repository", error)
-                } finally {
-                  setSelectedRepo(null)
-                }
-              },
-            },
-            {
-              label: (
-                <div className="flex items-center space-x-2">
-                  <ArrowRightToLineIcon className="size-4" />
-                  <span>Sync and push to executor</span>
-                </div>
-              ),
-              action: async () => {
-                if (!selectedRepo) {
-                  console.error("No repository selected")
-                  return
-                }
-                console.log("Reloading repository", selectedRepo.origin)
-                try {
-                  await syncRepo({ repositoryId: selectedRepo.id })
-                  toast({
-                    title: "Successfully synced repository",
-                    description: (
-                      <div className="flex flex-col space-y-2">
-                        <div>
-                          Successfully reloaded actions from{" "}
-                          <b className="inline-block">{selectedRepo.origin}</b>
-                        </div>
-                      </div>
-                    ),
-                  })
-                  await syncExecutor({ repositoryId: selectedRepo.id })
-                  toast({
-                    title: "Successfully pushed to executor",
-                    description: (
-                      <div className="flex flex-col space-y-2">
-                        <div>
-                          Successfully pushed actions from{" "}
-                          <b className="inline-block">{selectedRepo.origin}</b>
-                        </div>
-                      </div>
-                    ),
-                  })
-                } catch (error) {
-                  console.error("Error reloading repository", error)
-                } finally {
-                  setSelectedRepo(null)
-                }
-              },
-            },
-          ],
-        }
-      case AlertAction.SYNC_EXECUTOR:
-        return {
-          title: "Push to executor",
-          description: (
-            <div className="flex flex-col space-y-2">
-              <span>
-                You are about to push the current version of the repository{" "}
-              </span>
-              <b className="font-mono tracking-tighter">
-                {selectedRepo?.origin}
-              </b>
-              <span>to the executor.</span>
-              {selectedRepo?.commit_sha && (
-                <div className="text-sm text-muted-foreground">
-                  <span>Current SHA: </span>
-                  <Badge className="font-mono text-xs" variant="secondary">
-                    {selectedRepo.commit_sha}
-                  </Badge>
-                </div>
-              )}
-              {selectedRepo?.last_synced_at && (
-                <div className="text-sm text-muted-foreground">
-                  <span>Last synced: </span>
-                  <span>
-                    {new Date(selectedRepo.last_synced_at).toLocaleString()}
-                  </span>
-                </div>
-              )}
-              <p>
-                Are you sure you want to proceed? This will reload all existing
-                modules from this repository on the executor.
-              </p>
-            </div>
-          ),
-          actions: [
-            {
-              label: (
-                <div className="flex items-center space-x-2">
-                  <ArrowRightToLineIcon className="size-4" />
-                  <span>Push to executor</span>
-                </div>
-              ),
-              action: async () => {
-                if (!selectedRepo) {
-                  console.error("No repository selected")
-                  return
-                }
-                try {
-                  await syncExecutor({ repositoryId: selectedRepo.id })
-                  toast({
-                    title: "Successfully synced executor",
-                    description: (
-                      <div className="flex flex-col space-y-2">
-                        <div>
-                          Successfully reloaded actions from{" "}
-                          <b className="inline-block">{selectedRepo.origin}</b>
-                        </div>
-                      </div>
-                    ),
-                  })
-                } catch (error) {
-                  console.error("Error syncing executor", error)
                 } finally {
                   setSelectedRepo(null)
                 }
@@ -402,11 +285,11 @@ export function RegistryRepositoriesTable() {
                     >
                       <span className="sr-only">Open menu</span>
                       {row.original.id === selectedRepo?.id &&
-                      (syncRepoIsPending || syncExecutorIsPending) ? (
+                      syncRepoIsPending ? (
                         <div className="flex items-center space-x-2">
                           <LoaderCircleIcon className="size-4 animate-spin" />
                           <span className="text-xs text-muted-foreground">
-                            {syncRepoIsPending ? "Pulling..." : "Pushing..."}
+                            Pulling...
                           </span>
                         </div>
                       ) : (
@@ -473,20 +356,6 @@ export function RegistryRepositoriesTable() {
                       <RefreshCcw className="mr-2 size-4" />
                       <span>Sync from remote</span>
                     </DropdownMenuItem>
-                    {row.original.last_synced_at !== null && (
-                      <DropdownMenuItem
-                        className="flex items-center text-xs"
-                        onClick={(e) => {
-                          e.stopPropagation() // Prevent row click
-                          setSelectedRepo(row.original)
-                          setAlertAction(AlertAction.SYNC_EXECUTOR)
-                          setAlertOpen(true)
-                        }}
-                      >
-                        <ArrowRightToLineIcon className="mr-2 size-4" />
-                        <span>Push to executor</span>
-                      </DropdownMenuItem>
-                    )}
                     <DropdownMenuItem
                       className="flex items-center text-xs text-rose-600"
                       onClick={(e) => {
@@ -526,7 +395,7 @@ export function RegistryRepositoriesTable() {
                 setAlertOpen(false)
                 await action.action()
               }}
-              disabled={syncRepoIsPending || syncExecutorIsPending}
+              disabled={syncRepoIsPending}
             >
               {action.label}
             </AlertDialogAction>

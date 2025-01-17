@@ -37,8 +37,6 @@ import {
   RegistryRepositoriesDeleteRegistryRepositoryData,
   registryRepositoriesListRegistryRepositories,
   registryRepositoriesReloadRegistryRepositories,
-  registryRepositoriesSyncExecutorFromRegistryRepository,
-  RegistryRepositoriesSyncExecutorFromRegistryRepositoryData,
   registryRepositoriesSyncRegistryRepository,
   RegistryRepositoriesSyncRegistryRepositoryData,
   RegistryRepositoryReadMinimal,
@@ -1159,40 +1157,6 @@ export function useRegistryRepositories() {
     },
   })
 
-  const {
-    mutateAsync: syncExecutor,
-    isPending: syncExecutorIsPending,
-    error: syncExecutorError,
-  } = useMutation({
-    mutationFn: async (
-      params: RegistryRepositoriesSyncExecutorFromRegistryRepositoryData
-    ) => await registryRepositoriesSyncExecutorFromRegistryRepository(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
-      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
-      toast({
-        title: "Synced executor",
-        description: "Executor synced successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      const apiError = error as TracecatApiError
-      switch (apiError.status) {
-        case 403:
-          toast({
-            title: "You cannot perform this action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
-          })
-          break
-        default:
-          toast({
-            title: "Failed to sync executor",
-            description: `An unexpected error occurred while syncing the executor. ${apiError.message}: ${apiError.body.detail}`,
-          })
-      }
-    },
-  })
-
   return {
     repos,
     reposIsLoading,
@@ -1203,9 +1167,6 @@ export function useRegistryRepositories() {
     deleteRepo,
     deleteRepoIsPending,
     deleteRepoError,
-    syncExecutor,
-    syncExecutorIsPending,
-    syncExecutorError,
   }
 }
 

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.expressions.common import ExprContext
-from tracecat.expressions.validation import ExpressionStr, TemplateValidator
+from tracecat.expressions.validation import ExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID, WorkflowRunID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
@@ -94,20 +94,13 @@ class ActionStatement(BaseModel):
 
     """Control flow options"""
 
-    run_if: Annotated[
-        str | None,
-        Field(default=None, description="Condition to run the task"),
-        TemplateValidator(),
-    ]
-
-    for_each: Annotated[
-        str | list[str] | None,
-        Field(
-            default=None,
-            description="Iterate over a list of items and run the task for each item.",
-        ),
-        TemplateValidator(),
-    ]
+    run_if: ExpressionStr | None = Field(
+        default=None, description="Condition to run the task"
+    )
+    for_each: ExpressionStr | list[ExpressionStr] | None = Field(
+        default=None,
+        description="Iterate over a list of items and run the task for each item.",
+    )
     retry_policy: ActionRetryPolicy = Field(
         default_factory=ActionRetryPolicy, description="Retry policy for the action."
     )

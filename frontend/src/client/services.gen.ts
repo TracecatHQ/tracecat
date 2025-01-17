@@ -78,8 +78,6 @@ import type {
   RegistryRepositoriesGetRegistryRepositoryResponse,
   RegistryRepositoriesListRegistryRepositoriesResponse,
   RegistryRepositoriesReloadRegistryRepositoriesResponse,
-  RegistryRepositoriesSyncExecutorFromRegistryRepositoryData,
-  RegistryRepositoriesSyncExecutorFromRegistryRepositoryResponse,
   RegistryRepositoriesSyncRegistryRepositoryData,
   RegistryRepositoriesSyncRegistryRepositoryResponse,
   RegistryRepositoriesUpdateRegistryRepositoryData,
@@ -1885,28 +1883,6 @@ export const registryRepositoriesSyncRegistryRepository = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/registry/repos/{repository_id}/sync",
-    path: {
-      repository_id: data.repositoryId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Sync Executor From Registry Repository
- * @param data The data for the request.
- * @param data.repositoryId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const registryRepositoriesSyncExecutorFromRegistryRepository = (
-  data: RegistryRepositoriesSyncExecutorFromRegistryRepositoryData
-): CancelablePromise<RegistryRepositoriesSyncExecutorFromRegistryRepositoryResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/registry/repos/{repository_id}/sync-executor",
     path: {
       repository_id: data.repositoryId,
     },
