@@ -6,7 +6,7 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput
 from tracecat.logger import logger
 from tracecat.webhooks.dependencies import PayloadDep, WorkflowDefinitionFromWebhook
-from tracecat.workflow.executions.models import CreateWorkflowExecutionResponse
+from tracecat.workflow.executions.models import WorkflowExecutionCreateResponse
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
 router = APIRouter(prefix="/webhooks")
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/webhooks")
 @router.post("/{path}/{secret}", tags=["public"])
 async def incoming_webhook(
     defn: WorkflowDefinitionFromWebhook, path: str, payload: PayloadDep
-) -> CreateWorkflowExecutionResponse:
+) -> WorkflowExecutionCreateResponse:
     """
     Webhook endpoint to trigger a workflow.
 
