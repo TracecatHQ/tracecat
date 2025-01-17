@@ -55,7 +55,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreateWorkflowExecutionResponse'
+                $ref: '#/components/schemas/WorkflowExecutionCreateResponse'
         '422':
           description: Validation Error
           content:
@@ -987,7 +987,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/WorkflowExecutionResponse'
+                  $ref: '#/components/schemas/WorkflowExecutionReadMinimal'
                 title: Response Workflow-Executions-List Workflow Executions
         '422':
           description: Validation Error
@@ -1017,14 +1017,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateWorkflowExecutionParams'
+              $ref: '#/components/schemas/WorkflowExecutionCreate'
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreateWorkflowExecutionResponse'
+                $ref: '#/components/schemas/WorkflowExecutionCreateResponse'
         '422':
           description: Validation Error
           content:
@@ -1062,49 +1062,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WorkflowExecutionResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /workflow-executions/{execution_id}/history:
-    get:
-      tags:
-      - workflow-executions
-      summary: List Workflow Execution Event History
-      description: Get a workflow execution.
-      operationId: workflow-executions-list_workflow_execution_event_history
-      security:
-      - APIKeyCookie: []
-      - APIKeyHeader: []
-      parameters:
-      - name: execution_id
-        in: path
-        required: true
-        schema:
-          type: string
-          pattern: wf-[0-9a-f]{32}:(exec-[\w-]+|sch-[0-9a-f]{32}-.*)
-          title: Execution Id
-      - name: workspace_id
-        in: query
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Workspace Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/EventHistoryResponse'
-                title: Response Workflow-Executions-List Workflow Execution Event
-                  History
+                $ref: '#/components/schemas/WorkflowExecutionRead'
         '422':
           description: Validation Error
           content:
@@ -1175,7 +1133,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TerminateWorkflowExecutionParams'
+              $ref: '#/components/schemas/WorkflowExecutionTerminate'
       responses:
         '204':
           description: Successful Response
@@ -3997,40 +3955,6 @@ components:
           title: File
       type: object
       title: Body_workflows-create_workflow
-    CreateWorkflowExecutionParams:
-      properties:
-        workflow_id:
-          type: string
-          pattern: wf-[0-9a-f]{32}
-          title: Workflow Id
-        inputs:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Inputs
-      type: object
-      required:
-      - workflow_id
-      title: CreateWorkflowExecutionParams
-    CreateWorkflowExecutionResponse:
-      properties:
-        message:
-          type: string
-          title: Message
-        wf_id:
-          type: string
-          pattern: wf-[0-9a-f]{32}
-          title: Wf Id
-        wf_exec_id:
-          type: string
-          pattern: wf-[0-9a-f]{32}:(exec-[\w-]+|sch-[0-9a-f]{32}-.*)
-          title: Wf Exec Id
-      type: object
-      required:
-      - message
-      - wf_id
-      - wf_exec_id
-      title: CreateWorkflowExecutionResponse
     CreateWorkspaceMembershipParams:
       properties:
         user_id:
@@ -4390,57 +4314,6 @@ components:
       - udf_key
       - action_input
       title: EventGroup
-    EventHistoryResponse:
-      properties:
-        event_id:
-          type: integer
-          title: Event Id
-        event_time:
-          type: string
-          format: date-time
-          title: Event Time
-        event_type:
-          $ref: '#/components/schemas/EventHistoryType'
-        task_id:
-          type: integer
-          title: Task Id
-        event_group:
-          anyOf:
-          - $ref: '#/components/schemas/EventGroup'
-          - type: 'null'
-          description: The action group of the event. We use this to keep track of
-            what events are related to each other.
-        failure:
-          anyOf:
-          - $ref: '#/components/schemas/EventFailure'
-          - type: 'null'
-        result:
-          anyOf:
-          - {}
-          - type: 'null'
-          title: Result
-        role:
-          anyOf:
-          - $ref: '#/components/schemas/Role'
-          - type: 'null'
-        parent_wf_exec_id:
-          anyOf:
-          - type: string
-            pattern: wf-[0-9a-f]{32}:(exec-[\w-]+|sch-[0-9a-f]{32}-.*)
-          - type: 'null'
-          title: Parent Wf Exec Id
-        workflow_timeout:
-          anyOf:
-          - type: number
-          - type: 'null'
-          title: Workflow Timeout
-      type: object
-      required:
-      - event_id
-      - event_time
-      - event_type
-      - task_id
-      title: EventHistoryResponse
     EventHistoryType:
       type: string
       enum:
@@ -5945,15 +5818,6 @@ components:
       - steps
       - returns
       title: TemplateActionDefinition
-    TerminateWorkflowExecutionParams:
-      properties:
-        reason:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Reason
-      type: object
-      title: TerminateWorkflowExecutionParams
     Trigger:
       properties:
         type:
@@ -6338,7 +6202,158 @@ components:
         -------------
 
         - 1 Workflow to many WorkflowDefinitions'
-    WorkflowExecutionResponse:
+    WorkflowExecutionCreate:
+      properties:
+        workflow_id:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+        inputs:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Inputs
+      type: object
+      required:
+      - workflow_id
+      title: WorkflowExecutionCreate
+    WorkflowExecutionCreateResponse:
+      properties:
+        message:
+          type: string
+          title: Message
+        wf_id:
+          type: string
+          pattern: wf-[0-9a-f]{32}
+          title: Wf Id
+        wf_exec_id:
+          type: string
+          pattern: wf-[0-9a-f]{32}:(exec-[\w-]+|sch-[0-9a-f]{32}-.*)
+          title: Wf Exec Id
+      type: object
+      required:
+      - message
+      - wf_id
+      - wf_exec_id
+      title: WorkflowExecutionCreateResponse
+    WorkflowExecutionEvent:
+      properties:
+        event_id:
+          type: integer
+          title: Event Id
+        event_time:
+          type: string
+          format: date-time
+          title: Event Time
+        event_type:
+          $ref: '#/components/schemas/EventHistoryType'
+        task_id:
+          type: integer
+          title: Task Id
+        event_group:
+          anyOf:
+          - $ref: '#/components/schemas/EventGroup'
+          - type: 'null'
+          description: The action group of the event. We use this to keep track of
+            what events are related to each other.
+        failure:
+          anyOf:
+          - $ref: '#/components/schemas/EventFailure'
+          - type: 'null'
+        result:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Result
+        role:
+          anyOf:
+          - $ref: '#/components/schemas/Role'
+          - type: 'null'
+        parent_wf_exec_id:
+          anyOf:
+          - type: string
+            pattern: wf-[0-9a-f]{32}:(exec-[\w-]+|sch-[0-9a-f]{32}-.*)
+          - type: 'null'
+          title: Parent Wf Exec Id
+        workflow_timeout:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Workflow Timeout
+      type: object
+      required:
+      - event_id
+      - event_time
+      - event_type
+      - task_id
+      title: WorkflowExecutionEvent
+    WorkflowExecutionRead:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: The ID of the workflow execution
+        run_id:
+          type: string
+          title: Run Id
+          description: The run ID of the workflow execution
+        start_time:
+          type: string
+          format: date-time
+          title: Start Time
+          description: The start time of the workflow execution
+        execution_time:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Execution Time
+          description: When this workflow run started or should start.
+        close_time:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Close Time
+          description: When the workflow was closed if closed.
+        status:
+          type: string
+          enum:
+          - RUNNING
+          - COMPLETED
+          - FAILED
+          - CANCELED
+          - TERMINATED
+          - CONTINUED_AS_NEW
+          - TIMED_OUT
+        workflow_type:
+          type: string
+          title: Workflow Type
+        task_queue:
+          type: string
+          title: Task Queue
+        history_length:
+          type: integer
+          title: History Length
+          description: Number of events in the history
+        events:
+          items:
+            $ref: '#/components/schemas/WorkflowExecutionEvent'
+          type: array
+          title: Events
+          description: The events in the workflow execution
+      type: object
+      required:
+      - id
+      - run_id
+      - start_time
+      - status
+      - workflow_type
+      - task_queue
+      - history_length
+      - events
+      title: WorkflowExecutionRead
+    WorkflowExecutionReadMinimal:
       properties:
         id:
           type: string
@@ -6396,7 +6411,16 @@ components:
       - workflow_type
       - task_queue
       - history_length
-      title: WorkflowExecutionResponse
+      title: WorkflowExecutionReadMinimal
+    WorkflowExecutionTerminate:
+      properties:
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+      type: object
+      title: WorkflowExecutionTerminate
     WorkflowRead:
       properties:
         id:
