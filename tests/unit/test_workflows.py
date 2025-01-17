@@ -2626,7 +2626,7 @@ async def test_workflow_error_handler_success(
 
     # Check temporal event history
     exec_svc = await WorkflowExecutionsService.connect(role=test_role)
-    events = await exec_svc.list_workflow_execution_event_history(wf_exec_id)
+    events = await exec_svc.list_workflow_execution_events(wf_exec_id)
     assert len(events) > 0
 
     # 4. Verify the failing task is in the event history
