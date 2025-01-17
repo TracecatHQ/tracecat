@@ -525,6 +525,10 @@ export type RegistryActionCreate = {
    */
   author?: string | null
   /**
+   * Marks action as deprecated along with message
+   */
+  deprecated?: string | null
+  /**
    * The options for the action
    */
   options?: RegistryActionOptions
@@ -596,6 +600,10 @@ export type RegistryActionRead = {
    * Author of the action
    */
   author?: string | null
+  /**
+   * Marks action as deprecated along with message
+   */
+  deprecated?: string | null
   /**
    * The options for the action
    */
@@ -689,6 +697,10 @@ export type RegistryActionUpdate = {
    * Update the author of the action
    */
   author?: string | null
+  /**
+   * Update the deprecation message of the action
+   */
+  deprecated?: string | null
   /**
    * Update the options of the action
    */
@@ -1090,6 +1102,10 @@ export type TemplateActionDefinition = {
    * Author of the action
    */
   author?: string | null
+  /**
+   * Marks action as deprecated along with message
+   */
+  deprecated?: string | null
   /**
    * The secrets to pass to the action
    */

@@ -1642,6 +1642,20 @@ export const $RegistryActionCreate = {
       title: "Author",
       description: "Author of the action",
     },
+    deprecated: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecated",
+      description: "Marks action as deprecated along with message",
+    },
     options: {
       allOf: [
         {
@@ -1815,6 +1829,20 @@ export const $RegistryActionRead = {
       ],
       title: "Author",
       description: "Author of the action",
+    },
+    deprecated: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecated",
+      description: "Marks action as deprecated along with message",
     },
     options: {
       allOf: [
@@ -2054,6 +2082,20 @@ export const $RegistryActionUpdate = {
       ],
       title: "Author",
       description: "Update the author of the action",
+    },
+    deprecated: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecated",
+      description: "Update the deprecation message of the action",
     },
     options: {
       anyOf: [
@@ -3387,6 +3429,18 @@ export const $TemplateActionDefinition = {
       ],
       title: "Author",
       description: "Author of the action",
+    },
+    deprecated: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecated",
+      description: "Marks action as deprecated along with message",
     },
     secrets: {
       anyOf: [
