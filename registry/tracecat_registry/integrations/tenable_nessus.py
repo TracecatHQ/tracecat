@@ -3,6 +3,8 @@
 https://github.com/tenable/pyTenable/blob/main/tests/nessus/conftest.py
 """
 
+from typing import Any
+
 from tenable.nessus import Nessus
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -28,8 +30,11 @@ tenable_secret = RegistrySecret(
     namespace="integrations.tenable_nessus",
     secrets=[tenable_secret],
 )
-async def call_api(object_name: str, method_name: str, params: dict) -> dict:
+async def call_api(
+    object_name: str, method_name: str, params: dict[str, Any], api_url: str
+) -> dict:
     nessus = Nessus(
+        url=api_url,
         access_key=secrets.get("TENNABLE_ACCESS_KEY"),
         secret_key=secrets.get("TENNABLE_SECRET_KEY"),
     )

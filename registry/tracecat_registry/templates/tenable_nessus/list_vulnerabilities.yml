@@ -22,4 +22,5 @@ definition:
         method_name: list
         params:
           scan_id: ${{ inputs.scan_id }}
+        api_url: ${{ inputs.api_domain }}
   returns: ${{ steps.list_vulnerabilities.result }}
