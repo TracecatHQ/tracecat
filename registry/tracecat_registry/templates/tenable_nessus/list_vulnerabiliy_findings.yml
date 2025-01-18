@@ -9,8 +9,7 @@ definition:
   expects:
     scan_id:
       type: int
-      description: Maximum number of scans to return
-      default: 100
+      description: Scan ID to list vulnerability findings for
     api_url:
       type: str
       description: API URL to call
