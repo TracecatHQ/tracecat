@@ -93,23 +93,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Download Temporal CLI
-        run: |
-          # Download the Temporal CLI archive
-          curl -L -o temporal.tar.gz "https://temporal.download/cli/archive/latest?platform=linux&arch=amd64"
-
-          # Create a directory for the Temporal CLI
-          mkdir -p temporal-cli
-
-          # Extract the archive
-          tar -xzf temporal.tar.gz -C temporal-cli
-
-          # Add the Temporal CLI binary to the PATH
-          echo "${GITHUB_WORKSPACE}/temporal-cli" >> $GITHUB_PATH
-
-      - name: Verify Temporal CLI installation
-        run: temporal --version
-
       - name: Run environment setup script
         run: |
           echo "y
@@ -119,15 +102,12 @@ jobs:
       - name: Start Docker services
         env:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-        run: docker compose -f docker-compose.dev.yml up --build --no-deps -d api worker executor postgres_db caddy
+        run: docker compose -f docker-compose.dev.yml up --build -d temporal api worker executor postgres_db caddy temporal
 
       - name: Install dependencies
         run: |
           uv pip install ".[dev]"
           uv pip install ./registry
-
-      - name: Start Temporal server
-        run: nohup temporal server start-dev > temporal.log 2>&1 &
 
       - name: Run tests
         env:
