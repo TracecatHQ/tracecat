@@ -3,8 +3,9 @@
 https://github.com/tenable/pyTenable/blob/main/tests/nessus/conftest.py
 """
 
-from typing import Any
+from typing import Annotated, Any
 
+from pydantic import Field
 from tenable.nessus import Nessus
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -31,7 +32,12 @@ tenable_secret = RegistrySecret(
     secrets=[tenable_secret],
 )
 async def call_api(
-    object_name: str, method_name: str, params: dict[str, Any], api_url: str
+    object_name: Annotated[str, Field(..., description="Nessus API object name")],
+    method_name: Annotated[str, Field(..., description="Nessus API method name")],
+    params: Annotated[
+        dict[str, Any], Field(..., description="Nessus API method parameters")
+    ],
+    api_url: Annotated[str, Field(..., description="Nessus API URL")],
 ) -> dict:
     nessus = Nessus(
         url=api_url,

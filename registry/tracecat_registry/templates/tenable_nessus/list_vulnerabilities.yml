@@ -11,9 +11,9 @@ definition:
       type: int
       description: Maximum number of scans to return
       default: 100
-    api_domain:
+    api_url:
       type: str
-      description: API domain to call
+      description: API URL to call
   steps:
     - ref: list_vulnerabilities
       action: integrations.tenable_nessus.call_api
@@ -22,5 +22,5 @@ definition:
         method_name: list
         params:
           scan_id: ${{ inputs.scan_id }}
-        api_url: ${{ inputs.api_domain }}
+        api_url: ${{ inputs.api_url }}
   returns: ${{ steps.list_vulnerabilities.result }}
