@@ -218,6 +218,26 @@ async def test_registry_async_function_can_be_called(mock_package):
                 ref="branch",
             ),
         ),
+        # Private GitLab
+        (
+            "git+ssh://git@internal.tracecat/org/repo",
+            GitUrl(
+                host="gitlab.com",
+                org="org",
+                repo="repo",
+                ref=None,
+            ),
+        ),
+        # # Private GitLab nested in a subdirectory
+        # (
+        #     "git+ssh://git@internal.tracecat/org/group/repo",
+        #     GitUrl(
+        #         host="gitlab.com",
+        #         org="org/group",
+        #         repo="repo",
+        #         ref=None,
+        #     ),
+        # ),
     ],
 )
 def test_parse_git_url(url: str, expected: GitUrl):
