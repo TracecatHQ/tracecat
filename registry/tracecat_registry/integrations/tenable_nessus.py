@@ -28,9 +28,9 @@ tenable_secret = RegistrySecret(
     namespace="integrations.tenable_nessus",
     secrets=[tenable_secret],
 )
-async def call_nessus_api(api_method: str, params: dict) -> dict:
+async def call_api(object_name: str, method_name: str, params: dict) -> dict:
     nessus = Nessus(
         access_key=secrets.get("TENNABLE_ACCESS_KEY"),
         secret_key=secrets.get("TENNABLE_SECRET_KEY"),
     )
-    return await getattr(nessus, api_method)(**params)
+    return await getattr(getattr(nessus, object_name), method_name)(**params)
