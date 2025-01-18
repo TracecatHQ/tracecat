@@ -17,6 +17,11 @@ from temporalio.client import (
     WorkflowHandle,
     WorkflowHistoryEventFilterType,
 )
+from temporalio.common import (
+    SearchAttributeKey,
+    SearchAttributePair,
+    TypedSearchAttributes,
+)
 from temporalio.service import RPCError
 
 from tracecat import config
@@ -34,6 +39,7 @@ from tracecat.identifiers.workflow import (
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatValidationError
+from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.models import (
     EventFailure,
     EventGroup,
@@ -354,12 +360,15 @@ class WorkflowExecutionsService:
         *,
         wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
+        trigger_type: TriggerType = TriggerType.MANUAL,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
 
         Note: This method schedules the workflow execution and returns immediately.
         """
-        coro = self.create_workflow_execution(dsl=dsl, wf_id=wf_id, payload=payload)
+        coro = self.create_workflow_execution(
+            dsl=dsl, wf_id=wf_id, payload=payload, trigger_type=trigger_type
+        )
         _ = asyncio.create_task(coro)
         return WorkflowExecutionCreateResponse(
             message="Workflow execution started",
@@ -373,6 +382,7 @@ class WorkflowExecutionsService:
         *,
         wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
+        trigger_type: TriggerType = TriggerType.MANUAL,
     ) -> WorkflowDispatchResponse:
         """Create a new workflow execution.
 
@@ -390,6 +400,7 @@ class WorkflowExecutionsService:
             wf_id=wf_id,
             wf_exec_id=generate_exec_id(wf_id),
             trigger_inputs=payload,
+            trigger_type=trigger_type,
         )
 
     async def _dispatch_workflow(
@@ -398,6 +409,7 @@ class WorkflowExecutionsService:
         wf_id: WorkflowID,
         wf_exec_id: WorkflowExecutionID,
         trigger_inputs: TriggerInputs | None = None,
+        trigger_type: TriggerType = TriggerType.MANUAL,
         **kwargs: Any,
     ) -> WorkflowDispatchResponse:
         if rpc_timeout := config.TEMPORAL__CLIENT_RPC_TIMEOUT:
@@ -414,6 +426,16 @@ class WorkflowExecutionsService:
             run_config=dsl.config,
             kwargs=kwargs,
         )
+        search_attrs = [
+            trigger_type.to_temporal_search_attr_pair(),
+        ]
+        if self.role.user_id is not None:
+            search_attrs.append(
+                SearchAttributePair(
+                    key=SearchAttributeKey.for_keyword("TracecatTriggeredByUserId"),
+                    value=str(self.role.user_id),
+                )
+            )
         try:
             result = await self._client.execute_workflow(
                 DSLWorkflow.run,
@@ -425,6 +447,7 @@ class WorkflowExecutionsService:
                 retry_policy=retry_policies["workflow:fail_fast"],
                 # We don't currently differentiate between exec and run timeout as we fail fast for workflows
                 execution_timeout=datetime.timedelta(seconds=dsl.config.timeout),
+                search_attributes=TypedSearchAttributes(search_attributes=search_attrs),
                 **kwargs,
             )
         except WorkflowFailureError as e:
