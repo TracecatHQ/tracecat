@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: List Tenable Nessus scans
+  description: List vulnerability scans from a Tenable Nessus instance
+  display_group: Tenable Nessus
+  doc_url: https://pytenable.readthedocs.io/en/stable/api/nessus/scans.html#tenable.nessus.scans.ScansAPI.details
+  namespace: integrations.tenable_nessus
+  name: list_vulnerabilities
+  expects:
+    scan_id:
+      type: int
+      description: Maximum number of scans to return
+      default: 100
+    api_domain:
+      type: str
+      description: API domain to call
+  steps:
+    - ref: list_vulnerabilities
+      action: integrations.tenable_nessus.call_api
+      args:
+        object_name: scans
+        method_name: list
+        params:
+          scan_id: ${{ inputs.scan_id }}
+  returns: ${{ steps.list_vulnerabilities.result }}
