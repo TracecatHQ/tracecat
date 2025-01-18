@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 
 import aioboto3
-from temporalio.api.enums.v1 import IndexedValueType
-from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
 from temporalio.client import Client
 from temporalio.exceptions import TemporalError
 from temporalio.service import TLSConfig
@@ -110,17 +108,3 @@ async def get_temporal_client() -> Client:
         raise RuntimeError(msg) from e
     else:
         return _client
-
-
-async def add_temporal_search_attributes():
-    client = await get_temporal_client()
-    await client.operator_service.add_search_attributes(
-        AddSearchAttributesRequest(
-            search_attributes={
-                "TracecatTriggerType": IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-                "TracecatTriggeredByUserId": IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
-            },
-            namespace=TEMPORAL__CLUSTER_NAMESPACE,
-        )
-    )
-    logger.info("Temporal search attributes added")

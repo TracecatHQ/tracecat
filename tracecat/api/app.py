@@ -30,7 +30,6 @@ from tracecat.auth.users import (
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.client import add_temporal_search_attributes
 from tracecat.editor.router import router as editor_router
 from tracecat.logger import logger
 from tracecat.middleware import RequestLoggingMiddleware
@@ -64,13 +63,7 @@ async def lifespan(app: FastAPI):
         await setup_org_settings(session, role)
         await reload_registry(session, role)
         await setup_workspace_defaults(session, role)
-    await setup_temporal()
     yield
-
-
-async def setup_temporal():
-    await add_temporal_search_attributes()
-    logger.info("Temporal search attributes added")
 
 
 async def setup_org_settings(session: AsyncSession, admin_role: Role):
