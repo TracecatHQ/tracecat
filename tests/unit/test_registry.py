@@ -222,7 +222,7 @@ async def test_registry_async_function_can_be_called(mock_package):
         (
             "git+ssh://git@internal.tracecat/org/repo",
             GitUrl(
-                host="gitlab.com",
+                host="internal.tracecat",
                 org="org",
                 repo="repo",
                 ref=None,
@@ -232,7 +232,7 @@ async def test_registry_async_function_can_be_called(mock_package):
         # (
         #     "git+ssh://git@internal.tracecat/org/group/repo",
         #     GitUrl(
-        #         host="gitlab.com",
+        #         host="internal.tracecat",
         #         org="org/group",
         #         repo="repo",
         #         ref=None,
