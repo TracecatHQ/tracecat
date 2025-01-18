@@ -1,13 +1,19 @@
 from datetime import datetime, timedelta
 
 import temporalio.client
+from temporalio.common import TypedSearchAttributes
 
 from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleID, WorkflowID
+from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.schedules.models import ScheduleUpdate
+
+search_attrs = TypedSearchAttributes(
+    search_attributes=[TriggerType.SCHEDULED.to_temporal_search_attr_pair()]
+)
 
 
 async def _get_handle(schedule_id: ScheduleID) -> temporalio.client.ScheduleHandle:
@@ -39,8 +45,8 @@ async def create_schedule(
     workflow_schedule_id = f"{workflow_id}:{schedule_id}"
 
     return await client.create_schedule(
-        schedule_id,
-        temporalio.client.Schedule(
+        id=schedule_id,
+        schedule=temporalio.client.Schedule(
             action=temporalio.client.ScheduleActionStartWorkflow(
                 DSLWorkflow.run,
                 # Scheduled workflow only needs to know the workflow ID
@@ -51,6 +57,7 @@ async def create_schedule(
                 ),
                 id=workflow_schedule_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                typed_search_attributes=search_attrs,
                 **schedule_kwargs,
             ),
             spec=temporalio.client.ScheduleSpec(
@@ -90,6 +97,7 @@ async def update_schedule(schedule_id: ScheduleID, params: ScheduleUpdate) -> No
         if "status" in set_fields:
             state.paused = set_fields["status"] != "online"
         if isinstance(action, temporalio.client.ScheduleActionStartWorkflow):
+            action.typed_search_attributes = search_attrs
             if "inputs" in set_fields:
                 action.args[0].dsl.trigger_inputs = set_fields["inputs"]  # type: ignore
         else:
