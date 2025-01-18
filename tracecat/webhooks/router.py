@@ -6,6 +6,7 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.common import DSLInput
 from tracecat.logger import logger
 from tracecat.webhooks.dependencies import PayloadDep, WorkflowDefinitionFromWebhook
+from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.models import WorkflowExecutionCreateResponse
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
@@ -28,7 +29,10 @@ async def incoming_webhook(
 
     service = await WorkflowExecutionsService.connect()
     response = service.create_workflow_execution_nowait(
-        dsl=dsl_input, wf_id=path, payload=payload
+        dsl=dsl_input,
+        wf_id=path,
+        payload=payload,
+        trigger_type=TriggerType.WEBHOOK,
     )
     return response
 
@@ -49,7 +53,10 @@ async def incoming_webhook_wait(
 
     service = await WorkflowExecutionsService.connect()
     response = await service.create_workflow_execution(
-        dsl=dsl_input, wf_id=path, payload=payload
+        dsl=dsl_input,
+        wf_id=path,
+        payload=payload,
+        trigger_type=TriggerType.WEBHOOK,
     )
 
     return response["result"]
