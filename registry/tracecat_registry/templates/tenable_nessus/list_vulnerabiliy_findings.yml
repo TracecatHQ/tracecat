@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List Tenable Nessus vulnerability findings
-  description: List vulnerability findings from a Tenable Nessus scan
+  description: List details from a Tenable Nessus scan
   display_group: Tenable Nessus
   doc_url: https://pytenable.readthedocs.io/en/stable/api/nessus/scans.html#tenable.nessus.scans.ScansAPI.details
   namespace: integrations.tenable_nessus
@@ -18,7 +18,7 @@ definition:
       action: integrations.tenable_nessus.call_api
       args:
         object_name: scans
-        method_name: list
+        method_name: details
         params:
           scan_id: ${{ inputs.scan_id }}
         api_url: ${{ inputs.api_url }}
