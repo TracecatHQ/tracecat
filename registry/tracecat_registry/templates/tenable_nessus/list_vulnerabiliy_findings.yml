@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: List Tenable Nessus scans
-  description: List vulnerability scans from a Tenable Nessus instance
+  title: List Tenable Nessus vulnerability findings
+  description: List vulnerability findings from a Tenable Nessus scan
   display_group: Tenable Nessus
   doc_url: https://pytenable.readthedocs.io/en/stable/api/nessus/scans.html#tenable.nessus.scans.ScansAPI.details
   namespace: integrations.tenable_nessus
-  name: list_vulnerabilities
+  name: list_vulnerabiliy_findings
   expects:
     scan_id:
       type: int

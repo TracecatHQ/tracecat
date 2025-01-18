@@ -12,14 +12,14 @@ from tracecat_registry import RegistrySecret, registry, secrets
 
 tenable_secret = RegistrySecret(
     name="tenable_nessus",
-    keys=["TENNABLE_ACCESS_KEY", "TENNABLE_SECRET_KEY"],
+    keys=["TENABLE_ACCESS_KEY", "TENABLE_SECRET_KEY"],
 )
 """Tenable Nessus secret.
 
 - name: `tenable_nessus`
 - keys:
-    - `TENNABLE_ACCESS_KEY`
-    - `TENNABLE_SECRET_KEY`
+    - `TENABLE_ACCESS_KEY`
+    - `TENABLE_SECRET_KEY`
 """
 
 
@@ -41,7 +41,7 @@ async def call_api(
 ) -> dict:
     nessus = Nessus(
         url=api_url,
-        access_key=secrets.get("TENNABLE_ACCESS_KEY"),
-        secret_key=secrets.get("TENNABLE_SECRET_KEY"),
+        access_key=secrets.get("TENABLE_ACCESS_KEY"),
+        secret_key=secrets.get("TENABLE_SECRET_KEY"),
     )
     return await getattr(getattr(nessus, object_name), method_name)(**params)
