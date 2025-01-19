@@ -168,7 +168,7 @@ class WorkflowExecutionsService:
         async for event in self.handle(wf_exec_id).fetch_history_events(**kwargs):
             if is_scheduled_event(event):
                 # Create a new source event
-                source = WorkflowExecutionEventCompact.from_scheduled_activity(event)
+                source = WorkflowExecutionEventCompact.from_source_event(event)
                 if source is None:
                     logger.warning("Skipping scheduled event", event_id=event.event_id)
                     continue

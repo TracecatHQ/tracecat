@@ -12,7 +12,8 @@ from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
-from tracecat.dsl.common import DSLRunArgs
+from tracecat.dsl.common import ChildWorkflowMemo, DSLRunArgs
+from tracecat.dsl.constants import CHILD_WORKFLOW_EXECUTE_ACTION
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import (
     ActionErrorInfo,
@@ -281,6 +282,20 @@ class WorkflowExecutionEventCompact(BaseModel):
     child_wf_exec_id: WorkflowExecutionID | None = None
 
     @staticmethod
+    def from_source_event(
+        event: temporalio.api.history.v1.HistoryEvent,
+    ) -> WorkflowExecutionEventCompact | None:
+        match event.event_type:
+            case temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+                return WorkflowExecutionEventCompact.from_scheduled_activity(event)
+            case temporalio.api.enums.v1.EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
+                return WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                    event
+                )
+            case _:
+                return None
+
+    @staticmethod
     def from_scheduled_activity(
         event: temporalio.api.history.v1.HistoryEvent,
     ) -> WorkflowExecutionEventCompact | None:
@@ -310,6 +325,41 @@ class WorkflowExecutionEventCompact(BaseModel):
             action_name=task.action,
             action_ref=task.ref,
             action_input=task.args,
+        )
+
+    @staticmethod
+    def from_initiated_child_workflow(
+        event: temporalio.api.history.v1.HistoryEvent,
+    ) -> WorkflowExecutionEventCompact | None:
+        """Creates a compact workflow execution event from a child workflow initiation event.
+
+        Args:
+            event: The temporal history event representing a child workflow initiation
+
+        Returns:
+            WorkflowExecutionEventCompact | None: The compact event representation, or None if invalid
+        """
+        if (
+            event.event_type
+            != temporalio.api.enums.v1.EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
+        ):
+            raise ValueError("Event is not a child workflow initiated event.")
+
+        attrs = event.start_child_workflow_execution_initiated_event_attributes
+        wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
+        memo = ChildWorkflowMemo.from_temporal(attrs.memo)
+        input_data = extract_first(attrs.input)
+        dsl_run_args = DSLRunArgs(**input_data)
+
+        return WorkflowExecutionEventCompact(
+            source_event_id=event.event_id,
+            schedule_time=event.event_time.ToDatetime(UTC),
+            curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name=CHILD_WORKFLOW_EXECUTE_ACTION,
+            action_ref=memo.action_ref,
+            action_input=dsl_run_args.trigger_inputs,
+            child_wf_exec_id=wf_exec_id,
         )
 
 
