@@ -6,3 +6,9 @@ class AuthType(StrEnum):
     GOOGLE_OAUTH = "google_oauth"
     OIDC = "oidc"
     SAML = "saml"
+
+
+class SpecialUserID(StrEnum):
+    """A sentinel user ID that represents the current user."""
+
+    CURRENT = "current"

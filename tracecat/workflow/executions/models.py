@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from enum import StrEnum
+from datetime import UTC, datetime
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar, cast
 
 import orjson
@@ -22,8 +21,18 @@ from tracecat.dsl.models import (
     TriggerInputs,
 )
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
+from tracecat.logger import logger
 from tracecat.types.auth import Role
-from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.executions.common import (
+    HISTORY_TO_WF_EVENT_TYPE,
+    UTILITY_ACTIONS,
+    extract_first,
+    is_utility_activity,
+)
+from tracecat.workflow.executions.enums import (
+    WorkflowEventType,
+    WorkflowExecutionEventStatus,
+)
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
 WorkflowExecutionStatusLiteral = Literal[
@@ -36,31 +45,6 @@ WorkflowExecutionStatusLiteral = Literal[
     "TIMED_OUT",
 ]
 """Mapped literal types for workflow execution statuses."""
-
-
-class WorkflowEventType(StrEnum):
-    """The event types we care about."""
-
-    WORKFLOW_EXECUTION_STARTED = "WORKFLOW_EXECUTION_STARTED"
-    WORKFLOW_EXECUTION_COMPLETED = "WORKFLOW_EXECUTION_COMPLETED"
-    WORKFLOW_EXECUTION_FAILED = "WORKFLOW_EXECUTION_FAILED"
-    WORKFLOW_EXECUTION_TERMINATED = "WORKFLOW_EXECUTION_TERMINATED"
-    WORKFLOW_EXECUTION_CANCELED = "WORKFLOW_EXECUTION_CANCELED"
-    WORKFLOW_EXECUTION_CONTINUED_AS_NEW = "WORKFLOW_EXECUTION_CONTINUED_AS_NEW"
-    WORKFLOW_EXECUTION_TIMED_OUT = "WORKFLOW_EXECUTION_TIMED_OUT"
-
-    ACTIVITY_TASK_SCHEDULED = "ACTIVITY_TASK_SCHEDULED"
-    ACTIVITY_TASK_STARTED = "ACTIVITY_TASK_STARTED"
-    ACTIVITY_TASK_COMPLETED = "ACTIVITY_TASK_COMPLETED"
-    ACTIVITY_TASK_FAILED = "ACTIVITY_TASK_FAILED"
-    ACTIVITY_TASK_TIMED_OUT = "ACTIVITY_TASK_TIMED_OUT"
-
-    CHILD_WORKFLOW_EXECUTION_STARTED = "CHILD_WORKFLOW_EXECUTION_STARTED"
-    CHILD_WORKFLOW_EXECUTION_COMPLETED = "CHILD_WORKFLOW_EXECUTION_COMPLETED"
-    CHILD_WORKFLOW_EXECUTION_FAILED = "CHILD_WORKFLOW_EXECUTION_FAILED"
-    START_CHILD_WORKFLOW_EXECUTION_INITIATED = (
-        "START_CHILD_WORKFLOW_EXECUTION_INITIATED"
-    )
 
 
 class WorkflowExecutionBase(BaseModel):
@@ -123,14 +107,6 @@ EventInput = TypeVar(
     GetWorkflowDefinitionActivityInputs,
 )
 
-IGNORED_UTILITY_ACTIONS = {
-    "get_schedule_activity",
-    "validate_trigger_inputs_activity",
-    "validate_action_activity",
-    WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
-    WorkflowsManagementService.get_error_handler_workflow_id.__name__,
-}
-
 
 class EventGroup(BaseModel, Generic[EventInput]):
     event_id: int
@@ -164,7 +140,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
         # Retry policy
 
         act_type = attrs.activity_type.name
-        if act_type in IGNORED_UTILITY_ACTIONS:
+        if is_utility_activity(act_type):
             return None
         if act_type == "get_workflow_definition_activity":
             action_input = GetWorkflowDefinitionActivityInputs(**activity_input_data)
@@ -279,6 +255,62 @@ class WorkflowExecutionEvent(BaseModel, Generic[EventInput]):
     role: Role | None = None
     parent_wf_exec_id: WorkflowExecutionID | None = None
     workflow_timeout: float | None = None
+
+
+class WorkflowExecutionReadCompact(WorkflowExecutionBase):
+    events: list[WorkflowExecutionEventCompact] = Field(
+        ..., description="Compact events in the workflow execution"
+    )
+
+
+class WorkflowExecutionEventCompact(BaseModel):
+    """A compact representation of a workflow execution event."""
+
+    source_event_id: int
+    """The event ID of the source event."""
+    schedule_time: datetime
+    start_time: datetime | None = None
+    close_time: datetime | None = None
+    curr_event_type: WorkflowEventType
+    """The type of the event."""
+    status: WorkflowExecutionEventStatus
+    action_name: str
+    action_ref: str
+    action_input: Any | None = None
+    action_result: Any | None = None
+    child_wf_exec_id: WorkflowExecutionID | None = None
+
+    @staticmethod
+    def from_scheduled_activity(
+        event: temporalio.api.history.v1.HistoryEvent,
+    ) -> WorkflowExecutionEventCompact | None:
+        if (
+            event.event_type
+            != temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+        ):
+            raise ValueError("Event is not an activity task scheduled event.")
+        attrs = event.activity_task_scheduled_event_attributes
+        activity_input_data = extract_first(attrs.input)
+
+        act_type = attrs.activity_type.name
+        if act_type in (UTILITY_ACTIONS | {"get_workflow_definition_activity"}):
+            logger.warning("Utility action is not supported.", act_type=act_type)
+            return None
+        action_input = RunActionInput(**activity_input_data)
+        task = action_input.task
+        if task is None:
+            logger.warning("Action input is None", event_id=event.event_id)
+            return None
+
+        return WorkflowExecutionEventCompact(
+            source_event_id=event.event_id,
+            schedule_time=event.event_time.ToDatetime(UTC),
+            curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name=task.action,
+            action_ref=task.ref,
+            action_input=task.args,
+        )
 
 
 class WorkflowExecutionCreate(BaseModel):
