@@ -32,6 +32,7 @@ with workflow.unsafe.imports_passed_through():
         ValidateActionActivityInput,
     )
     from tracecat.dsl.common import (
+        ChildWorkflowMemo,
         DSLInput,
         DSLRunArgs,
         ExecuteChildWorkflowArgs,
@@ -503,7 +504,7 @@ class DSLWorkflow:
             child_run_args.runtime_config.environment = (
                 args.get("environment") or child_run_args.dsl.config.environment
             )
-            return await self._run_child_workflow(child_run_args)
+            return await self._run_child_workflow(task, child_run_args)
 
     async def _execute_child_workflow_loop(
         self,
@@ -538,6 +539,7 @@ class DSLWorkflow:
         for batch in itertools.batched(iterator(), batch_size):
             batch_result = await self._execute_child_workflow_batch(
                 batch=batch,
+                task=task,
                 base_run_args=child_run_args,
                 fail_strategy=fail_strategy,
             )
@@ -547,6 +549,7 @@ class DSLWorkflow:
     async def _execute_child_workflow_batch(
         self,
         batch: Iterable[ExecuteChildWorkflowArgs],
+        task: ActionStatement,
         base_run_args: DSLRunArgs,
         *,
         fail_strategy: FailStrategy = FailStrategy.ISOLATED,
@@ -573,7 +576,7 @@ class DSLWorkflow:
                         fail_strategy=fail_strategy,
                         patched_run_args=patched_run_args,
                     )
-                    tg.create_task(self._run_child_workflow(patched_run_args))
+                    tg.create_task(self._run_child_workflow(task, patched_run_args))
             return tg.results()
         else:
             # Isolated
@@ -584,7 +587,7 @@ class DSLWorkflow:
                     fail_strategy=fail_strategy,
                     patched_run_args=patched_run_args,
                 )
-                coro = self._run_child_workflow(patched_run_args)
+                coro = self._run_child_workflow(task, patched_run_args)
                 coros.append(coro)
             gather_result = await asyncio.gather(*coros, return_exceptions=True)
             result: list[DSLExecutionError | Any] = [
@@ -759,10 +762,14 @@ class DSLWorkflow:
             ),
         )
 
-    async def _run_child_workflow(self, run_args: DSLRunArgs) -> Any:
+    async def _run_child_workflow(
+        self, task: ActionStatement, run_args: DSLRunArgs
+    ) -> Any:
         self.logger.info("Running child workflow", run_args=run_args)
         wf_exec_id = identifiers.workflow.generate_exec_id(run_args.wf_id)
         wf_info = workflow.info()
+        # Use Temporal memo to store the action ref in the child workflow run
+        memo = ChildWorkflowMemo(action_ref=task.ref)
         return await workflow.execute_child_workflow(
             DSLWorkflow.run,
             run_args,
@@ -772,6 +779,7 @@ class DSLWorkflow:
             task_queue=wf_info.task_queue,
             execution_timeout=wf_info.execution_timeout,
             task_timeout=wf_info.task_timeout,
+            memo=memo.model_dump(),
         )
 
     def _should_execute_child_workflow(self, task: ActionStatement) -> bool:
