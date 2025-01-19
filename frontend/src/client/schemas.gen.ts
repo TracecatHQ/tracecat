@@ -3098,6 +3098,13 @@ export const $SessionRead = {
   title: "SessionRead",
 } as const
 
+export const $SpecialUserID = {
+  type: "string",
+  const: "current",
+  title: "SpecialUserID",
+  description: "A sentinel user ID that represents the current user.",
+} as const
+
 export const $TagCreate = {
   properties: {
     name: {
@@ -3369,6 +3376,13 @@ export const $Trigger = {
   type: "object",
   required: ["type", "ref"],
   title: "Trigger",
+} as const
+
+export const $TriggerType = {
+  type: "string",
+  enum: ["manual", "scheduled", "webhook"],
+  title: "TriggerType",
+  description: "Trigger type for a workflow execution.",
 } as const
 
 export const $UpdateWorkspaceParams = {
@@ -3926,10 +3940,14 @@ export const $WorkflowEventType = {
     "ACTIVITY_TASK_COMPLETED",
     "ACTIVITY_TASK_FAILED",
     "ACTIVITY_TASK_TIMED_OUT",
+    "ACTIVITY_TASK_CANCELED",
     "CHILD_WORKFLOW_EXECUTION_STARTED",
     "CHILD_WORKFLOW_EXECUTION_COMPLETED",
     "CHILD_WORKFLOW_EXECUTION_FAILED",
+    "CHILD_WORKFLOW_EXECUTION_CANCELED",
+    "CHILD_WORKFLOW_EXECUTION_TERMINATED",
     "START_CHILD_WORKFLOW_EXECUTION_INITIATED",
+    "CHILD_WORKFLOW_EXECUTION_TIMED_OUT",
   ],
   title: "WorkflowEventType",
   description: "The event types we care about.",
@@ -4067,6 +4085,114 @@ export const $WorkflowExecutionEvent = {
   title: "WorkflowExecutionEvent",
 } as const
 
+export const $WorkflowExecutionEventCompact = {
+  properties: {
+    source_event_id: {
+      type: "integer",
+      title: "Source Event Id",
+    },
+    schedule_time: {
+      type: "string",
+      format: "date-time",
+      title: "Schedule Time",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    close_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Time",
+    },
+    curr_event_type: {
+      $ref: "#/components/schemas/WorkflowEventType",
+    },
+    status: {
+      $ref: "#/components/schemas/WorkflowExecutionEventStatus",
+    },
+    action_name: {
+      type: "string",
+      title: "Action Name",
+    },
+    action_ref: {
+      type: "string",
+      title: "Action Ref",
+    },
+    action_input: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Input",
+    },
+    action_result: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Action Result",
+    },
+    child_wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Child Wf Exec Id",
+    },
+  },
+  type: "object",
+  required: [
+    "source_event_id",
+    "schedule_time",
+    "curr_event_type",
+    "status",
+    "action_name",
+    "action_ref",
+  ],
+  title: "WorkflowExecutionEventCompact",
+  description: "A compact representation of a workflow execution event.",
+} as const
+
+export const $WorkflowExecutionEventStatus = {
+  type: "string",
+  enum: [
+    "SCHEDULED",
+    "STARTED",
+    "COMPLETED",
+    "FAILED",
+    "CANCELED",
+    "TERMINATED",
+    "TIMED_OUT",
+    "UNKNOWN",
+  ],
+  title: "WorkflowExecutionEventStatus",
+} as const
+
 export const $WorkflowExecutionRead = {
   properties: {
     id: {
@@ -4157,6 +4283,98 @@ export const $WorkflowExecutionRead = {
     "events",
   ],
   title: "WorkflowExecutionRead",
+} as const
+
+export const $WorkflowExecutionReadCompact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "The ID of the workflow execution",
+    },
+    run_id: {
+      type: "string",
+      title: "Run Id",
+      description: "The run ID of the workflow execution",
+    },
+    start_time: {
+      type: "string",
+      format: "date-time",
+      title: "Start Time",
+      description: "The start time of the workflow execution",
+    },
+    execution_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Execution Time",
+      description: "When this workflow run started or should start.",
+    },
+    close_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Close Time",
+      description: "When the workflow was closed if closed.",
+    },
+    status: {
+      type: "string",
+      enum: [
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELED",
+        "TERMINATED",
+        "CONTINUED_AS_NEW",
+        "TIMED_OUT",
+      ],
+    },
+    workflow_type: {
+      type: "string",
+      title: "Workflow Type",
+    },
+    task_queue: {
+      type: "string",
+      title: "Task Queue",
+    },
+    history_length: {
+      type: "integer",
+      title: "History Length",
+      description: "Number of events in the history",
+    },
+    events: {
+      items: {
+        $ref: "#/components/schemas/WorkflowExecutionEventCompact",
+      },
+      type: "array",
+      title: "Events",
+      description: "Compact events in the workflow execution",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "run_id",
+    "start_time",
+    "status",
+    "workflow_type",
+    "task_queue",
+    "history_length",
+    "events",
+  ],
+  title: "WorkflowExecutionReadCompact",
 } as const
 
 export const $WorkflowExecutionReadMinimal = {

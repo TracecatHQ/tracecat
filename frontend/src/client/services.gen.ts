@@ -149,6 +149,8 @@ import type {
   WorkflowExecutionsCancelWorkflowExecutionResponse,
   WorkflowExecutionsCreateWorkflowExecutionData,
   WorkflowExecutionsCreateWorkflowExecutionResponse,
+  WorkflowExecutionsGetWorkflowExecutionCompactData,
+  WorkflowExecutionsGetWorkflowExecutionCompactResponse,
   WorkflowExecutionsGetWorkflowExecutionData,
   WorkflowExecutionsGetWorkflowExecutionResponse,
   WorkflowExecutionsListWorkflowExecutionsData,
@@ -852,6 +854,9 @@ export const triggersUpdateWebhook = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.workflowId
+ * @param data.trigger
+ * @param data.userId
+ * @param data.limit
  * @returns WorkflowExecutionReadMinimal Successful Response
  * @throws ApiError
  */
@@ -863,6 +868,9 @@ export const workflowExecutionsListWorkflowExecutions = (
     url: "/workflow-executions",
     query: {
       workflow_id: data.workflowId,
+      trigger: data.trigger,
+      user_id: data.userId,
+      limit: data.limit,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -912,6 +920,33 @@ export const workflowExecutionsGetWorkflowExecution = (
   return __request(OpenAPI, {
     method: "GET",
     url: "/workflow-executions/{execution_id}",
+    path: {
+      execution_id: data.executionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workflow Execution Compact
+ * Get a workflow execution.
+ * @param data The data for the request.
+ * @param data.executionId
+ * @param data.workspaceId
+ * @returns WorkflowExecutionReadCompact Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsGetWorkflowExecutionCompact = (
+  data: WorkflowExecutionsGetWorkflowExecutionCompactData
+): CancelablePromise<WorkflowExecutionsGetWorkflowExecutionCompactResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflow-executions/{execution_id}/compact",
     path: {
       execution_id: data.executionId,
     },

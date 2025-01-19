@@ -982,6 +982,11 @@ export type SessionRead = {
 }
 
 /**
+ * A sentinel user ID that represents the current user.
+ */
+export type SpecialUserID = "current"
+
+/**
  * Model for creating new tags with validation.
  */
 export type TagCreate = {
@@ -1092,6 +1097,11 @@ export type Trigger = {
 }
 
 export type type3 = "schedule" | "webhook"
+
+/**
+ * Trigger type for a workflow execution.
+ */
+export type TriggerType = "manual" | "scheduled" | "webhook"
 
 export type UpdateWorkspaceParams = {
   name?: string | null
@@ -1234,10 +1244,14 @@ export type WorkflowEventType =
   | "ACTIVITY_TASK_COMPLETED"
   | "ACTIVITY_TASK_FAILED"
   | "ACTIVITY_TASK_TIMED_OUT"
+  | "ACTIVITY_TASK_CANCELED"
   | "CHILD_WORKFLOW_EXECUTION_STARTED"
   | "CHILD_WORKFLOW_EXECUTION_COMPLETED"
   | "CHILD_WORKFLOW_EXECUTION_FAILED"
+  | "CHILD_WORKFLOW_EXECUTION_CANCELED"
+  | "CHILD_WORKFLOW_EXECUTION_TERMINATED"
   | "START_CHILD_WORKFLOW_EXECUTION_INITIATED"
+  | "CHILD_WORKFLOW_EXECUTION_TIMED_OUT"
 
 export type WorkflowExecutionCreate = {
   workflow_id: string
@@ -1265,6 +1279,33 @@ export type WorkflowExecutionEvent = {
   parent_wf_exec_id?: string | null
   workflow_timeout?: number | null
 }
+
+/**
+ * A compact representation of a workflow execution event.
+ */
+export type WorkflowExecutionEventCompact = {
+  source_event_id: number
+  schedule_time: string
+  start_time?: string | null
+  close_time?: string | null
+  curr_event_type: WorkflowEventType
+  status: WorkflowExecutionEventStatus
+  action_name: string
+  action_ref: string
+  action_input?: unknown | null
+  action_result?: unknown | null
+  child_wf_exec_id?: string | null
+}
+
+export type WorkflowExecutionEventStatus =
+  | "SCHEDULED"
+  | "STARTED"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELED"
+  | "TERMINATED"
+  | "TIMED_OUT"
+  | "UNKNOWN"
 
 export type WorkflowExecutionRead = {
   /**
@@ -1315,6 +1356,47 @@ export type status3 =
   | "TERMINATED"
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
+
+export type WorkflowExecutionReadCompact = {
+  /**
+   * The ID of the workflow execution
+   */
+  id: string
+  /**
+   * The run ID of the workflow execution
+   */
+  run_id: string
+  /**
+   * The start time of the workflow execution
+   */
+  start_time: string
+  /**
+   * When this workflow run started or should start.
+   */
+  execution_time?: string | null
+  /**
+   * When the workflow was closed if closed.
+   */
+  close_time?: string | null
+  status:
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELED"
+    | "TERMINATED"
+    | "CONTINUED_AS_NEW"
+    | "TIMED_OUT"
+  workflow_type: string
+  task_queue: string
+  /**
+   * Number of events in the history
+   */
+  history_length: number
+  /**
+   * Compact events in the workflow execution
+   */
+  events: Array<WorkflowExecutionEventCompact>
+}
 
 export type WorkflowExecutionReadMinimal = {
   /**
@@ -1649,6 +1731,9 @@ export type TriggersUpdateWebhookData = {
 export type TriggersUpdateWebhookResponse = void
 
 export type WorkflowExecutionsListWorkflowExecutionsData = {
+  limit?: number | null
+  trigger?: Array<TriggerType> | null
+  userId?: string | SpecialUserID | null
   workflowId?: string | null
   workspaceId: string
 }
@@ -1671,6 +1756,14 @@ export type WorkflowExecutionsGetWorkflowExecutionData = {
 
 export type WorkflowExecutionsGetWorkflowExecutionResponse =
   WorkflowExecutionRead
+
+export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
+  executionId: string
+  workspaceId: string
+}
+
+export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
+  WorkflowExecutionReadCompact
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -2521,6 +2614,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowExecutionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflow-executions/{execution_id}/compact": {
+    get: {
+      req: WorkflowExecutionsGetWorkflowExecutionCompactData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowExecutionReadCompact
         /**
          * Validation Error
          */
