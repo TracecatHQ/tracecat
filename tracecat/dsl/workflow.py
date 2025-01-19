@@ -780,6 +780,7 @@ class DSLWorkflow:
             execution_timeout=wf_info.execution_timeout,
             task_timeout=wf_info.task_timeout,
             memo=memo.model_dump(),
+            search_attributes=wf_info.typed_search_attributes,
         )
 
     def _should_execute_child_workflow(self, task: ActionStatement) -> bool:
@@ -859,4 +860,5 @@ class DSLWorkflow:
             task_queue=wf_info.task_queue,
             execution_timeout=wf_info.execution_timeout,
             task_timeout=wf_info.task_timeout,
+            search_attributes=wf_info.typed_search_attributes,
         )
