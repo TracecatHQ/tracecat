@@ -25,37 +25,6 @@ export const STARTED_EVENT_TYPES: WorkflowExecutionEvent["event_type"][] = [
   "CHILD_WORKFLOW_EXECUTION_STARTED",
 ] as const
 
-export type Input = {
-  payloads: {
-    metadata: { encoding: string }
-    data: string // This is a base64 encoded string
-  }[]
-}
-
-export type WorkflowExecutionStartedDetails = {
-  workflowType: { name: string }
-  input: Input
-}
-export type WorkflowExecutionStartedEvent = Omit<
-  WorkflowExecutionEvent,
-  "details"
-> & {
-  details: WorkflowExecutionStartedDetails
-}
-export type ActivityTaskScheduledEventDetails = {
-  activityId: string
-  activityType: { name: string }
-  input: Input
-  workflowTaskCompletedEventId: string
-}
-
-export type ActivityTaskStartedEvent = Omit<
-  WorkflowExecutionEvent,
-  "details"
-> & {
-  details: ActivityTaskScheduledEventDetails
-}
-
 export function parseEventType(
   eventType: WorkflowExecutionEvent["event_type"]
 ) {
