@@ -36,7 +36,7 @@ definition:
           Content-Type: application/json
         payload:
           title: ${{ inputs.case_title }}
-          startTime: ${{ FN.to_datestring(inputs.start_time, "%Y-%m-%dT%H:%M:%S.%fZ") }}
-          endTime: ${{ FN.to_datestring(inputs.end_time, "%Y-%m-%dT%H:%M:%S.%fZ") }}
+          startTime: ${{ inputs.start_time }}
+          endTime: ${{ inputs.end_time }}
           pageSize: ${{ inputs.limit }}
   returns: ${{ steps.list_cases.result }}

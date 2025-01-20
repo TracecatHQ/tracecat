@@ -28,7 +28,7 @@ definition:
           Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
         params:
           query:
-            created_at__gte: ${{ FN.to_datestring(inputs.start_time, "%Y-%m-%dT%H:%M:%S.%fZ") }}
-            created_at__lte: ${{ FN.to_datestring(inputs.end_time, "%Y-%m-%dT%H:%M:%S.%fZ") }}
+            created_at__gte: ${{ inputs.start_time }}
+            created_at__lte: ${{ inputs.end_time }}
             limit: ${{ inputs.limit }}
   returns: ${{ steps.query_alerts.result }}

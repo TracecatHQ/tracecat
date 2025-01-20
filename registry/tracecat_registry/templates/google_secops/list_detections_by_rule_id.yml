@@ -36,7 +36,7 @@ definition:
         headers:
           Authorization: Bearer ${{ steps.get_auth_token.result }}
         params:
-          start_time: ${{ FN.to_datestring(inputs.start_time, "%Y-%m-%dT%H:%M:%S.%fZ") }}
-          end_time: ${{ FN.to_datestring(inputs.end_time, "%Y-%m-%dT%H:%M:%S.%fZ") }}
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
           page_size: ${{ inputs.limit }}
   returns: ${{ steps.list_detections.result }}

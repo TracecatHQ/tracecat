@@ -56,8 +56,8 @@ definition:
               interval: ${{ inputs.interval }}
               type: ${{ inputs.type }}
           filter:
-            from: ${{ FN.to_datestring(inputs.start_time, "%Y-%m-%dT%H:%M:%S+00:00") }}
-            to: ${{ FN.to_datestring(inputs.end_time, "%Y-%m-%dT%H:%M:%S+00:00") }}
+            from: ${{ inputs.start_time }}
+            to: ${{ inputs.end_time }}
             indexes: ${{ inputs.indexes }}
             query: ${{ inputs.query }}
           group_by:

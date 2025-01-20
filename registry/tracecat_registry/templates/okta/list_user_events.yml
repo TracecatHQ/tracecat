@@ -39,7 +39,7 @@ definition:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
         params:
           filter: ${{ FN.url_encode(steps.create_query.result) }}
-          since: ${{ FN.to_datestring(inputs.start_time, "%Y-%m-%dT%H:%M:%S") }}
-          until: ${{ FN.to_datestring(inputs.end_time, "%Y-%m-%dT%H:%M:%S") }}
+          since: ${{ inputs.start_time }}
+          until: ${{ inputs.end_time }}
           limit: ${{ inputs.limit }}
   returns: ${{ steps.list_user_events.result }}
