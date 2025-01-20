@@ -34,7 +34,7 @@ class TemporalClientCert:
 
 async def _retrieve_temporal_client_cert(arn: str) -> TemporalClientCert:
     """Retrieve the client certificate and private key from AWS Secrets Manager."""
-    session = aioboto3.session.get_session()
+    session = aioboto3.Session()
     async with session.client(service_name="secretsmanager") as client:
         response = await client.get_secret_value(SecretId=arn)
         secret = response["SecretString"]
@@ -46,7 +46,7 @@ async def _retrieve_temporal_client_cert(arn: str) -> TemporalClientCert:
 
 async def _retrieve_temporal_api_key(arn: str) -> str:
     """Retrieve the Temporal API key from AWS Secrets Manager."""
-    session = aioboto3.session.get_session()
+    session = aioboto3.Session()
     async with session.client(service_name="secretsmanager") as client:
         response = await client.get_secret_value(SecretId=arn)
         return response["SecretString"]
