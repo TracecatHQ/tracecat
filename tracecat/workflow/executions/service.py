@@ -198,9 +198,6 @@ class WorkflowExecutionsService:
                 if is_close_event(event):
                     source.close_time = event.event_time.ToDatetime(datetime.UTC)
                     source.action_result = get_result(event)
-                logger.warning(
-                    f"Updated source event: {source.model_dump_json(indent=2)}"
-                )
         return list(id2event.values())
 
     async def list_workflow_execution_events(
