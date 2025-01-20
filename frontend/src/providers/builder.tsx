@@ -45,9 +45,6 @@ export const WorkflowBuilderProvider: React.FC<
   const { workspaceId, workflowId, error, updateWorkflow } = useWorkflow()
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  if (!workflowId) {
-    throw new Error("No workflow ID provided")
-  }
 
   const setReactFlowNodes = useCallback(
     (nodes: NodeType[] | ((nodes: NodeType[]) => NodeType[])) => {
@@ -72,6 +69,10 @@ export const WorkflowBuilderProvider: React.FC<
       setSelectedNodeId(nodeSelected?.id ?? null)
     },
   })
+  // Don't render anything if no workflow is selected
+  if (!workflowId) {
+    return children
+  }
   if (error) {
     console.error("Builder: Error fetching workflow metadata:", error)
     throw error
