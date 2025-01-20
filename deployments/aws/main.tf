@@ -74,9 +74,10 @@ module "ecs" {
   tracecat_signing_secret_arn    = var.tracecat_signing_secret_arn
 
   # Authentication
-  auth_types                    = var.auth_types
-  auth_allowed_domains          = var.auth_allowed_domains
-  setting_override_saml_enabled = var.setting_override_saml_enabled
+  auth_types                          = var.auth_types
+  auth_allowed_domains                = var.auth_allowed_domains
+  setting_override_saml_enabled       = var.setting_override_saml_enabled
+  setting_override_basic_auth_enabled = var.setting_override_basic_auth_enabled
 
   # OAuth
   oauth_client_id_arn     = var.oauth_client_id_arn

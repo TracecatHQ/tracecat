@@ -83,6 +83,12 @@ variable "setting_override_saml_enabled" {
   default     = null
 }
 
+variable "setting_override_basic_auth_enabled" {
+  type        = string
+  description = "Override the basic auth setting"
+  default     = null
+}
+
 ### Images and Versions
 
 variable "tracecat_image" {
@@ -143,7 +149,7 @@ variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
 variable "disable_temporal_ui" {
   type        = bool
   description = "Whether to disable the Temporal UI service in the deployment"
-  default     = false
+  default     = true
 }
 
 variable "disable_temporal_autosetup" {

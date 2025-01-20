@@ -50,6 +50,12 @@ variable "setting_override_saml_enabled" {
   default     = null
 }
 
+variable "setting_override_basic_auth_enabled" {
+  type        = string
+  description = "Override the basic auth setting"
+  default     = null
+}
+
 
 ### Images and Versions
 
