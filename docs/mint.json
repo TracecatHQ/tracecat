@@ -182,6 +182,7 @@
                 "api-reference/reference/workflow-executions/list-workflow-executions",
                 "api-reference/reference/workflow-executions/create-workflow-execution",
                 "api-reference/reference/workflow-executions/get-workflow-execution",
+                "api-reference/reference/workflow-executions/get-workflow-execution-compact",
                 "api-reference/reference/workflow-executions/cancel-workflow-execution",
                 "api-reference/reference/workflow-executions/terminate-workflow-execution"
               ]
