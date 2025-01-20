@@ -108,6 +108,7 @@ async def get_workflow_execution_compact(
     compact_events = await service.list_workflow_execution_events_compact(execution_id)
     return WorkflowExecutionReadCompact(
         id=execution.id,
+        parent_wf_exec_id=execution.parent_id,
         run_id=execution.run_id,
         start_time=execution.start_time,
         execution_time=execution.execution_time,

@@ -4262,6 +4262,18 @@ export const $WorkflowExecutionRead = {
       title: "History Length",
       description: "Number of events in the history",
     },
+    parent_wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Wf Exec Id",
+    },
     events: {
       items: {
         $ref: "#/components/schemas/WorkflowExecutionEvent",
@@ -4354,6 +4366,18 @@ export const $WorkflowExecutionReadCompact = {
       title: "History Length",
       description: "Number of events in the history",
     },
+    parent_wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Wf Exec Id",
+    },
     events: {
       items: {
         $ref: "#/components/schemas/WorkflowExecutionEventCompact",
@@ -4445,6 +4469,18 @@ export const $WorkflowExecutionReadMinimal = {
       type: "integer",
       title: "History Length",
       description: "Number of events in the history",
+    },
+    parent_wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Wf Exec Id",
     },
   },
   type: "object",

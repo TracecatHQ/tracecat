@@ -72,6 +72,7 @@ class WorkflowExecutionBase(BaseModel):
     workflow_type: str
     task_queue: str
     history_length: int = Field(..., description="Number of events in the history")
+    parent_wf_exec_id: WorkflowExecutionID | None = None
 
 
 class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
@@ -87,12 +88,19 @@ class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
             workflow_type=execution.workflow_type,
             task_queue=execution.task_queue,
             history_length=execution.history_length,
+            parent_wf_exec_id=execution.parent_id,
         )
 
 
 class WorkflowExecutionRead(WorkflowExecutionBase):
     events: list[WorkflowExecutionEvent] = Field(
         ..., description="The events in the workflow execution"
+    )
+
+
+class WorkflowExecutionReadCompact(WorkflowExecutionBase):
+    events: list[WorkflowExecutionEventCompact] = Field(
+        ..., description="Compact events in the workflow execution"
     )
 
 
@@ -256,12 +264,6 @@ class WorkflowExecutionEvent(BaseModel, Generic[EventInput]):
     role: Role | None = None
     parent_wf_exec_id: WorkflowExecutionID | None = None
     workflow_timeout: float | None = None
-
-
-class WorkflowExecutionReadCompact(WorkflowExecutionBase):
-    events: list[WorkflowExecutionEventCompact] = Field(
-        ..., description="Compact events in the workflow execution"
-    )
 
 
 class WorkflowExecutionEventCompact(BaseModel):

@@ -1342,6 +1342,7 @@ export type WorkflowExecutionRead = {
    * Number of events in the history
    */
   history_length: number
+  parent_wf_exec_id?: string | null
   /**
    * The events in the workflow execution
    */
@@ -1392,6 +1393,7 @@ export type WorkflowExecutionReadCompact = {
    * Number of events in the history
    */
   history_length: number
+  parent_wf_exec_id?: string | null
   /**
    * Compact events in the workflow execution
    */
@@ -1433,6 +1435,7 @@ export type WorkflowExecutionReadMinimal = {
    * Number of events in the history
    */
   history_length: number
+  parent_wf_exec_id?: string | null
 }
 
 export type WorkflowExecutionTerminate = {
