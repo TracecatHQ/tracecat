@@ -8,6 +8,8 @@ from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from typing import Any, Self, cast
 
+import orjson
+import temporalio.api.common.v1
 import yaml
 from pydantic import (
     BaseModel,
@@ -259,6 +261,21 @@ class ExecuteChildWorkflowArgs(BaseModel):
                 },
             )
         return self
+
+
+class ChildWorkflowMemo(BaseModel):
+    action_ref: str = Field(
+        ..., description="The action ref that initiated the child workflow."
+    )
+
+    @staticmethod
+    def from_temporal(memo: temporalio.api.common.v1.Memo) -> ChildWorkflowMemo:
+        try:
+            action_ref = orjson.loads(memo.fields["action_ref"].data)
+            return ChildWorkflowMemo(action_ref=action_ref)
+        except Exception as e:
+            logger.opt(exception=e).error("Error parsing child workflow memo")
+            raise e
 
 
 AdjDst = tuple[str, EdgeType]

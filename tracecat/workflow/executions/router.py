@@ -11,17 +11,20 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.enums import SpecialUserID
 from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
-from tracecat.identifiers import WorkflowID
+from tracecat.identifiers import UserID, WorkflowID
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
+from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.models import (
     WorkflowExecutionCreate,
     WorkflowExecutionCreateResponse,
     WorkflowExecutionRead,
+    WorkflowExecutionReadCompact,
     WorkflowExecutionReadMinimal,
     WorkflowExecutionTerminate,
 )
@@ -35,13 +38,25 @@ async def list_workflow_executions(
     role: WorkspaceUserRole,
     # Filters
     workflow_id: WorkflowID | None = Query(None),
+    trigger_types: set[TriggerType] | None = Query(None, alias="trigger"),
+    triggered_by_user_id: UserID | SpecialUserID | None = Query(None, alias="user_id"),
+    limit: int | None = Query(None, alias="limit"),
 ) -> list[WorkflowExecutionReadMinimal]:
     """List all workflow executions."""
     service = await WorkflowExecutionsService.connect(role=role)
-    if workflow_id:
-        executions = await service.list_executions_by_workflow_id(workflow_id)
-    else:
-        executions = await service.list_executions()
+    if triggered_by_user_id == SpecialUserID.CURRENT:
+        if role.user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User ID is required to filter by user ID",
+            )
+        triggered_by_user_id = role.user_id
+    executions = await service.list_executions(
+        workflow_id=workflow_id,
+        trigger_types=trigger_types,
+        triggered_by_user_id=triggered_by_user_id,
+        limit=limit,
+    )
     return [
         WorkflowExecutionReadMinimal.from_dataclass(execution)
         for execution in executions
@@ -73,6 +88,36 @@ async def get_workflow_execution(
         task_queue=execution.task_queue,
         history_length=execution.history_length,
         events=events,
+    )
+
+
+@router.get("/{execution_id}/compact")
+async def get_workflow_execution_compact(
+    role: WorkspaceUserRole,
+    execution_id: UnquotedExecutionID,
+) -> WorkflowExecutionReadCompact:
+    """Get a workflow execution."""
+    service = await WorkflowExecutionsService.connect(role=role)
+    execution = await service.get_execution(execution_id)
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow execution not found",
+        )
+
+    compact_events = await service.list_workflow_execution_events_compact(execution_id)
+    return WorkflowExecutionReadCompact(
+        id=execution.id,
+        parent_wf_exec_id=execution.parent_id,
+        run_id=execution.run_id,
+        start_time=execution.start_time,
+        execution_time=execution.execution_time,
+        close_time=execution.close_time,
+        status=execution.status,
+        workflow_type=execution.workflow_type,
+        task_queue=execution.task_queue,
+        history_length=execution.history_length,
+        events=compact_events,
     )
 
 
