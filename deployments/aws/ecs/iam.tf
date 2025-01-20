@@ -51,6 +51,8 @@ resource "aws_iam_policy" "secrets_access" {
           var.oauth_client_id_arn,
           var.oauth_client_secret_arn,
           var.saml_idp_metadata_url_arn,
+          var.temporal_api_key_arn,
+          var.temporal_mtls_cert_arn,
         ])
       }
     ]
