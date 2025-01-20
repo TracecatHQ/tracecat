@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useImperativeHandle,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -149,7 +150,14 @@ export function isEphemeral<T>(node: Node<T>): boolean {
   return ephemeralNodeTypes.includes(node?.type as string)
 }
 
-export function WorkflowCanvas() {
+export interface WorkflowCanvasRef {
+  centerOnNode: (nodeId: string) => void
+}
+
+export const WorkflowCanvas = React.forwardRef<
+  WorkflowCanvasRef,
+  React.ComponentPropsWithoutRef<typeof ReactFlow>
+>((props, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const connectingNodeId = useRef<string | null>(null)
   const connectingHandleId = useRef<string | null>(null)
@@ -419,6 +427,14 @@ export function WorkflowCanvas() {
       updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
     }
   }
+  // Export the centerOnNode function through useImperativeHandle
+  useImperativeHandle(
+    ref,
+    () => ({
+      centerOnNode,
+    }),
+    [centerOnNode]
+  )
 
   return (
     <div ref={containerRef} style={{ height: "100%", width: "100%" }}>
@@ -480,7 +496,9 @@ export function WorkflowCanvas() {
       </ReactFlow>
     </div>
   )
-}
+})
+
+WorkflowCanvas.displayName = "WorkflowCanvas"
 
 function NodeSilhouette({
   position,
