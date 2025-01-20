@@ -47,9 +47,9 @@ from tracecat.logger import logger
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
+from tracecat.workflow.executions.enums import WorkflowEventType
 from tracecat.workflow.executions.models import (
     EventGroup,
-    WorkflowEventType,
     WorkflowExecutionEvent,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
