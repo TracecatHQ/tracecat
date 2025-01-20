@@ -50,15 +50,30 @@ resource "aws_iam_policy" "secrets_access" {
           var.tracecat_signing_secret_arn,
           var.oauth_client_id_arn,
           var.oauth_client_secret_arn,
-          var.saml_idp_metadata_url_arn,
-          var.temporal_api_key_arn,
-          var.temporal_mtls_cert_arn,
         ])
       }
     ]
   })
 
   depends_on = [aws_db_instance.core_database]
+}
+
+resource "aws_iam_policy" "task_secrets_access" {
+  name        = "TracecatTaskSecretsAccessPolicy"
+  description = "Policy for accessing Tracecat secrets at runtime"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        Resource = compact([
+          var.temporal_api_key_arn,
+          var.temporal_mtls_cert_arn,
+        ])
+      }
+    ]
+  })
 }
 
 resource "aws_iam_policy" "temporal_secrets_access" {
@@ -151,6 +166,7 @@ resource "aws_iam_role" "api_worker_task" {
   name               = "TracecatAPIWorkerTaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
+
 resource "aws_iam_role_policy" "api_worker_task_db_access" {
   name = "TracecatAPIWorkerDBAccessPolicy"
   role = aws_iam_role.api_worker_task.id
@@ -171,6 +187,10 @@ resource "aws_iam_role_policy" "api_worker_task_db_access" {
       }
     ]
   })
+}
+resource "aws_iam_role_policy_attachment" "api_worker_task_secrets" {
+  policy_arn = aws_iam_policy.task_secrets_access.arn
+  role       = aws_iam_role.api_worker_task.name
 }
 
 # Temporal task role
