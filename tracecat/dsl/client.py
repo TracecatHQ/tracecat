@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 
 import aioboto3
@@ -61,6 +62,7 @@ async def _retrieve_temporal_api_key(arn: str) -> str:
 async def connect_to_temporal() -> Client:
     api_key = None
     tls_config = False
+    rpc_metadata = {}
 
     if TEMPORAL__MTLS_ENABLED:
         if not TEMPORAL__MTLS_CERT__ARN:
@@ -72,13 +74,19 @@ async def connect_to_temporal() -> Client:
             client_cert=client_cert.cert,
             client_private_key=client_cert.private_key,
         )
-
-    if TEMPORAL__API_KEY__ARN:
+    elif TEMPORAL__API_KEY__ARN:
         api_key = await _retrieve_temporal_api_key(arn=TEMPORAL__API_KEY__ARN)
+    elif os.environ.get("TEMPORAL__API_KEY"):
+        api_key = os.environ.get("TEMPORAL__API_KEY")
+
+    if api_key is not None:
+        tls_config = True
+        rpc_metadata["temporal-namespace"] = TEMPORAL__CLUSTER_NAMESPACE
 
     client = await Client.connect(
         target_host=TEMPORAL__CLUSTER_URL,
         namespace=TEMPORAL__CLUSTER_NAMESPACE,
+        rpc_metadata=rpc_metadata,
         api_key=api_key,
         tls=tls_config,
         data_converter=pydantic_data_converter,
