@@ -525,16 +525,22 @@ class WorkflowExecutionsService:
             run_config=dsl.config,
             kwargs=kwargs,
         )
-        search_attrs = [
-            trigger_type.to_temporal_search_attr_pair(),
-        ]
-        if self.role.user_id is not None:
-            search_attrs.append(
-                SearchAttributePair(
-                    key=SearchAttributeKey.for_keyword("TracecatTriggeredByUserId"),
-                    value=str(self.role.user_id),
+
+        if config.TEMPORAL__API_KEY__ARN or config.TEMPORAL__API_KEY:
+            self.logger.warning("Using Temporal cloud, skipping search attributes")
+            search_attrs = None
+        else:
+            pairs = [
+                trigger_type.to_temporal_search_attr_pair(),
+            ]
+            if self.role.user_id is not None:
+                pairs.append(
+                    SearchAttributePair(
+                        key=SearchAttributeKey.for_keyword("TracecatTriggeredByUserId"),
+                        value=str(self.role.user_id),
+                    )
                 )
-            )
+            search_attrs = TypedSearchAttributes(search_attributes=pairs)
         try:
             result = await self._client.execute_workflow(
                 DSLWorkflow.run,
@@ -546,7 +552,7 @@ class WorkflowExecutionsService:
                 retry_policy=retry_policies["workflow:fail_fast"],
                 # We don't currently differentiate between exec and run timeout as we fail fast for workflows
                 execution_timeout=datetime.timedelta(seconds=dsl.config.timeout),
-                search_attributes=TypedSearchAttributes(search_attributes=search_attrs),
+                search_attributes=search_attrs,
                 **kwargs,
             )
         except WorkflowFailureError as e:
