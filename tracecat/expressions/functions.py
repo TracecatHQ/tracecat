@@ -414,7 +414,7 @@ def prettify_json_str(x: Any) -> str:
 
 
 def to_datetime(x: Any, timezone: str | None = None) -> datetime:
-    """Convert input to datetime object from timestamp, ISO string or existing datetime.
+    """Convert input to datetime object from timestamp (in seconds), ISO 8601 string or existing datetime.
     Supports timezone-aware datetime objects if IANA timezone is provided.
     """
     tzinfo = None
@@ -428,7 +428,10 @@ def to_datetime(x: Any, timezone: str | None = None) -> datetime:
     elif isinstance(x, str):
         dt = datetime.fromisoformat(x)
     else:
-        raise ValueError(f"Invalid datetime value {x!r}")
+        raise ValueError(
+            "Expected ISO 8601 string or integer timestamp in seconds. Got "
+            f"{type(x)}: {x!r}"
+        )
 
     if tzinfo:
         dt = dt.astimezone(tzinfo)

@@ -200,17 +200,39 @@ def test_base64_invalid_input(invalid_input: str, decode_func) -> None:
 @pytest.mark.parametrize(
     "input_val,timezone,expected",
     [
+        # UTC timestamp for 2021-01-01 00:00:00
         (
             1609459200,
             "UTC",
             datetime(2021, 1, 1, 0, 0, tzinfo=UTC),
-        ),  # UTC timestamp for 2021-01-01 00:00:00
+        ),
         ("2021-01-01T00:00:00", None, datetime(2021, 1, 1, 0, 0)),
+        # ISO string with timezone
+        ("2021-01-01T00:00:00+00:00", None, datetime(2021, 1, 1, 0, 0, tzinfo=UTC)),
+        # ISO string without timezone
+        ("2021-01-01T00:00:00", "UTC", datetime(2021, 1, 1, 0, 0, tzinfo=UTC)),
+        # ISO date only
+        ("2021-01-01", None, datetime(2021, 1, 1, 0, 0)),
+        # Datetime object
         (datetime(2021, 1, 1, 0, 0), None, datetime(2021, 1, 1, 0, 0)),
     ],
 )
 def test_to_datetime(input_val: Any, timezone: str, expected: datetime) -> None:
     assert to_datetime(input_val, timezone) == expected
+
+
+@pytest.mark.parametrize(
+    "input",
+    [
+        # US mm/dd/yyyy format
+        "1/1/2021",
+        # ISO 8601 string with invalid date
+        "2021-02-31T00:00:00",
+    ],
+)
+def test_to_datetime_invalid_date_string(input: str) -> None:
+    with pytest.raises(ValueError):
+        to_datetime(input)
 
 
 @pytest.mark.parametrize(
