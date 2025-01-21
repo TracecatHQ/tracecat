@@ -25,14 +25,6 @@ SecretKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
 """Validator for a secret key. e.g. 'access_key_id'"""
 
 
-class RevealedSecretKeyValue(BaseModel):
-    key: str
-    value: str
-
-    def conceal(self) -> SecretKeyValue:
-        return SecretKeyValue(key=self.key, value=SecretStr(self.value))
-
-
 class SecretKeyValue(BaseModel):
     key: str
     value: SecretStr
@@ -41,9 +33,6 @@ class SecretKeyValue(BaseModel):
     def from_str(kv: str) -> SecretKeyValue:
         key, value = kv.split("=", 1)
         return SecretKeyValue(key=key, value=SecretStr(value))
-
-    def reveal(self) -> RevealedSecretKeyValue:
-        return RevealedSecretKeyValue(key=self.key, value=self.value.get_secret_value())
 
 
 class SecretBase(BaseModel):

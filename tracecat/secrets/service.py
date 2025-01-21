@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Sequence
 
+from pydantic import SecretStr
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -278,12 +279,18 @@ class SecretsService(BaseService):
         self,
         key_name: str = GIT_SSH_KEY_SECRET_NAME,
         environment: str | None = None,
-    ) -> SecretKeyValue:
+    ) -> SecretStr:
         try:
             secret = await self.get_org_secret_by_name(key_name, environment)
-            key = self.decrypt_keys(secret.encrypted_keys)[0]
-            logger.debug("SSH key found", key_name=key_name, key_length=len(key.value))
-            return key
+            kv = self.decrypt_keys(secret.encrypted_keys)[0]
+            logger.debug("SSH key found", key_name=key_name, key_length=len(kv.value))
+            raw_value = kv.value.get_secret_value()
+            # SSH keys must end with a newline char otherwise we run into
+            # load key errors in librcrypto.
+            # https://github.com/openssl/openssl/discussions/21481
+            if not raw_value.endswith("\n"):
+                raw_value += "\n"
+            return SecretStr(raw_value)
         except TracecatNotFoundError as e:
             raise TracecatNotFoundError(
                 f"SSH key {key_name} not found. Please check whether this key exists.\n\n"

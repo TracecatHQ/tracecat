@@ -123,7 +123,6 @@ async def test_dispatch_action_with_foreach(
             assert args[1] == dispatch_context
 
 
-@pytest.mark.skip(reason="This test is flaky and fails intermittently")
 @pytest.mark.anyio
 async def test_dispatch_action_with_git_url(mock_session, basic_task_input):
     with (
