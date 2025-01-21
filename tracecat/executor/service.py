@@ -339,7 +339,7 @@ async def run_action_on_ray_cluster(
 
         runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
 
-        logger.info("Running action on ray cluster", runtime_env=runtime_env)
+        logger.debug("Running action on ray cluster")
         obj_ref = run_action_task.options(runtime_env=runtime_env).remote(
             input, ctx.role
         )
