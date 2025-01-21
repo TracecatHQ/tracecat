@@ -1,3 +1,3 @@
 """Tracecat is the open source Tines / Splunk SOAR alternative."""
 
-__version__ = "0.21.4"
+__version__ = "0.21.5"
