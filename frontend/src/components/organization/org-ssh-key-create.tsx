@@ -36,7 +36,8 @@ interface CreateOrgSSHKeyDialogProps
   extends PropsWithChildren<
     DialogProps & React.HTMLAttributes<HTMLDivElement>
   > {}
-
+const sshKeyRegex =
+  /^-----BEGIN[A-Z\s]+PRIVATE KEY-----\n[A-Za-z0-9+/=\s]+\n-----END[A-Z\s]+PRIVATE KEY-----\n?$/
 const createOrgSSHKeySchema = z.object({
   name: z.string().default(""),
   description: z.string().max(255).default(""),
@@ -44,7 +45,13 @@ const createOrgSSHKeySchema = z.object({
     .string()
     .nullable()
     .transform((val) => val || "default"), // "default" if null or empty
-  private_key: z.string(),
+  private_key: z
+    .string()
+    .min(1, "SSH private key is required")
+    .refine(
+      (key) => sshKeyRegex.test(key),
+      "Invalid SSH private key format. Must be in PEM format with proper header and footer."
+    ),
 })
 type CreateOrgSSHKeyForm = z.infer<typeof createOrgSSHKeySchema>
 
@@ -56,6 +63,7 @@ export function CreateOrgSSHKeyDialog({
   const { createSecret } = useOrgSecrets()
 
   const methods = useForm<CreateOrgSSHKeyForm>({
+    mode: "onChange",
     resolver: zodResolver(createOrgSSHKeySchema),
     defaultValues: {
       name: "",
@@ -67,7 +75,6 @@ export function CreateOrgSSHKeyDialog({
   const { control, register } = methods
 
   const onSubmit = async (values: CreateOrgSSHKeyForm) => {
-    console.log("Submitting new SSH key", values)
     const { private_key, ...rest } = values
     try {
       const secret: SecretCreate = {
@@ -170,15 +177,15 @@ export function CreateOrgSSHKeyDialog({
                 name="private_key"
                 render={() => (
                   <FormItem>
-                    <FormLabel className="text-sm">Keys</FormLabel>
+                    <FormLabel className="text-sm">Key</FormLabel>
                     <FormDescription className="text-sm">
-                      The SSH private key. This is encrypted and stored in
-                      Tracecat&apos;s secrets manager.
+                      The SSH private key in PEM format. This is encrypted and
+                      stored in Tracecat&apos;s secrets manager.
                     </FormDescription>
                     <FormControl>
                       <Textarea
                         className="h-96 text-sm"
-                        placeholder="Starts with '-----BEGIN RSA PRIVATE KEY-----'"
+                        placeholder="Starts with '-----BEGIN OPENSSH PRIVATE KEY-----"
                         {...register("private_key")}
                       />
                     </FormControl>
