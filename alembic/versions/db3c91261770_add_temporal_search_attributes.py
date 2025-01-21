@@ -7,7 +7,6 @@ Create Date: 2025-01-18 21:27:38.967454
 """
 
 import asyncio
-import os
 from collections.abc import Sequence
 
 from temporalio.api.enums.v1 import IndexedValueType

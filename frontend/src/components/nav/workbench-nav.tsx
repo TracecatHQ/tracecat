@@ -4,11 +4,6 @@ import React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { ApiError, RegistryActionValidateResponse } from "@/client"
-import {
-  ApiError,
-  RegistryActionValidateResponse,
-  workflowExecutionsCreateWorkflowExecution,
-} from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
