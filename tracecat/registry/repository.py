@@ -29,6 +29,7 @@ from typing_extensions import Doc
 
 from tracecat import config
 from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.git import GitUrl, get_git_repository_sha, parse_git_url
@@ -293,7 +294,10 @@ class Repository:
         """Install the remote repository into the filesystem and return the commit sha."""
 
         url = git_url.to_url()
-        async with ssh_context(role=self.role, git_url=git_url) as env:
+        async with (
+            get_async_session_context_manager() as session,
+            ssh_context(role=self.role, git_url=git_url, session=session) as env,
+        ):
             if env is None:
                 raise RegistryError("No SSH key found")
             if commit_sha is None:
