@@ -82,9 +82,9 @@ async def get_workflow_definition_activity(
         defn = await service.get_definition_by_workflow_id(
             input.workflow_id, version=input.version
         )
-    if not defn:
-        msg = f"Workflow definition not found for {input.workflow_id!r}, version={input.version}"
-        logger.error(msg)
-        raise TracecatException(msg)
-    dsl = DSLInput(**defn.content)
+        if not defn:
+            msg = f"Workflow definition not found for {input.workflow_id!r}, version={input.version}"
+            logger.error(msg)
+            raise TracecatException(msg)
+        dsl = DSLInput(**defn.content)
     return dsl

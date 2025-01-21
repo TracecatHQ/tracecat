@@ -112,6 +112,10 @@ retry_policies = {
         maximum_attempts=1,
         non_retryable_error_types=non_retryable_error_types,
     ),
+    "activity:fail_slow": RetryPolicy(
+        maximum_attempts=6,
+        non_retryable_error_types=non_retryable_error_types,
+    ),
     "workflow:fail_fast": RetryPolicy(
         # XXX: Do not set max attempts to 0, it will default to unlimited
         maximum_attempts=1,
@@ -638,7 +642,7 @@ class DSLWorkflow:
             get_workflow_definition_activity,
             arg=activity_inputs,
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=retry_policies["activity:fail_slow"],
         )
 
     async def _validate_trigger_inputs(
