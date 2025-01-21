@@ -7,7 +7,7 @@ from pydantic import Field
 from tracecat_registry import registry
 
 # Improved regular expression to match URLs including paths and query parameters
-URL_REGEX = r'https?://(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(?:/[^\s"\'\],\.]*)?'
+URL_REGEX = r'^https?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)$'
 
 
 @registry.register(
