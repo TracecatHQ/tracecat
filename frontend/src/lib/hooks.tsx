@@ -80,9 +80,13 @@ import {
   UpsertWebhookParams,
   usersUsersPatchCurrentUser,
   UserUpdate,
+  WorkflowExecutionCreate,
   WorkflowExecutionRead,
+  WorkflowExecutionReadCompact,
   WorkflowExecutionReadMinimal,
+  workflowExecutionsCreateWorkflowExecution,
   workflowExecutionsGetWorkflowExecution,
+  workflowExecutionsGetWorkflowExecutionCompact,
   workflowExecutionsListWorkflowExecutions,
   WorkflowReadMinimal,
   workflowsAddTag,
@@ -501,15 +505,94 @@ export function useWorkflowExecution(
     executionError,
   }
 }
+
+export function useCompactWorkflowExecution(
+  workflowExecutionId: string,
+  options?: {
+    refetchInterval?: number
+  }
+) {
+  const { workspaceId } = useWorkspace()
+  const {
+    data: execution,
+    isLoading: executionIsLoading,
+    error: executionError,
+  } = useQuery<WorkflowExecutionReadCompact, Error>({
+    queryKey: ["compact-workflow-execution", workflowExecutionId],
+    queryFn: async () =>
+      await workflowExecutionsGetWorkflowExecutionCompact({
         workspaceId,
         executionId: workflowExecutionId,
       }),
     ...options,
   })
   return {
-    workflowExecution,
-    workflowExecutionLoading,
-    workflowExecutionError,
+    execution,
+    executionIsLoading,
+    executionError,
+  }
+}
+
+export function useManualWorkflowExecution(
+  workflowId: string,
+  options?: {
+    refetchInterval?: number
+  }
+) {
+  const queryClient = useQueryClient()
+  const { workspaceId } = useWorkspace()
+  // Create execution
+  const { mutateAsync: createExecution, isPending: createExecutionIsPending } =
+    useMutation({
+      mutationFn: async (params: WorkflowExecutionCreate) =>
+        await workflowExecutionsCreateWorkflowExecution({
+          workspaceId,
+          requestBody: params,
+        }),
+      onSuccess: async () => {
+        await queryClient.invalidateQueries({
+          queryKey: ["last-manual-execution"],
+        })
+        await queryClient.invalidateQueries({
+          queryKey: ["last-manual-execution", workflowId],
+        })
+        // Force refetch
+        await queryClient.refetchQueries({
+          queryKey: ["last-manual-execution"],
+          type: "all",
+        })
+        await queryClient.refetchQueries({
+          queryKey: ["last-manual-execution", workflowId],
+          type: "all",
+        })
+      },
+    })
+  // Last execution
+  const {
+    data: lastExecution,
+    isLoading: lastExecutionIsLoading,
+    error: lastExecutionError,
+  } = useQuery<WorkflowExecutionReadMinimal | null, Error>({
+    queryKey: ["last-manual-execution", workflowId],
+    queryFn: async () => {
+      const executions = await workflowExecutionsListWorkflowExecutions({
+        workspaceId,
+        workflowId,
+        trigger: ["manual"],
+        limit: 1,
+        userId: "current",
+      })
+      return executions.length > 0 ? executions[0] : null
+    },
+    staleTime: 0,
+    ...options,
+  })
+  return {
+    lastExecution,
+    lastExecutionIsLoading,
+    lastExecutionError,
+    createExecution,
+    createExecutionIsPending,
   }
 }
 
