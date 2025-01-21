@@ -427,6 +427,26 @@ export const WorkflowCanvas = React.forwardRef<
       updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
     }
   }
+
+  // Add this function to center on a node
+  const centerOnNode = useCallback(
+    (nodeId: string) => {
+      if (!reactFlowInstance) return
+
+      const node = reactFlowInstance.getNode(nodeId)
+      console.log("center on node", node)
+      if (!node) return
+
+      // Get the node's position and dimensions
+      const x = node.position.x + (node.width ?? defaultNodeWidth) / 2
+      const y = node.position.y + (node.height ?? defaultNodeHeight) / 2
+
+      // Animate to the node's center position
+      reactFlowInstance.setCenter(x, y, { duration: 800 })
+    },
+    [reactFlowInstance]
+  )
+
   // Export the centerOnNode function through useImperativeHandle
   useImperativeHandle(
     ref,
