@@ -311,7 +311,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                           </DropdownMenu>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                              <AlertDialogTitle>Delete schedule</AlertDialogTitle>
                               <AlertDialogDescription>
                                 Are you sure you want to delete this schedule?
                                 This action cannot be undone.

@@ -306,7 +306,7 @@ export function OrgMembersTable() {
         />
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Remove user</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to remove this user from the organization?
               This action cannot be undone.

@@ -291,7 +291,7 @@ function TagItemActionDialogContent({
       return (
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Delete tag</AlertDialogTitle>
             <AlertDialogDescription>
               You are about to delete the tag{" "}
               <span className="font-bold text-foreground">{tag.name}</span>.

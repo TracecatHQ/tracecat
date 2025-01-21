@@ -151,7 +151,7 @@ export function OrgSessionsTable() {
         />
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Revoke session</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to revoke the session for{" "}
               <span className="font-semibold">

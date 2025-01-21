@@ -40,10 +40,10 @@ export function DeleteRegistryActionAlertDialog({
       {children}
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+          <AlertDialogTitle>Delete action</AlertDialogTitle>
           <AlertDialogDescription className="flex flex-col space-y-2">
             <span>
-              Are you sure you want to remove this action from the registry?
+              Are you sure you want to delete this action from the registry?
               This action cannot be undone.
             </span>
             <span>
