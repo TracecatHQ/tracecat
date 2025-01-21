@@ -48,27 +48,24 @@ export function WorkflowExecutionEventHistory({
   selectedEvent?: WorkflowExecutionEvent
   setSelectedEvent: (event: WorkflowExecutionEvent) => void
 }) {
-  const {
-    workflowExecution,
-    workflowExecutionLoading,
-    workflowExecutionError,
-  } = useWorkflowExecution(executionId, {
-    refetchInterval: REFETCH_INTERVAL,
-  })
+  const { execution, executionIsLoading, executionError } =
+    useWorkflowExecution(executionId, {
+      refetchInterval: REFETCH_INTERVAL,
+    })
 
-  if (workflowExecutionLoading) {
+  if (executionIsLoading) {
     return <CenteredSpinner />
   }
-  if (workflowExecutionError) {
-    return <AlertNotification message={workflowExecutionError.message} />
+  if (executionError) {
+    return <AlertNotification message={executionError.message} />
   }
-  if (!workflowExecution) {
+  if (!execution) {
     return <NoContent message="No event history found." />
   }
   return (
     <div className="group flex flex-col gap-4 py-2">
       <nav className="grid gap-1 px-2">
-        {workflowExecution.events.map((event, index) => (
+        {execution.events.map((event, index) => (
           <Button
             key={index}
             className={cn(

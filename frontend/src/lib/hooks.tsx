@@ -476,23 +476,31 @@ export function useWorkflowExecutions(
 }
 
 export function useWorkflowExecution(
-  workflowExecutionId: string,
+  executionId: string,
   options?: {
-    /**
-     * Refetch interval in milliseconds
-     */
     refetchInterval?: number
   }
 ) {
   const { workspaceId } = useWorkspace()
   const {
-    data: workflowExecution,
-    isLoading: workflowExecutionLoading,
-    error: workflowExecutionError,
+    data: execution,
+    isLoading: executionIsLoading,
+    error: executionError,
   } = useQuery<WorkflowExecutionRead, Error>({
-    queryKey: ["workflow-executions", workflowExecutionId],
+    queryKey: ["workflow-executions", executionId],
     queryFn: async () =>
       await workflowExecutionsGetWorkflowExecution({
+        workspaceId,
+        executionId: executionId,
+      }),
+    ...options,
+  })
+  return {
+    execution,
+    executionIsLoading,
+    executionError,
+  }
+}
         workspaceId,
         executionId: workflowExecutionId,
       }),
