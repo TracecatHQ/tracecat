@@ -15,7 +15,7 @@ from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-from tracecat.db.engine import get_async_engine, get_async_session_context_manager
+from tracecat.db.engine import get_async_engine
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.models import (
     ActionStatement,
@@ -324,10 +324,7 @@ async def run_action_on_ray_cluster(
     All application/user level errors are caught by the executor and returned as values.
     """
     # Initialize runtime environment variables
-    async with (
-        get_async_session_context_manager() as session,
-        ssh_context(git_url=ctx.git_url, session=session, role=ctx.role) as env,
-    ):
+    async with ssh_context(git_url=ctx.git_url, role=ctx.role) as env:
         env_vars = env.to_dict() if env else {}
         additional_vars: dict[str, Any] = {}
 
