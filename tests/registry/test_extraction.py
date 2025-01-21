@@ -124,7 +124,7 @@ def test_extract_ipv4_addresses(texts, expected_ip_addresses):
             ["https://secure.url/nX-BpUKr17mePOHRS5_IUlHEPW//https%3A%2F%2Fmyurl.com"],
         ),
         (
-            "<p>Click on this link: <a href="https://www.exemple.com/SUB" target="_blank">https://www.exemple.com/SUB</a></p>",
+            "<p>Click on this link: <a href='https://www.exemple.com/SUB' target='_blank'>https://www.exemple.com/SUB</a></p>",
             ["https://www.exemple.com/SUB"],
         ),
         (
