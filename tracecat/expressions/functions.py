@@ -96,38 +96,6 @@ def url_encode(x: str) -> str:
     return urllib.parse.quote(x)
 
 
-def from_timestamp(x: int, unit: str) -> datetime:
-    """Convert timestamp to datetime, handling milliseconds if unit is 'ms'."""
-    if unit == "ms":
-        dt = datetime.fromtimestamp(x / 1000)
-    else:
-        dt = datetime.fromtimestamp(x)
-    return dt
-
-
-def to_datetime(x: Any, timezone: str | None = None) -> datetime:
-    """Convert input to datetime object from timestamp, ISO string or existing datetime.
-    Supports timezone-aware datetime objects if IANA timezone is provided.
-    """
-    tzinfo = None
-    if timezone:
-        tzinfo = zoneinfo.ZoneInfo(timezone)
-
-    if isinstance(x, datetime):
-        dt = x
-    elif isinstance(x, int):
-        dt = datetime.fromtimestamp(x)
-    elif isinstance(x, str):
-        dt = datetime.fromisoformat(x)
-    else:
-        raise ValueError(f"Invalid datetime value {x!r}")
-
-    if tzinfo:
-        dt = dt.astimezone(tzinfo)
-
-    return dt
-
-
 def add_prefix(x: str | list[str], prefix: str) -> str | list[str]:
     """Add a prefix to a string or list of strings."""
     if is_iterable(x, container_only=True):
@@ -445,9 +413,58 @@ def prettify_json_str(x: Any) -> str:
 # Time-related functions
 
 
-def to_timestamp_str(x: datetime) -> float:
-    """Convert datetime to timestamp."""
-    return x.timestamp()
+def to_datetime(x: Any, timezone: str | None = None) -> datetime:
+    """Convert input to datetime object from timestamp, ISO string or existing datetime.
+    Supports timezone-aware datetime objects if IANA timezone is provided.
+    """
+    tzinfo = None
+    if timezone:
+        tzinfo = zoneinfo.ZoneInfo(timezone)
+
+    if isinstance(x, datetime):
+        dt = x
+    elif isinstance(x, int):
+        dt = datetime.fromtimestamp(x)
+    elif isinstance(x, str):
+        dt = datetime.fromisoformat(x)
+    else:
+        raise ValueError(f"Invalid datetime value {x!r}")
+
+    if tzinfo:
+        dt = dt.astimezone(tzinfo)
+
+    return dt
+
+
+def parse_datetime(x: str, format: str) -> datetime:
+    """Parse string to datetime using specified format."""
+    return datetime.strptime(x, format)
+
+
+def format_datetime(x: datetime | str, format: str) -> str:
+    """Format datetime into specified format (e.g. '%Y-%m-%d %H:%M:%S')."""
+    if isinstance(x, str):
+        x = to_datetime(x)
+    return x.strftime(format)
+
+
+def to_timestamp(x: datetime | str, unit: str = "s") -> int:
+    """Convert datetime to timestamp in milliseconds ('ms') or seconds ('s')."""
+    if isinstance(x, str):
+        x = to_datetime(x)
+    ts = x.timestamp()
+    if unit == "ms":
+        return int(ts * 1000)
+    return int(ts)
+
+
+def from_timestamp(x: int, unit: str = "s") -> datetime:
+    """Convert integer timestamp in milliseconds ('ms') or seconds ('s') to datetime."""
+    if unit == "ms":
+        dt = datetime.fromtimestamp(x / 1000)
+    else:
+        dt = datetime.fromtimestamp(x)
+    return dt
 
 
 def create_datetime(
@@ -462,25 +479,33 @@ def create_datetime(
     return datetime(year, month, day, hour, minute, second)
 
 
-def get_second(x: datetime) -> int:
+def get_second(x: datetime | str) -> int:
     """Get second (0-59) from datetime."""
+    if isinstance(x, str):
+        x = to_datetime(x)
     return x.second
 
 
-def get_minute(x: datetime) -> int:
+def get_minute(x: datetime | str) -> int:
     """Get minute (0-59) from datetime."""
+    if isinstance(x, str):
+        x = to_datetime(x)
     return x.minute
 
 
-def get_hour(x: datetime) -> int:
+def get_hour(x: datetime | str) -> int:
     """Get hour (0-23) from datetime."""
+    if isinstance(x, str):
+        x = to_datetime(x)
     return x.hour
 
 
 def get_day_of_week(
-    x: datetime, format: Literal["number", "full", "short"] = "number"
+    x: datetime | str, format: Literal["number", "full", "short"] = "number"
 ) -> int | str:
     """Extract day of week from datetime. Returns 0-6 (Mon-Sun) or day name if format is "full" or "short"."""
+    if isinstance(x, str):
+        x = to_datetime(x)
     weekday = x.weekday()
     match format:
         case "number":
@@ -503,15 +528,19 @@ def get_day_of_week(
             raise ValueError("format must be 'number', 'full', or 'short'")
 
 
-def get_day(x: datetime) -> int:
+def get_day(x: datetime | str) -> int:
     """Get day of month (1-31) from datetime."""
+    if isinstance(x, str):
+        x = to_datetime(x)
     return x.day
 
 
 def get_month(
-    x: datetime, format: Literal["number", "full", "short"] = "number"
+    x: datetime | str, format: Literal["number", "full", "short"] = "number"
 ) -> int | str:
     """Extract month from datetime. Returns 1-12 or month name if format is "full" or "short"."""
+    if isinstance(x, str):
+        x = to_datetime(x)
     month = x.month
     match format:
         case "number":
@@ -552,8 +581,10 @@ def get_month(
             raise ValueError("format must be 'number', 'full', or 'short'")
 
 
-def get_year(x: datetime) -> int:
+def get_year(x: datetime | str) -> int:
     """Get year from datetime."""
+    if isinstance(x, str):
+        x = to_datetime(x)
     return x.year
 
 
@@ -582,38 +613,55 @@ def create_weeks(x: int) -> timedelta:
     return timedelta(weeks=x)
 
 
-def seconds_between(start: datetime, end: datetime) -> float:
+def seconds_between(start: datetime | str, end: datetime | str) -> float:
     """Seconds between two datetimes."""
+    if isinstance(start, str):
+        start = to_datetime(start)
+    if isinstance(end, str):
+        end = to_datetime(end)
     return (end - start).total_seconds()
 
 
-def minutes_between(start: datetime, end: datetime) -> float:
+def minutes_between(start: datetime | str, end: datetime | str) -> float:
     """Minutes between two datetimes."""
+    if isinstance(start, str):
+        start = to_datetime(start)
+    if isinstance(end, str):
+        end = to_datetime(end)
     return (end - start).total_seconds() / 60
 
 
-def hours_between(start: datetime, end: datetime) -> float:
+def hours_between(start: datetime | str, end: datetime | str) -> float:
     """Hours between two datetimes."""
+    if isinstance(start, str):
+        start = to_datetime(start)
+    if isinstance(end, str):
+        end = to_datetime(end)
     return (end - start).total_seconds() / 3600
 
 
-def days_between(start: datetime, end: datetime) -> float:
+def days_between(start: datetime | str, end: datetime | str) -> float:
     """Days between two datetimes."""
+    if isinstance(start, str):
+        start = to_datetime(start)
+    if isinstance(end, str):
+        end = to_datetime(end)
     return (end - start).total_seconds() / 86400
 
 
-def weeks_between(start: datetime, end: datetime) -> float:
+def weeks_between(start: datetime | str, end: datetime | str) -> float:
     """Weeks between two datetimes or dates."""
+    if isinstance(start, str):
+        start = to_datetime(start)
+    if isinstance(end, str):
+        end = to_datetime(end)
     return (end - start).total_seconds() / 604800
 
 
-def to_date_string(x: datetime, format: str) -> str:
-    """Format datetime to string using specified format."""
-    return x.strftime(format)
-
-
-def to_iso_format(x: datetime) -> str:
+def to_isoformat(x: datetime | str) -> str:
     """Convert datetime to ISO format string."""
+    if isinstance(x, str):
+        x = to_datetime(x)
     return x.isoformat()
 
 
@@ -632,19 +680,25 @@ def today() -> date:
     return date.today()
 
 
-def set_timezone(x: datetime, timezone: str) -> datetime:
+def set_timezone(x: datetime | str, timezone: str) -> datetime:
     """Convert datetime to different timezone. Timezone must be a valid IANA timezone name (e.g., "America/New_York")."""
+    if isinstance(x, str):
+        x = to_datetime(x)
     tz = zoneinfo.ZoneInfo(timezone)
     return x.astimezone(tz)
 
 
-def unset_timezone(x: datetime) -> datetime:
+def unset_timezone(x: datetime | str) -> datetime:
     """Remove timezone information from datetime without changing the time."""
+    if isinstance(x, str):
+        x = to_datetime(x)
     return x.replace(tzinfo=None)
 
 
-def windows_filetime(x: datetime) -> int:
+def windows_filetime(x: datetime | str) -> int:
     """Convert datetime to Windows filetime."""
+    if isinstance(x, str):
+        x = to_datetime(x)
     # Define Windows and Unix epochs
     windows_epoch = datetime(1601, 1, 1, tzinfo=UTC)
 
@@ -877,34 +931,35 @@ _FUNCTION_MAPPING = {
     "deserialize_ndjson": deserialize_ndjson,
     "extract_text_from_html": extract_text_from_html,
     # Time related
-    "from_timestamp": from_timestamp,
-    "get_second": get_second,
-    "get_minute": get_minute,
-    "get_hour": get_hour,
-    "get_day": get_day,
-    "get_day_of_week": get_day_of_week,
-    "get_month": get_month,
-    "get_year": get_year,
     "datetime": create_datetime,
-    "seconds": create_seconds,
-    "minutes": create_minutes,
-    "hours": create_hours,
-    "days": create_days,
-    "weeks": create_weeks,
-    "seconds_between": seconds_between,
-    "minutes_between": minutes_between,
-    "hours_between": hours_between,
     "days_between": days_between,
-    "weeks_between": weeks_between,
+    "days": create_days,
+    "format_datetime": format_datetime,
+    "from_timestamp": from_timestamp,
+    "get_day_of_week": get_day_of_week,
+    "get_day": get_day,
+    "get_hour": get_hour,
+    "get_minute": get_minute,
+    "get_month": get_month,
+    "get_second": get_second,
+    "get_year": get_year,
+    "hours_between": hours_between,
+    "hours": create_hours,
+    "minutes_between": minutes_between,
+    "minutes": create_minutes,
     "now": now,
-    "utcnow": utcnow,
-    "today": today,
+    "parse_datetime": parse_datetime,
+    "seconds_between": seconds_between,
+    "seconds": create_seconds,
     "set_timezone": set_timezone,
-    "unset_timezone": unset_timezone,
-    "to_datestring": to_date_string,
     "to_datetime": to_datetime,
-    "to_isoformat": to_iso_format,
-    "to_timestamp": to_timestamp_str,
+    "to_isoformat": to_isoformat,
+    "to_timestamp": to_timestamp,
+    "today": today,
+    "unset_timezone": unset_timezone,
+    "utcnow": utcnow,
+    "weeks_between": weeks_between,
+    "weeks": create_weeks,
     "windows_filetime": windows_filetime,
     # Base64
     "to_base64": str_to_b64,

@@ -36,6 +36,7 @@ from tracecat.expressions.functions import (
     extract_text_from_html,
     filter_,
     flatten,
+    format_datetime,
     format_string,
     from_timestamp,
     generate_uuid,
@@ -70,6 +71,7 @@ from tracecat.expressions.functions import (
     not_equal,
     not_null,
     or_,
+    parse_datetime,
     pow,
     prettify_json_str,
     regex_extract,
@@ -88,7 +90,7 @@ from tracecat.expressions.functions import (
     sum_,
     titleize,
     to_datetime,
-    to_timestamp_str,
+    to_timestamp,
     union,
     unset_timezone,
     uppercase,
@@ -791,22 +793,6 @@ def test_str_to_b64(input_str: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "dt_input,expected_type",
-    [
-        (datetime(2024, 1, 1), float),
-        (datetime(2024, 12, 31, 23, 59, 59), float),
-    ],
-)
-def test_to_timestamp_str(dt_input: datetime, expected_type: type) -> None:
-    result = to_timestamp_str(dt_input)
-    assert isinstance(result, expected_type)
-    # Verify roundtrip
-    assert from_timestamp(int(result), "s").replace(microsecond=0) == dt_input.replace(
-        microsecond=0
-    )
-
-
-@pytest.mark.parametrize(
     "input_dict,key,expected",
     [
         ({"a": 1}, "a", 1),
@@ -929,3 +915,89 @@ def test_create_range(start: int, end: int, step: int, expected: list[int]) -> N
 def test_difference(a: Sequence[Any], b: Sequence[Any], expected: list[Any]) -> None:
     """Test set difference between two sequences."""
     assert sorted(difference(a, b)) == sorted(expected)
+
+
+@pytest.mark.parametrize(
+    "input_val,unit,expected",
+    [
+        (1609459200, "s", datetime(2021, 1, 1, 0, 0)),  # 2021-01-01 00:00:00
+        (1609459200000, "ms", datetime(2021, 1, 1, 0, 0)),  # Same time in milliseconds
+        (1672531200, "s", datetime(2023, 1, 1, 0, 0)),  # 2023-01-01 00:00:00
+        (1672531200000, "ms", datetime(2023, 1, 1, 0, 0)),  # Same time in milliseconds
+    ],
+)
+def test_from_timestamp(input_val: int, unit: str, expected: datetime) -> None:
+    assert from_timestamp(input_val, unit) == expected
+
+
+@pytest.mark.parametrize(
+    "input_val,unit,expected",
+    [
+        (datetime(2021, 1, 1, 0, 0), "s", 1609459200),  # 2021-01-01 00:00:00
+        (datetime(2021, 1, 1, 0, 0), "ms", 1609459200000),  # Same time in milliseconds
+        (datetime(2023, 1, 1, 0, 0), "s", 1672531200),  # 2023-01-01 00:00:00
+        (datetime(2023, 1, 1, 0, 0), "ms", 1672531200000),  # Same time in milliseconds
+        ("2021-01-01T00:00:00", "s", 1609459200),  # String input
+        ("2023-01-01T00:00:00", "ms", 1672531200000),  # String input with ms
+    ],
+)
+def test_to_timestamp(input_val: datetime | str, unit: str, expected: int) -> None:
+    assert to_timestamp(input_val, unit) == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,format_str,expected",
+    [
+        (
+            "2021-01-01 00:00:00",
+            "%Y-%m-%d %H:%M:%S",
+            datetime(2021, 1, 1, 0, 0, 0),
+        ),
+        (
+            "01/01/2021 15:30",
+            "%d/%m/%Y %H:%M",
+            datetime(2021, 1, 1, 15, 30),
+        ),
+        (
+            "2023-12-31",
+            "%Y-%m-%d",
+            datetime(2023, 12, 31),
+        ),
+    ],
+)
+def test_parse_datetime(input_str: str, format_str: str, expected: datetime) -> None:
+    assert parse_datetime(input_str, format_str) == expected
+
+    # Test invalid format
+    with pytest.raises(ValueError):
+        parse_datetime(input_str, "invalid_format")
+
+
+@pytest.mark.parametrize(
+    "input_val,format_str,expected",
+    [
+        (
+            datetime(2021, 1, 1, 0, 0),
+            "%Y-%m-%d %H:%M:%S",
+            "2021-01-01 00:00:00",
+        ),
+        (
+            datetime(2021, 1, 1, 15, 30),
+            "%d/%m/%Y %H:%M",
+            "01/01/2021 15:30",
+        ),
+        (
+            "2021-01-01T00:00:00",  # String input
+            "%Y-%m-%d",
+            "2021-01-01",
+        ),
+    ],
+)
+def test_format_datetime(
+    input_val: datetime | str, format_str: str, expected: str
+) -> None:
+    assert format_datetime(input_val, format_str) == expected
+
+    # Test invalid format
+    with pytest.raises(ValueError):
+        format_datetime(input_val, "invalid_format")
