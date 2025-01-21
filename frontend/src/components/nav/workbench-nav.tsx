@@ -3,6 +3,7 @@
 import React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
+import { ApiError, RegistryActionValidateResponse } from "@/client"
 import {
   ApiError,
   RegistryActionValidateResponse,
@@ -27,7 +28,7 @@ import { z } from "zod"
 
 import { TracecatApiError } from "@/lib/errors"
 import { exportWorkflow, handleExportError } from "@/lib/export"
-import { useWorkflowManager } from "@/lib/hooks"
+import { useManualWorkflowExecution, useWorkflowManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -369,6 +370,7 @@ function WorkflowManualTrigger({
   disabled: boolean
   workflowId: string
 }) {
+  const { createExecution } = useManualWorkflowExecution(workflowId)
   const [open, setOpen] = React.useState(false)
   const { workspaceId } = useWorkspace()
   const [lastTriggerInput, setLastTriggerInput] = React.useState<string | null>(
@@ -391,12 +393,9 @@ function WorkflowManualTrigger({
     setLastTriggerInput(payload)
     setManualTriggerErrors(null)
     try {
-      const response = await workflowExecutionsCreateWorkflowExecution({
-        workspaceId,
-        requestBody: {
-          workflow_id: workflowId,
-          inputs: payload ? JSON.parse(payload) : undefined,
-        },
+      const response = await createExecution({
+        workflow_id: workflowId,
+        inputs: payload ? JSON.parse(payload) : undefined,
       })
       console.log("Workflow started", response)
       toast({
