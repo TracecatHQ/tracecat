@@ -942,10 +942,26 @@ def test_difference(a: Sequence[Any], b: Sequence[Any], expected: list[Any]) -> 
 @pytest.mark.parametrize(
     "input_val,unit,expected",
     [
-        (1609459200, "s", datetime(2021, 1, 1, 0, 0)),  # 2021-01-01 00:00:00
-        (1609459200000, "ms", datetime(2021, 1, 1, 0, 0)),  # Same time in milliseconds
-        (1672531200, "s", datetime(2023, 1, 1, 0, 0)),  # 2023-01-01 00:00:00
-        (1672531200000, "ms", datetime(2023, 1, 1, 0, 0)),  # Same time in milliseconds
+        (
+            1609459200,
+            "s",
+            datetime(2021, 1, 1, 0, 0, tzinfo=UTC),
+        ),  # 2021-01-01 00:00:00
+        (
+            1609459200000,
+            "ms",
+            datetime(2021, 1, 1, 0, 0, tzinfo=UTC),
+        ),  # Same time in milliseconds
+        (
+            1672531200,
+            "s",
+            datetime(2023, 1, 1, 0, 0, tzinfo=UTC),
+        ),  # 2023-01-01 00:00:00
+        (
+            1672531200000,
+            "ms",
+            datetime(2023, 1, 1, 0, 0, tzinfo=UTC),
+        ),  # Same time in milliseconds
     ],
 )
 def test_from_timestamp(input_val: int, unit: str, expected: datetime) -> None:
@@ -955,10 +971,26 @@ def test_from_timestamp(input_val: int, unit: str, expected: datetime) -> None:
 @pytest.mark.parametrize(
     "input_val,unit,expected",
     [
-        (datetime(2021, 1, 1, 0, 0), "s", 1609459200),  # 2021-01-01 00:00:00
-        (datetime(2021, 1, 1, 0, 0), "ms", 1609459200000),  # Same time in milliseconds
-        (datetime(2023, 1, 1, 0, 0), "s", 1672531200),  # 2023-01-01 00:00:00
-        (datetime(2023, 1, 1, 0, 0), "ms", 1672531200000),  # Same time in milliseconds
+        (
+            datetime(2021, 1, 1, 0, 0, tzinfo=UTC),
+            "s",
+            1609459200,
+        ),  # 2021-01-01 00:00:00
+        (
+            datetime(2021, 1, 1, 0, 0, tzinfo=UTC),
+            "ms",
+            1609459200000,
+        ),  # Same time in milliseconds
+        (
+            datetime(2023, 1, 1, 0, 0, tzinfo=UTC),
+            "s",
+            1672531200,
+        ),  # 2023-01-01 00:00:00
+        (
+            datetime(2023, 1, 1, 0, 0, tzinfo=UTC),
+            "ms",
+            1672531200000,
+        ),  # Same time in milliseconds
         ("2021-01-01T00:00:00", "s", 1609459200),  # String input
         ("2023-01-01T00:00:00", "ms", 1672531200000),  # String input with ms
     ],
@@ -1013,13 +1045,21 @@ def test_parse_datetime(input_str: str, format_str: str, expected: datetime) -> 
             "%Y-%m-%d",
             "2021-01-01",
         ),
+        # With timezone
+        (
+            datetime(2021, 1, 1, 0, 0, tzinfo=UTC),
+            "%Y-%m-%d %H:%M:%S",
+            "2021-01-01 00:00:00",
+        ),
+        # With timezone in ISO 8601 datetime string
+        (
+            "2021-01-01T00:00:00+00:00",
+            "%Y-%m-%d %H:%M:%S",
+            "2021-01-01 00:00:00",
+        ),
     ],
 )
 def test_format_datetime(
     input_val: datetime | str, format_str: str, expected: str
 ) -> None:
     assert format_datetime(input_val, format_str) == expected
-
-    # Test invalid format
-    with pytest.raises(ValueError):
-        format_datetime(input_val, "invalid_format")

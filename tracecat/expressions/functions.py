@@ -414,7 +414,8 @@ def prettify_json_str(x: Any) -> str:
 
 
 def to_datetime(x: Any, timezone: str | None = None) -> datetime:
-    """Convert input to datetime object from timestamp (in seconds), ISO 8601 string or existing datetime.
+    """Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime.
+
     Supports timezone-aware datetime objects if IANA timezone is provided.
     """
     tzinfo = None
@@ -424,15 +425,25 @@ def to_datetime(x: Any, timezone: str | None = None) -> datetime:
     if isinstance(x, datetime):
         dt = x
     elif isinstance(x, int):
-        dt = datetime.fromtimestamp(x)
+        dt = datetime.fromtimestamp(x, UTC)
     elif isinstance(x, str):
-        dt = datetime.fromisoformat(x)
+        # First try to parse with timezone info
+        try:
+            dt = datetime.fromisoformat(x)
+        except ValueError:
+            # If it fails, assume UTC for the input
+            dt = datetime.fromisoformat(x).replace(tzinfo=UTC)
     else:
         raise ValueError(
             "Expected ISO 8601 string or integer timestamp in seconds. Got "
             f"{type(x)}: {x!r}"
         )
 
+    # If input has no timezone and one is specified, assume UTC
+    if dt.tzinfo is None and tzinfo:
+        dt = dt.replace(tzinfo=UTC)
+
+    # Convert to target timezone if specified
     if tzinfo:
         dt = dt.astimezone(tzinfo)
 
@@ -455,6 +466,9 @@ def to_timestamp(x: datetime | str, unit: str = "s") -> int:
     """Convert datetime to timestamp in milliseconds ('ms') or seconds ('s')."""
     if isinstance(x, str):
         x = to_datetime(x)
+    # If datetime has no timezone, assume UTC
+    if x.tzinfo is None:
+        x = x.replace(tzinfo=UTC)
     ts = x.timestamp()
     if unit == "ms":
         return int(ts * 1000)
@@ -464,9 +478,9 @@ def to_timestamp(x: datetime | str, unit: str = "s") -> int:
 def from_timestamp(x: int, unit: str = "s") -> datetime:
     """Convert integer timestamp in milliseconds ('ms') or seconds ('s') to datetime."""
     if unit == "ms":
-        dt = datetime.fromtimestamp(x / 1000)
+        dt = datetime.fromtimestamp(x / 1000, UTC)
     else:
-        dt = datetime.fromtimestamp(x)
+        dt = datetime.fromtimestamp(x, UTC)
     return dt
 
 
