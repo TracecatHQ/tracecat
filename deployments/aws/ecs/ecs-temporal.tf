@@ -1,13 +1,13 @@
 # ECS Task Definition for Temporal Service
 resource "aws_ecs_task_definition" "temporal_task_definition" {
   count                    = var.disable_temporal_autosetup ? 0 : 1
-  family                   = "TracecatTemporalTaskDefinition"
+  family                   = "temporal"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.temporal_cpu
   memory                   = var.temporal_memory
   execution_role_arn       = aws_iam_role.temporal_execution.arn
-  task_role_arn            = aws_iam_role.temporal_task.arn
+  task_role_arn            = aws_iam_role.temporal_task[0].arn
 
   runtime_platform {
     operating_system_family = "LINUX"
@@ -57,7 +57,7 @@ resource "aws_ecs_task_definition" "temporal_task_definition" {
 
 resource "aws_ecs_service" "temporal_service" {
   count           = var.disable_temporal_autosetup ? 0 : 1
-  name            = "temporal-server"
+  name            = "temporal"
   cluster         = aws_ecs_cluster.tracecat_cluster.id
   task_definition = aws_ecs_task_definition.temporal_task_definition[0].arn
   launch_type     = "FARGATE"

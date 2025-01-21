@@ -78,6 +78,7 @@ resource "aws_iam_policy" "task_secrets_access" {
 }
 
 resource "aws_iam_policy" "temporal_secrets_access" {
+  count       = var.disable_temporal_autosetup ? 0 : 1
   name        = "TracecatTemporalSecretsAccessPolicy"
   description = "Policy for accessing Temporal secrets"
 
@@ -88,7 +89,7 @@ resource "aws_iam_policy" "temporal_secrets_access" {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
         Resource = [
-          aws_db_instance.temporal_database.master_user_secret[0].secret_arn
+          aws_db_instance.temporal_database[0].master_user_secret[0].secret_arn
         ]
       }
     ]
@@ -158,7 +159,8 @@ resource "aws_iam_role_policy_attachment" "temporal_execution_ecs_poll" {
 }
 
 resource "aws_iam_role_policy_attachment" "temporal_execution_secrets" {
-  policy_arn = aws_iam_policy.temporal_secrets_access.arn
+  count      = var.disable_temporal_autosetup ? 0 : 1
+  policy_arn = aws_iam_policy.temporal_secrets_access[0].arn
   role       = aws_iam_role.temporal_execution.name
 }
 
@@ -196,13 +198,15 @@ resource "aws_iam_role_policy_attachment" "api_worker_task_secrets" {
 
 # Temporal task role
 resource "aws_iam_role" "temporal_task" {
+  count              = var.disable_temporal_autosetup ? 0 : 1
   name               = "TracecatTemporalTaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
 resource "aws_iam_role_policy" "temporal_task_db_access" {
-  name = "TracecatTemporalDBAccessPolicy"
-  role = aws_iam_role.temporal_task.id
+  count = var.disable_temporal_autosetup ? 0 : 1
+  name  = "TracecatTemporalDBAccessPolicy"
+  role  = aws_iam_role.temporal_task[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -213,7 +217,7 @@ resource "aws_iam_role_policy" "temporal_task_db_access" {
           "rds-db:connect"
         ]
         Resource = [
-          "${aws_db_instance.temporal_database.arn}/postgres"
+          "${aws_db_instance.temporal_database[0].arn}/postgres"
         ]
       }
     ]

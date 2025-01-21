@@ -102,7 +102,8 @@ data "aws_secretsmanager_secret" "tracecat_db_password" {
 }
 
 data "aws_secretsmanager_secret" "temporal_db_password" {
-  arn        = aws_db_instance.temporal_database.master_user_secret[0].secret_arn
+  count      = var.disable_temporal_autosetup ? 0 : 1
+  arn        = aws_db_instance.temporal_database[0].master_user_secret[0].secret_arn
   depends_on = [aws_db_instance.temporal_database]
 }
 
@@ -111,7 +112,8 @@ data "aws_secretsmanager_secret_version" "tracecat_db_password" {
 }
 
 data "aws_secretsmanager_secret_version" "temporal_db_password" {
-  secret_id = data.aws_secretsmanager_secret.temporal_db_password.id
+  count     = var.disable_temporal_autosetup ? 0 : 1
+  secret_id = data.aws_secretsmanager_secret.temporal_db_password[0].id
 }
 
 locals {
@@ -172,10 +174,10 @@ locals {
     local.saml_idp_metadata_url_secret
   )
 
-  temporal_secrets = [
+  temporal_secrets = var.disable_temporal_autosetup ? [] : [
     {
       name      = "POSTGRES_PWD"
-      valueFrom = "${data.aws_secretsmanager_secret_version.temporal_db_password.arn}:password::"
+      valueFrom = "${data.aws_secretsmanager_secret_version.temporal_db_password[0].arn}:password::"
     }
   ]
 

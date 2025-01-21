@@ -5,6 +5,7 @@ resource "random_string" "core_snapshot_suffix" {
 }
 
 resource "random_string" "temporal_snapshot_suffix" {
+  count   = var.disable_temporal_autosetup ? 0 : 1
   length  = 6
   special = false
   upper   = false
@@ -28,7 +29,7 @@ data "aws_db_snapshot" "core_snapshots" {
 
 # Check if snapshots exist for temporal database
 data "aws_db_snapshot" "temporal_snapshots" {
-  count                  = var.restore_from_snapshot ? 1 : 0
+  count                  = var.disable_temporal_autosetup ? 0 : (var.restore_from_snapshot ? 1 : 0)
   db_instance_identifier = "temporal-database"
   most_recent            = true
   include_shared         = false
@@ -73,6 +74,7 @@ resource "aws_db_instance" "core_database" {
 }
 
 resource "aws_db_instance" "temporal_database" {
+  count                        = var.disable_temporal_autosetup ? 0 : 1
   identifier                   = "temporal-database"
   engine                       = "postgres"
   engine_version               = "13.15"
@@ -86,7 +88,7 @@ resource "aws_db_instance" "temporal_database" {
   db_subnet_group_name         = aws_db_subnet_group.tracecat_db_subnet.name
   vpc_security_group_ids       = [aws_security_group.temporal_db.id]
   skip_final_snapshot          = var.rds_skip_final_snapshot
-  final_snapshot_identifier    = "final-temporal-db-${local.snapshot_timestamp}-${random_string.temporal_snapshot_suffix.result}"
+  final_snapshot_identifier    = "final-temporal-db-${local.snapshot_timestamp}-${random_string.temporal_snapshot_suffix[0].result}"
   snapshot_identifier          = var.restore_from_snapshot ? try(data.aws_db_snapshot.temporal_snapshots[0].db_snapshot_arn, null) : null
   deletion_protection          = var.rds_deletion_protection
   apply_immediately            = var.rds_apply_immediately
@@ -111,7 +113,7 @@ resource "aws_db_subnet_group" "tracecat_db_subnet" {
 locals {
   snapshot_timestamp = formatdate("YYYY-MM-DD-hhmm", timestamp())
   core_db_hostname   = sensitive(split(":", aws_db_instance.core_database.endpoint)[0])
-  temp_db_hostname   = sensitive(split(":", aws_db_instance.temporal_database.endpoint)[0])
+  temp_db_hostname   = var.disable_temporal_autosetup ? null : sensitive(split(":", aws_db_instance.temporal_database[0].endpoint)[0])
 }
 
 # Use the output of the `master_user_secret` object for core database
@@ -125,7 +127,8 @@ resource "aws_secretsmanager_secret_rotation" "core_rotation" {
 
 # Use the output of the `master_user_secret` object for temporal database
 resource "aws_secretsmanager_secret_rotation" "temporal_rotation" {
-  secret_id = aws_db_instance.temporal_database.master_user_secret[0].secret_arn
+  count     = var.disable_temporal_autosetup ? 0 : 1
+  secret_id = aws_db_instance.temporal_database[0].master_user_secret[0].secret_arn
 
   rotation_rules {
     schedule_expression = "rate(365 days)"
