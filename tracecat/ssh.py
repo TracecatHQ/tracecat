@@ -230,17 +230,14 @@ async def opt_temp_key_file(
 
 @asynccontextmanager
 async def ssh_context(
-    *,
-    git_url: GitUrl | None = None,
-    session: AsyncSession,
-    role: Role | None = None,
+    *, git_url: GitUrl | None = None, role: Role | None = None
 ) -> AsyncIterator[SshEnv | None]:
     """Context manager for SSH environment variables."""
     if git_url is None:
         yield None
     else:
-        sec_svc = SecretsService(session, role=role)
-        secret = await sec_svc.get_ssh_key()
+        async with SecretsService.with_session(role) as sec_svc:
+            secret = await sec_svc.get_ssh_key()
         async with temporary_ssh_agent() as env:
             await add_ssh_key_to_agent(secret.reveal().value, env=env)
             await add_host_to_known_hosts(git_url.host, env=env)
