@@ -142,8 +142,26 @@ class TestSecretsService:
         ssh_key = await service.get_ssh_key(
             secret_create_params.name, secret_create_params.environment
         )
-        assert ssh_key.key == "private_key"
-        assert ssh_key.value.get_secret_value() == "test-private-key"
+        assert isinstance(ssh_key, SecretStr)
+        assert ssh_key.get_secret_value() == "test-private-key\n"
+        await service.create_org_secret(
+            SecretCreate(
+                name="test-secret-2",
+                type=SecretType.SSH_KEY,
+                description="Test secret",
+                keys=[
+                    SecretKeyValue(
+                        key="private_key", value=SecretStr("test-private-key-again\n")
+                    )
+                ],
+                environment="test",
+            )
+        )
+
+        # Retrieve SSH key
+        ssh_key = await service.get_ssh_key("test-secret-2", "test")
+        assert isinstance(ssh_key, SecretStr)
+        assert ssh_key.get_secret_value() == "test-private-key-again\n"
 
     async def test_get_nonexistent_ssh_key(self, service: SecretsService) -> None:
         """Test retrieving non-existent SSH key."""
