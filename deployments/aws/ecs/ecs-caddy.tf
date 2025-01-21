@@ -6,7 +6,6 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
   cpu                      = var.caddy_cpu
   memory                   = var.caddy_memory
   execution_role_arn       = aws_iam_role.caddy_execution.arn
-  task_role_arn            = aws_iam_role.caddy_task.arn
 
   runtime_platform {
     operating_system_family = "LINUX"

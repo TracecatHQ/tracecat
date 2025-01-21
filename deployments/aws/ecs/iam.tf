@@ -162,12 +162,6 @@ resource "aws_iam_role_policy_attachment" "api_worker_task_secrets" {
   role       = aws_iam_role.api_worker_task.name
 }
 
-# Executor execution role
-resource "aws_iam_role" "executor_execution" {
-  name               = "TracecatExecutorExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
-}
-
 # UI execution role
 resource "aws_iam_role" "ui_execution" {
   name               = "TracecatUIExecutionRole"
@@ -235,12 +229,6 @@ resource "aws_iam_role" "caddy_execution" {
 resource "aws_iam_role_policy_attachment" "caddy_execution_ecs_poll" {
   policy_arn = aws_iam_policy.ecs_poll.arn
   role       = aws_iam_role.caddy_execution.name
-}
-
-# Caddy task role (minimal permissions)
-resource "aws_iam_role" "caddy_task" {
-  name               = "TracecatCaddyTaskRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
 
 # Add CloudWatch Logs policy
