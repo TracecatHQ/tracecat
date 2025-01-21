@@ -15,7 +15,7 @@ from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_logger, ctx_role, ctx_run
-from tracecat.db.engine import get_async_engine
+from tracecat.db.engine import get_async_engine, get_async_session_context_manager
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.models import (
     ActionStatement,
@@ -39,7 +39,7 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
-from tracecat.ssh import opt_temp_key_file
+from tracecat.ssh import ssh_context
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException, WrappedExecutionError
 
@@ -324,31 +324,37 @@ async def run_action_on_ray_cluster(
     All application/user level errors are caught by the executor and returned as values.
     """
     # Initialize runtime environment variables
-    env_vars = {"GIT_SSH_COMMAND": ctx.ssh_command} if ctx.ssh_command else {}
-    additional_vars: dict[str, Any] = {}
+    async with (
+        get_async_session_context_manager() as session,
+        ssh_context(git_url=ctx.git_url, session=session, role=ctx.role) as env,
+    ):
+        env_vars = env.to_dict() if env else {}
+        additional_vars: dict[str, Any] = {}
 
-    # Add git URL to pip dependencies if SHA is present
-    if ctx.git_url and ctx.git_url.ref:
-        url = ctx.git_url.to_url()
-        additional_vars["pip"] = [url]
-        logger.trace("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
+        # Add git URL to pip dependencies if SHA is present
+        if ctx.git_url and ctx.git_url.ref:
+            url = ctx.git_url.to_url()
+            additional_vars["pip"] = [url]
+            logger.trace("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
 
-    runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
+        runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
 
-    logger.info("Running action on ray cluster", runtime_env=runtime_env)
-    obj_ref = run_action_task.options(runtime_env=runtime_env).remote(input, ctx.role)
-    try:
-        coro = asyncio.to_thread(ray.get, obj_ref)
-        exec_result = await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
-    except TimeoutError as e:
-        logger.error("Action timed out, cancelling task", error=e)
-        ray.cancel(obj_ref, force=True)
-        raise e
-    except RayTaskError as e:
-        logger.error("Error running action on ray cluster", error=e)
-        if isinstance(e.cause, BaseException):
-            raise e.cause from None
-        raise e
+        logger.info("Running action on ray cluster", runtime_env=runtime_env)
+        obj_ref = run_action_task.options(runtime_env=runtime_env).remote(
+            input, ctx.role
+        )
+        try:
+            coro = asyncio.to_thread(ray.get, obj_ref)
+            exec_result = await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
+        except TimeoutError as e:
+            logger.error("Action timed out, cancelling task", error=e)
+            ray.cancel(obj_ref, force=True)
+            raise e
+        except RayTaskError as e:
+            logger.error("Error running action on ray cluster", error=e)
+            if isinstance(e.cause, BaseException):
+                raise e.cause from None
+            raise e
 
     # Here, we have some result or error.
     # Reconstruct the error and raise some kind of proxy
@@ -385,10 +391,8 @@ async def dispatch_action_on_cluster(
 
     role = ctx_role.get()
 
-    async with opt_temp_key_file(git_url=git_url, session=session) as ssh_command:
-        logger.trace("SSH command", ssh_command=ssh_command)
-        ctx = DispatchActionContext(role=role, git_url=git_url, ssh_command=ssh_command)
-        result = await _dispatch_action(input=input, ctx=ctx)
+    ctx = DispatchActionContext(role=role, git_url=git_url)
+    result = await _dispatch_action(input=input, ctx=ctx)
     return result
 
 
