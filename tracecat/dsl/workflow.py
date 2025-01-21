@@ -112,10 +112,7 @@ retry_policies = {
         maximum_attempts=1,
         non_retryable_error_types=non_retryable_error_types,
     ),
-    "activity:fail_slow": RetryPolicy(
-        maximum_attempts=6,
-        non_retryable_error_types=non_retryable_error_types,
-    ),
+    "activity:fail_slow": RetryPolicy(maximum_attempts=6),
     "workflow:fail_fast": RetryPolicy(
         # XXX: Do not set max attempts to 0, it will default to unlimited
         maximum_attempts=1,
