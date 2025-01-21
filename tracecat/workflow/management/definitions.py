@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlmodel import select
 from temporalio import activity
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 from tracecat import identifiers
 from tracecat.db.schemas import WorkflowDefinition
@@ -75,6 +76,7 @@ class WorkflowDefinitionsService(BaseService):
 
 
 @activity.defn
+@retry(wait=wait_fixed(3), stop=stop_after_attempt(3))
 async def get_workflow_definition_activity(
     input: GetWorkflowDefinitionActivityInputs,
 ) -> DSLInput:
