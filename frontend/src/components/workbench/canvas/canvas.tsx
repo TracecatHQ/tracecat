@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useImperativeHandle,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -149,7 +150,14 @@ export function isEphemeral<T>(node: Node<T>): boolean {
   return ephemeralNodeTypes.includes(node?.type as string)
 }
 
-export function WorkflowCanvas() {
+export interface WorkflowCanvasRef {
+  centerOnNode: (nodeId: string) => void
+}
+
+export const WorkflowCanvas = React.forwardRef<
+  WorkflowCanvasRef,
+  React.ComponentPropsWithoutRef<typeof ReactFlow>
+>((props, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const connectingNodeId = useRef<string | null>(null)
   const connectingHandleId = useRef<string | null>(null)
@@ -420,6 +428,34 @@ export function WorkflowCanvas() {
     }
   }
 
+  // Add this function to center on a node
+  const centerOnNode = useCallback(
+    (nodeId: string) => {
+      if (!reactFlowInstance) return
+
+      const node = reactFlowInstance.getNode(nodeId)
+      console.log("center on node", node)
+      if (!node) return
+
+      // Get the node's position and dimensions
+      const x = node.position.x + (node.width ?? defaultNodeWidth) / 2
+      const y = node.position.y + (node.height ?? defaultNodeHeight) / 2
+
+      // Animate to the node's center position
+      reactFlowInstance.setCenter(x, y, { duration: 800 })
+    },
+    [reactFlowInstance]
+  )
+
+  // Export the centerOnNode function through useImperativeHandle
+  useImperativeHandle(
+    ref,
+    () => ({
+      centerOnNode,
+    }),
+    [centerOnNode]
+  )
+
   return (
     <div ref={containerRef} style={{ height: "100%", width: "100%" }}>
       <ReactFlow
@@ -480,7 +516,9 @@ export function WorkflowCanvas() {
       </ReactFlow>
     </div>
   )
-}
+})
+
+WorkflowCanvas.displayName = "WorkflowCanvas"
 
 function NodeSilhouette({
   position,

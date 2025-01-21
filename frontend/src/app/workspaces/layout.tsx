@@ -3,10 +3,12 @@
 import Image from "next/image"
 import { useParams } from "next/navigation"
 import { useAuth } from "@/providers/auth"
+import { WorkflowBuilderProvider } from "@/providers/builder"
 import { WorkflowProvider } from "@/providers/workflow"
 import { WorkspaceProvider } from "@/providers/workspace"
 import { LogOut } from "lucide-react"
 import TracecatIcon from "public/icon.png"
+import { ReactFlowProvider } from "reactflow"
 
 import { useWorkspaceManager } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
@@ -39,11 +41,15 @@ export default function WorkspaceLayout({
   return (
     <WorkspaceProvider workspaceId={wsId}>
       <WorkflowProvider workspaceId={wsId}>
-        <div className="no-scrollbar flex h-screen max-h-screen flex-col overflow-hidden">
-          {/* DynamicNavbar needs a WorkflowProvider and a WorkspaceProvider */}
-          <DynamicNavbar />
-          <div className="grow overflow-auto">{children}</div>
-        </div>
+        <ReactFlowProvider>
+          <WorkflowBuilderProvider>
+            <div className="no-scrollbar flex h-screen max-h-screen flex-col overflow-hidden">
+              {/* DynamicNavbar needs a WorkflowProvider and a WorkspaceProvider */}
+              <DynamicNavbar />
+              <div className="grow overflow-auto">{children}</div>
+            </div>
+          </WorkflowBuilderProvider>
+        </ReactFlowProvider>
       </WorkflowProvider>
     </WorkspaceProvider>
   )

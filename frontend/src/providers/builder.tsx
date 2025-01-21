@@ -6,6 +6,7 @@ import React, {
   SetStateAction,
   useCallback,
   useContext,
+  useRef,
   useState,
 } from "react"
 import { useWorkflow } from "@/providers/workflow"
@@ -18,7 +19,10 @@ import {
 } from "reactflow"
 
 import { pruneGraphObject } from "@/lib/workflow"
-import { NodeType } from "@/components/workbench/canvas/canvas"
+import {
+  NodeType,
+  WorkflowCanvasRef,
+} from "@/components/workbench/canvas/canvas"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
@@ -28,6 +32,7 @@ interface ReactFlowContextType {
   getNode: (id: string) => NodeType | undefined
   setNodes: React.Dispatch<SetStateAction<Node[]>>
   setEdges: React.Dispatch<SetStateAction<Edge[]>>
+  canvasRef: React.RefObject<WorkflowCanvasRef>
 }
 
 const ReactFlowInteractionsContext = createContext<
@@ -45,9 +50,7 @@ export const WorkflowBuilderProvider: React.FC<
   const { workspaceId, workflowId, error, updateWorkflow } = useWorkflow()
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  if (!workflowId) {
-    throw new Error("No workflow ID provided")
-  }
+  const canvasRef = useRef<WorkflowCanvasRef>(null)
 
   const setReactFlowNodes = useCallback(
     (nodes: NodeType[] | ((nodes: NodeType[]) => NodeType[])) => {
@@ -72,6 +75,10 @@ export const WorkflowBuilderProvider: React.FC<
       setSelectedNodeId(nodeSelected?.id ?? null)
     },
   })
+  // Don't render anything if no workflow is selected
+  if (!workflowId) {
+    return children
+  }
   if (error) {
     console.error("Builder: Error fetching workflow metadata:", error)
     throw error
@@ -87,6 +94,7 @@ export const WorkflowBuilderProvider: React.FC<
         setNodes: setReactFlowNodes,
         setEdges: setReactFlowEdges,
         reactFlow: reactFlowInstance,
+        canvasRef,
       }}
     >
       {children}
