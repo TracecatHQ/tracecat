@@ -6,7 +6,7 @@ resource "aws_ecs_task_definition" "temporal_task_definition" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = var.temporal_cpu
   memory                   = var.temporal_memory
-  execution_role_arn       = aws_iam_role.temporal_execution.arn
+  execution_role_arn       = aws_iam_role.temporal_execution[0].arn
   task_role_arn            = aws_iam_role.temporal_task[0].arn
 
   runtime_platform {

@@ -130,40 +130,6 @@ resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
   role       = aws_iam_role.worker_execution.name
 }
 
-# Executor execution role
-resource "aws_iam_role" "executor_execution" {
-  name               = "TracecatExecutorExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
-}
-
-# UI execution role
-resource "aws_iam_role" "ui_execution" {
-  name               = "TracecatUIExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
-}
-
-resource "aws_iam_role_policy_attachment" "ui_execution_ecs_poll" {
-  policy_arn = aws_iam_policy.ecs_poll.arn
-  role       = aws_iam_role.ui_execution.name
-}
-
-# Temporal execution role
-resource "aws_iam_role" "temporal_execution" {
-  name               = "TracecatTemporalExecutionRole"
-  assume_role_policy = data.aws_iam_policy_document.assume_role.json
-}
-
-resource "aws_iam_role_policy_attachment" "temporal_execution_ecs_poll" {
-  policy_arn = aws_iam_policy.ecs_poll.arn
-  role       = aws_iam_role.temporal_execution.name
-}
-
-resource "aws_iam_role_policy_attachment" "temporal_execution_secrets" {
-  count      = var.disable_temporal_autosetup ? 0 : 1
-  policy_arn = aws_iam_policy.temporal_secrets_access[0].arn
-  role       = aws_iam_role.temporal_execution.name
-}
-
 # API and Worker task role
 resource "aws_iam_role" "api_worker_task" {
   name               = "TracecatAPIWorkerTaskRole"
@@ -196,6 +162,42 @@ resource "aws_iam_role_policy_attachment" "api_worker_task_secrets" {
   role       = aws_iam_role.api_worker_task.name
 }
 
+# Executor execution role
+resource "aws_iam_role" "executor_execution" {
+  name               = "TracecatExecutorExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+# UI execution role
+resource "aws_iam_role" "ui_execution" {
+  name               = "TracecatUIExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "ui_execution_ecs_poll" {
+  policy_arn = aws_iam_policy.ecs_poll.arn
+  role       = aws_iam_role.ui_execution.name
+}
+
+# Temporal execution role
+resource "aws_iam_role" "temporal_execution" {
+  count              = var.disable_temporal_autosetup ? 0 : 1
+  name               = "TracecatTemporalExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "temporal_execution_ecs_poll" {
+  count      = var.disable_temporal_autosetup ? 0 : 1
+  policy_arn = aws_iam_policy.ecs_poll.arn
+  role       = aws_iam_role.temporal_execution[0].name
+}
+
+resource "aws_iam_role_policy_attachment" "temporal_execution_secrets" {
+  count      = var.disable_temporal_autosetup ? 0 : 1
+  policy_arn = aws_iam_policy.temporal_secrets_access[0].arn
+  role       = aws_iam_role.temporal_execution[0].name
+}
+
 # Temporal task role
 resource "aws_iam_role" "temporal_task" {
   count              = var.disable_temporal_autosetup ? 0 : 1
@@ -223,7 +225,6 @@ resource "aws_iam_role_policy" "temporal_task_db_access" {
     ]
   })
 }
-
 
 # Caddy execution role
 resource "aws_iam_role" "caddy_execution" {
@@ -280,8 +281,9 @@ resource "aws_iam_role_policy_attachment" "ui_execution_cloudwatch_logs" {
 }
 
 resource "aws_iam_role_policy_attachment" "temporal_execution_cloudwatch_logs" {
+  count      = var.disable_temporal_autosetup ? 0 : 1
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
-  role       = aws_iam_role.temporal_execution.name
+  role       = aws_iam_role.temporal_execution[0].name
 }
 
 resource "aws_iam_role_policy_attachment" "caddy_execution_cloudwatch_logs" {
