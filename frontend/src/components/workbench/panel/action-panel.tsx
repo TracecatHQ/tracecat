@@ -628,17 +628,12 @@ export function ActionPanel({
                                 <FormMessage />
                                 <FormControl>
                                   <DynamicCustomEditor
-                                    className="min-h-[40rem] w-full resize-y overflow-auto"
+                                    className="min-h-[40rem] w-full"
                                     value={field.value}
                                     onChange={field.onChange}
                                     defaultLanguage="yaml-extended"
                                     workspaceId={workspaceId}
                                     workflowId={workflowId}
-                                    options={{
-                                      scrollbar: {
-                                        handleMouseWheel: false,
-                                      },
-                                    }}
                                   />
                                 </FormControl>
                               </FormItem>
@@ -906,7 +901,7 @@ export function ActionPanel({
                               Template action definition in YAML format.
                             </span>
                             <DynamicCustomEditor
-                              className="min-h-[30rem] w-full resize-y overflow-auto"
+                              className="min-h-[30rem] w-full"
                               value={YAML.stringify(
                                 "type" in registryAction.implementation &&
                                   registryAction.implementation.type ===
