@@ -120,6 +120,14 @@ def test_extract_ipv4_addresses(texts, expected_ip_addresses):
             ["https://example.com"],
         ),
         (
+            "This url was secured: https://secure.url/nX-BpUKr17mePOHRS5_IUlHEPW//https%3A%2F%2Fmyurl.com",
+            ["https://secure.url/nX-BpUKr17mePOHRS5_IUlHEPW//https%3A%2F%2Fmyurl.com"],
+        ),
+        (
+            "<p>Click on this link: <a href='https://www.exemple.com/SUB' target='_blank'>https://www.exemple.com/SUB</a></p>",
+            ["https://www.exemple.com/SUB"],
+        ),
+        (
             ["Visit our website at https://example.com for more info."],
             ["https://example.com"],
         ),
@@ -155,13 +163,15 @@ def test_extract_ipv4_addresses(texts, expected_ip_addresses):
         ),
     ],
     ids=[
-        "single_url",
-        "multiple_urls",
-        "no_urls",
-        "invalid_and_valid_url_with_path",
-        "multiple_urls_in_text_with_paths",
-        "json_with_urls_and_paths",
-        "no_urls",
+        "single_url_string",
+        "single_url_with_encoded_path",
+        "single_url_in_html",
+        "single_url_in_list",
+        "two_urls_in_list",
+        "filter_invalid_url",
+        "multiple_urls_in_text",
+        "urls_in_json_string",
+        "empty_result"
     ],
 )
 def test_extract_urls(texts, expected_urls):
