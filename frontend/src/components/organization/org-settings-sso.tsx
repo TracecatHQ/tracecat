@@ -141,9 +141,10 @@ export function OrgSettingsSsoForm() {
               </FormLabel>
               <FormControl>
                 <Input
-                  placeholder="http://localhost/api/auth/saml/acs"
+                  placeholder="http://localhost/auth/saml/acs"
                   {...field}
-                  value={field.value ?? ""}
+                  // Remove the /api prefix from the value (we want to show the Next.js acs endpoint not the FastAPI /api acs endpoint)
+                  value={(field.value ?? "").replace("/api", "")}
                   disabled
                 />
               </FormControl>
