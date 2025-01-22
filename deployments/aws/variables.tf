@@ -71,7 +71,7 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.21.5"
+  default = "0.21.6"
 }
 
 variable "temporal_server_image" {
