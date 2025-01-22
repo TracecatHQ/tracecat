@@ -333,7 +333,7 @@ def get_setting_override(key: str) -> Any | None:
     }
 
     if key not in allowed_override_keys:
-        logger.warning(f"Attempted override of unauthorized setting: {key}")
+        logger.debug(f"Setting override not supported: {key}")
         return None
 
     return os.environ.get(f"TRACECAT__SETTING_OVERRIDE_{key.upper()}")
