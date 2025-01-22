@@ -25,10 +25,10 @@ TRACECAT__SETTING_OVERRIDE_SAML_ENABLED=true
         Select **SAML 2.0** and click on **Create**.
     </Step>
     <Step title="Configure ACS endpoint">
-        Set the **Single sign-on URL** to `https://<your-tracecat-instance>/api/auth/saml/acs`.
+        Set the **Single sign-on URL** to `https://<your-tracecat-instance>/auth/saml/acs`.
     </Step>
     <Step title="Configure Audience Restriction">
-        Set the **Audience Restriction** to `https://<your-tracecat-instance>/api`.
+        Set the **Audience Restriction** to `https://<your-tracecat-instance>`.
     </Step>
     <Step title="Configure SAML settings in environment variables">
         Set the following environment variables in your `.env` file:
