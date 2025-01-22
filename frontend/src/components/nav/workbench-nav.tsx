@@ -599,34 +599,8 @@ function WorkbenchNavOptions({
               <DownloadIcon className="mr-2 size-4" />
               <span>Export as YAML</span>
             </DropdownMenuItem>
-            <DialogTrigger asChild>
-              <DropdownMenuItem className="text-xs text-red-600">
-                <Trash2Icon className="mr-2 size-4" />
-                <span>Delete</span>
-              </DropdownMenuItem>
-            </DialogTrigger>
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete workflow</DialogTitle>
-            <DialogClose />
-          </DialogHeader>
-          <DialogDescription>
-            Are you sure you want to permanently delete this workflow?
-          </DialogDescription>
-          <DialogFooter>
-            <Button variant="outline">Cancel</Button>
-            <Button
-              onClick={handleDeleteWorkflow}
-              variant="destructive"
-              className="mr-2"
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
       </Dialog>
     </>
   )
