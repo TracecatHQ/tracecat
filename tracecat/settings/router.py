@@ -2,10 +2,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
 
-from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import Role
 from tracecat.auth.enums import AuthType
+from tracecat.config import SAML_PUBLIC_ACS_URL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
 from tracecat.settings.models import (
@@ -92,7 +92,8 @@ async def get_saml_settings(
     settings = await service.list_org_settings(keys=keys)
     settings_dict = {setting.key: service.get_value(setting) for setting in settings}
 
-    return SAMLSettingsRead(**settings_dict, saml_sp_acs_url=config.SAML_SP_ACS_URL)
+    # Public ACS url
+    return SAMLSettingsRead(**settings_dict, saml_sp_acs_url=SAML_PUBLIC_ACS_URL)
 
 
 @router.patch("/saml", status_code=status.HTTP_204_NO_CONTENT)

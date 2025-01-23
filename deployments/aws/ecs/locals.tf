@@ -9,7 +9,6 @@ locals {
   # Tracecat common URLs
   public_app_url         = "https://${var.domain_name}"
   public_api_url         = "https://${var.domain_name}/api"
-  saml_acs_url           = "https://${var.domain_name}/api/auth/saml/acs"
   internal_api_url       = "http://api-service:8000"      # Service connect DNS name
   internal_executor_url  = "http://executor-service:8002" # Service connect DNS name
   temporal_cluster_url   = var.temporal_cluster_url
@@ -34,7 +33,6 @@ locals {
     for k, v in merge({
       LOG_LEVEL                                     = var.log_level
       RUN_MIGRATIONS                                = "true"
-      SAML_SP_ACS_URL                               = local.saml_acs_url
       TEMPORAL__CLIENT_RPC_TIMEOUT                  = var.temporal_client_rpc_timeout
       TEMPORAL__CLUSTER_NAMESPACE                   = local.temporal_namespace
       TEMPORAL__CLUSTER_QUEUE                       = local.temporal_cluster_queue
