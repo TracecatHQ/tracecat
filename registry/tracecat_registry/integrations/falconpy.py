@@ -38,11 +38,11 @@ async def call_command(
     ],
     params: Annotated[
         dict[str, Any],
-        Field(..., description="Parameters to pass into the command."),
+        Field(..., description="Parameters to pass into the command"),
     ] = None,
     member_cid: Annotated[
         str | None,
-        Field(..., description="Multi-tenant customer ID."),
+        Field(..., description="Multi-tenant customer ID"),
     ] = None,
 ) -> dict[str, Any]:
     params = params or {}
