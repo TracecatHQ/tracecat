@@ -1557,16 +1557,16 @@ export type login = {
 
 export type PublicIncomingWebhookData = {
   contentType?: string | null
-  path: string
   secret: string
+  workflowId: string
 }
 
 export type PublicIncomingWebhookResponse = WorkflowExecutionCreateResponse
 
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
-  path: string
   secret: string
+  workflowId: string
 }
 
 export type PublicIncomingWebhookWaitResponse = unknown
@@ -2248,7 +2248,7 @@ export type PublicCheckHealthResponse = {
 }
 
 export type $OpenApiTs = {
-  "/webhooks/{path}/{secret}": {
+  "/webhooks/{workflow_id}/{secret}": {
     post: {
       req: PublicIncomingWebhookData
       res: {
@@ -2263,7 +2263,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/webhooks/{path}/{secret}/wait": {
+  "/webhooks/{workflow_id}/{secret}/wait": {
     post: {
       req: PublicIncomingWebhookWaitData
       res: {

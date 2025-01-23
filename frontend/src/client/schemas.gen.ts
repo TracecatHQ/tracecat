@@ -68,8 +68,16 @@ export const $ActionControlFlow = {
 export const $ActionCreate = {
   properties: {
     workflow_id: {
-      type: "string",
-      pattern: "wf-[0-9a-f]{32}",
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
       title: "Workflow Id",
     },
     type: {
@@ -133,7 +141,7 @@ export const $ActionReadMinimal = {
     },
     workflow_id: {
       type: "string",
-      pattern: "wf-[0-9a-f]{32}",
+      pattern: "wf_[0-9a-zA-Z]+",
       title: "Workflow Id",
     },
     type: {
@@ -768,7 +776,6 @@ export const $DSLRunArgs = {
     },
     wf_id: {
       type: "string",
-      pattern: "wf-[0-9a-f]{32}",
       title: "Wf Id",
     },
     trigger_inputs: {
@@ -1052,7 +1059,8 @@ export const $EventGroup = {
       anyOf: [
         {
           type: "string",
-          pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+          pattern:
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
         },
         {
           type: "null",
@@ -1128,7 +1136,6 @@ export const $GetWorkflowDefinitionActivityInputs = {
     },
     workflow_id: {
       type: "string",
-      pattern: "wf-[0-9a-f]{32}",
       title: "Workflow Id",
     },
     version: {
@@ -2297,12 +2304,12 @@ export const $RunContext = {
   properties: {
     wf_id: {
       type: "string",
-      pattern: "wf-[0-9a-f]{32}",
       title: "Wf Id",
     },
     wf_exec_id: {
       type: "string",
-      pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+      pattern:
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
       title: "Wf Exec Id",
     },
     wf_run_id: {
@@ -2515,8 +2522,16 @@ export const $Schedule = {
 export const $ScheduleCreate = {
   properties: {
     workflow_id: {
-      type: "string",
-      pattern: "wf-[0-9a-f]{32}",
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
       title: "Workflow Id",
     },
     inputs: {
@@ -3825,6 +3840,7 @@ export const $WorkflowCommitResponse = {
   properties: {
     workflow_id: {
       type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
       title: "Workflow Id",
     },
     status: {
@@ -3956,8 +3972,16 @@ export const $WorkflowEventType = {
 export const $WorkflowExecutionCreate = {
   properties: {
     workflow_id: {
-      type: "string",
-      pattern: "wf-[0-9a-f]{32}",
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
       title: "Workflow Id",
     },
     inputs: {
@@ -3983,12 +4007,12 @@ export const $WorkflowExecutionCreateResponse = {
     },
     wf_id: {
       type: "string",
-      pattern: "wf-[0-9a-f]{32}",
       title: "Wf Id",
     },
     wf_exec_id: {
       type: "string",
-      pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+      pattern:
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
       title: "Wf Exec Id",
     },
   },
@@ -4060,7 +4084,8 @@ export const $WorkflowExecutionEvent = {
       anyOf: [
         {
           type: "string",
-          pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+          pattern:
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
         },
         {
           type: "null",
@@ -4156,7 +4181,8 @@ export const $WorkflowExecutionEventCompact = {
       anyOf: [
         {
           type: "string",
-          pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+          pattern:
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
         },
         {
           type: "null",
@@ -4266,7 +4292,8 @@ export const $WorkflowExecutionRead = {
       anyOf: [
         {
           type: "string",
-          pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+          pattern:
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
         },
         {
           type: "null",
@@ -4370,7 +4397,8 @@ export const $WorkflowExecutionReadCompact = {
       anyOf: [
         {
           type: "string",
-          pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+          pattern:
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
         },
         {
           type: "null",
@@ -4474,7 +4502,8 @@ export const $WorkflowExecutionReadMinimal = {
       anyOf: [
         {
           type: "string",
-          pattern: "wf-[0-9a-f]{32}:(exec-[\\w-]+|sch-[0-9a-f]{32}-.*)",
+          pattern:
+            "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
         },
         {
           type: "null",
@@ -4518,7 +4547,7 @@ export const $WorkflowRead = {
   properties: {
     id: {
       type: "string",
-      pattern: "wf-[0-9a-f]{32}",
+      pattern: "wf_[0-9a-zA-Z]+",
       title: "Id",
     },
     title: {
@@ -4665,7 +4694,7 @@ export const $WorkflowReadMinimal = {
   properties: {
     id: {
       type: "string",
-      pattern: "wf-[0-9a-f]{32}",
+      pattern: "wf_[0-9a-zA-Z]+",
       title: "Id",
     },
     title: {

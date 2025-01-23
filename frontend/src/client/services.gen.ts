@@ -209,8 +209,8 @@ import type {
  * This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
  * The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
  * @param data The data for the request.
- * @param data.path
  * @param data.secret
+ * @param data.workflowId
  * @param data.contentType
  * @returns WorkflowExecutionCreateResponse Successful Response
  * @throws ApiError
@@ -220,10 +220,10 @@ export const publicIncomingWebhook = (
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/webhooks/{path}/{secret}",
+    url: "/webhooks/{workflow_id}/{secret}",
     path: {
-      path: data.path,
       secret: data.secret,
+      workflow_id: data.workflowId,
     },
     headers: {
       "content-type": data.contentType,
@@ -241,8 +241,8 @@ export const publicIncomingWebhook = (
  * This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
  * The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
  * @param data The data for the request.
- * @param data.path
  * @param data.secret
+ * @param data.workflowId
  * @param data.contentType
  * @returns unknown Successful Response
  * @throws ApiError
@@ -252,10 +252,10 @@ export const publicIncomingWebhookWait = (
 ): CancelablePromise<PublicIncomingWebhookWaitResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/webhooks/{path}/{secret}/wait",
+    url: "/webhooks/{workflow_id}/{secret}/wait",
     path: {
-      path: data.path,
       secret: data.secret,
+      workflow_id: data.workflowId,
     },
     headers: {
       "content-type": data.contentType,
@@ -853,10 +853,10 @@ export const triggersUpdateWebhook = (
  * List all workflow executions.
  * @param data The data for the request.
  * @param data.workspaceId
- * @param data.workflowId
  * @param data.trigger
  * @param data.userId
  * @param data.limit
+ * @param data.workflowId
  * @returns WorkflowExecutionReadMinimal Successful Response
  * @throws ApiError
  */
@@ -867,11 +867,11 @@ export const workflowExecutionsListWorkflowExecutions = (
     method: "GET",
     url: "/workflow-executions",
     query: {
-      workflow_id: data.workflowId,
       trigger: data.trigger,
       user_id: data.userId,
       limit: data.limit,
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -1020,8 +1020,8 @@ export const workflowExecutionsTerminateWorkflowExecution = (
  * List Actions
  * List all actions for a workflow.
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns ActionReadMinimal Successful Response
  * @throws ApiError
  */
@@ -1032,8 +1032,8 @@ export const actionsListActions = (
     method: "GET",
     url: "/actions",
     query: {
-      workflow_id: data.workflowId,
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -1072,8 +1072,8 @@ export const actionsCreateAction = (
  * Get an action.
  * @param data The data for the request.
  * @param data.actionId
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns ActionRead Successful Response
  * @throws ApiError
  */
@@ -1087,8 +1087,8 @@ export const actionsGetAction = (
       action_id: data.actionId,
     },
     query: {
-      workflow_id: data.workflowId,
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -1213,8 +1213,8 @@ export const workflowsAddTag = (
 /**
  * Remove Tag
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.tagId
+ * @param data.workflowId
  * @param data.workspaceId
  * @returns void Successful Response
  * @throws ApiError
@@ -1226,8 +1226,8 @@ export const workflowsRemoveTag = (
     method: "DELETE",
     url: "/workflows/{workflow_id}/tags/{tag_id}",
     path: {
-      workflow_id: data.workflowId,
       tag_id: data.tagId,
+      workflow_id: data.workflowId,
     },
     query: {
       workspace_id: data.workspaceId,
@@ -1419,8 +1419,8 @@ export const schedulesListSchedules = (
     method: "GET",
     url: "/schedules",
     query: {
-      workflow_id: data.workflowId,
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
@@ -1840,8 +1840,8 @@ export const editorListFunctions = (
 /**
  * List Actions
  * @param data The data for the request.
- * @param data.workflowId
  * @param data.workspaceId
+ * @param data.workflowId
  * @returns EditorActionRead Successful Response
  * @throws ApiError
  */
@@ -1852,8 +1852,8 @@ export const editorListActions = (
     method: "GET",
     url: "/editor/actions",
     query: {
-      workflow_id: data.workflowId,
       workspace_id: data.workspaceId,
+      workflow_id: data.workflowId,
     },
     errors: {
       422: "Validation Error",
