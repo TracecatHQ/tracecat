@@ -63,9 +63,9 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
         uri = get_connection_string(
             username=config.TRACECAT__DB_USER,
             password=password,
-            host=config.TRACECAT__DB_ENDPOINT,
-            port=config.TRACECAT__DB_PORT,
-            database=config.TRACECAT__DB_NAME,
+            host=config.TRACECAT__DB_ENDPOINT,  # type: ignore
+            port=config.TRACECAT__DB_PORT,  # type: ignore
+            database=config.TRACECAT__DB_NAME,  # type: ignore
             driver=driver,
         )
         logger.info("Successfully retrieved database password from AWS Secrets Manager")
@@ -74,9 +74,9 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
         uri = get_connection_string(
             username=config.TRACECAT__DB_USER,
             password=config.TRACECAT__DB_PASS,
-            host=config.TRACECAT__DB_ENDPOINT,
-            port=config.TRACECAT__DB_PORT,
-            database=config.TRACECAT__DB_NAME,
+            host=config.TRACECAT__DB_ENDPOINT,  # type: ignore
+            port=config.TRACECAT__DB_PORT,  # type: ignore
+            database=config.TRACECAT__DB_NAME,  # type: ignore
             driver=driver,
         )
     # Else use the default URI
