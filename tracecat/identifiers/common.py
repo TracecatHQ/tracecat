@@ -140,6 +140,8 @@ class TracecatUUID[ShortID: str](UUID):
 
     @classmethod
     def new(cls, id: Any) -> Self:
+        if isinstance(id, cls):
+            return id
         match id:
             case UUID():
                 # This is a full UUID
