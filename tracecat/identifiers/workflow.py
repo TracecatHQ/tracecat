@@ -5,10 +5,7 @@ from __future__ import annotations
 from typing import Annotated, cast
 
 from fastapi import Depends, Query
-from pydantic import (
-    UUID4,
-    StringConstraints,
-)
+from pydantic import UUID4, StringConstraints
 
 from tracecat.identifiers.common import TracecatUUID
 from tracecat.identifiers.resource import ResourcePrefix, generate_resource_id

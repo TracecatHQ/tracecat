@@ -134,7 +134,7 @@ async def create_workflow_execution(
     try:
         result = await session.exec(
             select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == wf_id.to_legacy())
+            .where(WorkflowDefinition.workflow_id == wf_id)
             .order_by(col(WorkflowDefinition.version).desc())
         )
         defn = result.first()

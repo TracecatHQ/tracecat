@@ -58,8 +58,7 @@ async def create_action(
         )
     action = Action(
         owner_id=role.workspace_id,
-        # NOTE(COMPAT): Backwards compatibility
-        workflow_id=WorkflowUUID.new(params.workflow_id).to_legacy(),
+        workflow_id=WorkflowUUID.new(params.workflow_id),
         type=params.type,
         title=params.title,
         description="",  # Default to empty string
@@ -103,7 +102,7 @@ async def get_action(
     statement = select(Action).where(
         Action.owner_id == role.workspace_id,
         Action.id == action_id,
-        Action.workflow_id == workflow_id.to_legacy(),
+        Action.workflow_id == workflow_id,
     )
     result = await session.exec(statement)
     try:

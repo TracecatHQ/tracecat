@@ -49,7 +49,7 @@ class WorkflowSchedulesService(BaseService):
         """
         statement = select(Schedule).where(Schedule.owner_id == self.role.workspace_id)
         if workflow_id is not None:
-            statement = statement.where(Schedule.workflow_id == workflow_id.to_legacy())
+            statement = statement.where(Schedule.workflow_id == workflow_id)
         result = await self.session.exec(statement)
         schedules = result.all()
         return list(schedules)
@@ -79,7 +79,7 @@ class WorkflowSchedulesService(BaseService):
             raise TracecatAuthorizationError("Workspace ID is required")
         schedule = Schedule(
             owner_id=owner_id,
-            workflow_id=WorkflowUUID.new(params.workflow_id).to_legacy(),
+            workflow_id=WorkflowUUID.new(params.workflow_id),
             inputs=params.inputs or {},
             every=params.every,
             offset=params.offset,

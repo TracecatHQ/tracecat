@@ -21,10 +21,9 @@ async def validate_incoming_webhook(
 
     NOte: The webhook ID here is the workflow ID.
     """
-    legacy_wf_id = workflow_id.to_legacy()
     async with get_async_session_context_manager() as session:
         result = await session.exec(
-            select(Webhook).where(Webhook.workflow_id == legacy_wf_id)
+            select(Webhook).where(Webhook.workflow_id == workflow_id)
         )
         try:
             # One webhook per workflow
@@ -64,7 +63,7 @@ async def validate_incoming_webhook(
         # of the workflow defitniion.
         result = await session.exec(
             select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == legacy_wf_id)
+            .where(WorkflowDefinition.workflow_id == workflow_id)
             .order_by(col(WorkflowDefinition.version).desc())
         )
         try:
