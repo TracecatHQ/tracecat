@@ -30,13 +30,14 @@ ansible_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Run Ansible Playbook",
-    description="Run an Ansible playbook",
+    default_title="Run playbook",
+    description="Run Ansible playbook given as a list of plays in JSON format.",
     display_group="Ansible",
+    doc_url="https://docs.ansible.com/ansible/latest/index.html",
     namespace="integrations.ansible",
     secrets=[ansible_secret],
 )
-async def run_ansible_playbook(
+async def run_playbook(
     playbook: Annotated[
         list[dict[str, Any]], Field(..., description="List of plays to run")
     ],
