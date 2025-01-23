@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, ConfigDict, computed_field
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, String, func
+from sqlalchemy import TIMESTAMP, Column, ForeignKey, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
@@ -19,6 +19,7 @@ from tracecat.db.adapter import (
     SQLModelBaseUserDB,
 )
 from tracecat.identifiers import OwnerID, action, id_factory
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 DEFAULT_SA_RELATIONSHIP_KWARGS = {
@@ -216,8 +217,8 @@ class WorkflowDefinition(Resource, table=True):
         default_factory=id_factory("wf-defn"), nullable=False, unique=True, index=True
     )
     version: int = Field(..., index=True, description="DSL spec version")
-    workflow_id: str = Field(
-        sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
+    workflow_id: uuid.UUID = Field(
+        sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
 
     # DSL content
@@ -232,7 +233,7 @@ class WorkflowTag(SQLModel, table=True):
     """Link table for workflows and tags with optional metadata."""
 
     tag_id: UUID4 = Field(foreign_key="tag.id", primary_key=True)
-    workflow_id: str = Field(foreign_key="workflow.id", primary_key=True)
+    workflow_id: uuid.UUID = Field(foreign_key="workflow.id", primary_key=True)
 
 
 class Tag(Resource, table=True):
@@ -276,8 +277,8 @@ class Workflow(Resource, table=True):
         UniqueConstraint("alias", "owner_id", name="uq_workflow_alias_owner_id"),
     )
 
-    id: str = Field(
-        default_factory=id_factory("wf"), nullable=False, unique=True, index=True
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
     )
     title: str
     description: str
@@ -369,8 +370,8 @@ class Webhook(Resource, table=True):
     filters: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
 
     # Relationships
-    workflow_id: str | None = Field(
-        sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
+    workflow_id: uuid.UUID = Field(
+        sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
     workflow: Workflow | None = Relationship(
         back_populates="webhook", sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
@@ -387,7 +388,8 @@ class Webhook(Resource, table=True):
     @computed_field
     @property
     def url(self) -> str:
-        return f"{config.TRACECAT__PUBLIC_API_URL}/webhooks/{self.workflow_id}/{self.secret}"
+        short_wf_id = WorkflowUUID.make_short(self.workflow_id)
+        return f"{config.TRACECAT__PUBLIC_API_URL}/webhooks/{short_wf_id}/{self.secret}"
 
 
 class Schedule(Resource, table=True):
@@ -406,8 +408,8 @@ class Schedule(Resource, table=True):
         description="The maximum number of seconds to wait for the workflow to complete",
     )
     # Relationships
-    workflow_id: str | None = Field(
-        sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
+    workflow_id: uuid.UUID = Field(
+        sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
     workflow: Workflow | None = Relationship(
         back_populates="schedules",
@@ -428,8 +430,8 @@ class Action(Resource, table=True):
     inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
     control_flow: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
 
-    workflow_id: str | None = Field(
-        sa_column=Column(String, ForeignKey("workflow.id", ondelete="CASCADE"))
+    workflow_id: uuid.UUID = Field(
+        sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
     workflow: Workflow | None = Relationship(
         back_populates="actions", sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS

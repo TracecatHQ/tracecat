@@ -460,7 +460,7 @@ async def create_webhook(
     webhook = Webhook(
         owner_id=role.workspace_id,
         method=params.method or "POST",
-        workflow_id=workflow_id.to_legacy(),
+        workflow_id=workflow_id,
     )  # type: ignore
     session.add(webhook)
     await session.commit()
@@ -476,7 +476,7 @@ async def get_webhook(
     """Get the webhook from a workflow."""
     statement = select(Webhook).where(
         Webhook.owner_id == role.workspace_id,
-        Webhook.workflow_id == workflow_id.to_legacy(),
+        Webhook.workflow_id == workflow_id,
     )
     result = await session.exec(statement)
     try:
@@ -503,7 +503,7 @@ async def update_webhook(
     result = await session.exec(
         select(Workflow).where(
             Workflow.owner_id == role.workspace_id,
-            Workflow.id == workflow_id.to_legacy(),
+            Workflow.id == workflow_id,
         )
     )
     try:

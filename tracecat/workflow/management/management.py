@@ -74,7 +74,7 @@ class WorkflowsManagementService(BaseService):
     async def get_workflow(self, workflow_id: WorkflowID) -> Workflow | None:
         statement = select(Workflow).where(
             Workflow.owner_id == self.role.workspace_id,
-            Workflow.id == workflow_id.to_legacy(),
+            Workflow.id == workflow_id,
         )
         result = await self.session.exec(statement)
         return result.one_or_none()
@@ -93,7 +93,7 @@ class WorkflowsManagementService(BaseService):
     ) -> Workflow:
         statement = select(Workflow).where(
             Workflow.owner_id == self.role.workspace_id,
-            Workflow.id == workflow_id.to_legacy(),
+            Workflow.id == workflow_id,
         )
         result = await self.session.exec(statement)
         workflow = result.one()
@@ -108,7 +108,7 @@ class WorkflowsManagementService(BaseService):
     async def delete_workflow(self, workflow_id: WorkflowID) -> None:
         statement = select(Workflow).where(
             Workflow.owner_id == self.role.workspace_id,
-            Workflow.id == workflow_id.to_legacy(),
+            Workflow.id == workflow_id,
         )
         result = await self.session.exec(statement)
         workflow = result.one()
@@ -402,6 +402,12 @@ class WorkflowsManagementService(BaseService):
                 id_or_alias = workflow.error_handler
 
             # 3. Convert the error handler to an ID
+            if re.match(LEGACY_WF_ID_PATTERN, id_or_alias):
+                # TODO: Legacy workflow ID for backwards compatibility. Slowly deprecate.
+                handler_wf_id = WorkflowUUID.from_legacy(id_or_alias)
+            elif re.match(WF_ID_SHORT_PATTERN, id_or_alias):
+                # Short workflow ID
+                handler_wf_id = WorkflowUUID.new(id_or_alias)
             if re.match(LEGACY_WF_ID_PATTERN, id_or_alias):
                 # TODO: Legacy workflow ID for backwards compatibility. Slowly deprecate.
                 handler_wf_id = WorkflowUUID.from_legacy(id_or_alias)

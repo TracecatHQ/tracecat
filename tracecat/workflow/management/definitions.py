@@ -20,7 +20,7 @@ class WorkflowDefinitionsService(BaseService):
     ) -> WorkflowDefinition | None:
         statement = select(WorkflowDefinition).where(
             WorkflowDefinition.owner_id == self.role.workspace_id,
-            WorkflowDefinition.workflow_id == workflow_id.to_legacy(),
+            WorkflowDefinition.workflow_id == workflow_id,
         )
         if version:
             statement = statement.where(WorkflowDefinition.version == version)
@@ -38,9 +38,7 @@ class WorkflowDefinitionsService(BaseService):
             WorkflowDefinition.owner_id == self.role.workspace_id,
         )
         if workflow_id:
-            statement = statement.where(
-                WorkflowDefinition.workflow_id == workflow_id.to_legacy()
-            )
+            statement = statement.where(WorkflowDefinition.workflow_id == workflow_id)
         result = await self.session.exec(statement)
         return list(result.all())
 
@@ -57,7 +55,7 @@ class WorkflowDefinitionsService(BaseService):
             select(WorkflowDefinition)
             .where(
                 WorkflowDefinition.owner_id == self.role.workspace_id,
-                WorkflowDefinition.workflow_id == workflow_id.to_legacy(),
+                WorkflowDefinition.workflow_id == workflow_id,
             )
             .order_by(WorkflowDefinition.version.desc())  # type: ignore
         )
@@ -67,7 +65,7 @@ class WorkflowDefinitionsService(BaseService):
         version = latest_defn.version + 1 if latest_defn else 1
         defn = WorkflowDefinition(
             owner_id=self.role.workspace_id,
-            workflow_id=workflow_id.to_legacy(),
+            workflow_id=workflow_id,
             content=dsl.model_dump(exclude_unset=True),
             version=version,
         )

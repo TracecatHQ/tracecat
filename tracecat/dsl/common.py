@@ -37,7 +37,7 @@ from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ScheduleID
-from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowID, WorkflowUUID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.types.auth import Role
@@ -217,7 +217,7 @@ class DSLInput(BaseModel):
 class DSLRunArgs(BaseModel):
     role: Role
     dsl: DSLInput | None = None
-    wf_id: WorkflowID
+    wf_id: WorkflowUUID
     trigger_inputs: TriggerInputs | None = None
     parent_run_context: RunContext | None = None
     runtime_config: DSLConfig = Field(
@@ -244,7 +244,7 @@ class DSLRunArgs(BaseModel):
 
 
 class ExecuteChildWorkflowArgs(BaseModel):
-    workflow_id: WorkflowID | None = None
+    workflow_id: AnyWorkflowID | None = None
     workflow_alias: str | None = None
     trigger_inputs: TriggerInputs
     environment: str | None = None
