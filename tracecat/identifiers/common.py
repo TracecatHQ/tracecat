@@ -7,7 +7,6 @@ from uuid import UUID
 from pydantic_core import CoreSchema, core_schema
 
 from tracecat import base62
-from tracecat.logger import logger
 
 
 def id_to_short(id: UUID, prefix: str) -> str:
@@ -69,29 +68,16 @@ class TracecatUUID[ShortID: str](UUID):
         _handler: Any,
     ) -> CoreSchema:
         """Generate Pydantic core schema for validation and serialization."""
-
-        def validate_from_str(value: str) -> Self:
-            logger.info("validate_from_str", value=value)
-            return cls.new(value)
-
-        def serializer(x: Self) -> str:
-            logger.info("serializer", x=x)
-            return str(x)
-
         return core_schema.json_or_python_schema(
-            json_schema=core_schema.union_schema(
-                [
-                    core_schema.no_info_plain_validator_function(validate_from_str),
-                ]
-            ),
+            json_schema=core_schema.no_info_plain_validator_function(cls.new),
             python_schema=core_schema.union_schema(
                 [
                     core_schema.is_instance_schema(cls),
-                    core_schema.no_info_plain_validator_function(validate_from_str),
+                    core_schema.no_info_plain_validator_function(cls.new),
                 ]
             ),
             serialization=core_schema.plain_serializer_function_ser_schema(
-                serializer,
+                str,
                 return_schema=core_schema.str_schema(),
                 when_used="json",
             ),
