@@ -61,17 +61,19 @@ async def http_request(
         dict[str, str],
         Field(description="HTTP request headers"),
     ] = None,
-    payload: Annotated[
-        JSONObjectOrArray,
-        Field(description="HTTP request payload"),
-    ] = None,
     params: Annotated[
         dict[str, Any],
         Field(description="URL query parameters"),
     ] = None,
+    payload: Annotated[
+        JSONObjectOrArray,
+        Field(
+            description="JSON serializable data in request body (POST, PUT, and PATCH)"
+        ),
+    ] = None,
     form_data: Annotated[
         dict[str, Any],
-        Field(description="HTTP form encoded data"),
+        Field(description="Form encoded data in request body (POST, PUT, and PATCH)"),
     ] = None,
     auth: Annotated[
         dict[str, str],
