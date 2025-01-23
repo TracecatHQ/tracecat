@@ -65,13 +65,37 @@ export function getRelativeTime(date: Date) {
  * - "wf-123:1234567890" -> ["wf-123", "1234567890"]
  * - "wf-123:1234567890:1" -> ["wf-123", "1234567890:1"]
  */
+/**
+ * Parses a full execution ID into workflow ID and execution ID components
+ * @param fullExecutionId - Full execution ID string in format "workflowId:executionId" or "workflowId/executionId"
+ * @returns Tuple of [workflowId, executionId]
+ * @throws Error if execution ID format is invalid
+ */
 export function parseExecutionId(fullExecutionId: string): [string, string] {
-  // Split at most once from the left, keeping any remaining colons in the second part
-  const splitIndex = fullExecutionId.indexOf(":")
-  if (splitIndex === -1) {
-    throw new Error("Invalid execution ID format - missing colon separator")
+  const separators = ["/", ":"]
+  for (const separator of separators) {
+    const splitIndex = fullExecutionId.indexOf(separator)
+    if (splitIndex !== -1) {
+      return [
+        fullExecutionId.slice(0, splitIndex),
+        fullExecutionId.slice(splitIndex + 1),
+      ]
+    }
   }
-  const workflowId = fullExecutionId.slice(0, splitIndex)
-  const executionId = fullExecutionId.slice(splitIndex + 1)
-  return [workflowId, executionId]
+  throw new Error("Invalid execution ID format - missing separator (: or /)")
+}
+
+/**
+ * Formats and URL encodes a workflow execution ID
+ * @param workflowId - ID of the workflow
+ * @param executionId - ID of the execution
+ * @returns URL encoded execution ID in format "workflowId/executionId"
+ */
+export function formatExecutionId(
+  workflowId: string,
+  executionId: string,
+  separator: string = "/"
+): string {
+  const encodedSeparator = encodeURIComponent(separator)
+  return `${workflowId}${encodedSeparator}${executionId}`
 }
