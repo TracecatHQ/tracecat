@@ -29,11 +29,13 @@ Examples
 - short -> `wf_4itKqkgCZrLhgYiq5L211X`
 """
 
+
 class WorkflowUUID(TracecatUUID[WorkflowIDShort]):
     """UUID for workflow resources."""
 
     prefix = WF_ID_PREFIX
     legacy_prefix = "wf-"
+
 
 # Annotations
 WorkflowID = Annotated[str, StringConstraints(pattern=WF_ID_PATTERN)]
