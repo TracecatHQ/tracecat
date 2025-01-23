@@ -43,7 +43,7 @@ async def create_schedule(
     if task_timeout := config.TEMPORAL__TASK_TIMEOUT:
         schedule_kwargs["task_timeout"] = timedelta(seconds=float(task_timeout))
 
-    workflow_schedule_id = f"{workflow_id}:{schedule_id}"
+    workflow_schedule_id = f"{workflow_id.short()}/{schedule_id}"
 
     if config.TEMPORAL__API_KEY__ARN or config.TEMPORAL__API_KEY:
         logger.warning(

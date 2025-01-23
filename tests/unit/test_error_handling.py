@@ -8,7 +8,8 @@ from tests import shared
 from tracecat.contexts import ctx_role
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLInput, DSLRunArgs
+from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.models import ActionStatement
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.logger import logger
@@ -84,23 +85,22 @@ async def test_execution_fails_invalid_expressions(
     dsl = DSLInput(
         title="Testing invalid expressions: " + expected_error,
         description="Testing different invalid expression scenarios",
-        entrypoint={
-            "ref": "failing_action",
-        },
+        entrypoint=DSLEntrypoint(
+            ref="failing_action",
+        ),
         actions=[
-            {
-                "ref": "failing_action",
-                "action": "core.transform.reshape",
-                "args": {
+            ActionStatement(
+                ref="failing_action",
+                action="core.transform.reshape",
+                args={
                     "value": {"data": expression},
                 },
-                "depends_on": [],
-                "description": "",
-            },
+                depends_on=[],
+                description="",
+            ),
         ],
         inputs={},
         returns=None,
-        tests=[],
         triggers=[],
     )
     test_name = f"test_execution_fails_invalid_expressions-{dsl.title}"

@@ -1,13 +1,13 @@
 import inspect
 from typing import Union, get_type_hints
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, status
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.editor.models import EditorActionRead, EditorFunctionRead, EditorParamRead
 from tracecat.expressions.functions import FUNCTION_MAPPING
-from tracecat.identifiers import WorkflowID
+from tracecat.identifiers.workflow import AnyWorkflowIDQuery
 from tracecat.types.auth import Role
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -82,7 +82,7 @@ async def list_actions(
         require_workspace="yes",
     ),
     session: AsyncDBSession,
-    workflow_id: WorkflowID = Query(...),
+    workflow_id: AnyWorkflowIDQuery,
 ):
     # find actions that are in the workflow
     service = WorkflowsManagementService(session, role=role)

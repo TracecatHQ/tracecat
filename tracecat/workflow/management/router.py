@@ -22,7 +22,7 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
 from tracecat.dsl.models import DSLConfig
-from tracecat.identifiers import WorkflowID
+from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.tags.models import TagRead
@@ -64,7 +64,7 @@ async def list_workflows(
         ]
         res.append(
             WorkflowReadMinimal(
-                id=workflow.id,
+                id=WorkflowUUID.new(workflow.id).short(),
                 title=workflow.title,
                 description=workflow.description,
                 status=workflow.status,
@@ -158,7 +158,7 @@ async def create_workflow(
             WorkflowCreate(title=title, description=description)
         )
     return WorkflowReadMinimal(
-        id=workflow.id,
+        id=WorkflowUUID.new(workflow.id).short(),
         title=workflow.title,
         description=workflow.description,
         status=workflow.status,
@@ -174,7 +174,7 @@ async def create_workflow(
 async def get_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
 ) -> WorkflowRead:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     # Get Workflow given workflow_id
@@ -191,7 +191,7 @@ async def get_workflow(
     }
     # Add webhook/schedules
     return WorkflowRead(
-        id=workflow.id,
+        id=WorkflowUUID.new(workflow.id).short(),
         owner_id=workflow.owner_id,
         title=workflow.title,
         description=workflow.description,
@@ -219,7 +219,7 @@ async def get_workflow(
 async def update_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
     params: WorkflowUpdate,
 ) -> None:
     """Update a workflow."""
@@ -240,7 +240,7 @@ async def update_workflow(
 async def delete_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
 ) -> None:
     """Delete a workflow."""
 
@@ -257,7 +257,7 @@ async def delete_workflow(
 async def commit_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
 ) -> WorkflowCommitResponse:
     """Commit a workflow.
 
@@ -285,19 +285,19 @@ async def commit_workflow(
         except* TracecatValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                RegistryActionValidateResponse.from_dsl_validation_error(e)
+                RegistryActionValidateResponse.from_dsl_validation_error(e)  # type: ignore
                 for e in eg.exceptions
             )
         except* ValidationError as eg:
             logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                RegistryActionValidateResponse.from_pydantic_validation_error(e)
+                RegistryActionValidateResponse.from_pydantic_validation_error(e)  # type: ignore
                 for e in eg.exceptions
             )
 
         if construction_errors:
             return WorkflowCommitResponse(
-                workflow_id=workflow_id,
+                workflow_id=workflow_id.short(),
                 status="failure",
                 message=f"Workflow definition construction failed with {len(construction_errors)} errors",
                 errors=construction_errors,
@@ -309,7 +309,7 @@ async def commit_workflow(
         if val_errors := await validate_dsl(session=session, dsl=dsl):
             logger.warning("Validation errors", errors=val_errors)
             return WorkflowCommitResponse(
-                workflow_id=workflow_id,
+                workflow_id=workflow_id.short(),
                 status="failure",
                 message=f"{len(val_errors)} validation error(s)",
                 errors=[
@@ -338,7 +338,7 @@ async def commit_workflow(
         await session.refresh(defn)
 
         return WorkflowCommitResponse(
-            workflow_id=workflow_id,
+            workflow_id=workflow_id.short(),
             status="success",
             message="Workflow committed successfully.",
             metadata={"version": defn.version},
@@ -349,7 +349,7 @@ async def commit_workflow(
 async def export_workflow(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
     format: Literal["json", "yaml"] = Query(
         default="json", description="Export format: 'json' or 'yaml'"
     ),
@@ -401,7 +401,7 @@ async def export_workflow(
 async def list_workflow_definitions(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
 ) -> list[WorkflowDefinition]:
     """List all workflow definitions for a Workflow."""
     service = WorkflowDefinitionsService(session, role=role)
@@ -412,7 +412,7 @@ async def list_workflow_definitions(
 async def get_workflow_definition(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
     version: int | None = None,
 ) -> WorkflowDefinition:
     """Get the latest version of a workflow definition."""
@@ -431,11 +431,10 @@ async def get_workflow_definition(
 async def create_workflow_definition(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
 ) -> WorkflowDefinition:
     """Get the latest version of a workflow definition."""
-    service = WorkflowDefinitionsService(session, role=role)
-    return await service.create_workflow_definition(workflow_id)
+    raise NotImplementedError
 
 
 # ----- Workflow Webhooks ----- #
@@ -449,15 +448,19 @@ async def create_workflow_definition(
 async def create_webhook(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
     params: UpsertWebhookParams,
 ) -> None:
     """Create a webhook for a workflow."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
+        )
 
     webhook = Webhook(
         owner_id=role.workspace_id,
         method=params.method or "POST",
-        workflow_id=workflow_id,
+        workflow_id=workflow_id.to_legacy(),
     )  # type: ignore
     session.add(webhook)
     await session.commit()
@@ -468,12 +471,12 @@ async def create_webhook(
 async def get_webhook(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
 ) -> WebhookResponse:
     """Get the webhook from a workflow."""
     statement = select(Webhook).where(
         Webhook.owner_id == role.workspace_id,
-        Webhook.workflow_id == workflow_id,
+        Webhook.workflow_id == workflow_id.to_legacy(),
     )
     result = await session.exec(statement)
     try:
@@ -493,13 +496,14 @@ async def get_webhook(
 async def update_webhook(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
     params: UpsertWebhookParams,
 ) -> None:
     """Update the webhook for a workflow. We currently supprt only one webhook per workflow."""
     result = await session.exec(
         select(Workflow).where(
-            Workflow.owner_id == role.workspace_id, Workflow.id == workflow_id
+            Workflow.owner_id == role.workspace_id,
+            Workflow.id == workflow_id.to_legacy(),
         )
     )
     try:

@@ -8,6 +8,7 @@ from tracecat.executor.models import DispatchActionContext
 from tracecat.executor.service import _dispatch_action, dispatch_action_on_cluster
 from tracecat.expressions.common import ExprContext
 from tracecat.git import GitUrl
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.types.auth import Role
 
 
@@ -19,8 +20,8 @@ def mock_session():
 @pytest.fixture
 def basic_task_input():
     """Fixture that provides a basic RunActionInput without looping."""
-    wf_id = "wf-" + uuid.uuid4().hex
-    wf_exec_id = wf_id + ":exec-test"
+    wf_id = WorkflowUUID.new_uuid4()
+    wf_exec_id = wf_id.short() + "/exec_test"
     wf_run_id = uuid.uuid4()
     return RunActionInput(
         task=ActionStatement(
@@ -47,8 +48,8 @@ def basic_task_input():
 
 @pytest.fixture
 def basic_looped_task_input():
-    wf_id = "wf-" + uuid.uuid4().hex
-    wf_exec_id = wf_id + ":exec-test"
+    wf_id = WorkflowUUID.new_uuid4()
+    wf_exec_id = wf_id.short() + "/exec_test"
     wf_run_id = uuid.uuid4()
     return RunActionInput(
         task=ActionStatement(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal, cast
+
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from temporalio import activity
@@ -7,9 +9,14 @@ from temporalio import activity
 from tracecat.auth.credentials import TemporaryRole
 from tracecat.db.schemas import Schedule
 from tracecat.identifiers import ScheduleID, WorkflowID
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseService
-from tracecat.types.exceptions import TracecatNotFoundError, TracecatServiceError
+from tracecat.types.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatServiceError,
+)
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.models import (
     GetScheduleActivityInputs,
@@ -41,8 +48,8 @@ class WorkflowSchedulesService(BaseService):
             A list of Schedule objects representing the schedules for the specified workflow, or all schedules if no workflow ID is provided.
         """
         statement = select(Schedule).where(Schedule.owner_id == self.role.workspace_id)
-        if workflow_id:
-            statement = statement.where(Schedule.workflow_id == workflow_id)
+        if workflow_id is not None:
+            statement = statement.where(Schedule.workflow_id == workflow_id.to_legacy())
         result = await self.session.exec(statement)
         schedules = result.all()
         return list(schedules)
@@ -68,10 +75,12 @@ class WorkflowSchedulesService(BaseService):
 
         """
         owner_id = self.role.workspace_id
+        if owner_id is None:
+            raise TracecatAuthorizationError("Workspace ID is required")
         schedule = Schedule(
             owner_id=owner_id,
-            workflow_id=params.workflow_id,
-            inputs=params.inputs,
+            workflow_id=WorkflowUUID.new(params.workflow_id).to_legacy(),
+            inputs=params.inputs or {},
             every=params.every,
             offset=params.offset,
             start_at=params.start_at,
@@ -90,7 +99,7 @@ class WorkflowSchedulesService(BaseService):
         ) as sch_role:
             try:
                 handle = await bridge.create_schedule(
-                    workflow_id=params.workflow_id,
+                    workflow_id=WorkflowUUID.new(params.workflow_id),
                     schedule_id=schedule.id,
                     every=params.every,
                     offset=params.offset,
@@ -268,7 +277,7 @@ class WorkflowSchedulesService(BaseService):
                     owner_id=schedule.owner_id,
                     created_at=schedule.created_at,
                     updated_at=schedule.updated_at,
-                    workflow_id=schedule.workflow_id,
+                    workflow_id=WorkflowUUID.new(schedule.workflow_id),
                     inputs=schedule.inputs,
                     every=schedule.every,
                     offset=schedule.offset,
@@ -276,7 +285,7 @@ class WorkflowSchedulesService(BaseService):
                     end_at=schedule.end_at,
                     timeout=schedule.timeout,
                     cron=schedule.cron,
-                    status=schedule.status,
+                    status=cast(Literal["online", "offline"], schedule.status),
                 )
             except TracecatNotFoundError:
                 raise

@@ -3,25 +3,29 @@ from typing import Annotated, cast
 import orjson
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.exc import NoResultFound
-from sqlmodel import select
+from sqlmodel import col, select
 
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Webhook, WorkflowDefinition
 from tracecat.dsl.models import TriggerInputs
+from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 
 
 async def validate_incoming_webhook(
-    path: str, secret: str, request: Request
+    workflow_id: AnyWorkflowIDPath, secret: str, request: Request
 ) -> WorkflowDefinition:
     """Validate incoming webhook request.
 
     NOte: The webhook ID here is the workflow ID.
     """
+    legacy_wf_id = workflow_id.to_legacy()
     async with get_async_session_context_manager() as session:
-        result = await session.exec(select(Webhook).where(Webhook.workflow_id == path))
+        result = await session.exec(
+            select(Webhook).where(Webhook.workflow_id == legacy_wf_id)
+        )
         try:
             # One webhook per workflow
             webhook = result.one()
@@ -60,8 +64,8 @@ async def validate_incoming_webhook(
         # of the workflow defitniion.
         result = await session.exec(
             select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == path)
-            .order_by(WorkflowDefinition.version.desc())  # type: ignore
+            .where(WorkflowDefinition.workflow_id == legacy_wf_id)
+            .order_by(col(WorkflowDefinition.version).desc())
         )
         try:
             defn = result.first()

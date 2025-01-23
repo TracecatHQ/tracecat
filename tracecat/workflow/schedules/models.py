@@ -4,6 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from tracecat.identifiers import OwnerID, ScheduleID, WorkflowID
+from tracecat.identifiers.workflow import AnyWorkflowID
 from tracecat.types.auth import Role
 
 
@@ -24,7 +25,7 @@ class ScheduleRead(BaseModel):
 
 
 class ScheduleCreate(BaseModel):
-    workflow_id: WorkflowID
+    workflow_id: AnyWorkflowID
     inputs: dict[str, Any] | None = None
     cron: str | None = None
     every: timedelta = Field(..., description="ISO 8601 duration string")

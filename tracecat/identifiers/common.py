@@ -140,6 +140,7 @@ class TracecatUUID[ShortID: str](UUID):
 
     @classmethod
     def new(cls, id: Any) -> Self:
+        """Coerce an ID into an instance of TracecatUUID. Handles legacy ids."""
         if isinstance(id, cls):
             return id
         match id:

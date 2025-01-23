@@ -36,7 +36,8 @@ from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDF
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.identifiers import ScheduleID, WorkflowID
+from tracecat.identifiers import ScheduleID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.types.auth import Role
@@ -235,6 +236,12 @@ class DSLRunArgs(BaseModel):
         description="The schedule ID that triggered this workflow, if any.",
     )
 
+    @field_validator("wf_id", mode="before")
+    @classmethod
+    def validate_workflow_id(cls, v: AnyWorkflowID) -> WorkflowUUID:
+        """Convert any valid workflow ID format to WorkflowUUID."""
+        return WorkflowUUID.new(v)
+
 
 class ExecuteChildWorkflowArgs(BaseModel):
     workflow_id: WorkflowID | None = None
@@ -261,6 +268,12 @@ class ExecuteChildWorkflowArgs(BaseModel):
                 },
             )
         return self
+
+    @field_validator("workflow_id", mode="before")
+    @classmethod
+    def validate_workflow_id(cls, v: AnyWorkflowID) -> WorkflowUUID:
+        """Convert any valid workflow ID format to WorkflowUUID."""
+        return WorkflowUUID.new(v)
 
 
 class ChildWorkflowMemo(BaseModel):

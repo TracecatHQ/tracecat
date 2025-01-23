@@ -4,7 +4,8 @@ from sqlmodel import select
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Schedule
-from tracecat.identifiers import ScheduleID, WorkflowID
+from tracecat.identifiers import ScheduleID
+from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatServiceError
 from tracecat.workflow.schedules.models import (
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/schedules")
 async def list_schedules(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID | None = None,
+    workflow_id: OptionalAnyWorkflowIDQuery,
 ) -> list[Schedule]:
     service = WorkflowSchedulesService(session, role=role)
     return await service.list_schedules(workflow_id=workflow_id)

@@ -4,13 +4,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr
-from tracecat.identifiers import WorkflowExecutionID, WorkflowID, WorkflowRunID
+from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
@@ -170,10 +171,16 @@ class DSLEnvironment(TypedDict, total=False):
 class RunContext(BaseModel):
     """This is the runtime context model for a workflow run. Passed into activities."""
 
-    wf_id: WorkflowID
+    wf_id: WorkflowUUID
     wf_exec_id: WorkflowExecutionID
     wf_run_id: WorkflowRunID
     environment: str
+
+    @field_validator("wf_id", mode="before")
+    @classmethod
+    def validate_workflow_id(cls, v: AnyWorkflowID) -> WorkflowUUID:
+        """Convert any valid workflow ID format to WorkflowUUID."""
+        return WorkflowUUID.new(v)
 
 
 class RunActionInput(BaseModel):

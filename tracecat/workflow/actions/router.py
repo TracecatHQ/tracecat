@@ -5,6 +5,8 @@ from sqlmodel import select
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Action
+from tracecat.identifiers.action import ActionID
+from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.workflow.actions.models import (
     ActionControlFlow,
     ActionCreate,
@@ -19,7 +21,7 @@ router = APIRouter(prefix="/actions")
 @router.get("", tags=["actions"])
 async def list_actions(
     role: WorkspaceUserRole,
-    workflow_id: str,
+    workflow_id: AnyWorkflowIDPath,
     session: AsyncDBSession,
 ) -> list[ActionReadMinimal]:
     """List all actions for a workflow."""
@@ -29,10 +31,10 @@ async def list_actions(
     )
     results = await session.exec(statement)
     actions = results.all()
-    action_metadata = [
+    response = [
         ActionReadMinimal(
             id=action.id,
-            workflow_id=workflow_id,
+            workflow_id=WorkflowUUID.new(action.workflow_id).short(),
             type=action.type,
             title=action.title,
             description=action.description,
@@ -40,7 +42,7 @@ async def list_actions(
         )
         for action in actions
     ]
-    return action_metadata
+    return response
 
 
 @router.post("", tags=["actions"])
@@ -50,9 +52,14 @@ async def create_action(
     session: AsyncDBSession,
 ) -> ActionReadMinimal:
     """Create a new action for a workflow."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
+        )
     action = Action(
         owner_id=role.workspace_id,
-        workflow_id=params.workflow_id,
+        # NOTE(COMPAT): Backwards compatibility
+        workflow_id=WorkflowUUID.new(params.workflow_id).to_legacy(),
         type=params.type,
         title=params.title,
         description="",  # Default to empty string
@@ -76,8 +83,8 @@ async def create_action(
 
     action_metadata = ActionReadMinimal(
         id=action.id,
-        workflow_id=params.workflow_id,
-        type=params.type,
+        workflow_id=WorkflowUUID.new(action.workflow_id).short(),
+        type=action.type,
         title=action.title,
         description=action.description,
         status=action.status,
@@ -88,15 +95,15 @@ async def create_action(
 @router.get("/{action_id}", tags=["actions"])
 async def get_action(
     role: WorkspaceUserRole,
-    action_id: str,
-    workflow_id: str,
+    action_id: ActionID,
+    workflow_id: AnyWorkflowIDPath,
     session: AsyncDBSession,
 ) -> ActionRead:
     """Get an action."""
     statement = select(Action).where(
         Action.owner_id == role.workspace_id,
         Action.id == action_id,
-        Action.workflow_id == workflow_id,
+        Action.workflow_id == workflow_id.to_legacy(),
     )
     result = await session.exec(statement)
     try:
@@ -120,7 +127,7 @@ async def get_action(
 @router.post("/{action_id}", tags=["actions"])
 async def update_action(
     role: WorkspaceUserRole,
-    action_id: str,
+    action_id: ActionID,
     params: ActionUpdate,
     session: AsyncDBSession,
 ) -> ActionRead:
@@ -166,7 +173,7 @@ async def update_action(
 @router.delete("/{action_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["actions"])
 async def delete_action(
     role: WorkspaceUserRole,
-    action_id: str,
+    action_id: ActionID,
     session: AsyncDBSession,
 ) -> None:
     """Delete an action."""

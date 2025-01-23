@@ -4,13 +4,14 @@ from datetime import datetime
 from typing import Any, Literal
 
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from tracecat.db.schemas import Schedule, Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
-from tracecat.identifiers import OwnerID, WorkflowID, WorkspaceID
+from tracecat.identifiers import OwnerID, WorkspaceID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.tags.models import TagRead
 from tracecat.types.auth import Role
@@ -19,7 +20,7 @@ from tracecat.workflow.actions.models import ActionRead
 
 
 class WorkflowRead(BaseModel):
-    id: WorkflowID
+    id: WorkflowIDShort
     title: str
     description: str
     status: str
@@ -39,7 +40,7 @@ class WorkflowRead(BaseModel):
 
 
 class WorkflowReadMinimal(BaseModel):
-    id: WorkflowID
+    id: WorkflowIDShort
     title: str
     description: str
     status: str
@@ -93,9 +94,15 @@ class WorkflowCreate(BaseModel):
 
 class GetWorkflowDefinitionActivityInputs(BaseModel):
     role: Role
-    workflow_id: WorkflowID
+    workflow_id: WorkflowUUID
     version: int | None = None
     task: ActionStatement | None = None
+
+    @field_validator("workflow_id", mode="before")
+    @classmethod
+    def validate_workflow_id(cls, v: AnyWorkflowID) -> WorkflowUUID:
+        """Convert any valid workflow ID format to WorkflowUUID."""
+        return WorkflowUUID.new(v)
 
 
 class ResolveWorkflowAliasActivityInputs(BaseModel):
@@ -124,7 +131,7 @@ class ExternalWorkflowDefinition(BaseModel):
             "This will be set to `owner_id`"
         ),
     )
-    workflow_id: WorkflowID | None = Field(
+    workflow_id: WorkflowUUID | None = Field(
         default=None,
         description="Workflow ID. If not provided, a new workflow ID will be created.",
     )
@@ -143,16 +150,24 @@ class ExternalWorkflowDefinition(BaseModel):
     def from_database(defn: WorkflowDefinition) -> ExternalWorkflowDefinition:
         return ExternalWorkflowDefinition(
             workspace_id=defn.owner_id,
-            workflow_id=defn.workflow_id,
+            workflow_id=WorkflowUUID.new(defn.workflow_id),
             created_at=defn.created_at,
             updated_at=defn.updated_at,
             version=defn.version,
             definition=DSLInput(**defn.content),
         )
 
+    @field_validator("workflow_id", mode="before")
+    @classmethod
+    def validate_workflow_id(cls, v: AnyWorkflowID | None) -> WorkflowUUID | None:
+        """Convert any valid workflow ID format to WorkflowUUID."""
+        if v is None:
+            return None
+        return WorkflowUUID.new(v)
+
 
 class WorkflowCommitResponse(BaseModel):
-    workflow_id: str
+    workflow_id: WorkflowIDShort
     status: Literal["success", "failure"]
     message: str
     errors: list[RegistryActionValidateResponse] | None = None

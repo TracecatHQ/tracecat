@@ -22,6 +22,7 @@ from tracecat.dsl.models import (
     TriggerInputs,
 )
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.workflow.executions.common import (
@@ -203,12 +204,13 @@ class EventGroup(BaseModel, Generic[EventInput]):
             action_title = None
             action_description = None
 
+        wf_id = WorkflowUUID.new(dsl_run_args.wf_id)
         return EventGroup(
             event_id=event.event_id,
             udf_namespace="core.workflow",
             udf_name="execute",
             udf_key="core.workflow.execute",
-            action_id=dsl_run_args.wf_id,
+            action_id=wf_id.short(),
             action_ref=None,
             action_title=action_title,
             action_description=action_description,
@@ -366,7 +368,7 @@ class WorkflowExecutionEventCompact(BaseModel):
 
 
 class WorkflowExecutionCreate(BaseModel):
-    workflow_id: WorkflowID
+    workflow_id: AnyWorkflowID
     inputs: TriggerInputs | None = None
 
 

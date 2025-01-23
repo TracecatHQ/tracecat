@@ -1,7 +1,7 @@
 from typing import Annotated, Any, Literal
 
 from pydantic import Field
-from tracecat.identifiers import WorkflowID
+from tracecat.identifiers.workflow import AnyWorkflowID
 
 from tracecat_registry import RegistryActionError, registry
 
@@ -15,7 +15,7 @@ from tracecat_registry import RegistryActionError, registry
 async def execute(
     *,
     workflow_id: Annotated[
-        WorkflowID | None,
+        AnyWorkflowID | None,
         Field(
             default=None,
             description=(
