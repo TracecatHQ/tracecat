@@ -16,6 +16,7 @@ from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.expressions.common import ExprType
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.registry.repository import Repository
 from tracecat.types.auth import Role
@@ -131,7 +132,8 @@ async def test_playbook_live_run(
     defn_service = WorkflowDefinitionsService(session, role=test_role)
 
     logger.info("Creating workflow definition")
-    await defn_service.create_workflow_definition(workflow_id=workflow.id, dsl=dsl)
+    wf_id = WorkflowUUID.new(workflow.id)
+    await defn_service.create_workflow_definition(workflow_id=wf_id, dsl=dsl)
 
     wf_exec_id = generate_test_exec_id(f"{path.stem}-{workflow.title}")
     run_args = DSLRunArgs(
