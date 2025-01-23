@@ -8,7 +8,7 @@ jamf_secret = RegistrySecret(
     name="jamf",
     keys=["JAMF_CLIENT_ID", "JAMF_CLIENT_SECRET"],
 )
-"""Jamf secret.
+"""Jamf OAuth2.0 credentials.
 
 - name: `jamf`
 - keys:

@@ -11,7 +11,7 @@ crowdstrike_secret = RegistrySecret(
     name="crowdstrike",
     keys=["CROWDSTRIKE_CLIENT_ID", "CROWDSTRIKE_CLIENT_SECRET"],
 )
-"""Crowdstrike secret.
+"""Crowdstrike OAuth2.0 credentials.
 
 - name: `crowdstrike`
 - keys:

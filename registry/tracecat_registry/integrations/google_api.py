@@ -12,7 +12,7 @@ google_api_secret = RegistrySecret(
     name="google_api",
     keys=["GOOGLE_API_CREDENTIALS"],
 )
-"""Google API Secret.
+"""Google API service account credentials.
 
 - name: `google_api`
 - keys:

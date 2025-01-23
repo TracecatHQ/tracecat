@@ -11,7 +11,7 @@ check_point_infinity_secret = RegistrySecret(
         "CHECKPOINT_ACCESS_KEY",
     ],
 )
-"""Check Point Infinity secret.
+"""Check Point Infinity OAuth2.0 credentials.
 
 - name: `check_point_infinity`
 - keys:
