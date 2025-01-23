@@ -171,7 +171,7 @@ def test_extract_ipv4_addresses(texts, expected_ip_addresses):
         "filter_invalid_url",
         "multiple_urls_in_text",
         "urls_in_json_string",
-        "empty_result"
+        "empty_result",
     ],
 )
 def test_extract_urls(texts, expected_urls):

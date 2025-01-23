@@ -475,7 +475,7 @@ export function CustomEditor({
             scrollbar: {
               verticalScrollbarSize: 10,
               horizontalScrollbarSize: 10,
-              alwaysConsumeMouseWheel: false
+              alwaysConsumeMouseWheel: false,
             },
             renderLineHighlight: "all",
             automaticLayout: true,
