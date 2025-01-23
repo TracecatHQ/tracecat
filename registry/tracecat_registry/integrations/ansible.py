@@ -19,6 +19,7 @@ ansible_secret = RegistrySecret(
     ],
 )
 """Ansible Runner secret.
+
 - name: `ansible`
 - optional_keys:
     - `ANSIBLE_SSH_KEY`
