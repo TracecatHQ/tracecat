@@ -29,11 +29,11 @@ check_point_infinity_secret = RegistrySecret(
     secrets=[check_point_infinity_secret],
 )
 async def get_auth_token(
-    api_url: str = "https://cloudinfra-gw-us.portal.checkpoint.com",
+    base_url: str = "https://cloudinfra-gw-us.portal.checkpoint.com",
 ) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{api_url}/auth/external",
+            f"{base_url}/auth/external",
             headers={"Content-Type": "application/json"},
             json={
                 "clientId": secrets.get("CHECKPOINT_CLIENT_ID"),
