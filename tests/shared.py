@@ -7,9 +7,7 @@ import os
 import httpx
 from slugify import slugify
 
-from tracecat.dsl.validation import validate_trigger_inputs_activity
 from tracecat.identifiers.workflow import EXEC_ID_PREFIX, WorkflowUUID
-from tracecat.workflow.management.definitions import get_workflow_definition_activity
 
 
 def user_client() -> httpx.AsyncClient:
@@ -25,6 +23,3 @@ TEST_WF_ID = WorkflowUUID(int=0)
 
 def generate_test_exec_id(name: str) -> str:
     return TEST_WF_ID.short() + f"/{EXEC_ID_PREFIX}" + slugify(name, separator="_")
-
-
-DSL_UTILITIES = [get_workflow_definition_activity, validate_trigger_inputs_activity]

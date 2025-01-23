@@ -9,11 +9,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from tests.shared import DSL_UTILITIES, TEST_WF_ID, generate_test_exec_id
+from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLRunArgs
-from tracecat.dsl.worker import new_sandbox_runner
+from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.expressions.common import ExprType
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -148,7 +147,7 @@ async def test_playbook_live_run(
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=DSLActivities.load() + DSL_UTILITIES,
+        activities=get_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
