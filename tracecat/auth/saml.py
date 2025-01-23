@@ -13,7 +13,7 @@ from tracecat.api.common import bootstrap_role
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
     SAML_IDP_METADATA_URL,
-    SAML_SP_ACS_URL,
+    SAML_PUBLIC_ACS_URL,
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
 )
@@ -146,7 +146,10 @@ async def create_saml_client() -> Saml2Client:
                 "description": "Tracecat SAML SSO Service Provider",
                 "endpoints": {
                     "assertion_consumer_service": [
-                        (SAML_SP_ACS_URL, BINDING_HTTP_POST),
+                        (
+                            SAML_PUBLIC_ACS_URL,
+                            BINDING_HTTP_POST,
+                        ),
                     ],
                 },
                 # Security settings

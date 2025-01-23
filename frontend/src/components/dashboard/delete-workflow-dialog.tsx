@@ -38,7 +38,8 @@ export function DeleteWorkflowAlertDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete workflow</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to delete this workflow? This action cannot be undone.
+            Are you sure you want to delete this workflow? This action cannot be
+            undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

@@ -14,7 +14,6 @@ import {
   PlayIcon,
   SaveIcon,
   SquarePlay,
-  Trash2Icon,
   WorkflowIcon,
 } from "lucide-react"
 import { useForm } from "react-hook-form"
@@ -45,16 +44,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+import { Dialog } from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
