@@ -9,6 +9,7 @@ from pydantic import (
     StringConstraints,
 )
 
+from tracecat.identifiers.common import TracecatUUID
 from tracecat.identifiers.resource import ResourcePrefix, generate_resource_id
 from tracecat.identifiers.schedules import SCHEDULE_EXEC_ID_PATTERN
 
@@ -17,6 +18,23 @@ WF_ID_PATTERN = r"wf-[0-9a-f]{32}"
 EXEC_ID_PATTERN = r"exec-[\w-]+"
 WF_EXEC_SUFFIX_PATTERN = rf"({EXEC_ID_PATTERN}|{SCHEDULE_EXEC_ID_PATTERN})"
 WF_EXEC_ID_PATTERN = rf"{WF_ID_PATTERN}:{WF_EXEC_SUFFIX_PATTERN}"
+WF_ID_PREFIX = "wf_"
+WF_ID_SHORT_PATTERN = rf"{WF_ID_PREFIX}[0-9a-zA-Z]+"
+WorkflowIDShort = Annotated[str, StringConstraints(pattern=WF_ID_SHORT_PATTERN)]
+"""A short base62 encoded string representation of a workflow UUID.
+
+Examples
+--------
+- long ->  `8d3885a9-6470-4ee0-9d4d-d507cc97393d`
+- short -> `wf_4itKqkgCZrLhgYiq5L211X`
+"""
+
+
+class WorkflowUUID(TracecatUUID[WorkflowIDShort]):
+    """UUID for workflow resources."""
+
+    prefix = WF_ID_PREFIX
+    legacy_prefix = "wf-"
 
 
 # Annotations
