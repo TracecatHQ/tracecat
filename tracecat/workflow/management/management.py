@@ -14,10 +14,17 @@ from tracecat.dsl.common import DSLEntrypoint, DSLInput, build_action_statements
 from tracecat.dsl.models import DSLConfig
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
-from tracecat.identifiers.workflow import WF_ID_PATTERN
+from tracecat.identifiers.workflow import (
+    LEGACY_WF_ID_PATTERN,
+    WF_ID_SHORT_PATTERN,
+    WorkflowUUID,
+)
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.service import BaseService
-from tracecat.types.exceptions import TracecatValidationError
+from tracecat.types.exceptions import (
+    TracecatAuthorizationError,
+    TracecatValidationError,
+)
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.models import (
@@ -66,24 +73,27 @@ class WorkflowsManagementService(BaseService):
 
     async def get_workflow(self, workflow_id: WorkflowID) -> Workflow | None:
         statement = select(Workflow).where(
-            Workflow.owner_id == self.role.workspace_id, Workflow.id == workflow_id
+            Workflow.owner_id == self.role.workspace_id,
+            Workflow.id == workflow_id.to_legacy(),
         )
         result = await self.session.exec(statement)
         return result.one_or_none()
 
     async def resolve_workflow_alias(self, alias: str) -> WorkflowID | None:
         statement = select(Workflow.id).where(
-            Workflow.owner_id == self.role.workspace_id, Workflow.alias == alias
+            Workflow.owner_id == self.role.workspace_id,
+            Workflow.alias == alias,
         )
         result = await self.session.exec(statement)
-        return result.one_or_none()
+        res = result.one_or_none()
+        return WorkflowUUID.new(res) if res else None
 
     async def update_workflow(
         self, workflow_id: WorkflowID, params: WorkflowUpdate
     ) -> Workflow:
         statement = select(Workflow).where(
             Workflow.owner_id == self.role.workspace_id,
-            Workflow.id == workflow_id,
+            Workflow.id == workflow_id.to_legacy(),
         )
         result = await self.session.exec(statement)
         workflow = result.one()
@@ -98,7 +108,7 @@ class WorkflowsManagementService(BaseService):
     async def delete_workflow(self, workflow_id: WorkflowID) -> None:
         statement = select(Workflow).where(
             Workflow.owner_id == self.role.workspace_id,
-            Workflow.id == workflow_id,
+            Workflow.id == workflow_id.to_legacy(),
         )
         result = await self.session.exec(statement)
         workflow = result.one()
@@ -107,6 +117,9 @@ class WorkflowsManagementService(BaseService):
 
     async def create_workflow(self, params: WorkflowCreate) -> Workflow:
         """Create a new workflow."""
+
+        if self.role.workspace_id is None:
+            raise TracecatAuthorizationError("Workspace ID is required")
 
         now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
         title = params.title or now
@@ -150,13 +163,13 @@ class WorkflowsManagementService(BaseService):
         except* TracecatValidationError as eg:
             self.logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                RegistryActionValidateResponse.from_dsl_validation_error(e)
+                RegistryActionValidateResponse.from_dsl_validation_error(e)  # type: ignore
                 for e in eg.exceptions
             )
         except* ValidationError as eg:
             self.logger.error(eg.message, error=eg.exceptions)
             construction_errors.extend(
-                RegistryActionValidateResponse.from_pydantic_validation_error(e)
+                RegistryActionValidateResponse.from_pydantic_validation_error(e)  # type: ignore
                 for e in eg.exceptions
             )
         if construction_errors:
@@ -271,6 +284,8 @@ class WorkflowsManagementService(BaseService):
     ) -> Workflow:
         """Create a new workflow and associated actions in the database from a DSLInput."""
         self.logger.info("Creating workflow from DSL", dsl=dsl)
+        if self.role.workspace_id is None:
+            raise TracecatAuthorizationError("Workspace ID is required")
         entrypoint = dsl.entrypoint.model_dump()
         workflow_kwargs = {
             "title": dsl.title,
@@ -314,7 +329,7 @@ class WorkflowsManagementService(BaseService):
                 owner_id=self.role.workspace_id,
                 workflow_id=workflow.id,
                 type=act_stmt.action,
-                inputs=act_stmt.args,
+                inputs=dict(act_stmt.args),
                 title=act_stmt.title,
                 description=act_stmt.description,
                 control_flow=control_flow.model_dump(),
@@ -387,8 +402,12 @@ class WorkflowsManagementService(BaseService):
                 id_or_alias = workflow.error_handler
 
             # 3. Convert the error handler to an ID
-            if re.match(WF_ID_PATTERN, id_or_alias):
-                handler_wf_id = id_or_alias
+            if re.match(LEGACY_WF_ID_PATTERN, id_or_alias):
+                # TODO: Legacy workflow ID for backwards compatibility. Slowly deprecate.
+                handler_wf_id = WorkflowUUID.from_legacy(id_or_alias)
+            elif re.match(WF_ID_SHORT_PATTERN, id_or_alias):
+                # Short workflow ID
+                handler_wf_id = WorkflowUUID.new(id_or_alias)
             else:
                 handler_wf_id = await service.resolve_workflow_alias(id_or_alias)
                 if not handler_wf_id:

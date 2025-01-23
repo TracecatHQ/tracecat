@@ -143,10 +143,17 @@ def build_query(
     workflow_id: WorkflowID | None = None,
     trigger_types: set[TriggerType] | None = None,
     triggered_by_user_id: UserID | None = None,
+    _include_legacy: bool = True,
 ) -> str:
     query = []
     if workflow_id:
-        query.append(f"WorkflowId STARTS_WITH '{workflow_id}'")
+        short_id = workflow_id.short()
+        wf_id_query = f"WorkflowId STARTS_WITH '{short_id}'"
+        if _include_legacy:
+            # NOTE(COMPAT): Include legacy workflow ID for backwards compatibility
+            legacy_wf_id = workflow_id.to_legacy()
+            wf_id_query += f" OR WorkflowId STARTS_WITH '{legacy_wf_id}'"
+        query.append(wf_id_query)
     if trigger_types:
         if len(trigger_types) == 1:
             query.append(f"TracecatTriggerType = '{trigger_types.pop().value}'")

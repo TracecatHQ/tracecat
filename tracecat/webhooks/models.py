@@ -3,6 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from tracecat.db.schemas import Resource
+from tracecat.identifiers.workflow import WorkflowID
 
 
 class WebhookResponse(Resource):
@@ -12,7 +13,7 @@ class WebhookResponse(Resource):
     entrypoint_ref: str | None = None
     filters: dict[str, Any]
     method: Literal["GET", "POST"]
-    workflow_id: str
+    workflow_id: WorkflowID
     url: str
 
 

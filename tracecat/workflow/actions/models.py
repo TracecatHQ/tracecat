@@ -7,7 +7,7 @@ from pydantic_core import PydanticCustomError
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import ActionRetryPolicy
 from tracecat.identifiers.action import ActionID
-from tracecat.identifiers.workflow import WorkflowID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
 
 
 class ActionControlFlow(BaseModel):
@@ -32,7 +32,7 @@ class ActionRead(BaseModel):
 
 class ActionReadMinimal(BaseModel):
     id: ActionID
-    workflow_id: WorkflowID
+    workflow_id: WorkflowIDShort
     type: str
     title: str
     description: str
@@ -40,7 +40,7 @@ class ActionReadMinimal(BaseModel):
 
 
 class ActionCreate(BaseModel):
-    workflow_id: WorkflowID
+    workflow_id: AnyWorkflowID
     type: str
     title: str = Field(..., min_length=1, max_length=100)
 

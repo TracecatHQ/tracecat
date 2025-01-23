@@ -3,12 +3,12 @@ from __future__ import annotations
 from sqlmodel import select
 from temporalio import activity
 
-from tracecat import identifiers
 from tracecat.db.schemas import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
+from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.service import BaseService
-from tracecat.types.exceptions import TracecatException
+from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
 
 
@@ -16,11 +16,11 @@ class WorkflowDefinitionsService(BaseService):
     service_name = "workflow_definitions"
 
     async def get_definition_by_workflow_id(
-        self, workflow_id: identifiers.WorkflowID, *, version: int | None = None
+        self, workflow_id: WorkflowID, *, version: int | None = None
     ) -> WorkflowDefinition | None:
         statement = select(WorkflowDefinition).where(
             WorkflowDefinition.owner_id == self.role.workspace_id,
-            WorkflowDefinition.workflow_id == workflow_id,
+            WorkflowDefinition.workflow_id == workflow_id.to_legacy(),
         )
         if version:
             statement = statement.where(WorkflowDefinition.version == version)
@@ -32,28 +32,32 @@ class WorkflowDefinitionsService(BaseService):
         return result.first()
 
     async def list_workflow_defitinions(
-        self, workflow_id: identifiers.WorkflowID | None = None
+        self, workflow_id: WorkflowID | None = None
     ) -> list[WorkflowDefinition]:
         statement = select(WorkflowDefinition).where(
             WorkflowDefinition.owner_id == self.role.workspace_id,
         )
         if workflow_id:
-            statement = statement.where(WorkflowDefinition.workflow_id == workflow_id)
+            statement = statement.where(
+                WorkflowDefinition.workflow_id == workflow_id.to_legacy()
+            )
         result = await self.session.exec(statement)
         return list(result.all())
 
     async def create_workflow_definition(
         self,
-        workflow_id: identifiers.WorkflowID,
+        workflow_id: WorkflowID,
         dsl: DSLInput,
         *,
         commit: bool = True,
     ) -> WorkflowDefinition:
+        if self.role.workspace_id is None:
+            raise TracecatAuthorizationError("Workspace ID is required")
         statement = (
             select(WorkflowDefinition)
             .where(
                 WorkflowDefinition.owner_id == self.role.workspace_id,
-                WorkflowDefinition.workflow_id == workflow_id,
+                WorkflowDefinition.workflow_id == workflow_id.to_legacy(),
             )
             .order_by(WorkflowDefinition.version.desc())  # type: ignore
         )
@@ -63,7 +67,7 @@ class WorkflowDefinitionsService(BaseService):
         version = latest_defn.version + 1 if latest_defn else 1
         defn = WorkflowDefinition(
             owner_id=self.role.workspace_id,
-            workflow_id=workflow_id,
+            workflow_id=workflow_id.to_legacy(),
             content=dsl.model_dump(exclude_unset=True),
             version=version,
         )

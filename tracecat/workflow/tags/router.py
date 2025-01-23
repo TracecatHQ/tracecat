@@ -4,7 +4,7 @@ from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.identifiers.workflow import WorkflowID
+from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.tags.models import TagRead
 from tracecat.workflow.tags.models import WorkflowTagCreate
 from tracecat.workflow.tags.service import WorkflowTagsService
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
 async def list_tags(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
 ) -> list[TagRead]:
     """List all tags for a workflow."""
     service = WorkflowTagsService(session, role=role)
@@ -29,7 +29,7 @@ async def list_tags(
 async def add_tag(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
     params: WorkflowTagCreate,
 ) -> None:
     """Add a tag to a workflow."""
@@ -41,7 +41,7 @@ async def add_tag(
 async def remove_tag(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    workflow_id: WorkflowID,
+    workflow_id: AnyWorkflowIDPath,
     tag_id: UUID4,
 ) -> None:
     service = WorkflowTagsService(session, role=role)

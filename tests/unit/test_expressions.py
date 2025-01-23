@@ -7,6 +7,7 @@ import httpx
 import pytest
 import respx
 from httpx import Response
+from pydantic import SecretStr
 
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
@@ -174,12 +175,12 @@ def test_find_secrets():
 def test_evaluate_templated_secret(test_role):
     TEST_SECRETS = {
         "my_secret": [
-            SecretKeyValue(key="TEST_API_KEY_1", value="1234567890"),
-            SecretKeyValue(key="NOISE_1", value="asdfasdf"),
+            SecretKeyValue(key="TEST_API_KEY_1", value=SecretStr("1234567890")),
+            SecretKeyValue(key="NOISE_1", value=SecretStr("asdfasdf")),
         ],
         "other_secret": [
-            SecretKeyValue(key="test_api_key_2", value="@@@@@@@@@"),
-            SecretKeyValue(key="NOISE_2", value="aaaaaaaaaaaaa"),
+            SecretKeyValue(key="test_api_key_2", value=SecretStr("@@@@@@@@@")),
+            SecretKeyValue(key="NOISE_2", value=SecretStr("aaaaaaaaaaaaa")),
         ],
     }
 
@@ -716,6 +717,7 @@ def test_expression_parser(expr, expected):
     parser = ExprParser()
     parse_tree = parser.parse(expr)
     ev = ExprEvaluator(operand=context)
+    assert parse_tree is not None
     actual = ev.transform(parse_tree)
     assert actual == expected
 
@@ -770,11 +772,13 @@ def test_parser_error():
     with pytest.raises(TracecatExpressionError):
         test = "ACTIONS.action_test.foo"
         parse_tree = parser.parse(test)
+        assert parse_tree is not None
         strict_evaluator.evaluate(parse_tree)
 
     evaluator = ExprEvaluator(operand=context, strict=False)
     test = "ACTIONS.action_test.foo.bar.baz"
     parse_tree = parser.parse(test)
+    assert parse_tree is not None
     assert evaluator.evaluate(parse_tree) is None
 
 
@@ -791,6 +795,7 @@ def assert_validation_result(
     if contains_msg:
         assert contains_msg in res.msg
     if contains_detail:
+        assert res.detail is not None
         assert contains_detail in res.detail
 
 
@@ -935,7 +940,7 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
         visitor = ExprValidator(
             task_group=tg,
             validation_context=validation_context,
-            validators=validators,
+            validators=validators,  # type: ignore
         )
         exprs = extract_expressions(expr)
         for _expr in exprs:
@@ -963,5 +968,6 @@ def test_parse_trigger_json(context, expr, expected):
     parser = ExprParser()
     parse_tree = parser.parse(expr)
     ev = ExprEvaluator(operand=context)
+    assert parse_tree is not None
     actual = ev.transform(parse_tree)
     assert actual == expected

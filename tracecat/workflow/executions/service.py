@@ -32,8 +32,10 @@ from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
+    ExecutionUUID,
     WorkflowExecutionID,
     WorkflowID,
+    WorkflowUUID,
     generate_exec_id,
 )
 from tracecat.logger import logger
@@ -106,10 +108,37 @@ class WorkflowExecutionsService:
         return executions
 
     async def get_execution(
-        self, wf_exec_id: WorkflowExecutionID
+        self, wf_exec_id: WorkflowExecutionID, _include_legacy: bool = True
     ) -> WorkflowExecution | None:
-        query = f"WorkflowId = {wf_exec_id!r}"
-        it = self._client.list_workflows(query=query, page_size=1)
+        self.logger.info("Getting workflow execution", wf_exec_id=wf_exec_id)
+
+        # For every ID that comes in, we try both new and legacy
+        # This is a new ID, so we can just query it
+        # This is the new query
+        parts = [f"WorkflowId = '{wf_exec_id}'"]
+        if _include_legacy:
+            # For backwards compatibility, include the legacy format as well
+            # Involves:
+            # - Replacing the slash with a colon
+            # - Turn all segments into legacy versions
+            wf, ex = wf_exec_id.split("/", 1)
+            wf_id = WorkflowUUID.new(wf)
+            legacy_wf_id = wf_id.to_legacy()
+
+            # Get suffix
+            if ex.startswith("sch-"):
+                # It's a schedule. Only have legacy format
+                legacy_wf_exec_id = f"{legacy_wf_id}:{ex}"
+                parts.append(f"WorkflowId = '{legacy_wf_exec_id}'")
+            else:
+                # It's a workflow execution (exec)
+                ex_id = ExecutionUUID.new(ex)
+                legacy_ex_id = ex_id.to_legacy()
+                legacy_wf_exec_id = f"{legacy_wf_id}:{legacy_ex_id}"
+                parts.append(f"WorkflowId = '{legacy_wf_exec_id}'")
+        query = " OR ".join(parts)
+        self.logger.info("Querying executions", query=query)
+        it = self._client.list_workflows(query=query)
         return await anext(it, None)
 
     async def list_executions(

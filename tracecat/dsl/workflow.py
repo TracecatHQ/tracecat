@@ -190,7 +190,7 @@ class DSLWorkflow:
             )
             # 1. Get the error handler workflow ID
             handler_wf_id = await self._get_error_handler_workflow_id(args)
-            if not handler_wf_id:
+            if handler_wf_id is None:
                 self.logger.warning("No error handler workflow ID found, raising error")
                 raise e
 

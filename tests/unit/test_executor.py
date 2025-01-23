@@ -11,6 +11,7 @@ from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.models import ExecutorActionErrorInfo
 from tracecat.executor.service import run_action_from_input, sync_executor_entrypoint
 from tracecat.expressions.expectations import ExpectedField
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     ActionStep,
@@ -32,7 +33,7 @@ def mock_run_context():
     wf_exec_id = f"{wf_id}:{exec_id}"
     run_id = uuid.uuid4()
     return RunContext(
-        wf_id=wf_id,
+        wf_id=WorkflowUUID.from_legacy(wf_id),
         wf_exec_id=wf_exec_id,
         wf_run_id=run_id,
         environment="default",

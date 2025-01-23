@@ -14,6 +14,7 @@ import "react18-json-view/src/style.css"
 import { useParams } from "next/navigation"
 import { History } from "lucide-react"
 
+import { formatExecutionId } from "@/lib/event-history"
 import { WorkflowExecutionEventDetailView } from "@/components/executions/event-details"
 import { WorkflowExecutionEventHistory } from "@/components/executions/event-history"
 import { SectionHead } from "@/components/executions/section"
@@ -30,7 +31,7 @@ export default function ExecutionPage() {
     WorkflowExecutionEvent | undefined
   >()
 
-  const fullExecutionId = `${workflowId}:${executionId}`
+  const fullExecutionId = formatExecutionId(workflowId, executionId)
   return (
     <ResizablePanelGroup
       direction="horizontal"

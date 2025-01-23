@@ -1,21 +1,20 @@
 import temporalio.service
 from fastapi import (
     APIRouter,
-    Depends,
     HTTPException,
     Query,
     status,
 )
 from sqlalchemy.exc import NoResultFound
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlmodel import col, select
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
-from tracecat.db.engine import get_async_session
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import WorkflowDefinition
 from tracecat.dsl.common import DSLInput
-from tracecat.identifiers import UserID, WorkflowID
+from tracecat.identifiers import UserID
+from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
@@ -37,7 +36,7 @@ router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
 async def list_workflow_executions(
     role: WorkspaceUserRole,
     # Filters
-    workflow_id: WorkflowID | None = Query(None),
+    workflow_id: OptionalAnyWorkflowIDQuery,
     trigger_types: set[TriggerType] | None = Query(None, alias="trigger"),
     triggered_by_user_id: UserID | SpecialUserID | None = Query(None, alias="user_id"),
     limit: int | None = Query(None, alias="limit"),
@@ -65,10 +64,10 @@ async def list_workflow_executions(
 
 @router.get("/{execution_id}")
 async def get_workflow_execution(
-    role: WorkspaceUserRole,
-    execution_id: UnquotedExecutionID,
+    role: WorkspaceUserRole, execution_id: UnquotedExecutionID
 ) -> WorkflowExecutionRead:
     """Get a workflow execution."""
+    logger.info("Getting workflow execution", execution_id=execution_id)
     service = await WorkflowExecutionsService.connect(role=role)
     execution = await service.get_execution(execution_id)
     if not execution:
@@ -76,7 +75,8 @@ async def get_workflow_execution(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow execution not found",
         )
-    events = await service.list_workflow_execution_events(execution_id)
+    logger.info("Getting workflow execution events", execution_id=execution.id)
+    events = await service.list_workflow_execution_events(execution.id)
     return WorkflowExecutionRead(
         id=execution.id,
         run_id=execution.run_id,
@@ -125,16 +125,17 @@ async def get_workflow_execution_compact(
 async def create_workflow_execution(
     role: WorkspaceUserRole,
     params: WorkflowExecutionCreate,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> WorkflowExecutionCreateResponse:
     """Create and schedule a workflow execution."""
     service = await WorkflowExecutionsService.connect(role=role)
     # Get the dslinput from the workflow definition
+    wf_id = WorkflowUUID.new(params.workflow_id)
     try:
         result = await session.exec(
             select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == params.workflow_id)
-            .order_by(WorkflowDefinition.version.desc())  # type: ignore
+            .where(WorkflowDefinition.workflow_id == wf_id.to_legacy())
+            .order_by(col(WorkflowDefinition.version).desc())
         )
         defn = result.first()
         if not defn:
@@ -148,9 +149,7 @@ async def create_workflow_execution(
     dsl_input = DSLInput(**defn.content)
     try:
         response = service.create_workflow_execution_nowait(
-            dsl=dsl_input,
-            wf_id=params.workflow_id,
-            payload=params.inputs,
+            dsl=dsl_input, wf_id=wf_id, payload=params.inputs
         )
         return response
     except TracecatValidationError as e:

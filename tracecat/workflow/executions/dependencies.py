@@ -3,10 +3,10 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from tracecat.workflow.executions.models import WorkflowExecutionID
+from tracecat.identifiers.workflow import WorkflowExecutionID
 
 
-def unquote_dep(execution_id: WorkflowExecutionID) -> WorkflowExecutionID:
+def unquote_dep(execution_id: str) -> WorkflowExecutionID:
     return urllib.parse.unquote(execution_id)
 
 
