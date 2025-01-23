@@ -47,7 +47,7 @@ class SAMLSettingsRead(BaseSettingsGroup):
 
 
 class SAMLSettingsUpdate(BaseSettingsGroup):
-    saml_enabled: bool = Field(default=False, description="Whether SAML is enabled.")
+    saml_enabled: bool = Field(default=True, description="Whether SAML is enabled.")
     saml_enforced: bool = Field(
         default=False,
         description="Whether SAML is enforced. If true, users can only use SAML to authenticate."
