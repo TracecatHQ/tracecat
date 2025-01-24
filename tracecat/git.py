@@ -141,8 +141,6 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
         # Validate
         git_url = parse_git_url(url, allowed_domains=allowed_domains)
     except ValueError as e:
-        raise TracecatSettingsError(
-            "Invalid Git repository URL. Please provide a valid Git SSH URL (git+ssh)."
-        ) from e
+        raise TracecatSettingsError(str(e)) from e
     git_url.ref = sha
     return git_url
