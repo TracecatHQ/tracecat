@@ -22,7 +22,7 @@ jamf_secret = RegistrySecret(
     description="Retrieve a bearer token for Jamf Pro API calls.",
     display_group="Jamf",
     doc_url="https://developer.jamf.com/jamf-pro/docs/jamf-pro-api-overview#authentication-and-authorization",
-    namespace="integrations.jamf",
+    namespace="tools.jamf",
     secrets=[jamf_secret],
 )
 async def get_access_token(base_url: str) -> str:

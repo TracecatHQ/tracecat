@@ -32,7 +32,7 @@ wiz_secret = RegistrySecret(
     default_title="Get access token",
     description="Retrieve a JWT token for Wiz GraphQLAPI calls.",
     display_group="Wiz",
-    namespace="integrations.wiz",
+    namespace="tools.wiz",
     secrets=[wiz_secret],
 )
 async def get_access_token(

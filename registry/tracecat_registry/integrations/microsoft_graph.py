@@ -32,7 +32,7 @@ microsoft_graph_secret = RegistrySecret(
     description="Retrieve a JWT token for Microsoft Graph API calls from a confidential application.",
     display_group="Microsoft Graph",
     doc_url="https://msal-python.readthedocs.io/en/latest/#confidentialclientapplication",
-    namespace="integrations.microsoft_graph",
+    namespace="tools.microsoft_graph",
     secrets=[microsoft_graph_secret],
 )
 def get_access_token(

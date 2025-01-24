@@ -83,7 +83,7 @@ async def get_session():
     description="Instantiate a Boto3 client and call an AWS API method.",
     display_group="AWS Boto3",
     doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html",
-    namespace="integrations.aws_boto3",
+    namespace="tools.aws_boto3",
     secrets=[aws_secret],
 )
 async def call_api(
@@ -118,7 +118,7 @@ async def call_api(
     description="Instantiate a Boto3 paginator and call a paginated AWS API method.",
     display_group="AWS Boto3",
     doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/paginators.html",
-    namespace="integrations.aws_boto3",
+    namespace="tools.aws_boto3",
     secrets=[aws_secret],
 )
 async def call_paginated_api(

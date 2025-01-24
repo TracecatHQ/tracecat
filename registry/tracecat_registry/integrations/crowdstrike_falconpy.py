@@ -25,7 +25,7 @@ crowdstrike_secret = RegistrySecret(
     description="Instantiate a FalconPy Uber Class client and call a Crowdstrike API method.",
     display_group="Crowdstrike",
     doc_url="https://falconpy.io/Usage/Basic-Uber-Class-usage.html",
-    namespace="integrations.crowdstrike",
+    namespace="tools.crowdstrike",
     secrets=[crowdstrike_secret],
 )
 async def call_command(

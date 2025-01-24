@@ -6,7 +6,7 @@ from typing import Annotated
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry
-from tracecat_registry.integrations.aws_boto3 import get_session
+from tracecat_registry.tools.aws_boto3 import get_session
 
 # Add this at the top with other constants
 BUCKET_REGEX = re.compile(r"^[a-z0-9][a-z0-9.-]*[a-z0-9]$")
@@ -43,7 +43,7 @@ s3_secret = RegistrySecret(
     description="Parse an S3 URI into bucket name and object key.",
     display_group="AWS S3",
     doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3-example-download-file.html",
-    namespace="integrations.aws_s3",
+    namespace="tools.aws_s3",
     secrets=[s3_secret],
 )
 async def parse_uri(uri: str) -> tuple[str, str]:
@@ -64,7 +64,7 @@ async def parse_uri(uri: str) -> tuple[str, str]:
     description="Download an object from S3 and return its body as a string.",
     display_group="AWS S3",
     doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.get_object",
-    namespace="integrations.aws_s3",
+    namespace="tools.aws_s3",
     secrets=[s3_secret],
 )
 async def download_object(

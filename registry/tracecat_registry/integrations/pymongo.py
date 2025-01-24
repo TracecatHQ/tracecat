@@ -26,7 +26,7 @@ mongodb_secret = RegistrySecret(
     description="Instantiate a PyMongo client and execute an operation on a Collection object.",
     display_group="MongoDB",
     doc_url="https://pymongo.readthedocs.io/en/stable/api/pymongo/asynchronous/collection.html",
-    namespace="integrations.mongodb",
+    namespace="tools.mongodb",
     secrets=[mongodb_secret],
 )
 async def execute_operation(

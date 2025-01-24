@@ -28,7 +28,7 @@ tenable_secret = RegistrySecret(
     description="Instantiate a pyTenable Nessus client and call a Nessus API method.",
     display_group="Tenable Nessus",
     doc_url="https://pytenable.readthedocs.io/en/stable/api/nessus/index.html",
-    namespace="integrations.tenable_nessus",
+    namespace="tools.tenable_nessus",
     secrets=[tenable_secret],
 )
 async def call_api(

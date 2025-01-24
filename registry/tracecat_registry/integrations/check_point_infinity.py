@@ -25,7 +25,7 @@ check_point_infinity_secret = RegistrySecret(
     description="Retrieve a JWT token for Check Point Infinity API calls.",
     display_group="Check Point Infinity",
     doc_url="https://app.swaggerhub.com/apis-docs/Check-Point/infinity-portal-api/1.0.6#/User%20Control/post_auth_external",
-    namespace="integrations.check_point_infinity",
+    namespace="tools.check_point_infinity",
     secrets=[check_point_infinity_secret],
 )
 async def get_access_token(

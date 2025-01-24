@@ -35,7 +35,7 @@ ansible_secret = RegistrySecret(
     description="Run Ansible playbook given as a list of plays in JSON format.",
     display_group="Ansible",
     doc_url="https://docs.ansible.com/ansible/latest/index.html",
-    namespace="integrations.ansible",
+    namespace="tools.ansible",
     secrets=[ansible_secret],
 )
 async def run_playbook(

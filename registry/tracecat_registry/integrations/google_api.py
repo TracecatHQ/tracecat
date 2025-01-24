@@ -27,7 +27,7 @@ Note: `GOOGLE_API_CREDENTIALS` should be a JSON string of the service account cr
     description="Given service account credentials as a JSON string, retrieve a JWT token for Google API calls.",
     display_group="Google API",
     doc_url="https://googleapis.dev/python/google-auth/latest/reference/google.oauth2.service_account.html#google.oauth2.service_account.Credentials.from_service_account_info",
-    namespace="integrations.google_api",
+    namespace="tools.google_api",
     secrets=[google_api_secret],
 )
 def get_access_token(

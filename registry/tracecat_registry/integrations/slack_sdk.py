@@ -21,7 +21,7 @@ slack_secret = RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])
     description="Instantiate a Slack client and call an API method.",
     display_group="Slack",
     doc_url="https://api.slack.com/methods",
-    namespace="integrations.slack",
+    namespace="tools.slack",
     secrets=[slack_secret],
 )
 async def call_api(
@@ -49,7 +49,7 @@ async def call_api(
     description="Instantiate a Slack client and call a paginated API method.",
     display_group="Slack",
     doc_url="https://api.slack.com/methods",
-    namespace="integrations.slack",
+    namespace="tools.slack",
     secrets=[slack_secret],
 )
 async def call_paginated_api(
