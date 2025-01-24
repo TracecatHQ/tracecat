@@ -153,7 +153,7 @@ def build_query(
             # NOTE(COMPAT): Include legacy workflow ID for backwards compatibility
             legacy_wf_id = workflow_id.to_legacy()
             wf_id_query += f" OR WorkflowId STARTS_WITH '{legacy_wf_id}'"
-        query.append(wf_id_query)
+        query.append(f"({wf_id_query})")
     if trigger_types:
         if len(trigger_types) == 1:
             query.append(f"TracecatTriggerType = '{trigger_types.pop().value}'")
