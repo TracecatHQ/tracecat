@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { WorkflowExecutionReadMinimal } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { LayoutListIcon, ShapesIcon } from "lucide-react"
+import { CalendarSearchIcon, FileInputIcon, ShapesIcon } from "lucide-react"
 import { ImperativePanelHandle } from "react-resizable-panels"
 
 import {
@@ -140,14 +140,14 @@ function WorkbenchSidebarEventsList({
               className="flex h-full min-w-28 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
               value="workflow-events"
             >
-              <LayoutListIcon className="mr-2 size-4" />
+              <CalendarSearchIcon className="mr-2 size-4" />
               <span>Events</span>
             </TabsTrigger>
             <TabsTrigger
               className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
               value="action-input"
             >
-              <ShapesIcon className="mr-2 size-4" />
+              <FileInputIcon className="mr-2 size-4" />
               <span>Input</span>
             </TabsTrigger>
             <TabsTrigger
