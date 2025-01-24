@@ -6,6 +6,7 @@ import React, {
   SetStateAction,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
 } from "react"
@@ -59,6 +60,10 @@ export const WorkflowBuilderProvider: React.FC<
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
   const canvasRef = useRef<WorkflowCanvasRef>(null)
   const sidebarRef = useRef<EventsSidebarRef>(null)
+
+  useEffect(() => {
+    setSelectedNodeId(null)
+  }, [workflowId])
 
   const setReactFlowNodes = useCallback(
     (nodes: NodeType[] | ((nodes: NodeType[]) => NodeType[])) => {
