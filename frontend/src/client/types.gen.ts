@@ -833,7 +833,7 @@ export type Schedule = {
    * The maximum number of seconds to wait for the workflow to complete
    */
   timeout?: number | null
-  workflow_id: string | null
+  workflow_id: string
 }
 
 export type ScheduleCreate = {

@@ -490,13 +490,14 @@ export function useWorkflowExecution(
     data: execution,
     isLoading: executionIsLoading,
     error: executionError,
-  } = useQuery<WorkflowExecutionRead, Error>({
+  } = useQuery<WorkflowExecutionRead, ApiError>({
     queryKey: ["workflow-executions", executionId],
     queryFn: async () =>
       await workflowExecutionsGetWorkflowExecution({
         workspaceId,
         executionId: executionId,
       }),
+    retry: retryHandler,
     ...options,
   })
   return {
@@ -512,18 +513,20 @@ export function useCompactWorkflowExecution(
     refetchInterval?: number
   }
 ) {
+  // if execution ID contains non-url-safe characters, decode it
   const { workspaceId } = useWorkspace()
   const {
     data: execution,
     isLoading: executionIsLoading,
     error: executionError,
-  } = useQuery<WorkflowExecutionReadCompact, Error>({
+  } = useQuery<WorkflowExecutionReadCompact, ApiError>({
     queryKey: ["compact-workflow-execution", workflowExecutionId],
     queryFn: async () =>
       await workflowExecutionsGetWorkflowExecutionCompact({
         workspaceId,
         executionId: workflowExecutionId,
       }),
+    retry: retryHandler,
     ...options,
   })
   return {
