@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { ChevronLeftIcon } from "lucide-react"
+import { SidebarIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -61,17 +61,13 @@ export function Workbench({ defaultLayout = [0, 68, 32] }: WorkbenchProps) {
                 <Button
                   variant="ghost"
                   className={cn(
-                    "rounded-full bg-transparent hover:bg-transparent active:cursor-grabbing",
-                    isSidebarCollapsed && "bg-border hover:bg-border"
+                    "absolute top-0 m-0 translate-x-6 rounded-full !bg-transparent p-4 active:cursor-grabbing"
                   )}
                   onClick={toggleSidebar}
                 >
-                  <ChevronLeftIcon
-                    className={cn(
-                      "mx-0 size-3",
-                      isSidebarCollapsed && "translate-x-2 rotate-180"
-                    )}
-                  />
+                  <div className="group rounded-sm p-1 hover:bg-border">
+                    <SidebarIcon className="group size-4 text-muted-foreground group-hover:text-foreground" />
+                  </div>
                 </Button>
               </TooltipTrigger>
               {isSidebarCollapsed && (

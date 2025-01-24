@@ -7,7 +7,11 @@ from temporalio.api.history.v1 import HistoryEvent
 
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.logger import logger
-from tracecat.workflow.executions.enums import TriggerType, WorkflowEventType
+from tracecat.workflow.executions.enums import (
+    TemporalSearchAttr,
+    TriggerType,
+    WorkflowEventType,
+)
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 SCHEDULED_EVENT_TYPES = (
@@ -156,11 +160,15 @@ def build_query(
         query.append(f"({wf_id_query})")
     if trigger_types:
         if len(trigger_types) == 1:
-            query.append(f"TracecatTriggerType = '{trigger_types.pop().value}'")
+            query.append(
+                f"{TemporalSearchAttr.TRIGGER_TYPE.value} = '{trigger_types.pop().value}'"
+            )
         else:
             query.append(
-                f"TracecatTriggerType IN ({', '.join(f"'{t.value}'" for t in trigger_types)})"
+                f"{TemporalSearchAttr.TRIGGER_TYPE.value} IN ({', '.join(f"'{t.value}'" for t in trigger_types)})"
             )
     if triggered_by_user_id is not None:
-        query.append(f"TracecatTriggeredByUserId = '{str(triggered_by_user_id)}'")
+        query.append(
+            f"{TemporalSearchAttr.TRIGGERED_BY_USER_ID.value} = '{str(triggered_by_user_id)}'"
+        )
     return " AND ".join(query)

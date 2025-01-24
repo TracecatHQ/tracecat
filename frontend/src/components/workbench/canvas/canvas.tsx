@@ -245,6 +245,25 @@ export const WorkflowCanvas = React.forwardRef<
     []
   )
 
+  const dropSelectorNode = useCallback(
+    (event: MouseEvent | TouchEvent) => {
+      const x = (event as MouseEvent).clientX - defaultNodeWidth / 2
+      const y = (event as MouseEvent).clientY - defaultNodeHeight / 2
+      const id = getId()
+      const newNode = {
+        id,
+        type: SelectorTypename,
+        position: screenToFlowPosition({ x, y }),
+        data: {},
+        origin: [0.5, 0.0],
+      } as Node
+
+      setNodes((nds) => nds.concat(newNode))
+      return newNode
+    },
+    [screenToFlowPosition]
+  ) // eslint-disable-line react-hooks/exhaustive-deps
+
   const onConnectEnd = useCallback(
     (event: MouseEvent | TouchEvent) => {
       event.preventDefault()
@@ -257,18 +276,8 @@ export const WorkflowCanvas = React.forwardRef<
         )
 
         if (targetIsPane) {
-          const x = (event as MouseEvent).clientX - defaultNodeWidth / 2
-          const y = (event as MouseEvent).clientY - defaultNodeHeight / 2
-          const id = getId()
-          const newNode = {
-            id,
-            type: SelectorTypename,
-            position: screenToFlowPosition({ x, y }),
-            data: {},
-            origin: [0.5, 0.0],
-          } as Node
-
-          setNodes((nds) => nds.concat(newNode))
+          const newNode = dropSelectorNode(event)
+          const id = newNode.id
 
           const edge = {
             id,
@@ -456,6 +465,16 @@ export const WorkflowCanvas = React.forwardRef<
     [centerOnNode]
   )
 
+  // Right click context menu
+  const onPaneContextMenu = useCallback(
+    (event: ReactMouseEvent | ReactTouchEvent) => {
+      event.preventDefault()
+      if (!reactFlowInstance) return
+      dropSelectorNode(event.nativeEvent)
+    },
+    [reactFlowInstance] // eslint-disable-line react-hooks/exhaustive-deps
+  )
+
   return (
     <div ref={containerRef} style={{ height: "100%", width: "100%" }}>
       <ReactFlow
@@ -483,6 +502,8 @@ export const WorkflowCanvas = React.forwardRef<
         minZoom={0.25}
         panOnScroll
         connectionLineType={ConnectionLineType.SmoothStep}
+        // onContextMenu={onPaneContextMenu}
+        onPaneContextMenu={onPaneContextMenu}
       >
         <Background />
         <Controls className="rounded-sm" fitViewOptions={fitViewOptions} />

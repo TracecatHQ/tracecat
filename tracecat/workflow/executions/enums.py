@@ -91,6 +91,16 @@ class TriggerType(StrEnum):
 
     def to_temporal_search_attr_pair(self) -> SearchAttributePair[str]:
         return SearchAttributePair(
-            key=SearchAttributeKey.for_keyword("TracecatTriggerType"),
+            key=SearchAttributeKey.for_keyword(TemporalSearchAttr.TRIGGER_TYPE.value),
             value=self.value,
         )
+
+
+class TemporalSearchAttr(StrEnum):
+    """Temporal search attribute keys."""
+
+    TRIGGER_TYPE = "TracecatTriggerType"
+    """The `Keyword` Search Attribute for the trigger type of the workflow execution."""
+
+    TRIGGERED_BY_USER_ID = "TracecatTriggeredByUserId"
+    """The `Keyword` Search Attribute for the user ID that triggered the workflow execution."""

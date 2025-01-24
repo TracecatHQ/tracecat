@@ -51,7 +51,11 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
 )
-from tracecat.workflow.executions.enums import TriggerType, WorkflowEventType
+from tracecat.workflow.executions.enums import (
+    TemporalSearchAttr,
+    TriggerType,
+    WorkflowEventType,
+)
 from tracecat.workflow.executions.models import (
     EventFailure,
     EventGroup,
@@ -203,7 +207,10 @@ class WorkflowExecutionsService:
                 # Create a new source event
                 source = WorkflowExecutionEventCompact.from_source_event(event)
                 if source is None:
-                    logger.warning("Skipping scheduled event", event_id=event.event_id)
+                    logger.debug(
+                        "Skipping scheduled event as there is no source",
+                        event_id=event.event_id,
+                    )
                     continue
                 id2event[event.event_id] = source
             else:
@@ -557,21 +564,17 @@ class WorkflowExecutionsService:
             trigger_type=trigger_type,
         )
 
-        if config.TEMPORAL__API_KEY__ARN or config.TEMPORAL__API_KEY:
-            self.logger.warning("Using Temporal cloud, skipping search attributes")
-            search_attrs = None
-        else:
-            pairs = [
-                trigger_type.to_temporal_search_attr_pair(),
-            ]
-            if self.role.user_id is not None:
-                pairs.append(
-                    SearchAttributePair(
-                        key=SearchAttributeKey.for_keyword("TracecatTriggeredByUserId"),
-                        value=str(self.role.user_id),
-                    )
+        pairs = [trigger_type.to_temporal_search_attr_pair()]
+        if self.role.user_id is not None:
+            pairs.append(
+                SearchAttributePair(
+                    key=SearchAttributeKey.for_keyword(
+                        TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
+                    ),
+                    value=str(self.role.user_id),
                 )
-            search_attrs = TypedSearchAttributes(search_attributes=pairs)
+            )
+        search_attrs = TypedSearchAttributes(search_attributes=pairs)
         try:
             result = await self._client.execute_workflow(
                 DSLWorkflow.run,

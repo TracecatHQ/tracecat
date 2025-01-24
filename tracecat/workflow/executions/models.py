@@ -313,12 +313,12 @@ class WorkflowExecutionEventCompact(BaseModel):
 
         act_type = attrs.activity_type.name
         if act_type in (UTILITY_ACTIONS | {"get_workflow_definition_activity"}):
-            logger.warning("Utility action is not supported.", act_type=act_type)
+            logger.debug("Utility action is not supported.", act_type=act_type)
             return None
         action_input = RunActionInput(**activity_input_data)
         task = action_input.task
         if task is None:
-            logger.warning("Action input is None", event_id=event.event_id)
+            logger.debug("Action input is None", event_id=event.event_id)
             return None
 
         return WorkflowExecutionEventCompact(
