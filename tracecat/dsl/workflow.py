@@ -248,7 +248,7 @@ class DSLWorkflow:
             # 1. runtime_config.environment (override by caller)
             # 2. dsl.config.environment (set in wf defn)
 
-            logger.warning(
+            logger.debug(
                 "Runtime config was set",
                 args_config=args.runtime_config,
                 dsl_config=self.dsl.config,
@@ -257,12 +257,12 @@ class DSLWorkflow:
             self.runtime_config = self.dsl.config.model_copy(update=set_fields)
         else:
             # Otherwise default to the DSL config
-            logger.warning(
+            logger.debug(
                 "Runtime config was not set, using DSL config",
                 dsl_config=self.dsl.config,
             )
             self.runtime_config = self.dsl.config
-        logger.warning("Runtime config after", runtime_config=self.runtime_config)
+        logger.debug("Runtime config after", runtime_config=self.runtime_config)
 
         # Consolidate trigger inputs
         if args.schedule_id:
