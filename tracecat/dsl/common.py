@@ -244,7 +244,7 @@ class DSLRunArgs(BaseModel):
 
 
 class ExecuteChildWorkflowArgs(BaseModel):
-    workflow_id: AnyWorkflowID | None = None
+    workflow_id: WorkflowUUID | None = None
     workflow_alias: str | None = None
     trigger_inputs: TriggerInputs
     environment: str | None = None

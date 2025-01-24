@@ -4,6 +4,7 @@ import React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { ApiError, RegistryActionValidateResponse } from "@/client"
+import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -355,6 +356,7 @@ function WorkflowManualTrigger({
   disabled: boolean
   workflowId: string
 }) {
+  const { expandSidebarAndFocusEvents } = useWorkflowBuilder()
   const { createExecution } = useManualWorkflowExecution(workflowId)
   const [open, setOpen] = React.useState(false)
   const { workspaceId } = useWorkspace()
@@ -382,6 +384,8 @@ function WorkflowManualTrigger({
         workflow_id: workflowId,
         inputs: payload ? JSON.parse(payload) : undefined,
       })
+      // Maybe add setting to control this behavior
+      expandSidebarAndFocusEvents()
       console.log("Workflow started", response)
       toast({
         title: `Workflow run started`,

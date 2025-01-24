@@ -7,3 +7,11 @@ export function CenteredSpinner() {
     </div>
   )
 }
+
+export function Centered({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="container flex h-full max-w-[800px] flex-col justify-center space-y-2 p-16 text-xs text-muted-foreground">
+      {children}
+    </div>
+  )
+}

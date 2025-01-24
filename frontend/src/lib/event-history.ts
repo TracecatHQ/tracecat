@@ -99,3 +99,13 @@ export function formatExecutionId(
   const encodedSeparator = encodeURIComponent(separator)
   return `${workflowId}${encodedSeparator}${executionId}`
 }
+
+export type ExecutionId = {
+  wf: string
+  exec: string
+}
+
+export function executionId(fullExecutionId: string): ExecutionId {
+  const [wf, exec] = parseExecutionId(fullExecutionId)
+  return { wf, exec }
+}

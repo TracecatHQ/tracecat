@@ -2378,7 +2378,7 @@ export const $SAMLSettingsUpdate = {
       type: "boolean",
       title: "Saml Enabled",
       description: "Whether SAML is enabled.",
-      default: false,
+      default: true,
     },
     saml_enforced: {
       type: "boolean",
@@ -2503,14 +2503,8 @@ export const $Schedule = {
         "The maximum number of seconds to wait for the workflow to complete",
     },
     workflow_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
+      format: "uuid",
       title: "Workflow Id",
     },
   },
@@ -3911,6 +3905,7 @@ export const $WorkflowDefinition = {
     },
     workflow_id: {
       type: "string",
+      format: "uuid",
       title: "Workflow Id",
     },
     content: {

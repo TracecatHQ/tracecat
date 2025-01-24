@@ -1,16 +1,25 @@
 "use client"
 
 import * as React from "react"
-import { WorkflowBuilderProvider } from "@/providers/builder"
-import { ReactFlowProvider } from "reactflow"
+import { useWorkflowBuilder } from "@/providers/builder"
+import { ChevronLeftIcon } from "lucide-react"
 
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
 import {
+  CustomResizableHandle,
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { WorkflowCanvas } from "@/components/workbench/canvas/canvas"
+import { WorkbenchSidebarEvents } from "@/components/workbench/events/events-sidebar"
 import { WorkbenchPanel } from "@/components/workbench/panel/workbench-panel"
 
 interface WorkbenchProps {
@@ -18,30 +27,67 @@ interface WorkbenchProps {
   defaultCollapsed?: boolean
 }
 
-export function Workbench({ defaultLayout = [68, 32] }: WorkbenchProps) {
+export function Workbench({ defaultLayout = [0, 68, 32] }: WorkbenchProps) {
+  const { canvasRef, sidebarRef, isSidebarCollapsed, toggleSidebar } =
+    useWorkflowBuilder()
   return (
-    <ReactFlowProvider>
-      <WorkflowBuilderProvider>
-        <TooltipProvider delayDuration={0}>
-          <ResizablePanelGroup
-            className="h-full"
-            direction="horizontal"
-            onLayout={(sizes: number[]) => {
-              document.cookie = `react-resizable-panels:layout=${JSON.stringify(
-                sizes
-              )}`
-            }}
-          >
-            <ResizablePanel defaultSize={defaultLayout[0]}>
-              <WorkflowCanvas />
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={defaultLayout[1]} minSize={32}>
-              <WorkbenchPanel />
-            </ResizablePanel>
-          </ResizablePanelGroup>
+    <TooltipProvider delayDuration={0}>
+      <ResizablePanelGroup
+        className="h-full"
+        direction="horizontal"
+        onLayout={(sizes: number[]) => {
+          document.cookie = `react-resizable-panels:layout=${JSON.stringify(
+            sizes
+          )}`
+        }}
+      >
+        <ResizablePanel
+          ref={sidebarRef}
+          defaultSize={defaultLayout[0]}
+          collapsedSize={0}
+          collapsible={true}
+          minSize={20}
+          maxSize={40}
+          className="flex h-full flex-col"
+        >
+          <div className="relative flex-1">
+            <WorkbenchSidebarEvents />
+          </div>
+        </ResizablePanel>
+        <TooltipProvider>
+          <Tooltip>
+            <CustomResizableHandle>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "rounded-full bg-transparent hover:bg-transparent active:cursor-grabbing",
+                    isSidebarCollapsed && "bg-border hover:bg-border"
+                  )}
+                  onClick={toggleSidebar}
+                >
+                  <ChevronLeftIcon
+                    className={cn(
+                      "mx-0 size-3",
+                      isSidebarCollapsed && "translate-x-2 rotate-180"
+                    )}
+                  />
+                </Button>
+              </TooltipTrigger>
+              {isSidebarCollapsed && (
+                <TooltipContent side="right">View Events</TooltipContent>
+              )}
+            </CustomResizableHandle>
+          </Tooltip>
         </TooltipProvider>
-      </WorkflowBuilderProvider>
-    </ReactFlowProvider>
+        <ResizablePanel defaultSize={defaultLayout[1]}>
+          <WorkflowCanvas ref={canvasRef} />
+        </ResizablePanel>
+        <ResizableHandle withHandle />
+        <ResizablePanel defaultSize={defaultLayout[2]} minSize={32}>
+          <WorkbenchPanel />
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    </TooltipProvider>
   )
 }

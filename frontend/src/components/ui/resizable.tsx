@@ -56,7 +56,7 @@ const CustomResizableHandle = ({
     )}
     {...props}
   >
-    <div className="z-10 flex size-5 items-center justify-center rounded-sm border bg-border">
+    <div className="z-10 flex size-5 items-center justify-center rounded-md border bg-border">
       {children}
     </div>
   </ResizablePrimitive.PanelResizeHandle>

@@ -31,6 +31,7 @@ function getNavBar(pathname: string, params: DynamicNavbarParams) {
   } else if (pathname.includes("/organization")) {
     return <OrganizationNav />
   } else {
+    console.log("Hit NULL", pathname)
     return null
   }
 }
