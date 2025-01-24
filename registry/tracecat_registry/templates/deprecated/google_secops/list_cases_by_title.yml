@@ -1,0 +1,42 @@
+type: action
+definition:
+  name: list_cases_by_title
+  namespace: integrations.google_secops
+  title: List Google SecOps SOAR Cases by Title
+  description: List Google Security Operations SOAR cases by title.
+  display_group: Google SecOps
+  secrets:
+    - name: google_secops_soar
+      keys: ["API_TOKEN"]
+  expects:
+    case_title:
+      type: str
+      description: Case to search for by title
+    start_time:
+      type: datetime
+      description: Start ISO timestamp for the query (inclusive)
+    end_time:
+      type: datetime
+      description: End ISO timestamp for the query (inclusive)
+    base_url:
+      type: str
+      description: Base URL of the Google SecOps SOAR API
+    limit:
+      type: int
+      description: Maximum number of cases to return
+      default: null
+  steps:
+    - ref: list_cases
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/external/v1/search/CaseSearchEverything
+        method: POST
+        headers:
+          AppKey: ${{ SECRETS.google_secops_soar.API_TOKEN }}
+          Content-Type: application/json
+        payload:
+          title: ${{ inputs.case_title }}
+          startTime: ${{ inputs.start_time }}
+          endTime: ${{ inputs.end_time }}
+          pageSize: ${{ inputs.limit }}
+  returns: ${{ steps.list_cases.result }}

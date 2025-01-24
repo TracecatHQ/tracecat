@@ -1,0 +1,31 @@
+type: action
+definition:
+  name: get_last_rootcheck_scan
+  namespace: integrations.wazuh
+  title: Get Last Wazuh Rootcheck Scan
+  description: Retrieves the latest rootcheck scan results from Wazuh agents for analysis.
+  display_group: Wazuh
+  secrets:
+    - name: wazuh
+      keys:
+        - WAZUH_API_TOKEN
+        - WAZUH_API_URL
+  expects:
+    agent_id:
+      type: str
+      description: ID of the agent having had a rootcheck scan
+      default: null
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: True
+  steps:
+    - ref: get_last_scan_datetime
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.wazuh.WAZUH_API_URL }}/rootcheck/${{ inputs.agent_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
+        verify_ssl: ${{ inputs.verify_ssl  }}
+  returns: ${{ steps.get_last_scan_datetime.result }}

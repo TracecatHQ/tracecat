@@ -1,0 +1,29 @@
+type: action
+definition:
+  name: find_users
+  namespace: integrations.ldap
+  title: Find LDAP Users
+  description: Find LDAP users using LDAP search.
+  display_group: LDAP
+  expects:
+    dn:
+      type: str
+      description: Base Distinguished Name to search for users
+    username_or_email:
+      type: str
+      description: Username or email to search for
+    server_kwargs:
+      type: dict[str, any]
+      description: Additional server parameters
+    connection_kwargs:
+      type: dict[str, any]
+      description: Additional connection parameters
+  steps:
+    - ref: find_users
+      action: integrations.ldap.search_entries
+      args:
+        search_base: ${{ inputs.dn }}
+        search_filter: (|(uid=${{inputs.username_or_email}})(mail=${{inputs.username_or_email}})(cn=${{inputs.username_or_email}})(displayName=${{inputs.username_or_email}})(givenName=${{inputs.username_or_email}}))
+        server_kwargs: ${{ inputs.server_kwargs }}
+        connection_kwargs: ${{ inputs.connection_kwargs }}
+  returns: ${{ steps.find_users.result }}

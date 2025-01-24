@@ -1,0 +1,28 @@
+type: action
+definition:
+  name: enable_active_directory_user
+  namespace: integrations.ldap
+  title: Enable Active Directory User
+  description: Enable a user in Active Directory using LDAP.
+  display_group: LDAP
+  expects:
+    dn:
+      type: str
+      description: Distinguished Name of the user to enable
+    server_kwargs:
+      type: dict[str, any]
+      description: Additional server parameters
+    connection_kwargs:
+      type: dict[str, any]
+      description: Additional connection parameters
+  steps:
+    - ref: enable_user
+      action: integrations.ldap.modify_entry
+      args:
+        dn: ${{ inputs.dn }}
+        changes:
+          userAccountControl:
+            - ["MODIFY_REPLACE", 512]
+        server_kwargs: ${{ inputs.server_kwargs }}
+        connection_kwargs: ${{ inputs.connection_kwargs }}
+  returns: ${{ steps.enable_user.result }}

@@ -1,0 +1,31 @@
+type: action
+definition:
+  name: clear_rootcheck
+  namespace: integrations.wazuh
+  title: Clear Wazuh Rootcheck Results
+  description: Clears all previous rootcheck scan results from Wazuh agents to reset the status.
+  display_group: Wazuh
+  secrets:
+    - name: wazuh
+      keys:
+        - WAZUH_API_TOKEN
+        - WAZUH_API_URL
+  expects:
+    agent_id:
+      type: str
+      description: ID of the agent having had a rootcheck scan
+      default: null
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: True
+  steps:
+    - ref: clear_rootcheck
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.wazuh.WAZUH_API_URL }}/rootcheck/${{ inputs.agent_id }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
+        verify_ssl: ${{ inputs.verify_ssl  }}
+  returns: ${{ steps.clear_rootcheck.result }}

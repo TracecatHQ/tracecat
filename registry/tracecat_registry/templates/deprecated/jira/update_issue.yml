@@ -1,0 +1,41 @@
+type: action
+definition:
+  name: update_issue
+  namespace: integrations.jira
+  title: Update Jira Issue
+  description: Update an existing issue in Jira
+  display_group: Jira
+  secrets:
+    - name: jira
+      optional_keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN", "JIRA_BASE64_TOKEN"]
+  expects:
+    domain:
+      type: str
+      description: Domain of the Jira instance
+    fields:
+      type: any
+      description: Key-value pairs of issue screen fields to update
+    update:
+      type: any
+      description: Key-value pairs of issue screen fields mapped to a list of
+        operations to perform on issue
+    issue_id:
+      type: str
+      description: Jira issue id
+    return_issue:
+      type: bool
+      description: If true, returns the updated issue
+      default: false
+  steps:
+    - ref: edit_issue
+      action: core.http_request
+      args:
+        url: https://${{ inputs.domain }}/rest/api/3/issue/${{ inputs.issue_id
+          }}?returnIssue=${{ inputs.return_issue }}
+        method: PUT
+        headers:
+          Authorization: Basic ${{ SECRETS.jira.JIRA_BASE64_TOKEN || FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
+        payload:
+          fields: ${{ inputs.fields }}
+          update: ${{ inputs.update }}
+  returns: ${{ steps.edit_issue.result }}

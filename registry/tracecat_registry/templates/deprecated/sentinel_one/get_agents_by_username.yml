@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: Get SentinelOne Agents by Username (contains)
+  description: Get SentinelOne agents by partial match on username
+  display_group: SentinelOne
+  namespace: integrations.sentinel_one
+  name: get_agents_by_username
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN", "SENTINEL_ONE_BASE_URL"]
+  expects:
+    username:
+      type: str
+      description: The username of the agent
+  steps:
+    - ref: get_agents_by_username
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.sentinel_one.SENTINEL_ONE_BASE_URL }}/web/api/v2.1/agents
+        method: GET
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+        params:
+          lastLoggedInUserName__contains: ${{ inputs.username }}
+  returns: ${{ steps.get_agents_by_username.result }}

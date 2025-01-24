@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Search IP Address with AlienVault
+  description: Get threat intel report for an IP address from AlienVault.
+  display_group: AlienVault
+  doc_url: https://otx.alienvault.com/api
+  author: topher-lo
+  namespace: integrations.alienvault
+  name: search_ip_address
+  secrets:
+    - name: alienvault
+      keys: ["OTX_API_KEY"]
+  expects:
+    ip_address:
+      type: str
+      description: The IP address to search.
+    section:
+      type: str
+      description: The section of the report to return.
+      default: general
+  steps:
+    - ref: check_ip_version
+      action: core.transform.reshape
+      args:
+        value:
+          version: ${{ FN.check_ip_version(inputs.ip_address) }}
+    - ref: search_ip_address
+      action: core.http_request
+      args:
+        url: https://otx.alienvault.com/api/v1/indicators/IPv${{ steps.check_ip_version.version }}/${{ inputs.ip_address }}/${{ inputs.section }}
+        method: GET
+        headers:
+          X-OTX-API-KEY: ${{ SECRETS.alienvault.OTX_API_KEY }}
+  returns: ${{ steps.search_ip_address.result }}

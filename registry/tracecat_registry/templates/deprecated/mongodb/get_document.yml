@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get MongoDB document
+  description: |
+    Get a document from a MongoDB collection.
+    Returns stringified ObjectID `_id` and the doc `document`.
+  display_group: MongoDB
+  namespace: integrations.mongodb
+  name: get_document
+  expects:
+    database_name:
+      type: str
+      description: Name of the MongoDB database
+    collection_name:
+      type: str
+      description: Name of the MongoDB collection
+    filter:
+      type: any
+      description: Filter to apply to the query
+    projection:
+      type: any
+      description: Fields to include in the result
+  steps:
+    - ref: get_document
+      action: integrations.mongodb.perform_mongodb_crud
+      args:
+        operation: find_one
+        database_name: ${{ inputs.database_name }}
+        collection_name: ${{ inputs.collection_name }}
+        params:
+          filter: ${{ inputs.filter }}
+          projection: ${{ inputs.projection }}
+  returns: ${{ steps.get_document.result }}

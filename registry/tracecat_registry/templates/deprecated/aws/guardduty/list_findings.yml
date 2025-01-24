@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: List Amazon GuardDuty findings
+  description: Given a time range, list all GuardDuty findings.
+    Returns list of detector IDs and findings.
+  display_group: Amazon GuardDuty
+  namespace: integrations.aws
+  name: list_findings
+  expects:
+    start_time:
+      type: datetime
+      description: Start ISO timestamp for the query
+    end_time:
+      type: datetime
+      description: End ISO timestamp for the query
+    limit:
+      type: int
+      description: Maximum number of alerts to return
+      default: 100
+
+  steps:
+    - ref: list_detectors
+      action: integrations.aws.call_boto3_client
+      args:
+        service_name: guardduty
+        method_name: list_detectors
+
+    - ref: list_finding_ids
+      action: integrations.aws.call_boto3_paginator
+      depends_on:
+        - list_detectors
+      for_each: ${{ for var.detector_id in ACTIONS.list_detectors.result.DetectorIds }}
+      args:
+        service_name: guardduty
+        method_name: list_findings
+        params:
+          DetectorId: ${{ var.detector_id }}
+          FindingCritieria:
+            Criterion:
+              createdAt:
+                Gte: ${{ TRIGGER.start_time * 1000 }}
+                Lt: ${{ TRIGGER.end_time * 1000 }}
+            PaginationConfig:
+              MaxItems: ${{ TRIGGER.limit }}
+
+    - ref: get_findings
+      action: integrations.aws.call_boto3_client
+      for_each:
+        - ${{ for var.detector_id in ACTIONS.list_detectors.result.DetectorIds }}
+        - ${{ for var.finding_ids in ACTIONS.list_finding_ids.result.FindingIds }}
+      depends_on:
+        - list_finding_ids
+      args:
+        service_name: guardduty
+        method_name: get_findings
+        params:
+          DetectorId: ${{ var.detector_id }}
+          FindingIds: ${{ var.finding_ids }}
+
+  returns:
+    detector_ids: ${{ ACTIONS.list_detectors.result.DetectorIds }}
+    findings: ${{ ACTIONS.get_findings.result }}

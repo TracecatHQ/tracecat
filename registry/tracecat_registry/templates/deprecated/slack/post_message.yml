@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Post Slack message
+  description: Post a message to a Slack channel
+  display_group: Slack
+  namespace: integrations.slack
+  name: post_message
+  expects:
+    channel:
+      type: str
+      description: ID of the channel to post the message to
+    text:
+      type: str
+      description: Text of the message to post
+      default: null
+    blocks:
+      type: any
+      description: Blocks of the message to post
+      default: null
+    thread_ts:
+      type: str
+      description: Timestamp of the thread to post the message to
+      default: null
+  steps:
+    - ref: post_message
+      action: integrations.slack.call_slack_api
+      args:
+        sdk_method: chat_postMessage
+        params:
+          channel: ${{ inputs.channel }}
+          text: ${{ inputs.text }}
+          blocks: ${{ inputs.blocks }}
+          thread_ts: ${{ inputs.thread_ts }}
+  returns: ${{ steps.post_message.result.message }}

@@ -1,0 +1,33 @@
+type: action
+definition:
+  name: run_rootcheck
+  namespace: integrations.wazuh
+  title: Run Wazuh Rootcheck Scan
+  description: Initiates a rootcheck scan on Wazuh agents to identify unauthorized root-level changes.
+  display_group: Wazuh
+  secrets:
+    - name: wazuh
+      keys:
+        - WAZUH_API_TOKEN
+        - WAZUH_API_URL
+  expects:
+    agents_list:
+      type: str | None
+      description: List of agent IDs (separated by comma), all agents selected by default if not specified.
+      default: null
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: True
+  steps:
+    - ref: run_scan_rootcheck
+      action: core.http_request
+      args:
+        url: ${{ SECRETS.wazuh.WAZUH_API_URL }}/rootcheck
+        method: PUT
+        params:
+          agents_list: ${{ inputs.agents_list }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
+        verify_ssl: ${{ inputs.verify_ssl  }}
+  returns: ${{ steps.run_scan_rootcheck.result }}

@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: Get Crowdstrike Detect Summaries
+  description: Get summaries of CrowdStrike detects by IDs.
+  display_group: CrowdStrike
+  namespace: integrations.crowdstrike
+  name: get_detect_summaries
+  expects:
+    detection_ids:
+      type: list[str]
+      description: List of detection IDs to get summaries for
+    member_cid:
+      type: str
+      description: CrowdStrike member CID
+      default: null
+  steps:
+    - ref: get_detect_summaries
+      action: integrations.crowdstrike.call_falconpy_command
+      args:
+        # Docs: https://www.falconpy.io/Service-Collections/Detects.html#uber-class-example-2
+        operation_id: GetDetectSummaries
+        member_cid: ${{ inputs.member_cid }}
+        params:
+          body:
+            ids: ${{ inputs.detection_ids }}}
+  returns: ${{ steps.get_detect_summaries.result }}

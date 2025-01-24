@@ -1,0 +1,42 @@
+type: action
+definition:
+  name: list_detections_by_rule_id
+  namespace: integrations.google_secops
+  title: List Google SecOps SIEM Detections by Rule ID
+  description: List Google Security Operations SIEM detections by rule ID.
+  display_group: Google SecOps
+  expects:
+    rule_id:
+      type: str
+      description: Rule ID to search for
+    start_time:
+      type: datetime
+      description: Start ISO timestamp for the query (inclusive)
+    end_time:
+      type: datetime
+      description: End ISO timestamp for the query (inclusive)
+    limit:
+      type: int
+      description: Maximum number of alerts to return
+      default: null
+    base_url:
+      type: str
+      description: Base URL of the Google Security Operations SIEM API
+      default: https://backstory.googleapis.com
+  steps:
+    - ref: get_auth_token
+      action: integrations.google_api.get_auth_token
+      args:
+        scopes: ["https://www.googleapis.com/auth/chronicle-backstory"]
+    - ref: list_detections
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/v2/detect/rules/${{ inputs.rule_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ steps.get_auth_token.result }}
+        params:
+          start_time: ${{ inputs.start_time }}
+          end_time: ${{ inputs.end_time }}
+          page_size: ${{ inputs.limit }}
+  returns: ${{ steps.list_detections.result }}
