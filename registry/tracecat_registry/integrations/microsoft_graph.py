@@ -28,30 +28,30 @@ microsoft_graph_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Get auth token",
+    default_title="Get access token",
     description="Retrieve a JWT token for Microsoft Graph API calls from a confidential application.",
     display_group="Microsoft Graph",
     doc_url="https://msal-python.readthedocs.io/en/latest/#confidentialclientapplication",
     namespace="integrations.microsoft_graph",
     secrets=[microsoft_graph_secret],
 )
-def get_auth_token(
+def get_access_token(
     scopes: Annotated[
-        list[str],
+        list[str] | None,
         Field(
             ...,
             description='Microsoft Graph scopes, defaults to ["https://graph.microsoft.com/.default"].',
         ),
     ] = None,
     authority: Annotated[
-        str,
+        str | None,
         Field(
             ...,
             description='Microsoft Graph authority, defaults to "https://login.microsoftonline.com/common".',
         ),
     ] = None,
     oidc_authority: Annotated[
-        str,
+        str | None,
         Field(
             ...,
             description='Microsoft Graph OIDC authority, defaults to "https://login.microsoftonline.com/common".',

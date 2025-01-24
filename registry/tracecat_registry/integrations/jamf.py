@@ -18,14 +18,14 @@ jamf_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Get auth token",
+    default_title="Get access token",
     description="Retrieve a bearer token for Jamf Pro API calls.",
     display_group="Jamf",
     doc_url="https://developer.jamf.com/jamf-pro/docs/jamf-pro-api-overview#authentication-and-authorization",
     namespace="integrations.jamf",
     secrets=[jamf_secret],
 )
-async def get_auth_token(base_url: str) -> str:
+async def get_access_token(base_url: str) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{base_url}/api/oauth/token",

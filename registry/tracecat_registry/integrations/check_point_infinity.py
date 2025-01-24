@@ -21,14 +21,14 @@ check_point_infinity_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Get auth token",
+    default_title="Get access token",
     description="Retrieve a JWT token for Check Point Infinity API calls.",
     display_group="Check Point Infinity",
     doc_url="https://app.swaggerhub.com/apis-docs/Check-Point/infinity-portal-api/1.0.6#/User%20Control/post_auth_external",
     namespace="integrations.check_point_infinity",
     secrets=[check_point_infinity_secret],
 )
-async def get_auth_token(
+async def get_access_token(
     base_url: str = "https://cloudinfra-gw-us.portal.checkpoint.com",
 ) -> str:
     async with httpx.AsyncClient() as client:

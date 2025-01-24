@@ -5,41 +5,48 @@ Docs:
 - https://explained.tines.com/en/articles/8623326-wiz-authentication-guide
 """
 
+from typing import Annotated
+
 import httpx
+from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
 wiz_secret = RegistrySecret(
     name="wiz",
     keys=[
-        "WIZ_AUTH_URL",
-        "WIZ_API_URL",
         "WIZ_CLIENT_ID",
         "WIZ_CLIENT_SECRET",
     ],
 )
-"""Wiz API key secret.
+"""Wiz OAuth2.0 credentials.
 
 - name: `wiz`
 - keys:
-    - `WIZ_AUTH_URL`
-    - `WIZ_API_URL`
     - `WIZ_CLIENT_ID`
     - `WIZ_CLIENT_SECRET`
 """
 
 
 @registry.register(
-    default_title="Get Wiz auth token",
-    description="Get an auth token for Wiz API calls.",
+    default_title="Get access token",
+    description="Retrieve a JWT token for Wiz GraphQLAPI calls.",
     display_group="Wiz",
     namespace="integrations.wiz",
     secrets=[wiz_secret],
 )
-async def get_auth_token() -> str:
+async def get_access_token(
+    auth_url: Annotated[
+        str,
+        Field(
+            ...,
+            description="Wiz authentication URL (e.g. https://auth.app.wiz.io/oauth/token)",
+        ),
+    ] = "https://auth.app.wiz.io/oauth/token",
+) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            secrets.get("WIZ_AUTH_URL"),
+            auth_url,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             data={
                 "audience": "wiz-api",

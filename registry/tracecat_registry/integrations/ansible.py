@@ -43,11 +43,11 @@ async def run_playbook(
         list[dict[str, Any]], Field(..., description="List of plays to run")
     ],
     extra_vars: Annotated[
-        dict[str, Any],
+        dict[str, Any] | None,
         Field(description="Extra variables to pass to the playbook"),
     ] = None,
     runner_kwargs: Annotated[
-        dict[str, Any],
+        dict[str, Any] | None,
         Field(description="Additional keyword arguments to pass to the Ansible runner"),
     ] = None,
 ) -> list[dict[str, Any]]:
@@ -59,6 +59,7 @@ async def run_playbook(
             "Either `ANSIBLE_SSH_KEY` or `ANSIBLE_PASSWORDS` must be provided"
         )
 
+    extra_vars = extra_vars or {}
     runner_kwargs = runner_kwargs or {}
 
     with tempfile.TemporaryDirectory() as temp_dir:

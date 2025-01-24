@@ -22,7 +22,7 @@ aws_secret = RegistrySecret(
         "AWS_ROLE_SESSION_NAME",
     ],
 )
-"""AWS secret.
+"""AWS credentials.
 
 - name: `aws`
 - optional_keys:
@@ -102,7 +102,7 @@ async def call_api(
         ),
     ],
     params: Annotated[
-        dict[str, Any],
+        dict[str, Any] | None,
         Field(..., description="Parameters for the API method."),
     ] = None,
 ) -> dict[str, Any]:
@@ -137,7 +137,7 @@ async def call_paginated_api(
         ),
     ],
     params: Annotated[
-        dict[str, Any],
+        dict[str, Any] | None,
         Field(..., description="Parameters for the API paginator."),
     ] = None,
 ) -> list[dict[str, Any]]:
