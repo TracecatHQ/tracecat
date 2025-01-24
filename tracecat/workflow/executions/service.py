@@ -40,7 +40,7 @@ from tracecat.identifiers.workflow import (
 )
 from tracecat.logger import logger
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatValidationError
+from tracecat.types.exceptions import TracecatServiceError, TracecatValidationError
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
@@ -121,7 +121,11 @@ class WorkflowExecutionsService:
             # Involves:
             # - Replacing the slash with a colon
             # - Turn all segments into legacy versions
-            wf, ex = wf_exec_id.split("/", 1)
+            try:
+                wf, ex = wf_exec_id.split("/", 1)
+            except ValueError as e:
+                raise TracecatServiceError("Invalid workflow execution ID") from e
+
             wf_id = WorkflowUUID.new(wf)
             legacy_wf_id = wf_id.to_legacy()
 
