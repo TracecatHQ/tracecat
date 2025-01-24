@@ -56,13 +56,22 @@ export function WorkflowEventsHeader({
       <div className="flex items-center gap-2 pb-2">
         <CircleDot className="size-4" />
         <span className="font-semibold">Status</span>
-        <Badge
-          variant="secondary"
-          className="ml-auto flex items-center gap-1 text-foreground/70"
-        >
-          {getExecutionStatusIcon(execution.status, "size-4")}
-          {undoSlugify(execution.status.toLowerCase())}
-        </Badge>
+        <div className="ml-auto">
+          <Tooltip>
+            <TooltipTrigger>
+              <Badge
+                variant="secondary"
+                className="ml-auto flex items-center gap-1 text-foreground/70 hover:cursor-default"
+              >
+                {getExecutionStatusIcon(execution.status, "size-4")}
+                {undoSlugify(execution.status.toLowerCase())}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="font-mono tracking-tight">
+              {execution.id}
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </div>
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-2">
