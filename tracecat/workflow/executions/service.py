@@ -554,6 +554,7 @@ class WorkflowExecutionsService:
             wf_exec_id=wf_exec_id,
             run_config=dsl.config,
             kwargs=kwargs,
+            trigger_type=trigger_type,
         )
 
         if config.TEMPORAL__API_KEY__ARN or config.TEMPORAL__API_KEY:
