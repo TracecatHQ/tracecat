@@ -151,7 +151,7 @@ export function WorkflowEventsHeader({
                 <Tooltip>
                   <TooltipTrigger>
                     <div className="flex items-center gap-1">
-                      <span className="font-normal">Go to builder</span>
+                      <span className="font-normal">Go to workflow</span>
                       <SquareArrowOutUpRightIcon className="size-3" />
                     </div>
                   </TooltipTrigger>
