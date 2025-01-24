@@ -65,7 +65,7 @@ async def get_session():
     elif secrets.get("AWS_PROFILE_NAME"):
         profile_name = secrets.get("AWS_PROFILE_NAME")
         session = aioboto3.Session(profile_name=profile_name)
-    else:
+    elif secrets.get("AWS_ACCESS_KEY_ID") and secrets.get("AWS_SECRET_ACCESS_KEY"):
         logger.warning(
             "Role ARN and profile not found. Defaulting to IAM credentials (not recommended)."
         )
@@ -74,6 +74,8 @@ async def get_session():
             aws_secret_access_key=secrets.get("AWS_SECRET_ACCESS_KEY"),
             region_name=secrets.get("AWS_REGION"),
         )
+    else:
+        raise ValueError("No AWS credentials found.")
 
     return session
 
