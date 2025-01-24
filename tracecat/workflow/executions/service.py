@@ -51,7 +51,11 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
 )
-from tracecat.workflow.executions.enums import TriggerType, WorkflowEventType
+from tracecat.workflow.executions.enums import (
+    TemporalSearchAttr,
+    TriggerType,
+    WorkflowEventType,
+)
 from tracecat.workflow.executions.models import (
     EventFailure,
     EventGroup,
@@ -560,21 +564,17 @@ class WorkflowExecutionsService:
             trigger_type=trigger_type,
         )
 
-        if config.TEMPORAL__API_KEY__ARN or config.TEMPORAL__API_KEY:
-            self.logger.warning("Using Temporal cloud, skipping search attributes")
-            search_attrs = None
-        else:
-            pairs = [
-                trigger_type.to_temporal_search_attr_pair(),
-            ]
-            if self.role.user_id is not None:
-                pairs.append(
-                    SearchAttributePair(
-                        key=SearchAttributeKey.for_keyword("TracecatTriggeredByUserId"),
-                        value=str(self.role.user_id),
-                    )
+        pairs = [trigger_type.to_temporal_search_attr_pair()]
+        if self.role.user_id is not None:
+            pairs.append(
+                SearchAttributePair(
+                    key=SearchAttributeKey.for_keyword(
+                        TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
+                    ),
+                    value=str(self.role.user_id),
                 )
-            search_attrs = TypedSearchAttributes(search_attributes=pairs)
+            )
+        search_attrs = TypedSearchAttributes(search_attributes=pairs)
         try:
             result = await self._client.execute_workflow(
                 DSLWorkflow.run,

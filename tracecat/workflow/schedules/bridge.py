@@ -8,7 +8,6 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleID, WorkflowID
-from tracecat.logger import logger
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.schedules.models import ScheduleUpdate
 
@@ -45,13 +44,6 @@ async def create_schedule(
 
     workflow_schedule_id = f"{workflow_id.short()}/{schedule_id}"
 
-    if config.TEMPORAL__API_KEY__ARN or config.TEMPORAL__API_KEY:
-        logger.warning(
-            "Using Temporal cloud, skipping search attributes (add to schedule)"
-        )
-        search_attrs = TypedSearchAttributes.empty
-    else:
-        search_attrs = SEARCH_ATTRS
     return await client.create_schedule(
         id=schedule_id,
         schedule=temporalio.client.Schedule(
@@ -65,7 +57,7 @@ async def create_schedule(
                 ),
                 id=workflow_schedule_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-                typed_search_attributes=search_attrs,
+                typed_search_attributes=SEARCH_ATTRS,
                 **schedule_kwargs,
             ),
             spec=temporalio.client.ScheduleSpec(
@@ -105,12 +97,7 @@ async def update_schedule(schedule_id: ScheduleID, params: ScheduleUpdate) -> No
         if "status" in set_fields:
             state.paused = set_fields["status"] != "online"
         if isinstance(action, temporalio.client.ScheduleActionStartWorkflow):
-            if config.TEMPORAL__API_KEY__ARN or config.TEMPORAL__API_KEY:
-                logger.warning(
-                    "Using Temporal cloud, skipping search attributes (update schedule)"
-                )
-            else:
-                action.typed_search_attributes = SEARCH_ATTRS
+            action.typed_search_attributes = SEARCH_ATTRS
             if "inputs" in set_fields:
                 action.args[0].dsl.trigger_inputs = set_fields["inputs"]  # type: ignore
         else:
