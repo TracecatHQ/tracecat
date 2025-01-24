@@ -227,13 +227,22 @@ function ChildWorkflowLink({
   childWorkflowAlias?: string
 }) {
   const { workflows } = useWorkflowManager()
+  const { setSelectedNodeId } = useWorkflowBuilder()
   const childIdFromAlias = workflows?.find(
     (w) => w.alias === childWorkflowAlias
   )?.id
+
+  const handleClearSelection = () => {
+    setSelectedNodeId(null)
+  }
+
   const inner = () => {
     if (childWorkflowId) {
       return (
-        <Link href={`/workspaces/${workspaceId}/workflows/${childWorkflowId}`}>
+        <Link
+          href={`/workspaces/${workspaceId}/workflows/${childWorkflowId}`}
+          onClick={handleClearSelection}
+        >
           <div className="flex items-center gap-1">
             <span className="font-normal">Open workflow</span>
             <SquareArrowOutUpRightIcon className="size-3" />
@@ -254,6 +263,7 @@ function ChildWorkflowLink({
         <div className="flex items-center gap-1">
           <Link
             href={`/workspaces/${workspaceId}/workflows/${childIdFromAlias}`}
+            onClick={handleClearSelection}
           >
             <div className="flex items-center gap-1">
               <span className="font-mono font-normal tracking-tighter text-foreground/80">
