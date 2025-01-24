@@ -51,7 +51,11 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
 )
-from tracecat.workflow.executions.enums import TriggerType, WorkflowEventType
+from tracecat.workflow.executions.enums import (
+    TemporalSearchAttr,
+    TriggerType,
+    WorkflowEventType,
+)
 from tracecat.workflow.executions.models import (
     EventFailure,
     EventGroup,
@@ -570,7 +574,9 @@ class WorkflowExecutionsService:
             if self.role.user_id is not None:
                 pairs.append(
                     SearchAttributePair(
-                        key=SearchAttributeKey.for_keyword("TracecatTriggeredByUserId"),
+                        key=SearchAttributeKey.for_keyword(
+                            TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
+                        ),
                         value=str(self.role.user_id),
                     )
                 )
