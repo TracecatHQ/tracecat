@@ -117,7 +117,7 @@ variable "TFC_CONFIGURATION_VERSION_GIT_COMMIT_SHA" {
 variable "disable_temporal_ui" {
   type        = bool
   description = "Whether to disable the Temporal UI service in the deployment"
-  default     = false
+  default     = true
 }
 
 variable "disable_temporal_autosetup" {
