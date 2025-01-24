@@ -48,6 +48,7 @@ export function WorkflowEventsHeader({
 }: {
   execution: WorkflowExecutionReadCompact
 }) {
+  const { setSelectedNodeId } = useWorkflowBuilder()
   const { workspaceId } = useWorkspace()
   const parentExec = execution.parent_wf_exec_id
   const parentExecId = parentExec ? executionId(parentExec) : null
@@ -147,6 +148,9 @@ export function WorkflowEventsHeader({
             <Badge variant="outline" className="ml-auto text-foreground/70">
               <Link
                 href={`/workspaces/${workspaceId}/workflows/${parentExecId.wf}`}
+                onClick={() => {
+                  setSelectedNodeId(null)
+                }}
               >
                 <Tooltip>
                   <TooltipTrigger>
