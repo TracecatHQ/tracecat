@@ -39,14 +39,18 @@ export function ActionEvent({
   if (!node) {
     return (
       <div className="flex items-center justify-center p-4 text-xs text-muted-foreground">
-        No node selected
+        No action node selected.
       </div>
     )
   }
   if (node.type !== "udf") {
+    const capitalizedType = node.type
+      ? node.type[0].toUpperCase() + node.type.slice(1)
+      : "Unknown"
     return (
-      <div className="flex items-center justify-center p-4 text-xs text-muted-foreground">
-        Please select an action node
+      <div className="flex flex-col  items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+        <span>{capitalizedType} node does not support viewing events.</span>
+        <span>Please select an action node instead.</span>
       </div>
     )
   }
