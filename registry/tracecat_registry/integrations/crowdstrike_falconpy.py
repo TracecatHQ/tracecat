@@ -11,7 +11,7 @@ crowdstrike_secret = RegistrySecret(
     name="crowdstrike",
     keys=["CROWDSTRIKE_CLIENT_ID", "CROWDSTRIKE_CLIENT_SECRET"],
 )
-"""Crowdstrike secret.
+"""Crowdstrike OAuth2.0 credentials.
 
 - name: `crowdstrike`
 - keys:
@@ -21,27 +21,28 @@ crowdstrike_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Call FalconPy command",
-    description="Call any Crowdstrike API via FalconPy.",
+    default_title="Call Crowdstrike API",
+    description="Instantiate a FalconPy Uber Class client and call a Crowdstrike API method.",
     display_group="Crowdstrike",
-    namespace="integrations.crowdstrike",
+    doc_url="https://falconpy.io/Usage/Basic-Uber-Class-usage.html",
+    namespace="tools.crowdstrike",
     secrets=[crowdstrike_secret],
 )
-async def call_falconpy_command(
+async def call_command(
     operation_id: Annotated[
         str,
         Field(
             ...,
-            description="The operation ID (https://www.falconpy.io/Operations/All-Operations.html) to call.",
+            description="Operation ID from https://www.falconpy.io/Operations/All-Operations.html",
         ),
     ],
     params: Annotated[
-        dict[str, Any],
-        Field(..., description="The parameters to pass to the operation."),
+        dict[str, Any] | None,
+        Field(..., description="Parameters to pass into the command"),
     ] = None,
     member_cid: Annotated[
         str | None,
-        Field(..., description="(Sensitive) The member CID to call the operation on."),
+        Field(..., description="Multi-tenant customer ID"),
     ] = None,
 ) -> dict[str, Any]:
     params = params or {}

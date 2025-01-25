@@ -6,13 +6,13 @@ from typing import Annotated
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry
-from tracecat_registry.integrations.boto3 import get_session
+from tracecat_registry.tools.aws_boto3 import get_session
 
 # Add this at the top with other constants
 BUCKET_REGEX = re.compile(r"^[a-z0-9][a-z0-9.-]*[a-z0-9]$")
 
 s3_secret = RegistrySecret(
-    name="s3",
+    name="aws_s3",
     optional_keys=[
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
@@ -22,11 +22,9 @@ s3_secret = RegistrySecret(
         "AWS_ROLE_SESSION_NAME",
     ],
 )
-"""AWS secret.
+"""AWS credentials.
 
-Secret
-------
-- name: `aws`
+- name: `aws_s3`
 - optional_keys:
     Either:
         - `AWS_ACCESS_KEY_ID`
@@ -42,9 +40,11 @@ Secret
 
 @registry.register(
     default_title="Parse S3 URI",
-    description="Parse an S3 URI into a bucket and key.",
+    description="Parse an S3 URI into bucket name and object key.",
     display_group="AWS S3",
-    namespace="integrations.aws_s3",
+    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3-example-download-file.html",
+    namespace="tools.aws_s3",
+    secrets=[s3_secret],
 )
 async def parse_uri(uri: str) -> tuple[str, str]:
     uri = str(uri).strip()
@@ -60,10 +60,11 @@ async def parse_uri(uri: str) -> tuple[str, str]:
 
 
 @registry.register(
-    default_title="Download S3 Object",
+    default_title="Get S3 object",
     description="Download an object from S3 and return its body as a string.",
     display_group="AWS S3",
-    namespace="integrations.aws_s3",
+    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.get_object",
+    namespace="tools.aws_s3",
     secrets=[s3_secret],
 )
 async def download_object(
@@ -77,4 +78,5 @@ async def download_object(
         # Defensively handle different types of bodies
         if isinstance(body, bytes):
             return body.decode("utf-8")
-        return body
+        else:
+            raise ValueError(f"Unexpected body type. Expected bytes, got {type(body)}")

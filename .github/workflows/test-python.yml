@@ -68,11 +68,10 @@ jobs:
   test-all:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    environment: QA
     needs: test-registry
     strategy:
       matrix:
-        test_type: [unit, playbooks]
+        test_type: [unit, playbooks, integrations]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -110,7 +109,4 @@ jobs:
           uv pip install ./registry
 
       - name: Run tests
-        env:
-          LOG_LEVEL: ERROR
-          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
         run: uv run pytest tests/${{ matrix.test_type }}
