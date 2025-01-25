@@ -55,14 +55,16 @@ export function ActionEvent({
     )
   }
   return (
-    <ActionEventDetails
-      actionId={node.id}
-      workflowId={workflowId}
-      workspaceId={workspaceId}
-      status={execution.status}
-      events={execution.events}
-      type={type}
-    />
+    <div className="p-4">
+      <ActionEventDetails
+        actionId={node.id}
+        workflowId={workflowId}
+        workspaceId={workspaceId}
+        status={execution.status}
+        events={execution.events}
+        type={type}
+      />
+    </div>
   )
 }
 export function ActionEventDetails({
@@ -125,18 +127,12 @@ export function ActionEventDetails({
   }
   const actionEvent = actionEventsForRef[0]
   return (
-    <div className="space-y-4">
-      <div className="space-y-2 p-4">
-        <JsonViewWithControls
-          src={
-            type === "input"
-              ? actionEvent.action_input
-              : actionEvent.action_result
-          }
-          defaultExpanded={true}
-        />
-      </div>
-    </div>
+    <JsonViewWithControls
+      src={
+        type === "input" ? actionEvent.action_input : actionEvent.action_result
+      }
+      defaultExpanded={true}
+    />
   )
 }
 
@@ -194,10 +190,12 @@ export function JsonViewWithControls({
       ? flattenObject(src as Record<string, unknown>)
       : src
 
-  console.log(flattenedSrc)
-  console.log(src)
+  const tabItems = [
+    { value: "flat", label: "Flat", src: flattenedSrc },
+    { value: "nested", label: "Nested", src: src },
+  ]
   return (
-    <div className="space-y-2">
+    <div className="w-full space-y-2 overflow-x-auto">
       <div className="flex w-full items-center gap-4">
         <span className="text-xs font-semibold text-foreground/50">
           {title}
@@ -215,44 +213,29 @@ export function JsonViewWithControls({
       </div>
       <Tabs defaultValue="flat">
         <TabsList className="h-7 text-xs">
-          <TabsTrigger value="flat" className="text-xs">
-            Flat
-          </TabsTrigger>
-          <TabsTrigger value="nested" className="text-xs">
-            Nested
-          </TabsTrigger>
+          {tabItems.map(({ value, label }) => (
+            <TabsTrigger key={value} value={value} className="text-xs">
+              {label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
-        <TabsContent
-          value="flat"
-          className="rounded-md border bg-muted-foreground/5 p-4"
-        >
-          <JsonView
-            collapsed={!isExpanded}
-            displaySize
-            enableClipboard
-            src={flattenedSrc}
-            className="text-sm"
-            theme="atom"
-            customizeCopy={(node) => {
-              console.log("COPY", node)
-              return node
-            }}
-          />
-        </TabsContent>
-        <TabsContent
-          value="nested"
-          className="rounded-md border bg-muted-foreground/5 p-4"
-        >
-          <JsonView
-            collapsed={!isExpanded}
-            displaySize
-            enableClipboard
-            src={src}
-            className="text-sm"
-            theme="atom"
-          />
-        </TabsContent>
+        {tabItems.map(({ value, src: source }) => (
+          <TabsContent
+            key={value}
+            value={value}
+            className="rounded-md border bg-muted-foreground/5 p-4"
+          >
+            <JsonView
+              collapsed={!isExpanded}
+              displaySize
+              enableClipboard
+              src={source}
+              className="w-full overflow-x-scroll text-wrap text-sm"
+              theme="atom"
+            />
+          </TabsContent>
+        ))}
       </Tabs>
     </div>
   )
