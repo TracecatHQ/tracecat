@@ -61,15 +61,15 @@ async def run_playbook(
     ],
     envvars: Annotated[
         dict[str, Any] | None,
-        Field(description="Environment variables to pass to the playbook"),
+        Field(description="Environment variables to be used when running Ansible"),
     ] = None,
     extravars: Annotated[
         dict[str, Any] | None,
-        Field(description="Extra variables to pass to the playbook"),
+        Field(description="Extra variables to pass to Ansible using `-e`"),
     ] = None,
     runner_kwargs: Annotated[
         dict[str, Any] | None,
-        Field(description="Additional keyword arguments to pass to the Ansible runner"),
+        Field(description="Additional keyword arguments to pass to the runner"),
     ] = None,
     timeout: Annotated[
         int,
