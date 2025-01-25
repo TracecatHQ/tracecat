@@ -23,10 +23,8 @@ aws_secret = RegistrySecret(
     ],
     optional=False,
 )
-"""AWS secret.
+"""AWS credentials.
 
-Secret
-------
 - name: `aws`
 - optional_keys:
     Either:
@@ -68,7 +66,7 @@ async def get_session():
     elif secrets.get("AWS_PROFILE_NAME"):
         profile_name = secrets.get("AWS_PROFILE_NAME")
         session = aioboto3.Session(profile_name=profile_name)
-    else:
+    elif secrets.get("AWS_ACCESS_KEY_ID") and secrets.get("AWS_SECRET_ACCESS_KEY"):
         logger.warning(
             "Role ARN and profile not found. Defaulting to IAM credentials (not recommended)."
         )
@@ -77,35 +75,38 @@ async def get_session():
             aws_secret_access_key=secrets.get("AWS_SECRET_ACCESS_KEY"),
             region_name=secrets.get("AWS_REGION"),
         )
+    else:
+        raise ValueError("No AWS credentials found.")
 
     return session
 
 
 @registry.register(
-    default_title="Call Boto3 Client",
-    description="Call a Boto3 Client method with parameters.",
-    display_group="AWS",
-    namespace="integrations.aws",
+    default_title="Call AWS API",
+    description="Instantiate a Boto3 client and call an AWS API method.",
+    display_group="AWS Boto3",
+    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html",
+    namespace="tools.aws_boto3",
     secrets=[aws_secret],
 )
-async def call_boto3_client(
+async def call_api(
     service_name: Annotated[
         str,
         Field(
             ...,
-            description="AWS service name to create Boto3 Client, e.g. 's3', 'ec2', 'guardduty'.",
+            description="AWS service name e.g. 's3', 'ec2', 'guardduty'.",
         ),
     ],
     method_name: Annotated[
         str,
         Field(
             ...,
-            description="Client method name in Boto3, e.g. 'list_buckets', 'list_instances'",
+            description="Method name e.g. 'list_buckets', 'list_instances'",
         ),
     ],
     params: Annotated[
-        dict[str, Any],
-        Field(..., description="Parameters for the client method."),
+        dict[str, Any] | None,
+        Field(..., description="Parameters for the API method."),
     ] = None,
 ) -> dict[str, Any]:
     params = params or {}
@@ -116,36 +117,37 @@ async def call_boto3_client(
 
 
 @registry.register(
-    default_title="Call Boto3 Paginator",
-    description="Call a Boto3 Paginator method with parameters.",
-    display_group="AWS",
-    namespace="integrations.aws",
+    default_title="Call paginated AWS API",
+    description="Instantiate a Boto3 paginator and call a paginated AWS API method.",
+    display_group="AWS Boto3",
+    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/paginators.html",
+    namespace="tools.aws_boto3",
     secrets=[aws_secret],
 )
-async def call_boto3_paginator(
+async def call_paginated_api(
     service_name: Annotated[
         str,
         Field(
             ...,
-            description="AWS service name to create Boto3 Paginator, e.g. 's3', 'ec2', 'guardduty'.",
+            description="AWS service name e.g. 's3', 'ec2', 'guardduty'.",
         ),
     ],
-    method_name: Annotated[
+    paginator_name: Annotated[
         str,
         Field(
             ...,
-            description="Paginator method name in Boto3, e.g. 'list_objects_v2', 'describe_instances'.",
+            description="Paginator name e.g. 'list_objects_v2', 'describe_instances'.",
         ),
     ],
     params: Annotated[
-        dict[str, Any],
-        Field(..., description="Parameters for the paginator."),
+        dict[str, Any] | None,
+        Field(..., description="Parameters for the API paginator."),
     ] = None,
 ) -> list[dict[str, Any]]:
     params = params or {}
     session = await get_session()
     async with session.client(service_name) as client:  # type: ignore
-        paginator = client.get_paginator(method_name)
+        paginator = client.get_paginator(paginator_name)
         pages = paginator.paginate(**params)
 
     results = []

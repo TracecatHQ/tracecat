@@ -1,3 +1,5 @@
+"""Tests for registry UDFs, template actions, and git repository sync."""
+
 import os
 import textwrap
 
