@@ -21,7 +21,7 @@ class TracecatException(Exception):
 
 
 class TracecatValidationError(TracecatException):
-    """Tracecat user-facting validation error"""
+    """Tracecat user-facing validation error"""
 
 
 class TracecatDSLError(TracecatValidationError):

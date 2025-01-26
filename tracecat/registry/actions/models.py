@@ -198,9 +198,20 @@ class TemplateActionDefinition(BaseModel):
         step_refs = [step.ref for step in self.steps]
         unique_step_refs = set(step_refs)
 
+        # Check for duplicate step refs
         if len(step_refs) != len(unique_step_refs):
             duplicate_step_refs = [ref for ref in step_refs if step_refs.count(ref) > 1]
-            raise ValueError(f"Duplicate step references found: {duplicate_step_refs}")
+            raise TracecatValidationError(
+                f"Duplicate step references found: {duplicate_step_refs}"
+            )
+
+        # Check if any step action references the template action
+        template_action = f"{self.namespace}.{self.name}"
+        if violating_steps := [s for s in self.steps if s.action == template_action]:
+            raise TracecatValidationError(
+                f"Steps cannot reference the template action itself: {template_action}."
+                f"{len(violating_steps)} steps reference the template action: {violating_steps}"
+            )
 
         return self
 
@@ -506,7 +517,7 @@ AnnotatedRegistryActionImpl = Annotated[
 ]
 RegistryActionImplValidator: TypeAdapter[RegistryActionImpl] = TypeAdapter(
     AnnotatedRegistryActionImpl
-)
+)  # type: ignore
 
 
 class model_converters:
