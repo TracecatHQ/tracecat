@@ -30,6 +30,7 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
+from tracecat.types.exceptions import TracecatValidationError
 
 
 @pytest.fixture
@@ -321,3 +322,34 @@ async def test_template_action_with_nested_secrets_can_be_fetched(
         "secret_step": "UDF_SECRET_VALUE",
         "nested_secret_step": "UDF_SECRET_VALUE",
     }
+
+
+def test_template_action_definition_validates_self_reference():
+    """Test that TemplateActionDefinition validates against self-referential steps.
+
+    The test verifies:
+    1. A template action cannot reference itself in its steps
+    2. The validation error message is descriptive
+    """
+    with pytest.raises(TracecatValidationError) as exc_info:
+        TemplateActionDefinition(
+            title="Self Referential Action",
+            description="This action tries to reference itself",
+            name="self_ref",
+            namespace="testing",
+            display_group="Testing",
+            expects={},
+            steps=[
+                ActionStep(
+                    ref="self_ref_step",
+                    action="testing.self_ref",  # This references the template itself
+                    args={},
+                ),
+            ],
+            returns="${{ steps.self_ref_step.result }}",
+        )
+
+    assert "Steps cannot reference the template action itself: testing.self_ref" in str(
+        exc_info.value
+    )
+    assert "1 steps reference the template action" in str(exc_info.value)
