@@ -1294,6 +1294,7 @@ export type WorkflowExecutionEventCompact = {
   action_ref: string
   action_input?: unknown | null
   action_result?: unknown | null
+  action_error?: EventFailure | null
   child_wf_exec_id?: string | null
 }
 

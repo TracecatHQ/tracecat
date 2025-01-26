@@ -2,17 +2,19 @@
 
 import React from "react"
 import {
+  EventFailure,
   WorkflowExecutionEventCompact,
   WorkflowExecutionReadCompact,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { CircleDot, LoaderIcon } from "lucide-react"
+import { CircleDot, LoaderIcon, TriangleAlert } from "lucide-react"
 import JsonView from "react18-json-view"
 
 import { useAction } from "@/lib/hooks"
 import { slugify } from "@/lib/utils"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { CodeBlock } from "@/components/code-block"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 
@@ -126,6 +128,9 @@ export function ActionEventDetails({
     )
   }
   const actionEvent = actionEventsForRef[0]
+  if (type === "result" && actionEvent.action_error) {
+    return <ErrorEvent failure={actionEvent.action_error} />
+  }
   return (
     <JsonViewWithControls
       src={
@@ -133,6 +138,24 @@ export function ActionEventDetails({
       }
       defaultExpanded={true}
     />
+  )
+}
+
+function ErrorEvent({ failure }: { failure: EventFailure }) {
+  return (
+    <div>
+      <div className="flex items-end text-xs font-semibold">
+        <TriangleAlert
+          className="mr-2 size-4 fill-rose-500 stroke-white"
+          strokeWidth={2}
+        />
+        <span>Event Failure</span>
+      </div>
+
+      <div className="my-4 flex flex-col space-y-8 px-4 text-xs">
+        <CodeBlock title="Message">{failure.message}</CodeBlock>
+      </div>
+    </div>
   )
 }
 
