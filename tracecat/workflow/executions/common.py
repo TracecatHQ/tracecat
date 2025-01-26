@@ -30,6 +30,12 @@ CLOSE_EVENT_TYPES = (
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED,
 )
 
+ERROR_EVENT_TYPES = (
+    EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED,
+    EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED,
+    EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,
+)
+
 HISTORY_TO_WF_EVENT_TYPE = {
     # Activity Task
     EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED: WorkflowEventType.ACTIVITY_TASK_SCHEDULED,
@@ -74,6 +80,10 @@ def is_start_event(event: HistoryEvent) -> bool:
 
 def is_close_event(event: HistoryEvent) -> bool:
     return event.event_type in CLOSE_EVENT_TYPES
+
+
+def is_error_event(event: HistoryEvent) -> bool:
+    return event.event_type in ERROR_EVENT_TYPES
 
 
 def is_utility_activity(activity_name: str) -> bool:
