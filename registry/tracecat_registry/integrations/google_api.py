@@ -57,7 +57,5 @@ def get_access_token(
     )
     if subject:
         credentials = credentials.with_subject(subject)
-
-    # Refresh to get a new token
     credentials.refresh(Request())
     return credentials.token
