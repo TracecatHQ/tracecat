@@ -152,7 +152,7 @@ function ErrorEvent({ failure }: { failure: EventFailure }) {
         <span>Event Failure</span>
       </div>
 
-      <div className="my-4 flex flex-col space-y-8 px-4 text-xs">
+      <div className="my-4 flex flex-col space-y-8 text-xs">
         <CodeBlock title="Message">{failure.message}</CodeBlock>
       </div>
     </div>
