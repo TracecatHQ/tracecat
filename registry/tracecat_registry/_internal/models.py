@@ -29,3 +29,14 @@ class RegistrySecret(BaseModel):
                 "At least one of 'keys' or 'optional_keys' must be specified"
             )
         return v
+
+    def __hash__(self) -> int:
+        """Custom hash implementation based on relevant fields."""
+        return hash(
+            (
+                self.name,
+                tuple(self.keys) if self.keys else None,
+                tuple(self.optional_keys) if self.optional_keys else None,
+                self.optional,
+            )
+        )
