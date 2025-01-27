@@ -137,10 +137,16 @@ ${{ FN.flatten([[1, 2], [3, 4], [5, 6]]) }}
 # Result: [1, 2, 3, 4, 5, 6]
 ```
 
-- **apply** - Apply function to each item
+- **apply** - Apply a function to each item
 ```yaml
-${{ FN.apply([1, 2, 3], "lambda x: x * 2") }}
-# Result: [2, 4, 6]
+${{ FN.apply(["a", "b", "c"], "lambda x: f'prefix:{x}'") }}
+# Result: ["prefix:a", "prefix:b", "prefix:c"]
+```
+
+- **map** - Alias for `apply`
+```yaml
+${{ FN.map(["a", "b", "c"], "lambda x: f'prefix:{x}'") }}
+# Result: ["prefix:a", "prefix:b", "prefix:c"]
 ```
 
 ### List filtering
