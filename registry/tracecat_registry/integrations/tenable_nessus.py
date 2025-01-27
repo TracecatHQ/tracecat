@@ -37,10 +37,10 @@ async def call_api(
     params: Annotated[
         dict[str, Any], Field(..., description="Nessus API method parameters")
     ],
-    api_url: Annotated[str, Field(..., description="Nessus API URL")],
+    base_url: Annotated[str, Field(..., description="Nessus API URL")],
 ) -> dict:
     nessus = Nessus(
-        url=api_url,
+        url=base_url,
         access_key=secrets.get("TENABLE_ACCESS_KEY"),
         secret_key=secrets.get("TENABLE_SECRET_KEY"),
     )

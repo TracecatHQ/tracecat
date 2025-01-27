@@ -1,6 +1,9 @@
 """Check Point Infinity authentication."""
 
+from typing import Annotated
+
 import httpx
+from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
@@ -29,7 +32,9 @@ check_point_infinity_secret = RegistrySecret(
     secrets=[check_point_infinity_secret],
 )
 async def get_access_token(
-    base_url: str = "https://cloudinfra-gw-us.portal.checkpoint.com",
+    base_url: Annotated[
+        str, Field(..., description="Base URL for Check Point Infinity API")
+    ] = "https://cloudinfra-gw-us.portal.checkpoint.com",
 ) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.post(

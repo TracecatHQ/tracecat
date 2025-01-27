@@ -1,6 +1,9 @@
 """Jamf Pro Authentication."""
 
+from typing import Annotated
+
 import httpx
+from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
@@ -25,7 +28,9 @@ jamf_secret = RegistrySecret(
     namespace="tools.jamf",
     secrets=[jamf_secret],
 )
-async def get_access_token(base_url: str) -> str:
+async def get_access_token(
+    base_url: Annotated[str, Field(..., description="Base URL for Jamf Pro API.")],
+) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.post(
             f"{base_url}/api/oauth/token",
