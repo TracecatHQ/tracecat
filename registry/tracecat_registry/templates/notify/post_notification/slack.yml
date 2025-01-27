@@ -1,0 +1,81 @@
+type: action
+definition:
+  title: Post notification
+  description: |
+    Post interactive notification with buttons to a Slack channel.
+    Action names are slugified and sent with the interaction payload as action values.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/chat.postMessage
+  namespace: integrations.slack
+  name: post_notification
+  expects:
+    summary:
+      type: str
+      description: Brief one-line summary of the notification.
+    description:
+      type: str
+      description: Detailed description (supports Markdown) of the notification.
+    details:
+      type: dict[str, str]
+      description: >-
+        Fields to add to the notification
+        e.g. {"severity": "high", "status": "open"}.
+      default: {}
+    links:
+      type: list[str]
+      description: Links to add to the notification.
+      default: []
+    actions:
+      type: list[str]
+      description: Interactive actions for user to take (e.g. "Confirm", "Deny").
+      default: ["Confirm", "Deny"]
+    channel:
+      type: str
+      description: Slack channel to post the notification to.
+    thread_ts:
+      type: str | None
+      description: Timestamp of the thread to reply to.
+      default: null
+  steps:
+    - ref: detail_fields
+      action: core.transform.reshape
+      args:
+        value: >
+          ${{ FN.map(inputs.details, "lambda x: {'type': 'mrkdwn', 'text': f'{x.key}: {x.value}'}") }}
+    - ref: action_elements
+      action: core.transform.reshape
+      args:
+        value: >
+          ${{ FN.map(inputs.actions, "lambda x: {'type': 'button', 'value': FN.slugify(x), 'text': {'type': 'plain_text', 'text': x, 'emoji': True}}") }}
+    - ref: content_blocks
+      action: core.transform.reshape
+      args:
+        value:
+          - type: context
+            elements:
+              - type: mrkdwn
+                text: ${{ inputs.summary }}
+          - type: section
+            text:
+              type: mrkdwn
+              text: ${{ inputs.description }}
+          - type: section
+            fields: ${{ steps.details.result }
+          - type: actions
+            elements: ${{ steps.actions.result }}
+          - type: divider
+    - ref: link_blocks
+      action: core.transform.reshape
+      args:
+        value: >
+          ${{ FN.map(inputs.links, "lambda x: {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': f'<{x}|{x}>'}]}") }}
+    - ref: post_message
+      action: integrations.slack.call_slack_api
+      args:
+        sdk_method: chat_postMessage
+        params:
+          channel: ${{ inputs.channel }}
+          text: ${{ inputs.summary }}
+          thread_ts: ${{ inputs.thread_ts }}
+          blocks: ${{ FN.flatten(steps.content_blocks.result, steps.link_blocks.result) }}
+  returns: ${{ steps.post_message.result.message }}
