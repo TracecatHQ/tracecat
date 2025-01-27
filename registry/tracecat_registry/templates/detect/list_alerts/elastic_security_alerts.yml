@@ -28,7 +28,7 @@ definition:
       type: str
       description: Kibana endpoint URL (e.g. https://localhost:5601).
   steps:
-    - ref: default_query
+    - ref: search_query
       action: core.transform.reshape
       args:
         query:
@@ -53,6 +53,6 @@ definition:
         payload:
           start: ${{ inputs.start_time }}
           end: ${{ inputs.end_time }}
-          query: ${{ inputs.query || steps.default_query.result }}
+          query: ${{ inputs.query || steps.search_query.result }}
           size: ${{ inputs.limit }}
   returns: ${{ steps.query_detection_alerts.result }}
