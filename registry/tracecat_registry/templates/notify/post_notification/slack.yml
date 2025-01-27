@@ -70,7 +70,7 @@ definition:
         value: >
           ${{ FN.map(inputs.links, "lambda x: {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': f'<{x}|{x}>'}]}") }}
     - ref: post_message
-      action: integrations.slack.call_slack_api
+      action: tools.slack.call_sdk
       args:
         sdk_method: chat_postMessage
         params:

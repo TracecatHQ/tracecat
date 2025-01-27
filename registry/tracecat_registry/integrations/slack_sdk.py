@@ -24,7 +24,7 @@ slack_secret = RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])
     namespace="tools.slack",
     secrets=[slack_secret],
 )
-async def call_api(
+async def call_sdk(
     sdk_method: Annotated[
         str,
         Field(
@@ -52,7 +52,7 @@ async def call_api(
     namespace="tools.slack",
     secrets=[slack_secret],
 )
-async def call_paginated_api(
+async def call_sdk_paginated(
     sdk_method: Annotated[
         str,
         Field(

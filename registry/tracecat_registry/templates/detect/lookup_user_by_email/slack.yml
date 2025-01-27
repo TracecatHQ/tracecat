@@ -12,7 +12,7 @@ definition:
       description: Email of an existing user.
   steps:
     - ref: lookup_user
-      action: integrations.slack.call_slack_api
+      action: tools.slack.call_sdk
       args:
         params:
           email: ${{ inputs.email }}
