@@ -22,6 +22,7 @@ from uuid import uuid4
 import jsonpath_ng.ext
 import orjson
 from jsonpath_ng.exceptions import JsonPathParserError
+from slugify import slugify
 
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import is_iterable
@@ -96,6 +97,11 @@ def _bool(x: Any) -> bool:
 
 
 # String functions
+
+
+def slugify_(x: str) -> str:
+    """Slugify a string."""
+    return slugify(x)
 
 
 def url_encode(x: str) -> str:
@@ -901,18 +907,19 @@ def eval_jsonpath(
 
 _FUNCTION_MAPPING = {
     # String transforms
-    "prefix": add_prefix,
-    "suffix": add_suffix,
     "capitalize": capitalize,
     "endswith": endswith,
     "lowercase": lowercase,
+    "prefix": add_prefix,
+    "replace": replace,
     "slice": slice_str,
+    "slugify": slugify_,
     "split": split,
     "startswith": startswith,
     "strip": strip,
+    "suffix": add_suffix,
     "titleize": titleize,
     "uppercase": uppercase,
-    "replace": replace,
     "url_encode": url_encode,
     # Comparison
     "less_than": less_than,
