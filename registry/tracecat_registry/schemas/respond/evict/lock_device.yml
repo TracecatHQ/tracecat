@@ -1,4 +1,4 @@
 # https://d3fend.mitre.org/technique/d3f:AccountLocking/
 device_id:
   type: str
-  description: The ID of the device to lock.
+  description: ID of a managed device.
