@@ -953,9 +953,10 @@ _FUNCTION_MAPPING = {
     # Generators
     "uuid4": generate_uuid,
     # JSON functions
+    "lookup": dict_lookup,
+    "merge": merge_dicts,
     "to_keys": dict_keys,
     "to_values": dict_values,
-    "merge": merge_dicts,
     # Logical
     "and": and_,
     "or": or_,
@@ -1002,8 +1003,6 @@ _FUNCTION_MAPPING = {
     "from_base64": b64_to_str,
     "to_base64url": str_to_b64url,
     "from_base64url": b64url_to_str,
-    # Utils
-    "lookup": dict_lookup,
     # IP addresses
     "ipv4_in_subnet": ipv4_in_subnet,
     "ipv6_in_subnet": ipv6_in_subnet,
