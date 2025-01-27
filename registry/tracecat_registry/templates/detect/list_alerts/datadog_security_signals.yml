@@ -18,15 +18,13 @@ definition:
       description: End time for the query (exclusive).
     query:
       type: str | None
-      description: |
-        Falcon Query Language (FQL) filter to apply to alerts.
-        If specified, overrides `start_time` and `end_time`.
+      description: Datadog search query.
       default: null
     limit:
       type: int
       description: Maximum number of alerts to return.
       default: 100
-    api_url:
+    base_url:
       type: str
       description: Datadog site API URL.
       default: https://api.datadoghq.com/
@@ -34,16 +32,17 @@ definition:
     - ref: query_security_signals
       action: core.http_request
       args:
-        url: ${{ inputs.api_url }}/api/v2/security_monitoring/signals/search
+        url: ${{ inputs.base_url }}/api/v2/security_monitoring/signals/search
         method: POST
         headers:
           DD-API-KEY: ${{ SECRETS.datadog.DATADOG_API_KEY }}
           DD-APPLICATION-KEY: ${{ SECRETS.datadog.DATADOG_APP_KEY }}
         payload:
           filter:
-            from: ${{ FN.to_timestamp(inputs.start_time) }}
-            to: ${{ FN.to_timestamp(inputs.end_time) }}
+            from: ${{ inputs.start_time }}
+            to: ${{ inputs.end_time }}
             query: ${{ inputs.query }}
           page:
             limit: ${{ inputs.limit }}
           sort: timestamp
+  returns: ${{ steps.query_security_signals.result }}

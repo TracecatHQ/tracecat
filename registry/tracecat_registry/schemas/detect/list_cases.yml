@@ -1,14 +1,23 @@
+# https://schema.ocsf.io/1.3.0/classes/incident_finding?extensions=
 start_time:
   type: datetime
   description: Start time for the query (inclusive).
 end_time:
   type: datetime
   description: End time for the query (exclusive).
+severity:
+  type: str | None
+  description: Severity to filter cases by.
+  default: null
+status:
+  type: str
+  description: Status to filter cases by.
+  default: null
 query:
   type: str | None
-  description: Query or filter to apply to alerts. If specified, overrides `start_time` and `end_time`.
+  description: Query or filter to apply to alerts.
   default: null
 limit:
   type: int
-  description: Maximum number of incidents to return.
+  description: Maximum number of cases to return.
   default: 100

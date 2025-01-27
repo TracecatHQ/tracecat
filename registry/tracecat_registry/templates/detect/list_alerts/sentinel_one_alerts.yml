@@ -1,9 +1,9 @@
 type: action
 definition:
-  title: List threats
-  description: Query for SentinelOne threats.
+  title: List alerts
+  description: Query for SentinelOne alerts.
   display_group: SentinelOne
-  doc_url: https://<base_url>/api-doc/api-details?category=threats&api=get-threats
+  doc_url: https://<base_url>/api-doc/api-details?category=alerts&api=get-alerts
   namespace: integrations.sentinel_one
   name: list_threats
   secrets:
@@ -28,10 +28,10 @@ definition:
       type: str
       description: SentinelOne tenant URL.
   steps:
-    - ref: query_threats
+    - ref: query_alerts
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/web/api/v2.1/threats
+        url: ${{ inputs.base_url }}/web/api/v2.1/cloud-detection/alerts
         method: GET
         headers:
           Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
@@ -40,4 +40,4 @@ definition:
           created_at__lt: ${{ inputs.end_time }}
           query: ${{ inputs.query }}
           limit: ${{ inputs.limit }}
-  returns: ${{ steps.query_threats.result }}
+  returns: ${{ steps.query_alerts.result }}
