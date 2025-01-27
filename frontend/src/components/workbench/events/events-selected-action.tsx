@@ -7,16 +7,18 @@ import {
   WorkflowExecutionReadCompact,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { CircleDot, LoaderIcon, TriangleAlert } from "lucide-react"
+import { CircleDot, LoaderIcon } from "lucide-react"
 import JsonView from "react18-json-view"
 
 import { useAction } from "@/lib/hooks"
 import { slugify } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CodeBlock } from "@/components/code-block"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { getWorkflowEventIcon } from "@/components/workbench/events/events-workflow"
 
 export function ActionEvent({
   execution,
@@ -128,33 +130,44 @@ export function ActionEventDetails({
     )
   }
   const actionEvent = actionEventsForRef[0]
-  if (type === "result" && actionEvent.action_error) {
-    return <ErrorEvent failure={actionEvent.action_error} />
+  if (["SCHEDULED", "STARTED"].includes(actionEvent.status)) {
+    return (
+      <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+        <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+        <span>Action is {actionEvent.status.toLowerCase()}...</span>
+      </div>
+    )
   }
   return (
-    <JsonViewWithControls
-      src={
-        type === "input" ? actionEvent.action_input : actionEvent.action_result
-      }
-      defaultExpanded={true}
-    />
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-start">
+        <Badge variant="secondary" className="items-center gap-2">
+          {getWorkflowEventIcon(actionEvent.status, "size-4")}
+          <span className="text-xs font-semibold text-foreground/70">
+            Action {actionEvent.status.toLowerCase()}
+          </span>
+        </Badge>
+      </div>
+      {type === "result" && actionEvent.action_error ? (
+        <ErrorEvent failure={actionEvent.action_error} />
+      ) : (
+        <JsonViewWithControls
+          src={
+            type === "input"
+              ? actionEvent.action_input
+              : actionEvent.action_result
+          }
+          defaultExpanded={true}
+        />
+      )}
+    </div>
   )
 }
 
 function ErrorEvent({ failure }: { failure: EventFailure }) {
   return (
-    <div>
-      <div className="flex items-end text-xs font-semibold">
-        <TriangleAlert
-          className="mr-2 size-4 fill-rose-500 stroke-white"
-          strokeWidth={2}
-        />
-        <span>Event Failure</span>
-      </div>
-
-      <div className="my-4 flex flex-col space-y-8 text-xs">
-        <CodeBlock title="Message">{failure.message}</CodeBlock>
-      </div>
+    <div className="flex flex-col space-y-8 text-xs">
+      <CodeBlock title="Error Message">{failure.message}</CodeBlock>
     </div>
   )
 }
@@ -197,17 +210,16 @@ function flattenObject(
 
 export function JsonViewWithControls({
   src,
-  title = "JSON",
   defaultExpanded = false,
 }: {
   src: unknown
-  title?: string
   defaultExpanded?: boolean
 }): JSX.Element {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
 
   // Function to flatten JSON object
   // Safely flatten the source if it's an object
+  const isCollapsible = ["object", "array"].includes(typeof src)
   const flattenedSrc =
     typeof src === "object" && src !== null
       ? flattenObject(src as Record<string, unknown>)
@@ -219,30 +231,30 @@ export function JsonViewWithControls({
   ]
   return (
     <div className="w-full space-y-2 overflow-x-auto">
-      <div className="flex w-full items-center gap-4">
-        <span className="text-xs font-semibold text-foreground/50">
-          {title}
-        </span>
-        <div className="flex items-center gap-2">
-          <Switch
-            checked={isExpanded}
-            onCheckedChange={setIsExpanded}
-            className="data-[state=checked]:bg-muted-foreground"
-          />
-          <p className="text-xs text-foreground/70">
-            {isExpanded ? "Collapse" : "Expand"}
-          </p>
-        </div>
-      </div>
       <Tabs defaultValue="flat">
-        <TabsList className="h-7 text-xs">
-          {tabItems.map(({ value, label }) => (
-            <TabsTrigger key={value} value={value} className="text-xs">
-              {label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
+        {isCollapsible && (
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={isExpanded}
+                  onCheckedChange={setIsExpanded}
+                  className="data-[state=checked]:bg-muted-foreground"
+                />
+                <p className="text-xs text-foreground/70">
+                  {isExpanded ? "Collapse" : "Expand"}
+                </p>
+              </div>
+            </div>
+            <TabsList className="h-7 text-xs">
+              {tabItems.map(({ value, label }) => (
+                <TabsTrigger key={value} value={value} className="text-xs">
+                  {label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
+        )}
         {tabItems.map(({ value, src: source }) => (
           <TabsContent
             key={value}
