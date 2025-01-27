@@ -2,24 +2,17 @@
 # https://support.pagerduty.com/main/docs/pd-cef
 # https://www.servicenow.com/docs/bundle/xanadu-it-operations-management/page/product/event-management/concept/c_EMIntegrateRequirementEvent.html
 # https://confluence.atlassian.com/adminjiraserver/issue-fields-and-statuses-938847116.html
+# NOTE: Should only be used to create a new case, not to update an existing case.
+# If this is a retrospective case, use the `update_case_status` action after creating the case.
 summary:
   type: str
   description: Brief one-line summary of the incident.
-source:
-  type: str | None
-  description: Source of the incident.
 description:
-  type: str | None
+  type: str
   description: A detailed description of the incident.
-priority:
-  type: str | None
-  description: Priority of the incident.
 severity:
-  type: str | None
+  type: str
   description: Severity of the incident.
-status:
-  type: str | None
-  description: Status of the incident.
 tags:
   type: list[str]
   description: Tags to categorize the incident.
