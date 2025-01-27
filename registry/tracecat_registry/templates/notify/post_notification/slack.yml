@@ -1,3 +1,5 @@
+# https://incident.io/changelog/polishing-our-slack-messages
+# https://incident.io/changelog/send-alerts-to-slack
 type: action
 definition:
   title: Post notification
@@ -16,15 +18,13 @@ definition:
       type: str
       description: Detailed description (supports Markdown) of the notification.
     details:
-      type: dict[str, str]
+      type: list
       description: >-
-        Fields to add to the notification
-        e.g. {"severity": "high", "status": "open"}.
-      default: {}
+        Fields to add to the notification in the format of list of tuples ("key", "value"),
+        e.g. [("severity", "high"), ("status", "open")].
     links:
       type: list[str]
       description: Links to add to the notification.
-      default: []
     actions:
       type: list[str]
       description: Interactive actions for user to take (e.g. "Confirm", "Deny").
@@ -35,15 +35,14 @@ definition:
     thread_ts:
       type: str | None
       description: Timestamp of the thread to reply to.
-      default: null
   steps:
     - ref: detail_fields
       action: core.transform.reshape
       args:
         value: >
-          ${{ FN.map(inputs.details, "lambda x: {'type': 'mrkdwn', 'text': f'{x.key}: {x.value}'}") }}
+          ${{ FN.map(inputs.details, "lambda x: {'type': 'mrkdwn', 'text': f'**{x[0]}**: `{x[1]}`'}") }}
     - ref: action_elements
-      action: core.transform.reshape
+      action: core.transform.
       args:
         value: >
           ${{ FN.map(inputs.actions, "lambda x: {'type': 'button', 'value': FN.slugify(x), 'text': {'type': 'plain_text', 'text': x, 'emoji': True}}") }}

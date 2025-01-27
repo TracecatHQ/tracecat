@@ -10,16 +10,13 @@ description:
   type: str
   description: Detailed description (supports Markdown) of the notification.
 details:
-  type: dict[str, str]
+  type: list
   description: >-
-    Fields to add to the notification
-    e.g. {"severity": "high", "status": "open"}.
-  default: {}
+    Fields to add to the notification in the format of list of tuples ("key", "value"),
+    e.g. [("severity", "high"), ("status", "open")].
 links:
   type: list[str]
   description: Links to add to the notification.
-  default: []
 actions:
   type: list[str]
   description: Interactive actions for user to take (e.g. "Confirm", "Deny").
-  default: []
