@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Create case
-  description: Create a case in Elastic Kibana.
+  description: Create a new case in Elastic Kibana.
   display_group: Elastic
   doc_url: https://www.elastic.co/docs/api/doc/kibana/v8/operation/operation-createcasedefaultspace
   namespace: integrations.elastic
@@ -13,21 +13,12 @@ definition:
     summary:
       type: str
       description: Brief one-line summary of the incident.
-    source:
-      type: str | None
-      description: Source of the incident.
     description:
-      type: str | None
+      type: str
       description: A detailed description of the incident.
-    priority:
-      type: str | None
-      description: Priority of the incident.
     severity:
       type: enum["low", "medium", "high", "critical"]
       description: Severity of the incident.
-    status:
-      type: str | None
-      description: Status of the incident.
     tags:
       type: list[str]
       description: Tags to categorize the incident.
