@@ -20,6 +20,11 @@ severity:
 status:
   type: str | None
   description: Status of the incident.
+tags:
+  type: list[str]
+  description: Tags to categorize the incident.
+  default: []
 custom_fields:
-  type: any | None
+  type: list[dict[str, Any]]
   description: Custom fields to add to the incident.
+  default: []
