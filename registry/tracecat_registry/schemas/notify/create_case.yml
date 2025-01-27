@@ -21,3 +21,9 @@ custom_fields:
   type: list[dict[str, Any]]
   description: Custom fields to add to the incident.
   default: []
+severity_to_custom_field:
+  type: dict[str, str] | None
+  description: |
+    Optional mapping of severity to a custom field in the ticketing system.
+    This must be specified if the ticketing system does not support `severity` field,
+    e.g. Jira priorities or Linear statuses.
