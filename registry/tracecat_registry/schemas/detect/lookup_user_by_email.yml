@@ -2,4 +2,4 @@
 # NOTE: Template should return a single user object with user_id extracted out to the top level.
 email:
   type: str
-  description: Lookup user by email.
+  description: Email of an existing user.
