@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: List detects
+  description: Query for CrowdStrike detects via the Falcon SIEM API.
+  display_group: CrowdStrike
+  namespace: integrations.crowdstrike
+  name: list_detects
+  expects:
+    start_time:
+      type: datetime
+      description: Start time for the query (inclusive).
+    end_time:
+      type: datetime
+      description: End time for the query (exclusive).
+    query:
+      type: str | None
+      description: |
+        Falcon Query Language (FQL) filter to apply to alerts.
+        If specified, overrides `start_time` and `end_time`.
+      default: null
+    limit:
+      type: int
+      description: Maximum number of alerts to return.
+      default: 100
+    member_cid:
+      type: str | None
+      description: Crowdstrike member CID.
+      default: null
+  steps:
+    - ref: query_detects
+      action: integrations.crowdstrike.call_falconpy_command
+      args:
+        operation_id: QueryDetects
+        member_cid: ${{ inputs.member_cid }}
+        params:
+          filter: ${{ inputs.filter || "created_date:>='FN.to_isoformat(inputs.start_time)' + created_date:<'FN.to_isoformat(inputs.end_time)'"  }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.query_detects.result }}
