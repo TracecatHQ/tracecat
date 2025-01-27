@@ -61,9 +61,9 @@ definition:
               text: ${{ inputs.description }}
           - type: section
             fields: ${{ steps.details.result }
+          - type: divider
           - type: actions
             elements: ${{ steps.actions.result }}
-          - type: divider
     - ref: link_blocks
       action: core.transform.reshape
       args:
