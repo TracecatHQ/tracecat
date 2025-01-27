@@ -3,6 +3,7 @@ definition:
   title: List alerts
   description: Query for Crowdstrike alerts via the Falcon SIEM API.
   display_group: CrowdStrike
+  doc_url: https://falconpy.io/Service-Collections/Alerts.html#uber-class-example-7
   namespace: integrations.crowdstrike
   name: list_alerts
   expects:

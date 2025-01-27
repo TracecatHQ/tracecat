@@ -1,8 +1,9 @@
 type: action
 definition:
   title: List detects
-  description: Query for CrowdStrike detects via the Falcon SIEM API.
+  description: Query for CrowdStrike detects and summaries via the Falcon SIEM API.
   display_group: CrowdStrike
+  doc_url: https://falconpy.io/Service-Collections/Detects.html
   namespace: integrations.crowdstrike
   name: list_detects
   expects:
@@ -33,6 +34,14 @@ definition:
         operation_id: QueryDetects
         member_cid: ${{ inputs.member_cid }}
         params:
-          filter: ${{ inputs.filter || "created_date:>='FN.to_isoformat(inputs.start_time)' + created_date:<'FN.to_isoformat(inputs.end_time)'"  }}
+          filter: ${{ inputs.query || "created_date:>='FN.to_isoformat(inputs.start_time)' + created_date:<'FN.to_isoformat(inputs.end_time)'"  }}
           limit: ${{ inputs.limit }}
-  returns: ${{ steps.query_detects.result }}
+    - ref: get_detect_summaries
+      action: integrations.crowdstrike.call_falconpy_command
+      args:
+        operation_id: GetDetectSummaries
+        member_cid: ${{ inputs.member_cid }}
+        params:
+          body:
+            ids: ${{ steps.query_detects.result.body.resources }}
+  returns: ${{ steps.query_detect_summaries.result }}
