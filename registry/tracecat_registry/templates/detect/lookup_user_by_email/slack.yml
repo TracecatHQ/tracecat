@@ -1,0 +1,20 @@
+type: action
+definition:
+  title: Lookup user by email
+  description: Get a Slack user by email.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/users.lookupByEmail
+  namespace: integrations.slack
+  name: lookup_user_by_email
+  expects:
+    email:
+      type: str
+      description: Email of an existing user.
+  steps:
+    - ref: lookup_user
+      action: integrations.slack.call_slack_api
+      args:
+        params:
+          email: ${{ inputs.email }}
+        sdk_method: users_lookupByEmail
+  returns: ${{ steps.lookup_user.result }}
