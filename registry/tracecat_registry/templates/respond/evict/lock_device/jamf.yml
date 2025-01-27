@@ -17,8 +17,8 @@ definition:
       type: str
       description: 6-digit PIN to lock and unlock the device.
   steps:
-    - ref: get_auth_token
-      action: tools.jamf.get_auth_token
+    - ref: get_access_token
+      action: tools.jamf.get_access_token
       args: {}
     - ref: post_mdm_command
       action: core.http_request
@@ -26,7 +26,7 @@ definition:
         url: ${{ SECRETS.jamf.JAMF_BASE_URL }}/api/v2/mdm/commands
         method: POST
         headers:
-          Authorization: Bearer ${{ steps.get_auth_token.result }}
+          Authorization: Bearer ${{ steps.get_access_token.result }}
         payload:
           clientData:
             managementId: ${{ inputs.device_id }}
