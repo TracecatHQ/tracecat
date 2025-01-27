@@ -325,12 +325,6 @@ def round_down(x: float) -> int:
 # Array functions
 
 
-def map_(items: list[Any], python_lambda: str) -> list[Any]:
-    """Apply a function to each item in a list."""
-    func = _build_safe_lambda(python_lambda)
-    return list(map(func, items))
-
-
 def compact(x: list[Any]) -> list[Any]:
     """Drop null values from a list. Similar to compact function in Terraform."""
     return [item for item in x if item is not None]
@@ -849,7 +843,7 @@ def apply[T: Any](item: T | Iterable[T], python_lambda: str) -> T | list[T]:
     """Apply a Python lambda function to an item or sequence of items."""
     fn = _build_safe_lambda(python_lambda)
     if is_iterable(item, container_only=True):
-        return [fn(i) for i in item]
+        return list(map(fn, item))
     return fn(item)
 
 
@@ -960,7 +954,7 @@ _FUNCTION_MAPPING = {
     "filter": filter_,
     "format": format_string,
     "join": join_strings,
-    "map": map_,
+    "map": apply,
     # Iteration
     "zip": zip_iterables,
     "iter_product": iter_product,

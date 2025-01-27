@@ -12,6 +12,7 @@ from tracecat.expressions.functions import (
     add_prefix,
     add_suffix,
     and_,
+    apply,
     b64_to_str,
     b64url_to_str,
     capitalize,
@@ -98,6 +99,25 @@ from tracecat.expressions.functions import (
     weeks_between,
     zip_iterables,
 )
+
+
+@pytest.mark.parametrize(
+    "input,python_lambda,expected",
+    [
+        # Test string format
+        (["a", "b", "c"], "lambda x: f'field:{x}'", ["field:a", "field:b", "field:c"]),
+        # Test arithmetic
+        ([1, 2, 3], "lambda x: x + 1", [2, 3, 4]),
+        # Test dict operations
+        (
+            [{"key": "a"}, {"key": "b"}, {"key": "c"}],
+            "lambda x: x['key']",
+            ["a", "b", "c"],
+        ),
+    ],
+)
+def test_apply(input: list[Any], python_lambda: str, expected: list[Any]) -> None:
+    assert apply(input, python_lambda) == expected
 
 
 @pytest.mark.parametrize(
