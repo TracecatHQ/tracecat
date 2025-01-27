@@ -1,5 +1,4 @@
 # https://schema.ocsf.io/1.3.0/objects/user
-# NOTE: Template should return a single user object with user_id extracted out to the top level.
 email:
   type: str
   description: Email of an existing user.
