@@ -325,18 +325,15 @@ def round_down(x: float) -> int:
 # Array functions
 
 
+def map_(items: list[Any], python_lambda: str) -> list[Any]:
+    """Apply a function to each item in a list."""
+    func = _build_safe_lambda(python_lambda)
+    return list(map(func, items))
+
+
 def compact(x: list[Any]) -> list[Any]:
     """Drop null values from a list. Similar to compact function in Terraform."""
     return [item for item in x if item is not None]
-
-
-def custom_chain(*args) -> Any:
-    """Recursively flattens nested iterables into a single generator."""
-    for arg in args:
-        if is_iterable(arg, container_only=True):
-            yield from custom_chain(*arg)
-        else:
-            yield arg
 
 
 def contains(item: Any, container: Sequence[Any]) -> bool:
@@ -359,9 +356,18 @@ def not_empty(x: Sequence[Any]) -> bool:
     return len(x) > 0
 
 
+def _custom_chain(*args) -> Any:
+    """Recursively flattens nested iterables into a single generator."""
+    for arg in args:
+        if is_iterable(arg, container_only=True):
+            yield from _custom_chain(*arg)
+        else:
+            yield arg
+
+
 def flatten(iterables: Sequence[Sequence[Any]]) -> list[Any]:
     """Flatten nested sequences into a single list."""
-    return list(custom_chain(*iterables))
+    return list(_custom_chain(*iterables))
 
 
 def unique_items(items: Sequence[Any]) -> list[Any]:
@@ -826,9 +832,17 @@ def union[T: Any](*collections: Sequence[T]) -> list[T]:
     return list(set().union(*collections))
 
 
-def difference[T: Any](a: Sequence[T], b: Sequence[T]) -> list[T]:
-    """Return the set difference of two sequences as a list."""
-    return list(set(a) - set(b))
+def difference[T: Any](
+    items: Sequence[T], collection: Sequence[T], python_lambda: str | None = None
+) -> list[T]:
+    """Return the set difference of two sequences as a list. If a Python lambda is provided, it will be applied to each item before checking for difference."""
+    col_set = set(collection)
+    if python_lambda:
+        fn = _build_safe_lambda(python_lambda)
+        result = {item for item in items if fn(item) not in col_set}
+    else:
+        result = set(items) - col_set
+    return list(result)
 
 
 def apply[T: Any](item: T | Iterable[T], python_lambda: str) -> T | list[T]:
@@ -941,11 +955,12 @@ _FUNCTION_MAPPING = {
     "pow": pow,
     "sum": sum_,
     # Transform
-    "join": join_strings,
-    "concat": concat_strings,
-    "format": format_string,
     "apply": apply,
+    "concat": concat_strings,
     "filter": filter_,
+    "format": format_string,
+    "join": join_strings,
+    "map": map_,
     # Iteration
     "zip": zip_iterables,
     "iter_product": iter_product,
