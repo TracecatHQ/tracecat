@@ -301,22 +301,22 @@ variable "api_memory" {
 
 variable "worker_cpu" {
   type    = string
-  default = "8192"
+  default = "4096"
 }
 
 variable "worker_memory" {
   type    = string
-  default = "16384"
+  default = "8192"
 }
 
 variable "executor_cpu" {
   type    = string
-  default = "8192"
+  default = "4096"
 }
 
 variable "executor_memory" {
   type    = string
-  default = "16384"
+  default = "8192"
 }
 
 variable "executor_client_timeout" {
