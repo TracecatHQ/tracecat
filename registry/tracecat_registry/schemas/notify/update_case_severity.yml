@@ -1,0 +1,6 @@
+alert_id:
+  type: str
+  description: The ID of the case to update.
+severity:
+  type: str
+  description: The new severity of the case.
