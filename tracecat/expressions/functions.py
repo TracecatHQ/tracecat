@@ -325,6 +325,11 @@ def round_down(x: float) -> int:
 # Array functions
 
 
+def compact(x: list[Any]) -> list[Any]:
+    """Drop null values from a list. Similar to compact function in Terraform."""
+    return [item for item in x if item is not None]
+
+
 def custom_chain(*args) -> Any:
     """Recursively flattens nested iterables into a single generator."""
     for arg in args:
@@ -392,6 +397,11 @@ def create_range(start: int, end: int, step: int = 1) -> range:
 # Dictionary functions
 
 
+def merge_dicts(x: dict[Any, Any], y: dict[Any, Any]) -> dict[Any, Any]:
+    """Merge two dictionaries. Similar to merge function in Terraform."""
+    return {**x, **y}
+
+
 def dict_keys(x: dict[Any, Any]) -> list[Any]:
     """Extract keys from dictionary."""
     return list(x.keys())
@@ -412,7 +422,7 @@ def serialize_to_json(x: Any) -> str:
     return orjson.dumps(x).decode()
 
 
-def prettify_json_str(x: Any) -> str:
+def prettify_json(x: Any) -> str:
     """Convert object to formatted JSON string."""
     return json.dumps(x, indent=2)
 
@@ -909,13 +919,14 @@ _FUNCTION_MAPPING = {
     "regex_extract": regex_extract,
     "regex_match": regex_match,
     "regex_not_match": regex_not_match,
-    # Collections
+    # Arrays
+    "compact": compact,
     "contains": contains,
     "does_not_contain": does_not_contain,
-    "length": len,
-    "is_empty": is_empty,
-    "not_empty": not_empty,
     "flatten": flatten,
+    "is_empty": is_empty,
+    "length": len,
+    "not_empty": not_empty,
     "unique": unique_items,
     # Set operations
     "intersect": intersect,
@@ -941,9 +952,10 @@ _FUNCTION_MAPPING = {
     "range": create_range,
     # Generators
     "uuid4": generate_uuid,
-    # Extract JSON keys and values
+    # JSON functions
     "to_keys": dict_keys,
     "to_values": dict_values,
+    "merge": merge_dicts,
     # Logical
     "and": and_,
     "or": or_,
@@ -951,7 +963,7 @@ _FUNCTION_MAPPING = {
     # Type conversion
     "serialize_json": serialize_to_json,
     "deserialize_json": orjson.loads,
-    "prettify_json": prettify_json_str,
+    "prettify_json": prettify_json,
     "deserialize_ndjson": deserialize_ndjson,
     "extract_text_from_html": extract_text_from_html,
     # Time related

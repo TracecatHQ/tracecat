@@ -73,7 +73,7 @@ from tracecat.expressions.functions import (
     or_,
     parse_datetime,
     pow,
-    prettify_json_str,
+    prettify_json,
     regex_extract,
     regex_match,
     regex_not_match,
@@ -710,8 +710,8 @@ def test_serialize_to_json(input_data: Any, expected: Any) -> None:
         ("test", '"test"'),
     ],
 )
-def test_prettify_json_str(input_data: Any, expected: str) -> None:
-    assert prettify_json_str(input_data) == expected
+def test_prettify_json(input_data: Any, expected: str) -> None:
+    assert prettify_json(input_data) == expected
 
 
 @pytest.mark.parametrize(
