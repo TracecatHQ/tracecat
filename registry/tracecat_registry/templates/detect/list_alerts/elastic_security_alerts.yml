@@ -28,6 +28,20 @@ definition:
       type: str
       description: Kibana endpoint URL (e.g. https://localhost:5601).
   steps:
+    - ref: default_query
+      action: core.transform.reshape
+      args:
+        query:
+          bool:
+            filter:
+              - range:
+                  "@timestamp":
+                    gte: ${{ inputs.start_time }}
+                    lt: ${{ inputs.end_time }}
+            # Exclude building block alerts to reduce noise
+            must_not:
+              - exists:
+                  field: kibana.alert.building_block_type
     - ref: query_detection_alerts
       action: core.http_request
       args:
@@ -39,28 +53,6 @@ definition:
         payload:
           start: ${{ inputs.start_time }}
           end: ${{ inputs.end_time }}
-          # The following query excludes building block alerts by default to reduce noise
-          query: >
-            ${{ inputs.query || {
-              "bool": {
-                "filter": [
-                  {
-                    "range": {
-                      "@timestamp": {
-                        "gte": ${{ inputs.start_time }},
-                        "lt": ${{ inputs.end_time }}
-                      }
-                    }
-                  }
-                ],
-                "must_not": [
-                  {
-                    "exists": {
-                      "field": "kibana.alert.building_block_type"
-                    }
-                  }
-                ]
-              }
-            } }}
+          query: ${{ inputs.query || steps.default_query.result }}
           size: ${{ inputs.limit }}
   returns: ${{ steps.query_detection_alerts.result }}
