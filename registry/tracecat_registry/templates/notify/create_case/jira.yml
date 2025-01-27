@@ -3,7 +3,7 @@ definition:
   title: Create case
   description: Create a new case in Jira as a issue.
   doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-post
-  namespace: integrations.jira
+  namespace: tools.jira
   name: create_issue
   secrets:
     - name: jira

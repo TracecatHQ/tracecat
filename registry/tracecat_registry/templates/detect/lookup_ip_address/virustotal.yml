@@ -4,7 +4,7 @@ definition:
   description: Get VirusTotal report for an IP address.
   display_group: VirusTotal
   doc_url: https://docs.virustotal.com/reference/ip-info
-  namespace: integrations.virustotal
+  namespace: tools.virustotal
   name: lookup_ip_address
   secrets:
     - name: virustotal

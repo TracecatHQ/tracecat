@@ -4,7 +4,7 @@ definition:
   description: Revoke all sessions on all devices for a Slack user.
   display_group: Slack
   doc_url: https://api.slack.com/methods/admin.users.session.reset
-  namespace: integrations.slack
+  namespace: tools.slack
   name: revoke_sessions
   expects:
     user_id:
@@ -12,7 +12,7 @@ definition:
       description: ID of an existing user.
   steps:
     - ref: reset_sessions
-      action: tools.slack.call_sdk
+      action: tools.slack.call_python_sdk
       args:
         sdk_method: admin_users_session_reset
         params:

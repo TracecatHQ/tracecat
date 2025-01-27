@@ -4,7 +4,7 @@ definition:
   description: Get VirusTotal report for a file hash.
   display_group: VirusTotal
   doc_url: https://docs.virustotal.com/reference/file-info
-  namespace: integrations.virustotal
+  namespace: tools.virustotal
   name: lookup_file_hash
   secrets:
     - name: virustotal

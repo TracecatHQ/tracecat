@@ -4,7 +4,7 @@ definition:
   description: Lock a device managed by Jamf Pro with a user-provided 6-digit pin.
   display_group: Jamf
   doc_url: https://developer.jamf.com/jamf-pro/reference/post_v2-mdm-commands
-  namespace: integrations.jamf
+  namespace: tools.jamf
   name: lock_device
   inputs:
     device_id:
@@ -18,7 +18,7 @@ definition:
       description: 6-digit PIN to lock and unlock the device.
   steps:
     - ref: get_auth_token
-      action: integrations.jamf.get_auth_token
+      action: tools.jamf.get_auth_token
       args: {}
     - ref: post_mdm_command
       action: core.http_request

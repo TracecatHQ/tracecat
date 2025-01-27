@@ -4,7 +4,7 @@ definition:
   description: Query for Crowdstrike alerts via the Falcon SIEM API.
   display_group: CrowdStrike
   doc_url: https://falconpy.io/Service-Collections/Alerts.html#uber-class-example-7
-  namespace: integrations.crowdstrike
+  namespace: tools.crowdstrike
   name: list_alerts
   expects:
     start_time:
@@ -29,7 +29,7 @@ definition:
       default: null
   steps:
     - ref: query_alerts
-      action: integrations.crowdstrike.call_falconpy_command
+      action: tools.crowdstrike.call_falconpy_command
       args:
         operation_id: GetQueriesAlertsV2
         member_cid: ${{ inputs.member_cid }}

@@ -4,7 +4,7 @@ definition:
   description: Query for Elastic Security detection alerts.
   display_group: Elastic Security
   doc_url: https://www.elastic.co/docs/api/doc/kibana/v8/operation/operation-searchalerts
-  namespace: integrations.elastic_security
+  namespace: tools.elastic_security
   name: list_detection_signals
   secrets:
     - name: elastic_security

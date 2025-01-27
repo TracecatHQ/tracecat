@@ -4,7 +4,7 @@ definition:
   description: Create a new case in Elastic Kibana.
   display_group: Elastic
   doc_url: https://www.elastic.co/docs/api/doc/kibana/v8/operation/operation-createcasedefaultspace
-  namespace: integrations.elastic
+  namespace: tools.elastic
   name: create_case
   secrets:
     - name: elastic_kibana

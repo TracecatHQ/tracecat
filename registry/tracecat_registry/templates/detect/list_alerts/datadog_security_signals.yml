@@ -4,7 +4,7 @@ definition:
   description: Query for Datadog security signals.
   display_group: Datadog
   doc_url: https://docs.datadoghq.com/api/latest/security-monitoring/#get-a-list-of-security-signals
-  namespace: integrations.datadog
+  namespace: tools.datadog
   name: list_security_signals
   secrets:
     - name: datadog

@@ -4,7 +4,7 @@ definition:
   description: Get VirusTotal report for a URL.
   display_group: VirusTotal
   doc_url: https://docs.virustotal.com/reference/url-info
-  namespace: integrations.virustotal
+  namespace: tools.virustotal
   name: lookup_url
   secrets:
     - name: virustotal

@@ -82,8 +82,8 @@ async def get_session():
 
 
 @registry.register(
-    default_title="Call AWS API",
-    description="Instantiate a Boto3 client and call an AWS API method.",
+    default_title="Call AWS Boto3 API",
+    description="Instantiate a Boto3 client and call an AWS Boto3 API method.",
     display_group="AWS Boto3",
     doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html",
     namespace="tools.aws_boto3",
@@ -117,7 +117,7 @@ async def call_api(
 
 
 @registry.register(
-    default_title="Call paginated AWS API",
+    default_title="Call paginated AWS Boto3 API",
     description="Instantiate a Boto3 paginator and call a paginated AWS API method.",
     display_group="AWS Boto3",
     doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/paginators.html",

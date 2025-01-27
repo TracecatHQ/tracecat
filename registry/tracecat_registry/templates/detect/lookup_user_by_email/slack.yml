@@ -4,7 +4,7 @@ definition:
   description: Get a Slack user by email.
   display_group: Slack
   doc_url: https://api.slack.com/methods/users.lookupByEmail
-  namespace: integrations.slack
+  namespace: tools.slack
   name: lookup_user_by_email
   expects:
     email:
@@ -12,7 +12,7 @@ definition:
       description: Email of an existing user.
   steps:
     - ref: lookup_user
-      action: tools.slack.call_sdk
+      action: tools.slack.call_python_sdk
       args:
         params:
           email: ${{ inputs.email }}

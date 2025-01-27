@@ -4,7 +4,7 @@ definition:
   description: Get an Okta user by email.
   display_group: Okta
   doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/#tag/User/operation/listUsers
-  namespace: integrations.okta
+  namespace: tools.okta
   name: lookup_user_by_email
   secrets:
     - name: okta

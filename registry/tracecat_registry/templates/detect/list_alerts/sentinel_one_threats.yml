@@ -4,7 +4,7 @@ definition:
   description: Query for SentinelOne threats.
   display_group: SentinelOne
   doc_url: https://<base_url>/api-doc/api-details?category=threats&api=get-threats
-  namespace: integrations.sentinel_one
+  namespace: tools.sentinel_one
   name: list_threats
   secrets:
     - name: sentinel_one

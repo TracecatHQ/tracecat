@@ -6,7 +6,7 @@ definition:
     Action names are slugified and sent with the interaction payload as action values.
   display_group: Slack
   doc_url: https://api.slack.com/methods/chat.postMessage
-  namespace: integrations.slack
+  namespace: tools.slack
   name: post_notification
   expects:
     summary:
@@ -70,7 +70,7 @@ definition:
         value: >
           ${{ FN.map(inputs.links, "lambda x: {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': f'<{x}|{x}>'}]}") }}
     - ref: post_message
-      action: tools.slack.call_sdk
+      action: tools.slack.call_python_sdk
       args:
         sdk_method: chat_postMessage
         params:

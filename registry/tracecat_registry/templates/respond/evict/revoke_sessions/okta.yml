@@ -4,7 +4,7 @@ definition:
   description: Revoke all IdP sessions for an Okta user.
   display_group: Okta
   doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/UserSessions/#tag/UserSessions/operation/revokeUserSessions
-  namespace: integrations.okta
+  namespace: tools.okta
   name: revoke_sessions
   secrets:
     - name: okta
