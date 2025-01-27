@@ -1,0 +1,20 @@
+type: action
+definition:
+  title: Revoke sessions
+  description: Revoke all sessions on all devices for a Slack user.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/admin.users.session.reset
+  namespace: integrations.slack
+  name: revoke_sessions
+  expects:
+    user_id:
+      type: str
+      description: ID of an existing user.
+  steps:
+    - ref: reset_sessions
+      action: tools.slack.call_sdk
+      args:
+        sdk_method: admin_users_session_reset
+        params:
+          user_id: ${{ inputs.user_id }}
+  returns: ${{ steps.reset_sessions.result }}
