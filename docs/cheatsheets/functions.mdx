@@ -65,37 +65,39 @@ description: A cheatsheet of all operators and functions supported by Tracecat.
 | `prettify_json` | (x: Any) -> str | Convert object to formatted JSON string. |
 | `deserialize_ndjson` | (x: str) -> list[dict[str, Any]] | Parse newline-delimited JSON string into list of dictionaries. |
 | `extract_text_from_html` | (input: str) -> list[str] | Extract text content from HTML string using HTMLToTextParser. |
-| `from_timestamp` | (x: int, unit: str) -> datetime | Convert timestamp to datetime, handling milliseconds if unit is 'ms'. |
-| `get_second` | (x: datetime) -> int | Get second (0-59) from datetime. |
-| `get_minute` | (x: datetime) -> int | Get minute (0-59) from datetime. |
-| `get_hour` | (x: datetime) -> int | Get hour (0-23) from datetime. |
-| `get_day` | (x: datetime) -> int | Get day of month (1-31) from datetime. |
-| `get_day_of_week` | (x: datetime, format: "Literal[number, full, short]" = number) -> int \| str | Extract day of week from datetime. Returns 0-6 (Mon-Sun) or day name if format is "full" or "short". |
-| `get_month` | (x: datetime, format: "Literal[number, full, short]" = number) -> int \| str | Extract month from datetime. Returns 1-12 or month name if format is "full" or "short". |
-| `get_year` | (x: datetime) -> int | Get year from datetime. |
 | `datetime` | (year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0) -> datetime | Create datetime from year, month, day, hour, minute, and second. |
-| `seconds` | (x: int) -> timedelta | Create timedelta with specified seconds. |
-| `minutes` | (x: int) -> timedelta | Create timedelta with specified minutes. |
-| `hours` | (x: int) -> timedelta | Create timedelta with specified hours. |
+| `days_between` | (start: datetime \| str, end: datetime \| str) -> float | Days between two datetimes. |
 | `days` | (x: int) -> timedelta | Create timedelta with specified days. |
-| `weeks` | (x: int) -> timedelta | Create timedelta with spcified weeks |
-| `seconds_between` | (start: datetime, end: datetime) -> float | Seconds between two datetimes. |
-| `minutes_between` | (start: datetime, end: datetime) -> float | Minutes between two datetimes. |
-| `hours_between` | (start: datetime, end: datetime) -> float | Hours between two datetimes. |
-| `days_between` | (start: datetime, end: datetime) -> float | Days between two datetimes. |
-| `weeks_between` | (start: datetime, end: datetime) -> float | Weeks between two datetimes or dates. |
+| `format_datetime` | (x: datetime \| str, format: str) -> str | Format datetime into specified format (e.g. '%Y-%m-%d %H:%M:%S'). |
+| `from_timestamp` | (x: int, unit: str = s) -> datetime | Convert integer timestamp in milliseconds ('ms') or seconds ('s') to datetime. |
+| `get_day_of_week` | (x: datetime \| str, format: "Literal[number, full, short]" = number) -> int \| str | Extract day of week from datetime. Returns 0-6 (Mon-Sun) or day name if format is "full" or "short". |
+| `get_day` | (x: datetime \| str) -> int | Get day of month (1-31) from datetime. |
+| `get_hour` | (x: datetime \| str) -> int | Get hour (0-23) from datetime. |
+| `get_minute` | (x: datetime \| str) -> int | Get minute (0-59) from datetime. |
+| `get_month` | (x: datetime \| str, format: "Literal[number, full, short]" = number) -> int \| str | Extract month from datetime. Returns 1-12 or month name if format is "full" or "short". |
+| `get_second` | (x: datetime \| str) -> int | Get second (0-59) from datetime. |
+| `get_year` | (x: datetime \| str) -> int | Get year from datetime. |
+| `hours_between` | (start: datetime \| str, end: datetime \| str) -> float | Hours between two datetimes. |
+| `hours` | (x: int) -> timedelta | Create timedelta with specified hours. |
+| `minutes_between` | (start: datetime \| str, end: datetime \| str) -> float | Minutes between two datetimes. |
+| `minutes` | (x: int) -> timedelta | Create timedelta with specified minutes. |
 | `now` | () -> datetime | Return the current datetime. |
-| `utcnow` | () -> datetime | Return the current timezone-aware datetime. |
-| `today` | () -> date | Return the current date. |
-| `set_timezone` | (x: datetime, timezone: str) -> datetime | Convert datetime to different timezone. Timezone must be a valid IANA timezone name (e.g., "America/New_York"). |
-| `unset_timezone` | (x: datetime) -> datetime | Remove timezone information from datetime without changing the time. |
-| `to_datestring` | (x: datetime, format: str) -> str | Format datetime to string using specified format. |
-| `to_datetime` | (x: Any, timezone: str \| None = None) -> datetime | Convert input to datetime object from timestamp, ISO string or existing datetime.
+| `parse_datetime` | (x: str, format: str) -> datetime | Parse string to datetime using specified format. |
+| `seconds_between` | (start: datetime \| str, end: datetime \| str) -> float | Seconds between two datetimes. |
+| `seconds` | (x: int) -> timedelta | Create timedelta with specified seconds. |
+| `set_timezone` | (x: datetime \| str, timezone: str) -> datetime | Convert datetime to different timezone. Timezone must be a valid IANA timezone name (e.g., "America/New_York"). |
+| `to_datetime` | (x: Any, timezone: str \| None = None) -> datetime | Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime.
+
     Supports timezone-aware datetime objects if IANA timezone is provided.
      |
-| `to_isoformat` | (x: datetime) -> str | Convert datetime to ISO format string. |
-| `to_timestamp` | (x: datetime) -> float | Convert datetime to timestamp. |
-| `windows_filetime` | (x: datetime) -> int | Convert datetime to Windows filetime. |
+| `to_isoformat` | (x: datetime \| str) -> str | Convert datetime to ISO format string. |
+| `to_timestamp` | (x: datetime \| str, unit: str = s) -> int | Convert datetime to timestamp in milliseconds ('ms') or seconds ('s'). |
+| `today` | () -> date | Return the current date. |
+| `unset_timezone` | (x: datetime \| str) -> datetime | Remove timezone information from datetime without changing the time. |
+| `utcnow` | () -> datetime | Return the current timezone-aware datetime. |
+| `weeks_between` | (start: datetime \| str, end: datetime \| str) -> float | Weeks between two datetimes or dates. |
+| `weeks` | (x: int) -> timedelta | Create timedelta with spcified weeks |
+| `windows_filetime` | (x: datetime \| str) -> int | Convert datetime to Windows filetime. |
 | `to_base64` | (x: str) -> str | Encode string to base64. |
 | `from_base64` | (x: str) -> str | Decode base64 string to string. |
 | `to_base64url` | (x: str) -> str | Encode string to URL-safe base64. |
