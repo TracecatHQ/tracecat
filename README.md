@@ -73,7 +73,19 @@ Have questions? Feedback? New integration ideas for the project? Join the [Trace
 
 ## Tracecat Registry
 
+![Tracecat Registry](img/tracecat-template.svg)
 
+Tracecat Registry is a collection of integration templates for response actions.
+Security response actions are organized by [MITRE D3FEND](https://d3fend.mitre.org/) categories.
+Arguments are normalized to fit the [Open Cyber Security Schema (OCSF)](https://ocsf.org/) ontology where possible.
+
+The templates are written in YAML which specifies a simple human-readable format to quickly define normalized integrations.
+We run a paid integrations bounty program for our contributors (coming soon).
+
+**Examples**
+
+Visit our documentation on Tracecat Registry for use cases and ideas.
+Or check out existing open source templates in [our repo](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates).
 
 ## Open Source vs Enterprise
 
