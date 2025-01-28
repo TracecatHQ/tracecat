@@ -283,6 +283,7 @@ class WorkflowExecutionEventCompact(BaseModel):
     action_ref: str
     action_input: Any | None = None
     action_result: Any | None = None
+    action_error: EventFailure | None = None
     child_wf_exec_id: WorkflowExecutionID | None = None
 
     @staticmethod

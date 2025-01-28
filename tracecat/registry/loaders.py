@@ -13,10 +13,7 @@ from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     BoundRegistryAction,
-    RegistryActionImpl,
     RegistryActionImplValidator,
-    RegistryActionTemplateImpl,
-    RegistryActionType,
     RegistryActionUDFImpl,
 )
 from tracecat.registry.repository import (
@@ -31,12 +28,11 @@ F = Callable[..., Any]
 
 def get_bound_action_impl(
     action: RegistryAction,
-) -> BoundRegistryAction[type[BaseModel]]:
+) -> BoundRegistryAction:
     impl = RegistryActionImplValidator.validate_python(action.implementation)
-    impl_loader = _LOADERS[impl.type]
-    fn: F = impl_loader(impl)
     secrets = [RegistrySecret(**secret) for secret in action.secrets or []]
     if impl.type == "udf":
+        fn = load_udf_impl(impl)
         key = getattr(fn, "__tracecat_udf_key")
         kwargs = getattr(fn, "__tracecat_udf_kwargs")
         logger.trace("Binding UDF", key=key, name=action.name, kwargs=kwargs)
@@ -70,7 +66,7 @@ def get_bound_action_impl(
         logger.trace("Binding template action", name=action.name)
         defn = impl.template_action.definition
         return BoundRegistryAction(
-            fn=fn,
+            fn=_not_implemented,
             type=impl.type,
             name=action.name,
             namespace=action.namespace,
@@ -106,17 +102,7 @@ def load_udf_impl(impl: RegistryActionUDFImpl) -> F:
     return fn
 
 
-def load_template_impl(impl: RegistryActionTemplateImpl) -> F:
-    return _not_implemented
-
-
 def _not_implemented() -> NoReturn:
     raise NotImplementedError(
         "This is a template action, it must be run with concrete arguments"
     )
-
-
-_LOADERS: dict[RegistryActionType, Callable[[RegistryActionImpl], F]] = {
-    "udf": load_udf_impl,  # type: ignore
-    "template": load_template_impl,  # type: ignore
-}

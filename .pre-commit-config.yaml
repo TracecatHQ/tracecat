@@ -11,7 +11,7 @@ repos:
     hooks:
       - id: check-added-large-files
         args:
-          - --maxkb=1000
+          - --maxkb=3000
       - id: check-toml
       - id: check-yaml
         args:

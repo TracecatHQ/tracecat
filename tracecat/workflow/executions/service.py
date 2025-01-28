@@ -48,6 +48,7 @@ from tracecat.workflow.executions.common import (
     get_result,
     get_source_event_id,
     is_close_event,
+    is_error_event,
     is_scheduled_event,
     is_start_event,
 )
@@ -238,6 +239,8 @@ class WorkflowExecutionsService:
                 if is_close_event(event):
                     source.close_time = event.event_time.ToDatetime(datetime.UTC)
                     source.action_result = get_result(event)
+                if is_error_event(event):
+                    source.action_error = EventFailure.from_history_event(event)
         return list(id2event.values())
 
     async def list_workflow_execution_events(

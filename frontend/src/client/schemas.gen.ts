@@ -4172,6 +4172,16 @@ export const $WorkflowExecutionEventCompact = {
       ],
       title: "Action Result",
     },
+    action_error: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/EventFailure",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     child_wf_exec_id: {
       anyOf: [
         {

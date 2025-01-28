@@ -34,6 +34,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { CodeBlock } from "@/components/code-block"
 import { GenericWorkflowIcon, getIcon } from "@/components/icons"
 
 /**
@@ -476,27 +477,6 @@ function isDSLRunArgs(actionInput: unknown): actionInput is DSLRunArgs {
     // Check specific properties of DSLRunArgs
     typeof (actionInput as DSLRunArgs).dsl === "object" &&
     (actionInput as DSLRunArgs).wf_id !== undefined
-  )
-}
-
-function CodeBlock({
-  title,
-  children,
-}: {
-  title?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="space-y-2">
-      {title && (
-        <span className="text-xs font-semibold text-foreground/50">
-          {title}
-        </span>
-      )}
-      <pre className="flex flex-col overflow-auto text-wrap rounded-md border bg-muted-foreground/5 p-4 font-mono text-foreground/70">
-        {children}
-      </pre>
-    </div>
   )
 }
 

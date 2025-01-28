@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Annotated
 
 import orjson
+from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 from pydantic import Field
 
@@ -50,4 +51,7 @@ def get_auth_token(
     )
     if subject:
         credentials = credentials.with_subject(subject)
+
+    # Refresh to get a new token
+    credentials.refresh(Request())
     return credentials.token

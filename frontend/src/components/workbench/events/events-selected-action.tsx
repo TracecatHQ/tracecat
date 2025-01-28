@@ -2,6 +2,7 @@
 
 import React from "react"
 import {
+  EventFailure,
   WorkflowExecutionEventCompact,
   WorkflowExecutionReadCompact,
 } from "@/client"
@@ -11,10 +12,13 @@ import JsonView from "react18-json-view"
 
 import { useAction } from "@/lib/hooks"
 import { slugify } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { CodeBlock } from "@/components/code-block"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { getWorkflowEventIcon } from "@/components/workbench/events/events-workflow"
 
 export function ActionEvent({
   execution,
@@ -55,14 +59,16 @@ export function ActionEvent({
     )
   }
   return (
-    <ActionEventDetails
-      actionId={node.id}
-      workflowId={workflowId}
-      workspaceId={workspaceId}
-      status={execution.status}
-      events={execution.events}
-      type={type}
-    />
+    <div className="p-4">
+      <ActionEventDetails
+        actionId={node.id}
+        workflowId={workflowId}
+        workspaceId={workspaceId}
+        status={execution.status}
+        events={execution.events}
+        type={type}
+      />
+    </div>
   )
 }
 export function ActionEventDetails({
@@ -124,9 +130,27 @@ export function ActionEventDetails({
     )
   }
   const actionEvent = actionEventsForRef[0]
+  if (["SCHEDULED", "STARTED"].includes(actionEvent.status)) {
+    return (
+      <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+        <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+        <span>Action is {actionEvent.status.toLowerCase()}...</span>
+      </div>
+    )
+  }
   return (
-    <div className="space-y-4">
-      <div className="space-y-2 p-4">
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-start">
+        <Badge variant="secondary" className="items-center gap-2">
+          {getWorkflowEventIcon(actionEvent.status, "size-4")}
+          <span className="text-xs font-semibold text-foreground/70">
+            Action {actionEvent.status.toLowerCase()}
+          </span>
+        </Badge>
+      </div>
+      {type === "result" && actionEvent.action_error ? (
+        <ErrorEvent failure={actionEvent.action_error} />
+      ) : (
         <JsonViewWithControls
           src={
             type === "input"
@@ -135,7 +159,15 @@ export function ActionEventDetails({
           }
           defaultExpanded={true}
         />
-      </div>
+      )}
+    </div>
+  )
+}
+
+function ErrorEvent({ failure }: { failure: EventFailure }) {
+  return (
+    <div className="flex flex-col space-y-8 text-xs">
+      <CodeBlock title="Error Message">{failure.message}</CodeBlock>
     </div>
   )
 }
@@ -178,81 +210,67 @@ function flattenObject(
 
 export function JsonViewWithControls({
   src,
-  title = "JSON",
   defaultExpanded = false,
 }: {
   src: unknown
-  title?: string
   defaultExpanded?: boolean
 }): JSX.Element {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
 
   // Function to flatten JSON object
   // Safely flatten the source if it's an object
+  const isCollapsible = ["object", "array"].includes(typeof src)
   const flattenedSrc =
     typeof src === "object" && src !== null
       ? flattenObject(src as Record<string, unknown>)
       : src
 
-  console.log(flattenedSrc)
-  console.log(src)
+  const tabItems = [
+    { value: "flat", label: "Flat", src: flattenedSrc },
+    { value: "nested", label: "Nested", src: src },
+  ]
   return (
-    <div className="space-y-2">
-      <div className="flex w-full items-center gap-4">
-        <span className="text-xs font-semibold text-foreground/50">
-          {title}
-        </span>
-        <div className="flex items-center gap-2">
-          <Switch
-            checked={isExpanded}
-            onCheckedChange={setIsExpanded}
-            className="data-[state=checked]:bg-muted-foreground"
-          />
-          <p className="text-xs text-foreground/70">
-            {isExpanded ? "Collapse" : "Expand"}
-          </p>
-        </div>
-      </div>
+    <div className="w-full space-y-2 overflow-x-auto">
       <Tabs defaultValue="flat">
-        <TabsList className="h-7 text-xs">
-          <TabsTrigger value="flat" className="text-xs">
-            Flat
-          </TabsTrigger>
-          <TabsTrigger value="nested" className="text-xs">
-            Nested
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent
-          value="flat"
-          className="rounded-md border bg-muted-foreground/5 p-4"
-        >
-          <JsonView
-            collapsed={!isExpanded}
-            displaySize
-            enableClipboard
-            src={flattenedSrc}
-            className="text-sm"
-            theme="atom"
-            customizeCopy={(node) => {
-              console.log("COPY", node)
-              return node
-            }}
-          />
-        </TabsContent>
-        <TabsContent
-          value="nested"
-          className="rounded-md border bg-muted-foreground/5 p-4"
-        >
-          <JsonView
-            collapsed={!isExpanded}
-            displaySize
-            enableClipboard
-            src={src}
-            className="text-sm"
-            theme="atom"
-          />
-        </TabsContent>
+        {isCollapsible && (
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={isExpanded}
+                  onCheckedChange={setIsExpanded}
+                  className="data-[state=checked]:bg-muted-foreground"
+                />
+                <p className="text-xs text-foreground/70">
+                  {isExpanded ? "Collapse" : "Expand"}
+                </p>
+              </div>
+            </div>
+            <TabsList className="h-7 text-xs">
+              {tabItems.map(({ value, label }) => (
+                <TabsTrigger key={value} value={value} className="text-xs">
+                  {label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
+        )}
+        {tabItems.map(({ value, src: source }) => (
+          <TabsContent
+            key={value}
+            value={value}
+            className="rounded-md border bg-muted-foreground/5 p-4"
+          >
+            <JsonView
+              collapsed={!isExpanded}
+              displaySize
+              enableClipboard
+              src={source}
+              className="w-full overflow-x-scroll text-wrap text-sm"
+              theme="atom"
+            />
+          </TabsContent>
+        ))}
       </Tabs>
     </div>
   )

@@ -107,37 +107,13 @@ async def run_single_action(
     context: ExecutionContext,
 ) -> Any:
     """Run a UDF async."""
-
-    # Here, we pass in context
-    # For this action, check whether its dependent secrets are already in the context
-    # For any that aren't, pull them in
-
-    action_secret_names = set()
-    optional_secrets = set()
-    secrets = context.get(ExprContext.SECRETS, {})
-
-    for secret in action.secrets or []:
-        # Only add if not already pulled
-        if secret.name not in secrets:
-            if secret.optional:
-                optional_secrets.add(secret.name)
-            action_secret_names.add(secret.name)
-
-    args_secret_refs = set(extract_templated_secrets(args))
-    async with AuthSandbox(
-        secrets=list(action_secret_names | args_secret_refs),
-        target="context",
-        environment=get_runtime_env(),
-        optional_secrets=list(optional_secrets),
-    ) as sandbox:
-        secrets |= sandbox.secrets.copy()
-
-    context[ExprContext.SECRETS] = context.get(ExprContext.SECRETS, {}) | secrets
     if action.is_template:
         logger.info("Running template action async", action=action.name)
         result = await run_template_action(action=action, args=args, context=context)
     else:
         logger.trace("Running UDF async", action=action.name)
+        # Get secrets from context
+        secrets = context.get(ExprContext.SECRETS, {})
         flat_secrets = flatten_secrets(secrets)
         with env_sandbox(flat_secrets):
             result = await _run_action_direct(action=action, args=args)
@@ -189,7 +165,7 @@ async def run_template_action(
         )
         async with RegistryActionsService.with_session() as service:
             step_action = await service.load_action_impl(action_name=step.action)
-        logger.trace("Running action step", step_ation=step_action.action)
+        logger.trace("Running action step", step_action=step_action.action)
         result = await run_single_action(
             action=step_action,
             args=evaled_args,
@@ -217,34 +193,25 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     task = input.task
     action_name = task.action
 
-    # Multi-phase expression resolution
-    # ---------------------------------
-    # 1. Resolve all expressions in all shared (non action-local) contexts
-    # 2. Enter loop iteration (if any)
-    # 3. Resolve all action-local expressions
-
-    # Set
-    # If there's a for loop, we need to process this action in parallel
-
-    # Evaluate `SECRETS` context (XXX: You likely should use the secrets manager instead)
-    # --------------------------
-    # Securely inject secrets into the task arguments
-    # 1. Find all secrets in the task arguments
-    # 2. Load the secrets
-    # 3. Inject the secrets into the task arguments using an enriched context
-    # NOTE: Regardless of loop iteration, we should only make this call/substitution once!!
-
     async with RegistryActionsService.with_session() as service:
-        action = await service.load_action_impl(action_name=action_name)
+        reg_action = await service.get_action(action_name)
+        action_secrets = await service.fetch_all_action_secrets(reg_action)
+        action = service.get_bound(reg_action)
 
-    action_secret_names = {secret.name for secret in action.secrets or []}
-    optional_secrets = {
-        secret.name for secret in action.secrets or [] if secret.optional
-    }
-    args_secret_refs = set(extract_templated_secrets(task.args))
+    args_secrets = set(extract_templated_secrets(task.args))
+    optional_secrets = {s.name for s in action_secrets if s.optional}
+    required_secrets = {s.name for s in action_secrets if not s.optional}
+
+    logger.info(
+        "Required secrets",
+        required_secrets=required_secrets,
+        optional_secrets=optional_secrets,
+        args_secrets=args_secrets,
+    )
+
+    # Get all secrets in one call
     async with AuthSandbox(
-        secrets=list(action_secret_names | args_secret_refs),
-        target="context",
+        secrets=list(required_secrets | args_secrets),
         environment=get_runtime_env(),
         optional_secrets=list(optional_secrets),
     ) as sandbox:

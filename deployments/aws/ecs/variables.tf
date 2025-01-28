@@ -103,7 +103,7 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.21.8"
+  default = "0.21.9"
 }
 
 variable "temporal_server_image" {
@@ -301,22 +301,22 @@ variable "api_memory" {
 
 variable "worker_cpu" {
   type    = string
-  default = "8192"
+  default = "4096"
 }
 
 variable "worker_memory" {
   type    = string
-  default = "16384"
+  default = "8192"
 }
 
 variable "executor_cpu" {
   type    = string
-  default = "8192"
+  default = "4096"
 }
 
 variable "executor_memory" {
   type    = string
-  default = "16384"
+  default = "8192"
 }
 
 variable "executor_client_timeout" {

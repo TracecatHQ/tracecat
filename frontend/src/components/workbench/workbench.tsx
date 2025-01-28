@@ -48,11 +48,9 @@ export function Workbench({ defaultLayout = [0, 68, 32] }: WorkbenchProps) {
           collapsible={true}
           minSize={20}
           maxSize={40}
-          className="flex h-full flex-col"
+          className="h-full"
         >
-          <div className="relative flex-1">
-            <WorkbenchSidebarEvents />
-          </div>
+          <WorkbenchSidebarEvents />
         </ResizablePanel>
         <TooltipProvider>
           <Tooltip>

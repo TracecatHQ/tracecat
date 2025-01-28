@@ -11,6 +11,7 @@ import {
   useCompactWorkflowExecution,
   useManualWorkflowExecution,
 } from "@/lib/hooks"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -123,54 +124,76 @@ function WorkbenchSidebarEventsList({
       />
     )
 
-  return (
-    <Tabs
-      value={activeTab}
-      onValueChange={(value: string) => {
-        if (sidebarRef.current?.setActiveTab) {
-          sidebarRef.current.setActiveTab(value as EventsSidebarTabs)
-        }
-      }}
-      className="flex size-full flex-col"
-    >
-      <div className="w-full grow">
-        <div className="mt-2 flex items-center justify-start">
-          <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
-            <TabsTrigger
-              className="flex h-full min-w-28 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-              value="workflow-events"
-            >
-              <CalendarSearchIcon className="mr-2 size-4" />
-              <span>Events</span>
-            </TabsTrigger>
-            <TabsTrigger
-              className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-              value="action-input"
-            >
-              <FileInputIcon className="mr-2 size-4" />
-              <span>Input</span>
-            </TabsTrigger>
-            <TabsTrigger
-              className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-              value="action-result"
-            >
-              <ShapesIcon className="mr-2 size-4" />
-              <span>Result</span>
-            </TabsTrigger>
-          </TabsList>
-        </div>
-        <Separator />
-        <TabsContent value="workflow-events">
+  const tabItems = [
+    {
+      value: "workflow-events",
+      label: "Events",
+      icon: CalendarSearchIcon,
+      content: (
+        <>
           <WorkflowEventsHeader execution={execution} />
           <WorkflowEvents events={execution.events} />
-        </TabsContent>
-        <TabsContent value="action-input">
-          <ActionEvent execution={execution} type="input" />
-        </TabsContent>
-        <TabsContent value="action-result">
-          <ActionEvent execution={execution} type="result" />
-        </TabsContent>
-      </div>
-    </Tabs>
+        </>
+      ),
+    },
+    {
+      value: "action-input",
+      label: "Input",
+      icon: FileInputIcon,
+      content: <ActionEvent execution={execution} type="input" />,
+    },
+    {
+      value: "action-result",
+      label: "Result",
+      icon: ShapesIcon,
+      content: <ActionEvent execution={execution} type="result" />,
+    },
+  ]
+  return (
+    <div className="h-full">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value: string) => {
+          if (sidebarRef.current?.setActiveTab) {
+            sidebarRef.current.setActiveTab(value as EventsSidebarTabs)
+          }
+        }}
+        className="flex size-full flex-col"
+      >
+        <div className="sticky top-0 z-10 mt-2 bg-background">
+          <ScrollArea className="w-full whitespace-nowrap rounded-md">
+            <TabsList className="inline-flex h-8 w-full items-center justify-start bg-transparent p-0">
+              {tabItems.map((tab) => (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="flex h-full min-w-28 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                >
+                  <tab.icon className="mr-2 size-4" />
+                  <span>{tab.label}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <ScrollBar orientation="horizontal" className="invisible" />
+          </ScrollArea>
+        </div>
+        <Separator />
+        <ScrollArea className="!m-0 flex-1 rounded-md p-0">
+          <div className="overflow-y-auto">
+            {tabItems.map((tab) => (
+              <TabsContent
+                key={tab.value}
+                value={tab.value}
+                className="m-0 size-full min-w-[200px] p-0"
+              >
+                {tab.content}
+              </TabsContent>
+            ))}
+          </div>
+          <ScrollBar orientation="horizontal" />
+          <ScrollBar orientation="vertical" />
+        </ScrollArea>
+      </Tabs>
+    </div>
   )
 }
