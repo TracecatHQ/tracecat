@@ -69,7 +69,7 @@ Coming soon.
 
 ## Community
 
-Have questions? Feedback? New integration ideas for the project? Join the [Tracecat Community Discord](https://discord.gg/H4XZwsYzY4) and come hang out with us.
+Have questions? Feedback? New integration ideas? Come hang out with us in the [Tracecat Community Discord](https://discord.gg/H4XZwsYzY4).
 
 ## Tracecat Registry
 
