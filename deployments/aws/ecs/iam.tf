@@ -159,7 +159,7 @@ resource "aws_iam_role_policy" "api_worker_task_db_access" {
   })
 }
 resource "aws_iam_role_policy_attachment" "api_worker_task_secrets" {
-  count      = var.disable_temporal_autosetup ? 0 : 1
+  count      = var.disable_temporal_autosetup ? 1 : 0
   policy_arn = aws_iam_policy.task_secrets_access[0].arn
   role       = aws_iam_role.api_worker_task.name
 }

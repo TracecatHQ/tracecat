@@ -75,12 +75,16 @@ Have questions? Feedback? New integration ideas for the project? Join the [Trace
 
 ![Tracecat Registry](img/tracecat-template.svg)
 
-Tracecat Registry is a collection of integration templates for response actions.
-Security response actions are organized by [MITRE D3FEND](https://d3fend.mitre.org/) categories.
-Arguments are normalized to fit the [Open Cyber Security Schema (OCSF)](https://ocsf.org/) ontology where possible.
+Tracecat Registry is a collection of integration and response-as-code templates.
+Response actions are organized into [MITRE D3FEND](https://d3fend.mitre.org/) categories (`detect`, `isolate`, `evict`, `restore`, `harden`, `model`) and Tracecat's own ontology of capabilities (e.g. `list_alerts`, `list_cases`, `list_users`). Template inputs (e.g. `start_time`, `end_time`) are normalized to fit the [Open Cyber Security Schema (OCSF)](https://schema.ocsf.io/) ontology where possible.
 
-The templates are written in YAML which specifies a simple human-readable format to quickly define normalized integrations.
-We run a paid integrations bounty program for our contributors (coming soon).
+Having thousands of out-of-the-box playbooks is an outdated and unsustainable approach to response automation.
+Playbooks are rigid, hard to maintain, and don't scale.
+
+We **strongly** believe in a community-driven ontology for all out-of-the-box response actions.
+A common ontology serves as reusable building blocks for response workflows.
+
+The future of response automation should be self-serve and reusable, where teams link pre-defined capabilities (e.g. `list_alerts` -> `enrich_ip_address` -> `block_ip_address`) into customizable workflows.
 
 **Examples**
 
