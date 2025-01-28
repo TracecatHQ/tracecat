@@ -120,7 +120,7 @@ export const $ActionRead = {
       title: "Status",
     },
     inputs: {
-      type: "object",
+      type: "string",
       title: "Inputs",
     },
     control_flow: {
@@ -339,15 +339,10 @@ export const $ActionUpdate = {
       title: "Status",
     },
     inputs: {
-      anyOf: [
-        {
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
+      maxLength: 10000,
       title: "Inputs",
+      default: "",
     },
     control_flow: {
       anyOf: [

@@ -1,3 +1,4 @@
+import yaml
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
@@ -152,6 +153,14 @@ async def update_action(
         action.status = params.status
     if params.inputs is not None:
         action.inputs = params.inputs
+        # Validate that it's a valid YAML string
+        try:
+            yaml.safe_load(action.inputs)
+        except yaml.YAMLError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Action input contains invalid YAML",
+            ) from e
     if params.control_flow is not None:
         action.control_flow = params.control_flow.model_dump(mode="json")
 

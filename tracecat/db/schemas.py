@@ -427,7 +427,13 @@ class Action(Resource, table=True):
     title: str
     description: str
     status: str = "offline"  # "online" or "offline"
-    inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    inputs: str = Field(
+        default="",
+        description=(
+            "YAML string containing input configuration. The default value is an empty "
+            "string, which is `null` in YAML flow style."
+        ),
+    )
     control_flow: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
 
     workflow_id: uuid.UUID = Field(
