@@ -346,11 +346,12 @@ def build_action_statements(
 
         action = id2action[node.id]
         control_flow = ActionControlFlow.model_validate(action.control_flow)
+        args = yaml.safe_load(action.inputs) or {}
         action_stmt = ActionStatement(
             id=action.id,
             ref=action.ref,
             action=action.type,
-            args=action.inputs,
+            args=args,
             depends_on=dependencies,
             run_if=control_flow.run_if,
             for_each=control_flow.for_each,

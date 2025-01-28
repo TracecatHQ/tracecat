@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
+import yaml
 from pydantic import ValidationError
 from sqlmodel import and_, col, select
 from temporalio import activity
@@ -329,7 +330,7 @@ class WorkflowsManagementService(BaseService):
                 owner_id=self.role.workspace_id,
                 workflow_id=workflow.id,
                 type=act_stmt.action,
-                inputs=dict(act_stmt.args),
+                inputs=yaml.dump(act_stmt.args),
                 title=act_stmt.title,
                 description=act_stmt.description,
                 control_flow=control_flow.model_dump(),

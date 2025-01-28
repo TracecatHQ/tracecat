@@ -28,9 +28,7 @@ export type ActionRead = {
   title: string
   description: string
   status: string
-  inputs: {
-    [key: string]: unknown
-  }
+  inputs: string
   control_flow?: ActionControlFlow
 }
 
@@ -111,9 +109,7 @@ export type ActionUpdate = {
   title?: string | null
   description?: string | null
   status?: string | null
-  inputs?: {
-    [key: string]: unknown
-  } | null
+  inputs?: string
   control_flow?: ActionControlFlow | null
 }
 

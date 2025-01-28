@@ -114,7 +114,17 @@ export default React.memo(function SelectorNode({
           ref={inputRef}
           className="!py-0 text-xs"
           placeholder="Start typing to search for an action..."
-          onValueChange={(value) => setInputValue(value)}
+          onValueChange={(value) => {
+            // First update the value
+            setInputValue(value)
+            // Then force scroll to top of the list
+            requestAnimationFrame(() => {
+              const commandList = document.querySelector('[cmdk-list]')
+              if (commandList) {
+                commandList.scrollTop = 0
+              }
+            })
+          }}
           autoFocus
         />
         <CommandList className="border-b">
@@ -129,7 +139,7 @@ export default React.memo(function SelectorNode({
       <Handle
         type="target"
         position={targetPosition ?? Position.Top}
-        isConnectable={false} // Prevent initiating a connection from the selector node
+        isConnectable={false}
         className={cn(
           "left-1/2 !size-8 !-translate-x-1/2 !border-none !bg-transparent"
         )}
@@ -147,21 +157,12 @@ function ActionCommandSelector({
 }) {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useWorkbenchRegistryActions()
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
-
-  // Add effect to reset scroll position when search results change
-  useEffect(() => {
-    if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = 0
-    }
-  }, [inputValue])
 
   if (!registryActions || registryActionsIsLoading) {
     return (
-      <ScrollArea className="h-full" ref={scrollAreaRef}>
-        <CommandGroup heading="Loading Actions..." className="text-xs">
-          {/* Render 5 skeleton items */}
-          {Array.from({ length: 5 }).map((_, index) => (
+      <ScrollArea className="h-full">
+        <CommandGroup heading="Loading actions..." className="text-xs">
+          {Array.from({ length: 3 }).map((_, index) => (
             <CommandItem key={index} className="text-xs">
               <div className="w-full flex-col">
                 <div className="flex items-center justify-start">
@@ -186,13 +187,15 @@ function ActionCommandSelector({
   }
 
   return (
-    <ScrollArea className="h-full" ref={scrollAreaRef}>
-      <ActionCommandGroup
-        group="Suggestions"
-        nodeId={nodeId}
-        registryActions={registryActions}
-        inputValue={inputValue}
-      />
+    <ScrollArea className="h-full overflow-y-auto">
+      {filterActions(registryActions, inputValue).length > 0 && (
+        <ActionCommandGroup
+          group="Suggestions"
+          nodeId={nodeId}
+          registryActions={registryActions}
+          inputValue={inputValue}
+        />
+      )}
     </ScrollArea>
   )
 }
@@ -282,18 +285,8 @@ function ActionCommandGroup({
     [getNode, nodeId, workflowId, workspaceId, setNodes, setEdges]
   )
 
-  // Add ref for the command group
-  const commandGroupRef = useRef<HTMLDivElement>(null)
-
-  // Reset scroll position when filter results change
-  useEffect(() => {
-    if (commandGroupRef.current) {
-      commandGroupRef.current.scrollIntoView({ block: "start" })
-    }
-  }, [filterResults])
-
   return (
-    <CommandGroup heading={group} className="text-xs" ref={commandGroupRef}>
+    <CommandGroup heading={group} className="text-xs">
       {filterResults.map((result) => {
         const action = result.obj
 

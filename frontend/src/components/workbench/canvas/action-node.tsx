@@ -10,6 +10,7 @@ import {
   Trash2Icon,
 } from "lucide-react"
 import { Node, NodeProps, useEdges } from "reactflow"
+import YAML from "yaml"
 
 import { useAction, useWorkflowManager } from "@/lib/hooks"
 import { cn, isEmptyObjectOrNullish, slugify } from "@/lib/utils"
@@ -91,11 +92,12 @@ export default React.memo(function ActionNode({
   const edges = useEdges()
   const incomingEdges = edges.filter((edge) => edge.target === id)
   const isChildWorkflow = action?.type === CHILD_WORKFLOW_ACTION_TYPE
-  const childWorkflowId = action?.inputs?.workflow_id
-    ? String(action?.inputs?.workflow_id)
+  const actionInputsObj = action?.inputs ? YAML.parse(action?.inputs) : {}
+  const childWorkflowId = actionInputsObj?.workflow_id
+    ? String(actionInputsObj?.workflow_id)
     : undefined
-  const childWorkflowAlias = action?.inputs?.workflow_alias
-    ? String(action?.inputs?.workflow_alias)
+  const childWorkflowAlias = actionInputsObj?.workflow_alias
+    ? String(actionInputsObj?.workflow_alias)
     : undefined
 
   // Create a skeleton loading state within the card frame

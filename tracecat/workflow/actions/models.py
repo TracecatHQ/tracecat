@@ -1,8 +1,4 @@
-from typing import Any
-
-import orjson
-from pydantic import BaseModel, Field, field_validator
-from pydantic_core import PydanticCustomError
+from pydantic import BaseModel, Field
 
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import ActionRetryPolicy
@@ -26,7 +22,7 @@ class ActionRead(BaseModel):
     title: str
     description: str
     status: str
-    inputs: dict[str, Any]
+    inputs: str
     control_flow: ActionControlFlow = Field(default_factory=ActionControlFlow)
 
 
@@ -49,15 +45,5 @@ class ActionUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=1000)
     status: str | None = None
-    inputs: dict[str, Any] | None = None
+    inputs: str = Field(default="", max_length=10000)
     control_flow: ActionControlFlow | None = None
-
-    @field_validator("inputs")
-    def validate_inputs(cls, v: dict[str, Any]) -> dict[str, Any]:
-        if len(orjson.dumps(v)) >= 10000:
-            raise PydanticCustomError(
-                "value_error.inputs_too_long",
-                "Inputs must be less than 10000 characters",
-                {"loc": ["inputs"]},
-            )
-        return v
