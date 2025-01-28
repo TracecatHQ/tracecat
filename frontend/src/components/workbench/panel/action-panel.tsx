@@ -37,7 +37,7 @@ import { z } from "zod"
 
 import { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useWorkbenchRegistryActions } from "@/lib/hooks"
-import { cn, itemOrEmptyString, slugify } from "@/lib/utils"
+import { cn, slugify } from "@/lib/utils"
 import {
   Accordion,
   AccordionContent,
@@ -101,7 +101,7 @@ const actionFormSchema = z.object({
   inputs: z
     .string()
     .max(10000, "Inputs must be less than 10000 characters")
-    .optional(),
+    .default(""),
   control_flow: z.object({
     for_each: z
       .string()
@@ -176,7 +176,7 @@ export function ActionPanel({
     values: {
       title: action?.title,
       description: action?.description,
-      inputs: itemOrEmptyString(action?.inputs),
+      inputs: action?.inputs ?? "",
       control_flow: {
         for_each: stringifyYaml(for_each),
         run_if: stringifyYaml(run_if),
@@ -212,7 +212,7 @@ export function ActionPanel({
         const params: ActionUpdate = {
           title: values.title,
           description: values.description,
-          inputs: parseYaml(values.inputs) ?? {},
+          inputs: values.inputs,
           control_flow: {
             ...parseYaml(values.control_flow.options),
             for_each: parseYaml(values.control_flow.for_each),
