@@ -1,68 +1,108 @@
 <div align="center">
-  <img src="img/banner.svg" alt="The workflow orchestration platform for security engineers.">
+  <img src="img/banner.svg" alt="The workflow automation platform for security and IT response engineering.">
 </div>
 
 </br>
 
 <div align="center">
 
+![Commits](https://img.shields.io/github/commit-activity/m/TracecatHQ/tracecat?style=for-the-badge&logo=github)
 ![License](https://img.shields.io/badge/License-AGPL%203.0-blue?style=for-the-badge&logo=agpl)
-![Commit Activity](https://img.shields.io/github/commit-activity/m/TracecatHQ/tracecat?style=for-the-badge&logo=github)
-[![Docs](https://img.shields.io/badge/Docs-available-blue?style=for-the-badge&logoColor=white)](https://docs.tracecat.com)
+[![Discord](https://img.shields.io/discord/1212548097624903681.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/H4XZwsYzY4)
 
 </div>
 
 <div align="center">
 
-![Next.js](https://img.shields.io/badge/next.js-%23000000.svg?style=for-the-badge&logo=next.js&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
-[![Pydantic v2](https://img.shields.io/endpoint?style=for-the-badge&url=https://raw.githubusercontent.com/pydantic/pydantic/main/docs/badge/v2.json)](https://docs.pydantic.dev/latest/contributing/#badges)
-[![Discord](https://img.shields.io/discord/1212548097624903681.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/H4XZwsYzY4)
+<a href="https://docs.tracecat.com"><img src="https://img.shields.io/badge/Documentation-%23000000.svg?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1ib29rLW9wZW4iPjxwYXRoIGQ9Ik0xMiA3djE0Ii8+PHBhdGggZD0iTTMgMThhMSAxIDAgMCAxLTEtMVY0YTEgMSAwIDAgMSAxLTFoNWE0IDQgMCAwIDEgNCA0IDQgNCAwIDAgMSA0LTRoNWExIDEgMCAwIDEgMSAxdjEzYTEgMSAwIDAgMS0xIDFoLTZhMyAzIDAgMCAwLTMgMyAzIDMgMCAwIDAtMy0zeiIvPjwvc3ZnPg==&logoColor=white"></a>
+<a href="https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates"><img src="https://img.shields.io/badge/Templates%20Library-%23000000.svg?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMS41IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLXNoaWVsZCI+PHBhdGggZD0iTTIwIDEzYzAgNS0zLjUgNy41LTcuNjYgOC45NWExIDEgMCAwIDEtLjY3LS4wMUM3LjUgMjAuNSA0IDE4IDQgMTNWNmExIDEgMCAwIDEgMS0xYzIgMCA0LjUtMS4yIDYuMjQtMi43MmExLjE3IDEuMTcgMCAwIDEgMS41MiAwQzE0LjUxIDMuODEgMTcgNSAxOSA1YTEgMSAwIDAgMSAxIDF6Ii8+PC9zdmc+&logoColor=white"></a>
 
 </div>
 
-[Tracecat](https://tracecat.com) is an open-source Tines / Splunk SOAR alternative for security engineers. We're building the features of Tines using enterprise-grade open-source tools.
+[Tracecat](https://tracecat.com) is a modern, open source workflow automation platform built for security and IT engineers. Simple YAML-based templates for integrations with a no-code UI for workflows.
+Executed using Temporal for scale and reliability.
 
-- [x] Hosted [Temporal](https://github.com/temporalio/temporal) workflows
-- [x] No-code workflow builder
-- [x] Automations-as-code
-  - [x] GitHub Actions-like YAML syntax
-  - [x] Python-to-no-code integrations
-  - [x] Version control
-- [x] Actions (HTTP requests, JSON data transforms)
-- [x] Integrations
-
-Tracecat is not a 1-to-1 Tines / Splunk SOAR equivalent. We designed Tracecat to be the simplest way for modern security teams to build, scale, and maintain workflows. Tracecat enables security practitioners to build automations using both:
-
-- No-code drag-and-drop UI
-- Configuration-as-code (e.g. Ansible / GitHub Actions)
-
-No-code workflows are automatically synced into code, and vice versa. Tracecat extends the classic no-code [Security Orchestration, Automation and Response (SOAR)](https://www.gartner.com/en/information-technology/glossary/security-orchestration-automation-response-soar) experience with DevOps best-practices.
-
-## Why Tracecat?
-
-- **Security Operations (SecOps):** Unify workflow development across security engineering and SOC teams
-- **Security Engineers (SecEng):** Build and maintain complex automations using open source integrations, configuration-as-code, and a powerful templating language
-- **Managed Detection & Response (MDR):** Rapidly embed scalable workflow applications into any security product
+We're on a mission to make security and IT automation more accessible through **response-as-code**. What Sigma rules did for detection and Nuclei did for vulnerability scanning, Tracecat is doing for response automation.
 
 ## Getting Started
 
-The easiest way to get started is to meet one of our cofounders on an open-source [onboarding call](https://cal.com/team/tracecat/onboarding). We'll help you install Tracecat self-hosted via `docker compose` and run your first workflow in 30 minutes.
+> [!IMPORTANT]
+> Tracecat is in active development. Expect breaking changes with releases. Review the release [changelog](https://github.com/TracecatHQ/tracecat/releases) before updating.
 
-More of a DIY hacker? Check out the self-serve [installation guide here](https://docs.tracecat.com/self-hosting/introduction).
+### Run Tracecat locally
 
-## Community & Support
+Deploy a local Tracecat stack using Docker Compose. View full instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/docker-compose).
 
-- [Discord:](https://discord.gg/n3GF4qxFU8) seeking support, sharing new feature or integration ideas, and hanging out with the community.
-- [GitHub issues:](https://github.com/TracecatHQ/tracecat/issues) bugs and errors you encounter with Tracecat.
-- [Security:](https://github.com/TracecatHQ/tracecat?tab=security-ov-file) reporting security concerns and vulnerabilities.
+```bash
+# Download Tracecat
+git clone https://github.com/TracecatHQ/tracecat.git
 
-## Documentation
+# Setup environment variables
+./env.sh
 
-- For full documentation, visit [https://docs.tracecat.com](https://docs.tracecat.com).
-- For developers looking to create custom security apps, check out our [API Reference](https://docs.tracecat.com/api-reference/introduction).
-- [Quickstart](https://docs.tracecat.com/tutorials/quickstart): Build the classic VirusTotal enrichment playbook in 15 minutes.
+# Run Tracecat
+docker compose up -d
+```
 
-## Partner With Us
+Go to [http://localhost](http://localhost) to access the UI. Sign-up with your email and password (min 12 characters). The first user to sign-up and login will be the superadmin for the instance. The API docs is accessible at [http://localhost/api/docs](http://localhost/api/docs).
 
-Tracecat is now open to MDRs and MSSPs. [Sign up](https://tracecat.com/#deal) over at our website or [book a call](https://cal.com/team/tracecat) with one of our cofounders.
+### Run Tracecat on AWS Fargate
+
+**For advanced users:** deploy a production-ready Tracecat stack on AWS Fargate using Terraform. View full instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/aws-ecs).
+
+```bash
+# Download Terraform files
+git clone https://github.com/TracecatHQ/tracecat.git
+cd tracecat/deployments/aws
+
+# Create and add encryption keys to AWS Secrets Manager
+./scripts/create-aws-secrets.sh
+
+# Run Terraform to deploy Tracecat
+terraform init
+terraform apply
+```
+
+### Run Tracecat on Kubernetes
+
+Coming soon.
+
+## Community
+
+Have questions? Feedback? New integration ideas for the project? Join the [Tracecat Community Discord](https://discord.gg/H4XZwsYzY4) and come hang out with us.
+
+## Tracecat Registry
+
+
+
+## Open Source vs Enterprise
+
+This repo is available under the AGPL-3.0 license with the exception of the `ee` directory. The `ee` directory contains paid enterprise features requiring a Tracecat Enterprise license.
+
+Tracecat Enteprise builds on top of Tracecat OSS, optimized for mixed ETL and network workloads at enterprise scale.
+Powered by serverless workflow execution (AWS Lambda and Knative) and S3-compatible object storage.
+
+*If you are interested in Tracecat's Enterprise self-hosted or managed Cloud offering, check out [our website](https://tracecat.com) or [book a meeting with us](https://cal.com/team/tracecat).*
+
+## Security
+
+SSO, audit logs, and IaaC deployments (Terraform, Kubernetes / Helm) will always be free and available. We're working on a comprehensive list of Tracecat's threat model, security features, and hardening recommendations. For immediate answers to these questions, please reach to us on [Discord](https://discord.gg/H4XZwsYzY4).
+
+Please report any security issues to [security@tracecat.com](mailto:founders+security@tracecat.com) and include `tracecat` in the subject line.
+
+## Contributors
+
+Thank you all our amazing contributors for contributing code, integrations, and support. Open source is only possible because of you. ❤️
+
+<a href="https://github.com/TracecatHQ/tracecat/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=TracecatHQ/tracecat" />
+</a>
+
+<br>
+<br>
+
+<div align="center">
+
+  <sub>**`Tracecat`** is distributed under [**AGPL-3.0**](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE)</sub>
+
+</div>
