@@ -114,7 +114,17 @@ export default React.memo(function SelectorNode({
           ref={inputRef}
           className="!py-0 text-xs"
           placeholder="Start typing to search for an action..."
-          onValueChange={(value) => setInputValue(value)}
+          onValueChange={(value) => {
+            // First update the value
+            setInputValue(value)
+            // Then force scroll to top of the list
+            requestAnimationFrame(() => {
+              const commandList = document.querySelector('[cmdk-list]')
+              if (commandList) {
+                commandList.scrollTop = 0
+              }
+            })
+          }}
           autoFocus
         />
         <CommandList className="border-b">
@@ -129,7 +139,7 @@ export default React.memo(function SelectorNode({
       <Handle
         type="target"
         position={targetPosition ?? Position.Top}
-        isConnectable={false} // Prevent initiating a connection from the selector node
+        isConnectable={false}
         className={cn(
           "left-1/2 !size-8 !-translate-x-1/2 !border-none !bg-transparent"
         )}
