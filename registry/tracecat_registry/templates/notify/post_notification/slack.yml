@@ -42,10 +42,10 @@ definition:
         value: >
           ${{ FN.map(inputs.details, "lambda x: {'type': 'mrkdwn', 'text': f'**{x[0]}**: `{x[1]}`'}") }}
     - ref: action_elements
-      action: core.transform.
+      action: core.transform.reshape
       args:
         value: >
-          ${{ FN.map(inputs.actions, "lambda x: {'type': 'button', 'value': FN.slugify(x), 'text': {'type': 'plain_text', 'text': x, 'emoji': True}}") }}
+          ${{ FN.map(inputs.actions, "lambda x: {'type': 'button', 'value': x, 'text': {'type': 'plain_text', 'text': x, 'emoji': True}}") }}
     - ref: content_blocks
       action: core.transform.reshape
       args:
