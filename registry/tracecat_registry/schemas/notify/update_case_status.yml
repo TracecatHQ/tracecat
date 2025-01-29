@@ -1,4 +1,4 @@
-alert_id:
+case_id:
   type: str
   description: The ID of the case to update.
 status:
