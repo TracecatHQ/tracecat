@@ -467,7 +467,7 @@ def test_build_lambda() -> None:
 
 def test_use_jsonpath_in_safe_lambda():
     data = {"name": "John"}
-    jsonpath = _build_safe_lambda("lambda x: jsonpath(x, '$.name') == 'John'")
+    jsonpath = _build_safe_lambda("lambda x: jsonpath('$.name', x) == 'John'")
     assert jsonpath(data) is True
 
 
