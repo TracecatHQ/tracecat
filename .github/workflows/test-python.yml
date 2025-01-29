@@ -102,7 +102,7 @@ jobs:
       - name: Start Docker services
         env:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-        run: docker compose -f docker-compose.dev.yml up --build -d temporal api worker executor postgres_db caddy temporal
+        run: docker compose -f docker-compose.dev.yml up --build -d temporal api worker executor postgres_db caddy
 
       - name: Install dependencies
         run: |
