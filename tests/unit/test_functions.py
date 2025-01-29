@@ -465,6 +465,12 @@ def test_build_lambda() -> None:
     assert add_one(1) == 2
 
 
+def test_use_jsonpath_in_safe_lambda():
+    data = {"name": "John"}
+    jsonpath = _build_safe_lambda("lambda x: jsonpath('$.name', x) == 'John'")
+    assert jsonpath(data) is True
+
+
 def test_build_lambda_catches_restricted_nodes() -> None:
     with pytest.raises(ValueError) as e:
         _build_safe_lambda("lambda x: import os")

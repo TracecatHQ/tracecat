@@ -41,6 +41,8 @@ class SafeEvaluator(ast.NodeVisitor):
         "locals",
         "globals",
     }
+    # Add allowed functions that can be used in lambda expressions
+    ALLOWED_FUNCTIONS = {"jsonpath"}
 
     def visit(self, node):
         if type(node) in self.RESTRICTED_NODES:
@@ -49,7 +51,9 @@ class SafeEvaluator(ast.NodeVisitor):
             )
         if (
             isinstance(node, ast.Call)
-            and (attr := getattr(node.func, "attr", None)) in self.RESTRICTED_SYMBOLS
+            and (attr := getattr(node.func, "attr", None)) is not None
+            and attr in self.RESTRICTED_SYMBOLS
+            and attr not in self.ALLOWED_FUNCTIONS
         ):
             raise ValueError(f"Calling restricted functions are not allowed: {attr}")
         self.generic_visit(node)
@@ -59,7 +63,10 @@ def _build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
     """Build a safe lambda function from a string expression."""
     # Check if the string has any blacklisted symbols
     lambda_expr = lambda_expr.strip()
-    if any(word in lambda_expr for word in SafeEvaluator.RESTRICTED_SYMBOLS):
+    if any(
+        word in lambda_expr
+        for word in SafeEvaluator.RESTRICTED_SYMBOLS - SafeEvaluator.ALLOWED_FUNCTIONS
+    ):
         raise ValueError("Expression contains restricted symbols")
     expr_ast = ast.parse(lambda_expr, mode="eval").body
 
@@ -73,8 +80,8 @@ def _build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
     # Compile the AST node into a code object
     code = compile(ast.Expression(expr_ast), "<string>", "eval")
 
-    # Create a function from the code object
-    lambda_func = eval(code)
+    # Create a function from the code object with eval_jsonpath in globals
+    lambda_func = eval(code, {"jsonpath": eval_jsonpath})
     return type_cast(Callable[[Any], Any], lambda_func)
 
 
@@ -840,7 +847,7 @@ def eval_jsonpath(
     if operand is None or not isinstance(operand, dict | list):
         logger.error("Invalid operand for jsonpath", operand=operand)
         raise TracecatExpressionError(
-            "A dict or list operand is required as jsonpath target."
+            f"A dict or list operand is required as jsonpath target. Got {type(operand)}"
         )
     try:
         # Try to evaluate the expression
