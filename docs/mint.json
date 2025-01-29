@@ -1,0 +1,149 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Tracecat | Documentation",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.png",
+  "theme": "quill",
+  "colors": {
+    "primary": "#6F9954",
+    "light": "#C1DEAF",
+    "dark": "#111011",
+    "anchors": {
+      "from": "#6F9954",
+      "to": "#C1DEAF"
+    },
+    "background": {
+      "light": "#FFFFFF",
+      "dark": "#111011"
+    }
+  },
+  "modeToggle": {
+    "default": "light"
+  },
+  "topbarLinks": [],
+  "topbarCtaButton": {
+    "type": "github",
+    "url": "https://github.com/TracecatHQ/tracecat"
+  },
+  "tabs": [
+    {
+      "name": "Integrations",
+      "url": "integrations"
+    },
+    {
+      "name": "Cheatsheets",
+      "url": "cheatsheets"
+    },
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "Website",
+      "icon": "globe",
+      "url": "https://tracecat.com"
+    },
+    {
+      "name": "Get Live Help",
+      "icon": "headphones",
+      "url": "https://cal.com/team/tracecat/onboarding"
+    },
+    {
+      "name": "Join Discord",
+      "icon": "discord",
+      "url": "https://discord.gg/n3GF4qxFU8"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": [
+        "introduction",
+        "quickstart/install",
+        "quickstart/tutorial"
+      ]
+    },
+    {
+      "group": "Tutorials",
+      "pages": [
+        "tutorials/trigger-workflows",
+        "tutorials/build-templates",
+        "tutorials/git-repository",
+        "tutorials/child-workflows",
+        "tutorials/explode-implode",
+        "tutorials/alert-on-failure"
+      ]
+    },
+    {
+      "group": "Data Manipulation",
+      "pages": [
+        "data-types/json",
+        "data-types/arrays",
+        "data-types/datetimes",
+        "data-types/strings",
+        "data-types/booleans",
+        "data-types/cryptography"
+      ]
+    },
+    {
+      "group": "Cheatsheets",
+      "pages": [
+        "cheatsheets/expressions",
+        "cheatsheets/functions",
+        "cheatsheets/operators",
+        "cheatsheets/secrets"
+      ]
+    },
+    {
+      "group": "Integrations",
+      "pages": [
+        "integrations/introduction",
+        {
+          "group": "Detect",
+          "pages": [
+            "integrations/detect/introduction"
+          ]
+        },
+        {
+          "group": "Notify",
+          "pages": [
+            "integrations/notify/introduction"
+          ]
+        },
+        {
+          "group": "Isolate",
+          "pages": [
+            "integrations/isolate/introduction"
+          ]
+        },
+        {
+          "group": "Evict",
+          "pages": [
+            "integrations/evict/introduction"
+          ]
+        },
+        {
+          "group": "Model",
+          "pages": [
+            "integrations/model/introduction"
+          ]
+        },
+        {
+          "group": "Harden",
+          "pages": [
+            "integrations/harden/introduction"
+          ]
+        }
+      ]
+    }
+  ],
+  "footerSocials": {
+    "discord": "https://discord.gg/n3GF4qxFU8",
+    "github": "https://github.com/TracecatHQ/tracecat"
+  }
+}
