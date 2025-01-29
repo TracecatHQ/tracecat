@@ -847,7 +847,7 @@ def eval_jsonpath(
     if operand is None or not isinstance(operand, dict | list):
         logger.error("Invalid operand for jsonpath", operand=operand)
         raise TracecatExpressionError(
-            "A dict or list operand is required as jsonpath target."
+            f"A dict or list operand is required as jsonpath target. Got {type(operand)}"
         )
     try:
         # Try to evaluate the expression
