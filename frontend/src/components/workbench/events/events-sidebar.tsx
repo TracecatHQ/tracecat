@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { WorkflowExecutionReadMinimal } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { CalendarSearchIcon, FileInputIcon, ShapesIcon } from "lucide-react"
@@ -56,71 +55,42 @@ export function WorkbenchSidebarEvents() {
       </div>
     )
   return (
-    <WorkbenchSidebarEventsTable
+    <WorkbenchSidebarEventsList
       workflowId={workflow.id}
       activeTab={activeTab}
     />
   )
 }
 
-function WorkbenchSidebarEventsTable({
+function WorkbenchSidebarEventsList({
   workflowId,
   activeTab,
 }: {
   workflowId: string
   activeTab: EventsSidebarTabs
 }) {
-  const [status, setStatus] = useState<
-    WorkflowExecutionReadMinimal["status"] | undefined
-  >(undefined)
-  const refetchInterval = status === "RUNNING" ? REFETCH_INTERVAL : undefined
-  const { lastExecution } = useManualWorkflowExecution(workflowId, {
-    refetchInterval,
-  })
-  useEffect(() => {
-    if (lastExecution) {
-      setStatus(lastExecution.status)
-    }
-  }, [lastExecution])
-  const currId = lastExecution?.id
-  return currId ? (
-    <WorkbenchSidebarEventsList
-      executionId={currId}
-      status={status}
-      activeTab={activeTab}
-    />
-  ) : (
-    <EventsSidebarEmpty
-      title="No workflow runs"
-      description="Get started by running your workflow"
-      actionLabel="New workflow"
-    />
-  )
-}
-const REFETCH_INTERVAL = 500
-
-function WorkbenchSidebarEventsList({
-  executionId,
-  status,
-  activeTab,
-}: {
-  executionId: string
-  status?: WorkflowExecutionReadMinimal["status"]
-  activeTab: EventsSidebarTabs
-}) {
   const { sidebarRef } = useWorkflowBuilder()
-  const refetchInterval = status === "RUNNING" ? REFETCH_INTERVAL : undefined
-  const escapedExecutionId = encodeURIComponent(executionId)
+  const { lastExecution, lastExecutionIsLoading, lastExecutionError } =
+    useManualWorkflowExecution(workflowId)
+
+  // Pre-fetch and create query observer even if we don't have an ID yet
   const { execution, executionIsLoading, executionError } =
-    useCompactWorkflowExecution(escapedExecutionId, {
-      refetchInterval,
-    })
-  if (executionIsLoading) return <CenteredSpinner />
-  if (executionError || !execution)
+    useCompactWorkflowExecution(lastExecution?.id)
+
+  if (lastExecutionIsLoading || executionIsLoading) return <CenteredSpinner />
+  if (lastExecutionError || executionError)
     return (
       <AlertNotification
         level="error"
-        message={`Error loading execution: ${executionError?.message || "Execution undefined"}`}
+        message={`Error loading execution: ${lastExecutionError?.message || executionError?.message || "Error loading last execution"}`}
+      />
+    )
+  if (!execution)
+    return (
+      <EventsSidebarEmpty
+        title="No workflow runs"
+        description="Get started by running your workflow"
+        actionLabel="New workflow"
       />
     )
 

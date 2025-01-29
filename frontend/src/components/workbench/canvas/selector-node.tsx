@@ -119,7 +119,7 @@ export default React.memo(function SelectorNode({
             setInputValue(value)
             // Then force scroll to top of the list
             requestAnimationFrame(() => {
-              const commandList = document.querySelector('[cmdk-list]')
+              const commandList = document.querySelector("[cmdk-list]")
               if (commandList) {
                 commandList.scrollTop = 0
               }
