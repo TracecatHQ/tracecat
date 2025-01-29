@@ -3,23 +3,18 @@
 # This will cause class types to be resolved as strings
 
 import tempfile
-from collections.abc import Callable
+from json import JSONDecodeError
 from typing import Annotated, Any, Literal, TypedDict
 
 import httpx
-from pydantic import (
-    BaseModel,
-    TypeAdapter,
-    UrlConstraints,
-    ValidationError,
-    field_validator,
-    model_validator,
-)
+from pydantic import UrlConstraints
 from tenacity import (
     retry,
     retry_if_result,
     stop_after_attempt,
+    stop_never,
     wait_exponential,
+    wait_fixed,
 )
 from tracecat.expressions.functions import _build_safe_lambda
 from tracecat.logger import logger
@@ -210,53 +205,6 @@ async def http_request(
     return httpx_to_response(response)
 
 
-class PollingOptions(BaseModel):
-    retry_codes: list[int] | None = None
-    """List of codes on which we retry."""
-    interval: float = 1.0
-    """Gap between polling attempts."""
-    max_attempts: int = 10
-    """Maximum number of polling attempts."""
-    predicate: Callable[..., bool] | None = None
-    """User defined predicate as a `python_lambda`."""
-
-    @field_validator("retry_codes", mode="before")
-    def validate_retry_codes(cls, v: int | list[int] | None) -> list[int] | None:
-        if v is None:
-            return None
-        if isinstance(v, int):
-            return [v]
-        return v
-
-    @field_validator("predicate", mode="before")
-    def validate_predicate(cls, v: str | None) -> Callable[..., bool] | None:
-        if v:
-            return _build_safe_lambda(v)
-        return None
-
-    @model_validator(mode="after")
-    def validate_at_least_one_predicate(self):
-        if not self.retry_codes and not self.predicate:
-            raise ValueError(
-                "At least one of retry_codes or predicate must be specified"
-            )
-        return self
-
-
-PollingOptionsAdapter = TypeAdapter(PollingOptions)
-
-PollOptions = Annotated[
-    dict[str, Any] | None,
-    Doc(
-        "Polling options:"
-        "\nretry_codes: List of codes on which we retry."
-        "\ninterval: Gap between polling attempts."
-        "\nmax_attempts: Maximum number of polling attempts."
-        "\npredicate: User defined predicate as a `python_lambda`."
-    ),
-]
-
-
 class PredicateArgs(TypedDict):
     headers: dict[str, Any]
     data: Any
@@ -271,9 +219,9 @@ class PredicateArgs(TypedDict):
 )
 async def http_poll(
     *,
+    # Common
     url: Url,
     method: Method,
-    poll_options: PollOptions,
     headers: Headers = None,
     params: Params = None,
     payload: Payload = None,
@@ -283,43 +231,77 @@ async def http_poll(
     follow_redirects: FollowRedirects = False,
     max_redirects: MaxRedirects = 20,
     verify_ssl: VerifySSL = True,
+    # Polling
+    poll_retry_codes: Annotated[
+        int | list[int] | None,
+        Doc(
+            "Status codes on which the action will retry."
+            "If not specified, `poll_condition` must be provided."
+        ),
+    ] = None,
+    poll_interval: Annotated[
+        float | None,
+        Doc(
+            "Interval in seconds between polling attempts. "
+            "If not specified, defaults to polling with expotential wait."
+        ),
+    ] = None,
+    poll_max_attempts: Annotated[
+        int,
+        Doc(
+            "Maximum number of polling attempts. "
+            "If set to 0, the action will poll indefinitely (until timeout)."
+        ),
+    ] = 10,
+    poll_condition: Annotated[
+        str | None,
+        Doc(
+            "User defined condition that determines whether to retry. "
+            "The condition is a Python lambda function string."
+            "If not specified, `poll_retry_codes` must be provided."
+        ),
+    ] = None,
 ) -> HTTPResponse:
     """Perform a HTTP request to a given URL with optional polling."""
 
     basic_auth = httpx.BasicAuth(**auth) if auth else None
     cert = get_certificate()
 
-    try:
-        options = PollingOptions.model_validate(poll_options)
-    except ValidationError as e:
-        logger.error(f"Invalid polling options: {e}")
-        raise e
+    retry_codes = poll_retry_codes
+    if isinstance(retry_codes, int):
+        retry_codes = [retry_codes]
+
+    predicate = _build_safe_lambda(poll_condition) if poll_condition else None
+
+    if not retry_codes and not predicate:
+        raise ValueError("At least one of retry_codes or predicate must be specified")
 
     # The default predicate is to retry on the specified status codes
     def retry_status_code(response: httpx.Response) -> bool:
-        if not options.retry_codes:
+        if not retry_codes:
             return False
-        status_code = response.status_code
-        return status_code in options.retry_codes
+        return response.status_code in retry_codes
 
     # We also wanna support user defined predicate as a `python_lambda`
     def user_defined_predicate(response: httpx.Response) -> bool:
-        if not options.predicate:
+        if not predicate:
             return False
         try:
             data = response.json()
-        except Exception:
+        except JSONDecodeError:
             data = response.text
         args = PredicateArgs(
             headers=dict(response.headers.items()),
             data=data,
             status_code=response.status_code,
         )
-        return options.predicate(args)
+        return predicate(args)
 
     @retry(
-        stop=stop_after_attempt(options.max_attempts),
-        wait=wait_exponential(min=options.interval),
+        stop=stop_after_attempt(poll_max_attempts)
+        if poll_max_attempts > 0
+        else stop_never,
+        wait=wait_fixed(poll_interval) if poll_interval else wait_exponential(),
         retry=(
             retry_if_result(retry_status_code) | retry_if_result(user_defined_predicate)
         ),
