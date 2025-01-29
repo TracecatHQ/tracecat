@@ -1,6 +1,0 @@
-case_id:
-  type: str
-  description: ID of the case to assign the user to.
-user_id:
-  type: str
-  description: ID of the user to assign to the case.
