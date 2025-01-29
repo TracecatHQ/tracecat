@@ -84,3 +84,42 @@ async def call_python_sdk_paginated(
         if not cursor:
             break
     return items
+
+
+### Block utilities
+### https://app.slack.com/block-kit-builder
+
+
+@registry.register(
+    default_title="Format metadata",
+    description="Format metadata into a section block.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/methods",
+    namespace="tools.slack_blocks",
+    secrets=[slack_secret],
+)
+async def format_metadata(
+    metadata: Annotated[
+        dict[str, str],
+        Field(
+            ...,
+            description='Mapping of field names and values (e.g. `{"status": "critical", "role": "admin"}`)',
+        ),
+    ],
+    as_columns: Annotated[
+        bool,
+        Field(
+            ...,
+            description="Whether to organize the metadata into two columns.",
+        ),
+    ] = False,
+) -> dict[str, Any]:
+    metadata_str = "\n\n".join([f"**{k}**: {v}" for k, v in metadata.items()])
+    if as_columns:
+        fields = [
+            {"type": "mrkdwn", "text": f"**{k}**: {v}"} for k, v in metadata.items()
+        ]
+        block = {"type": "section", "fields": fields}
+    else:
+        block = {"type": "section", "text": {"type": "mrkdwn", "text": metadata_str}}
+    return block
