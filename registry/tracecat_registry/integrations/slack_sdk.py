@@ -87,6 +87,7 @@ async def call_python_sdk_paginated(
 
 
 ### Block utilities
+### Functions to create commonly used pre-formatted blocks
 ### https://app.slack.com/block-kit-builder
 
 
@@ -94,17 +95,21 @@ async def call_python_sdk_paginated(
     default_title="Format metadata",
     description="Format metadata into a section block.",
     display_group="Slack",
-    doc_url="https://api.slack.com/methods",
+    doc_url="https://api.slack.com/reference/block-kit/blocks#section",
     namespace="tools.slack_blocks",
     secrets=[slack_secret],
 )
-async def format_metadata(
+def format_metadata(
     metadata: Annotated[
         dict[str, str],
         Field(
             ...,
             description='Mapping of field names and values (e.g. `{"status": "critical", "role": "admin"}`)',
         ),
+    ],
+    block_id: Annotated[
+        str,
+        Field(..., description="Block ID"),
     ],
     as_columns: Annotated[
         bool,
@@ -121,5 +126,66 @@ async def format_metadata(
         ]
         block = {"type": "section", "fields": fields}
     else:
-        block = {"type": "section", "text": {"type": "mrkdwn", "text": metadata_str}}
+        block = {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": metadata_str},
+            "block_id": block_id,
+        }
+    return block
+
+
+@registry.register(
+    default_title="Format booleans",
+    description="Format boolean inputs into an interactive block of buttons.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/reference/block-kit/blocks#actions",
+    namespace="tools.slack_blocks",
+    secrets=[slack_secret],
+)
+def format_booleans(
+    labels: Annotated[
+        list[str],
+        Field(
+            ...,
+            description='Unique display names for each input (e.g. ["Yes", "No"]). Max 75 characters per label.',
+        ),
+    ],
+    values: Annotated[
+        list[str],
+        Field(
+            ...,
+            description='Unique values for each input (e.g. ["yes", "no"]). Max 2000 characters per value.',
+        ),
+    ],
+    block_id: Annotated[
+        str,
+        Field(
+            ..., description="Block ID. Recommendation: set workflow name as block ID."
+        ),
+    ],
+    button_ids: Annotated[
+        list[str] | None,
+        Field(
+            ...,
+            description='Unique identifiers for each input (e.g. ["yes", "no"]). Max 255 characters per identifier.',
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    buttons = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "emoji": True, "text": input},
+            "value": value,
+        }
+        for input, value in zip(labels, values, strict=False)
+    ]
+    if button_ids:
+        buttons = [
+            {
+                **button,
+                "action_id": identifier,
+            }
+            for button, identifier in zip(buttons, button_ids, strict=False)
+        ]
+    block = {"type": "actions", "elements": buttons, "block_id": block_id}
     return block
