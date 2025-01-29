@@ -155,7 +155,7 @@ export default React.memo(function ActionNode({
                 <CardTitle className="flex w-full items-center space-x-2 text-xs font-medium leading-none">
                   <span>{action.title}</span>
                   <CopyButton
-                    value={`\$\{\{ ACTIONS.${slugify(action.title)}.result \}\}`}
+                    value={`ACTIONS.${slugify(action.title)}.result`}
                     toastMessage="Copied action reference to clipboard"
                     tooltipMessage="Copy action reference"
                   />

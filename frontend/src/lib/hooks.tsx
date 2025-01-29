@@ -507,27 +507,32 @@ export function useWorkflowExecution(
   }
 }
 
-export function useCompactWorkflowExecution(
-  workflowExecutionId: string,
-  options?: {
-    refetchInterval?: number
-  }
-) {
+export function useCompactWorkflowExecution(workflowExecutionId?: string) {
   // if execution ID contains non-url-safe characters, decode it
   const { workspaceId } = useWorkspace()
   const {
     data: execution,
     isLoading: executionIsLoading,
     error: executionError,
-  } = useQuery<WorkflowExecutionReadCompact, ApiError>({
+  } = useQuery<WorkflowExecutionReadCompact | null, ApiError>({
     queryKey: ["compact-workflow-execution", workflowExecutionId],
-    queryFn: async () =>
-      await workflowExecutionsGetWorkflowExecutionCompact({
+    queryFn: async () => {
+      if (!workflowExecutionId) return null
+      return await workflowExecutionsGetWorkflowExecutionCompact({
         workspaceId,
-        executionId: workflowExecutionId,
-      }),
+        executionId: encodeURIComponent(workflowExecutionId),
+      })
+    },
     retry: retryHandler,
-    ...options,
+    staleTime: 0,
+    refetchInterval(query) {
+      switch (query.state.data?.status) {
+        case "RUNNING":
+          return 1000
+        default:
+          return false
+      }
+    },
   })
   return {
     execution,
@@ -544,32 +549,30 @@ export function useManualWorkflowExecution(
 ) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
-  // Create execution
+
   const { mutateAsync: createExecution, isPending: createExecutionIsPending } =
     useMutation({
-      mutationFn: async (params: WorkflowExecutionCreate) =>
-        await workflowExecutionsCreateWorkflowExecution({
+      mutationFn: async (params: WorkflowExecutionCreate) => {
+        return await workflowExecutionsCreateWorkflowExecution({
           workspaceId,
           requestBody: params,
-        }),
+        })
+      },
       onSuccess: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: ["last-manual-execution"],
-        })
-        await queryClient.invalidateQueries({
-          queryKey: ["last-manual-execution", workflowId],
-        })
-        // Force refetch
+        // NOTE(daryl): This is a hack to ensure that the last execution is refetched
+        // and the UI is updated.
+        await new Promise((resolve) => setTimeout(resolve, 50))
         await queryClient.refetchQueries({
           queryKey: ["last-manual-execution"],
           type: "all",
         })
         await queryClient.refetchQueries({
-          queryKey: ["last-manual-execution", workflowId],
+          queryKey: ["last-manual-execution"],
           type: "all",
         })
       },
     })
+
   // Last execution
   const {
     data: lastExecution,
@@ -585,6 +588,7 @@ export function useManualWorkflowExecution(
         limit: 1,
         userId: "current",
       })
+
       return executions.length > 0 ? executions[0] : null
     },
     staleTime: 0,
