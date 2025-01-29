@@ -108,9 +108,9 @@ def format_metadata(
         ),
     ],
     block_id: Annotated[
-        str,
-        Field(..., description="Block ID"),
-    ],
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc-metadata`."),
+    ] = None,
     as_columns: Annotated[
         bool,
         Field(
@@ -120,6 +120,7 @@ def format_metadata(
     ] = False,
 ) -> dict[str, Any]:
     metadata_str = "\n\n".join([f"**{k}**: {v}" for k, v in metadata.items()])
+    block_id = block_id or "tc-metadata"
     if as_columns:
         fields = [
             {"type": "mrkdwn", "text": f"**{k}**: {v}"} for k, v in metadata.items()
@@ -135,14 +136,44 @@ def format_metadata(
 
 
 @registry.register(
-    default_title="Format booleans",
-    description="Format boolean inputs into an interactive block of buttons.",
+    default_title="Format links",
+    description="Format a list of links into a block.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/reference/block-kit/blocks#input",
+    namespace="tools.slack_blocks",
+    secrets=[slack_secret],
+)
+def format_links(
+    links: Annotated[
+        list[str],
+        Field(
+            ...,
+            description='List of links (e.g. ["https://www.google.com", "https://www.yahoo.com"])',
+        ),
+    ],
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc-links`."),
+    ] = None,
+) -> dict[str, Any]:
+    block_id = block_id or "tc-links"
+    block = {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": "\n".join(links)},
+        "block_id": block_id,
+    }
+    return block
+
+
+@registry.register(
+    default_title="Format choices",
+    description="Format a list of choices into an interactive block of buttons.",
     display_group="Slack",
     doc_url="https://api.slack.com/reference/block-kit/blocks#actions",
     namespace="tools.slack_blocks",
     secrets=[slack_secret],
 )
-def format_booleans(
+def format_choices(
     labels: Annotated[
         list[str],
         Field(
@@ -157,12 +188,6 @@ def format_booleans(
             description='Unique values for each input (e.g. ["yes", "no"]). Max 2000 characters per value.',
         ),
     ],
-    block_id: Annotated[
-        str,
-        Field(
-            ..., description="Block ID. Recommendation: set workflow name as block ID."
-        ),
-    ],
     button_ids: Annotated[
         list[str] | None,
         Field(
@@ -170,7 +195,12 @@ def format_booleans(
             description='Unique identifiers for each input (e.g. ["yes", "no"]). Max 255 characters per identifier.',
         ),
     ] = None,
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc-choices`."),
+    ] = None,
 ) -> dict[str, Any]:
+    block_id = block_id or "tc-choices"
     buttons = [
         {
             "type": "button",
