@@ -119,11 +119,11 @@ def format_metadata(
         ),
     ] = False,
 ) -> dict[str, Any]:
-    metadata_str = "\n\n".join([f"**{k}**: {v}" for k, v in metadata.items()])
+    metadata_str = "\n\n".join([f"*{k}*: {v}" for k, v in metadata.items()])
     block_id = block_id or "tc-metadata"
     if as_columns:
         fields = [
-            {"type": "mrkdwn", "text": f"**{k}**: {v}"} for k, v in metadata.items()
+            {"type": "mrkdwn", "text": f"*{k}*: {v}"} for k, v in metadata.items()
         ]
         block = {"type": "section", "fields": fields}
     else:
@@ -151,15 +151,34 @@ def format_links(
             description='List of links (e.g. ["https://www.google.com", "https://www.yahoo.com"])',
         ),
     ],
+    labels: Annotated[
+        list[str] | None,
+        Field(..., description="Labels for the links."),
+    ] = None,
     block_id: Annotated[
         str | None,
         Field(..., description="Block ID. If None, defaults to `tc-links`."),
     ] = None,
+    max_length: Annotated[
+        int,
+        Field(..., description="Maximum length of the links."),
+    ] = 75,
 ) -> dict[str, Any]:
     block_id = block_id or "tc-links"
+    if labels:
+        try:
+            formatted_links = [
+                f"<{link}|{label}>" for link, label in zip(links, labels, strict=False)
+            ]
+        except ValueError as e:
+            raise ValueError(
+                f"`labels` and `links` must have the same length. Got {len(labels)} labels and {len(links)} links."
+            ) from e
+    else:
+        formatted_links = [f"<{link}|{link[:max_length]}>" for link in links]
     block = {
         "type": "section",
-        "text": {"type": "mrkdwn", "text": "\n".join(links)},
+        "text": {"type": "mrkdwn", "text": "\n".join(formatted_links)},
         "block_id": block_id,
     }
     return block
