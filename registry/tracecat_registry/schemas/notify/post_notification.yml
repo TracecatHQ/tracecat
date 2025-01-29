@@ -1,8 +1,8 @@
-# https://www.elastic.co/blog/distributed-alerting-with-elastic-stack
-# https://medium.com/brexeng/elevating-security-alert-management-using-automation-828004ad596c
 # https://support.pagerduty.com/main/docs/slack-user-guide
 # https://slack.com/marketplace-pages/servicenow-for-slack
 # https://incident.io/changelog/polishing-our-slack-messages
+# https://www.elastic.co/blog/distributed-alerting-with-elastic-stack
+# https://medium.com/brexeng/elevating-security-alert-management-using-automation-828004ad596c
 summary:
   type: str
   description: Brief one-line summary of the notification.
@@ -17,6 +17,6 @@ details:
 links:
   type: list[str]
   description: Links to add to the notification.
-actions:
+choices:
   type: list[str]
-  description: Interactive actions for user to take (e.g. "Confirm", "Deny").
+  description: List of possible boolean choices for user to take (e.g. "Confirm", "Deny").
