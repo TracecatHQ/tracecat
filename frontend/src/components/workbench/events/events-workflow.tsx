@@ -211,10 +211,10 @@ export function WorkflowEvents({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="h-8 w-[100px] text-xs font-semibold">
+              <TableHead className="h-8 text-xs font-semibold">
                 Status
               </TableHead>
-              <TableHead className="h-8 text-xs font-semibold">
+              <TableHead className="h-8 truncate text-xs font-semibold">
                 Action Reference
               </TableHead>
               <TableHead className="h-8 text-xs font-semibold">
@@ -235,7 +235,7 @@ export function WorkflowEvents({
                   onClick={() => handleRowClick(event.action_ref)}
                 >
                   <TableCell className="p-0 text-xs font-medium">
-                    <div className="flex size-full items-center justify-center py-3">
+                    <div className="flex size-full items-center justify-start py-3 pl-4">
                       <WorkflowEventStatusIcon status={event.status} />
                     </div>
                   </TableCell>
