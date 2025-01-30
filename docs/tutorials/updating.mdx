@@ -23,9 +23,10 @@ description: Learn how to safely update versions and run data migrations.
     version.
 
     ```
-    curl -o env-migration.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.21.9/env-migration.sh
-    curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.21.9/.env.example
+    curl -o env-migration.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.22.0/env-migration.sh
+    curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.22.0/.env.example
     ```
+
   </Step>
   <Step title="Execute environment variables migration">
     Run the environment variables migration script to update your existing
@@ -34,13 +35,15 @@ description: Learn how to safely update versions and run data migrations.
     ```
     chmod +x env-migration.sh && ./env-migration.sh
     ```
+
   </Step>
   <Step title="Update Docker Compose Configuration">
     Download the latest Docker Compose file.
 
     ```
-    curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.21.9/docker-compose.yml
+    curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.22.0/docker-compose.yml
     ```
+
   </Step>
   <Step title="Restart Tracecat">
     Run `docker compose up` using the new Docker Compose and `.env` files.
