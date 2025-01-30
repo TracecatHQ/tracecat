@@ -6,7 +6,7 @@ definition:
   doc_url: https://developer.jamf.com/jamf-pro/reference/post_v2-mdm-commands
   namespace: tools.jamf
   name: lock_device
-  inputs:
+  expects:
     device_id:
       type: str
       description: Management ID of the device to lock.

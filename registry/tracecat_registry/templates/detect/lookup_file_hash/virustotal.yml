@@ -10,9 +10,9 @@ definition:
     - name: virustotal
       keys: ["VIRUSTOTAL_API_KEY"]
   expects:
-  file_hash:
-    type: str
-    description: File hash to lookup.
+    file_hash:
+      type: str
+      description: File hash to lookup.
   steps:
     - ref: get_file_report
       action: core.http_request

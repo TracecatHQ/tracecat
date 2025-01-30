@@ -14,7 +14,7 @@ definition:
       type: str
       description: Prompt to ask the user. Supports Markdown.
     metadata:
-      type: dict[str, Any]
+      type: dict[str, any]
       description: Metadata to add to the response.
     channel:
       type: str
@@ -24,12 +24,12 @@ definition:
       description: Adds comment to a thread given the thread timestamp.
   steps:
     - ref: text_input_block
-      actions: tools.slack_blocks.format_text_input
+      action: tools.slack_blocks.format_text_input
       args:
         prompt: ${{ inputs.prompt }}
         is_trigger: true
     - ref: ask_input
-      actions: tools.slack.call_python_sdk
+      action: tools.slack.call_python_sdk
       args:
         sdk_method: chat_postMessage
         params:

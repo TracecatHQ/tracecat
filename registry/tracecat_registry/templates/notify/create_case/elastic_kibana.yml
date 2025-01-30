@@ -24,7 +24,7 @@ definition:
       description: Tags to categorize the incident.
       default: []
     custom_fields:
-      type: list[dict[str, Any]]
+      type: list[dict[str, any]]
       description: Custom fields to add to the incident.
       default: []
     base_url:
@@ -36,7 +36,7 @@ definition:
       default: cases
   steps:
     - ref: create_case
-      actions: core.http_request
+      action: core.http_request
       args:
         url: ${{ inputs.base_url }}/api/cases
         method: POST
