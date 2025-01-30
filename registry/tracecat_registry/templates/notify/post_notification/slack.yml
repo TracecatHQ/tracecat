@@ -45,7 +45,7 @@ definition:
       args:
         links: ${{ inputs.links }}
     - ref: blocks
-      action: tools.slack_blocks.format_block
+      action: core.transform.reshape
       args:
         blocks:
           - type: divider
