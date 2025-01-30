@@ -46,8 +46,8 @@ def add(
     include_in_schema=False,
 )
 def my_function(
-    age: Annotated[int, Field(30, description="Persons age in years")],
-    name: Annotated[str, Field(description="Name of the person")] = None,
+    age: Annotated[int, Doc("Persons age in years")] = 30,
+    name: Annotated[str | None, Doc("Name of the person")] = None,
     is_member: bool = False,
 ) -> Member:
     """My function
@@ -66,6 +66,7 @@ def my_function(
     Stats
         the result
     """
+    name = name or "John Doe"
     return Member(name=name, age=age, is_member=is_member)
 
 
