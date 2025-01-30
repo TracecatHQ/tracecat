@@ -290,12 +290,30 @@ def test_workspace(test_admin_user, authed_client_controls):
 
     get_client, cfg_write, cfg_read = authed_client_controls
     # Login
+    workspace_name = "__test_workspace"
     workspace: WorkspaceMetadataResponse | None = None
+
     try:
+        # First, try to delete any existing test workspace
+        with get_client() as client:
+            # Get all workspaces
+            response = client.get("/workspaces")
+            response.raise_for_status()
+            workspaces = response.json()
+
+            # Find and delete test workspace if it exists
+            for ws in workspaces:
+                if ws["name"] == workspace_name:
+                    logger.info("Found existing test workspace, deleting it first")
+                    delete_response = client.delete(f"/workspaces/{ws['id']}")
+                    delete_response.raise_for_status()
+                    break
+
+        # Create new test workspace
         with get_client() as client:
             response = client.post(
                 "/workspaces",
-                json={"name": "__test_workspace"},
+                json={"name": workspace_name},
             )
             response.raise_for_status()
             workspace = WorkspaceMetadataResponse(**response.json())
