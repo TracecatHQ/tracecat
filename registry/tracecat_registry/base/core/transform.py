@@ -4,8 +4,8 @@
 
 from typing import Annotated, Any
 
-from pydantic import Field
 from tracecat.expressions import functions
+from typing_extensions import Doc
 
 from tracecat_registry import registry
 
@@ -17,7 +17,10 @@ from tracecat_registry import registry
     display_group="Data Transform",
 )
 def reshape(
-    value: Annotated[Any, Field(..., description="The value to reshape")],
+    value: Annotated[
+        Any,
+        Doc("The value to reshape"),
+    ],
 ) -> Any:
     return value
 
@@ -29,12 +32,13 @@ def reshape(
     display_group="Data Transform",
 )
 def filter(
-    items: Annotated[list[Any], Field(..., description="A collection of items.")],
+    items: Annotated[
+        list[Any],
+        Doc("A collection of items."),
+    ],
     python_lambda: Annotated[
         str,
-        Field(
-            ..., description="A Python lambda function for filtering the collection."
-        ),
+        Doc("A Python lambda function for filtering the collection."),
     ],
 ) -> Any:
     return functions.filter_(items=items, python_lambda=python_lambda)
