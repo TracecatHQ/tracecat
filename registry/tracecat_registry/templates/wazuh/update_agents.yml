@@ -40,7 +40,7 @@ definition:
         url: ${{ SECRETS.wazuh.WAZUH_API_URL }}/agent/upgrade_result
         method: GET
         params:
-          agents_list: ${{ FN.join(steps.upgrade_agents.result.data.data.affected_items[*].id, ",") }}
+          agents_list: ${{ FN.join(steps.upgrade_agents.result.data.data.affected_items[*].agent, ",") }}
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
         verify_ssl: ${{ inputs.verify_ssl  }}
