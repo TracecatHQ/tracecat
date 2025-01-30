@@ -18,7 +18,7 @@ definition:
       description: Metadata to add to the response.
     channel:
       type: str
-      description: Slack channel to post the notification to.
+      description: ID that represents a channel, private group, or IM channel.
     thread_ts:
       type: str | None
       description: Adds comment to a thread given the thread timestamp.

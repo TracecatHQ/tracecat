@@ -27,7 +27,7 @@ definition:
       description: Links to add to the notification.
     channel:
       type: str
-      description: Slack channel to post the notification to.
+      description: ID that represents a channel, private group, or IM channel.
     thread_ts:
       type: str | None
       description: Timestamp of the thread to reply to.
@@ -35,7 +35,7 @@ definition:
     - ref: metadata_block
       action: tools.slack_blocks.format_metadata
       args:
-        metadata: ${{ inputs.details }}
+        metadata: ${{ inputs.metadata }}
     - ref: choices_block
       action: tools.slack_blocks.format_choices
       args:
@@ -47,17 +47,17 @@ definition:
     - ref: blocks
       action: core.transform.reshape
       args:
-        blocks:
+        value:
           - type: divider
           - type: section
+            block_id: summary
             text:
               type: mrkdwn
-              block_id: summary
               text: "*${{ inputs.summary }}*"
           - type: section
+            block_id: description
             text:
               type: mrkdwn
-              block_id: description
               text: ${{ inputs.description }}
           - ${{ steps.metadata_block.result }}
           - type: divider
