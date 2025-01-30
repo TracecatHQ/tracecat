@@ -9,14 +9,13 @@ summary:
 description:
   type: str
   description: Detailed description (supports Markdown) of the notification.
-details:
-  type: list
+metadata:
+  type: dict[str, str]
   description: >-
-    Fields to add to the notification in the format of list of tuples ("key", "value"),
-    e.g. [("severity", "high"), ("status", "open")].
-links:
-  type: list[str]
-  description: Links to add to the notification.
+    Mapping of field names and values (e.g. `{"status": "critical", "role": "admin"}`)
 choices:
   type: list[str]
   description: List of possible boolean choices for user to take (e.g. "Confirm", "Deny").
+links:
+  type: list[str]
+  description: Links to add to the notification.

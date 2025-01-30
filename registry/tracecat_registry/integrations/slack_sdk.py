@@ -4,6 +4,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
+from slugify import slugify
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
@@ -111,27 +112,14 @@ def format_metadata(
         str | None,
         Field(..., description="Block ID. If None, defaults to `tc-metadata`."),
     ] = None,
-    as_columns: Annotated[
-        bool,
-        Field(
-            ...,
-            description="Whether to organize the metadata into two columns.",
-        ),
-    ] = False,
 ) -> dict[str, Any]:
-    metadata_str = "\n\n".join([f"*{k}*: {v}" for k, v in metadata.items()])
+    metadata_str = "\n".join([f">*{k}*: {v}" for k, v in metadata.items()])
     block_id = block_id or "tc-metadata"
-    if as_columns:
-        fields = [
-            {"type": "mrkdwn", "text": f"*{k}*: {v}"} for k, v in metadata.items()
-        ]
-        block = {"type": "section", "fields": fields}
-    else:
-        block = {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": metadata_str},
-            "block_id": block_id,
-        }
+    block = {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": metadata_str},
+        "block_id": block_id,
+    }
     return block
 
 
@@ -153,16 +141,18 @@ def format_links(
     ],
     labels: Annotated[
         list[str] | None,
-        Field(..., description="Labels for the links."),
-    ] = None,
-    block_id: Annotated[
-        str | None,
-        Field(..., description="Block ID. If None, defaults to `tc-links`."),
+        Field(
+            ..., description="Labels for the links. If None, defaults to the link text."
+        ),
     ] = None,
     max_length: Annotated[
         int,
         Field(..., description="Maximum length of the links."),
     ] = 75,
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc-links`."),
+    ] = None,
 ) -> dict[str, Any]:
     block_id = block_id or "tc-links"
     if labels:
@@ -177,8 +167,8 @@ def format_links(
     else:
         formatted_links = [f"<{link}|{link[:max_length]}>" for link in links]
     block = {
-        "type": "section",
-        "text": {"type": "mrkdwn", "text": "\n".join(formatted_links)},
+        "type": "context",
+        "elements": [{"type": "mrkdwn", "text": "\n".join(formatted_links)}],
         "block_id": block_id,
     }
     return block
@@ -201,12 +191,12 @@ def format_choices(
         ),
     ],
     values: Annotated[
-        list[str],
+        list[str] | None,
         Field(
             ...,
-            description='Unique values for each input (e.g. ["yes", "no"]). Max 2000 characters per value.',
+            description='Unique values for each input (e.g. ["yes", "no"]). If None, defaults to a slugified version of the label.',
         ),
-    ],
+    ] = None,
     button_ids: Annotated[
         list[str] | None,
         Field(
@@ -220,6 +210,8 @@ def format_choices(
     ] = None,
 ) -> dict[str, Any]:
     block_id = block_id or "tc-choices"
+    if not values:
+        values = [slugify(label) for label in labels]
     buttons = [
         {
             "type": "button",
@@ -253,13 +245,13 @@ def format_text_input(
         str,
         Field(..., description="Prompt to ask the user."),
     ],
-    block_id: Annotated[
-        str | None,
-        Field(..., description="Block ID. If None, defaults to `tc-text-input`."),
-    ] = None,
     multiline: Annotated[
         bool,
         Field(..., description="Whether the input should be multiline."),
+    ] = False,
+    dispatch_action: Annotated[
+        bool,
+        Field(..., description="Whether pressing Enter submits the input."),
     ] = False,
     min_length: Annotated[
         int | None,
@@ -269,10 +261,14 @@ def format_text_input(
         int | None,
         Field(..., description="Maximum length of the text input."),
     ] = None,
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc-text-input`."),
+    ] = None,
 ) -> dict[str, Any]:
     block_id = block_id or "tc-text-input"
     block = {
-        "dispatch_action": True,
+        "dispatch_action": dispatch_action,
         "type": "input",
         "label": {"type": "plain_text", "emoji": True, "text": prompt},
         "element": {
@@ -280,7 +276,7 @@ def format_text_input(
             "multiline": multiline,
             "min_length": min_length,
             "max_length": max_length,
-            "dispatch_action_config": {"trigger_actions_on": ["on_character_entered"]},
+            "dispatch_action_config": {"trigger_actions_on": ["on_enter_pressed"]},
         },
         "block_id": block_id,
     }

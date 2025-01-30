@@ -1,5 +1,3 @@
-# https://incident.io/changelog/polishing-our-slack-messages
-# https://incident.io/changelog/send-alerts-to-slack
 type: action
 definition:
   title: Post notification
@@ -17,18 +15,16 @@ definition:
     description:
       type: str
       description: Detailed description (supports Markdown) of the notification.
-    details:
-      type: list
+    metadata:
+      type: dict[str, str]
       description: >-
-        Fields to add to the notification in the format of list of tuples ("key", "value"),
-        e.g. [("severity", "high"), ("status", "open")].
+        Mapping of field names and values (e.g. `{"status": "critical", "role": "admin"}`)
+    choices:
+      type: list[str]
+      description: List of possible boolean choices for user to take (e.g. "Confirm", "Deny").
     links:
       type: list[str]
       description: Links to add to the notification.
-    actions:
-      type: list[str]
-      description: Interactive actions for user to take (e.g. "Confirm", "Deny").
-      default: ["Confirm", "Deny"]
     channel:
       type: str
       description: Slack channel to post the notification to.
@@ -36,38 +32,37 @@ definition:
       type: str | None
       description: Timestamp of the thread to reply to.
   steps:
-    - ref: detail_fields
-      action: core.transform.reshape
+    - ref: metadata_block
+      actions: tools.slack_blocks.format_metadata
       args:
-        value: >
-          ${{ FN.map(inputs.details, "lambda x: {'type': 'mrkdwn', 'text': f'**{x[0]}**: `{x[1]}`'}") }}
-    - ref: action_elements
-      action: core.transform.reshape
+        metadata: ${{ inputs.details }}
+    - ref: choices_block
+      actions: tools.slack_blocks.format_choices
       args:
-        value: >
-          ${{ FN.map(inputs.actions, "lambda x: {'type': 'button', 'value': x, 'text': {'type': 'plain_text', 'text': x, 'emoji': True}}") }}
-    - ref: content_blocks
-      action: core.transform.reshape
+        labels: ${{ inputs.choices }}
+    - ref: links_block
+      actions: tools.slack_blocks.format_links
       args:
-        value:
-          - type: context
-            elements:
-              - type: mrkdwn
-                text: ${{ inputs.summary }}
+        links: ${{ inputs.links }}
+    - ref: blocks
+      actions: tools.slack_blocks.format_block
+      args:
+        blocks:
+          - type: divider
           - type: section
             text:
               type: mrkdwn
-              text: ${{ inputs.description }}
+              block_id: summary
+              text: "*${{ inputs.summary }}*"
           - type: section
-            fields: ${{ steps.details.result }
+            text:
+              type: mrkdwn
+              block_id: description
+              text: ${{ inputs.description }}
+          - ${{ steps.metadata_block.result }}
           - type: divider
-          - type: actions
-            elements: ${{ steps.actions.result }}
-    - ref: link_blocks
-      action: core.transform.reshape
-      args:
-        value: >
-          ${{ FN.map(inputs.links, "lambda x: {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': f'<{x}|{x}>'}]}") }}
+          - ${{ steps.choices_block.result }}
+          - ${{ steps.links_block.result }}
     - ref: post_message
       action: tools.slack.call_python_sdk
       args:
@@ -76,5 +71,8 @@ definition:
           channel: ${{ inputs.channel }}
           text: ${{ inputs.summary }}
           thread_ts: ${{ inputs.thread_ts }}
-          blocks: ${{ FN.flatten(steps.content_blocks.result, steps.link_blocks.result) }}
+          metadata:
+            event_type: notification
+            event_payload: ${{ inputs.metadata }}
+          blocks: ${{ steps.blocks.result }}
   returns: ${{ steps.post_message.result.message }}

@@ -27,6 +27,7 @@ definition:
       actions: tools.slack_blocks.format_text_input
       args:
         prompt: ${{ inputs.prompt }}
+        is_trigger: true
     - ref: ask_input
       actions: tools.slack.call_python_sdk
       args:
