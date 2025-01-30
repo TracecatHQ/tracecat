@@ -6,7 +6,7 @@ from typing import Annotated
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry
-from tracecat_registry.tools.aws_boto3 import get_session
+from tracecat_registry.integrations.aws_boto3 import get_session
 
 # Add this at the top with other constants
 BUCKET_REGEX = re.compile(r"^[a-z0-9][a-z0-9.-]*[a-z0-9]$")
