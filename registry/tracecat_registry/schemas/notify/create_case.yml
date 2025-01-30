@@ -21,7 +21,7 @@ custom_fields:
   type: list[dict[str, any]]
   description: Custom fields to add to the incident.
   default: []
-severity_to_custom_field:
+severity_to_<custom_field>:
   type: dict[str, str] | None
   description: |
     Optional mapping of severity to a custom field in the ticketing system.
