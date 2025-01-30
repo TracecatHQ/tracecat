@@ -114,7 +114,7 @@ def format_metadata(
     ] = None,
 ) -> dict[str, Any]:
     metadata_str = "\n".join([f">*{k}*: {v}" for k, v in metadata.items()])
-    block_id = block_id or "tc-metadata"
+    block_id = block_id or "tc_metadata"
     block = {
         "type": "section",
         "text": {"type": "mrkdwn", "text": metadata_str},
@@ -154,7 +154,7 @@ def format_links(
         Field(..., description="Block ID. If None, defaults to `tc-links`."),
     ] = None,
 ) -> dict[str, Any]:
-    block_id = block_id or "tc-links"
+    block_id = block_id or "tc_links"
     if labels:
         try:
             formatted_links = [
@@ -209,9 +209,11 @@ def format_choices(
         Field(..., description="Block ID. If None, defaults to `tc-choices`."),
     ] = None,
 ) -> dict[str, Any]:
-    block_id = block_id or "tc-choices"
+    block_id = block_id or "tc_choices"
     if not values:
         values = [slugify(label) for label in labels]
+    if not button_ids:
+        button_ids = [slugify(label) for label in labels]
     buttons = [
         {
             "type": "button",
@@ -220,14 +222,13 @@ def format_choices(
         }
         for input, value in zip(labels, values, strict=False)
     ]
-    if button_ids:
-        buttons = [
-            {
-                **button,
-                "action_id": identifier,
-            }
-            for button, identifier in zip(buttons, button_ids, strict=False)
-        ]
+    buttons = [
+        {
+            **button,
+            "action_id": button_id,
+        }
+        for button, button_id in zip(buttons, button_ids, strict=False)
+    ]
     block = {"type": "actions", "elements": buttons, "block_id": block_id}
     return block
 
@@ -255,24 +256,27 @@ def format_text_input(
     ] = False,
     min_length: Annotated[
         int | None,
-        Field(..., description="Minimum length of the text input."),
+        Field(..., description="Min length of the text input. Defaults to 1."),
     ] = None,
     max_length: Annotated[
         int | None,
-        Field(..., description="Maximum length of the text input."),
+        Field(..., description="Max length of the text input. Defaults to 255."),
     ] = None,
     block_id: Annotated[
         str | None,
         Field(..., description="Block ID. If None, defaults to `tc-text-input`."),
     ] = None,
 ) -> dict[str, Any]:
-    block_id = block_id or "tc-text-input"
+    block_id = block_id or "tc_text_input"
+    min_length = min_length or 1
+    max_length = max_length or 255
     block = {
         "dispatch_action": dispatch_action,
         "type": "input",
         "label": {"type": "plain_text", "emoji": True, "text": prompt},
         "element": {
             "type": "plain_text_input",
+            "action_id": block_id,
             "multiline": multiline,
             "min_length": min_length,
             "max_length": max_length,
