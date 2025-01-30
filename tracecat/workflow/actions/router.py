@@ -1,5 +1,6 @@
 import yaml
 from fastapi import APIRouter, HTTPException, status
+from pydantic_core import PydanticUndefined
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 
@@ -8,6 +9,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Action
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.workflow.actions.models import (
     ActionControlFlow,
     ActionCreate,
@@ -112,6 +114,19 @@ async def get_action(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
+
+    # Add default value for input if it's empty
+    if len(action.inputs) == 0:
+        # Lookup action type in the registry
+        ra_service = RegistryActionsService(session, role=role)
+        reg_action = await ra_service.load_action_impl(action.type)
+        # We want to construct a YAML string that contains the defaults
+        prefilled_inputs = "\n".join(
+            f"{field}:"
+            for field, field_info in reg_action.args_cls.model_fields.items()
+            if field_info.default is PydanticUndefined
+        )
+        action.inputs = prefilled_inputs
 
     return ActionRead(
         id=action.id,
