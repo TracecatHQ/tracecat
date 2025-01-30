@@ -18,14 +18,14 @@ slack_secret = RegistrySecret(name="slack", keys=["SLACK_BOT_TOKEN"])
 
 
 @registry.register(
-    default_title="Call Slack SDK",
+    default_title="Call method",
     description="Instantiate a Slack client and call a Slack SDK method.",
-    display_group="Slack",
+    display_group="Slack SDK",
     doc_url="https://api.slack.com/methods",
-    namespace="tools.slack",
+    namespace="tools.slack_sdk",
     secrets=[slack_secret],
 )
-async def call_python_sdk(
+async def call_method(
     sdk_method: Annotated[
         str,
         Field(
@@ -46,14 +46,14 @@ async def call_python_sdk(
 
 
 @registry.register(
-    default_title="Call paginated Slack SDK",
+    default_title="Call paginated method",
     description="Instantiate a Slack client and call a paginated Slack SDK method.",
-    display_group="Slack",
+    display_group="Slack SDK",
     doc_url="https://api.slack.com/methods",
-    namespace="tools.slack",
+    namespace="tools.slack_sdk",
     secrets=[slack_secret],
 )
-async def call_python_sdk_paginated(
+async def call_paginated_method(
     sdk_method: Annotated[
         str,
         Field(

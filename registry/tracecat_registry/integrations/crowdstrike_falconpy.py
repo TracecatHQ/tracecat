@@ -21,14 +21,14 @@ crowdstrike_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Call FalconPy API",
+    default_title="Call command",
     description="Instantiate a FalconPy Uber Class client and call a FalconPy API method.",
-    display_group="Crowdstrike",
+    display_group="FalconPy",
     doc_url="https://falconpy.io/Usage/Basic-Uber-Class-usage.html",
-    namespace="tools.crowdstrike",
+    namespace="tools.falconpy",
     secrets=[crowdstrike_secret],
 )
-async def call_falconpy_command(
+async def call_command(
     operation_id: Annotated[
         str,
         Field(

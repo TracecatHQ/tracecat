@@ -22,11 +22,11 @@ mongodb_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Execute database operation",
+    default_title="Execute operation",
     description="Instantiate a PyMongo client and execute an operation on a Collection object.",
-    display_group="MongoDB",
+    display_group="PyMongo",
     doc_url="https://pymongo.readthedocs.io/en/stable/api/pymongo/asynchronous/collection.html",
-    namespace="tools.mongodb",
+    namespace="tools.pymongo",
     secrets=[mongodb_secret],
 )
 async def execute_operation(

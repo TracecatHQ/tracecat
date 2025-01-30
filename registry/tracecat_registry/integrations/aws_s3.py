@@ -40,7 +40,7 @@ s3_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Parse S3 URI",
+    default_title="Parse URI",
     description="Parse an S3 URI into bucket name and object key.",
     display_group="AWS S3",
     doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3-example-download-file.html",
@@ -61,7 +61,7 @@ async def parse_uri(uri: str) -> tuple[str, str]:
 
 
 @registry.register(
-    default_title="Get S3 object",
+    default_title="Get object",
     description="Download an object from S3 and return its body as a string.",
     display_group="AWS S3",
     doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.get_object",

@@ -24,11 +24,11 @@ tenable_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Call Nessus API",
+    default_title="Call API",
     description="Instantiate a pyTenable Nessus client and call a Nessus API method.",
-    display_group="Tenable Nessus",
+    display_group="pyTenable",
     doc_url="https://pytenable.readthedocs.io/en/stable/api/nessus/index.html",
-    namespace="tools.tenable_nessus",
+    namespace="tools.pytenable",
     secrets=[tenable_secret],
 )
 async def call_api(
