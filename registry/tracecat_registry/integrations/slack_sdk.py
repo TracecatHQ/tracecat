@@ -238,3 +238,50 @@ def format_choices(
         ]
     block = {"type": "actions", "elements": buttons, "block_id": block_id}
     return block
+
+
+@registry.register(
+    default_title="Format text input",
+    description="Format a text input block.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/reference/block-kit/block-elements#input",
+    namespace="tools.slack_blocks",
+    secrets=[slack_secret],
+)
+def format_text_input(
+    prompt: Annotated[
+        str,
+        Field(..., description="Prompt to ask the user."),
+    ],
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc-text-input`."),
+    ] = None,
+    multiline: Annotated[
+        bool,
+        Field(..., description="Whether the input should be multiline."),
+    ] = False,
+    min_length: Annotated[
+        int | None,
+        Field(..., description="Minimum length of the text input."),
+    ] = None,
+    max_length: Annotated[
+        int | None,
+        Field(..., description="Maximum length of the text input."),
+    ] = None,
+) -> dict[str, Any]:
+    block_id = block_id or "tc-text-input"
+    block = {
+        "dispatch_action": True,
+        "type": "input",
+        "label": {"type": "plain_text", "emoji": True, "text": prompt},
+        "element": {
+            "type": "plain_text_input",
+            "multiline": multiline,
+            "min_length": min_length,
+            "max_length": max_length,
+            "dispatch_action_config": {"trigger_actions_on": ["on_character_entered"]},
+        },
+        "block_id": block_id,
+    }
+    return block
