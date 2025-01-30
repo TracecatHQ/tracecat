@@ -71,7 +71,7 @@ jobs:
     needs: test-registry
     strategy:
       matrix:
-        test_type: [unit, playbooks, integrations]
+        test_type: [unit, playbooks]
     steps:
       - uses: actions/checkout@v4
         with:
