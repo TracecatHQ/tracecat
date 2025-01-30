@@ -22,6 +22,9 @@ definition:
     choices:
       type: list[str]
       description: List of possible boolean choices for user to take (e.g. "Confirm", "Deny").
+    prompt:
+      type: str
+      description: Prompt to ask the user.
     links:
       type: list[str]
       description: Links to add to the notification.
@@ -40,6 +43,10 @@ definition:
       action: tools.slack_blocks.format_choices
       args:
         labels: ${{ inputs.choices }}
+    - ref: totp_input_block
+      action: tools.slack_blocks.format_text_input
+      args:
+        prompt: ${{ inputs.prompt }}
     - ref: links_block
       action: tools.slack_blocks.format_links
       args:
@@ -61,6 +68,7 @@ definition:
               text: ${{ inputs.description }}
           - ${{ steps.metadata_block.result }}
           - type: divider
+          - ${{ steps.totp_input_block.result }}
           - ${{ steps.choices_block.result }}
           - ${{ steps.links_block.result }}
     - ref: post_message
