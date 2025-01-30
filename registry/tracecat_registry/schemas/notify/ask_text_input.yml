@@ -1,12 +1,6 @@
 prompt:
   type: str
   description: Prompt to ask the user. Supports Markdown.
-is_long:
-  type: bool
-  description: If True, the user will be asked for a long text input.
-max_length:
-  type: int
-  description: Maximum length of the text input.
 metadata:
   type: dict[str, Any]
   description: Metadata to add to the response.

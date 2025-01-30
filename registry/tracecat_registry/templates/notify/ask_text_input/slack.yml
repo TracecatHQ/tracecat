@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Ask text input
+  description: Ask the user for a text input.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/chat.postMessage
+  namespace: tools.slack
+  name: ask_text_input
+  secrets:
+    - name: slack
+      keys: ["SLACK_BOT_TOKEN"]
+  expects:
+    prompt:
+      type: str
+      description: Prompt to ask the user. Supports Markdown.
+    metadata:
+      type: dict[str, Any]
+      description: Metadata to add to the response.
+    channel:
+      type: str
+      description: Slack channel to post the notification to.
+    thread_ts:
+      type: str | None
+      description: Adds comment to a thread given the thread timestamp.
+  steps:
+    - ref: text_input_block
+      actions: tools.slack_blocks.format_text_input
+      args:
+        prompt: ${{ inputs.prompt }}
+    - ref: ask_input
+      actions: tools.slack.call_python_sdk
+      args:
+        sdk_method: chat_postMessage
+        params:
+          channel: ${{ inputs.channel }}
+          text: ${{ inputs.prompt }}
+          metadata:
+            event_type: text_input
+            event_payload: ${{ inputs.metadata }}
+          thread_ts: ${{ inputs.thread_ts }}
+          blocks:
+            - ${{ steps.text_input_block.result }}
+  returns: ${{ steps.ask_input.result }}
