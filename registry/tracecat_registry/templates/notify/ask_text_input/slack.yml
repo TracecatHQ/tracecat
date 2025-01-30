@@ -29,7 +29,7 @@ definition:
         prompt: ${{ inputs.prompt }}
         is_trigger: true
     - ref: ask_input
-      action: tools.slack.call_python_sdk
+      action: tools.slack_sdk.call_method
       args:
         sdk_method: chat_postMessage
         params:

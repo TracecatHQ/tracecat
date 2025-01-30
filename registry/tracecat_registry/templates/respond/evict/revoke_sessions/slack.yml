@@ -12,7 +12,7 @@ definition:
       description: ID of an existing user.
   steps:
     - ref: reset_sessions
-      action: tools.slack.call_python_sdk
+      action: tools.slack_sdk.call_method
       args:
         sdk_method: admin_users_session_reset
         params:

@@ -29,7 +29,7 @@ definition:
       default: null
   steps:
     - ref: query_alerts
-      action: tools.crowdstrike.call_falconpy_command
+      action: tools.falconpy.call_command
       args:
         operation_id: GetQueriesAlertsV2
         member_cid: ${{ inputs.member_cid }}

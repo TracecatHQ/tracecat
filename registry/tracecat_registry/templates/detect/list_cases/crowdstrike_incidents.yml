@@ -29,7 +29,7 @@ definition:
       default: null
   steps:
     - ref: query_incidents
-      action: tools.crowdstrike.call_falconpy_command
+      action: tools.falconpy.call_command
       args:
         operation_id: QueryIncidents
         member_cid: ${{ inputs.member_cid }}
@@ -37,7 +37,7 @@ definition:
           filter: ${{ inputs.query || "created_date:>='FN.to_isoformat(inputs.start_time)' + created_date:<'FN.to_isoformat(inputs.end_time)'"  }}
           limit: ${{ inputs.limit }}
     - ref: get_incidents
-      action: tools.crowdstrike.call_falconpy_command
+      action: tools.falconpy.call_command
       args:
         operation_id: GetIncidents
         member_cid: ${{ inputs.member_cid }}

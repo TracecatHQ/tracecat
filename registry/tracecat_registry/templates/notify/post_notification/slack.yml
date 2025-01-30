@@ -64,7 +64,7 @@ definition:
           - ${{ steps.choices_block.result }}
           - ${{ steps.links_block.result }}
     - ref: post_message
-      action: tools.slack.call_python_sdk
+      action: tools.slack_sdk.call_method
       args:
         sdk_method: chat_postMessage
         params:
