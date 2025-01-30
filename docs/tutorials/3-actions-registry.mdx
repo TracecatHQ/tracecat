@@ -1,0 +1,113 @@
+---
+title: Actions Registry
+description: Learn how to use and modify pre-built integrations in your workflows.
+---
+
+## Goals
+
+By the end of this tutorial, you will learn:
+
+- How to create new actions from **Action Templates** in the **Actions Registry**
+- How to use **Action Templates** to create more powerful integrations
+- How to update an existing **Action Template** across all workflows directly in the UI
+
+## Prerequisites
+
+- Completed the [Quickstart](/tutorials/quickstart) tutorial
+- Completed the [Control Flow](/tutorials/control-flow) tutorial
+
+## Tutorial
+
+<Steps>
+    <Step title="Check out the Actions Registry">
+        Go to the **Actions Registry** by clicking on the **Registry** tab back in the workflows view.
+        ![Actions Registry](/img/tutorials/actions-registry/actions-registry.png)
+
+        Actions are registered at the organization level and can be used across all workflows and workspaces.
+    </Step>
+    <Step title="Clone existing Action Template">
+        Let's create a new action called `Is URL malicious`.
+        First, find and clone the existing `Search URL with VirusTotal` action template by selecting **New from template** in Action Registry.
+        ![Clone Template](/img/tutorials/actions-registry/clone-template.png)
+    </Step>
+    <Step title="Edit the new action">
+        Edit the action to get the VirusTotal report, check if the URL is malicious, and return a single boolean value.
+        Copy the following configuration into the YAML editor:
+
+        ```yaml
+        name: is_url_malicious
+        namespace: integrations.virustotal
+        title: Is URL malicious
+        description: Check if URL is marked as malicious in the VirusTotal.
+        display_group: VirusTotal
+        secrets:
+          - name: virustotal
+            keys:
+              - VIRUSTOTAL_API_KEY
+        expects:
+          url:
+            type: str
+            description: The URL to search
+        steps:
+          - ref: is_url_malicious
+            action: core.http_request
+            args:
+              url: https://www.virustotal.com/api/v3/urls/${{
+                FN.strip(FN.to_base64url(inputs.url), "=") }}
+              method: GET
+              headers:
+                x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+        returns: ${{ FN.greater_than_or_equal(steps.is_url_malicious.result.data.data.attributes.last_analysis_stats.malicious, 1) }}
+        ```
+    </Step>
+    <Step title="Replace actions in workflow">
+        Go back to `Enrich URL with VirusTotal` workflow and replace the `Search URL with VirusTotal` and `Extract VirusTotal report` actions with the new `Is URL malicious` action.
+    </Step>
+    <Step title="Remove the if-condition and update action result references">
+        Remove the previously created if-condition from `List VirusTotal comments on URL` action **Control Flow** tab.
+
+        Update the `List VirusTotal comments on URL` action Input to use the trigger URL:
+
+        ```yaml
+        url: ${{ TRIGGER.url }}
+        ```
+    </Step>
+    <Step title="Modify output data">
+        Click on the canvas to view workflow settings, then go to the **Schema** tab.
+        Modify the **Output Schema** to following:
+        ```
+        Url: ${{ TRIGGER.url }}
+        Comment count: ${{ ACTIONS.list_virustotal_comments_on_url.result.data.meta.count }}
+        Is URL malicious: ${{ ACTIONS.is_url_malicious.result }}
+        ```
+    </Step>
+    <Step title="Run the workflow">
+        Click on the **Run** button to execute the workflow. Use the same sample payload:
+        ```json
+        {"url": "https://crowdstrikebluescreen.com"}
+        ```
+        The results will be similar to the previous tutorial.
+    </Step>
+</Steps>
+
+## Why use Action Templates?
+
+Action templates allow you to:
+
+- Define explicit input and output schemas for your integrations
+- Combine actions into reusable pieces of tradecraft that aren't just API calls
+- Build integrations that are easier to edit across workflows
+- Declutter your workflows with fewer filler actions
+
+## Best Practices
+
+- **Action templates** should contain logic for only one integration.
+- **Action templates** should be simple and contain at most three actions.
+- **Action templates** should be used to normalize input and output data between actions.
+- **Action templates** are not mini-workflows.
+
+## Next Steps
+
+- Learn how to combine smaller workflows into a single workflow. View the tutorial [here](/tutorials/4-child-workflows).
+- Learn how to receive external events (e.g. from your SIEM) and configure schedules to trigger workflows. View the tutorial [here](/tutorials/5-triggers).
+- Learn how to sync custom Python integrations from GitHub. View the tutorial [here](/tutorials/6-custom-integrations).
