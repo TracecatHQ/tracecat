@@ -122,7 +122,7 @@ async def get_action(
         reg_action = await ra_service.load_action_impl(action.type)
         # We want to construct a YAML string that contains the defaults
         prefilled_inputs = "\n".join(
-            f"{field}:"
+            f"{field}: "
             for field, field_info in reg_action.args_cls.model_fields.items()
             if field_info.default is PydanticUndefined
         )
