@@ -37,7 +37,7 @@ Deploy a local Tracecat stack using Docker Compose. View full instructions [here
 # Download Tracecat
 git clone https://github.com/TracecatHQ/tracecat.git
 
-# Setup environment variables
+# Generate .env file
 ./env.sh
 
 # Run Tracecat

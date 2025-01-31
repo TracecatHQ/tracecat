@@ -80,6 +80,12 @@
       ]
     },
     {
+      "group": "Self Host",
+      "pages": [
+        "self-hosting/introduction"
+      ]
+    },
+    {
       "group": "Data Manipulation",
       "pages": [
         "data-types/json",

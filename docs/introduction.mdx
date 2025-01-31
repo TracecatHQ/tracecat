@@ -4,12 +4,12 @@ description: A quick overview of Tracecat
 ---
 
 [Tracecat](https://tracecat.com) is the open workflow automation platform for security and IT engineers.
-It's an open source SOAR / Tines alternative with response-as-code.
-Tracecat is built on simple YAML templates for integrations, no-code UI for workflows, and Temporal for scale and reliability.
+It's an open source Tines / Splunk SOAR alternative with response-as-code.
+Tracecat is built on a simple YAML-based DSL for integrations, no-code UI for workflows, and [Temporal](https://temporal.io/) for scale and reliability.
 
 ## Why Tracecat?
 
-We're on a mission to make security and IT automation more accessible through response-as-code.
+We're on a mission to make security and IT automation more accessible through **response-as-code**.
 What Sigma rules did for detection and Nuclei did for vulnerability scanning, Tracecat is doing for response automation.
 
 ## Get Started
@@ -33,16 +33,16 @@ What Sigma rules did for detection and Nuclei did for vulnerability scanning, Tr
     Trigger a workflow via the UI, webhook, or schedule.
   </Card>
   <Card title="Build a template action" icon="code" href="/tutorials/build-templates">
-    Turn API calls into reusable YAML template actions.
+    Turn API calls into reusable YAML-based integrations.
   </Card>
   <Card title="Git repository" icon="code-branch" href="/tutorials/git-repository">
-    Manage custom YAML templates and Python actions in a git repository.
+    Manage custom Python scripts and YAML templates in git.
   </Card>
   <Card title="Child workflows" icon="diagram-project" href="/tutorials/child-workflows">
     Execute a workflow from another workflow.
   </Card>
-  <Card title="Explode and implode" icon="arrow-rotate-right" href="/tutorials/explode-implode">
-    Explode and implode data to work with it in child workflows.
+  <Card title="Loops" icon="arrow-rotate-right" href="/tutorials/loops">
+    Explode-implode lists of data in actions and workflows.
   </Card>
   <Card title="Send alerts on failure" icon="bell" href="/tutorials/alert-on-failure">
     Set up a Slack alert to notify your team when a workflow fails.
@@ -85,12 +85,12 @@ What Sigma rules did for detection and Nuclei did for vulnerability scanning, Tr
     Handle datetimes, deltas, and timestamps.
   </Card>
   <Card title="Strings" icon="font" href="/data-types/strings">
-    Manipulate and select data from strings.
+    Transform and regex match strings.
   </Card>
   <Card title="Booleans" icon="toggle-on" href="/data-types/booleans">
-    Work with truthy and falsely values and conditions.
+    Work with truthy and falsely values.
   </Card>
-  <Card title="Cryptography" icon="key" href="/data-types/cryptograph">
-    Perform cryptograph methods.
+  <Card title="Cryptography" icon="key" href="/data-types/cryptography">
+    Hash, encrypt, and decrypt data.
   </Card>
 </CardGroup>
