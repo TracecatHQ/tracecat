@@ -246,7 +246,7 @@ class DSLRunArgs(BaseModel):
 class ExecuteChildWorkflowArgs(BaseModel):
     workflow_id: WorkflowUUID | None = None
     workflow_alias: str | None = None
-    trigger_inputs: TriggerInputs
+    trigger_inputs: TriggerInputs | None = None
     environment: str | None = None
     version: int | None = None
     loop_strategy: LoopStrategy = LoopStrategy.BATCH

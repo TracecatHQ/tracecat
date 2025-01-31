@@ -2,10 +2,10 @@
 # XXX(WARNING): Do not import __future__ annotations from typing
 # This will cause class types to be resolved as strings
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
-from pydantic import Field
-from tracecat.llm import DEFAULT_MODEL_TYPE, route_llm_call
+from tracecat.llm import DEFAULT_MODEL_TYPE, ModelType, route_llm_call
+from typing_extensions import Doc
 
 from tracecat_registry import RegistrySecret, registry
 
@@ -30,12 +30,17 @@ llm_secret = RegistrySecret(
     secrets=[llm_secret],
 )
 async def ai_action(
-    prompt: Annotated[str, Field(description="The prompt to send to the AI")],
+    prompt: Annotated[
+        str,
+        Doc("The prompt to send to the AI"),
+    ],
     system_context: Annotated[
-        str, Field(description="The system context")
+        str,
+        Doc("The system context"),
     ] = DEFAULT_SYSTEM_CONTEXT,
     execution_context: Annotated[
-        dict[str, Any] | None, Field(description="The current execution context")
+        dict[str, Any] | None,
+        Doc("The current execution context"),
     ] = None,
     model: Annotated[
         Literal[
@@ -50,12 +55,14 @@ async def ai_action(
             "gpt-4-vision-preview",
             "gpt-3.5-turbo-0125",
         ],
-        Field(
-            description="The AI Model to use. If you use an OpenAI model (gpt family), you must have the `OPENAI_API_KEY` secret set.",
+        Doc(
+            "The AI Model to use. If you use an OpenAI model (gpt family),"
+            " you must have the `OPENAI_API_KEY` secret set."
         ),
-    ] = DEFAULT_MODEL_TYPE,
+    ] = DEFAULT_MODEL_TYPE.value,
     additional_config: Annotated[
-        dict[str, Any] | None, Field(description="Additional configuration")
+        dict[str, Any] | None,
+        Doc("Additional configuration"),
     ] = None,
 ):
     exec_ctx_str = (
@@ -79,6 +86,6 @@ async def ai_action(
     return await route_llm_call(
         prompt=prompt,
         system_context=system_context,
-        model=model,
+        model=cast(ModelType, model),
         additional_config=additional_config,
     )

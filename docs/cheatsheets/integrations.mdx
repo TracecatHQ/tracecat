@@ -1,0 +1,175 @@
+---
+title: Integrations
+description: A cheatsheet of all the integrations and their required secrets.
+---
+
+## API Credentials
+
+The secret keys required by each secret are listed below.
+| Secret Name | Required Keys | Optional Keys |
+| --- | --- | --- |
+| `abuseipdb` | `ABUSEIPDB_API_KEY` | - |
+| `alienvault` | `OTX_API_KEY` | - |
+| `ansible` | - | `ANSIBLE_PASSWORDS` `ANSIBLE_SSH_KEY` |
+| `aws` | - | `AWS_ACCESS_KEY_ID` `AWS_PROFILE_NAME` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
+| `censys` | `CENSYS_API_KEY` | - |
+| `checkpoint` | `CHECKPOINT_ACCESS_KEY` `CHECKPOINT_AUTH_URL` `CHECKPOINT_CLIENT_ID` | - |
+| `crowdsec_cti` | `CTI_API_KEY` | - |
+| `crowdsec` | `CROWDSEC_API_TOKEN` | - |
+| `crowdsec` | `CROWDSEC_API_TOKEN` `CROWDSEC_API_URL` | - |
+| `crowdstrike` | `CROWDSTRIKE_CLIENT_ID` `CROWDSTRIKE_CLIENT_SECRET` | - |
+| `datadog` | `DATADOG_API_KEY` `DATADOG_API_URL` `DATADOG_APP_KEY` | - |
+| `elastic` | `ELASTIC_API_KEY` `ELASTIC_API_URL` | - |
+| `emailrep` | `EMAILREP_API_KEY` | - |
+| `google_api` | `GOOGLE_API_CREDENTIALS` | - |
+| `google_secops_soar` | `API_TOKEN` | - |
+| `hybrid_analysis` | `HYBRID_ANALYSIS_API_KEY` | - |
+| `jamf` | `JAMF_BASE_URL` `JAMF_CLIENT_ID` `JAMF_CLIENT_SECRET` | - |
+| `jira` | - | `JIRA_API_TOKEN` `JIRA_BASE64_TOKEN` `JIRA_USEREMAIL` |
+| `ldap` | `LDAP_HOST` `LDAP_PASSWORD` `LDAP_PORT` `LDAP_USER` | - |
+| `limacharlie` | `LIMACHARLIE_SECRET` `LIMACHARLIE_UID` | `LIMACHARLIE_OID` |
+| `llm` | - | `OPENAI_API_KEY` |
+| `malwarebazaar` | `MALWAREBAZAAR_API_KEY` | - |
+| `microsoft_graph` | `MICROSOFT_GRAPH_CLIENT_ID` `MICROSOFT_GRAPH_CLIENT_SECRET` | `MICROSOFT_GRAPH_SCOPES` `MICROSOFT_OIDC_AUTHORITY` `MICROSOFT_TOKEN_AUTHORITY` |
+| `mongodb` | `MONGODB_CONNECTION_STRING` | - |
+| `okta` | `OKTA_API_TOKEN` | - |
+| `optional_secret` | `REQUIRED_KEY1` `REQUIRED_KEY2` | `OPTIONAL_KEY1` |
+| `pulsedive` | `PULSEDIVE_API_KEY` | - |
+| `s3` | - | `AWS_ACCESS_KEY_ID` `AWS_PROFILE_NAME` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
+| `secret_name` | `SECRET_NAME` | - |
+| `sentinel_one` | `SENTINEL_ONE_API_TOKEN` `SENTINEL_ONE_BASE_URL` | - |
+| `shodan` | `SHODAN_API_KEY` | - |
+| `slack` | `SLACK_BOT_TOKEN` | - |
+| `smtp` | `SMTP_HOST` `SMTP_PASS` `SMTP_PORT` `SMTP_USER` | - |
+| `ssl` | - | `SSL_CLIENT_CERT` `SSL_CLIENT_KEY` `SSL_CLIENT_PASSWORD` |
+| `virustotal` | `VIRUSTOTAL_API_KEY` | - |
+| `wazuh_wui` | `WAZUH_WUI_PASSWORD` `WAZUH_WUI_URL` `WAZUH_WUI_USERNAME` | - |
+| `wazuh` | `WAZUH_API_TOKEN` `WAZUH_API_URL` | - |
+| `wiz` | `WIZ_API_URL` `WIZ_AUTH_URL` `WIZ_CLIENT_ID` `WIZ_CLIENT_SECRET` | - |
+
+## Core Actions
+
+Note that the fully qualified namespace for each Core Action UDF is prefixed with `core.`.
+| Sub-namespace | Function | Secrets |
+| --- | --- | --- |
+| core | ai_action | `llm` |
+| core | http_request | `ssl` |
+| core | send_email_smtp | `smtp` |
+| core.transform | filter | - |
+| core.transform | reshape | - |
+| core.workflow | execute | - |
+
+## Integrations
+
+Note that the fully qualified namespace for each Integration UDF is prefixed with `integrations.`.
+| Sub-namespace | Function | Secrets |
+| --- | --- | --- |
+| integrations.abuseipdb | search_ip_address | `abuseipdb`, `ssl` |
+| integrations.alienvault | search_domain | `alienvault`, `ssl` |
+| integrations.alienvault | search_hostname | `alienvault`, `ssl` |
+| integrations.alienvault | search_ip_address | `alienvault`, `ssl` |
+| integrations.alienvault | search_malware_sample | `alienvault`, `ssl` |
+| integrations.ansible | run_ansible_playbook | `ansible` |
+| integrations.ansible | run_playbook_from_s3 | `s3`, `ansible` |
+| integrations.aws | call_boto3_client | `aws` |
+| integrations.aws | call_boto3_paginator | `aws` |
+| integrations.aws | list_findings | `aws`, `aws`, `aws` |
+| integrations.aws_s3 | download_object | `s3` |
+| integrations.aws_s3 | parse_uri | - |
+| integrations.censys | search_ip_address | `censys`, `ssl` |
+| integrations.check_point | get_auth_token | `checkpoint` |
+| integrations.check_point | get_xdr_incidents | `checkpoint`, `ssl` |
+| integrations.check_point | update_xdr_incident | `checkpoint`, `ssl` |
+| integrations.crowdsec | block_ip_address | `crowdsec`, `ssl` |
+| integrations.crowdsec | search_ip_address | `crowdsec_cti`, `ssl` |
+| integrations.crowdsec | unblock_ip_address | `crowdsec`, `ssl` |
+| integrations.crowdstrike | call_falconpy_command | `crowdstrike` |
+| integrations.crowdstrike | get_cs_detects | `crowdstrike`, `crowdstrike` |
+| integrations.crowdstrike | get_cs_incidents | `crowdstrike`, `crowdstrike` |
+| integrations.crowdstrike | get_detect_summaries | `crowdstrike` |
+| integrations.crowdstrike | list_alerts | `crowdstrike` |
+| integrations.crowdstrike | list_detects | `crowdstrike` |
+| integrations.crowdstrike | list_incident_summaries | `crowdstrike` |
+| integrations.crowdstrike | list_incidents | `crowdstrike` |
+| integrations.crowdstrike | update_alert_status | `crowdstrike` |
+| integrations.crowdstrike | update_detect_status | `crowdstrike` |
+| integrations.datadog | aggregate_events | `datadog`, `ssl` |
+| integrations.datadog | list_alerts | `datadog`, `ssl` |
+| integrations.elastic | list_alerts | `elastic`, `ssl` |
+| integrations.elastic | update_alert_status | `elastic`, `ssl` |
+| integrations.elastic | update_alert_status_by_ids | `elastic`, `ssl` |
+| integrations.emailrep | report_email | `emailrep`, `ssl` |
+| integrations.emailrep | search_email | `emailrep`, `ssl` |
+| integrations.google_api | get_auth_token | `google_api` |
+| integrations.google_secops | list_cases_by_title | `google_secops_soar`, `ssl` |
+| integrations.google_secops | list_detections_by_rule_id | `google_api`, `ssl` |
+| integrations.hybrid_analysis | search_malware_sample | `hybrid_analysis`, `ssl` |
+| integrations.jamf | get_auth_token | `jamf` |
+| integrations.jamf | list_computer_inventory | `jamf`, `ssl` |
+| integrations.jamf | post_mdm_command | `jamf`, `ssl` |
+| integrations.jira | create_issue | `jira`, `ssl` |
+| integrations.jira | update_issue | `jira`, `ssl` |
+| integrations.ldap | add_entry | `ldap` |
+| integrations.ldap | delete_entry | `ldap` |
+| integrations.ldap | disable_active_directory_user | `ldap` |
+| integrations.ldap | enable_active_directory_user | `ldap` |
+| integrations.ldap | expire_active_directory_user | `ldap` |
+| integrations.ldap | expire_user | `ldap` |
+| integrations.ldap | find_active_directory_users | `ldap` |
+| integrations.ldap | find_users | `ldap` |
+| integrations.ldap | modify_entry | `ldap` |
+| integrations.ldap | search_entries | `ldap` |
+| integrations.limacharlie | get_auth_token | `limacharlie` |
+| integrations.malwarebazaar | search_malware_sample | `malwarebazaar`, `ssl` |
+| integrations.microsoft_graph | get_auth_token | `microsoft_graph` |
+| integrations.mongodb | get_document | `mongodb` |
+| integrations.mongodb | list_documents | `mongodb` |
+| integrations.mongodb | perform_mongodb_crud | `mongodb` |
+| integrations.okta | expire_sessions | `okta`, `ssl` |
+| integrations.okta | get_user | `okta`, `ssl` |
+| integrations.okta | get_user_by_email | `okta`, `ssl` |
+| integrations.okta | list_user_events | `okta`, `ssl` |
+| integrations.okta | reset_password | `okta`, `ssl` |
+| integrations.okta | suspend_user | `okta`, `ssl` |
+| integrations.okta | unsuspend_user | `okta`, `ssl` |
+| integrations.pulsedive | search_ioc | `pulsedive`, `ssl` |
+| integrations.sentinel_one | get_agents_by_hostname | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | get_agents_by_hostname_exact | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | get_agents_by_username | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | get_agents_by_username_exact | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | get_firewall_rules | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | isolate_agents | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | list_alerts | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | list_threats | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | unisolate_agents | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | update_alert_status | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | update_firewall_rule | `sentinel_one`, `ssl` |
+| integrations.sentinel_one | update_threat_status | `sentinel_one`, `ssl` |
+| integrations.shodan | search_ip_address | `shodan`, `ssl` |
+| integrations.slack | call_paginated_slack_api | `slack` |
+| integrations.slack | call_slack_api | `slack` |
+| integrations.slack | list_conversations_history | `slack` |
+| integrations.slack | list_users | `slack` |
+| integrations.slack | lookup_user | `slack` |
+| integrations.slack | post_message | `slack` |
+| integrations.slack | revoke_sessions | `slack` |
+| integrations.virustotal | list_comments | `virustotal`, `ssl` |
+| integrations.virustotal | search_ip_address | `virustotal`, `ssl` |
+| integrations.virustotal | search_malware_sample | `virustotal`, `ssl` |
+| integrations.virustotal | search_url | `virustotal`, `ssl` |
+| integrations.wazuh | clear_rootcheck | `wazuh`, `ssl` |
+| integrations.wazuh | generate_wazuh_wui_token | `wazuh_wui`, `ssl` |
+| integrations.wazuh | get_last_rootcheck_scan | `wazuh`, `ssl` |
+| integrations.wazuh | get_results_rootcheck | `wazuh`, `ssl` |
+| integrations.wazuh | run_rootcheck | `wazuh`, `ssl` |
+| integrations.wazuh | update_wazuh_agents | `wazuh`, `ssl`, `ssl`, `ssl` |
+| integrations.wiz | get_auth_token | `wiz` |
+
+## ETL Actions
+
+Note that the fully qualified namespace for each ETL UDF is prefixed with `etl.`.
+| Sub-namespace | Function | Secrets |
+| --- | --- | --- |
+| etl.extraction | extract_emails | - |
+| etl.extraction | extract_ipv4_addresses | - |
+| etl.extraction | extract_urls | - |

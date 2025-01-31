@@ -1,7 +1,7 @@
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
 from tracecat.identifiers.workflow import AnyWorkflowID
+from typing_extensions import Doc
 
 from tracecat_registry import RegistryActionError, registry
 
@@ -16,72 +16,50 @@ async def execute(
     *,
     workflow_id: Annotated[
         AnyWorkflowID | None,
-        Field(
-            default=None,
-            description=(
-                "The ID of the child workflow to execute. Must be provided if workflow_alias is not provided."
-            ),
+        Doc(
+            "The ID of the child workflow to execute. Must be provided if workflow_alias is not provided.",
         ),
     ] = None,
     workflow_alias: Annotated[
         str | None,
-        Field(
-            default=None,
-            description=(
-                "The alias of the child workflow to execute. Must be provided if workflow_id is not provided."
-            ),
+        Doc(
+            "The alias of the child workflow to execute. Must be provided if workflow_id is not provided.",
         ),
     ] = None,
     trigger_inputs: Annotated[
-        dict[str, Any],
-        Field(
-            ...,
-            description="The inputs to pass to the child workflow.",
-        ),
-    ],
+        dict[str, Any] | None,
+        Doc("The inputs to pass to the child workflow."),
+    ] = None,
     environment: Annotated[
         str | None,
-        Field(
-            description=(
-                "The child workflow's target execution environment. "
-                "This is used to isolate secrets across different environments."
-                "If not provided, the child workflow's default environment is used. "
-            ),
+        Doc(
+            "The child workflow's target execution environment. "
+            "This is used to isolate secrets across different environments."
+            "If not provided, the child workflow's default environment is used. "
         ),
     ] = None,
     timeout: Annotated[
         float | None,
-        Field(
-            description=(
-                "The maximum number of seconds to wait for the child workflow to complete. "
-                "If not provided, the child workflow's default timeout is used. "
-            ),
+        Doc(
+            "The maximum number of seconds to wait for the child workflow to complete. "
+            "If not provided, the child workflow's default timeout is used. "
         ),
     ] = None,
     version: Annotated[
         int | None,
-        Field(..., description="The version of the child workflow definition, if any."),
+        Doc("The version of the child workflow definition, if any."),
     ] = None,
     loop_strategy: Annotated[
         Literal["parallel", "batch", "sequential"],
-        Field(
-            ...,
-            description="The execution strategy to use for the child workflow.",
-        ),
+        Doc("The execution strategy to use for the child workflow."),
     ] = "parallel",
     batch_size: Annotated[
         int,
-        Field(
-            ...,
-            description="The number of child workflows to execute in parallel.",
-        ),
+        Doc("The number of child workflows to execute in parallel."),
     ] = 16,
     fail_strategy: Annotated[
         Literal["isolated", "all"],
-        Field(
-            ...,
-            description="Fail strategy to use when a child workflow fails.",
-        ),
+        Doc("Fail strategy to use when a child workflow fails."),
     ] = "isolated",
 ) -> Any:
     raise RegistryActionError(
