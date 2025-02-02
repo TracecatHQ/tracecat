@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import inspect
 import json
 import os
 import re
+import sys
 from collections.abc import Callable
 from itertools import chain
 from pathlib import Path
@@ -38,7 +40,6 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
-from tracecat.registry.loaders import import_and_reload as _import_and_reload
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
@@ -235,6 +236,12 @@ class Repository:
         # Handle local git repositories
         elif self._origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
             # The local repo doesn't have to be a git repo, but it should be a directory
+            if not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+                raise RegistryError(
+                    "Local repository is not enabled on this instance. "
+                    "Please set TRACECAT__LOCAL_REPOSITORY_ENABLED=true "
+                    "and TRACECAT__LOCAL_REPOSITORY_PATH to a valid Python package."
+                )
             repo_path = Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH)
 
             if not repo_path.exists():
@@ -600,17 +607,12 @@ class Repository:
 
 
 def import_and_reload(module_name: str) -> ModuleType:
-    """Import and reload a module.
-
-    Steps
-    -----
-    1. Remove the module from sys.modules
-    2. Import the module
-    3. Reload the module
-    4. Add the module to sys.modules
-    5. Return the reloaded module
-    """
-    return _import_and_reload(module_name)
+    """Import and reload a module."""
+    sys.modules.pop(module_name, None)
+    module = importlib.import_module(module_name)
+    reloaded_module = importlib.reload(module)
+    sys.modules[module_name] = reloaded_module
+    return reloaded_module
 
 
 def attach_validators(func: F, *validators: Any):

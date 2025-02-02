@@ -47,10 +47,12 @@ async def reload_registry(session: AsyncSession, role: Role):
         logger.info("Custom repository already exists", origin=custom_origin)
 
     # Setup local repository
-    if local_path := config.TRACECAT__LOCAL_REPOSITORY_PATH:
+    if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+        if not config.TRACECAT__LOCAL_REPOSITORY_PATH:
+            raise ValueError("Local repository path is not set")
         logger.info(
             "Setting up local registry repository",
-            path=local_path,
+            path=config.TRACECAT__LOCAL_REPOSITORY_PATH,
         )
         local_origin = DEFAULT_LOCAL_REGISTRY_ORIGIN
         if await repos_service.get_repository(local_origin) is None:

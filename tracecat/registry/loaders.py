@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import importlib
-import sys
 from collections.abc import Callable
-from types import ModuleType
 from typing import Any, NoReturn
 
 from pydantic import BaseModel, TypeAdapter
 from tracecat_registry import RegistrySecret
 
+from tracecat import config
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
@@ -23,6 +22,7 @@ from tracecat.registry.repository import (
     attach_validators,
     generate_model_from_function,
     get_signature_docs,
+    import_and_reload,
 )
 
 F = Callable[..., Any]
@@ -99,7 +99,15 @@ def load_udf_impl(impl: RegistryActionUDFImpl) -> F:
     """Load a UDF implementation."""
     module_path = impl.module
     function_name = impl.name
-    mod = importlib.import_module(module_path)
+
+    if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+        logger.warning(
+            "Force reloading local registry. You should only use this for development and not in production. "
+            "In production, you should use a remote git repository."
+        )
+        mod = import_and_reload(module_path)
+    else:
+        mod = importlib.import_module(module_path)
     fn = getattr(mod, function_name)
     return fn
 
@@ -108,12 +116,3 @@ def _not_implemented() -> NoReturn:
     raise NotImplementedError(
         "This is a template action, it must be run with concrete arguments"
     )
-
-
-def import_and_reload(module_name: str) -> ModuleType:
-    """Import and reload a module."""
-    sys.modules.pop(module_name, None)
-    module = importlib.import_module(module_name)
-    reloaded_module = importlib.reload(module)
-    sys.modules[module_name] = reloaded_module
-    return reloaded_module
