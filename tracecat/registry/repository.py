@@ -301,12 +301,9 @@ class Repository:
                 )
                 extra_args = ["--target", python_user_base]
 
+            cmd = ["uv", "pip", "install", "--system", "--refresh", "--editable"]
             process = await asyncio.create_subprocess_exec(
-                "uv",
-                "pip",
-                "install",
-                "--system",
-                "-e",  # editable mode
+                *cmd,
                 repo_path.as_posix(),
                 *extra_args,
                 stdout=asyncio.subprocess.PIPE,
@@ -328,7 +325,7 @@ class Repository:
                 package_name=package_name,
                 commit_sha=commit_sha,
             )
-            return commit_sha
+            return None
         elif self._origin.startswith("git+ssh://"):
             # Load from remote
             logger.info("Loading UDFs from origin", origin=self._origin)
