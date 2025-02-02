@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import sys
 from collections.abc import Callable
+from types import ModuleType
 from typing import Any, NoReturn
 
 from pydantic import BaseModel, TypeAdapter
@@ -106,3 +108,12 @@ def _not_implemented() -> NoReturn:
     raise NotImplementedError(
         "This is a template action, it must be run with concrete arguments"
     )
+
+
+def import_and_reload(module_name: str) -> ModuleType:
+    """Import and reload a module."""
+    sys.modules.pop(module_name, None)
+    module = importlib.import_module(module_name)
+    reloaded_module = importlib.reload(module)
+    sys.modules[module_name] = reloaded_module
+    return reloaded_module

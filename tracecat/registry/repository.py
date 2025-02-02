@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
-import importlib.resources
-import importlib.resources.readers
 import inspect
 import json
 import os
 import re
-import sys
 from collections.abc import Callable
 from itertools import chain
 from pathlib import Path
@@ -42,6 +38,7 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
+from tracecat.registry.loaders import import_and_reload as _import_and_reload
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
@@ -601,11 +598,7 @@ def import_and_reload(module_name: str) -> ModuleType:
     4. Add the module to sys.modules
     5. Return the reloaded module
     """
-    sys.modules.pop(module_name, None)
-    module = importlib.import_module(module_name)
-    reloaded_module = importlib.reload(module)
-    sys.modules[module_name] = reloaded_module
-    return reloaded_module
+    return _import_and_reload(module_name)
 
 
 def attach_validators(func: F, *validators: Any):
