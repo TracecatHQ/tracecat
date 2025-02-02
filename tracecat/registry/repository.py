@@ -240,7 +240,7 @@ class Repository:
                 raise RegistryError(
                     "Local repository is not enabled on this instance. "
                     "Please set TRACECAT__LOCAL_REPOSITORY_ENABLED=true "
-                    "and TRACECAT__LOCAL_REPOSITORY_PATH to a valid Python package."
+                    "and ensure TRACECAT__LOCAL_REPOSITORY_PATH points to a valid Python package."
                 )
             repo_path = Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH)
 
