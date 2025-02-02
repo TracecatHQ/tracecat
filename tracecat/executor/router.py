@@ -55,6 +55,7 @@ async def run_action(
             detail=err_info_dict,
         ) from e
     except Exception as e:
+        logger.warning("Unexpected error running action", exc_info=e)
         err_info = ExecutorActionErrorInfo.from_exc(e, action_name)
         err_info_dict = err_info.model_dump(mode="json")
         act_logger.error("Error running action", **err_info_dict)

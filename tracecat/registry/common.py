@@ -9,6 +9,7 @@ from tracecat.parse import safe_url
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
+    DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
@@ -44,6 +45,21 @@ async def reload_registry(session: AsyncSession, role: Role):
         logger.info("Created custom repository", origin=custom_origin)
     else:
         logger.info("Custom repository already exists", origin=custom_origin)
+
+    # Setup local repository
+    if local_path := config.TRACECAT__LOCAL_REPOSITORY_PATH:
+        logger.info(
+            "Setting up local registry repository",
+            path=local_path,
+        )
+        local_origin = DEFAULT_LOCAL_REGISTRY_ORIGIN
+        if await repos_service.get_repository(local_origin) is None:
+            await repos_service.create_repository(
+                RegistryRepositoryCreate(origin=local_origin)
+            )
+            logger.info("Created local repository", origin=local_origin)
+        else:
+            logger.info("Local repository already exists", origin=local_origin)
 
     # Setup custom remote repository
     if maybe_remote_url := await get_setting(
