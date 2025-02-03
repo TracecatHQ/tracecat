@@ -31,7 +31,7 @@ from tracecat.expressions.eval import (
     extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.git import GitUrl, prepare_git_url
+from tracecat.git import prepare_git_url
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.models import BoundRegistryAction
@@ -327,9 +327,7 @@ async def run_action_on_ray_cluster(
 
 async def dispatch_action_on_cluster(
     input: RunActionInput,
-    *,
     session: AsyncSession,
-    git_url: GitUrl | None = None,
 ) -> Any:
     """Schedule actions on the ray cluster.
 
@@ -352,10 +350,17 @@ async def dispatch_action_on_cluster(
 
     role = ctx_role.get()
 
-    async with opt_temp_key_file(git_url=git_url, session=session) as ssh_command:
-        logger.trace("SSH command", ssh_command=ssh_command)
-        ctx = DispatchActionContext(role=role, git_url=git_url, ssh_command=ssh_command)
-        result = await _dispatch_action(input=input, ctx=ctx)
+    if git_url:
+        async with opt_temp_key_file(git_url=git_url, session=session) as ssh_command:
+            logger.trace("SSH command", ssh_command=ssh_command)
+            ctx = DispatchActionContext(
+                role=role, git_url=git_url, ssh_command=ssh_command
+            )
+            result = await _dispatch_action(input=input, ctx=ctx)
+    else:
+        result = await _dispatch_action(
+            input=input, ctx=DispatchActionContext(role=role)
+        )
     return result
 
 

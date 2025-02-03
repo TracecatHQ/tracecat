@@ -179,3 +179,10 @@ TRACECAT__PRELOAD_OSS_MODELS = (
 ) or []
 
 OLLAMA__API_URL = os.environ.get("OLLAMA__API_URL", "http://ollama:11434")
+
+# === Local registry === #
+TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
+    "TRACECAT__LOCAL_REPOSITORY_ENABLED", "0"
+).lower() in ("1", "true")
+TRACECAT__LOCAL_REPOSITORY_PATH = os.getenv("TRACECAT__LOCAL_REPOSITORY_PATH")
+TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH = "/app/local_registry"

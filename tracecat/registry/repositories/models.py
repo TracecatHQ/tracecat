@@ -6,6 +6,7 @@ from pydantic import UUID4, BaseModel, Field, field_validator
 from tracecat.registry.actions.models import RegistryActionRead
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
+    DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
 from tracecat.types.exceptions import TracecatValidationError
@@ -47,7 +48,11 @@ class RegistryRepositoryCreate(BaseModel):
         Raises:
             ValueError: If the URL is invalid or potentially unsafe
         """
-        if v in (DEFAULT_REGISTRY_ORIGIN, CUSTOM_REPOSITORY_ORIGIN):
+        if v in (
+            DEFAULT_REGISTRY_ORIGIN,
+            CUSTOM_REPOSITORY_ORIGIN,
+            DEFAULT_LOCAL_REGISTRY_ORIGIN,
+        ):
             return v
 
         # Aside from the default origins, we only support git+ssh URLs
