@@ -5,6 +5,8 @@ definition:
   title: Get Last Wazuh Rootcheck Scan
   description: Retrieves the latest rootcheck scan results from Wazuh agents for analysis.
   display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.rootcheck_controller.get_last_scan_agent
+  author: bouddha-fr
   secrets:
     - name: wazuh
       keys:

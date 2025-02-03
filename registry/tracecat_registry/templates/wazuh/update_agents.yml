@@ -7,6 +7,8 @@ definition:
   doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.agent_controller.put_upgrade_agents
   author: bouddha-fr
   display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.agent_controller.put_upgrade_agents
+  author: bouddha-fr
   secrets:
     - name: wazuh
       keys:
