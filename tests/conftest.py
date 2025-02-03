@@ -362,7 +362,9 @@ async def db_session_with_repo(test_role):
     async with get_async_session_context_manager() as session:
         rr_service = RegistryReposService(session, role=test_role)
         db_repo = await rr_service.create_repository(
-            RegistryRepositoryCreate(origin="__test_repo__")
+            RegistryRepositoryCreate(
+                origin="git+ssh://git@github.com/TracecatHQ/dummy-repo.git"
+            )
         )
         try:
             yield session, db_repo.id

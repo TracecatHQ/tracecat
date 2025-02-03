@@ -23,7 +23,7 @@ from tracecat.registry.repositories.models import (
 )
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import RegistryError
+from tracecat.types.exceptions import RegistryError, TracecatValidationError
 
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 
@@ -186,6 +186,12 @@ async def create_registry_repository(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=msg,
+        ) from e
+    except TracecatValidationError as e:
+        logger.error("Error creating registry repository", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
         ) from e
     return RegistryRepositoryRead(
         id=created_repository.id,

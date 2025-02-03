@@ -50,10 +50,10 @@ Use the commands listed below to download the required configuration files
 
 ```bash
 # 1. Download the env.sh installation script
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.22.0/env.sh
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.22.1/env.sh
 
 # 2. Download the .env.example template file (env.sh needs this to generate your .env file)
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.22.0/.env.example
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.22.1/.env.example
 
 # 3. Make the env.sh script executable and run it
 chmod +x env.sh && ./env.sh
@@ -63,16 +63,16 @@ You should see the following instructions after executing `env.sh`.
 
 <Info>
 You'll be prompted to input the following:
-  - `y` (yes to production mode)
-  - `localhost` (default host)
-  - `n` (no to postgres SSL mode).
+- `y` (yes to production mode)
+- `localhost` (default host)
+- `n` (no to postgres SSL mode)
 
 Otherwise, if you're deploying Tracecat into an external / Cloud VM, input:
 
 - `y` (yes to production mode)
 - `<host-where-tracecat-is-exposed>` (e.g. `localhost:8080`)
-- `n` (no to postgres SSL mode).
-  </Info>
+- `n` (no to postgres SSL mode)
+</Info>
 
 <Note>
   Setting production mode to `n` changes where Tracecat's remote repository is installed.
@@ -91,13 +91,13 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.22.0/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.22.1/Caddyfile
 ```
 
 ## Download Docker Compose File
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.22.0/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.22.1/docker-compose.yml
 ```
 
 ## Start Tracecat

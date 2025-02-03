@@ -58,10 +58,14 @@ services:
       # AI
       TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
       OLLAMA__API_URL: ${OLLAMA__API_URL}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
       - ./alembic:/app/alembic
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
       - ollama
       - executor
@@ -88,9 +92,13 @@ services:
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
       TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "tracecat/dsl/worker.py"]
 
   executor:
@@ -117,9 +125,13 @@ services:
       # AI
       TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
       OLLAMA__API_URL: ${OLLAMA__API_URL}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     ports:
       - 8001:8000
     command:

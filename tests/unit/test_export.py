@@ -1,14 +1,27 @@
+from typing import Any
+
 import pytest
 
 from tracecat.dsl.common import DSLInput
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.types.auth import Role
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import ExternalWorkflowDefinition
 
 
+@pytest.mark.parametrize(
+    "id",
+    [
+        pytest.param(WorkflowUUID.new_uuid4().to_legacy(), id="legacy"),
+        pytest.param(WorkflowUUID.new_uuid4(), id="workflow_uuid"),
+        pytest.param(str(WorkflowUUID.new_uuid4()), id="str"),
+        pytest.param(WorkflowUUID.new_uuid4().short(), id="short"),
+    ],
+)
 @pytest.mark.anyio
-async def test_workflow_can_import(test_role: Role):
+async def test_workflow_can_import(test_role: Role, id: Any):
     dsl = ExternalWorkflowDefinition(
+        workflow_id=id,
         definition=DSLInput(
             **{
                 "title": "multiple_entrypoints",
@@ -46,7 +59,7 @@ async def test_workflow_can_import(test_role: Role):
                 ],
                 "returns": "${{ ACTIONS.join.result }}",
             }
-        )
+        ),
     )
 
     # Import it into the database

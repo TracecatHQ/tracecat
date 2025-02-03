@@ -10,6 +10,9 @@ RUN apk add --no-cache libc6-compat
 # Copy only the necessary files to install dependencies
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
 
+# Install working version of corepack
+RUN npm install -g corepack@0.31.0 && corepack --version
+
 # Install dependencies with pnpm
 RUN corepack enable pnpm && pnpm i --frozen-lockfile
 
@@ -33,6 +36,9 @@ ENV NEXT_SERVER_API_URL=$NEXT_SERVER_API_URL
 
 # Copy node_modules from the deps stage
 COPY --from=deps /app/node_modules ./node_modules
+
+# Install working version of corepack
+RUN npm install -g corepack@0.31.0 && corepack --version
 
 # Copy all source files and build the application
 COPY . .
