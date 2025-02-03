@@ -71,7 +71,6 @@ variable "auth_types" {
   default = "google_oauth,saml"
 }
 
-
 variable "auth_allowed_domains" {
   type        = string
   description = "Comma separated list of allowed domains for authentication (e.g. `acme.com,acme.ai`)"
@@ -80,6 +79,12 @@ variable "auth_allowed_domains" {
 variable "setting_override_saml_enabled" {
   type        = string
   description = "Override the SAML setting"
+  default     = null
+}
+
+variable "setting_override_oauth_google_enabled" {
+  type        = string
+  description = "Override the Google OAuth setting"
   default     = null
 }
 
