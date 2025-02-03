@@ -150,5 +150,10 @@ async def test_local_registry_invalid_package(
 
     repository = Repository(origin=DEFAULT_LOCAL_REGISTRY_ORIGIN, role=svc_role)
 
-    with pytest.raises(Exception, match="Local git repository not found"):
+    with pytest.raises(
+        Exception,
+        match="Local repository is not enabled on this instance."
+        " Please set TRACECAT__LOCAL_REPOSITORY_ENABLED=true and ensure"
+        " TRACECAT__LOCAL_REPOSITORY_PATH points to a valid Python package.",
+    ):
         await repository.load_from_origin()
