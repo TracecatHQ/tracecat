@@ -26,6 +26,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
+import { AlertTriangleIcon } from "lucide-react"
 
 import { toast } from "@/components/ui/use-toast"
 
@@ -106,18 +107,21 @@ export function WorkflowProvider({
           description: "New workflow version saved successfully.",
         })
       } else {
-        toast({
-          title: "Workflow validation failed",
-          description: (
-            <div className="flex flex-col space-y-2">
-              <p>
+        const description = (
+          <div className="flex flex-col space-y-2">
+            <div className="flex items-center space-x-2">
+              <AlertTriangleIcon className="size-4 fill-red-500 stroke-white" />
+              <p className="font-semibold">
                 {response.message ||
                   "Could not save workflow due to validation errors."}
               </p>
-              <p>Please hover over the save button to view errors.</p>
             </div>
-          ),
-          variant: "destructive",
+            <p>Please hover over the save button to view errors.</p>
+          </div>
+        )
+        toast({
+          title: "Workflow validation failed",
+          description,
         })
       }
     },
