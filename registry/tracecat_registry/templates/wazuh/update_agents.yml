@@ -4,6 +4,8 @@ definition:
   namespace: integrations.wazuh
   title: Update Outdated Wazuh Agents
   description: Identifies outdated Wazuh agents and updates them.
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.agent_controller.put_upgrade_agents
+  author: bouddha-fr
   display_group: Wazuh
   secrets:
     - name: wazuh
@@ -40,7 +42,7 @@ definition:
         url: ${{ SECRETS.wazuh.WAZUH_API_URL }}/agent/upgrade_result
         method: GET
         params:
-          agents_list: ${{ FN.join(steps.upgrade_agents.result.data.data.affected_items[*].id, ",") }}
+          agents_list: ${{ FN.join(steps.upgrade_agents.result.data.data.affected_items[*].agent, ",") }}
         headers:
           Authorization: Bearer ${{ SECRETS.wazuh.WAZUH_API_TOKEN }}
         verify_ssl: ${{ inputs.verify_ssl  }}
