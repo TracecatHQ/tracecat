@@ -10,6 +10,9 @@ RUN apk add --no-cache libc6-compat
 # Copy only the necessary files to install dependencies
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
 
+# Install working version of corepack
+RUN npm install -g corepack@0.31.0 && corepack --version
+
 # Install dependencies with pnpm
 RUN corepack enable pnpm && pnpm i --frozen-lockfile
 
