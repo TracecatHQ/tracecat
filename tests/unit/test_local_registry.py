@@ -77,6 +77,7 @@ async def test_local_registry(
     monkeypatch.syspath_prepend(str(local_package_path))
 
     # The rest of your test remains the same
+    monkeypatch.setattr(config, "TRACECAT__LOCAL_REPOSITORY_ENABLED", True)
     monkeypatch.setattr(
         config,
         "TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH",
