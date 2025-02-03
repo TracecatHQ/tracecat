@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-import importlib.resources
 import inspect
 import json
 import os
@@ -38,6 +37,7 @@ from tracecat.parse import safe_url
 from tracecat.registry.actions.models import BoundRegistryAction, TemplateAction
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
+    DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
@@ -175,7 +175,7 @@ class Repository:
             include_in_schema=include_in_schema,
         )
 
-        logger.debug(f"Registering UDF {reg_action.action=}")
+        logger.debug(f"Registering action {reg_action.action=}")
         self._store[reg_action.action] = reg_action
 
     def register_template_action(
@@ -233,60 +233,161 @@ class Repository:
 
         elif self._origin == CUSTOM_REPOSITORY_ORIGIN:
             raise RegistryError("You cannot sync this repository.")
+        # Handle local git repositories
+        elif self._origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
+            # The local repo doesn't have to be a git repo, but it should be a directory
+            if not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+                raise RegistryError(
+                    "Local repository is not enabled on this instance. "
+                    "Please set TRACECAT__LOCAL_REPOSITORY_ENABLED=true "
+                    "and ensure TRACECAT__LOCAL_REPOSITORY_PATH points to a valid Python package."
+                )
+            repo_path = Path(config.TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH)
 
-        # Load from remote
-        logger.info("Loading UDFs from origin", origin=self._origin)
+            if not repo_path.exists():
+                raise RegistryError(f"Local git repository not found: {repo_path}")
 
-        allowed_domains = cast(
-            set[str],
-            await get_setting(
-                "git_allowed_domains",
-                role=self.role,
-                # TODO: Deprecate in future version
-                default=config.TRACECAT__ALLOWED_GIT_DOMAINS,
+            # Check that there's either pyproject.toml or setup.py
+            if (
+                not repo_path.joinpath("pyproject.toml").exists()
+                and not repo_path.joinpath("setup.py").exists()
+            ):
+                # expand the path to the host path
+                if host_path := config.TRACECAT__LOCAL_REPOSITORY_PATH:
+                    host_path = Path(host_path).expanduser()
+                    logger.debug("Host path", host_path=host_path)
+                raise RegistryError(
+                    "Local repository does not contain pyproject.toml or setup.py. "
+                    "Please ensure TRACECAT__LOCAL_REPOSITORY_PATH points to a valid Python package."
+                    f"Host path: {host_path}"
+                )
+
+            dot_git = repo_path.joinpath(".git")
+            package_name = repo_path.name
+            if dot_git.exists():
+                # Use the repository directory name as the package name
+                logger.debug(
+                    "Using local git repository",
+                    repo_path=str(repo_path),
+                    package_name=package_name,
+                )
+
+                # Install the local repository in editable mode
+                env = {"GIT_DIR": dot_git.as_posix()}
+                if commit_sha is None:
+                    # Get the current commit SHA
+                    process = await asyncio.create_subprocess_exec(
+                        "git",
+                        "rev-parse",
+                        "HEAD",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=env,
+                        cwd=repo_path.as_posix(),
+                    )
+                    stdout, _ = await process.communicate()
+                    if process.returncode != 0:
+                        raise RegistryError("Failed to get current commit SHA")
+                    commit_sha = stdout.decode().strip()
+            else:
+                logger.info(
+                    "Local repository is not a git repository, skipping commit SHA"
+                )
+
+            # Install the package in editable mode
+            extra_args = []
+            if config.TRACECAT__APP_ENV == "production":
+                # We set PYTHONUSERBASE in the prod Dockerfile
+                # Otherwise default to the user's home dir at ~/.local
+                python_user_base = (
+                    os.getenv("PYTHONUSERBASE")
+                    or Path.home().joinpath(".local").as_posix()
+                )
+                logger.debug(
+                    "Installing to PYTHONUSERBASE", python_user_base=python_user_base
+                )
+                extra_args = ["--target", python_user_base]
+
+            cmd = ["uv", "pip", "install", "--system", "--refresh", "--editable"]
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                repo_path.as_posix(),
+                *extra_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            or {"github.com"},
-        )
+            _, stderr = await process.communicate()
+            if process.returncode != 0:
+                error_message = stderr.decode().strip()
+                raise RegistryError(
+                    f"Failed to install local repository: {error_message}"
+                )
 
-        cleaned_url = safe_url(self._origin)
-        try:
-            git_url = parse_git_url(cleaned_url, allowed_domains=allowed_domains)
-            host = git_url.host
-            org = git_url.org
-            repo_name = git_url.repo
-        except ValueError as e:
-            raise RegistryError(
-                "Invalid Git repository URL. Please provide a valid Git SSH URL (git+ssh)."
-            ) from e
-        package_name = (
-            await get_setting(
-                "git_repo_package_name",
-                role=self.role,
-                # TODO: Deprecate in future version
-                default=config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME,
+            # Load the repository module
+            logger.warning("Loading local repository", repo_path=repo_path.as_posix())
+            module = await self._load_repository(repo_path.as_posix(), package_name)
+            logger.info(
+                "Imported and reloaded local repository",
+                module_name=module.__name__,
+                package_name=package_name,
+                commit_sha=commit_sha,
             )
-            or repo_name
-        )
-        logger.debug(
-            "Parsed Git repository URL",
-            host=host,
-            org=org,
-            repo=repo_name,
-            package_name=package_name,
-        )
+            return None
+        elif self._origin.startswith("git+ssh://"):
+            # Load from remote
+            logger.info("Loading UDFs from origin", origin=self._origin)
+            allowed_domains = cast(
+                set[str],
+                await get_setting(
+                    "git_allowed_domains",
+                    role=self.role,
+                    # TODO: Deprecate in future version
+                    default=config.TRACECAT__ALLOWED_GIT_DOMAINS,
+                )
+                or {"github.com"},
+            )
 
-        logger.debug("Git URL", git_url=git_url)
-        commit_sha = await self._install_remote_repository(
-            git_url=git_url, commit_sha=commit_sha
-        )
-        module = await self._load_remote_repository(cleaned_url, package_name)
-        logger.info(
-            "Imported and reloaded remote repository",
-            module_name=module.__name__,
-            package_name=package_name,
-            commit_sha=commit_sha,
-        )
-        return commit_sha
+            cleaned_url = safe_url(self._origin)
+            try:
+                git_url = parse_git_url(cleaned_url, allowed_domains=allowed_domains)
+                host = git_url.host
+                org = git_url.org
+                repo_name = git_url.repo
+            except ValueError as e:
+                raise RegistryError(
+                    "Invalid Git repository URL. Please provide a valid Git SSH URL (git+ssh)."
+                ) from e
+            package_name = (
+                await get_setting(
+                    "git_repo_package_name",
+                    role=self.role,
+                    # TODO: Deprecate in future version
+                    default=config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME,
+                )
+                or repo_name
+            )
+            logger.debug(
+                "Parsed Git repository URL",
+                host=host,
+                org=org,
+                repo=repo_name,
+                package_name=package_name,
+            )
+
+            logger.debug("Git URL", git_url=git_url)
+            commit_sha = await self._install_remote_repository(
+                git_url=git_url, commit_sha=commit_sha
+            )
+            module = await self._load_repository(cleaned_url, package_name)
+            logger.info(
+                "Imported and reloaded remote repository",
+                module_name=module.__name__,
+                package_name=package_name,
+                commit_sha=commit_sha,
+            )
+            return commit_sha
+        else:
+            raise RegistryError(f"Unsupported origin: {self._origin}.")
 
     async def _install_remote_repository(
         self, git_url: GitUrl, commit_sha: str | None = None
@@ -305,13 +406,10 @@ class Repository:
             await install_remote_repository(url, commit_sha=commit_sha, env=env)
         return commit_sha
 
-    async def _load_remote_repository(
-        self, repo_url: str, module_name: str
-    ) -> ModuleType:
-        """Load remote repository module into memory.
-
+    async def _load_repository(self, repo_url: str, module_name: str) -> ModuleType:
+        """Load repository module into memory.
         Args:
-            repo_url (str): The URL of the remote git repository
+            repo_url (str): The URL of the repository
             module_name (str): The name of the Python module to import
 
         Returns:
@@ -321,26 +419,34 @@ class Repository:
             ImportError: If there is an error importing the module
         """
         try:
-            logger.info("Importing remote repository module", module_name=module_name)
+            logger.info("Importing repository module", module_name=module_name)
             # We only need to call this at the root level because
             # this deletes all the submodules as well
-            package_or_module = import_and_reload(module_name)
+            pkg_or_mod = import_and_reload(module_name)
 
             # Reload the module to ensure fresh execution
-            logger.info("Registering UDFs from package", module_name=package_or_module)
-            self._register_udfs_from_package(package_or_module, origin=repo_url)
+            logger.info("Registering UDFs from package", module_name=pkg_or_mod)
+            self._register_udfs_from_package(pkg_or_mod, origin=repo_url)
         except ImportError as e:
-            logger.error("Error importing remote repository udfs", error=e)
+            logger.error(
+                "Error importing repository udfs",
+                error=e,
+                module_name=module_name,
+                origin=repo_url,
+            )
             raise
 
         try:
-            self.load_template_actions_from_package(
-                package_name=module_name, origin=repo_url
-            )
+            self.load_template_actions_from_package(pkg_or_mod, origin=repo_url)
         except Exception as e:
-            logger.error("Error importing remote repository template actions", error=e)
+            logger.error(
+                "Error importing repository template actions",
+                error=e,
+                module_name=module_name,
+                origin=repo_url,
+            )
             raise
-        return package_or_module
+        return pkg_or_mod
 
     def _register_udf_from_function(
         self,
@@ -437,17 +543,17 @@ class Repository:
     def _load_base_template_actions(self) -> None:
         """Load template actions from the actions/templates directory."""
 
-        return self.load_template_actions_from_package(
-            package_name=DEFAULT_REGISTRY_ORIGIN, origin=DEFAULT_REGISTRY_ORIGIN
-        )
+        module = import_and_reload(DEFAULT_REGISTRY_ORIGIN)
+        self.load_template_actions_from_package(module, origin=DEFAULT_REGISTRY_ORIGIN)
 
     def load_template_actions_from_package(
-        self, *, package_name: str, origin: str
+        self, module: ModuleType, origin: str
     ) -> None:
         """Load template actions from a package."""
         start_time = default_timer()
-        pkg_root = importlib.resources.files(package_name)
-        pkg_path = Path(pkg_root)  # type: ignore
+        base_path = module.__path__[0]
+        base_package = module.__name__
+        pkg_path = Path(base_path)
         n_loaded = self.load_template_actions_from_path(path=pkg_path, origin=origin)
         time_elapsed = default_timer() - start_time
         if n_loaded > 0:
@@ -455,11 +561,11 @@ class Repository:
                 f"✅ Registered {n_loaded} template actions in {time_elapsed:.2f}s",
                 num_templates=n_loaded,
                 time_elapsed=time_elapsed,
-                package_name=package_name,
+                package_name=base_package,
             )
         else:
             logger.info(
-                "No template actions found in package", package_name=package_name
+                "No template actions found in package", package_name=base_package
             )
 
     def load_template_actions_from_path(self, *, path: Path, origin: str) -> int:
@@ -501,16 +607,7 @@ class Repository:
 
 
 def import_and_reload(module_name: str) -> ModuleType:
-    """Import and reload a module.
-
-    Steps
-    -----
-    1. Remove the module from sys.modules
-    2. Import the module
-    3. Reload the module
-    4. Add the module to sys.modules
-    5. Return the reloaded module
-    """
+    """Import and reload a module."""
     sys.modules.pop(module_name, None)
     module = importlib.import_module(module_name)
     reloaded_module = importlib.reload(module)
@@ -599,7 +696,7 @@ def _enforce_restrictions(fn: F) -> F:
     Returns
     -------
     F
-        The original function if no access to os.environ, os.getenv, or import os is found.
+        The original function if no access to os.environ, os.getenv, or imports os is found.
 
     Raises
     ------
