@@ -8,12 +8,16 @@ export type AccessLevel = 0 | 999
 export type ActionControlFlow = {
   run_if?: string | null
   for_each?: string | Array<string> | null
+  join_strategy?: JoinStrategy
   retry_policy?: ActionRetryPolicy
   /**
    * Delay before starting the action in seconds.
    */
   start_delay?: number
-  join_strategy?: JoinStrategy
+  /**
+   * Delay until a specific date and time.
+   */
+  wait_until?: string | null
 }
 
 export type ActionCreate = {
@@ -50,6 +54,10 @@ export type ActionRetryPolicy = {
    * Timeout for the action in seconds.
    */
   timeout?: number
+  /**
+   * Retry until a specific condition is met.
+   */
+  retry_until?: string | null
 }
 
 export type ActionStatement = {
@@ -85,9 +93,13 @@ export type ActionStatement = {
    */
   retry_policy?: ActionRetryPolicy
   /**
-   * Delay before starting the action in seconds.
+   * Delay before starting the action in seconds. If `wait_until` is also provided, the wait_until timer will take precedence.
    */
   start_delay?: number
+  /**
+   * Delay until a specific date and time. Overrides `start_delay` if both are provided.
+   */
+  wait_until?: string | null
   /**
    * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
    */
