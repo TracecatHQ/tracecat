@@ -65,13 +65,14 @@
       "pages": [
         "introduction",
         "quickstart/install",
+        "quickstart/admin",
         "quickstart/tutorial"
       ]
     },
     {
       "group": "Tutorials",
       "pages": [
-        "tutorials/trigger-workflows",
+        "tutorials/triggers",
         "tutorials/build-templates",
         "tutorials/git-repository",
         "tutorials/child-workflows",
@@ -88,12 +89,18 @@
     {
       "group": "Data Manipulation",
       "pages": [
-        "data-types/json",
-        "data-types/arrays",
-        "data-types/datetimes",
-        "data-types/strings",
-        "data-types/booleans",
-        "data-types/cryptography"
+        "data-types/introduction",
+        {
+          "group": "Data Types",
+          "pages": [
+            "data-types/json",
+            "data-types/arrays",
+            "data-types/datetimes",
+            "data-types/strings",
+            "data-types/booleans",
+            "data-types/cryptography"
+          ]
+        }
       ]
     },
     {
