@@ -5,6 +5,8 @@ definition:
   title: Run Wazuh Rootcheck Scan
   description: Initiates a rootcheck scan on Wazuh agents to identify unauthorized root-level changes.
   display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.rootcheck_controller.put_rootcheck
+  author: bouddha-fr
   secrets:
     - name: wazuh
       keys:

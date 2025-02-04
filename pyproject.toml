@@ -53,6 +53,7 @@ dependencies = [
     "sqlmodel==0.0.18",
     "temporalio==1.6.0",
     "tenacity==8.3.0",
+    "tomli>=2.2.1",
     "uv==0.4.10",
     "uvicorn==0.29.0",
     "virtualenv==20.27.0",

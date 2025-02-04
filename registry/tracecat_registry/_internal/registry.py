@@ -98,7 +98,7 @@ def register(
                 "include_in_schema": include_in_schema,
                 "namespace": namespace,
                 "description": description,
-                "secrets": secrets,
+                "secrets": [s.model_dump() for s in secrets] if secrets else None,
             },
         )
         return fn

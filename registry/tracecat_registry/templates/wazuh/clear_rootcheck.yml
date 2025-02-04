@@ -5,6 +5,8 @@ definition:
   title: Clear Wazuh Rootcheck Results
   description: Clears all previous rootcheck scan results from Wazuh agents to reset the status.
   display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.rootcheck_controller.delete_rootcheck
+  author: bouddha-fr
   secrets:
     - name: wazuh
       keys:

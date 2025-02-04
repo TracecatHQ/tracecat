@@ -5,6 +5,8 @@ definition:
   title: Get Rootcheck Scan Results
   description: Recovers information from a rootcheck scan on an agent
   display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.rootcheck_controller.get_rootcheck_agent
+  author: bouddha-fr
   secrets:
     - name: wazuh
       keys:

@@ -14,6 +14,7 @@ DEFAULT_SYSTEM_CONTEXT = "You will be provided with a body of text and your task
 llm_secret = RegistrySecret(
     name="llm",
     optional_keys=["OPENAI_API_KEY"],
+    optional=True,
 )
 """OpenAI secret.
 

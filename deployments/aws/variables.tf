@@ -50,6 +50,12 @@ variable "setting_override_saml_enabled" {
   default     = null
 }
 
+variable "setting_override_oauth_google_enabled" {
+  type        = string
+  description = "Override the Google OAuth setting"
+  default     = null
+}
+
 variable "setting_override_basic_auth_enabled" {
   type        = string
   description = "Override the basic auth setting"
@@ -71,7 +77,7 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.22.1"
+  default = "0.22.2"
 }
 
 variable "temporal_server_image" {
