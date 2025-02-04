@@ -34,6 +34,7 @@ definition:
     thread_ts:
       type: str | None
       description: Timestamp of the thread to reply to.
+      default: null
   steps:
     - ref: metadata_block
       action: tools.slack_blocks.format_metadata
