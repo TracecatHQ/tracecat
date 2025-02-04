@@ -33,10 +33,30 @@ Supported models:
         TRACECAT__PRELOAD_OSS_MODELS=llama3.2
         ```
     </Step>
+    <Step title="Configure the Ollama service">
+        Uncomment out the `ollama` service and `ollama` volume at the bottom of the `docker-compose.yml` file.
+
+        ```yaml
+        ollama:
+          image: ollama/ollama:${OLLAMA__VERSION}
+          ports:
+            - 11434:11434
+          networks:
+            - core
+          volumes:
+            - ollama:/root/.ollama
+
+        volumes:
+            core-db:
+            temporal-db:
+            ollama:
+        ```
+
+    </Step>
     <Step title="Deploy">
         Deploy Tracecat with the Ollama docker compose extension:
         ```bash
-        docker compose up -f docker-compose.yml -f docker-compose.ollama.yml up -d
+        docker compose up -d
         ```
     </Step>
     <Step title="AI Action">
