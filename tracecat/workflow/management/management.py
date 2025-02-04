@@ -324,6 +324,7 @@ class WorkflowsManagementService(BaseService):
                 for_each=act_stmt.for_each,
                 retry_policy=act_stmt.retry_policy,
                 start_delay=act_stmt.start_delay,
+                wait_until=act_stmt.wait_until,
                 join_strategy=act_stmt.join_strategy,
             )
             new_action = Action(

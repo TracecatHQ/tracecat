@@ -106,7 +106,17 @@ class ActionStatement(BaseModel):
         default_factory=ActionRetryPolicy, description="Retry policy for the action."
     )
     start_delay: float = Field(
-        default=0.0, description="Delay before starting the action in seconds."
+        default=0.0,
+        description=(
+            "Delay before starting the action in seconds. "
+            "If `wait_until` is also provided, the `wait_until` timer will take precedence."
+        ),
+    )
+    wait_until: str | None = Field(
+        default=None,
+        description=(
+            "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided."
+        ),
     )
     join_strategy: JoinStrategy = Field(
         default=JoinStrategy.ALL,
