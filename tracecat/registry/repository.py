@@ -321,7 +321,7 @@ class Repository:
                 )
 
             # Load the repository module
-            logger.warning("Loading local repository", repo_path=repo_path.as_posix())
+            logger.debug("Loading local repository", repo_path=repo_path.as_posix())
             module = await self._load_repository(repo_path.as_posix(), package_name)
             logger.info(
                 "Imported and reloaded local repository",
