@@ -15,19 +15,21 @@ definition:
       description: Prompt to ask the user. Supports Markdown.
     metadata:
       type: dict[str, any]
-      description: Metadata to add to the response.
+      # TODO: Add information about where to find `metadata` in the interaction payload
+      description: Metadata to add to the interaction payload as `event_payload`.
     channel:
       type: str
       description: ID that represents a channel, private group, or IM channel.
     thread_ts:
       type: str | None
       description: Adds comment to a thread given the thread timestamp.
+      default: null
   steps:
     - ref: text_input_block
       action: tools.slack_blocks.format_text_input
       args:
         prompt: ${{ inputs.prompt }}
-        is_trigger: true
+        dispatch_action: true
     - ref: ask_input
       action: tools.slack_sdk.call_method
       args:
@@ -41,4 +43,4 @@ definition:
           thread_ts: ${{ inputs.thread_ts }}
           blocks:
             - ${{ steps.text_input_block.result }}
-  returns: ${{ steps.ask_input.result }}
+  returns: ${{ steps.ask_input.result.message }}
