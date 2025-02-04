@@ -1,3 +1,5 @@
+import { ExternalLinkIcon } from "lucide-react"
+
 export function RunIfTooltip() {
   return (
     <div className="w-full space-y-4">
@@ -174,15 +176,65 @@ export function ControlFlowOptionsTooltip() {
         </div>
         <div>Defaults to `all`.</div>
       </div>
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm font-semibold">wait_until</span>
+          <span className="text-xs font-normal text-muted-foreground/80">
+            string
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <div className="w-full items-center space-y-2 text-start text-muted-foreground">
+        <div>
+          Specifies when to start the action using natural language or datetime
+          strings. We use the Python `dateparser` library to parse these
+          strings.
+        </div>
+        <div>Supports various formats including:</div>
+        <ul className="list-disc pl-4 text-xs">
+          <li>Natural language: "tomorrow at 3pm", "in 2 hours"</li>
+          <li>Relative: "3 days", "2 weeks from now"</li>
+          <li>Absolute: "2024-03-21 15:30:00", "March 21st 3:30pm"</li>
+        </ul>
+        {/* docs link */}
+        <a
+          href="https://dateparser.readthedocs.io/en/latest/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1 text-blue-500 hover:text-blue-600 hover:underline"
+        >
+          <span>View dateparser documentation</span>
+          <ExternalLinkIcon className="size-3" />
+        </a>
+      </div>
       <div className="w-full items-center text-start">
         <span>Example inputs: </span>
       </div>
-      <div className="flex w-full flex-col text-muted-foreground">
+      <div className="flex w-full flex-col space-y-2 text-muted-foreground">
         <div className="rounded-md border bg-muted-foreground/10 p-2">
           <pre className="text-xs text-foreground/70">
-            {
-              "start_delay: 1.5  # 1.5 seconds\njoin_strategy: any  # continue on any branch completion"
-            }
+            <p>
+              <strong>wait_until: tomorrow at 3pm</strong>
+            </p>
+          </pre>
+        </div>
+        <div className="rounded-md border bg-muted-foreground/10 p-2">
+          <pre className="text-xs text-foreground/70">
+            <p>
+              <strong>wait_until: in 2 hours</strong>
+            </p>
+          </pre>
+        </div>
+        <div className="rounded-md border bg-muted-foreground/10 p-2">
+          <pre className="text-xs text-foreground/70">
+            <p>
+              <strong>start_delay: 1.5</strong> # 1.5 seconds
+            </p>
+            <p>
+              <strong>wait_until: 2024-03-21 15:30:00</strong> # specific
+              datetime
+            </p>
           </pre>
         </div>
       </div>
