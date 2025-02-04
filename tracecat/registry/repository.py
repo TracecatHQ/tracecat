@@ -248,16 +248,13 @@ class Repository:
                 raise RegistryError(f"Local git repository not found: {repo_path}")
 
             # Check that there's either pyproject.toml or setup.py
-            if (
-                not repo_path.joinpath("pyproject.toml").exists()
-                and not repo_path.joinpath("setup.py").exists()
-            ):
+            if not repo_path.joinpath("pyproject.toml").exists():
                 # expand the path to the host path
                 if host_path := config.TRACECAT__LOCAL_REPOSITORY_PATH:
                     host_path = Path(host_path).expanduser()
                     logger.debug("Host path", host_path=host_path)
                 raise RegistryError(
-                    "Local repository does not contain pyproject.toml or setup.py. "
+                    "Local repository does not contain pyproject.toml. "
                     "Please ensure TRACECAT__LOCAL_REPOSITORY_PATH points to a valid Python package."
                     f"Host path: {host_path}"
                 )
