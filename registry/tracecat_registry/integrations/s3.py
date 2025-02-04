@@ -21,6 +21,7 @@ s3_secret = RegistrySecret(
         "AWS_ROLE_ARN",
         "AWS_ROLE_SESSION_NAME",
     ],
+    optional=False,
 )
 """AWS secret.
 
