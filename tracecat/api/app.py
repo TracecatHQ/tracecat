@@ -120,10 +120,10 @@ def fastapi_users_auth_exception_handler(request: Request, exc: FastAPIUsersExce
 
 
 def create_app(**kwargs) -> FastAPI:
-    if config.TRACECAT__ALLOW_ORIGINS is not None:
-        allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
-    else:
-        allow_origins = ["*"]
+    # Only allow explicitly configured origins, no wildcards
+    allow_origins = []
+    if config.TRACECAT__ALLOW_ORIGINS:
+        allow_origins = [origin.strip() for origin in config.TRACECAT__ALLOW_ORIGINS.split(",")]
     app = FastAPI(
         title="Tracecat API",
         description=(
