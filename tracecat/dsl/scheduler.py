@@ -3,6 +3,7 @@ from collections import defaultdict
 from collections.abc import Coroutine
 from typing import Any
 
+from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger
@@ -220,23 +221,34 @@ class DSLScheduler:
         for task_ref, indegree in self.indegrees.items():
             if indegree == 0:
                 self.queue.put_nowait(task_ref)
+
+        pending_tasks: set[asyncio.Task[None]] = set()
+
         while not self.task_exceptions and (
-            not self.queue.empty() or len(self.completed_tasks) < len(self.tasks)
+            not self.queue.empty()
+            or len(self.completed_tasks) < len(self.tasks)
+            or pending_tasks
         ):
             self.logger.debug(
                 "Waiting for tasks.",
                 qsize=self.queue.qsize(),
                 n_visited=len(self.completed_tasks),
                 n_tasks=len(self.tasks),
+                n_pending=len(pending_tasks),
             )
-            try:
-                task_ref = await asyncio.wait_for(
-                    self.queue.get(), timeout=self._queue_wait_timeout
-                )
-            except TimeoutError:
-                continue
 
-            asyncio.create_task(self._schedule_task(task_ref))
+            # Clean up completed tasks
+            done_tasks = {t for t in pending_tasks if t.done()}
+            pending_tasks.difference_update(done_tasks)
+
+            if not self.queue.empty():
+                task_ref = await self.queue.get()
+                task = asyncio.create_task(self._schedule_task(task_ref))
+                pending_tasks.add(task)
+            elif pending_tasks:
+                # Wait for at least one pending task to complete
+                await workflow.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
+
         if self.task_exceptions:
             self.logger.warning(
                 "DSLScheduler got task exceptions, stopping...",
@@ -245,6 +257,17 @@ class DSLScheduler:
                 n_visited=len(self.completed_tasks),
                 n_tasks=len(self.tasks),
             )
+            # Cancel all pending tasks and wait for them to complete
+            for task in pending_tasks:
+                if not task.done():
+                    task.cancel()
+
+            if pending_tasks:
+                try:
+                    await asyncio.gather(*pending_tasks, return_exceptions=True)
+                except Exception as e:
+                    self.logger.warning("Error while canceling tasks", error=e)
+
             return self.task_exceptions
         self.logger.info(
             "All tasks completed",
