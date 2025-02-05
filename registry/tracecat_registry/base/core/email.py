@@ -110,7 +110,7 @@ def send_email_smtp(
     sender_prefix: Annotated[
         str | None,
         Doc("Email address prefix of the sender"),
-    ],
+    ] = None,
     recipients: Annotated[
         list[str],
         Doc("List of recipient email addresses"),
