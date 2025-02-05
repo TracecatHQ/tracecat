@@ -1,0 +1,15 @@
+# https://incident.io/changelog/polishing-our-slack-messages#a-new-format-for-updates
+summary:
+  type: str
+  description: Brief one-line summary of the event (e.g. "Incident updated").
+  default: null
+description:
+  type: str
+  description: |
+    Short description of the event. Supports Markdown.
+    We recommend keeping this under 200 characters (~2-3 sentences).
+metadata:
+  type: dict[str, str]
+  description: >-
+    Mapping of field names and values (e.g. `{"Status": "Resolved", "Updated by": "John Doe"}`).
+    Field names should be concise and descriptive (e.g. "Status" instead of "Incident Status").
