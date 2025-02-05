@@ -220,10 +220,10 @@ export function ControlFlowOptionsTooltip() {
         <div>Supports various formats including:</div>
         <ul className="list-disc pl-4 text-xs">
           <li>
-            Natural language: &quot;tomorrow at 3pm&quot;, &quot;in 2
-            hours&quot;
+            Natural language: &quot;tomorrow at 3pm&quot;, &quot;yesterday
+            5pm&quot;
           </li>
-          <li>Relative: &quot;3 days&quot;, &quot;2 weeks from now&quot;</li>
+          <li>Relative: &quot;3 days ago&quot;, &quot;in 2 weeks&quot;</li>
           <li>
             Absolute: &quot;2024-03-21 15:30:00&quot;, &quot;March 21st
             3:30pm&quot;
@@ -246,25 +246,18 @@ export function ControlFlowOptionsTooltip() {
       <div className="flex w-full flex-col space-y-2 text-muted-foreground">
         <div className="rounded-md border bg-muted-foreground/10 p-2">
           <pre className="whitespace-pre-wrap break-words text-xs text-foreground/70">
-            <p>
-              wait_until: tomorrow at 3pm{" "}
-              <span className="text-xs text-muted-foreground">
-                # wait until 3pm the next day from the time the action is
-                scheduled
-              </span>
-            </p>
-            <p>
-              wait_until: in 2 hours{" "}
-              <span className="text-xs text-muted-foreground">
-                # wait until 2 hours from the time the action is scheduled
-              </span>
-            </p>
-            <p>
-              wait_until: &quot;2026-03-21 15:30:00&quot;{" "}
-              <span className="text-xs text-muted-foreground">
-                # wait until 3:30pm on March 21st, 2026
-              </span>
-            </p>
+            <span className="text-xs text-muted-foreground">
+              # Run at 3pm the next day
+            </span>
+            <p>wait_until: tomorrow at 3pm </p>
+            <span className="text-xs text-muted-foreground">
+              # Run 2 hours after the action is scheduled
+            </span>
+            <p>wait_until: in 2 hours </p>
+            <span className="text-xs text-muted-foreground">
+              # Run at 3:30pm on March 21st, 2026
+            </span>
+            <p>wait_until: &quot;2026-03-21 15:30:00&quot; </p>
           </pre>
         </div>
         <div className="rounded-md border bg-muted-foreground/10 p-2">
