@@ -36,9 +36,9 @@ smtp_secret = RegistrySecret(
 
 def _build_email_message(
     sender: str,
+    sender_prefix: str | None
     recipients: list[str],
     subject: str,
-    sender_prefix: str | None
     body: str,
     content_type: str,
     bcc: str | list[str] | None = None,
