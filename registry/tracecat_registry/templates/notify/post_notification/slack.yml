@@ -14,7 +14,7 @@ definition:
       description: Brief one-line summary of the notification.
     description:
       type: str
-      description: Detailed description (supports Markdown) of the notification.
+      description: Detailed description of the notification. Supports Markdown.
     metadata:
       type: dict[str, str]
       description: >-
@@ -24,7 +24,7 @@ definition:
       description: List of possible boolean choices for user to take (e.g. "Confirm", "Deny").
     prompt:
       type: str
-      description: Prompt to ask the user.
+      description: Question prompt associated with optional text input.
     links:
       type: list[str]
       description: Links to add to the notification.
@@ -44,7 +44,7 @@ definition:
       action: tools.slack_blocks.format_choices
       args:
         labels: ${{ inputs.choices }}
-    - ref: totp_input_block
+    - ref: text_input_block
       action: tools.slack_blocks.format_text_input
       args:
         prompt: ${{ inputs.prompt }}
@@ -69,7 +69,7 @@ definition:
               text: ${{ inputs.description }}
           - ${{ steps.metadata_block.result }}
           - type: divider
-          - ${{ steps.totp_input_block.result }}
+          - ${{ steps.text_input_block.result }}
           - ${{ steps.choices_block.result }}
           - ${{ steps.links_block.result }}
     - ref: post_message

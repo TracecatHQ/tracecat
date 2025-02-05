@@ -8,7 +8,7 @@ summary:
   description: Brief one-line summary of the notification.
 description:
   type: str
-  description: Detailed description (supports Markdown) of the notification.
+  description: Detailed description of the notification. Supports Markdown.
 metadata:
   type: dict[str, str]
   description: >-
