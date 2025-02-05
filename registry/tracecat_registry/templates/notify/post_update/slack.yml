@@ -17,6 +17,10 @@ definition:
       type: dict[str, str]
       description: >-
         Mapping of field names and values (e.g. `{"status": "critical", "role": "admin"}`).
+    images:
+      type: list[str] | None
+      description: List of image URLs to display per metadata field.
+      default: null
     channel:
       type: str
       description: ID that represents a channel, private group, or IM channel.
@@ -29,6 +33,7 @@ definition:
       action: tools.slack_blocks.format_metadata_context
       args:
         metadata: ${{ inputs.metadata }}
+        images: ${{ inputs.images }}
     - ref: blocks
       action: core.transform.reshape
       args:
