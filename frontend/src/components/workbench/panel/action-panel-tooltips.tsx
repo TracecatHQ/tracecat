@@ -127,13 +127,39 @@ export function RetryPolicyTooltip() {
         </div>
         <div>Defaults to 300s (5 minutes).</div>
       </div>
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm font-semibold">retry_until</span>
+          <span className="text-xs font-normal text-muted-foreground/80">
+            expression string
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <div className="w-full items-center space-y-2 text-start text-muted-foreground">
+        <div>
+          An expression that retries the action until it evalutes to `true`.
+          This only applies to successful action runs. If an error is raised,
+          the regular retry policy will apply.
+        </div>
+      </div>
       <div className="w-full items-center text-start">
         <span>Example inputs: </span>
       </div>
-      <div className="flex w-full flex-col text-muted-foreground">
+      <div className="flex w-full flex-col space-y-2 text-muted-foreground">
         <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            {"max_attempts: 5\ntimeout: 300  # 5 minutes"}
+          <pre className="whitespace-pre-wrap break-words text-xs text-foreground/70">
+            <p>max_attempts: 5</p>
+            <p>
+              timeout: 300{" "}
+              <span className="text-xs text-muted-foreground"># 5 minutes</span>
+            </p>
+            <p>
+              retry_until: ${`{{ ACTIONS.this_action.result == "success" }}`}{" "}
+              <span className="text-xs text-muted-foreground">
+                # wait until the result is `success`
+              </span>
+            </p>
           </pre>
         </div>
       </div>
@@ -220,26 +246,27 @@ export function ControlFlowOptionsTooltip() {
       <div className="flex w-full flex-col space-y-2 text-muted-foreground">
         <div className="rounded-md border bg-muted-foreground/10 p-2">
           <pre className="text-xs text-foreground/70">
-            <p>
-              <strong>wait_until: tomorrow at 3pm</strong>
-            </p>
+            <p>wait_until: tomorrow at 3pm</p>
+          </pre>
+        </div>
+        <div className="rounded-md border bg-muted-foreground/10 p-2">
+          <pre className="text-xs text-foreground/70">
+            <p>wait_until: in 2 hours</p>
           </pre>
         </div>
         <div className="rounded-md border bg-muted-foreground/10 p-2">
           <pre className="text-xs text-foreground/70">
             <p>
-              <strong>wait_until: in 2 hours</strong>
-            </p>
-          </pre>
-        </div>
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            <p>
-              <strong>start_delay: 1.5</strong> # 1.5 seconds
+              start_delay: 1.5{" "}
+              <span className="text-xs text-muted-foreground">
+                # 1.5 seconds
+              </span>
             </p>
             <p>
-              <strong>wait_until: 2024-03-21 15:30:00</strong> # specific
-              datetime
+              wait_until: 2024-03-21 15:30:00{" "}
+              <span className="text-xs text-muted-foreground">
+                # specific datetime
+              </span>
             </p>
           </pre>
         </div>
