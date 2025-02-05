@@ -1,6 +1,0 @@
-comment:
-  type: str
-  description: The comment to add.
-issue_id:
-  type: str
-  description: The issue ID to add the comment to.
