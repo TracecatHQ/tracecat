@@ -245,13 +245,26 @@ export function ControlFlowOptionsTooltip() {
       </div>
       <div className="flex w-full flex-col space-y-2 text-muted-foreground">
         <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            <p>wait_until: tomorrow at 3pm</p>
-          </pre>
-        </div>
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            <p>wait_until: in 2 hours</p>
+          <pre className="whitespace-pre-wrap break-words text-xs text-foreground/70">
+            <p>
+              wait_until: tomorrow at 3pm{" "}
+              <span className="text-xs text-muted-foreground">
+                # wait until 3pm the next day from the time the action is
+                scheduled
+              </span>
+            </p>
+            <p>
+              wait_until: in 2 hours{" "}
+              <span className="text-xs text-muted-foreground">
+                # wait until 2 hours from the time the action is scheduled
+              </span>
+            </p>
+            <p>
+              wait_until: &quot;2026-03-21 15:30:00&quot;{" "}
+              <span className="text-xs text-muted-foreground">
+                # wait until 3:30pm on March 21st, 2026
+              </span>
+            </p>
           </pre>
         </div>
         <div className="rounded-md border bg-muted-foreground/10 p-2">
@@ -260,12 +273,6 @@ export function ControlFlowOptionsTooltip() {
               start_delay: 1.5{" "}
               <span className="text-xs text-muted-foreground">
                 # 1.5 seconds
-              </span>
-            </p>
-            <p>
-              wait_until: 2024-03-21 15:30:00{" "}
-              <span className="text-xs text-muted-foreground">
-                # specific datetime
               </span>
             </p>
           </pre>
