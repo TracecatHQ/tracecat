@@ -9,7 +9,7 @@ description:
     Short description of the event. Supports Markdown.
     We recommend keeping this under 200 characters (~2-3 sentences).
 metadata:
-  type: dict[str, str]
+  type: list[dict[str, any]]
   description: >-
-    Mapping of field names and values (e.g. `{"Status": "Resolved", "Updated by": "John Doe"}`).
+    Mapping of field names and values (e.g. `[{"Status": "Resolved"}, {"Updated by": "John Doe"}]`).
     Field names should be concise and descriptive (e.g. "Status" instead of "Incident Status").

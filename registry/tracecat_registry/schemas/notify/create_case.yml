@@ -27,7 +27,7 @@ tags:
   description: Tags to categorize the incident.
   default: []
 metadata:
-  type: dict[str, str]
+  type: list[dict[str, any]]
   description: >-
-    Context related to the incident (e.g. `{"Status": "Resolved", "Updated by": "John Doe"}`).
-  default: {}
+    Context related to the incident (e.g. `[{"Status": "Resolved"}, {"Updated by": "John Doe"}]`).
+  default: []
