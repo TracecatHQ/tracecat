@@ -193,9 +193,15 @@ export function ControlFlowOptionsTooltip() {
         </div>
         <div>Supports various formats including:</div>
         <ul className="list-disc pl-4 text-xs">
-          <li>Natural language: "tomorrow at 3pm", "in 2 hours"</li>
-          <li>Relative: "3 days", "2 weeks from now"</li>
-          <li>Absolute: "2024-03-21 15:30:00", "March 21st 3:30pm"</li>
+          <li>
+            Natural language: &quot;tomorrow at 3pm&quot;, &quot;in 2
+            hours&quot;
+          </li>
+          <li>Relative: &quot;3 days&quot;, &quot;2 weeks from now&quot;</li>
+          <li>
+            Absolute: &quot;2024-03-21 15:30:00&quot;, &quot;March 21st
+            3:30pm&quot;
+          </li>
         </ul>
         {/* docs link */}
         <a
