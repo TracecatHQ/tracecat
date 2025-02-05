@@ -14,9 +14,9 @@ definition:
       type: str
       description: Short description of the event. Supports Markdown.
     metadata:
-      type: dict[str, str]
+      type: list[dict[str, any]]
       description: >-
-        Mapping of field names and values (e.g. `{"status": "critical", "role": "admin"}`).
+        Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`).
     images:
       type: list[str] | None
       description: List of image URLs to display per metadata field.

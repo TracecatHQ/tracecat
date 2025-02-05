@@ -16,9 +16,9 @@ definition:
       type: str
       description: Detailed description of the notification. Supports Markdown.
     metadata:
-      type: dict[str, str]
+      type: list[dict[str, any]]
       description: >-
-        Mapping of field names and values (e.g. `{"status": "critical", "role": "admin"}`)
+        Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`)
     choices:
       type: list[str]
       description: List of possible boolean choices for user to take (e.g. "Confirm", "Deny").
