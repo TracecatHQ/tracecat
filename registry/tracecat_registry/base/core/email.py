@@ -71,7 +71,7 @@ def _build_email_message(
             f"Unsupported content type: {content_type}. Expected 'text/plain' or 'text/html'."
         )
 
-    msg["From"] = sender
+    msg["From"] = f"Tracecat {sender}"
     msg["To"] = recipients
     msg["Subject"] = subject
 
