@@ -1,5 +1,6 @@
 """Generic interface for Slack SDK."""
 
+from itertools import zip_longest
 from typing import Annotated, Any
 
 from pydantic import Field
@@ -98,14 +99,13 @@ async def call_paginated_method(
     display_group="Slack",
     doc_url="https://api.slack.com/reference/block-kit/blocks#section",
     namespace="tools.slack_blocks",
-    secrets=[slack_secret],
 )
 def format_metadata(
     metadata: Annotated[
-        dict[str, str],
+        list[dict[str, Any]],
         Field(
             ...,
-            description='Mapping of field names and values (e.g. `{"status": "critical", "role": "admin"}`)',
+            description='Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`)',
         ),
     ],
     block_id: Annotated[
@@ -113,11 +113,74 @@ def format_metadata(
         Field(..., description="Block ID. If None, defaults to `tc-metadata`."),
     ] = None,
 ) -> dict[str, Any]:
-    metadata_str = "\n".join([f">*{k}*: {v}" for k, v in metadata.items()])
+    metadata_pairs = [d.popitem() for d in metadata]
+    metadata_str = "\n".join([f">*{k}*: {v}" for k, v in metadata_pairs])
     block_id = block_id or "tc_metadata"
     block = {
         "type": "section",
         "text": {"type": "mrkdwn", "text": metadata_str},
+        "block_id": block_id,
+    }
+    return block
+
+
+@registry.register(
+    default_title="Format metadata context",
+    description="Format metadata into a context block with optional images per field.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/reference/block-kit/blocks#context",
+    namespace="tools.slack_blocks",
+)
+def format_metadata_context(
+    metadata: Annotated[
+        list[dict[str, Any]],
+        Field(
+            ...,
+            description='Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`)',
+        ),
+    ],
+    images: Annotated[
+        list[str] | None,
+        Field(..., description="List of image URLs to display alongside the metadata."),
+    ] = None,
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc-links`."),
+    ] = None,
+) -> dict[str, Any]:
+    block_id = block_id or "tc_metadata_context"
+    metadata_pairs = [d.popitem() for d in metadata]
+    if images:
+        elements = []
+        for image_url, metadata_item in zip_longest(images, metadata_pairs):
+            k, v = metadata_item
+            text = f"{k}: *{v}*"
+            if image_url:
+                elements.append(
+                    {
+                        "type": "image",
+                        "image_url": image_url,
+                        "alt_text": text,
+                    }
+                )
+            elements.append(
+                {
+                    "type": "mrkdwn",
+                    "text": text,
+                }
+            )
+    else:
+        elements = [
+            {
+                "type": "mrkdwn",
+                "text": f"{k}: *{v}*",
+            }
+            for k, v in metadata_pairs
+        ]
+
+    block = {
+        "type": "context",
+        "elements": elements,
         "block_id": block_id,
     }
     return block
@@ -129,7 +192,6 @@ def format_metadata(
     display_group="Slack",
     doc_url="https://api.slack.com/reference/block-kit/blocks#input",
     namespace="tools.slack_blocks",
-    secrets=[slack_secret],
 )
 def format_links(
     links: Annotated[
@@ -180,7 +242,6 @@ def format_links(
     display_group="Slack",
     doc_url="https://api.slack.com/reference/block-kit/blocks#actions",
     namespace="tools.slack_blocks",
-    secrets=[slack_secret],
 )
 def format_choices(
     labels: Annotated[
@@ -239,7 +300,6 @@ def format_choices(
     display_group="Slack",
     doc_url="https://api.slack.com/reference/block-kit/block-elements#input",
     namespace="tools.slack_blocks",
-    secrets=[slack_secret],
 )
 def format_text_input(
     prompt: Annotated[
