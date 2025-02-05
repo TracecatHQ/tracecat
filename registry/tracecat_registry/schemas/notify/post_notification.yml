@@ -12,7 +12,7 @@ description:
 metadata:
   type: dict[str, str]
   description: >-
-    Mapping of field names and values (e.g. `{"status": "critical", "role": "admin"}`)
+    Mapping of field names and values (e.g. `{"status": "critical", "role": "admin"}`).
 choices:
   type: list[str]
   description: List of possible boolean choices for user to take (e.g. "Confirm", "Deny").
