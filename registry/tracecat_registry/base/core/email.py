@@ -38,6 +38,7 @@ def _build_email_message(
     sender: str,
     recipients: list[str],
     subject: str,
+    sender_prefix: str | None
     body: str,
     content_type: str,
     bcc: str | list[str] | None = None,
@@ -71,7 +72,9 @@ def _build_email_message(
             f"Unsupported content type: {content_type}. Expected 'text/plain' or 'text/html'."
         )
 
-    msg["From"] = f"Tracecat {sender}"
+    formatted_sender = f"{sender_prefix} <{sender}>" if sender_prefix else sender
+
+    msg["From"] = formatted_sender
     msg["To"] = recipients
     msg["Subject"] = subject
 
