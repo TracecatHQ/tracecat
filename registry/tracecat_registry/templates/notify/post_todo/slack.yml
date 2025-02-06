@@ -11,7 +11,7 @@ definition:
       type: str
       description: Brief one-line summary of the action item.
     status:
-      type: enum["open", "in_progress", "done"]
+      type: enum["to_do", "in_progress", "done"]
       description: Status of the action item.
     metadata:
       type: list[dict[str, any]]
@@ -45,7 +45,7 @@ definition:
             event_type: update
             event_payload: ${{ inputs.metadata }}
           attachments:
-            - color: ${{ "#22c55e" if inputs.status == "done" else "#eab308" if inputs.status == "in_progress" else "#eab308" }}
+            - color: ${{ "#22c55e" if inputs.status == "done" else "#eab308" if inputs.status == "in_progress" else "" }}
               blocks:
                 - type: section
                   block_id: summary
