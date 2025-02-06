@@ -51,8 +51,8 @@ def filter(
     namespace="core.transform",
 )
 def merge(
-    left: Annotated[dict[str, Any], Field(..., description="Left JSON object")],
-    right: Annotated[dict[str, Any], Field(..., description="Right JSON object")],
+    left: Annotated[dict[str, Any], Doc("Left JSON object")],
+    right: Annotated[dict[str, Any], Doc("Right JSON object")],
 ) -> dict[str, Any]:
     """Merge two JSON objects into a single JSON object."""
     return {**left, **right}
