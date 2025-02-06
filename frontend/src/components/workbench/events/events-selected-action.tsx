@@ -266,7 +266,7 @@ export function JsonViewWithControls({
               displaySize
               enableClipboard
               src={source}
-              className="w-full overflow-x-scroll text-wrap text-sm"
+              className="w-full overflow-x-scroll text-wrap text-xs"
               theme="atom"
             />
           </TabsContent>
