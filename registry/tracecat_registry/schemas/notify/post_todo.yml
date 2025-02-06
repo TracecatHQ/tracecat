@@ -1,0 +1,10 @@
+summary:
+  type: str
+  description: Brief one-line summary of the action item.
+status:
+  type: enum["open", "in_progress", "done"]
+  description: Status of the action item.
+metadata:
+  type: list[dict[str, any]]
+  description: >-
+    Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`).

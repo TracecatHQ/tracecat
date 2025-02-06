@@ -1,0 +1,56 @@
+type: action
+definition:
+  title: Post todo
+  description: Post todo action item to a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/chat.postMessage
+  namespace: tools.slack
+  name: post_todo
+  expects:
+    summary:
+      type: str
+      description: Brief one-line summary of the action item.
+    status:
+      type: enum["open", "in_progress", "done"]
+      description: Status of the action item.
+    metadata:
+      type: list[dict[str, any]]
+      description: >-
+        Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`).
+    images:
+      type: list[str] | None
+      description: List of image URLs to display per metadata field.
+      default: null
+    channel:
+      type: str
+      description: ID that represents a channel, private group, or IM channel.
+    thread_ts:
+      type: str | None
+      description: Timestamp of the thread to reply to.
+      default: null
+  steps:
+    - ref: metadata_block
+      action: tools.slack_blocks.format_metadata_context
+      args:
+        metadata: "${{ inputs.metadata + [{'Status': FN.capitalize(FN.replace(inputs.status, '_', ' '))}] }}"
+        images: ${{ inputs.images }}
+    - ref: post_message
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: chat_postMessage
+        params:
+          channel: ${{ inputs.channel }}
+          thread_ts: ${{ inputs.thread_ts }}
+          metadata:
+            event_type: update
+            event_payload: ${{ inputs.metadata }}
+          attachments:
+            - color: ${{ "#22c55e" if inputs.status == "done" else "#eab308" if inputs.status == "in_progress" else "#eab308" }}
+              blocks:
+                - type: section
+                  block_id: summary
+                  text:
+                    type: mrkdwn
+                    text: "*${{ inputs.summary }}*\n\n"
+                - ${{ steps.metadata_block.result }}
+  returns: ${{ steps.post_message.result.message }}
