@@ -43,6 +43,14 @@ export const $ActionControlFlow = {
       ],
       title: "For Each",
     },
+    join_strategy: {
+      allOf: [
+        {
+          $ref: "#/components/schemas/JoinStrategy",
+        },
+      ],
+      default: "all",
+    },
     retry_policy: {
       $ref: "#/components/schemas/ActionRetryPolicy",
     },
@@ -52,13 +60,17 @@ export const $ActionControlFlow = {
       description: "Delay before starting the action in seconds.",
       default: 0,
     },
-    join_strategy: {
-      allOf: [
+    wait_until: {
+      anyOf: [
         {
-          $ref: "#/components/schemas/JoinStrategy",
+          type: "string",
+        },
+        {
+          type: "null",
         },
       ],
-      default: "all",
+      title: "Wait Until",
+      description: "Delay until a specific date and time.",
     },
   },
   type: "object",
@@ -181,6 +193,18 @@ export const $ActionRetryPolicy = {
       description: "Timeout for the action in seconds.",
       default: 300,
     },
+    retry_until: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Retry Until",
+      description: "Retry until a specific condition is met.",
+    },
   },
   type: "object",
   title: "ActionRetryPolicy",
@@ -260,8 +284,22 @@ export const $ActionStatement = {
     start_delay: {
       type: "number",
       title: "Start Delay",
-      description: "Delay before starting the action in seconds.",
+      description:
+        "Delay before starting the action in seconds. If `wait_until` is also provided, the wait_until timer will take precedence.",
       default: 0,
+    },
+    wait_until: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wait Until",
+      description:
+        "Delay until a specific date and time. Overrides `start_delay` if both are provided.",
     },
     join_strategy: {
       allOf: [

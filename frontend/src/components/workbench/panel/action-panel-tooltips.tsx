@@ -1,3 +1,5 @@
+import { ExternalLinkIcon } from "lucide-react"
+
 export function RunIfTooltip() {
   return (
     <div className="w-full space-y-4">
@@ -125,13 +127,39 @@ export function RetryPolicyTooltip() {
         </div>
         <div>Defaults to 300s (5 minutes).</div>
       </div>
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm font-semibold">retry_until</span>
+          <span className="text-xs font-normal text-muted-foreground/80">
+            expression string
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <div className="w-full items-center space-y-2 text-start text-muted-foreground">
+        <div>
+          An expression that retries the action until it evalutes to `true`.
+          This only applies to successful action runs. If an error is raised,
+          the regular retry policy will apply.
+        </div>
+      </div>
       <div className="w-full items-center text-start">
         <span>Example inputs: </span>
       </div>
-      <div className="flex w-full flex-col text-muted-foreground">
+      <div className="flex w-full flex-col space-y-2 text-muted-foreground">
         <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            {"max_attempts: 5\ntimeout: 300  # 5 minutes"}
+          <pre className="whitespace-pre-wrap break-words text-xs text-foreground/70">
+            <p>max_attempts: 5</p>
+            <p>
+              timeout: 300{" "}
+              <span className="text-xs text-muted-foreground"># 5 minutes</span>
+            </p>
+            <p>
+              retry_until: ${`{{ ACTIONS.this_action.result == "success" }}`}{" "}
+              <span className="text-xs text-muted-foreground">
+                # wait until the result is `success`
+              </span>
+            </p>
           </pre>
         </div>
       </div>
@@ -174,15 +202,72 @@ export function ControlFlowOptionsTooltip() {
         </div>
         <div>Defaults to `all`.</div>
       </div>
+      <div className="flex w-full items-center justify-between text-muted-foreground ">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm font-semibold">wait_until</span>
+          <span className="text-xs font-normal text-muted-foreground/80">
+            string
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground/80">(optional)</span>
+      </div>
+      <div className="w-full items-center space-y-2 text-start text-muted-foreground">
+        <div>
+          Specifies when to start the action using natural language or datetime
+          strings. We use the Python `dateparser` library to parse these
+          strings.
+        </div>
+        <div>Supports various formats including:</div>
+        <ul className="list-disc pl-4 text-xs">
+          <li>
+            Natural language: &quot;tomorrow at 3pm&quot;, &quot;yesterday
+            5pm&quot;
+          </li>
+          <li>Relative: &quot;3 days ago&quot;, &quot;in 2 weeks&quot;</li>
+          <li>
+            Absolute: &quot;2024-03-21 15:30:00&quot;, &quot;March 21st
+            3:30pm&quot;
+          </li>
+        </ul>
+        {/* docs link */}
+        <a
+          href="https://dateparser.readthedocs.io/en/latest/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1 text-blue-500 hover:text-blue-600 hover:underline"
+        >
+          <span>View dateparser documentation</span>
+          <ExternalLinkIcon className="size-3" />
+        </a>
+      </div>
       <div className="w-full items-center text-start">
         <span>Example inputs: </span>
       </div>
-      <div className="flex w-full flex-col text-muted-foreground">
+      <div className="flex w-full flex-col space-y-2 text-muted-foreground">
+        <div className="rounded-md border bg-muted-foreground/10 p-2">
+          <pre className="whitespace-pre-wrap break-words text-xs text-foreground/70">
+            <span className="text-xs text-muted-foreground">
+              # Run at 3pm the next day
+            </span>
+            <p>wait_until: tomorrow at 3pm </p>
+            <span className="text-xs text-muted-foreground">
+              # Run 2 hours after the action is scheduled
+            </span>
+            <p>wait_until: in 2 hours </p>
+            <span className="text-xs text-muted-foreground">
+              # Run at 3:30pm on March 21st, 2026
+            </span>
+            <p>wait_until: &quot;2026-03-21 15:30:00&quot; </p>
+          </pre>
+        </div>
         <div className="rounded-md border bg-muted-foreground/10 p-2">
           <pre className="text-xs text-foreground/70">
-            {
-              "start_delay: 1.5  # 1.5 seconds\njoin_strategy: any  # continue on any branch completion"
-            }
+            <p>
+              start_delay: 1.5{" "}
+              <span className="text-xs text-muted-foreground">
+                # 1.5 seconds
+              </span>
+            </p>
           </pre>
         </div>
       </div>

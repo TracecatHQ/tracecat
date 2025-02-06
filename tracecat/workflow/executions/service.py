@@ -208,7 +208,7 @@ class WorkflowExecutionsService:
                 # Create a new source event
                 source = WorkflowExecutionEventCompact.from_source_event(event)
                 if source is None:
-                    logger.debug(
+                    logger.trace(
                         "Skipping scheduled event as there is no source",
                         event_id=event.event_id,
                     )

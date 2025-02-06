@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.expressions.common import ExprContext
-from tracecat.expressions.validation import ExpressionStr
+from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -65,6 +65,9 @@ class ActionRetryPolicy(BaseModel):
     timeout: int = Field(
         default=DEFAULT_ACTION_TIMEOUT, description="Timeout for the action in seconds."
     )
+    retry_until: RequiredExpressionStr | None = Field(
+        default=None, description="Retry until a specific condition is met."
+    )
 
 
 class ActionStatement(BaseModel):
@@ -106,7 +109,17 @@ class ActionStatement(BaseModel):
         default_factory=ActionRetryPolicy, description="Retry policy for the action."
     )
     start_delay: float = Field(
-        default=0.0, description="Delay before starting the action in seconds."
+        default=0.0,
+        description=(
+            "Delay before starting the action in seconds. "
+            "If `wait_until` is also provided, the `wait_until` timer will take precedence."
+        ),
+    )
+    wait_until: str | None = Field(
+        default=None,
+        description=(
+            "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided."
+        ),
     )
     join_strategy: JoinStrategy = Field(
         default=JoinStrategy.ALL,

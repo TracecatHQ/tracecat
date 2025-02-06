@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from httpx_oauth.clients.google import GoogleOAuth2
 from pydantic import BaseModel
+from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -89,13 +90,15 @@ async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
 def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Improves visiblity of 422 errors."""
     errors = exc.errors()
+    ser_errors = to_jsonable_python(errors, fallback=str)
     logger.error(
         "API Model Validation error",
         request=request,
-        errors=errors,
+        errors=ser_errors,
     )
     return ORJSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": errors}
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": ser_errors},
     )
 
 

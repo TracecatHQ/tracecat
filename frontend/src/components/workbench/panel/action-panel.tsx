@@ -123,6 +123,13 @@ const actionFormSchema = z.object({
 })
 type ActionFormSchema = z.infer<typeof actionFormSchema>
 
+const isControlFlowOption = (key: string) => {
+  return [
+    "control_flow.wait_until",
+    "control_flow.join_strategy",
+    "control_flow.start_delay",
+  ].includes(key)
+}
 const typeToLabel: Record<
   RegistryActionRead["type"],
   { label: string; icon: LucideIcon }
@@ -214,7 +221,7 @@ export function ActionPanel({
           description: values.description,
           inputs: values.inputs,
           control_flow: {
-            ...parseYaml(values.control_flow.options),
+            ...parseYaml(values.control_flow.options), // Miscellaneous options
             for_each: parseYaml(values.control_flow.for_each),
             run_if: parseYaml(values.control_flow.run_if),
             retry_policy: parseYaml(values.control_flow.retry_policy),
@@ -229,12 +236,29 @@ export function ActionPanel({
           console.error("Application failed to validate action", apiError.body)
 
           // Set form errors from API validation errors
+
+          const errors: Record<string, { message: string }> = {}
           const details = apiError.body.detail as RequestValidationError[]
-          details.forEach((detail) => {
-            methods.setError(detail.loc[1] as keyof ActionFormSchema, {
-              message: detail.msg,
+          console.error("Validation errors", details)
+          details.forEach(({ loc, msg }) => {
+            let key: string = loc.slice(1).join(".")
+            if (isControlFlowOption(key)) {
+              key = "control_flow.options"
+            }
+            // Combine errors if they have the same key
+            if (errors[key]) {
+              errors[key].message += `\n${msg}`
+            } else {
+              errors[key] = { message: msg }
+            }
+          })
+          Object.entries(errors).forEach(([key, { message }]) => {
+            console.log("Setting error", key, message)
+            methods.setError(key as keyof ActionFormSchema, {
+              message,
             })
           })
+          console.log("Errors", errors)
         } else {
           console.error("Validation failed, unknown error", error)
         }
@@ -477,7 +501,7 @@ export function ActionPanel({
                                     {...field}
                                   />
                                 </FormControl>
-                                <FormMessage />
+                                <FormMessage className="whitespace-pre-line" />
                               </FormItem>
                             )}
                           />
@@ -496,7 +520,7 @@ export function ActionPanel({
                                     {...field}
                                   />
                                 </FormControl>
-                                <FormMessage />
+                                <FormMessage className="whitespace-pre-line" />
                               </FormItem>
                             )}
                           />
@@ -625,7 +649,7 @@ export function ActionPanel({
                             render={({ field }) => (
                               <FormItem>
                                 {/* Place form message above because it's not visible otherwise */}
-                                <FormMessage />
+                                <FormMessage className="whitespace-pre-line" />
                                 <FormControl>
                                   <DynamicCustomEditor
                                     className="min-h-[40rem] w-full"
@@ -713,7 +737,7 @@ export function ActionPanel({
                                     workspaceId={workspaceId}
                                   />
                                 </FormControl>
-                                <FormMessage />
+                                <FormMessage className="whitespace-pre-line" />
                               </FormItem>
                             )}
                           />
@@ -760,7 +784,7 @@ export function ActionPanel({
                                     workflowId={workflowId}
                                   />
                                 </FormControl>
-                                <FormMessage />
+                                <FormMessage className="whitespace-pre-line" />
                               </FormItem>
                             )}
                           />
@@ -807,7 +831,7 @@ export function ActionPanel({
                                     workflowId={workflowId}
                                   />
                                 </FormControl>
-                                <FormMessage />
+                                <FormMessage className="whitespace-pre-line" />
                               </FormItem>
                             )}
                           />
@@ -871,7 +895,7 @@ export function ActionPanel({
                                     workflowId={workflowId}
                                   />
                                 </FormControl>
-                                <FormMessage />
+                                <FormMessage className="whitespace-pre-line" />
                               </FormItem>
                             )}
                           />

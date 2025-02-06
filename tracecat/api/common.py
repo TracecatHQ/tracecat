@@ -43,6 +43,7 @@ def tracecat_exception_handler(request: Request, exc: TracecatException):
         role=ctx_role.get(),
         params=request.query_params,
         path=request.url.path,
+        detail=exc.detail,
     )
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

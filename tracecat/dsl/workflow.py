@@ -5,7 +5,7 @@ import itertools
 import json
 import uuid
 from collections.abc import Generator, Iterable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from temporalio import workflow
@@ -18,6 +18,7 @@ from temporalio.exceptions import (
 )
 
 with workflow.unsafe.imports_passed_through():
+    import dateparser  # noqa: F401
     import jsonpath_ng.ext.parser  # noqa: F401
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
@@ -374,20 +375,111 @@ class DSLWorkflow:
                 type=e.__class__.__name__,
             ) from e
 
+    async def _handle_timers(self, task: ActionStatement) -> None:
+        """Perform any timing control flow logic (start_delay, wait_until).
+
+        Note
+        -----
+        - asyncio.sleep() produces a Temporal durable timer when called within a workflow.
+        """
+        ### Timing control flow logic
+        # If we have a retry_until, we need to run wait_until inside.
+        # If we have a wait_until, we need to create a durable timer
+        if task.wait_until:
+            self.logger.info("Creating wait until timer", wait_until=task.wait_until)
+
+            # Parse the delay until date
+            wait_until = await workflow.execute_activity(
+                DSLActivities.parse_wait_until_activity,
+                task.wait_until,
+                start_to_close_timeout=timedelta(seconds=10),
+            )
+            self.logger.info("Parsed wait until date", wait_until=wait_until)
+            if wait_until is None:
+                # Unreachable as this should have been validated at the API level
+                raise ApplicationError(
+                    "Invalid wait until date",
+                    non_retryable=True,
+                )
+
+            current_time = datetime.now(UTC)
+            logger.info("Current time", current_time=current_time)
+            wait_until_dt = datetime.fromisoformat(wait_until)
+            if wait_until_dt > current_time:
+                duration = wait_until_dt - current_time
+                self.logger.info(
+                    "Waiting until", wait_until=wait_until, duration=duration
+                )
+                await asyncio.sleep(duration.total_seconds())
+            else:
+                self.logger.warning(
+                    "Wait until is in the past, skipping timer",
+                    wait_until=wait_until,
+                    current_time=current_time,
+                )
+        # Create a durable timer if we have a start_delay
+        elif task.start_delay > 0:
+            logger.info("Starting action with delay", delay=task.start_delay)
+            # In Temporal 1.9.0+, we can use workflow.sleep() as well
+            await asyncio.sleep(task.start_delay)
+
     async def execute_task(self, task: ActionStatement) -> Any:
+        """Execute a task and manage the results."""
+        if task.retry_policy.retry_until:
+            return await self._execute_task_until_condition(task)
+        return await self._execute_task(task)
+
+    async def _execute_task_until_condition(
+        self, task: ActionStatement
+    ) -> DSLNodeResult:
+        """Execute a task until a condition is met."""
+        retry_until = task.retry_policy.retry_until
+        if retry_until is None:
+            raise ValueError("Retry until is not set")
+        ctx = self.context.copy()
+        result = None
+        while True:
+            # NOTE: This only works with successful results
+            result = await self._execute_task(task)
+            ctx[ExprContext.ACTIONS][task.ref] = result
+            retry_until_result = eval_templated_object(retry_until.strip(), operand=ctx)
+            if not isinstance(retry_until_result, bool):
+                try:
+                    retry_until_result = bool(retry_until_result)
+                except Exception:
+                    raise ApplicationError(
+                        "Retry until result is not a boolean", non_retryable=True
+                    ) from None
+            if retry_until_result:
+                break
+        return result
+
+    async def _execute_task(self, task: ActionStatement) -> DSLNodeResult:
         """Purely execute a task and manage the results.
+
+
+        Prelude
+        ------
+        - Before this point, we've already evaluated conditional branching logic (run_if) and decided
+            that this node must be executed.
+        - We should now perform any timing control flow logic (start_delay, wait_until).
+        - Note that we're not inside an activity here, so any timers created are DURABLE TEMPORAL TIMERS
 
         Preflight checks
         ---------------
-        1. Evaluate `run_if` condition
-        2. Resolve all templated arguments
-        3. If there's an ActionTest, skip execution and return the patched result.
-            - Note that we still schedule the task for execution, but we don't actually run it.
+        1. Perform any timing control flow logic
+            - Create a durable timer if we have a start_delay
+            - Create a durable timer if we have a wait_until
+            - If we have both, the wait_until timer will take precedence
+        2. Decide whether we're running a child workflow or not
         """
 
         logger.info("Begin task execution", task_ref=task.ref)
         task_result = DSLNodeResult(result=None, result_typename=type(None).__name__)
+
         try:
+            await self._handle_timers(task)
+            # Do action stuff
             if self._should_execute_child_workflow(task):
                 # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
                 # 1. Prepare the child workflow
@@ -457,6 +549,7 @@ class DSLWorkflow:
         finally:
             logger.debug("Setting action result", task_result=task_result)
             self.context[ExprContext.ACTIONS][task.ref] = task_result  # type: ignore
+        return task_result
 
     ERROR_TYPE_TO_MESSAGE = {
         ActivityError.__name__: "Activity execution failed",

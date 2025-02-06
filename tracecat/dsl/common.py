@@ -357,6 +357,7 @@ def build_action_statements(
             for_each=control_flow.for_each,
             retry_policy=control_flow.retry_policy,
             start_delay=control_flow.start_delay,
+            wait_until=control_flow.wait_until,
             join_strategy=control_flow.join_strategy,
         )
         statements.append(action_stmt)
