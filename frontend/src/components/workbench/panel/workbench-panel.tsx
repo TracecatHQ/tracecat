@@ -50,6 +50,8 @@ export const WorkbenchPanel = React.forwardRef<ActionPanelRef>((_, ref) => {
   )
 })
 
+WorkbenchPanel.displayName = "WorkbenchPanel"
+
 function NodePanel({
   node,
   workflow,
