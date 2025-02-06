@@ -47,4 +47,16 @@ class TemplateValidator:
         return handler(v, info)
 
 
+class RequiredTemplateValidator:
+    def __new__(cls):
+        return WrapValidator(cls.must_expression)
+
+    @classmethod
+    def must_expression(cls, v: T, handler: ValidatorFunctionWrapHandler, info) -> T:
+        if isinstance(v, str) and not is_full_template(v):
+            raise ValueError(f"'{v}' is not a valid expression")
+        return handler(v, info)
+
+
 ExpressionStr = Annotated[str, TemplateValidator()]
+RequiredExpressionStr = Annotated[str, RequiredTemplateValidator()]

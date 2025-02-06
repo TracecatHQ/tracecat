@@ -65,6 +65,7 @@ UTILITY_ACTIONS = {
     "get_schedule_activity",
     "validate_trigger_inputs_activity",
     "validate_action_activity",
+    "parse_wait_until_activity",
     WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
     WorkflowsManagementService.get_error_handler_workflow_id.__name__,
 }
