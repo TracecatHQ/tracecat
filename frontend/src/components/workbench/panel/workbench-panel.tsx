@@ -6,11 +6,14 @@ import { useWorkflow } from "@/providers/workflow"
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
 import { NodeType } from "@/components/workbench/canvas/canvas"
-import { ActionPanel } from "@/components/workbench/panel/action-panel"
+import {
+  ActionPanel,
+  ActionPanelRef,
+} from "@/components/workbench/panel/action-panel"
 import { TriggerPanel } from "@/components/workbench/panel/trigger-panel"
 import { WorkflowPanel } from "@/components/workbench/panel/workflow-panel"
 
-export function WorkbenchPanel() {
+export const WorkbenchPanel = React.forwardRef<ActionPanelRef>((_, ref) => {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
   const { workflow, isLoading, error } = useWorkflow()
   const selectedNode = getNode(selectedNodeId ?? "")
@@ -45,7 +48,8 @@ export function WorkbenchPanel() {
       )}
     </div>
   )
-}
+})
+
 function NodePanel({
   node,
   workflow,
