@@ -401,7 +401,6 @@ class DSLWorkflow:
                     "Invalid wait until date",
                     non_retryable=True,
                 )
-            # We no
 
             current_time = datetime.now(UTC)
             logger.info("Current time", current_time=current_time)
