@@ -220,10 +220,10 @@ export default React.memo(function ActionNode({
           <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
             <div className="flex items-center space-x-2">
               {error ? (
-                <span className="capitaliz flex items-center space-x-1 text-xs">
+                <div className="flex items-center space-x-1">
                   <AlertTriangleIcon className="size-4 fill-yellow-500 stroke-white" />
                   <span className="text-xs capitalize">{error}</span>
-                </span>
+                </div>
               ) : (
                 <div className="flex items-center space-x-1">
                   {isConfigured ? (
