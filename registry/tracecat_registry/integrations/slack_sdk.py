@@ -345,3 +345,70 @@ def format_text_input(
         "block_id": block_id,
     }
     return block
+
+
+@registry.register(
+    default_title="Format overflow menu",
+    description="Format a list of choices into an overflow menu element.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/reference/block-kit/block-elements#overflow",
+    namespace="tools.slack_elements",
+)
+def format_overflow_menu(
+    labels: Annotated[
+        list[str],
+        Field(..., description="List of labels for the overflow menu."),
+    ],
+    values: Annotated[
+        list[str] | None,
+        Field(
+            ...,
+            description="List of values for the overflow menu. If None, defaults to a slugified version of the label.",
+        ),
+    ] = None,
+    urls: Annotated[
+        list[str] | None,
+        Field(
+            ...,
+            description="List of URLs for the overflow menu. If None, no URLs will be linked.",
+        ),
+    ] = None,
+    action_id: Annotated[
+        str | None,
+        Field(..., description="Action ID. If None, defaults to `tc-overflow-menu`."),
+    ] = None,
+) -> dict[str, Any]:
+    action_id = action_id or "tc_overflow_menu"
+
+    if values and len(values) != len(labels):
+        raise ValueError(
+            f"`labels` and `values` must have the same length. Got {len(labels)} values and {len(values)} values."
+        )
+
+    if not values:
+        values = [slugify(label) for label in labels]
+
+    if urls:
+        options = [
+            {
+                "text": {"type": "plain_text", "emoji": True, "text": label},
+                "value": value,
+                "url": url,
+            }
+            for label, value, url in zip_longest(labels, values, urls)
+        ]
+    else:
+        options = [
+            {
+                "text": {"type": "plain_text", "emoji": True, "text": label},
+                "value": value,
+            }
+            for label, value in zip(labels, values, strict=False)
+        ]
+
+    block = {
+        "type": "overflow",
+        "options": options,
+        "action_id": action_id,
+    }
+    return block

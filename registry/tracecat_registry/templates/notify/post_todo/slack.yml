@@ -21,6 +21,13 @@ definition:
       type: list[str] | None
       description: List of image URLs to display per metadata field.
       default: null
+    labels:
+      type: list[str]
+      description: List of labels for the overflow menu.
+    urls:
+      type: list[str] | None
+      description: List of URLs for the overflow menu.
+      default: null
     channel:
       type: str
       description: ID that represents a channel, private group, or IM channel.
@@ -29,11 +36,25 @@ definition:
       description: Timestamp of the thread to reply to.
       default: null
   steps:
+    - ref: summary_block
+      action: core.transform.reshape
+      args:
+        value:
+          type: section
+          block_id: summary
+          text:
+            type: mrkdwn
+            text: "*${{ inputs.summary }}*"
     - ref: metadata_block
       action: tools.slack_blocks.format_metadata_context
       args:
         metadata: "${{ inputs.metadata + [{'Status': FN.capitalize(FN.replace(inputs.status, '_', ' '))}] }}"
         images: ${{ inputs.images }}
+    - ref: overflow_menu
+      action: tools.slack_elements.format_overflow_menu
+      args:
+        labels: ${{ inputs.labels }}
+        urls: ${{ inputs.urls }}
     - ref: post_message
       action: tools.slack_sdk.call_method
       args:
@@ -47,10 +68,6 @@ definition:
           attachments:
             - color: ${{ "#22c55e" if inputs.status == "done" else "#eab308" if inputs.status == "in_progress" else "" }}
               blocks:
-                - type: section
-                  block_id: summary
-                  text:
-                    type: mrkdwn
-                    text: "*${{ inputs.summary }}*\n\n"
-                - ${{ steps.metadata_block.result }}
+                - "${{ FN.merge(steps.summary_block.result, {'accessory': steps.overflow_menu.result}) }}"
+                - "${{ steps.metadata_block.result }}"
   returns: ${{ steps.post_message.result.message }}
