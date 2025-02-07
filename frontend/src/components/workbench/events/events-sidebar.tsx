@@ -137,10 +137,12 @@ function WorkbenchSidebarEventsList({
                 <TabsTrigger
                   key={tab.value}
                   value={tab.value}
-                  className="flex h-full min-w-28 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  className="flex h-full min-w-20 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none sm:min-w-16 md:min-w-20"
                 >
-                  <tab.icon className="mr-2 size-4" />
-                  <span>{tab.label}</span>
+                  {/* TODO(chris): Please adjust this */}
+                  <tab.icon className="mr-2 size-4 sm:mr-1" />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="sm:hidden">{tab.label.slice(0, 4)}</span>
                 </TabsTrigger>
               ))}
             </TabsList>

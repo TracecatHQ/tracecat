@@ -722,6 +722,64 @@ def test_expression_parser(expr, expected):
     assert actual == expected
 
 
+def test_jsonpath_wildcard():
+    context = {
+        ExprContext.ACTIONS: {
+            "users": [
+                {"name": "Alice", "age": 30},
+                {"name": "Bob", "age": 40},
+                {"name": "Charlie", "age": 50},
+            ],
+            "companies": [
+                {
+                    "name": [
+                        {"value": 1},
+                    ],
+                },
+            ],
+        },
+    }
+    # Wildcard, multiple matches
+    # This should return a list
+    expr = "ACTIONS.users[*].name"
+    parser = ExprParser()
+    parse_tree = parser.parse(expr)
+    assert parse_tree is not None
+    ev = ExprEvaluator(operand=context)
+    actual = ev.transform(parse_tree)
+    assert actual == ["Alice", "Bob", "Charlie"]
+
+    # Single match, explicit index
+    # This should return a single value
+    expr = "ACTIONS.users[0].name"
+    parser = ExprParser()
+    parse_tree = parser.parse(expr)
+    assert parse_tree is not None
+    ev = ExprEvaluator(operand=context)
+    actual = ev.transform(parse_tree)
+    assert actual == "Alice"
+
+    # Single match, wildcard
+    # This should return a list
+    expr = "ACTIONS.companies[*].name"
+    parser = ExprParser()
+    parse_tree = parser.parse(expr)
+    assert parse_tree is not None
+    ev = ExprEvaluator(operand=context)
+    actual = ev.transform(parse_tree)
+    # Returns a single list of all the values
+    assert actual == [[{"value": 1}]]
+
+    # Chained wildcard
+    expr = "ACTIONS.companies[*].name[*].value"
+    parser = ExprParser()
+    parse_tree = parser.parse(expr)
+    assert parse_tree is not None
+    ev = ExprEvaluator(operand=context)
+    actual = ev.transform(parse_tree)
+    assert actual == [1]
+
+
 def test_time_funcs():
     time_now_expr = "${{ FN.now() }}"
     dt = eval_templated_object(time_now_expr)
