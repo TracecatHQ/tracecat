@@ -859,11 +859,12 @@ def eval_jsonpath(
         formatted_expr = _expr_with_context(expr, context_type)
         raise TracecatExpressionError(f"Invalid jsonpath {formatted_expr!r}") from e
     matches = [found.value for found in jsonpath_expr.find(operand)]
-    if len(matches) == 1:
-        return matches[0]
-    elif len(matches) > 1:
-        # If there are multiple matches, return the list
+    if len(matches) > 1 or "[*]" in expr:
+        # If there are multiple matches or array wildcard, return the list
         return matches
+    elif len(matches) == 1:
+        # If there is a non-array wildcard single match, return the value
+        return matches[0]
     else:
         # We should only reach this point if the jsonpath didn't match
         # If there are no matches, raise an error if strict is True
