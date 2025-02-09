@@ -16,6 +16,9 @@ definition:
     pin:
       type: str
       description: 6-digit PIN to lock and unlock the device.
+    base_url:
+      type: str
+      description: Base URL for the Jamf Pro API.
   steps:
     - ref: get_access_token
       action: tools.jamf.get_access_token
@@ -23,7 +26,7 @@ definition:
     - ref: post_mdm_command
       action: core.http_request
       args:
-        url: ${{ SECRETS.jamf.JAMF_BASE_URL }}/api/v2/mdm/commands
+        url: ${{ inputs.base_url }}/api/v2/mdm/commands
         method: POST
         headers:
           Authorization: Bearer ${{ steps.get_access_token.result }}
