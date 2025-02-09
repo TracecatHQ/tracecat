@@ -194,6 +194,10 @@ class TemplateActionDefinition(BaseModel):
     # Validate steps
     @model_validator(mode="after")
     def validate_steps(self):
+        # Check for at least 1 step
+        if not self.steps:
+            raise TracecatValidationError("Template action must have at least 1 step")
+
         step_refs = [step.ref for step in self.steps]
         unique_step_refs = set(step_refs)
 
