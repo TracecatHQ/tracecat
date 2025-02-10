@@ -1,4 +1,4 @@
-import React, { useCallback } from "react"
+import React, { useCallback, useMemo, useState } from "react"
 import Link from "next/link"
 import { useWorkflowBuilder } from "@/providers/builder"
 import {
@@ -61,6 +61,7 @@ export default React.memo(function ActionNode({
   selected,
   id,
 }: NodeProps<ActionNodeData>) {
+  const [error, setError] = useState<string | null>(null)
   const { workflowId, getNode, workspaceId, reactFlow } = useWorkflowBuilder()
   const { toast } = useToast()
   // SAFETY: Node only exists if it's in the workflow
@@ -92,7 +93,41 @@ export default React.memo(function ActionNode({
   const edges = useEdges()
   const incomingEdges = edges.filter((edge) => edge.target === id)
   const isChildWorkflow = action?.type === CHILD_WORKFLOW_ACTION_TYPE
-  const actionInputsObj = action?.inputs ? YAML.parse(action?.inputs) : {}
+  const actionInputsObj = useMemo(() => {
+    try {
+      // Use YAML.parse with strict schema to catch duplicate keys
+      setError(null)
+      return action?.inputs
+        ? YAML.parse(action.inputs, {
+            schema: "core",
+            strict: true,
+            uniqueKeys: true,
+          })
+        : {}
+    } catch (error) {
+      const description = (
+        <div className="flex flex-col space-y-2">
+          <div className="flex items-center space-x-2">
+            <p>
+              <AlertTriangleIcon className="inline size-4 min-w-4 fill-yellow-500 stroke-white" />
+              <b className="inline rounded-sm bg-muted-foreground/10 p-0.5 font-mono">
+                ACTIONS.{action?.title}
+              </b>
+              has an invalid configuration. Please ensure that the action inputs
+              are valid YAML and do not contain duplicate keys.
+            </p>
+          </div>
+        </div>
+      )
+      console.error("Failed to parse action inputs:", error)
+      toast({
+        title: "Invalid action configuration",
+        description,
+      })
+      setError("Invalid configuration")
+      return {}
+    }
+  }, [action, action?.inputs, toast])
   const childWorkflowId = actionInputsObj?.workflow_id
     ? String(actionInputsObj?.workflow_id)
     : undefined
@@ -184,14 +219,23 @@ export default React.memo(function ActionNode({
         <CardContent className="p-4 py-2">
           <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
             <div className="flex items-center space-x-2">
-              {isConfigured ? (
-                <CircleCheckBigIcon className="size-4 text-emerald-500" />
+              {error ? (
+                <div className="flex items-center space-x-1">
+                  <AlertTriangleIcon className="size-4 fill-yellow-500 stroke-white" />
+                  <span className="text-xs capitalize">{error}</span>
+                </div>
               ) : (
-                <LayoutListIcon className="size-4 text-gray-400" />
+                <div className="flex items-center space-x-1">
+                  {isConfigured ? (
+                    <CircleCheckBigIcon className="size-4 text-emerald-500" />
+                  ) : (
+                    <LayoutListIcon className="size-4 text-gray-400" />
+                  )}
+                  <span className="text-xs capitalize">
+                    {isConfigured ? "Ready" : "Missing inputs"}
+                  </span>
+                </div>
               )}
-              <span className="text-xs capitalize">
-                {isConfigured ? "Ready" : "Missing inputs"}
-              </span>
             </div>
             {isChildWorkflow && (
               <ChildWorkflowLink

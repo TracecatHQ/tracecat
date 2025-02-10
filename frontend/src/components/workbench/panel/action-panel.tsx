@@ -32,6 +32,7 @@ import {
   ToyBrickIcon,
 } from "lucide-react"
 import { FormProvider, useForm } from "react-hook-form"
+import { ImperativePanelHandle } from "react-resizable-panels"
 import YAML from "yaml"
 import { z } from "zod"
 
@@ -156,6 +157,8 @@ const parseYaml = (str: string | undefined) =>
   str ? YAML.parse(str) : undefined
 const stringifyYaml = (obj: unknown | undefined) =>
   obj ? YAML.stringify(obj) : ""
+
+export interface ActionPanelRef extends ImperativePanelHandle {}
 
 export function ActionPanel({
   actionId,

@@ -25,6 +25,7 @@ import {
   WorkflowCanvasRef,
 } from "@/components/workbench/canvas/canvas"
 import { EventsSidebarRef } from "@/components/workbench/events/events-sidebar"
+import { ActionPanelRef } from "@/components/workbench/panel/action-panel"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
@@ -37,8 +38,11 @@ interface ReactFlowContextType {
   setSelectedNodeId: React.Dispatch<SetStateAction<string | null>>
   canvasRef: React.RefObject<WorkflowCanvasRef>
   sidebarRef: React.RefObject<EventsSidebarRef>
+  actionPanelRef: React.RefObject<ActionPanelRef>
   isSidebarCollapsed: boolean
+  isActionPanelCollapsed: boolean
   toggleSidebar: () => void
+  toggleActionPanel: () => void
   expandSidebarAndFocusEvents: () => void
 }
 
@@ -58,8 +62,11 @@ export const WorkflowBuilderProvider: React.FC<
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
+  const [isActionPanelCollapsed, setIsActionPanelCollapsed] =
+    React.useState(false)
   const canvasRef = useRef<WorkflowCanvasRef>(null)
   const sidebarRef = useRef<EventsSidebarRef>(null)
+  const actionPanelRef = useRef<ActionPanelRef>(null)
 
   useEffect(() => {
     setSelectedNodeId(null)
@@ -103,6 +110,20 @@ export const WorkflowBuilderProvider: React.FC<
     })
   }, [sidebarRef])
 
+  const toggleActionPanel = React.useCallback(() => {
+    setIsActionPanelCollapsed((prev: boolean) => {
+      const newState = !prev
+      if (actionPanelRef.current) {
+        if (newState) {
+          actionPanelRef.current.collapse()
+        } else {
+          actionPanelRef.current.expand()
+        }
+      }
+      return newState
+    })
+  }, [sidebarRef])
+
   const expandSidebarAndFocusEvents = React.useCallback(() => {
     setIsSidebarCollapsed(() => {
       const newState = false
@@ -129,6 +150,9 @@ export const WorkflowBuilderProvider: React.FC<
       isSidebarCollapsed,
       toggleSidebar,
       expandSidebarAndFocusEvents,
+      actionPanelRef,
+      isActionPanelCollapsed,
+      toggleActionPanel,
     }),
     [
       workflowId,
@@ -143,6 +167,9 @@ export const WorkflowBuilderProvider: React.FC<
       isSidebarCollapsed,
       toggleSidebar,
       expandSidebarAndFocusEvents,
+      actionPanelRef,
+      isActionPanelCollapsed,
+      toggleActionPanel,
     ]
   )
 
