@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: List computers
+  description:
+  display_group: Jamf
+  doc_url: https://developer.jamf.com/jamf-pro/reference/get_preview-computers
+  namespace: tools.jamf
+  name: list_computers
+  expects:
+    limit:
+      type: int
+      description: The maximum number of devices to return.
+      default: 100
+    base_url:
+      type: str
+      description: Base URL for the Jamf Pro API.
+  steps:
+    - ref: get_access_token
+      action: tools.jamf.get_access_token
+      args: {}
+    - ref: list_inventory
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/preview/computers"
+        method: GET
+        headers:
+          accept: application/json
+          authorization: Bearer ${{ steps.get_access_token.result }}
+        params:
+          page-size: ${{ inputs.limit }}
+  returns: ${{ steps.list_inventory.result }}
