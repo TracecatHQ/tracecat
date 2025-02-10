@@ -36,6 +36,7 @@ smtp_secret = RegistrySecret(
 
 def _build_email_message(
     sender: str,
+    sender_prefix: str | None = None,
     recipients: list[str],
     subject: str,
     body: str,
@@ -71,7 +72,9 @@ def _build_email_message(
             f"Unsupported content type: {content_type}. Expected 'text/plain' or 'text/html'."
         )
 
-    msg["From"] = sender
+    formatted_sender = f"{sender_prefix} <{sender}>" if sender_prefix else sender
+
+    msg["From"] = formatted_sender
     msg["To"] = recipients
     msg["Subject"] = subject
 
@@ -104,6 +107,10 @@ def send_email_smtp(
         str,
         Doc("Email address of the sender"),
     ],
+    sender_prefix: Annotated[
+        str | None,
+        Doc("Email address prefix of the sender"),
+    ] = None,
     recipients: Annotated[
         list[str],
         Doc("List of recipient email addresses"),
