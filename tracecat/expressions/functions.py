@@ -910,6 +910,7 @@ def eval_jsonpath(
 _FUNCTION_MAPPING = {
     # String transforms
     "capitalize": capitalize,
+    "concat": concat_strings,
     "endswith": endswith,
     "lowercase": lowercase,
     "prefix": add_prefix,
@@ -959,7 +960,6 @@ _FUNCTION_MAPPING = {
     "sum": sum_,
     # Transform
     "apply": apply,
-    "concat": concat_strings,
     "filter": filter_,
     "format": format_string,
     "join": join_strings,
