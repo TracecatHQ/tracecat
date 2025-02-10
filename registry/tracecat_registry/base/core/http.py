@@ -16,11 +16,11 @@ from tenacity import (
     wait_exponential,
     wait_fixed,
 )
-from tracecat.expressions.functions import _build_safe_lambda
 from tracecat.logger import logger
 from typing_extensions import Doc
 
 from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry.base.core.transform import _build_safe_lambda
 
 RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
