@@ -1,0 +1,79 @@
+---
+title: Control Flow
+description: Learn how to use if-conditions in your workflows.
+---
+
+## Goals
+
+By the end of this tutorial, you will learn how to:
+
+- Reference data from previous actions
+- Use the **Reshape** action to organize data
+- Use if-conditions to control the flow of your workflow
+- Configure the output schema of a workflow
+
+## Prerequisites
+
+- Completed the [Quickstart](/tutorials/quickstart) tutorial
+- Basic knowledge of [JSONPath match syntax](https://www.ietf.org/archive/id/draft-ietf-jsonpath-base-01.html)
+
+## Tutorial
+
+<Steps>
+    <Step title="Organize data using the Reshape action">
+        The JSON object returned from the **Search URL with VirusTotal** action can be quite verbose, for example:
+
+        ![VirusTotal search result](/img/tutorials/control-flow/vt-search-result.png)
+
+        Let's use the **Reshape** action along with JSONPath match to extract then organize the data we need for other actions.
+
+        Rename the **Reshape** action to `Extract VirusTotal report` and configure it's inputs with the following expressions:
+
+        ```yaml
+        value:
+            url: ${{ ACTIONS.search_url_with_virustotal.result.data.data.attributes.url }}
+            stats: ${{ ACTIONS.search_url_with_virustotal.result.data.data.attributes.last_analysis_stats }}
+        ```
+
+        <Note>
+            The `ACTIONS` expression namespace contains all the results from previous actions.
+            To get the result from a previous action, you call `ACTIONS.<action key>.result`,
+            where `<action key>` is the snake-cased name of the action.
+
+            For example, the action key for an action named "Search URL with VirusTotal" is `search_url_with_virustotal`.
+        </Note>
+
+    </Step>
+    <Step title="Add list comments action">
+        Add the **List VirusTotal comments on URL** action to your workflow, then configure it's inputs with the following expression:
+
+        ```yaml
+        url: ${{ ACTIONS.extract_virustotal_report.result.url }}
+        ```
+    </Step>
+    <Step title="Define an if-condition on list comments">
+        As an analyst, you might want to view comments from the VirusTotal community on a potentially malicious URL.
+        To reduce noise, let's list these comments only if the URL has been flagged as malicious more than 10 times.
+
+        You can do this by adding a **Run If** condition to the **List VirusTotal comments on URL** action:
+
+        ```yaml
+        ${{ ACTIONS.extract_virustotal_report.result.stats.malicious > 10 }}
+        ```
+    </Step>
+    <Step title="Configure output data">
+        Let's configure the workflow to return specific output data on completion.
+        Click on the canvas to view workflow settings, then navigate to the **Schema** tab and set up the **Output Schema** as follows:
+
+        ```
+        url: ${{ ACTIONS.extract_virustotal_report.result.url }}
+        comments: ${{ ACTIONS.list_virustotal_comments_on_url.result }}
+        ```
+
+        The ability to normalize a workflow's output data becomes more important when you start using [child workflows](/tutorials/4-child-workflows).
+    </Step>
+</Steps>
+
+## Next Steps
+
+Check out the [next tutorial on Actions Registry](/tutorials/3-actions-registry) to learn how to use, edit, and maintain integrations in your workflows.

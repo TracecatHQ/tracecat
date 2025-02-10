@@ -1,0 +1,201 @@
+---
+title: Arrays, loops, and filters
+description: Learn how to work with lists of items in your workflows.
+---
+
+You are likely to encounter lists of items (e.g. alerts, devices, etc.) in your workflows.
+This guide will show you five ways you might work with arrays in your workflows:
+
+- [JSONPath filters](/platform/arrays#jsonpath-filters)
+- [Action loops](/platform/arrays#action-loops)
+- [Filter and loop](/platform/arrays#filter-and-loop)
+- [Child workflow loops](/platform/arrays#child-workflow-loops)
+- [Inline functions](/platform/arrays#inline-functions)
+
+<Note title="Workflows as functions">
+    We recommend using `Action loops` as sparingly as possible.
+    Use child workflows instead to better encapsulate operations on each item in an array.
+
+    For example, in an alert enrichment workflow, you should create two workflows:
+    - `Receive alerts`: that receives a list of alerts
+    - `Enrich alert`: that enriches a **single alert**
+
+    You can then use **Enrich alert** as a child workflow in **Receive alerts** to enrich each alert individually.
+    Check out the [child workflow loops](/platform/arrays#child-workflow-loops) section for more information.
+</Note>
+
+## JSONPath filters
+
+JSONPath allows you to perform advanced filtering on arrays of JSON objects.
+
+Tracecat currently supports the following [JSONPath](https://github.com/h2non/jsonpath-ng?tab=readme-ov-file#extensions) operators:
+
+- Equality operators: `==`, `=`, `!=`
+- Comparison operators: `>`, `>=`, `<`, `<=`
+- Regex match operator: `=~`
+
+You can combine multiple criteria using the `&` operator.
+Properties can only be compared to static values.
+
+Here are some examples of valid filters:
+
+```yaml
+# Filter objects where the risk score is greater than 5
+${{ ACTIONS.list_alerts.result[?(@.risk_score > 5)] }}
+
+# Filter objects where the severity equals "High"
+${{ ACTIONS.list_alerts.result[?(@.severity == "High")] }}
+
+# Filter objects where the `ip_address` field starts with `192.168.1`
+${{ ACTIONS.list_alerts.result[?(@.ip_address =~ "192\.168\.1\..*")] }}
+
+# Filter objects with multiple conditions
+${{ ACTIONS.list_alerts.result[?(@.risk_score > 5 & @.severity == "High")] }}
+```
+
+<Tip>
+    A common use case is to filter data before it is passed to another action.
+    To do this, use the `Reshape` action along with JSONPath filters.
+
+    For example:
+
+    ```yaml
+    value:
+      high_risk_alerts: ${{ ACTIONS.list_alerts.result[?(@.risk_score > 5)] }}
+    ```
+
+    ![Filter in reshape](/img/platform/reshape-filter.png)
+</Tip>
+
+<Accordion icon="book-open" title="Example">
+For example, assume you receive the following list of alerts via webhook (e.g. `TRIGGER`):
+```json
+[
+  { "id": "1", "severity_id": 1, "severity": "Low", "title": "Low severity alert" },
+  { "id": "2", "severity_id": 2, "severity": "Medium", "title": "Medium severity alert" },
+  { "id": "3", "severity_id": 3, "severity": "High", "title": "High severity alert" }
+]
+```
+
+You can select all alerts with `severity_id` greater than 1:
+
+```yaml
+${{ TRIGGER[?(@.severity_id > 1)] }}
+```
+
+This will return the following list:
+```json
+[
+  { "id": "3", "severity_id": 3, "severity": "High", "title": "High severity alert" }
+]
+```
+</Accordion>
+
+## Action loops
+
+To apply the same action to each item in an array, you must configure at least one **Loop expression**.
+
+<Steps>
+  <Step title="Assign variable">
+    Under the **If condition / Loops** tab, assign each item in the array to a variable e.g. `var.alert`:
+
+    ![Action loop](/img/platform/loop.png)
+  </Step>
+  <Step title="Use variable">
+    Call the declared variable in the action inputs:
+
+    ![Use loops variable](/img/platform/loop-var.png)
+  </Step>
+</Steps>
+
+## Filter and loop
+
+You can first filter an array and then run the loop on the filtered array.
+
+![Filter and loop](/img/platform/loop-and-filter.png)
+
+## Child workflow loops
+
+Add the `Execute Child Workflow` action to the workflow.
+Copy the workflow ID or alias from the child workflow and paste it into the action inputs.
+Similar to action loops, you can configure the child workflow to run once per item in the array.
+
+![Child workflow loops](/img/platform/child-workflow-loops.png)
+
+You can also configure the `batch_size` to run the child workflow in batches.
+This is useful if you want to limit the number of concurrent child workflow executions at a time.
+
+## Inline functions
+
+Tracecat comes with multiple functions that allow you to work with arrays. All functions must be called using the `FN` prefix within expressions.
+
+### List transformations
+
+- **flatten** - Flattens nested sequences
+```yaml
+${{ FN.flatten([[1, 2], [3, 4], [5, 6]]) }}
+# Result: [1, 2, 3, 4, 5, 6]
+```
+
+- **apply** - Apply function to each item
+```yaml
+${{ FN.apply([1, 2, 3], "lambda x: x * 2") }}
+# Result: [2, 4, 6]
+```
+
+### List filtering
+
+- **filter** - Filter items using a lambda function
+```yaml
+${{ FN.filter([1, 2, 3, 4, 5], "lambda x: x > 3") }}
+# Result: [4, 5]
+```
+
+- **unique** - Returns unique items
+```yaml
+${{ FN.unique([1, 2, 2, 3, 3, 4]) }}
+# Result: [1, 2, 3, 4]
+```
+### Set operations
+
+- **intersect** - Returns common elements between sequences
+```yaml
+${{ FN.intersect([1, 2, 3], [2, 3, 4]) }}
+# Result: [2, 3]
+
+# With lambda function which is applied to each item
+# in the first array before comparison with the second array
+${{ FN.intersect([1, 2, 3], [2, 3, 4], "lambda x: x + 1") }}
+# Result: [3, 4]
+```
+
+- **difference** - Returns elements in first sequence not in second
+```yaml
+${{ FN.difference([1, 2, 3, 4], [3, 4, 5]) }}
+# Result: [1, 2]
+
+# With lambda function which is applied to each item
+# in the first array before comparison with the second array
+${{ FN.difference([1, 2, 3, 4], [3, 4, 5], "lambda x: x + 1") }}
+# Result: [2, 3]
+```
+
+- **union** - Combines multiple sequences
+```yaml
+${{ FN.union([1, 2], [3, 4], [5, 6]) }}
+# Result: [1, 2, 3, 4, 5, 6]
+```
+
+### Advanced operations
+
+- **zip** - Combine multiple sequences
+```yaml
+${{ FN.zip([1, 2, 3], ["a", "b", "c"]) }}
+# Result: [(1, "a"), (2, "b"), (3, "c")]
+```
+
+- **iter_product** - Generate cartesian product
+```yaml
+${{ FN.iter_product([1, 2], ["a", "b"]) }}
+# Result: [(1, "a"), (1, "b"), (2, "a"), (2, "b")]
+```

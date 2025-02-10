@@ -1,0 +1,51 @@
+---
+title: Google OAuth
+description: Learn how to authenticate into Tracecat using Google OAuth.
+---
+
+## Configuration
+
+In your `.env` file, make sure you have the following value set.
+
+```bash
+TRACECAT__AUTH_TYPES=google_oauth
+TRACECAT__SETTING_OVERRIDE_OAUTH_GOOGLE_ENABLED=true
+```
+
+## Prerequisites
+
+- Create a Google project. [Link here](https://console.cloud.google.com/projectcreate).
+- Enable the Google People API for the created project. [Link here.](https://console.cloud.google.com/apis/library/people.googleapis.com)
+
+## Instructions
+
+<Steps>
+  <Step title="Set up OAuth consent screen in Google">
+    Go to **APIs & Services** and select the **OAuth Consent screen** page.
+
+    1. Create a new app.
+    2. Set **Authorized JavaScript origins** to the domain you're serving Tracecat from.
+    For the local Docker Compose deployment, it'll be `http://localhost`.
+    3. Set the **Authorized redirect URIs** to: `<your-domain>/auth/oauth/callback`.
+
+    ![Google OAuth consent screen](/img/secrets/google-oauth-consent.png)
+
+  </Step>
+  <Step title="Set up credentials in Google">
+    Go to **APIs & Services** and select the **Credentials** page.
+    1. Under the **OAuth 2.0 Client IDs** section, select the app you created in the previous step.
+    2. You will now see the following **Additional Information** on the right hand side of the screen.
+
+    ![Google OAuth client secrets](/img/secrets/google-oauth-client-secrets.png)
+
+    3. Copy the **Client ID** and **Client secret** in a secure location for storing secrets.
+  </Step>
+  <Step title="Configure environment variables in Tracecat">
+    Go into the `.env` file and set the following variables:
+    - `OAUTH_CLIENT_ID`
+    - `OAUTH_CLIENT_SECRET`
+  </Step>
+  <Step title="Restart Tracecat">
+    Run `docker compose up`.
+  </Step>
+</Steps>

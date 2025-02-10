@@ -1,96 +1,74 @@
 ---
-title: Introduction
-description: A quick overview of Tracecat.
+title: What is Tracecat?
+description: Introduction to the Tracecat security automation platform.
 ---
 
-[Tracecat](https://tracecat.com) is the open workflow automation platform for security and IT engineers.
-It's an open source Tines / Splunk SOAR alternative with response-as-code.
-Tracecat is built on a simple YAML-based DSL for integrations, no-code UI for workflows, and [Temporal](https://temporal.io/) for scale and reliability.
+[Tracecat](https://tracecat.com) is the [open-source](https://github.com/TracecatHQ/tracecat) Tines / Splunk SOAR alternative built for security engineers.
 
 ## Why Tracecat?
 
-We're on a mission to make security and IT automation more accessible through **response-as-code**.
-What Sigma rules did for detection and Nuclei did for vulnerability scanning, Tracecat is doing for response automation.
+- **Security Operations (SecOps):** Unify playbook development across security analysts and security engineers
+- **Security Engineers (SecEng):** Build and maintain complex playbooks using open source integrations and configuration-as-code (YAML)
+- **Managed Detection & Response (MDR):** Rapidly self-host, embed, and scale multi-tenant playbooks into any security service or product
 
-## Get Started
+## New to Tracecat?
 
-<CardGroup cols={3}>
-  <Card title="Install" icon="download" href="/quickstart/install">
-    Self-host Tracecat on your own infrastructure.
+<CardGroup cols={2}>
+  <Card title="Install" icon="server" href="/self-hosting/introduction">
+    Self-host Tracecat on your own infrastructure (Docker Compose, AWS, Kubernetes).
   </Card>
-  <Card title="Login" icon="user" href="/quickstart/admin">
-    Log into Tracecat and invite your team.
+  <Card title="15-Minute Quickstart" icon="rocket" href="/installation/introduction">
+    Learn the basics of Tracecat by building a VirusTotal enrichment playbook.
   </Card>
-  <Card title="Quickstart" icon="play" href="/quickstart/tutorial">
-    Learn the basics of Tracecat in 15 minutes.
+  <Card title="Integrations" icon="diagram-project" href="/cheatsheets/integrations">
+    Pre-built integrations and their required secrets.
   </Card>
 </CardGroup>
+
 
 ## Tutorials
 
-<CardGroup cols={3}>
-  <Card title="Trigger workflows" icon="bolt" href="/tutorials/trigger-workflows">
-    Trigger a workflow via the UI, webhook, or schedule.
+Self-guided tutorials to go from zero-to-hero in Tracecat.
+
+<CardGroup cols={2}>
+  <Card title="Control Flow" icon="code-branch" href="/tutorials/2-control-flow">
+    Learn how to use if-conditions in your workflows.
   </Card>
-  <Card title="Build a template action" icon="code" href="/tutorials/build-templates">
-    Turn API calls into reusable YAML-based integrations.
+  <Card title="Actions Registry" icon="shapes" href="/tutorials/3-actions-registry">
+    Learn how to use pre-built integrations in your workflows.
   </Card>
-  <Card title="Git repository" icon="code-branch" href="/tutorials/git-repository">
-    Manage custom Python scripts and YAML templates in git.
+  <Card title="Child Workflows" icon="file-code" href="/tutorials/4-child-workflows">
+    Learn how to combine smaller workflows into a single workflow.
   </Card>
-  <Card title="Child workflows" icon="diagram-project" href="/tutorials/child-workflows">
-    Execute a workflow from another workflow.
+  <Card title="Triggers" icon="circle-play" href="/tutorials/5-triggers">
+    Learn how to trigger workflows via webhooks or schedules.
   </Card>
-  <Card title="Loops" icon="arrow-rotate-right" href="/tutorials/loops">
-    Explode-implode lists of data in actions and workflows.
+  <Card title="Custom Integrations" icon="file-code" href="/tutorials/6-custom-integrations">
+    Learn how to add custom integrations to the Actions Registry.
   </Card>
-  <Card title="Send alerts on failure" icon="bell" href="/tutorials/alert-on-failure">
-    Set up a Slack alert to notify your team when a workflow fails.
+  <Card title="Updating" icon="spinner" href="/tutorials/updating">
+    Learn how to update Tracecat to the latest version.
   </Card>
 </CardGroup>
 
-## Integrations
+## Core Features
 
-<CardGroup cols={3}>
-  <Card title="Detect" icon="magnifying-glass" href="/integrations/detect">
-    Ingest and analyze alerts and incidents.
-  </Card>
-  <Card title="Notify" icon="bell" href="/integrations/notify">
-    Add tickets, interact with users, and track cases.
-  </Card>
-  <Card title="Isolate" icon="shield" href="/integrations/isolate">
-    Isolate, networks, devices, and users.
-  </Card>
-  <Card title="Evict" icon="ban" href="/integrations/evict">
-    Remove unhealthy or malicious actors.
-  </Card>
-  <Card title="Model" icon="list-check" href="/integrations/model">
-    Build asset, IoC, and vulnerability inventories.
-  </Card>
-  <Card title="Harden" icon="lock" href="/integrations/harden">
-    Update assets, configs, and policies.
-  </Card>
-</CardGroup>
+Check out the following docs for more details on Tracecat's core features.
 
-## Data Manipulation
-
-<CardGroup cols={3}>
-  <Card title="JSON" icon="brackets-curly" href="/data-types/json">
-    Manipulate and select data from JSON objects.
+<CardGroup cols={2}>
+  <Card title="Actions" icon="square-plus" href="/platform/actions">
+    Building blocks for automations and integrations.
   </Card>
-  <Card title="Arrays" icon="brackets-square" href="/data-types/arrays">
-    Filter and iterate through lists of data.
+  <Card title="Secrets" icon="key" href="/platform/secrets">
+    Store and retrieve sensitive data.
   </Card>
-  <Card title="Datetimes" icon="clock" href="/data-types/datetimes">
-    Handle datetimes, deltas, and timestamps.
+  <Card title="Expressions" icon="brackets-curly" href="/platform/expressions">
+    Reference action results and workflow metadata.
   </Card>
-  <Card title="Strings" icon="font" href="/data-types/strings">
-    Transform and regex match strings.
+  <Card title="Arrays" icon="list-numbers" href="/platform/arrays">
+    Filter and operate on lists of items in your workflows.
   </Card>
-  <Card title="Booleans" icon="toggle-on" href="/data-types/booleans">
-    Work with truthy and falsely values.
-  </Card>
-  <Card title="Cryptography" icon="key" href="/data-types/cryptography">
-    Hash, encrypt, and decrypt data.
+  <Card title="Functions" icon="percent" href="/cheatsheets/functions">
+    Powerful utility functions for automations.
   </Card>
 </CardGroup>
