@@ -150,7 +150,7 @@ def filter(
     python_lambda: Annotated[
         str,
         Doc(
-            'Filter condition as a Python lambda function as a string (e.g. `"lambda x: x > 2"`).'
+            'Filter condition as a Python lambda expression (e.g. `"lambda x: x > 2"`).'
         ),
     ],
 ) -> Any:
@@ -159,65 +159,79 @@ def filter(
 
 
 @registry.register(
-    default_title="Intersect",
-    description="Return the set intersection of two sequences as a list.",
+    default_title="Is in",
+    description="Filters items in a list based on whether they are in a collection.",
     display_group="Data Transform",
     namespace="core.transform",
 )
-def intersect(
+def is_in(
     items: Annotated[
         list[Any],
         Doc("Items to filter."),
     ],
     collection: Annotated[
         list[Any],
-        Doc("Items to intersect with."),
+        Doc("Collection to check against."),
     ],
     python_lambda: Annotated[
         str | None,
         Doc(
-            "Python lambda applied to each item in items before intersecting with collection (e.g. `\"lambda x: x.get('name')\"`)."
+            "Python lambda applied to each item before checking membership (e.g. `\"lambda x: x.get('name')\"`). Similar to `key` in the Python `sorted` function."
         ),
     ] = None,
+    unique: Annotated[
+        bool,
+        Doc("Drop duplicate items by the Python lambda key."),
+    ] = False,
 ) -> list[Any]:
     col_set = set(collection)
     if python_lambda:
         fn = _build_safe_lambda(python_lambda)
-        result = {item for item in items if fn(item) in col_set}
+        result = [item for item in items if fn(item) in col_set]
     else:
-        result = set(items) & col_set
-    return list(result)
+        result = [item for item in items if item in col_set]
+
+    if unique:
+        result = deduplicate(result, python_lambda=python_lambda)
+    return result
 
 
 @registry.register(
-    default_title="Difference",
-    description="Return the set difference of two sequences as a list.",
+    default_title="Is not in",
+    description="Filters items in a list based on whether they are not in a collection.",
     display_group="Data Transform",
     namespace="core.transform",
 )
-def difference(
+def is_not_in(
     items: Annotated[
         list[Any],
         Doc("Items to filter."),
     ],
     collection: Annotated[
         list[Any],
-        Doc("Items to intersect with."),
+        Doc("Collection to check against."),
     ],
     python_lambda: Annotated[
         str | None,
         Doc(
-            "Python lambda applied to each item in items before subtracting from collection (e.g. `\"lambda x: x.get('name')\"`)."
+            "Python lambda applied to each item before checking membership (e.g. `\"lambda x: x.get('name')\"`). Similar to `key` in the Python `sorted` function."
         ),
     ] = None,
+    unique: Annotated[
+        bool,
+        Doc("Drop duplicate items by the Python lambda key."),
+    ] = False,
 ) -> list[Any]:
     col_set = set(collection)
     if python_lambda:
         fn = _build_safe_lambda(python_lambda)
-        result = {item for item in items if fn(item) not in col_set}
+        result = [item for item in items if fn(item) not in col_set]
     else:
-        result = set(items) - col_set
-    return list(result)
+        result = [item for item in items if item not in col_set]
+
+    if unique:
+        result = deduplicate(result, python_lambda=python_lambda)
+    return result
 
 
 @registry.register(

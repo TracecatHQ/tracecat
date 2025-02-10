@@ -5,8 +5,8 @@ from tracecat_registry.base.core.transform import (
     _build_safe_lambda,
     apply,
     deduplicate,
-    difference,
-    intersect,
+    is_in,
+    is_not_in,
 )
 from tracecat_registry.base.core.transform import (
     filter as filter_,
@@ -168,97 +168,123 @@ def test_apply(input: list[Any], python_lambda: str, expected: list[Any]) -> Non
 
 
 @pytest.mark.parametrize(
-    "items,collection,python_lambda,expected",
+    "items,collection,python_lambda,unique,expected",
     [
-        ([1, 2, 3], [2, 3, 4], None, [2, 3]),
-        # Empty intersection
-        ([1, 2], [3, 4], None, []),
-        # Empty inputs
-        ([], [1, 2], None, []),
-        ([1, 2], [], None, []),
-        # Duplicate values
-        ([1, 1, 2], [1, 2, 2], None, [1, 2]),
+        # Basic cases without unique
+        ([1, 2, 3], [2, 3, 4], None, False, [2, 3]),
+        # Test unique=True removes duplicates
+        ([1, 2, 2, 3], [2, 2, 3, 4], None, True, [2, 3]),
+        # Empty cases
+        ([1, 2], [3, 4], None, False, []),
+        ([], [1, 2], None, False, []),
+        ([1, 2], [], None, False, []),
         # String values
-        (["a", "b"], ["b", "c"], None, ["b"]),
-        # With lambda transformation
-        ([1, 2, 3], [2, 4, 6], "lambda x: x * 2", [1, 2, 3]),
-        # Lambda with string manipulation
+        (["a", "b", "b"], ["b", "c"], None, False, ["b", "b"]),
+        (["a", "b", "b"], ["b", "c"], None, True, ["b"]),
+        # With lambda transformation, non-unique
         (
-            ["hello", "world"],
-            ["HELLO", "WORLD"],
-            "lambda x: x.upper()",
-            ["hello", "world"],
+            [{"id": 1}, {"id": 2}, {"id": 2}],
+            [2, 4, 6],
+            "lambda x: x['id'] * 2",
+            False,
+            [{"id": 1}, {"id": 2}, {"id": 2}],
         ),
-        # Complex objects
-        ([(1, 2), (3, 4)], [(1, 2), (5, 6)], None, [(1, 2)]),
-        # Additional JSON/dictionary cases
+        # With lambda transformation, unique
         (
-            [{"id": "a", "val": 1}, {"id": "b", "val": 2}],
-            [{"id": "b", "val": 2}, {"id": "c", "val": 3}],
-            "lambda x: x['id']",
-            [{"id": "b", "val": 2}],
+            [{"id": 1}, {"id": 2}, {"id": 2}],
+            [2, 4, 6],
+            "lambda x: x['id'] * 2",
+            True,
+            [{"id": 1}, {"id": 2}],
         ),
+        # Complex objects with duplicates
         (
-            [{"settings": {"mode": "dark"}}, {"settings": {"mode": "light"}}],
-            [{"settings": {"mode": "light"}}, {"settings": {"mode": "auto"}}],
-            "lambda x: x['settings']['mode']",
-            [{"settings": {"mode": "light"}}],
+            [{"name": "a"}, {"name": "b"}, {"name": "b"}],
+            [{"name": "b"}, {"name": "c"}],
+            "lambda x: x['name']",
+            False,
+            [{"name": "b"}, {"name": "b"}],
         ),
+        # Complex objects with unique=True
         (
-            [{"meta": {"version": 1.0}}, {"meta": {"version": 2.0}}],
-            [{"meta": {"version": 2.0}}, {"meta": {"version": 3.0}}],
-            "lambda x: x['meta']['version']",
-            [{"meta": {"version": 2.0}}],
+            [{"name": "a"}, {"name": "b"}, {"name": "b"}],
+            [{"name": "b"}, {"name": "c"}],
+            "lambda x: x['name']",
+            True,
+            [{"name": "b"}],
         ),
     ],
 )
-def test_intersect(
-    items: list, collection: list, python_lambda: str | None, expected: list
+def test_is_in(
+    items: list,
+    collection: list,
+    python_lambda: str | None,
+    unique: bool,
+    expected: list,
 ) -> None:
-    """Test the intersect function with various inputs and transformations."""
-    result = intersect(items, collection, python_lambda)
+    """Test the is_in function with various inputs and transformations."""
+    result = is_in(items, collection, python_lambda, unique)
     # Sort the results to ensure consistent comparison
     assert sorted(result) == sorted(expected)
 
 
 @pytest.mark.parametrize(
-    "items,collection,python_lambda,expected",
+    "items,collection,python_lambda,unique,expected",
     [
-        ([1, 2, 3], [2, 3, 4], [1]),  # Basic difference
-        ([1, 2, 2], [2], [1]),  # Duplicates in first sequence
-        ([], [1, 2], []),  # Empty first sequence
-        ([1, 2], [], [1, 2]),  # Empty second sequence
-        (["a", "b"], ["b", "c"], ["a"]),  # String elements
-        # Dictionary transformation
+        # Basic cases without unique
+        ([1, 2, 3], [2, 3, 4], None, False, [1]),
+        # Test unique=True removes duplicates
+        ([1, 1, 2, 3], [2, 3, 4], None, True, [1]),
+        # Empty cases
+        ([], [1, 2], None, False, []),
+        ([1, 2], [], None, False, [1, 2]),
+        # String values with duplicates
+        (["a", "a", "b"], ["b", "c"], None, False, ["a", "a"]),
+        (["a", "a", "b"], ["b", "c"], None, True, ["a"]),
+        # With lambda transformation, non-unique
         (
-            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
-            [{"id": 2, "name": "Bob"}, {"id": 3, "name": "Charlie"}],
-            [{"id": 1, "name": "Alice"}],
-        ),
-        # Additional JSON/dictionary cases
-        (
-            [{"id": "a", "val": 1}, {"id": "b", "val": 2}],
-            [{"id": "b", "val": 2}, {"id": "c", "val": 3}],
+            [{"id": 1}, {"id": 1}, {"id": 2}],
+            [{"id": 2}, {"id": 3}],
             "lambda x: x['id']",
-            [{"id": "b", "val": 2}],
+            False,
+            [{"id": 1}, {"id": 1}],
         ),
+        # With lambda transformation, unique
         (
-            [{"settings": {"mode": "dark"}}, {"settings": {"mode": "light"}}],
-            [{"settings": {"mode": "light"}}, {"settings": {"mode": "auto"}}],
-            "lambda x: x['settings']['mode']",
-            [{"settings": {"mode": "light"}}],
+            [{"id": 1}, {"id": 1}, {"id": 2}],
+            [{"id": 2}, {"id": 3}],
+            "lambda x: x['id']",
+            True,
+            [{"id": 1}],
         ),
+        # Complex nested objects
         (
-            [{"meta": {"version": 1.0}}, {"meta": {"version": 2.0}}],
-            [{"meta": {"version": 2.0}}, {"meta": {"version": 3.0}}],
-            "lambda x: x['meta']['version']",
-            [{"meta": {"version": 2.0}}],
+            [{"user": {"id": 1}}, {"user": {"id": 1}}, {"user": {"id": 2}}],
+            [{"user": {"id": 2}}],
+            "lambda x: x['user']['id']",
+            False,
+            [{"user": {"id": 1}}, {"user": {"id": 1}}],
+        ),
+        # Complex nested objects with unique=True
+        (
+            [{"user": {"id": 1}}, {"user": {"id": 1}}, {"user": {"id": 2}}],
+            [{"user": {"id": 2}}],
+            "lambda x: x['user']['id']",
+            True,
+            [{"user": {"id": 1}}],
         ),
     ],
 )
-def test_difference(a: list[Any], b: list[Any], expected: list[Any]) -> None:
-    """Test set difference between two sequences."""
-    assert sorted(difference(a, b)) == sorted(expected)
+def test_is_not_in(
+    items: list[Any],
+    collection: list[Any],
+    python_lambda: str | None,
+    unique: bool,
+    expected: list[Any],
+) -> None:
+    """Test filtering items not in the collection, with optional deduplication."""
+    result = is_not_in(items, collection, python_lambda, unique)
+    assert sorted(result) == sorted(expected)
 
 
 @pytest.mark.parametrize(
