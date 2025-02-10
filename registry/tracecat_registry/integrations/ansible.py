@@ -17,7 +17,6 @@ ansible_secret = RegistrySecret(
     optional_keys=[
         "ANSIBLE_PASSWORDS",
     ],
-    optional=True,
 )
 """Ansible Runner secret.
 
