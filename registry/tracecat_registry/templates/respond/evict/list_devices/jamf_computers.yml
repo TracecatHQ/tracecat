@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List computers
-  description:
+  description: Retrieve list of all computers from Jamf Pro.
   display_group: Jamf
   doc_url: https://developer.jamf.com/jamf-pro/reference/get_preview-computers
   namespace: tools.jamf
