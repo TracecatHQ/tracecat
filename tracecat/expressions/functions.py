@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import base64
 import ipaddress
 import itertools
@@ -9,81 +8,19 @@ import math
 import re
 import urllib.parse
 import zoneinfo
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
-from enum import StrEnum
 from functools import wraps
 from html.parser import HTMLParser
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Any, Literal, ParamSpec, TypeVar
-from typing import cast as type_cast
 from uuid import uuid4
 
-import jsonpath_ng.ext
 import orjson
-from jsonpath_ng.exceptions import JsonPathParserError
 from slugify import slugify
 
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import is_iterable
-from tracecat.logger import logger
-from tracecat.types.exceptions import TracecatExpressionError
-
-
-class SafeEvaluator(ast.NodeVisitor):
-    RESTRICTED_NODES = {ast.Import, ast.ImportFrom}
-    RESTRICTED_SYMBOLS = {
-        "eval",
-        "import",
-        "from",
-        "os",
-        "sys",
-        "exec",
-        "locals",
-        "globals",
-    }
-    # Add allowed functions that can be used in lambda expressions
-    ALLOWED_FUNCTIONS = {"jsonpath"}
-
-    def visit(self, node):
-        if type(node) in self.RESTRICTED_NODES:
-            raise ValueError(
-                f"Restricted node {type(node).__name__} detected in expression"
-            )
-        if (
-            isinstance(node, ast.Call)
-            and (attr := getattr(node.func, "attr", None)) is not None
-            and attr in self.RESTRICTED_SYMBOLS
-            and attr not in self.ALLOWED_FUNCTIONS
-        ):
-            raise ValueError(f"Calling restricted functions are not allowed: {attr}")
-        self.generic_visit(node)
-
-
-def _build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
-    """Build a safe lambda function from a string expression."""
-    # Check if the string has any blacklisted symbols
-    lambda_expr = lambda_expr.strip()
-    if any(
-        word in lambda_expr
-        for word in SafeEvaluator.RESTRICTED_SYMBOLS - SafeEvaluator.ALLOWED_FUNCTIONS
-    ):
-        raise ValueError("Expression contains restricted symbols")
-    expr_ast = ast.parse(lambda_expr, mode="eval").body
-
-    # Ensure the parsed AST is a comparison or logical expression
-    if not isinstance(expr_ast, ast.Lambda):
-        raise ValueError("Expression must be a lambda function")
-
-    # Ensure the expression complies with the SafeEvaluator
-    SafeEvaluator().visit(expr_ast)
-
-    # Compile the AST node into a code object
-    code = compile(ast.Expression(expr_ast), "<string>", "eval")
-
-    # Create a function from the code object with eval_jsonpath in globals
-    lambda_func = eval(code, {"jsonpath": eval_jsonpath})
-    return type_cast(Callable[[Any], Any], lambda_func)
 
 
 def _bool(x: Any) -> bool:
@@ -370,7 +307,7 @@ def flatten(iterables: Sequence[Sequence[Any]]) -> list[Any]:
     return list(_custom_chain(*iterables))
 
 
-def unique_items(items: Sequence[Any]) -> list[Any]:
+def unique(items: Sequence[Any]) -> list[Any]:
     """Return unique items from sequence."""
     return list(set(items))
 
@@ -811,108 +748,13 @@ def or_(a: bool, b: bool) -> bool:
     return a or b
 
 
-# Filtering functions
-
-
-def intersect[T: Any](
-    items: Sequence[T], collection: Sequence[T], python_lambda: str | None = None
-) -> list[T]:
-    """Return the set intersection of two sequences as a list.
-    If a Python lambda is provided, it will be applied to each item in items before checking for intersection with collection."""
-    col_set = set(collection)
-    if python_lambda:
-        fn = _build_safe_lambda(python_lambda)
-        result = {item for item in items if fn(item) in col_set}
-    else:
-        result = set(items) & col_set
-    return list(result)
-
-
-def difference[T: Any](
-    items: Sequence[T], collection: Sequence[T], python_lambda: str | None = None
-) -> list[T]:
-    """Return the set difference of two sequences as a list.
-    If a Python lambda is provided, it will be applied to each item in items before checking for difference with collection."""
-    col_set = set(collection)
-    if python_lambda:
-        fn = _build_safe_lambda(python_lambda)
-        result = {item for item in items if fn(item) not in col_set}
-    else:
-        result = set(items) - col_set
-    return list(result)
-
-
-def union[T: Any](*collections: Sequence[T]) -> list[T]:
-    """Return the set union of multiple sequences as a list."""
-    return list(set().union(*collections))
-
-
-def apply[T: Any](item: T | Iterable[T], python_lambda: str) -> T | list[T]:
-    """Apply a Python lambda function to an item or sequence of items."""
-    fn = _build_safe_lambda(python_lambda)
-    if is_iterable(item, container_only=True):
-        return list(map(fn, item))
-    return fn(item)
-
-
-def filter_[T: Any](items: Sequence[T], python_lambda: str) -> list[T]:
-    """Filter a collection using a Python lambda expression as a string (e.g. `"lambda x: x > 2"`)."""
-    fn = _build_safe_lambda(python_lambda)
-    return list(filter(fn, items))
-
-
-def eval_jsonpath(
-    expr: str,
-    operand: Mapping[str | StrEnum, Any],
-    *,
-    context_type: ExprContext | None = None,
-    strict: bool = False,
-) -> Any | None:
-    """Evaluate a jsonpath expression on the target object (operand)."""
-
-    if operand is None or not isinstance(operand, dict | list):
-        logger.error("Invalid operand for jsonpath", operand=operand)
-        raise TracecatExpressionError(
-            f"A dict or list operand is required as jsonpath target. Got {type(operand)}"
-        )
-    try:
-        # Try to evaluate the expression
-        jsonpath_expr = jsonpath_ng.ext.parse(expr)
-    except JsonPathParserError as e:
-        logger.error(
-            "Invalid jsonpath expression", expr=repr(expr), context_type=context_type
-        )
-        formatted_expr = _expr_with_context(expr, context_type)
-        raise TracecatExpressionError(f"Invalid jsonpath {formatted_expr!r}") from e
-    matches = [found.value for found in jsonpath_expr.find(operand)]
-    if len(matches) > 1 or "[*]" in expr:
-        # If there are multiple matches or array wildcard, return the list
-        return matches
-    elif len(matches) == 1:
-        # If there is a non-array wildcard single match, return the value
-        return matches[0]
-    else:
-        # We should only reach this point if the jsonpath didn't match
-        # If there are no matches, raise an error if strict is True
-
-        if strict:
-            # We know that if this function is called, there was a templated field.
-            # Therefore, it means the jsonpath was valid but there was no match.
-            logger.error("Jsonpath no match", expr=repr(expr), operand=operand)
-            formatted_expr = _expr_with_context(expr, context_type)
-            raise TracecatExpressionError(
-                f"Couldn't resolve expression {formatted_expr!r} in the context",
-                detail={"expression": formatted_expr, "operand": operand},
-            )
-        # Return None instead of empty list
-        return None
-
-
 _FUNCTION_MAPPING = {
     # String transforms
     "capitalize": capitalize,
     "concat": concat_strings,
     "endswith": endswith,
+    "format": format_string,
+    "join": join_strings,
     "lowercase": lowercase,
     "prefix": add_prefix,
     "replace": replace,
@@ -946,11 +788,7 @@ _FUNCTION_MAPPING = {
     "is_empty": is_empty,
     "length": len,
     "not_empty": not_empty,
-    "unique": unique_items,
-    # Set operations
-    "intersect": intersect,
-    "difference": difference,
-    "union": union,
+    "unique": unique,
     # Math
     "add": add,
     "sub": sub,
@@ -959,11 +797,6 @@ _FUNCTION_MAPPING = {
     "mod": mod,
     "pow": pow,
     "sum": sum_,
-    # Transform
-    "apply": apply,
-    "filter": filter_,
-    "format": format_string,
-    "join": join_strings,
     # Iteration
     "zip": zip_iterables,
     "iter_product": iter_product,
