@@ -69,6 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: test-registry
+    environment: QA
     strategy:
       matrix:
         test_type: [unit, playbooks]
@@ -109,4 +110,6 @@ jobs:
           uv pip install ./registry
 
       - name: Run tests
+        env:
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
         run: uv run pytest tests/${{ matrix.test_type }}
