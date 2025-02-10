@@ -817,7 +817,8 @@ def or_(a: bool, b: bool) -> bool:
 def intersect[T: Any](
     items: Sequence[T], collection: Sequence[T], python_lambda: str | None = None
 ) -> list[T]:
-    """Return the set intersection of two sequences as a list. If a Python lambda is provided, it will be applied to each item before checking for intersection."""
+    """Return the set intersection of two sequences as a list.
+    If a Python lambda is provided, it will be applied to each item in items before checking for intersection with collection."""
     col_set = set(collection)
     if python_lambda:
         fn = _build_safe_lambda(python_lambda)
@@ -827,15 +828,11 @@ def intersect[T: Any](
     return list(result)
 
 
-def union[T: Any](*collections: Sequence[T]) -> list[T]:
-    """Return the set union of multiple sequences as a list."""
-    return list(set().union(*collections))
-
-
 def difference[T: Any](
     items: Sequence[T], collection: Sequence[T], python_lambda: str | None = None
 ) -> list[T]:
-    """Return the set difference of two sequences as a list. If a Python lambda is provided, it will be applied to each item before checking for difference."""
+    """Return the set difference of two sequences as a list.
+    If a Python lambda is provided, it will be applied to each item in items before checking for difference with collection."""
     col_set = set(collection)
     if python_lambda:
         fn = _build_safe_lambda(python_lambda)
@@ -843,6 +840,11 @@ def difference[T: Any](
     else:
         result = set(items) - col_set
     return list(result)
+
+
+def union[T: Any](*collections: Sequence[T]) -> list[T]:
+    """Return the set union of multiple sequences as a list."""
+    return list(set().union(*collections))
 
 
 def apply[T: Any](item: T | Iterable[T], python_lambda: str) -> T | list[T]:
@@ -945,8 +947,8 @@ _FUNCTION_MAPPING = {
     "unique": unique_items,
     # Set operations
     "intersect": intersect,
-    "union": union,
     "difference": difference,
+    "union": union,
     # Math
     "add": add,
     "sub": sub,
@@ -961,7 +963,6 @@ _FUNCTION_MAPPING = {
     "filter": filter_,
     "format": format_string,
     "join": join_strings,
-    "map": apply,
     # Iteration
     "zip": zip_iterables,
     "iter_product": iter_product,
