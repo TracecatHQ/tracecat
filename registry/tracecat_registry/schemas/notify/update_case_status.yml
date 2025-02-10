@@ -1,0 +1,6 @@
+case_id:
+  type: str
+  description: The ID of the case to update.
+status:
+  type: str
+  description: The new status of the case.

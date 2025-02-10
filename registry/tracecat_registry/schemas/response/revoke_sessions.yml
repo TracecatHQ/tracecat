@@ -1,4 +1,0 @@
-# https://d3fend.mitre.org/technique/d3f:AccountLocking/
-user_id:
-  type: str
-  description: The ID of the user to revoke the sessions for.

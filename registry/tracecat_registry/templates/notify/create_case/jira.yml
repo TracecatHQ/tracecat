@@ -1,0 +1,67 @@
+type: action
+definition:
+  title: Create case
+  description: Create a new case in Jira as a issue.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-post
+  namespace: tools.jira
+  name: create_issue
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    summary:
+      type: str
+      description: Brief one-line summary of the incident.
+    description:
+      type: str
+      description: A detailed description of the incident.
+    severity:
+      type: str
+      description: Severity of the incident.
+    tags:
+      type: list[str]
+      description: Tags to categorize the incident.
+      default: []
+    custom_fields:
+      type: list[dict[str, any]]
+      description: Custom fields to add to the incident.
+      default: []
+    severity_to_priority_id:
+      type: dict[str, str]
+      description: Mapping of severity to priority ID.
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
+    project_id:
+      type: str
+      description: Jira project ID.
+    issue_type_id:
+      type: str
+      description: Jira issue type ID.
+  steps:
+    - ref: create_issue
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/rest/api/3/issue/
+        method: POST
+        headers:
+          Authorization: Basic ${{ SECRETS.jira.JIRA_BASE64_TOKEN || FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
+        payload:
+          fields:
+            summary: ${{ inputs.summary }}
+            description:
+              type: doc
+              version: 1
+              content:
+                - type: paragraph
+                  content:
+                    - text: ${{ inputs.description }}
+                      type: text
+            priority:
+              id: ${{ FN.lookup(inputs.severity_to_priority_id, inputs.severity) }}
+            project:
+              id: ${{ inputs.project_id }}
+            issuetype:
+              id: ${{ inputs.issue_type_id }}
+  returns: ${{ steps.create_issue.result }}

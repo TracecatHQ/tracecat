@@ -22,6 +22,7 @@ from uuid import uuid4
 import jsonpath_ng.ext
 import orjson
 from jsonpath_ng.exceptions import JsonPathParserError
+from slugify import slugify
 
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import is_iterable
@@ -96,6 +97,11 @@ def _bool(x: Any) -> bool:
 
 
 # String functions
+
+
+def slugify_(x: str) -> str:
+    """Slugify a string."""
+    return slugify(x)
 
 
 def url_encode(x: str) -> str:
@@ -325,13 +331,9 @@ def round_down(x: float) -> int:
 # Array functions
 
 
-def custom_chain(*args) -> Any:
-    """Recursively flattens nested iterables into a single generator."""
-    for arg in args:
-        if is_iterable(arg, container_only=True):
-            yield from custom_chain(*arg)
-        else:
-            yield arg
+def compact(x: list[Any]) -> list[Any]:
+    """Drop null values from a list. Similar to compact function in Terraform."""
+    return [item for item in x if item is not None]
 
 
 def contains(item: Any, container: Sequence[Any]) -> bool:
@@ -354,9 +356,18 @@ def not_empty(x: Sequence[Any]) -> bool:
     return len(x) > 0
 
 
+def _custom_chain(*args) -> Any:
+    """Recursively flattens nested iterables into a single generator."""
+    for arg in args:
+        if is_iterable(arg, container_only=True):
+            yield from _custom_chain(*arg)
+        else:
+            yield arg
+
+
 def flatten(iterables: Sequence[Sequence[Any]]) -> list[Any]:
     """Flatten nested sequences into a single list."""
-    return list(custom_chain(*iterables))
+    return list(_custom_chain(*iterables))
 
 
 def unique_items(items: Sequence[Any]) -> list[Any]:
@@ -392,6 +403,11 @@ def create_range(start: int, end: int, step: int = 1) -> range:
 # Dictionary functions
 
 
+def merge_dicts(x: dict[Any, Any], y: dict[Any, Any]) -> dict[Any, Any]:
+    """Merge two dictionaries. Similar to merge function in Terraform."""
+    return {**x, **y}
+
+
 def dict_keys(x: dict[Any, Any]) -> list[Any]:
     """Extract keys from dictionary."""
     return list(x.keys())
@@ -412,7 +428,7 @@ def serialize_to_json(x: Any) -> str:
     return orjson.dumps(x).decode()
 
 
-def prettify_json_str(x: Any) -> str:
+def prettify_json(x: Any) -> str:
     """Convert object to formatted JSON string."""
     return json.dumps(x, indent=2)
 
@@ -801,7 +817,8 @@ def or_(a: bool, b: bool) -> bool:
 def intersect[T: Any](
     items: Sequence[T], collection: Sequence[T], python_lambda: str | None = None
 ) -> list[T]:
-    """Return the set intersection of two sequences as a list. If a Python lambda is provided, it will be applied to each item before checking for intersection."""
+    """Return the set intersection of two sequences as a list.
+    If a Python lambda is provided, it will be applied to each item in items before checking for intersection with collection."""
     col_set = set(collection)
     if python_lambda:
         fn = _build_safe_lambda(python_lambda)
@@ -811,21 +828,30 @@ def intersect[T: Any](
     return list(result)
 
 
+def difference[T: Any](
+    items: Sequence[T], collection: Sequence[T], python_lambda: str | None = None
+) -> list[T]:
+    """Return the set difference of two sequences as a list.
+    If a Python lambda is provided, it will be applied to each item in items before checking for difference with collection."""
+    col_set = set(collection)
+    if python_lambda:
+        fn = _build_safe_lambda(python_lambda)
+        result = {item for item in items if fn(item) not in col_set}
+    else:
+        result = set(items) - col_set
+    return list(result)
+
+
 def union[T: Any](*collections: Sequence[T]) -> list[T]:
     """Return the set union of multiple sequences as a list."""
     return list(set().union(*collections))
-
-
-def difference[T: Any](a: Sequence[T], b: Sequence[T]) -> list[T]:
-    """Return the set difference of two sequences as a list."""
-    return list(set(a) - set(b))
 
 
 def apply[T: Any](item: T | Iterable[T], python_lambda: str) -> T | list[T]:
     """Apply a Python lambda function to an item or sequence of items."""
     fn = _build_safe_lambda(python_lambda)
     if is_iterable(item, container_only=True):
-        return [fn(i) for i in item]
+        return list(map(fn, item))
     return fn(item)
 
 
@@ -884,18 +910,20 @@ def eval_jsonpath(
 
 _FUNCTION_MAPPING = {
     # String transforms
-    "prefix": add_prefix,
-    "suffix": add_suffix,
     "capitalize": capitalize,
+    "concat": concat_strings,
     "endswith": endswith,
     "lowercase": lowercase,
+    "prefix": add_prefix,
+    "replace": replace,
     "slice": slice_str,
+    "slugify": slugify_,
     "split": split,
     "startswith": startswith,
     "strip": strip,
+    "suffix": add_suffix,
     "titleize": titleize,
     "uppercase": uppercase,
-    "replace": replace,
     "url_encode": url_encode,
     # Comparison
     "less_than": less_than,
@@ -910,18 +938,19 @@ _FUNCTION_MAPPING = {
     "regex_extract": regex_extract,
     "regex_match": regex_match,
     "regex_not_match": regex_not_match,
-    # Collections
+    # Arrays
+    "compact": compact,
     "contains": contains,
     "does_not_contain": does_not_contain,
-    "length": len,
-    "is_empty": is_empty,
-    "not_empty": not_empty,
     "flatten": flatten,
+    "is_empty": is_empty,
+    "length": len,
+    "not_empty": not_empty,
     "unique": unique_items,
     # Set operations
     "intersect": intersect,
-    "union": union,
     "difference": difference,
+    "union": union,
     # Math
     "add": add,
     "sub": sub,
@@ -931,18 +960,19 @@ _FUNCTION_MAPPING = {
     "pow": pow,
     "sum": sum_,
     # Transform
-    "join": join_strings,
-    "concat": concat_strings,
-    "format": format_string,
     "apply": apply,
     "filter": filter_,
+    "format": format_string,
+    "join": join_strings,
     # Iteration
     "zip": zip_iterables,
     "iter_product": iter_product,
     "range": create_range,
     # Generators
     "uuid4": generate_uuid,
-    # Extract JSON keys and values
+    # JSON functions
+    "lookup": dict_lookup,
+    "merge": merge_dicts,
     "to_keys": dict_keys,
     "to_values": dict_values,
     # Logical
@@ -952,7 +982,7 @@ _FUNCTION_MAPPING = {
     # Type conversion
     "serialize_json": serialize_to_json,
     "deserialize_json": orjson.loads,
-    "prettify_json": prettify_json_str,
+    "prettify_json": prettify_json,
     "deserialize_ndjson": deserialize_ndjson,
     "extract_text_from_html": extract_text_from_html,
     # Time related
@@ -991,8 +1021,6 @@ _FUNCTION_MAPPING = {
     "from_base64": b64_to_str,
     "to_base64url": str_to_b64url,
     "from_base64url": b64url_to_str,
-    # Utils
-    "lookup": dict_lookup,
     # IP addresses
     "ipv4_in_subnet": ipv4_in_subnet,
     "ipv6_in_subnet": ipv6_in_subnet,

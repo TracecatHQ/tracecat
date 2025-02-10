@@ -1,9 +1,9 @@
 # https://d3fend.mitre.org/technique/d3f:AssetInventory/
 # https://schema.ocsf.io/1.3.0/objects/device?extensions=
 # Integration must return a list of device information objects, not just a list of unique IDs to be further queried.
-query:
-  type: str | None
-  description: Query or filter to apply to devices. If not specified, all devices are returned.
+owner_ids:
+  type: list[str] | None
+  description: Filter for devices by owner identifiers. If not specified, all devices are returned.
   default: null
 limit:
   type: int

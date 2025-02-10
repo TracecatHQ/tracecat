@@ -95,7 +95,7 @@ const basicRegistrationSchema = z.object({
   email: z.string().email().min(3, { message: "Required" }),
   password: z
     .string()
-    .min(8, "Password needs to be at least 8 characters long"),
+    .min(12, "Password needs to be at least 12 characters long"),
 })
 type BasicLoginForm = z.infer<typeof basicRegistrationSchema>
 

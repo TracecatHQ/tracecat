@@ -11,10 +11,10 @@ from tracecat_registry import registry
 
 
 @registry.register(
-    namespace="core.transform",
     description="Reshapes the input value to the output. You can use this to reshape a JSON-like structure into another easier to manipulate JSON object.",
     default_title="Reshape",
     display_group="Data Transform",
+    namespace="core.transform",
 )
 def reshape(
     value: Annotated[
@@ -26,10 +26,10 @@ def reshape(
 
 
 @registry.register(
-    namespace="core.transform",
     description="Filter a collection based on a condition.",
     default_title="Filter",
     display_group="Data Transform",
+    namespace="core.transform",
 )
 def filter(
     items: Annotated[
@@ -42,3 +42,17 @@ def filter(
     ],
 ) -> Any:
     return functions.filter_(items=items, python_lambda=python_lambda)
+
+
+@registry.register(
+    default_title="Merge JSON objects",
+    description="Merge two JSON objects into a single JSON object.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def merge(
+    left: Annotated[dict[str, Any], Doc("Left JSON object")],
+    right: Annotated[dict[str, Any], Doc("Right JSON object")],
+) -> dict[str, Any]:
+    """Merge two JSON objects into a single JSON object."""
+    return {**left, **right}

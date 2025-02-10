@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Lookup URL
+  description: Get VirusTotal report for a URL.
+  display_group: VirusTotal
+  doc_url: https://docs.virustotal.com/reference/url-info
+  namespace: tools.virustotal
+  name: lookup_url
+  secrets:
+    - name: virustotal
+      keys: ["VIRUSTOTAL_API_KEY"]
+  expects:
+    url:
+      type: str
+      description: URL to lookup.
+  steps:
+    - ref: get_url_report
+      action: core.http_request
+      args:
+        url: https://www.virustotal.com/api/v3/urls/${{ FN.strip(FN.to_base64url(inputs.url), "=") }}
+        method: GET
+        headers:
+          x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+  returns: ${{ steps.get_url_report.result }}
