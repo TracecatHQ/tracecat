@@ -8,6 +8,7 @@ import pytest
 import respx
 from httpx import Response
 from pydantic import SecretStr
+from tracecat_registry.base.core.transform import eval_jsonpath
 
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
@@ -19,7 +20,6 @@ from tracecat.expressions.eval import (
     extract_expressions,
     extract_templated_secrets,
 )
-from tracecat.expressions.functions import eval_jsonpath
 from tracecat.expressions.parser.core import ExprParser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator

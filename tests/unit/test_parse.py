@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from tracecat.expressions.functions import eval_jsonpath
+from tracecat_registry.base.core.transform import eval_jsonpath
+
 from tracecat.parse import (
     get_pyproject_toml_required_deps,
     traverse_expressions,
