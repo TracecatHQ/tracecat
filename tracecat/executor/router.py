@@ -1,7 +1,6 @@
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger
@@ -11,7 +10,11 @@ from tracecat.executor.models import ExecutorActionErrorInfo
 from tracecat.executor.service import dispatch_action_on_cluster
 from tracecat.logger import logger
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatSettingsError, WrappedExecutionError
+from tracecat.types.exceptions import (
+    ExecutionError,
+    LoopExecutionError,
+    TracecatSettingsError,
+)
 
 router = APIRouter()
 
@@ -42,17 +45,20 @@ async def run_action(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"message": str(e)},
         ) from e
-    except WrappedExecutionError as e:
+    except ExecutionError as e:
         # This is an error that occurred inside an executing action
-        err = e.error
-        if isinstance(err, BaseModel):
-            err_info_dict = err.model_dump(mode="json")
-        else:
-            err_info_dict = {"message": str(err)}
+        err_info_dict = e.info.model_dump(mode="json")
         act_logger.error("Error in action", **err_info_dict)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=err_info_dict,
+        ) from e
+    except LoopExecutionError as e:
+        err_info_list = [e.info.model_dump(mode="json") for e in e.loop_errors]
+        act_logger.error("Error in loop", errors=err_info_list)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=err_info_list,
         ) from e
     except Exception as e:
         logger.warning("Unexpected error running action", exc_info=e)

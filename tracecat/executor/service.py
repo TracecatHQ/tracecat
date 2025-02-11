@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import traceback
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -42,7 +43,11 @@ from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
 from tracecat.ssh import opt_temp_key_file
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatException, WrappedExecutionError
+from tracecat.types.exceptions import (
+    ExecutionError,
+    LoopExecutionError,
+    TracecatException,
+)
 
 """All these methods are used in the registry executor, not on the worker"""
 
@@ -66,7 +71,7 @@ def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResu
         return loop.run_until_complete(coro)
     except Exception as e:
         # Raise the error proxy here
-        logger.error(
+        logger.info(
             "Error running action, raising error proxy",
             error=e,
             type=type(e).__name__,
@@ -284,7 +289,7 @@ def run_action_task(input: RunActionInput, role: Role) -> ExecutionResult:
 
 
 async def run_action_on_ray_cluster(
-    input: RunActionInput, ctx: DispatchActionContext
+    input: RunActionInput, ctx: DispatchActionContext, iteration: int | None = None
 ) -> ExecutionResult:
     """Run an action on the ray cluster.
 
@@ -349,8 +354,11 @@ async def run_action_on_ray_cluster(
     # Here, we have some result or error.
     # Reconstruct the error and raise some kind of proxy
     if isinstance(exec_result, ExecutorActionErrorInfo):
-        logger.info("Raising executor error proxy")
-        raise WrappedExecutionError(error=exec_result)
+        logger.info("Raising executor error proxy", exec_result=exec_result)
+        if iteration is not None:
+            exec_result.loop_iteration = iteration
+            exec_result.loop_vars = input.exec_context[ExprContext.LOCAL_VARS]
+        raise ExecutionError(info=exec_result)
     return exec_result
 
 
@@ -411,14 +419,15 @@ async def _dispatch_action(
     # and a collection of values as a tuple.
     iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
 
-    async def coro(patched_input: RunActionInput):
-        return await run_action_on_ray_cluster(patched_input, ctx)
+    async def iteration(patched_input: RunActionInput, i: int):
+        return await run_action_on_ray_cluster(patched_input, ctx, iteration=i)
 
+    tasks: list[asyncio.Task[ExecutionResult]] = []
     try:
+        # Create a generator that zips the iterables together
+        # Iterate over the for_each items
         async with GatheringTaskGroup() as tg:
-            # Create a generator that zips the iterables together
-            # Iterate over the for_each items
-            for items in zip(*iterators, strict=False):
+            for i, items in enumerate(zip(*iterators, strict=False)):
                 new_context = base_context.copy()
                 # Patch each loop variable
                 for iterator_path, iterator_value in items:
@@ -429,19 +438,28 @@ async def _dispatch_action(
                     )
                 # Create a new task with the patched context
                 new_input = input.model_copy(update={"exec_context": new_context})
-                tg.create_task(coro(new_input))
+                coro = iteration(new_input, i)
+                tasks.append(tg.create_task(coro))
         return tg.results()
+    except* ExecutionError as eg:
+        loop_errors = flatten_wrapped_exc_error_group(eg)
+        raise LoopExecutionError(loop_errors) from eg
     except* Exception as eg:
         errors = [str(x) for x in eg.exceptions]
-        logger.error("Error resolving expressions", errors=errors)
+        logger.error("Unexpected error(s) in loop", errors=errors, exc_group=eg)
         raise TracecatException(
             (
-                f"[{context_locator(task, 'for_each')}]"
-                "\n\nError in loop:"
+                f"\n[{context_locator(task, 'for_each')}]"
+                "\n\nUnexpected error(s) in loop:"
                 f"\n\n{'\n\n'.join(errors)}"
+                "\n\nPlease ensure that the loop is iterable and that the loop variable has the correct type."
             ),
             detail={"errors": errors},
         ) from eg
+    finally:
+        logger.debug("Shut down any pending tasks")
+        for t in tasks:
+            t.cancel()
 
 
 """Utilities"""
@@ -492,3 +510,23 @@ def iter_for_each(
         patched_args = evaluate_templated_args(task=task, context=patched_context)
         logger.trace("Patched args", patched_args=patched_args)
         yield patched_args
+
+
+def flatten_wrapped_exc_error_group(
+    eg: BaseExceptionGroup[ExecutionError] | ExecutionError,
+) -> list[ExecutionError]:
+    """Flattens an ExceptionGroup or single exception into a list of exceptions.
+
+    Args:
+        eg: Either an ExceptionGroup containing exceptions of type T, or a single exception of type T
+
+    Returns:
+        A list of exceptions of type T extracted from the ExceptionGroup or containing just the single exception
+    """
+    if isinstance(eg, BaseExceptionGroup):
+        return list(
+            itertools.chain.from_iterable(
+                flatten_wrapped_exc_error_group(e) for e in eg.exceptions
+            )
+        )
+    return [eg]

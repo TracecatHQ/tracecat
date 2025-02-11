@@ -7,9 +7,14 @@ meant to be displayed to the user in a user-friendly way. We expose these
 through FastAPI exception handlers, which match the exception type.
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from pydantic_core import ValidationError
+
+if TYPE_CHECKING:
+    from tracecat.executor.models import ExecutorActionErrorInfo
 
 
 class TracecatException(Exception):
@@ -86,12 +91,19 @@ class ExecutorClientError(TracecatException):
     """Exception raised when an error occurs in the executor client."""
 
 
-class WrappedExecutionError(TracecatException):
+class ExecutionError(TracecatException):
     """Exception raised when an error occurs during action execution.
     Use this to wrap errors from the executor so that we should reraise"""
 
-    def __init__(self, error: Any):
-        self.error = error
+    def __init__(self, info: ExecutorActionErrorInfo):
+        self.info = info
+
+
+class LoopExecutionError(TracecatException):
+    """Exception raised when an error occurs during loop execution."""
+
+    def __init__(self, loop_errors: list[ExecutionError]):
+        self.loop_errors = loop_errors
 
 
 class TracecatSettingsError(TracecatException):
