@@ -1603,6 +1603,7 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
     "message": (
         "There was an error in the executor when calling action 'core.transform.reshape' (500).\n"
         "\n"
+        "\n"
         "TracecatExpressionError: Error evaluating expression `1/0`\n"
         "\n"
         "[evaluator] Evaluation failed at node:\n"
@@ -1616,6 +1617,7 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
         'Reason: Error trying to process rule "binary_op":\n'
         "\n"
         "Cannot divide by zero\n"
+        "\n"
         "\n"
         "------------------------------\n"
         # f"File: /app/{"/".join(run_action_on_ray_cluster.__module__.split('.'))}.py\n"
