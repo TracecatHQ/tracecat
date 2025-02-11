@@ -918,9 +918,6 @@ BUILTIN_TYPE_MAPPING = {
 """Built-in type mapping for cast operations."""
 
 
-# Utility functions
-
-
 def cast(x: Any, typename: str) -> Any:
     if typename not in BUILTIN_TYPE_MAPPING:
         raise ValueError(f"Unknown type {typename!r} for cast operation.")
