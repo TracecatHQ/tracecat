@@ -2525,13 +2525,52 @@ def assert_error_handler_initiated_correctly(
             "failing_action": {
                 "attempt": 1,
                 "expr_context": "ACTIONS",
-                "message": "There was an error in the executor when calling action 'core.transform.reshape' (500).\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 74",
+                "message": (
+                    "There was an error in the executor when calling action 'core.transform.reshape' (500).\n\n"
+                    "\n"
+                    "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
+                    "[evaluator] Evaluation failed at node:\n"
+                    "```\n"
+                    "binary_op\n"
+                    "  literal\t1\n"
+                    "  /\n"
+                    "  literal\t0\n\n"
+                    "```\n"
+                    'Reason: Error trying to process rule "binary_op":\n\n'
+                    "Cannot divide by zero\n\n"
+                    "\n"
+                    "------------------------------\n"
+                    "File: /app/tracecat/expressions/core.py\n"
+                    "Function: result\n"
+                    "Line: 74"
+                ),
                 "ref": "failing_action",
                 "type": "ExecutorClientError",
             }
         },
         "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
-        "message": "Workflow failed with 1 task exception(s)\n\n==================== (1/1) ACTIONS.failing_action ====================\n\nExecutorClientError: [ACTIONS.failing_action -> run_action] (Attempt 1)\n\nThere was an error in the executor when calling action 'core.transform.reshape' (500).\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 74",
+        "message": (
+            "Workflow failed with 1 task exception(s)\n\n"
+            "==================== (1/1) ACTIONS.failing_action ====================\n\n"
+            "ExecutorClientError: [ACTIONS.failing_action -> run_action] (Attempt 1)\n\n"
+            "There was an error in the executor when calling action 'core.transform.reshape' (500).\n\n"
+            "\n"
+            "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
+            "[evaluator] Evaluation failed at node:\n"
+            "```\n"
+            "binary_op\n"
+            "  literal\t1\n"
+            "  /\n"
+            "  literal\t0\n\n"
+            "```\n"
+            'Reason: Error trying to process rule "binary_op":\n\n'
+            "Cannot divide by zero\n\n"
+            "\n"
+            "------------------------------\n"
+            "File: /app/tracecat/expressions/core.py\n"
+            "Function: result\n"
+            "Line: 74"
+        ),
         "orig_wf_exec_id": failing_wf_exec_id,
         "orig_wf_id": str(failing_wf_id),
     }
