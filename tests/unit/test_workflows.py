@@ -213,7 +213,6 @@ async def test_workflow_ordering_is_correct(dsl, test_role, temporal_client):
         "unit_transform_reshape_zip",
         "unit_transform_reshape_map_loop",
         "unit_transform_filter_dict",
-        "unit_transform_filter_function",
     ],
     indirect=True,
     ids=lambda x: x,

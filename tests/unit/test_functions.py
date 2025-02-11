@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -7,12 +6,10 @@ import pytest
 
 from tracecat.expressions.functions import (
     _bool,
-    _build_safe_lambda,
     add,
     add_prefix,
     add_suffix,
     and_,
-    apply,
     b64_to_str,
     b64url_to_str,
     capitalize,
@@ -30,12 +27,10 @@ from tracecat.expressions.functions import (
     dict_keys,
     dict_lookup,
     dict_values,
-    difference,
     div,
     does_not_contain,
     endswith,
     extract_text_from_html,
-    filter_,
     flatten,
     format_datetime,
     format_string,
@@ -51,7 +46,6 @@ from tracecat.expressions.functions import (
     greater_than,
     greater_than_or_equal,
     hours_between,
-    intersect,
     ipv4_in_subnet,
     ipv4_is_public,
     ipv6_in_subnet,
@@ -92,32 +86,12 @@ from tracecat.expressions.functions import (
     titleize,
     to_datetime,
     to_timestamp,
-    union,
     unset_timezone,
     uppercase,
     url_encode,
     weeks_between,
     zip_iterables,
 )
-
-
-@pytest.mark.parametrize(
-    "input,python_lambda,expected",
-    [
-        # Test string format
-        (["a", "b", "c"], "lambda x: f'field:{x}'", ["field:a", "field:b", "field:c"]),
-        # Test arithmetic
-        ([1, 2, 3], "lambda x: x + 1", [2, 3, 4]),
-        # Test dict operations
-        (
-            [{"key": "a"}, {"key": "b"}, {"key": "c"}],
-            "lambda x: x['key']",
-            ["a", "b", "c"],
-        ),
-    ],
-)
-def test_apply(input: list[Any], python_lambda: str, expected: list[Any]) -> None:
-    assert apply(input, python_lambda) == expected
 
 
 @pytest.mark.parametrize(
@@ -480,55 +454,6 @@ def test_cast_operations() -> None:
         cast("123", "invalid_type")
 
 
-def test_build_lambda() -> None:
-    add_one = _build_safe_lambda("lambda x: x + 1")
-    assert add_one(1) == 2
-
-
-def test_use_jsonpath_in_safe_lambda():
-    data = {"name": "John"}
-    jsonpath = _build_safe_lambda("lambda x: jsonpath('$.name', x) == 'John'")
-    assert jsonpath(data) is True
-
-
-def test_build_lambda_catches_restricted_nodes() -> None:
-    with pytest.raises(ValueError) as e:
-        _build_safe_lambda("lambda x: import os")
-        assert "Expression contains restricted symbols" in str(e)
-
-    with pytest.raises(ValueError) as e:
-        _build_safe_lambda("import sys")
-        assert "Expression contains restricted symbols" in str(e)
-
-    with pytest.raises(ValueError) as e:
-        _build_safe_lambda("lambda x: locals()")
-        assert "Expression contains restricted symbols" in str(e)
-
-    with pytest.raises(ValueError) as e:
-        _build_safe_lambda("x + 1")
-        assert "Expression must be a lambda function" in str(e)
-
-
-def test_filter_() -> None:
-    """Test the filter_ function with various conditions."""
-    # Test basic filtering
-    assert filter_([1, 2, 3, 4, 5], "lambda x: x % 2 == 0") == [2, 4]
-    assert filter_(["a", "bb", "ccc"], "lambda x: len(x) > 1") == ["bb", "ccc"]
-
-    # Test with complex objects
-    data = [{"value": 1}, {"value": 2}, {"value": 3}]
-    assert filter_(data, "lambda x: x['value'] > 1") == [{"value": 2}, {"value": 3}]
-
-    # Test with empty result
-    assert filter_([1, 2, 3], "lambda x: x > 10") == []
-
-    # Test error cases
-    with pytest.raises(SyntaxError):
-        filter_([1, 2, 3], "not a lambda")
-    with pytest.raises(ValueError):
-        filter_([1, 2, 3], "lambda x: import os")
-
-
 @pytest.mark.parametrize(
     "func,date_input,format,expected",
     [
@@ -653,25 +578,6 @@ def test_dict_operations(func, input_dict: dict, expected: set) -> None:
 
 
 @pytest.mark.parametrize(
-    "lambda_str,error_type,error_message",
-    [
-        ("lambda x: import os", ValueError, "Expression contains restricted symbols"),
-        ("import sys", ValueError, "Expression contains restricted symbols"),
-        ("lambda x: locals()", ValueError, "Expression contains restricted symbols"),
-        ("x + 1", ValueError, "Expression must be a lambda function"),
-        ("lambda x: globals()", ValueError, "Expression contains restricted symbols"),
-        ("lambda x: eval('1+1')", ValueError, "Expression contains restricted symbols"),
-    ],
-)
-def test_build_lambda_errors(
-    lambda_str: str, error_type: type[Exception], error_message: str
-) -> None:
-    with pytest.raises(error_type) as e:
-        _build_safe_lambda(lambda_str)
-        assert error_message in str(e)
-
-
-@pytest.mark.parametrize(
     "func,a,b,expected",
     [
         (add, 2, 3, 5),
@@ -732,19 +638,6 @@ def test_serialize_to_json(input_data: Any, expected: Any) -> None:
 )
 def test_prettify_json(input_data: Any, expected: str) -> None:
     assert prettify_json(input_data) == expected
-
-
-@pytest.mark.parametrize(
-    "collections,expected",
-    [
-        (([1, 2], [2, 3]), [1, 2, 3]),
-        (([1], [2], [3]), [1, 2, 3]),
-        (([], [1, 2]), [1, 2]),
-        (([1, 2], []), [1, 2]),
-    ],
-)
-def test_union(collections: tuple[list, ...], expected: list) -> None:
-    assert sorted(union(*collections)) == sorted(expected)
 
 
 @pytest.mark.parametrize(
@@ -879,41 +772,6 @@ def test_flatten(input_iterables: list, expected: list) -> None:
 
 
 @pytest.mark.parametrize(
-    "items,collection,python_lambda,expected",
-    [
-        ([1, 2, 3], [2, 3, 4], None, [2, 3]),
-        # Empty intersection
-        ([1, 2], [3, 4], None, []),
-        # Empty inputs
-        ([], [1, 2], None, []),
-        ([1, 2], [], None, []),
-        # Duplicate values
-        ([1, 1, 2], [1, 2, 2], None, [1, 2]),
-        # String values
-        (["a", "b"], ["b", "c"], None, ["b"]),
-        # With lambda transformation
-        ([1, 2, 3], [2, 4, 6], "lambda x: x * 2", [1, 2, 3]),
-        # Lambda with string manipulation
-        (
-            ["hello", "world"],
-            ["HELLO", "WORLD"],
-            "lambda x: x.upper()",
-            ["hello", "world"],
-        ),
-        # Complex objects
-        ([(1, 2), (3, 4)], [(1, 2), (5, 6)], None, [(1, 2)]),
-    ],
-)
-def test_intersect(
-    items: list, collection: list, python_lambda: str | None, expected: list
-) -> None:
-    """Test the intersect function with various inputs and transformations."""
-    result = intersect(items, collection, python_lambda)
-    # Sort the results to ensure consistent comparison
-    assert sorted(result) == sorted(expected)
-
-
-@pytest.mark.parametrize(
     "start,end,step,expected",
     [
         (0, 5, 1, [0, 1, 2, 3, 4]),  # Basic range
@@ -941,21 +799,6 @@ def test_create_range(start: int, end: int, step: int, expected: list[int]) -> N
     # Test invalid step
     with pytest.raises(ValueError):
         create_range(0, 5, 0)  # Step cannot be 0
-
-
-@pytest.mark.parametrize(
-    "a,b,expected",
-    [
-        ([1, 2, 3], [2, 3, 4], [1]),  # Basic difference
-        ([1, 2, 2], [2], [1]),  # Duplicates in first sequence
-        ([], [1, 2], []),  # Empty first sequence
-        ([1, 2], [], [1, 2]),  # Empty second sequence
-        (["a", "b"], ["b", "c"], ["a"]),  # String elements
-    ],
-)
-def test_difference(a: Sequence[Any], b: Sequence[Any], expected: list[Any]) -> None:
-    """Test set difference between two sequences."""
-    assert sorted(difference(a, b)) == sorted(expected)
 
 
 @pytest.mark.parametrize(

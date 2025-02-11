@@ -1,18 +1,19 @@
-"""Core Data Transform actions."""
-# XXX(WARNING): Do not import __future__ annotations from typing
-# This will cause class types to be resolved as strings
-
+from builtins import filter as filter_
 from typing import Annotated, Any
 
-from tracecat.expressions import functions
+from tracecat.expressions.common import (
+    build_safe_lambda,
+    eval_jsonpath,
+)
+from tracecat.expressions.functions import flatten as flatten_
 from typing_extensions import Doc
 
 from tracecat_registry import registry
 
 
 @registry.register(
-    description="Reshapes the input value to the output. You can use this to reshape a JSON-like structure into another easier to manipulate JSON object.",
     default_title="Reshape",
+    description="Reshapes the input value to the output. You can use this to reshape a JSON-like structure into another easier to manipulate JSON object.",
     display_group="Data Transform",
     namespace="core.transform",
 )
@@ -26,22 +27,177 @@ def reshape(
 
 
 @registry.register(
-    description="Filter a collection based on a condition.",
     default_title="Filter",
+    description="Filter a collection using a Python lambda function.",
     display_group="Data Transform",
     namespace="core.transform",
 )
 def filter(
     items: Annotated[
         list[Any],
-        Doc("A collection of items."),
+        Doc("Items to filter."),
     ],
     python_lambda: Annotated[
         str,
-        Doc("A Python lambda function for filtering the collection."),
+        Doc(
+            'Filter condition as a Python lambda expression (e.g. `"lambda x: x > 2"`).'
+        ),
     ],
 ) -> Any:
-    return functions.filter_(items=items, python_lambda=python_lambda)
+    fn = build_safe_lambda(python_lambda)
+    return list(filter_(fn, items))
+
+
+@registry.register(
+    default_title="Is in",
+    description="Filters items in a list based on whether they are in a collection.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def is_in(
+    items: Annotated[
+        list[Any],
+        Doc("Items to filter."),
+    ],
+    collection: Annotated[
+        list[Any],
+        Doc("Collection of hashable items to check against."),
+    ],
+    python_lambda: Annotated[
+        str | None,
+        Doc(
+            "Python lambda applied to each item before checking membership (e.g. `\"lambda x: x.get('name')\"`). Similar to `key` in the Python `sorted` function."
+        ),
+    ] = None,
+) -> list[Any]:
+    col_set = set(collection)
+    if python_lambda:
+        fn = build_safe_lambda(python_lambda)
+        result = [item for item in items if fn(item) in col_set]
+    else:
+        result = [item for item in items if item in col_set]
+    return result
+
+
+@registry.register(
+    default_title="Is not in",
+    description="Filters items in a list based on whether they are not in a collection.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def is_not_in(
+    items: Annotated[
+        list[Any],
+        Doc("Items to filter."),
+    ],
+    collection: Annotated[
+        list[Any],
+        Doc("Collection of hashable items to check against."),
+    ],
+    python_lambda: Annotated[
+        str | None,
+        Doc(
+            "Python lambda applied to each item before checking membership (e.g. `\"lambda x: x.get('name')\"`). Similar to `key` in the Python `sorted` function."
+        ),
+    ] = None,
+) -> list[Any]:
+    col_set = set(collection)
+    if python_lambda:
+        fn = build_safe_lambda(python_lambda)
+        result = [item for item in items if fn(item) not in col_set]
+    else:
+        result = [item for item in items if item not in col_set]
+    return result
+
+
+@registry.register(
+    default_title="Flatten",
+    description="Flatten a list of lists into a single list.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def flatten(
+    items: Annotated[
+        list[list[Any]],
+        Doc("List of lists to flatten."),
+    ],
+) -> list[Any]:
+    return flatten_(items)
+
+
+@registry.register(
+    default_title="Unique",
+    description="Remove duplicate items from a list. Items must be hashable.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def unique(
+    items: Annotated[
+        list[Any],
+        Doc(
+            "List of hashable items (e.g. strings, numbers) to remove duplicates from."
+        ),
+    ],
+) -> list[Any]:
+    return list(set(items))
+
+
+@registry.register(
+    default_title="Deduplicate",
+    description="Deduplicate list of JSON objects given a list of keys.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def deduplicate(
+    items: Annotated[list[dict[str, Any]], Doc("List of JSON objects to deduplicate.")],
+    keys: Annotated[
+        list[str],
+        Doc(
+            "List of keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`)."
+        ),
+    ],
+) -> list[dict[str, Any]]:
+    if not items:
+        return []
+
+    def get_nested_values(item: dict[str, Any], keys: list[str]) -> tuple[Any, ...]:
+        values = []
+        for key in keys:
+            # Convert dot notation to jsonpath format
+            jsonpath_expr = "$." + key
+            value = eval_jsonpath(jsonpath_expr, item, strict=True)
+            values.append(value)
+        return tuple(values)
+
+    seen = {}
+    for item in items:
+        key = get_nested_values(item, keys)
+        if key in seen:
+            seen[key].update(item)
+        else:
+            seen[key] = item.copy()
+
+    return list(seen.values())
+
+
+@registry.register(
+    default_title="Apply",
+    description="Apply a Python lambda function to each item in a list.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def apply(
+    items: Annotated[
+        list[Any],
+        Doc("Items to apply the lambda function to."),
+    ],
+    python_lambda: Annotated[
+        str,
+        Doc("Python lambda function as a string (e.g. `\"lambda x: x.get('name')\"`)."),
+    ],
+) -> list[Any]:
+    fn = build_safe_lambda(python_lambda)
+    return list(map(fn, items))
 
 
 @registry.register(
