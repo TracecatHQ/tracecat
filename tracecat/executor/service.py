@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import traceback
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -327,8 +328,22 @@ async def run_action_on_ray_cluster(
 
     # Add pip dependencies to runtime env
     if pip_deps:
-        additional_vars["pip"] = pip_deps
-
+        # additional_vars["pip"] = pip_deps
+        additional_vars["uv"] = pip_deps
+        if config.TRACECAT__APP_ENV == "production":
+            # We set PYTHONUSERBASE in the prod Dockerfile
+            # Otherwise default to the user's home dir at ~/.local
+            python_user_base = (
+                os.getenv("PYTHONUSERBASE") or Path.home().joinpath(".local").as_posix()
+            )
+            logger.debug(
+                "Installing to PYTHONUSERBASE", python_user_base=python_user_base
+            )
+            additional_vars["uv_pip_install_options"] = [
+                "--system",
+                "--target",
+                python_user_base,
+            ]
     runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
 
     logger.info("Running action on ray cluster", runtime_env=runtime_env)
