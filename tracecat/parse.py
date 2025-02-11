@@ -1,5 +1,5 @@
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlparse, urlunparse
@@ -80,3 +80,46 @@ def get_pyproject_toml_required_deps(pyproject_path: Path) -> list[str]:
     except Exception as e:
         logger.error("Error parsing pyproject.toml", error=e)
         return []
+
+
+def to_flat_dict(value: Any, parent_key: str = "", prefix: str = "") -> dict[str, Any]:
+    """Flatten a nested dictionary/list into a single level dictionary with path-like keys.
+    Handles dict keys that are already paths by wrapping them in quotes.
+
+    Args:
+        value: The value to flatten, can be a dict, list or primitive
+        parent_key: The parent key path to prepend (used for recursion)
+        prefix: Optional prefix to add to the beginning of all keys
+
+    Returns:
+        A flattened dictionary where nested keys are joined with dots and list indices.
+        Keys containing dots are wrapped in quotes.
+
+    Example:
+        >>> flatten_json({"a": [{"b": 1}, {"b": 2}]})
+        {'a[0].b': 1, 'a[1].b': 2}
+        >>> flatten_json({"a.b": {"c": 1}})
+        {"'a.b'.c": 1}
+        >>> flatten_json({"a": {"b": 1}}, prefix="prefix")
+        {'prefix.a.b': 1}
+    """
+    items: dict[str, Any] = {}
+
+    match value:
+        case Mapping():
+            for k, v in value.items():
+                # Wrap keys containing dots in quotes
+                escaped_key = f"'{k}'" if "." in k else k
+                new_key = (
+                    escaped_key if not parent_key else f"{parent_key}.{escaped_key}"
+                )
+                items.update(to_flat_dict(v, new_key, prefix))
+        case Sequence():
+            for i, item in enumerate(value):
+                new_key = f"{parent_key}[{i}]"
+                items.update(to_flat_dict(item, new_key, prefix))
+        case _:
+            final_key = f"{prefix}.{parent_key}" if prefix else parent_key
+            items[final_key] = value
+
+    return items

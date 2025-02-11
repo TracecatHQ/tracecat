@@ -12,7 +12,12 @@ from pydantic import BaseModel, Field
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.models import DSLNodeResult
 from tracecat.expressions import functions
-from tracecat.expressions.common import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, ExprType
+from tracecat.expressions.common import (
+    VISITOR_NODE_TO_EXPR_TYPE,
+    ExprContext,
+    ExprType,
+    eval_jsonpath,
+)
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.exceptions import TracecatExpressionError
@@ -176,7 +181,7 @@ class ExprValidator(Visitor):
             raise ValueError("Expected a string token")
         jsonpath = token.lstrip(".")
         try:
-            functions.eval_jsonpath(
+            eval_jsonpath(
                 jsonpath,
                 self._context.inputs_context,
                 context_type=ExprContext.INPUTS,

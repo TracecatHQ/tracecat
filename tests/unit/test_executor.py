@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 import uuid
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,13 @@ from pydantic import SecretStr
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.models import ExecutorActionErrorInfo
-from tracecat.executor.service import run_action_from_input, sync_executor_entrypoint
+from tracecat.executor.service import (
+    _dispatch_action,
+    flatten_wrapped_exc_error_group,
+    run_action_from_input,
+    sync_executor_entrypoint,
+)
+from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
@@ -24,6 +31,7 @@ from tracecat.registry.repository import Repository
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
+from tracecat.types.exceptions import ExecutionError, LoopExecutionError
 
 
 @pytest.fixture
@@ -303,3 +311,173 @@ def test_sync_executor_entrypoint_returns_wrapped_error(
     assert result.action_name == "test.error_action"
     assert result.filename == __file__
     assert result.function == "mock_error"
+
+
+@pytest.mark.anyio
+async def test_dispatcher(
+    mock_package,
+    test_role,
+    mock_run_context,
+    db_session_with_repo,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Try to replicate `Error in loop`ty error, where usually we fail validation inside the executor loop.
+
+    We will execute everything in the current thread.
+    1. Add mock package with a function that will raise an error
+    """
+
+    # Mock out run_action_on_ray_cluster
+    async def mocked_executor_entrypoint(
+        input: RunActionInput, role: Role, *args, **kwargs
+    ):
+        try:
+            return await run_action_from_input(input=input, role=role)
+        except Exception as e:
+            # Raise the error proxy here
+            logger.error(
+                "Error running action, raising error proxy",
+                error=e,
+                type=type(e).__name__,
+                traceback=traceback.format_exc(),
+            )
+            iteration = kwargs.get("iteration", None)
+            exec_result = ExecutorActionErrorInfo.from_exc(e, input.task.action)
+            if iteration is not None:
+                exec_result.loop_iteration = iteration
+                exec_result.loop_vars = input.exec_context[ExprContext.LOCAL_VARS]
+            raise ExecutionError(info=exec_result) from None
+
+    monkeypatch.setattr(
+        "tracecat.executor.service.run_action_on_ray_cluster",
+        mocked_executor_entrypoint,
+    )
+    session, db_repo_id = db_session_with_repo
+    repo = Repository()
+    repo._register_udfs_from_package(mock_package)
+
+    # Sanity check: We've registered the UDFs correctly
+    assert repo.get("testing.add_100").fn(1) == 101  # type: ignore
+    assert repo.get("testing.add_nums").fn([1, 2, 3, 4, 5]) == 15  # type: ignore
+
+    ra_service = RegistryActionsService(session, role=test_role)
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.add_100"), db_repo_id)
+    )
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.add_nums"), db_repo_id)
+    )
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.add_100",
+            run_if=None,
+            args={"num": "${{ var.x }}"},
+            for_each="${{ for var.x in [1,2,3,4,5] }}",
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+    )
+
+    # Act
+
+    result = await _dispatch_action(input, test_role)
+
+    # This should run correctly
+    assert result == [101, 102, 103, 104, 105]
+
+    # Now, force a validation error
+    # This fails because the loop variable is None, but it expects an int
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.add_100",
+            run_if=None,
+            args={"num": "${{ var.x }}"},
+            for_each="${{ for var.x in [1,2,None,4,5] }}",
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+    )
+
+    # Act
+    with pytest.raises(LoopExecutionError) as e:
+        result = await _dispatch_action(input, test_role)
+    assert len(e.value.loop_errors) == 1
+    assert e.value.loop_errors[0].info.loop_iteration == 2
+    assert e.value.loop_errors[0].info.loop_vars == {"x": None}
+
+    # Try another dispatch with a different error
+
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="test",
+            action="testing.add_nums",
+            run_if=None,
+            args={"nums": "${{ FN.flatten(var.x) }}"},
+            for_each="${{ for var.x in [[1], None, [3], [4], [5]] }}",
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+    )
+
+    # Act
+    with pytest.raises(LoopExecutionError) as e:
+        result = await _dispatch_action(input, test_role)
+    assert len(e.value.loop_errors) == 1
+    assert e.value.loop_errors[0].info.loop_iteration == 1
+    assert e.value.loop_errors[0].info.loop_vars == {"x": None}
+
+
+@pytest.fixture
+def sample_execution_error() -> ExecutionError:
+    """Create a sample ExecutionError for testing."""
+    return ExecutionError(
+        info=ExecutorActionErrorInfo(
+            action_name="test_action",
+            type="ValueError",
+            message="Test error",
+            filename=__file__,
+            function="sample_execution_error",
+        )
+    )
+
+
+def test_flatten_single_error(sample_execution_error: ExecutionError) -> None:
+    """Test flattening a single ExecutionError."""
+    result = flatten_wrapped_exc_error_group(sample_execution_error)
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0] == sample_execution_error
+
+
+def test_flatten_exception_group(sample_execution_error: ExecutionError) -> None:
+    """Test flattening an ExceptionGroup containing ExecutionErrors."""
+    # Create an ExceptionGroup with multiple ExecutionErrors
+    eg = ExceptionGroup(
+        "test_group",
+        [sample_execution_error, sample_execution_error, sample_execution_error],
+    )
+
+    result = flatten_wrapped_exc_error_group(eg)
+    assert isinstance(result, list)
+    assert len(result) == 3
+    assert all(isinstance(err, ExecutionError) for err in result)
+
+
+def test_flatten_nested_exception_groups(
+    sample_execution_error: ExecutionError,
+) -> None:
+    """Test flattening nested ExceptionGroups containing ExecutionErrors."""
+    # Create nested ExceptionGroups
+    inner_group = ExceptionGroup(
+        "inner_group", [sample_execution_error, sample_execution_error]
+    )
+    outer_group = ExceptionGroup("outer_group", [sample_execution_error, inner_group])
+
+    result = flatten_wrapped_exc_error_group(outer_group)  # type: ignore
+    assert isinstance(result, list)
+    assert len(result) == 3  # 1 from outer + 2 from inner
+    assert all(isinstance(err, ExecutionError) for err in result)

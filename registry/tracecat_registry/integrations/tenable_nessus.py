@@ -24,11 +24,11 @@ tenable_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Call Nessus API",
-    description="Call any Nessus API using the pyTenable library",
-    display_group="Tenabl Nessus",
+    default_title="Call API",
+    description="Instantiate a pyTenable Nessus client and call a Nessus API method.",
+    display_group="pyTenable",
     doc_url="https://pytenable.readthedocs.io/en/stable/api/nessus/index.html",
-    namespace="integrations.tenable_nessus",
+    namespace="tools.pytenable",
     secrets=[tenable_secret],
 )
 async def call_api(
@@ -37,10 +37,10 @@ async def call_api(
     params: Annotated[
         dict[str, Any], Field(..., description="Nessus API method parameters")
     ],
-    api_url: Annotated[str, Field(..., description="Nessus API URL")],
+    base_url: Annotated[str, Field(..., description="Nessus API URL")],
 ) -> dict:
     nessus = Nessus(
-        url=api_url,
+        url=base_url,
         access_key=secrets.get("TENABLE_ACCESS_KEY"),
         secret_key=secrets.get("TENABLE_SECRET_KEY"),
     )

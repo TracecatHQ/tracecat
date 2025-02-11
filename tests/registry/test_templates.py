@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-import yaml
 
 from tracecat.registry.actions.models import TemplateAction
 from tracecat.registry.repository import Repository
@@ -21,11 +20,8 @@ def registry():
     ids=lambda path: str(path.parts[-2:]),
 )
 async def test_template_action_validation(file_path, registry):
-    with open(file_path) as file:
-        template = yaml.safe_load(file)
-
     # Test parsing
-    action = TemplateAction(**template)
+    action = TemplateAction.from_yaml(file_path)
     assert action.type == "action"
     assert action.definition
 

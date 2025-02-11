@@ -10,7 +10,6 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.common import context_locator
 from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
 from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
@@ -18,16 +17,6 @@ from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import ExecutorClientError, RegistryError
 from tracecat.validation.service import validate_registry_action_args
-
-
-def contextualize_message(
-    task: ActionStatement,
-    msg: str | BaseException,
-    *,
-    attempt: int,
-    loc: str = "run_action",
-) -> str:
-    return f"[{context_locator(task, loc)}] (Attempt {attempt})\n\n{msg}"
 
 
 class ValidateActionActivityInput(BaseModel):

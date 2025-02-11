@@ -1,37 +1,39 @@
-"""Jamf Pro Authentication.
+"""Jamf Pro Authentication."""
 
-Docs: https://developer.jamf.com/jamf-pro/docs/client-credentials
-"""
+from typing import Annotated
 
 import httpx
+from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
 jamf_secret = RegistrySecret(
     name="jamf",
-    keys=["JAMF_BASE_URL", "JAMF_CLIENT_ID", "JAMF_CLIENT_SECRET"],
+    keys=["JAMF_CLIENT_ID", "JAMF_CLIENT_SECRET"],
 )
-"""Jamf secret.
+"""Jamf OAuth2.0 credentials.
 
 - name: `jamf`
 - keys:
-    - `JAMF_BASE_URL`
     - `JAMF_CLIENT_ID`
     - `JAMF_CLIENT_SECRET`
 """
 
 
 @registry.register(
-    default_title="Get Jamf Pro auth token",
-    description="Get an auth token for Jamf Pro API calls.",
+    default_title="Get access token",
+    description="Retrieve a bearer token for Jamf Pro API calls.",
     display_group="Jamf",
-    namespace="integrations.jamf",
+    doc_url="https://developer.jamf.com/jamf-pro/docs/jamf-pro-api-overview#authentication-and-authorization",
+    namespace="tools.jamf",
     secrets=[jamf_secret],
 )
-async def get_auth_token() -> str:
+async def get_access_token(
+    base_url: Annotated[str, Field(..., description="Base URL for Jamf Pro API.")],
+) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{secrets.get('JAMF_BASE_URL')}/api/oauth/token",
+            f"{base_url}/api/oauth/token",
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             data={
                 "client_id": secrets.get("JAMF_CLIENT_ID"),

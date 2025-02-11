@@ -44,6 +44,7 @@ def _build_email_message(
     cc: str | list[str] | None = None,
     reply_to: str | list[str] | None = None,
     headers: dict[str, str] | None = None,
+    sender_prefix: str | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
 
@@ -71,7 +72,9 @@ def _build_email_message(
             f"Unsupported content type: {content_type}. Expected 'text/plain' or 'text/html'."
         )
 
-    msg["From"] = sender
+    formatted_sender = f"{sender_prefix} <{sender}>" if sender_prefix else sender
+
+    msg["From"] = formatted_sender
     msg["To"] = recipients
     msg["Subject"] = subject
 
@@ -122,13 +125,32 @@ def send_email_smtp(
             "Email content type ('text/plain' or 'text/html'). Defaults to 'text/plain'."
         ),
     ] = "text/plain",
-    timeout: Annotated[
-        float | None,
-        Doc("Timeout for SMTP operations in seconds"),
+    # Additional recipients
+    bcc: Annotated[
+        str | list[str] | None,
+        Doc("Recipient(s) to be copied in the BCC field"),
     ] = None,
+    cc: Annotated[
+        str | list[str] | None,
+        Doc("Recipient(s) to be copied in the CC field"),
+    ] = None,
+    reply_to: Annotated[
+        str | list[str] | None,
+        Doc("Email address(es) to be used in the Reply-To field"),
+    ] = None,
+    # Email customization
     headers: Annotated[
         dict[str, str] | None,
         Doc("Additional email headers"),
+    ] = None,
+    sender_prefix: Annotated[
+        str | None,
+        Doc("Email address prefix of the sender"),
+    ] = None,
+    # SMTP connection settings
+    timeout: Annotated[
+        float | None,
+        Doc("Timeout for SMTP operations in seconds"),
     ] = None,
     enable_starttls: Annotated[
         bool,
@@ -168,7 +190,16 @@ def send_email_smtp(
     smtp_pass = secrets.get("SMTP_PASS")
 
     msg = _build_email_message(
-        sender, recipients, subject, body, content_type=content_type, headers=headers
+        bcc=bcc,
+        body=body,
+        cc=cc,
+        content_type=content_type,
+        headers=headers,
+        recipients=recipients,
+        reply_to=reply_to,
+        sender_prefix=sender_prefix,
+        sender=sender,
+        subject=subject,
     )
 
     context = ssl.create_default_context()

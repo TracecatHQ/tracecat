@@ -565,12 +565,15 @@ class Repository:
                 "No template actions found in package", package_name=base_package
             )
 
-    def load_template_actions_from_path(self, *, path: Path, origin: str) -> int:
+    def load_template_actions_from_path(
+        self, *, path: Path, origin: str, ignore_path: str = "schemas"
+    ) -> int:
         """Load template actions from a package."""
-        # Load all .yml files using rglob
         n_loaded = 0
         all_paths = chain(path.rglob("*.yml"), path.rglob("*.yaml"))
         for file_path in all_paths:
+            if ignore_path in file_path.parts:
+                continue
             logger.debug("Loading template action from path", path=file_path)
             # Load TemplateActionDefinition
             try:

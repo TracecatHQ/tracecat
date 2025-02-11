@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Lock device
+  description: Lock a device managed by Jamf Pro with a user-provided 6-digit pin.
+  display_group: Jamf
+  doc_url: https://developer.jamf.com/jamf-pro/reference/post_v2-mdm-commands
+  namespace: tools.jamf
+  name: lock_device
+  expects:
+    device_id:
+      type: str
+      description: Management ID of the device to lock.
+    message:
+      type: str
+      description: Message to display on the device.
+    pin:
+      type: str
+      description: 6-digit PIN to lock and unlock the device.
+    base_url:
+      type: str
+      description: Base URL for the Jamf Pro API.
+  steps:
+    - ref: get_access_token
+      action: tools.jamf.get_access_token
+      args: {}
+    - ref: post_mdm_command
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v2/mdm/commands
+        method: POST
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result }}
+        payload:
+          clientData:
+            managementId: ${{ inputs.device_id }}
+          commandData:
+            commandType: DEVICE_LOCK
+            message: ${{ inputs.message }}
+            pin: ${{ inputs.pin }}
+  returns: ${{ steps.post_mdm_command.result }}

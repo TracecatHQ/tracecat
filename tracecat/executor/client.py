@@ -122,15 +122,18 @@ class ExecutorClient:
         except JSONDecodeError:
             self.logger.warning("Failed to decode JSON response, returning empty dict")
             resp = {}
-        if (
-            isinstance(resp, Mapping)
-            and (detail := resp.get("detail"))
-            and isinstance(detail, Mapping)
-        ):
-            val_detail = ExecutorActionErrorInfo(**detail)
-            detail = str(val_detail)
-        else:
-            detail = e.response.text
+        match resp:
+            case {"detail": detail} if _looks_like_error_info(detail):
+                logger.warning("Looks like error info", detail=detail)
+                detail = str(ExecutorActionErrorInfo(**detail))
+            case {"detail": detail} if isinstance(detail, list) and all(
+                _looks_like_error_info(r) for r in detail
+            ):
+                logger.warning("Looks like list of error info", detail=detail)
+                detail = "\n".join(str(ExecutorActionErrorInfo(**r)) for r in detail)
+            case _:
+                logger.warning("Looks like unknown error", resp=resp)
+                detail = e.response.text
         self.logger.error("Executor returned an error", error=e, detail=detail)
         if e.response.status_code / 100 == 5:
             raise ExecutorClientError(
@@ -140,3 +143,12 @@ class ExecutorClient:
             raise ExecutorClientError(
                 f"Unexpected executor error ({e.response.status_code}):\n\n{e}\n\n{detail}"
             ) from e
+
+
+def _looks_like_error_info(detail: Any) -> bool:
+    if not isinstance(detail, Mapping):
+        return False
+    # Check keyset
+    detail_keyset = set(detail.keys())
+    expected_keyset = set(ExecutorActionErrorInfo.model_fields.keys())
+    return detail_keyset <= expected_keyset

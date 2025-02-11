@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Lookup file hash
+  description: Get VirusTotal report for a file hash.
+  display_group: VirusTotal
+  doc_url: https://docs.virustotal.com/reference/file-info
+  namespace: tools.virustotal
+  name: lookup_file_hash
+  secrets:
+    - name: virustotal
+      keys: ["VIRUSTOTAL_API_KEY"]
+  expects:
+    file_hash:
+      type: str
+      description: File hash to lookup.
+  steps:
+    - ref: get_file_report
+      action: core.http_request
+      args:
+        url: https://www.virustotal.com/api/v3/files/${{ inputs.file_hash }}
+        method: GET
+        headers:
+          x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+  returns: ${{ steps.get_file_report.result }}

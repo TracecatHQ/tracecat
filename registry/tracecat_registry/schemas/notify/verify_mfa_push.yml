@@ -1,0 +1,10 @@
+# https://developer.okta.com/docs/api/openapi/okta-management/management/tag/UserFactor/#tag/UserFactor/operation/verifyFactor
+# https://duo.com/docs/authapi#/auth
+# NOTE: This template should abstract away the logic for selecting a device from the user if possible.
+user_id:
+  type: str
+  description: ID of user to send push challenge to.
+device_id:
+  type: str
+  description: (Optional) ID of device to send push challenge to.
+  default: null

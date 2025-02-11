@@ -5,7 +5,12 @@ from lark import Token, Transformer, Tree, v_args
 from lark.exceptions import VisitError
 
 from tracecat.expressions import functions
-from tracecat.expressions.common import ExprContext, ExprOperand, IterableExpr
+from tracecat.expressions.common import (
+    ExprContext,
+    ExprOperand,
+    IterableExpr,
+    eval_jsonpath,
+)
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatExpressionError
 
@@ -104,31 +109,31 @@ class ExprEvaluator(Transformer):
     def actions(self, jsonpath: str):
         logger.trace("Visiting actions:", args=jsonpath)
         expr = ExprContext.ACTIONS + jsonpath
-        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
+        return eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def secrets(self, path: str):
         logger.trace("Visiting secrets:", path=path)
         expr = ExprContext.SECRETS + path
-        return functions.eval_jsonpath(expr, self._operand or {}, strict=self._strict)
+        return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
 
     @v_args(inline=True)
     def inputs(self, jsonpath: str):
         logger.trace("Visiting inputs:", args=jsonpath)
         expr = ExprContext.INPUTS + jsonpath
-        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
+        return eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def env(self, jsonpath: str):
         logger.trace("Visiting env:", args=jsonpath)
         expr = ExprContext.ENV + jsonpath
-        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
+        return eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def local_vars(self, jsonpath: str):
         logger.trace("Visiting local_vars:", args=jsonpath)
         expr = ExprContext.LOCAL_VARS + jsonpath
-        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
+        return eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def local_vars_assignment(self, jsonpath: str):
@@ -139,19 +144,19 @@ class ExprEvaluator(Transformer):
     def trigger(self, jsonpath: str | None):
         logger.trace("Visiting trigger:", args=jsonpath)
         expr = ExprContext.TRIGGER + (jsonpath or "")
-        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
+        return eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def template_action_inputs(self, jsonpath: str):
         logger.trace("Visiting template_action_inputs:", args=jsonpath)
         expr = ExprContext.TEMPLATE_ACTION_INPUTS + jsonpath
-        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
+        return eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def template_action_steps(self, jsonpath: str):
         logger.trace("Visiting template_action_steps:", args=jsonpath)
         expr = ExprContext.TEMPLATE_ACTION_STEPS + jsonpath
-        return functions.eval_jsonpath(expr, self._operand, strict=self._strict)
+        return eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
     def function(self, fn_name: str, fn_args: Sequence[Any]):

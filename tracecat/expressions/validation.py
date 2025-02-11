@@ -44,7 +44,7 @@ class TemplateValidator:
             return v
         # Otherwise, it's an inline template or non-template
         # Call the default handler
-        return handler(v, info)
+        return handler(v)
 
 
 class RequiredTemplateValidator:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Annotated, Any, Literal, TypedDict, TypeVar, cast
@@ -143,14 +144,12 @@ class BoundRegistryAction(BaseModel):
             validated_args = validated.model_dump(mode="json")
             return validated_args
         except ValidationError as e:
-            logger.error(
-                f"Validation error for bound registry action {self.action!r}. {e.errors()!r}"
+            msg = (
+                f"Validation error for bound registry action {self.action!r}."
+                f"\n{json.dumps(e.errors(include_url=False), indent=2)}"
             )
-            raise RegistryValidationError(
-                f"Validation error for bound registry action {self.action!r}. {e.errors()!r}",
-                key=self.action,
-                err=e,
-            ) from e
+            logger.error(msg)
+            raise RegistryValidationError(msg, key=self.action, err=e) from e
         except Exception as e:
             raise RegistryValidationError(
                 f"Unexpected error when validating input arguments for bound registry action {self.action!r}. {e!r}",

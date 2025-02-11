@@ -9,6 +9,14 @@ def add_100(num: int) -> int:
     return num + 100
 
 
+@registry.register(
+    description="This is a test function that adds a list of numbers",
+    namespace="testing",
+)
+def add_nums(nums: list[int]) -> int:
+    return sum(nums)
+
+
 test_secret = RegistrySecret(name="test", keys=["KEY"])
 
 

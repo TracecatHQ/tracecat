@@ -1,9 +1,0 @@
-path:
-  type: str
-  description: The path to the script (can be local or remote e.g. S3) depending on the integration.
-args:
-  type: any
-  description: The arguments to pass to the script.
-env:
-  type: any
-  description: The environment variables to set in the runtime environment.

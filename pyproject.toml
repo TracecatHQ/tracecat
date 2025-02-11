@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tracecat"
-description = "Open source Tines / Splunk SOAR alternative."
+description = "Open source Tines / Splunk SOAR alternative for security and IT engineers."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "AGPL-3.0"

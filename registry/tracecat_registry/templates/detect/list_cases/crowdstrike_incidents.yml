@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: List incidents
+  description: Query for Crowdstrike incidents via the Falcon SIEM API.
+  display_group: CrowdStrike
+  doc_url: https://falconpy.io/Service-Collections/Incidents.html
+  namespace: tools.crowdstrike
+  name: list_cases
+  expects:
+    start_time:
+      type: datetime
+      description: Start time for the query (inclusive).
+    end_time:
+      type: datetime
+      description: End time for the query (exclusive).
+    query:
+      type: str | None
+      description: |
+        Falcon Query Language (FQL) filter to apply to cases.
+        If specified, overrides `start_time` and `end_time`.
+      default: null
+    limit:
+      type: int
+      description: Maximum number of incidents to return.
+      default: 100
+    member_cid:
+      type: str | None
+      description: Crowdstrike member CID.
+      default: null
+  steps:
+    - ref: query_incidents
+      action: tools.falconpy.call_command
+      args:
+        operation_id: QueryIncidents
+        member_cid: ${{ inputs.member_cid }}
+        params:
+          filter: ${{ inputs.query || "created_date:>='FN.to_isoformat(inputs.start_time)' + created_date:<'FN.to_isoformat(inputs.end_time)'"  }}
+          limit: ${{ inputs.limit }}
+    - ref: get_incidents
+      action: tools.falconpy.call_command
+      args:
+        operation_id: GetIncidents
+        member_cid: ${{ inputs.member_cid }}
+        params:
+          body:
+            ids: ${{ steps.query_incidents.result.body.resources }}
+  returns: ${{ steps.get_incidents.result }}
