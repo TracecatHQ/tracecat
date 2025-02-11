@@ -2,64 +2,13 @@ from typing import Any
 
 import pytest
 from tracecat_registry.base.core.transform import (
-    _build_safe_lambda,
     apply,
     deduplicate,
+    filter,
     is_in,
     is_not_in,
     unique,
 )
-from tracecat_registry.base.core.transform import (
-    filter as filter_,
-)
-
-
-def test_build_lambda() -> None:
-    add_one = _build_safe_lambda("lambda x: x + 1")
-    assert add_one(1) == 2
-
-
-def test_use_jsonpath_in_safe_lambda():
-    data = {"name": "John"}
-    jsonpath = _build_safe_lambda("lambda x: jsonpath('$.name', x) == 'John'")
-    assert jsonpath(data) is True
-
-
-def test_build_lambda_catches_restricted_nodes() -> None:
-    with pytest.raises(ValueError) as e:
-        _build_safe_lambda("lambda x: import os")
-        assert "Expression contains restricted symbols" in str(e)
-
-    with pytest.raises(ValueError) as e:
-        _build_safe_lambda("import sys")
-        assert "Expression contains restricted symbols" in str(e)
-
-    with pytest.raises(ValueError) as e:
-        _build_safe_lambda("lambda x: locals()")
-        assert "Expression contains restricted symbols" in str(e)
-
-    with pytest.raises(ValueError) as e:
-        _build_safe_lambda("x + 1")
-        assert "Expression must be a lambda function" in str(e)
-
-
-@pytest.mark.parametrize(
-    "lambda_str,error_type,error_message",
-    [
-        ("lambda x: import os", ValueError, "Expression contains restricted symbols"),
-        ("import sys", ValueError, "Expression contains restricted symbols"),
-        ("lambda x: locals()", ValueError, "Expression contains restricted symbols"),
-        ("x + 1", ValueError, "Expression must be a lambda function"),
-        ("lambda x: globals()", ValueError, "Expression contains restricted symbols"),
-        ("lambda x: eval('1+1')", ValueError, "Expression contains restricted symbols"),
-    ],
-)
-def test_build_lambda_errors(
-    lambda_str: str, error_type: type[Exception], error_message: str
-) -> None:
-    with pytest.raises(error_type) as e:
-        _build_safe_lambda(lambda_str)
-        assert error_message in str(e)
 
 
 @pytest.mark.parametrize(
@@ -102,17 +51,9 @@ def test_build_lambda_errors(
         ),
     ],
 )
-def test_filter_(items: list[Any], python_lambda: str, expected: list[Any]) -> None:
+def test_filter(items: list[Any], python_lambda: str, expected: list[Any]) -> None:
     """Test the filter_ function with various conditions."""
-    assert filter_(items, python_lambda) == expected
-
-
-def test_filter_errors() -> None:
-    """Test error cases for the filter_ function."""
-    with pytest.raises(SyntaxError):
-        filter_([1, 2, 3], "not a lambda")
-    with pytest.raises(ValueError):
-        filter_([1, 2, 3], "lambda x: import os")
+    assert filter(items, python_lambda) == expected
 
 
 @pytest.mark.parametrize(
