@@ -1,19 +1,24 @@
 import os
 import uuid
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 import pytest
 import respx
 from httpx import Response
 from pydantic import SecretStr
-from tracecat_registry.base.core.transform import eval_jsonpath
 
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.schemas import BaseSecret
-from tracecat.expressions.common import ExprContext, ExprType, IterableExpr
+from tracecat.expressions.common import (
+    ExprContext,
+    ExprType,
+    IterableExpr,
+    build_safe_lambda,
+    eval_jsonpath,
+)
 from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import (
     eval_templated_object,
@@ -33,7 +38,108 @@ from tracecat.validation.models import ExprValidationResult
 
 
 @pytest.mark.parametrize(
-    "expression, expected_result",
+    "lambda_str,test_input,expected_result",
+    [
+        ("lambda x: x + 1", 1, 2),
+        ("lambda x: x * 2", 2, 4),
+        ("lambda x: str(x)", 1, "1"),
+        ("lambda x: len(x)", "hello", 5),
+        ("lambda x: x.upper()", "hello", "HELLO"),
+        ("lambda x: x['key']", {"key": "value"}, "value"),
+        ("lambda x: x.get('key', 'default')", {}, "default"),
+        ("lambda x: bool(x)", 1, True),
+        ("lambda x: [i * 2 for i in x]", [1, 2, 3], [2, 4, 6]),
+        ("lambda x: sum(x)", [1, 2, 3], 6),
+        ("lambda x: x is None", None, True),
+        ("lambda x: x.strip()", "  hello  ", "hello"),
+        ("lambda x: x.startswith('test')", "test_string", True),
+        ("lambda x: list(x.keys())", {"a": 1, "b": 2}, ["a", "b"]),
+        ("lambda x: max(x)", [1, 5, 3], 5),
+    ],
+)
+def test_build_lambda(lambda_str: str, test_input: Any, expected_result: Any) -> None:
+    fn = build_safe_lambda(lambda_str)
+    assert fn(test_input) == expected_result
+
+
+@pytest.mark.parametrize(
+    "lambda_str,test_input,expected_result",
+    [
+        ("lambda x: jsonpath('$.name', x) == 'John'", {"name": "John"}, True),
+        # Test nested objects
+        (
+            "lambda x: jsonpath('$.user.name', x) == 'Alice'",
+            {"user": {"name": "Alice"}},
+            True,
+        ),
+        # Test array indexing
+        (
+            "lambda x: jsonpath('$.users[0].name', x) == 'Bob'",
+            {"users": [{"name": "Bob"}]},
+            True,
+        ),
+        # Test array wildcard
+        (
+            "lambda x: len(jsonpath('$.users[*].name', x)) == 2",
+            {"users": [{"name": "Alice"}, {"name": "Bob"}]},
+            True,
+        ),
+        # Test deep nesting
+        (
+            "lambda x: jsonpath('$.data.nested.very.deep.value', x) == 42",
+            {"data": {"nested": {"very": {"deep": {"value": 42}}}}},
+            True,
+        ),
+        # Test array filtering
+        (
+            "lambda x: len(jsonpath('$.numbers[?@ > 2]', x)) == 2",
+            {"numbers": [1, 2, 3, 4]},
+            True,
+        ),
+        # Test with null/missing values
+        ("lambda x: jsonpath('$.missing.path', x) is None", {"other": "value"}, True),
+        # Test multiple conditions
+        (
+            "lambda x: all(v > 0 for v in jsonpath('$.values[*]', x))",
+            {"values": [1, 2, 3]},
+            True,
+        ),
+        # Test with string operations
+        (
+            "lambda x: jsonpath('$.text', x).startswith('hello')",
+            {"text": "hello world"},
+            True,
+        ),
+    ],
+)
+def test_use_jsonpath_in_safe_lambda(
+    lambda_str: str, test_input: Any, expected_result: Any
+) -> None:
+    jsonpath = build_safe_lambda(lambda_str)
+    assert jsonpath(test_input) == expected_result
+
+
+@pytest.mark.parametrize(
+    "lambda_str,error_type,error_message",
+    [
+        ("lambda x: import os", ValueError, "Expression contains restricted symbols"),
+        ("import sys", ValueError, "Expression contains restricted symbols"),
+        ("lambda x: locals()", ValueError, "Expression contains restricted symbols"),
+        ("x + 1", ValueError, "Expression must be a lambda function"),
+        ("lambda x: globals()", ValueError, "Expression contains restricted symbols"),
+        ("lambda x: eval('1+1')", ValueError, "Expression contains restricted symbols"),
+    ],
+)
+def test_build_lambda_errors(
+    lambda_str: str, error_type: type[Exception], error_message: str
+) -> None:
+    with pytest.raises(error_type) as e:
+        build_safe_lambda(lambda_str)
+        assert error_message in str(e)
+
+
+@pytest.mark.parametrize(
+    "expression,expected_result",
     [
         ("${{ path.to.example -> asdf }}", True),
         ("${{ example }} more text", False),
@@ -63,7 +169,7 @@ def test_eval_jsonpath():
 
 
 @pytest.mark.parametrize(
-    "expression, expected_result",
+    "expression,expected_result",
     [
         ("${{ACTIONS.webhook.result}}", 1),
         ("${{ ACTIONS.webhook.result -> int }}", 1),
@@ -99,7 +205,7 @@ def test_templated_expression_result(expression, expected_result):
 
 
 @pytest.mark.parametrize(
-    "expression, expected_result",
+    "expression,expected_result",
     [
         (
             "${{ FN.is_equal(bool(True), bool(1)) -> bool }}",
