@@ -313,7 +313,6 @@ def test_sync_executor_entrypoint_returns_wrapped_error(
     assert result.function == "mock_error"
 
 
-@pytest.mark.skip(reason="Flaky test")
 @pytest.mark.anyio
 async def test_dispatcher(
     mock_package,
@@ -359,10 +358,14 @@ async def test_dispatcher(
 
     # Sanity check: We've registered the UDFs correctly
     assert repo.get("testing.add_100").fn(1) == 101  # type: ignore
+    assert repo.get("testing.add_nums").fn([1, 2, 3, 4, 5]) == 15  # type: ignore
 
     ra_service = RegistryActionsService(session, role=test_role)
     await ra_service.create_action(
         RegistryActionCreate.from_bound(repo.get("testing.add_100"), db_repo_id)
+    )
+    await ra_service.create_action(
+        RegistryActionCreate.from_bound(repo.get("testing.add_nums"), db_repo_id)
     )
 
     input = RunActionInput(
@@ -385,6 +388,7 @@ async def test_dispatcher(
     assert result == [101, 102, 103, 104, 105]
 
     # Now, force a validation error
+    # This fails because the loop variable is None, but it expects an int
 
     input = RunActionInput(
         task=ActionStatement(
@@ -399,17 +403,20 @@ async def test_dispatcher(
     )
 
     # Act
-    with pytest.raises(LoopExecutionError):
+    with pytest.raises(LoopExecutionError) as e:
         result = await _dispatch_action(input, test_role)
+    assert len(e.value.loop_errors) == 1
+    assert e.value.loop_errors[0].info.loop_iteration == 2
+    assert e.value.loop_errors[0].info.loop_vars == {"x": None}
 
     # Try another dispatch with a different error
 
     input = RunActionInput(
         task=ActionStatement(
             ref="test",
-            action="testing.add_100",
+            action="testing.add_nums",
             run_if=None,
-            args={"num": "${{ FN.flatten(var.x) }}"},
+            args={"nums": "${{ FN.flatten(var.x) }}"},
             for_each="${{ for var.x in [[1], None, [3], [4], [5]] }}",
         ),
         exec_context=create_default_execution_context(),
@@ -417,8 +424,11 @@ async def test_dispatcher(
     )
 
     # Act
-    with pytest.raises(LoopExecutionError):
+    with pytest.raises(LoopExecutionError) as e:
         result = await _dispatch_action(input, test_role)
+    assert len(e.value.loop_errors) == 1
+    assert e.value.loop_errors[0].info.loop_iteration == 1
+    assert e.value.loop_errors[0].info.loop_vars == {"x": None}
 
 
 @pytest.fixture
