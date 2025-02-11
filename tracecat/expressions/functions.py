@@ -19,7 +19,6 @@ from uuid import uuid4
 import orjson
 from slugify import slugify
 
-from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import is_iterable
 
 
@@ -926,7 +925,3 @@ def cast(x: Any, typename: str) -> Any:
     if typename not in BUILTIN_TYPE_MAPPING:
         raise ValueError(f"Unknown type {typename!r} for cast operation.")
     return BUILTIN_TYPE_MAPPING[typename](x)
-
-
-def _expr_with_context(expr: str, context_type: ExprContext | None) -> str:
-    return f"{context_type}.{expr}" if context_type else expr

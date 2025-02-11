@@ -16,11 +16,11 @@ from tenacity import (
     wait_exponential,
     wait_fixed,
 )
+from tracecat.expressions.common import build_safe_lambda
 from tracecat.logger import logger
 from typing_extensions import Doc
 
 from tracecat_registry import RegistrySecret, registry, secrets
-from tracecat_registry.base.core.transform import _build_safe_lambda
 
 RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
@@ -271,7 +271,7 @@ async def http_poll(
     if isinstance(retry_codes, int):
         retry_codes = [retry_codes]
 
-    predicate = _build_safe_lambda(poll_condition) if poll_condition else None
+    predicate = build_safe_lambda(poll_condition) if poll_condition else None
 
     if not retry_codes and not predicate:
         raise ValueError("At least one of retry_codes or predicate must be specified")
