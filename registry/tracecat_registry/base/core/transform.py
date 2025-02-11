@@ -170,7 +170,7 @@ def is_in(
     ],
     collection: Annotated[
         list[Any],
-        Doc("Collection to check against."),
+        Doc("Collection of hashable items to check against."),
     ],
     python_lambda: Annotated[
         str | None,
@@ -178,10 +178,6 @@ def is_in(
             "Python lambda applied to each item before checking membership (e.g. `\"lambda x: x.get('name')\"`). Similar to `key` in the Python `sorted` function."
         ),
     ] = None,
-    unique: Annotated[
-        bool,
-        Doc("Drop duplicate items by the Python lambda key."),
-    ] = False,
 ) -> list[Any]:
     col_set = set(collection)
     if python_lambda:
@@ -189,9 +185,6 @@ def is_in(
         result = [item for item in items if fn(item) in col_set]
     else:
         result = [item for item in items if item in col_set]
-
-    if unique:
-        result = deduplicate(result, python_lambda=python_lambda)
     return result
 
 
@@ -208,7 +201,7 @@ def is_not_in(
     ],
     collection: Annotated[
         list[Any],
-        Doc("Collection to check against."),
+        Doc("Collection of hashable items to check against."),
     ],
     python_lambda: Annotated[
         str | None,
@@ -216,10 +209,6 @@ def is_not_in(
             "Python lambda applied to each item before checking membership (e.g. `\"lambda x: x.get('name')\"`). Similar to `key` in the Python `sorted` function."
         ),
     ] = None,
-    unique: Annotated[
-        bool,
-        Doc("Drop duplicate items by the Python lambda key."),
-    ] = False,
 ) -> list[Any]:
     col_set = set(collection)
     if python_lambda:
@@ -227,9 +216,6 @@ def is_not_in(
         result = [item for item in items if fn(item) not in col_set]
     else:
         result = [item for item in items if item not in col_set]
-
-    if unique:
-        result = deduplicate(result, python_lambda=python_lambda)
     return result
 
 
@@ -249,27 +235,57 @@ def flatten(
 
 
 @registry.register(
+    default_title="Unique",
+    description="Remove duplicate items from a list. Items must be hashable.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def unique(
+    items: Annotated[
+        list[Any],
+        Doc(
+            "List of hashable items (e.g. strings, numbers) to remove duplicates from."
+        ),
+    ],
+) -> list[Any]:
+    return list(set(items))
+
+
+@registry.register(
     default_title="Deduplicate",
-    description="Deduplicate items in a list. Similar to uniq command in unix.",
+    description="Deduplicate list of JSON objects given a list of keys.",
     display_group="Data Transform",
     namespace="core.transform",
 )
 def deduplicate(
-    items: Annotated[list[Any], Doc("Items to deduplicate.")],
-    python_lambda: Annotated[
-        str | None,
+    items: Annotated[list[dict[str, Any]], Doc("List of JSON objects to deduplicate.")],
+    keys: Annotated[
+        list[str],
         Doc(
-            "Python lambda applied to each item to extract key to deduplicate by (e.g. `\"lambda x: x.get('name')\"`). Defaults to identity function."
+            "List of keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`)."
         ),
-    ] = None,
-) -> list[Any]:
-    if not python_lambda:
-        return list(set(items))
+    ],
+) -> list[dict[str, Any]]:
+    if not items:
+        return []
 
-    fn = _build_safe_lambda(python_lambda)
+    def get_nested_values(item: dict[str, Any], keys: list[str]) -> tuple[Any, ...]:
+        values = []
+        for key in keys:
+            # Convert dot notation to jsonpath format
+            jsonpath_expr = "$." + key
+            value = eval_jsonpath(jsonpath_expr, item, strict=True)
+            values.append(value)
+        return tuple(values)
+
     seen = {}
     for item in items:
-        seen[fn(item)] = item
+        key = get_nested_values(item, keys)
+        if key in seen:
+            seen[key].update(item)
+        else:
+            seen[key] = item.copy()
+
     return list(seen.values())
 
 

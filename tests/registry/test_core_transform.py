@@ -7,6 +7,7 @@ from tracecat_registry.base.core.transform import (
     deduplicate,
     is_in,
     is_not_in,
+    unique,
 )
 from tracecat_registry.base.core.transform import (
     filter as filter_,
@@ -142,16 +143,16 @@ def test_filter_errors() -> None:
             "lambda x: x['user']['info']['age']",
             [25, 30],
         ),
-        # Additional JSON/dictionary cases
+        # Test filter conditions
         (
             [{"data": {"count": 5}}, {"data": {"count": 10}}, {"data": {"count": 15}}],
             "lambda x: x['data']['count'] > 10",
-            [{"data": {"count": 15}}],
+            [False, False, True],
         ),
         (
             [{"tags": ["a", "b"]}, {"tags": ["c"]}, {"tags": ["a", "b", "c"]}],
             "lambda x: len(x['tags']) > 1",
-            [{"tags": ["a", "b"]}, {"tags": ["a", "b", "c"]}],
+            [True, False, True],
         ),
         (
             [
@@ -159,7 +160,7 @@ def test_filter_errors() -> None:
                 {"status": "inactive", "priority": 2},
             ],
             "lambda x: x['status'] == 'active' and x['priority'] > 0",
-            [{"status": "active", "priority": 1}],
+            [True, False],
         ),
     ],
 )
@@ -168,50 +169,29 @@ def test_apply(input: list[Any], python_lambda: str, expected: list[Any]) -> Non
 
 
 @pytest.mark.parametrize(
-    "items,collection,python_lambda,unique,expected",
+    "items,collection,python_lambda,expected",
     [
-        # Basic cases without unique
-        ([1, 2, 3], [2, 3, 4], None, False, [2, 3]),
-        # Test unique=True removes duplicates
-        ([1, 2, 2, 3], [2, 2, 3, 4], None, True, [2, 3]),
+        # Basic cases
+        ([1, 2, 3], [2, 3, 4], None, [2, 3]),
         # Empty cases
-        ([1, 2], [3, 4], None, False, []),
-        ([], [1, 2], None, False, []),
-        ([1, 2], [], None, False, []),
+        ([1, 2], [3, 4], None, []),
+        ([], [1, 2], None, []),
+        ([1, 2], [], None, []),
         # String values
-        (["a", "b", "b"], ["b", "c"], None, False, ["b", "b"]),
-        (["a", "b", "b"], ["b", "c"], None, True, ["b"]),
-        # With lambda transformation, non-unique
+        (["a", "b", "b"], ["b", "c"], None, ["b", "b"]),
+        # With lambda transformation
         (
             [{"id": 1}, {"id": 2}, {"id": 2}],
             [2, 4, 6],
             "lambda x: x['id'] * 2",
-            False,
             [{"id": 1}, {"id": 2}, {"id": 2}],
         ),
-        # With lambda transformation, unique
-        (
-            [{"id": 1}, {"id": 2}, {"id": 2}],
-            [2, 4, 6],
-            "lambda x: x['id'] * 2",
-            True,
-            [{"id": 1}, {"id": 2}],
-        ),
-        # Complex objects with duplicates
+        # Complex objects with duplicates - using hashable collection
         (
             [{"name": "a"}, {"name": "b"}, {"name": "b"}],
-            [{"name": "b"}, {"name": "c"}],
+            ["b", "c"],  # Collection contains transformed values
             "lambda x: x['name']",
-            False,
             [{"name": "b"}, {"name": "b"}],
-        ),
-        # Complex objects with unique=True
-        (
-            [{"name": "a"}, {"name": "b"}, {"name": "b"}],
-            [{"name": "b"}, {"name": "c"}],
-            "lambda x: x['name']",
-            True,
-            [{"name": "b"}],
         ),
     ],
 )
@@ -219,59 +199,36 @@ def test_is_in(
     items: list,
     collection: list,
     python_lambda: str | None,
-    unique: bool,
     expected: list,
 ) -> None:
     """Test the is_in function with various inputs and transformations."""
-    result = is_in(items, collection, python_lambda, unique)
-    # Sort the results to ensure consistent comparison
-    assert sorted(result) == sorted(expected)
+    result = is_in(items, collection, python_lambda)
+    assert result == expected
 
 
 @pytest.mark.parametrize(
-    "items,collection,python_lambda,unique,expected",
+    "items,collection,python_lambda,expected",
     [
-        # Basic cases without unique
-        ([1, 2, 3], [2, 3, 4], None, False, [1]),
-        # Test unique=True removes duplicates
-        ([1, 1, 2, 3], [2, 3, 4], None, True, [1]),
+        # Basic cases
+        ([1, 2, 3], [2, 3, 4], None, [1]),
         # Empty cases
-        ([], [1, 2], None, False, []),
-        ([1, 2], [], None, False, [1, 2]),
+        ([], [1, 2], None, []),
+        ([1, 2], [], None, [1, 2]),
         # String values with duplicates
-        (["a", "a", "b"], ["b", "c"], None, False, ["a", "a"]),
-        (["a", "a", "b"], ["b", "c"], None, True, ["a"]),
-        # With lambda transformation, non-unique
+        (["a", "a", "b"], ["b", "c"], None, ["a", "a"]),
+        # With lambda transformation
         (
             [{"id": 1}, {"id": 1}, {"id": 2}],
-            [{"id": 2}, {"id": 3}],
+            [2, 3],  # Collection contains transformed values
             "lambda x: x['id']",
-            False,
             [{"id": 1}, {"id": 1}],
-        ),
-        # With lambda transformation, unique
-        (
-            [{"id": 1}, {"id": 1}, {"id": 2}],
-            [{"id": 2}, {"id": 3}],
-            "lambda x: x['id']",
-            True,
-            [{"id": 1}],
         ),
         # Complex nested objects
         (
             [{"user": {"id": 1}}, {"user": {"id": 1}}, {"user": {"id": 2}}],
-            [{"user": {"id": 2}}],
+            [2],  # Collection contains transformed values
             "lambda x: x['user']['id']",
-            False,
             [{"user": {"id": 1}}, {"user": {"id": 1}}],
-        ),
-        # Complex nested objects with unique=True
-        (
-            [{"user": {"id": 1}}, {"user": {"id": 1}}, {"user": {"id": 2}}],
-            [{"user": {"id": 2}}],
-            "lambda x: x['user']['id']",
-            True,
-            [{"user": {"id": 1}}],
         ),
     ],
 )
@@ -279,41 +236,113 @@ def test_is_not_in(
     items: list[Any],
     collection: list[Any],
     python_lambda: str | None,
-    unique: bool,
     expected: list[Any],
 ) -> None:
-    """Test filtering items not in the collection, with optional deduplication."""
-    result = is_not_in(items, collection, python_lambda, unique)
-    assert sorted(result) == sorted(expected)
+    """Test filtering items not in the collection."""
+    result = is_not_in(items, collection, python_lambda)
+    assert result == expected
 
 
 @pytest.mark.parametrize(
-    "items,python_lambda,expected",
+    "items,expected",
     [
-        ([1, 2, 3, 2, 1], None, [1, 2, 3]),
-        # Test dictionary deduplication by specific key
+        ([1, 2, 3, 2, 1], [1, 2, 3]),
+        (["a", "b", "b", "c"], ["a", "b", "c"]),
+    ],
+)
+def test_unique(items: list[Any], expected: list[Any]) -> None:
+    assert sorted(unique(items)) == sorted(expected)
+
+
+@pytest.mark.parametrize(
+    "items,keys,expected",
+    [
+        # Dictionary deduplication by single key
         (
             [
                 {"id": 1, "name": "Alice"},
                 {"id": 2, "name": "Bob"},
-                {"id": 1, "name": "Alice"},
+                {"id": 1, "name": "Alice2"},  # Should merge with first entry
             ],
-            "lambda x: x['id']",
-            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
+            ["id"],
+            [{"id": 1, "name": "Alice2"}, {"id": 2, "name": "Bob"}],
         ),
-        # Test nested dictionary deduplication
+        # Nested dictionary deduplication
         (
             [
                 {"user": {"id": 1, "name": "Alice"}},
                 {"user": {"id": 2, "name": "Bob"}},
-                {"user": {"id": 1, "name": "Alice"}},
+                {"user": {"id": 1, "name": "Alice2"}},
             ],
-            "lambda x: x['user']['id']",
-            [{"user": {"id": 1, "name": "Alice"}}, {"user": {"id": 2, "name": "Bob"}}],
+            ["user.id"],
+            [
+                {"user": {"id": 1, "name": "Alice2"}},
+                {"user": {"id": 2, "name": "Bob"}},
+            ],
+        ),
+        # Multiple key deduplication
+        (
+            [
+                {"type": "user", "id": 1, "data": "old"},
+                {"type": "user", "id": 2, "data": "test"},
+                {"type": "user", "id": 1, "data": "new"},
+            ],
+            ["type", "id"],
+            [
+                {"type": "user", "id": 1, "data": "new"},
+                {"type": "user", "id": 2, "data": "test"},
+            ],
+        ),
+        # Deep nested keys with multiple levels
+        (
+            [
+                {"data": {"user": {"profile": {"id": 1, "info": "old"}}}},
+                {"data": {"user": {"profile": {"id": 2, "info": "test"}}}},
+                {"data": {"user": {"profile": {"id": 1, "info": "new"}}}},
+            ],
+            ["data.user.profile.id"],
+            [
+                {"data": {"user": {"profile": {"id": 1, "info": "new"}}}},
+                {"data": {"user": {"profile": {"id": 2, "info": "test"}}}},
+            ],
+        ),
+        # Multiple nested keys combination
+        (
+            [
+                {"meta": {"type": "event", "source": "app1"}, "data": {"id": 1}},
+                {"meta": {"type": "event", "source": "app2"}, "data": {"id": 2}},
+                {"meta": {"type": "event", "source": "app1"}, "data": {"id": 1}},
+            ],
+            ["meta.source", "data.id"],
+            [
+                {"meta": {"type": "event", "source": "app1"}, "data": {"id": 1}},
+                {"meta": {"type": "event", "source": "app2"}, "data": {"id": 2}},
+            ],
+        ),
+        # Array within nested structure
+        (
+            [
+                {"user": {"id": 1, "tags": ["a", "b"], "status": "active"}},
+                {"user": {"id": 2, "tags": ["c"], "status": "inactive"}},
+                {"user": {"id": 1, "tags": ["d"], "status": "pending"}},
+            ],
+            ["user.id"],
+            [
+                {"user": {"id": 1, "tags": ["d"], "status": "pending"}},
+                {"user": {"id": 2, "tags": ["c"], "status": "inactive"}},
+            ],
+        ),
+        # Empty list case
+        ([], ["id"], []),
+        # Single item case
+        (
+            [{"deep": {"nested": {"id": 1, "value": "test"}}}],
+            ["deep.nested.id"],
+            [{"deep": {"nested": {"id": 1, "value": "test"}}}],
         ),
     ],
 )
 def test_deduplicate(
-    items: list[Any], python_lambda: str | None, expected: list[Any]
+    items: list[dict[str, Any]], keys: list[str], expected: list[dict[str, Any]]
 ) -> None:
-    assert deduplicate(items, python_lambda) == expected
+    assert deduplicate(items, keys) == expected
