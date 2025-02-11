@@ -2,7 +2,6 @@ import ast
 from builtins import filter as filter_
 from collections.abc import Callable, Mapping
 from enum import StrEnum
-from itertools import groupby
 from typing import Annotated, Any
 from typing import cast as type_cast
 
@@ -264,10 +263,14 @@ def deduplicate(
         ),
     ] = None,
 ) -> list[Any]:
-    if python_lambda:
-        fn = _build_safe_lambda(python_lambda)
-        items = sorted(items, key=fn)
-    return [item for item, _ in groupby(items, key=fn)]
+    if not python_lambda:
+        return list(set(items))
+
+    fn = _build_safe_lambda(python_lambda)
+    seen = {}
+    for item in items:
+        seen[fn(item)] = item
+    return list(seen.values())
 
 
 @registry.register(
