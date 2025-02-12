@@ -200,6 +200,7 @@ class RegistryActionsService(BaseService):
             )
 
         # NOTE: We should start a transaction here and commit it after the sync is complete
+        await self.upsert_actions_from_repo(repo, db_repo)
 
         return commit_sha
 
