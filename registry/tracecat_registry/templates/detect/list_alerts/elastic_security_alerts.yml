@@ -31,7 +31,7 @@ definition:
     - ref: search_query
       action: core.transform.reshape
       args:
-        query:
+        value:
           bool:
             filter:
               - range:

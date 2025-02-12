@@ -22,7 +22,8 @@ definition:
   steps:
     - ref: get_access_token
       action: tools.jamf.get_access_token
-      args: {}
+      args:
+        base_url: ${{ inputs.base_url }}
     - ref: post_mdm_command
       action: core.http_request
       args:

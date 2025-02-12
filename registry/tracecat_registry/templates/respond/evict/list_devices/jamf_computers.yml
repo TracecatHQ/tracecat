@@ -17,7 +17,8 @@ definition:
   steps:
     - ref: get_access_token
       action: tools.jamf.get_access_token
-      args: {}
+      args:
+        base_url: ${{ inputs.base_url }}
     - ref: list_inventory
       action: core.http_request
       args:
