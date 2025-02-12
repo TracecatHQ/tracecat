@@ -2036,6 +2036,50 @@ export const $RegistryActionValidateResponse = {
   title: "RegistryActionValidateResponse",
 } as const
 
+export const $RegistryActionValidationErrorInfo = {
+  properties: {
+    type: {
+      $ref: "#/components/schemas/TemplateActionValidationErrorType",
+    },
+    details: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Details",
+    },
+    is_template: {
+      type: "boolean",
+      title: "Is Template",
+    },
+    step_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Step Ref",
+    },
+    step_action: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Step Action",
+    },
+  },
+  type: "object",
+  required: ["type", "details", "is_template"],
+  title: "RegistryActionValidationErrorInfo",
+} as const
+
 export const $RegistryRepositoryCreate = {
   properties: {
     origin: {
@@ -2049,6 +2093,37 @@ export const $RegistryRepositoryCreate = {
   type: "object",
   required: ["origin"],
   title: "RegistryRepositoryCreate",
+} as const
+
+export const $RegistryRepositoryErrorDetail = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    origin: {
+      type: "string",
+      title: "Origin",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    errors: {
+      additionalProperties: {
+        items: {
+          $ref: "#/components/schemas/RegistryActionValidationErrorInfo",
+        },
+        type: "array",
+      },
+      type: "object",
+      title: "Errors",
+    },
+  },
+  type: "object",
+  required: ["id", "origin", "message", "errors"],
+  title: "RegistryRepositoryErrorDetail",
+  description: "Error response model for registry sync failures.",
 } as const
 
 export const $RegistryRepositoryRead = {
@@ -3398,6 +3473,12 @@ export const $TemplateActionDefinition = {
     "returns",
   ],
   title: "TemplateActionDefinition",
+} as const
+
+export const $TemplateActionValidationErrorType = {
+  type: "string",
+  enum: ["ACTION_NOT_FOUND", "ACTION_NAME_CONFLICT", "STEP_VALIDATION_ERROR"],
+  title: "TemplateActionValidationErrorType",
 } as const
 
 export const $Trigger = {

@@ -170,7 +170,9 @@ async def run_template_action(
             ),
         )
         async with RegistryActionsService.with_session() as service:
-            step_action = await service.load_action_impl(action_name=step.action)
+            step_action = await service.load_action_impl(
+                action_name=step.action, mode="execution"
+            )
         logger.trace("Running action step", step_action=step_action.action)
         result = await run_single_action(
             action=step_action,
@@ -202,7 +204,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     async with RegistryActionsService.with_session() as service:
         reg_action = await service.get_action(action_name)
         action_secrets = await service.fetch_all_action_secrets(reg_action)
-        action = service.get_bound(reg_action)
+        action = service.get_bound(reg_action, mode="execution")
 
     args_secrets = set(extract_templated_secrets(task.args))
     optional_secrets = {s.name for s in action_secrets if s.optional}

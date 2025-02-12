@@ -674,11 +674,31 @@ export type RegistryActionValidateResponse = {
   action_ref?: string | null
 }
 
+export type RegistryActionValidationErrorInfo = {
+  type: TemplateActionValidationErrorType
+  details: Array<string>
+  is_template: boolean
+  step_ref?: string | null
+  step_action?: string | null
+}
+
 export type RegistryRepositoryCreate = {
   /**
    * The origin of the repository
    */
   origin: string
+}
+
+/**
+ * Error response model for registry sync failures.
+ */
+export type RegistryRepositoryErrorDetail = {
+  id: string
+  origin: string
+  message: string
+  errors: {
+    [key: string]: Array<RegistryActionValidationErrorInfo>
+  }
 }
 
 export type RegistryRepositoryRead = {
@@ -1095,6 +1115,11 @@ export type TemplateActionDefinition = {
         [key: string]: unknown
       }
 }
+
+export type TemplateActionValidationErrorType =
+  | "ACTION_NOT_FOUND"
+  | "ACTION_NAME_CONFLICT"
+  | "STEP_VALIDATION_ERROR"
 
 export type Trigger = {
   type: "schedule" | "webhook"
@@ -3156,9 +3181,13 @@ export type $OpenApiTs = {
          */
         204: void
         /**
-         * Validation Error
+         * Registry repository not found
          */
-        422: HTTPValidationError
+        404: unknown
+        /**
+         * Registry sync validation error
+         */
+        422: RegistryRepositoryErrorDetail
       }
     }
   }

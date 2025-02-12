@@ -32,6 +32,7 @@ import {
   registryActionsListRegistryActions,
   registryActionsUpdateRegistryAction,
   RegistryActionsUpdateRegistryActionData,
+  RegistryErrorResponse,
   registryRepositoriesDeleteRegistryRepository,
   RegistryRepositoriesDeleteRegistryRepositoryData,
   registryRepositoriesListRegistryRepositories,
@@ -104,7 +105,7 @@ import {
 import { useWorkspace } from "@/providers/workspace"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
-import { CircleCheck } from "lucide-react"
+import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 
 import { getBaseUrl } from "@/lib/api"
 import { retryHandler, TracecatApiError } from "@/lib/errors"
@@ -1188,19 +1189,30 @@ export function useRegistryRepositories() {
     },
     onError: (
       error: TracecatApiError,
-      variables: RegistryRepositoriesSyncRegistryRepositoryData
+      { repositoryId }: RegistryRepositoriesSyncRegistryRepositoryData
     ) => {
-      const apiError = error as TracecatApiError
-      switch (apiError.status) {
+      switch (error.status) {
         case 400:
           toast({
             title: "Couldn't sync repository",
             description: (
               <div>
-                <p>Repository: {variables.repositoryId}</p>
+                <p>Repository: {repositoryId}</p>
                 <p>
-                  {apiError.message}: {String(apiError.body.detail)}
+                  {error.message}: {String(error.body.detail)}
                 </p>
+              </div>
+            ),
+          })
+          break
+        case 422:
+          const { message, errors } = error.body.detail as RegistryErrorResponse
+          toast({
+            title: "Got validation errors",
+            description: (
+              <div className="flex items-center gap-2">
+                <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
+                <span>{message}</span>
               </div>
             ),
           })
@@ -1210,15 +1222,16 @@ export function useRegistryRepositories() {
             title: "Unexpected error syncing repositories",
             description: (
               <div>
-                <p>Repository: {variables.repositoryId}</p>
-                <p>{apiError.message}</p>
-                <p>{apiError.body.detail as string}</p>
+                <p>Repository: {repositoryId}</p>
+                <p>{error.message}</p>
+                <p>{String(error.body.detail)}</p>
               </div>
             ),
             variant: "destructive",
           })
           break
       }
+      return error
     },
   })
 

@@ -22,6 +22,7 @@ from tracecat_registry import RegistrySecret
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
+from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.types.exceptions import (
     RegistryActionError,
     RegistryValidationError,
@@ -568,3 +569,11 @@ class model_converters:
                     f"Unknown implementation type: {action.implementation}"
                 )
         return intf
+
+
+class RegistryActionValidationErrorInfo(BaseModel):
+    type: TemplateActionValidationErrorType
+    details: list[str]
+    is_template: bool
+    step_ref: str | None = None
+    step_action: str | None = None

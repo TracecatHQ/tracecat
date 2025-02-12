@@ -1,0 +1,7 @@
+from enum import StrEnum
+
+
+class TemplateActionValidationErrorType(StrEnum):
+    ACTION_NOT_FOUND = "ACTION_NOT_FOUND"
+    ACTION_NAME_CONFLICT = "ACTION_NAME_CONFLICT"
+    STEP_VALIDATION_ERROR = "STEP_VALIDATION_ERROR"

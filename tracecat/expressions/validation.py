@@ -1,31 +1,16 @@
 from collections.abc import Mapping
+from typing import Annotated, Any, TypeVar
 
 from pydantic import ValidationInfo, ValidatorFunctionWrapHandler
 from pydantic.functional_validators import WrapValidator
 
+from tracecat.common import is_iterable
 from tracecat.expressions.patterns import FULL_TEMPLATE
 
 
 def is_full_template(template: str) -> bool:
-    # return template.startswith("${{") and template.endswith("}}")
+    """Check if a string is a complete template expression (${{...}})"""
     return FULL_TEMPLATE.match(template) is not None
-
-
-def is_iterable(value: object, *, container_only: bool = True) -> bool:
-    """Check if a value is iterable, optionally excluding string-like and mapping types.
-
-    Args:
-        value: The value to check for iterability
-        container_only: If True, excludes strings and bytes objects from being considered iterable
-
-    Returns:
-        bool: True if the value is iterable (according to the specified rules), False otherwise
-    """
-    if isinstance(value, str | bytes):
-        return not container_only
-    if isinstance(value, Mapping):
-        return False
-    return hasattr(value, "__iter__")
 
 
 T = TypeVar("T")
@@ -38,17 +23,48 @@ class TemplateValidator:
 
     @classmethod
     def maybe_templated_expression(
-        cls, v: T, handler: ValidatorFunctionWrapHandler, info: ValidationInfo
-    ) -> T:
-        # If the input value is a string and a full template,
-        # v0: We don't care about the coercion type and just return the string value
-        # i.e., we defer the type checking to runtime
-        if isinstance(v, str) and is_full_template(v):
-            # if its a string and a full template, return it as is
-            return v
-        # Otherwise, it's an inline template or non-template
-        # Call the default handler
-        return handler(v)
+        cls, v: Any, handler: ValidatorFunctionWrapHandler, info: ValidationInfo
+    ) -> Any:
+        try:
+            # Quick win for simple expressions
+            return handler(v)
+        except Exception:
+            # Fallback to recursive validation for template expressions
+            return recursive_validator(v, handler)
+
+
+def recursive_validator(v: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+    """Allows for templated expressions in the input data.
+
+    This validator is used to validate the input data for templated expressions.
+    It will skip validation for template expressions and only validate the input data for the expected type.
+    It allows expressions to exist at any level of the input data, including the top level.
+
+    e.g.
+    ```python
+    class Test(BaseModel):
+        a: Annotated[dict[str, list[int]], TemplateValidator()]
+
+    print(Test(a={"b": "${{ my_list }}"}).model_dump())
+    ```
+    """
+    # If the input value is a string and a full template,
+    # accept it regardless of the expected type
+    if isinstance(v, str) and is_full_template(v):
+        # skip validation for template expressions
+        return v
+
+    # Handle nested mappings by recursively validating values
+    if isinstance(v, Mapping):
+        return type(v)(
+            **{key: recursive_validator(value, handler) for key, value in v.items()}
+        )
+
+    # Handle nested iterables (lists, tuples, etc.)
+    if is_iterable(v, container_only=True):
+        return type(v)(recursive_validator(item, handler) for item in v)
+
+    return handler(v)
 
 
 class RequiredTemplateValidator:
