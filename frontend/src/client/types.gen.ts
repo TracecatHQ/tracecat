@@ -11,11 +11,11 @@ export type ActionControlFlow = {
   join_strategy?: JoinStrategy
   retry_policy?: ActionRetryPolicy
   /**
-   * Delay before starting the action in seconds.
+   * Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.
    */
   start_delay?: number
   /**
-   * Delay until a specific date and time.
+   * Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.
    */
   wait_until?: string | null
 }
@@ -93,11 +93,11 @@ export type ActionStatement = {
    */
   retry_policy?: ActionRetryPolicy
   /**
-   * Delay before starting the action in seconds. If `wait_until` is also provided, the wait_until timer will take precedence.
+   * Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.
    */
   start_delay?: number
   /**
-   * Delay until a specific date and time. Overrides `start_delay` if both are provided.
+   * Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.
    */
   wait_until?: string | null
   /**

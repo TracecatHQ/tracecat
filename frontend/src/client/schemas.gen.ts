@@ -57,7 +57,8 @@ export const $ActionControlFlow = {
     start_delay: {
       type: "number",
       title: "Start Delay",
-      description: "Delay before starting the action in seconds.",
+      description:
+        "Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.",
       default: 0,
     },
     wait_until: {
@@ -70,7 +71,8 @@ export const $ActionControlFlow = {
         },
       ],
       title: "Wait Until",
-      description: "Delay until a specific date and time.",
+      description:
+        "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.",
     },
   },
   type: "object",
@@ -285,7 +287,7 @@ export const $ActionStatement = {
       type: "number",
       title: "Start Delay",
       description:
-        "Delay before starting the action in seconds. If `wait_until` is also provided, the wait_until timer will take precedence.",
+        "Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.",
       default: 0,
     },
     wait_until: {
@@ -299,7 +301,7 @@ export const $ActionStatement = {
       ],
       title: "Wait Until",
       description:
-        "Delay until a specific date and time. Overrides `start_delay` if both are provided.",
+        "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.",
     },
     join_strategy: {
       allOf: [
