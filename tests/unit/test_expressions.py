@@ -28,7 +28,7 @@ from tracecat.expressions.eval import (
 from tracecat.expressions.parser.core import ExprParser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
-from tracecat.expressions.patterns import FULL_TEMPLATE
+from tracecat.expressions.patterns import STANDALONE_TEMPLATE
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
@@ -139,19 +139,26 @@ def test_build_lambda_errors(
 
 
 @pytest.mark.parametrize(
-    "expression,expected_result",
+    "expression,expect_match",
     [
         ("${{ path.to.example -> asdf }}", True),
-        ("${{ example }} more text", False),
-        ("${{ ${example} }}", False),
-        ("${{ example ${var} }}", False),  # Should not match
+        ("${{ { hello: world } }}", True),
+        ("${{ ${example} }}", True),
+        ("${{ example ${var} }}", True),
+        ("${{ path.to.example -> asdf }} ", False),
+        ("${{ example }} more text", False),  # Not standalone
         ("${{ example }}${{ another }}", False),  # Should not match
         ("${{ example }} ${{ another }}", False),  # Should not match
+        ("${{ ${{ hello }} }}", False),
+        (
+            "${{ inputs.metadata + [{'Status': FN.capitalize(FN.replace(inputs.status, '_', ' '))}] }}",
+            True,
+        ),
     ],
 )
-def test_full_template(expression, expected_result):
-    matched = FULL_TEMPLATE.match(expression) is not None
-    assert matched == expected_result
+def test_standalone_template(expression, expect_match):
+    matched = STANDALONE_TEMPLATE.match(expression) is not None
+    assert matched == expect_match
 
 
 def test_eval_jsonpath():

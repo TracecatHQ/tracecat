@@ -5,12 +5,12 @@ from pydantic import ValidationInfo, ValidatorFunctionWrapHandler
 from pydantic.functional_validators import WrapValidator
 
 from tracecat.common import is_iterable
-from tracecat.expressions.patterns import FULL_TEMPLATE
+from tracecat.expressions.patterns import STANDALONE_TEMPLATE
 
 
-def is_full_template(template: str) -> bool:
+def is_standalone_template(template: str) -> bool:
     """Check if a string is a complete template expression (${{...}})"""
-    return FULL_TEMPLATE.match(template) is not None
+    return STANDALONE_TEMPLATE.match(template) is not None
 
 
 T = TypeVar("T")
@@ -50,7 +50,7 @@ def recursive_validator(v: Any, handler: ValidatorFunctionWrapHandler) -> Any:
     """
     # If the input value is a string and a full template,
     # accept it regardless of the expected type
-    if isinstance(v, str) and is_full_template(v):
+    if isinstance(v, str) and is_standalone_template(v):
         # skip validation for template expressions
         return v
 
@@ -73,7 +73,7 @@ class RequiredTemplateValidator:
 
     @classmethod
     def must_expression(cls, v: T, handler: ValidatorFunctionWrapHandler, info) -> T:
-        if isinstance(v, str) and not is_full_template(v):
+        if isinstance(v, str) and not is_standalone_template(v):
             raise ValueError(f"'{v}' is not a valid expression")
         return handler(v, info)
 
