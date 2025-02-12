@@ -42,7 +42,7 @@
           {
             "group": "Data Manipulation",
             "pages": [
-              "data-types/introduction",
+              "data-types/overview",
               {
                 "group": "Data Types",
                 "pages": [
@@ -64,41 +64,41 @@
           {
             "group": "Integrations",
             "pages": [
-              "integrations/introduction",
+              "integrations/overview",
               {
                 "group": "Detect",
                 "pages": [
-                  "integrations/detect/introduction"
+                  "integrations/detect/overview"
                 ]
               },
               {
                 "group": "Notify",
                 "pages": [
-                  "integrations/notify/introduction"
+                  "integrations/notify/overview"
                 ]
               },
               {
                 "group": "Isolate",
                 "pages": [
-                  "integrations/isolate/introduction"
+                  "integrations/isolate/overview"
                 ]
               },
               {
                 "group": "Evict",
                 "pages": [
-                  "integrations/evict/introduction"
+                  "integrations/evict/overview"
                 ]
               },
               {
                 "group": "Model",
                 "pages": [
-                  "integrations/model/introduction"
+                  "integrations/model/overview"
                 ]
               },
               {
                 "group": "Harden",
                 "pages": [
-                  "integrations/harden/introduction"
+                  "integrations/harden/overview"
                 ]
               }
             ]
