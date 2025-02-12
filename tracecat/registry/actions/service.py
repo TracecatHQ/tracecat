@@ -247,26 +247,11 @@ class RegistryActionsService(BaseService):
         bound_action = get_bound_action_impl(action)
         return bound_action
 
-    async def get_action_implicit_secrets(
-        self, action: RegistryAction
-    ) -> list[RegistrySecret]:
-        """Extract the implicit secrets from the template action's steps."""
-        impl = RegistryActionImplValidator.validate_python(action.implementation)
-        if impl.type != "template":
-            return []
-        implicit_secrets: list[RegistrySecret] = []
-        for step in impl.template_action.definition.steps:
-            inner_action = await self.get_action(action_name=step.action)
-            implicit_secrets.extend(
-                RegistrySecret(**secret) for secret in inner_action.secrets or []
-            )
-        return implicit_secrets
-
     async def read_action_with_implicit_secrets(
         self, action: RegistryAction
     ) -> RegistryActionRead:
-        extra_secrets = await self.get_action_implicit_secrets(action)
-        return RegistryActionRead.from_database(action, extra_secrets)
+        extra_secrets = await self.fetch_all_action_secrets(action)
+        return RegistryActionRead.from_database(action, list(extra_secrets))
 
     async def fetch_all_action_secrets(
         self, action: RegistryAction
