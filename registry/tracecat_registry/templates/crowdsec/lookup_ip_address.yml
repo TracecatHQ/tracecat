@@ -1,0 +1,27 @@
+type: action
+definition:
+  name: lookup_ip_address
+  namespace: tools.crowdsec
+  title: Lookup IP address with CTI
+  description: Get threat intel report for an IP address from CrowdSec.
+  display_group: CrowdSec
+  doc_url: https://crowdsecurity.github.io/api_doc/lapi/#/watchers/searchAlerts
+  author: bouddha-fr
+  secrets:
+    - name: crowdsec_cti
+      keys:
+        - CTI_API_KEY
+      optional_keys: null
+  expects:
+    ip_address:
+      type: str
+      description: IPv4 or IPv6 address to analyze or scan.
+  steps:
+    - ref: search_ip_address
+      action: core.http_request
+      args:
+        url: https://cti.api.crowdsec.net/v2/smoke/${{ inputs.ip_address }}
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.crowdsec_cti.CTI_API_KEY }}
+  returns: ${{ steps.search_ip_address.result }}
