@@ -1,7 +1,10 @@
 "use client"
 
 import React, { useCallback, useState } from "react"
-import { RegistryErrorResponse, RegistryRepositoryReadMinimal } from "@/client"
+import {
+  RegistryRepositoryErrorDetail,
+  RegistryRepositoryReadMinimal,
+} from "@/client"
 import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
@@ -194,7 +197,8 @@ export function RegistryRepositoriesTable() {
 
   const alertContent = getAlertContent()
 
-  const errorDetail = syncRepoError?.body.detail as RegistryErrorResponse | null
+  const errorDetail = syncRepoError?.body
+    .detail as RegistryRepositoryErrorDetail | null
   return (
     <TooltipProvider>
       {errorDetail && (
@@ -355,7 +359,7 @@ export function RegistryRepositoriesTable() {
                     return <LoaderCircleIcon className="size-4 animate-spin" />
                   }
                   const errorDetail = syncRepoError?.body
-                    .detail as RegistryErrorResponse
+                    .detail as RegistryRepositoryErrorDetail
                   if (errorDetail?.id === row.original.id) {
                     return (
                       <AlertTriangleIcon className="size-4 fill-rose-600 text-white" />

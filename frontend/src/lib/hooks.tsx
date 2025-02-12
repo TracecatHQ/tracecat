@@ -32,13 +32,13 @@ import {
   registryActionsListRegistryActions,
   registryActionsUpdateRegistryAction,
   RegistryActionsUpdateRegistryActionData,
-  RegistryErrorResponse,
   registryRepositoriesDeleteRegistryRepository,
   RegistryRepositoriesDeleteRegistryRepositoryData,
   registryRepositoriesListRegistryRepositories,
   registryRepositoriesReloadRegistryRepositories,
   registryRepositoriesSyncRegistryRepository,
   RegistryRepositoriesSyncRegistryRepositoryData,
+  RegistryRepositoryErrorDetail,
   RegistryRepositoryReadMinimal,
   SAMLSettingsRead,
   Schedule,
@@ -1206,7 +1206,8 @@ export function useRegistryRepositories() {
           })
           break
         case 422:
-          const { message, errors } = error.body.detail as RegistryErrorResponse
+          const { message, errors } = error.body
+            .detail as RegistryRepositoryErrorDetail
           toast({
             title: "Got validation errors",
             description: (
