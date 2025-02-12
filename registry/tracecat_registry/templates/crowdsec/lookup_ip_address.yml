@@ -17,11 +17,11 @@ definition:
       type: str
       description: IPv4 or IPv6 address to analyze or scan.
   steps:
-    - ref: search_ip_address
+    - ref: lookup_ip_address
       action: core.http_request
       args:
         url: https://cti.api.crowdsec.net/v2/smoke/${{ inputs.ip_address }}
         method: GET
         headers:
           x-api-key: ${{ SECRETS.crowdsec_cti.CTI_API_KEY }}
-  returns: ${{ steps.search_ip_address.result }}
+  returns: ${{ steps.lookup_ip_address.result }}
