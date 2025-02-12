@@ -1,0 +1,20 @@
+---
+title: Authentication
+description: Log into Tracecat and invite your team into workspaces.
+---
+
+## Admin superuser
+
+The admin superuser role is assigned to the first user who logs into Tracecat. This user owns the organization and has admin rights to every workspace in the Tracecat deployment.
+
+You can configure which email domains are allowed to log into Tracecat via the `TRACECAT__AUTH_ALLOWED_DOMAINS` environment variable.
+
+## Log in
+
+<Note>
+This tutorial assumes you have set `TRACECAT__AUTH_TYPES=basic` in your `.env` file.
+For production deployments, we highly recommend using [SAML SSO](/self-hosting/authentication/saml) or [Google OAuth](/self-hosting/authentication/google).
+</Note>
+
+
+## Invite users

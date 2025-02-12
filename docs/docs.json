@@ -1,0 +1,169 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "willow",
+  "name": "Tracecat | Documentation",
+  "colors": {
+    "primary": "#6F9954",
+    "light": "#C1DEAF",
+    "dark": "#111011"
+  },
+  "favicon": "/favicon.png",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart/install",
+              "quickstart/admin",
+              "quickstart/tutorial"
+            ]
+          },
+          {
+            "group": "Tutorials",
+            "pages": [
+              "tutorials/triggers",
+              "tutorials/build-templates",
+              "tutorials/git-repository",
+              "tutorials/child-workflows",
+              "tutorials/explode-implode",
+              "tutorials/alert-on-failure"
+            ]
+          },
+          {
+            "group": "Self Host",
+            "pages": [
+              "self-hosting/introduction"
+            ]
+          },
+          {
+            "group": "Data Manipulation",
+            "pages": [
+              "data-types/introduction",
+              {
+                "group": "Data Types",
+                "pages": [
+                  "data-types/json",
+                  "data-types/arrays",
+                  "data-types/datetimes",
+                  "data-types/strings",
+                  "data-types/booleans",
+                  "data-types/cryptography"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/introduction",
+              {
+                "group": "Detect",
+                "pages": [
+                  "integrations/detect/introduction"
+                ]
+              },
+              {
+                "group": "Notify",
+                "pages": [
+                  "integrations/notify/introduction"
+                ]
+              },
+              {
+                "group": "Isolate",
+                "pages": [
+                  "integrations/isolate/introduction"
+                ]
+              },
+              {
+                "group": "Evict",
+                "pages": [
+                  "integrations/evict/introduction"
+                ]
+              },
+              {
+                "group": "Model",
+                "pages": [
+                  "integrations/model/introduction"
+                ]
+              },
+              {
+                "group": "Harden",
+                "pages": [
+                  "integrations/harden/introduction"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Cheatsheets",
+        "groups": [
+          {
+            "group": "Cheatsheets",
+            "pages": [
+              "cheatsheets/expressions",
+              "cheatsheets/functions",
+              "cheatsheets/operators",
+              "cheatsheets/secrets"
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Website",
+          "href": "https://tracecat.com",
+          "icon": "globe"
+        },
+        {
+          "anchor": "Get Live Help",
+          "href": "https://cal.com/team/tracecat/onboarding",
+          "icon": "headphones"
+        },
+        {
+          "anchor": "Join Discord",
+          "href": "https://discord.gg/n3GF4qxFU8",
+          "icon": "discord"
+        }
+      ]
+    }
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "appearance": {
+    "default": "light"
+  },
+  "background": {
+    "color": {
+      "light": "#FFFFFF",
+      "dark": "#111011"
+    }
+  },
+  "navbar": {
+    "links": [],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/TracecatHQ/tracecat"
+    }
+  },
+  "footer": {
+    "socials": {
+      "discord": "https://discord.gg/n3GF4qxFU8",
+      "github": "https://github.com/TracecatHQ/tracecat"
+    }
+  }
+}
