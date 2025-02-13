@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Lookup Domain
+  description: Get VirusTotal report for a domain.
+  display_group: VirusTotal
+  doc_url: https://docs.virustotal.com/reference/domain-info
+  namespace: tools.virustotal
+  name: lookup_domain
+  secrets:
+    - name: virustotal
+      keys: ["VIRUSTOTAL_API_KEY"]
+  expects:
+    domain:
+      type: str
+      description: Domain to lookup.
+  steps:
+    - ref: get_domain_report
+      action: core.http_request
+      args:
+        url: https://www.virustotal.com/api/v3/domains/${{ inputs.domain }}
+        method: GET
+        headers:
+          x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+  returns: ${{ steps.get_domain_report.result }}
