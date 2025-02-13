@@ -4,10 +4,30 @@ description: Reference action outputs, webhook payloads, secrets, and more.
 icon: dollar-sign
 ---
 
-## `ACTIONS.` namespace
+Expressions is how you reference and manipulate data inline in action inputs, run-if conditions, and loop expressions.
+Tracecat supports the following expression contexts:
+
+| Prefix    | Expression syntax                          | Description                               |
+| --------- | ------------------------------------------ | ----------------------------------------- |
+| `ACTIONS` | `ACTIONS.<action_slug>.result.<jsonpath>`  | Reference the result of an action         |
+| `TRIGGER` | `TRIGGER.<jsonpath>`                       | Reference data passed via webhook or UI   |
+| `SECRETS` | `SECRETS.<name>.<key>`                     | Reference a secret                        |
+| `FN`      | `FN.<fn_name>(<arg1>, <arg2>, ...)`        | Call an inline function                   |
+
+To use an expression, you must use the `${{ <context>.<expression> }}` syntax:
+
+```yaml
+${{ <context>.<expression> }}
+```
+
+Expressions are evaluated into values at the start of each action run.
+
+## `ACTIONS` context
 
 <Info>
   Tracecat uses [JSONPath](https://github.com/h2non/jsonpath-ng?tab=readme-ov-file#jsonpath-syntax) and dot notation to select outputs from previous actions.
+
+  For example, `ACTIONS.my_action.result.data.items` selects the `items` field from a nested JSON object returned by the `my_action` action.
 </Info>
 
 You can reference outputs from a previous action in the same workflow using the `ACTIONS.` namespace.
@@ -43,13 +63,13 @@ Actions are referenced by a sluggified version of their name.
   </Steps>
 </Accordion>
 
-## `TRIGGER.` namespace
+## `TRIGGER` context
 
 <Info>
   Check out the [triggers](/tutorials/triggers.mdx) tutorial for a detailed guide setting up webhooks for workflows.
 </Info>
 
-You can reference the payload of the webhook event that triggered the workflow using the `TRIGGER.` namespace.
+You can reference the payload of the webhook event that triggered the workflow using the `TRIGGER.` context.
 
 For example,
 
@@ -62,19 +82,19 @@ params:
   current: temperature_2m,precipitation_probability
 ```
 
-## `SECRETS.` namespace
+## `SECRETS` context
 
 <Info>
   Check out the [secrets](/tutorials/secrets) tutorial for a detailed guide on storing and referencing secrets in Tracecat.
 </Info>
 
-## `FN.` namespace
+## `FN` context
 
 <Info>
   Check out the full list of supported functions in the [functions](/cheatsheet/functions) cheatsheet.
 </Info>
 
-Tracecat supports inline functions in the `FN.` namespace.
+Tracecat supports inline functions in the `FN.` context.
 For example, you can use the `FN.deserialize_json` function to decode a JSON string into a JSON object.
 
 ```yaml
