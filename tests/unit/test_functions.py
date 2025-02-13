@@ -89,6 +89,7 @@ from tracecat.expressions.functions import (
     unset_timezone,
     uppercase,
     url_encode,
+    url_decode,
     weeks_between,
     zip_iterables,
 )
@@ -709,6 +710,17 @@ def test_unset_timezone(dt: datetime) -> None:
 )
 def test_url_encode(input_str: str, expected: str) -> None:
     assert url_encode(input_str) == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        ("admin%2Btracecat1%40gmail.com", "admin+tracecat1@gmail.com"),
+        ("admin%2Btracecat1-org%40gmail.com", "admin+tracecat1-org@gmail.com"),
+    ],
+)
+def test_url_decode(input_str: str, expected: str) -> None:
+    assert url_decode(input_str) == expected
 
 
 @pytest.mark.parametrize(
