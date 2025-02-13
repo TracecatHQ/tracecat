@@ -28,7 +28,10 @@ from tracecat.types.exceptions import (
     RegistryValidationError,
     TracecatValidationError,
 )
-from tracecat.validation.models import ValidationResult
+from tracecat.validation.models import (
+    TemplateActionExprValidationResult,
+    ValidationResult,
+)
 
 ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
 RegistryActionType = Literal["udf", "template"]
@@ -575,5 +578,19 @@ class RegistryActionValidationErrorInfo(BaseModel):
     type: TemplateActionValidationErrorType
     details: list[str]
     is_template: bool
-    step_ref: str | None = None
-    step_action: str | None = None
+    """Some context about where the error occurred"""
+    loc_primary: str
+    """Primary location of the error"""
+    loc_secondary: str | None = None
+    """Secondary location of the error. Displayed in parentheses next to the primary location."""
+
+    @staticmethod
+    def from_validation_result(
+        v: TemplateActionExprValidationResult, is_template: bool = True
+    ) -> RegistryActionValidationErrorInfo:
+        return RegistryActionValidationErrorInfo(
+            type=TemplateActionValidationErrorType.EXPRESSION_VALIDATION_ERROR,
+            details=[v.msg],
+            is_template=is_template,
+            loc_primary=v.loc,
+        )

@@ -32,5 +32,11 @@ class ExprValidationResult(ValidationResult):
     expression_type: ExprType
 
 
+class TemplateActionExprValidationResult(ExprValidationResult):
+    """Result of visiting an expression node."""
+
+    loc: str
+
+
 class SecretValidationResult(ValidationResult):
     """Result of validating credentials."""

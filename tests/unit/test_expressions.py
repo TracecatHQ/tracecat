@@ -27,7 +27,13 @@ from tracecat.expressions.eval import (
 )
 from tracecat.expressions.parser.core import ExprParser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
-from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
+from tracecat.expressions.parser.validator import (
+    ExpectedField,
+    ExprValidationContext,
+    ExprValidator,
+    TemplateActionExprValidator,
+    TemplateActionValidationContext,
+)
 from tracecat.expressions.patterns import STANDALONE_TEMPLATE
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
@@ -906,8 +912,10 @@ def assert_validation_result(
     contains_msg: str | None = None,
     contains_detail: str | None = None,
 ):
-    assert res.expression_type == type
-    assert res.status == status
+    assert res.expression_type == type, (
+        f"Expected {type}, got {res.expression_type}. {res}"
+    )
+    assert res.status == status, f"Expected {status}, got {res.status}. {res.msg}"
     if contains_msg:
         assert contains_msg in res.msg
     if contains_detail:
@@ -1087,3 +1095,180 @@ def test_parse_trigger_json(context, expr, expected):
     assert parse_tree is not None
     actual = ev.transform(parse_tree)
     assert actual == expected
+
+
+@pytest.mark.parametrize(
+    "expr,expected",
+    [
+        # Test valid template action input references
+        (
+            "${{ inputs.my_input }}",
+            [{"type": ExprType.TEMPLATE_ACTION_INPUT, "status": "success"}],
+        ),
+        (
+            "${{ inputs.my_input.nested }}",
+            [{"type": ExprType.TEMPLATE_ACTION_INPUT, "status": "success"}],
+        ),
+        # Test invalid template action input references
+        (
+            "${{ inputs.invalid_input }}",
+            [
+                {
+                    "type": ExprType.TEMPLATE_ACTION_INPUT,
+                    "status": "error",
+                    "contains_msg": "Invalid input reference 'invalid_input'. Valid inputs are: ['my_input', 'other_input']",
+                }
+            ],
+        ),
+        # Test valid template action step references
+        (
+            "${{ steps.step1.result }}",
+            [{"type": ExprType.TEMPLATE_ACTION_STEP, "status": "success"}],
+        ),
+        (
+            "${{ steps.step2.output }}",
+            [{"type": ExprType.TEMPLATE_ACTION_STEP, "status": "success"}],
+        ),
+        # Test invalid template action step references
+        (
+            "${{ steps.invalid_step.result }}",
+            [
+                {
+                    "type": ExprType.TEMPLATE_ACTION_STEP,
+                    "status": "error",
+                    "contains_msg": "Invalid step reference 'invalid_step'. Valid steps are: ['step1', 'step2']",
+                }
+            ],
+        ),
+        # Test multiple expressions
+        (
+            {
+                "input": "${{ inputs.my_input }}",
+                "step": "${{ steps.step1.result }}",
+                "invalid": "${{ steps.bad_step.result }}",
+            },
+            [
+                {"type": ExprType.TEMPLATE_ACTION_INPUT, "status": "success"},
+                {"type": ExprType.TEMPLATE_ACTION_STEP, "status": "success"},
+                {
+                    "type": ExprType.TEMPLATE_ACTION_STEP,
+                    "status": "error",
+                    "contains_msg": "Invalid step reference 'bad_step'. Valid steps are: ['step1', 'step2']",
+                },
+            ],
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_template_action_validator(expr, expected):
+    """Test validation of template action expressions."""
+    # Set up validation context with expected inputs and valid step references
+    validation_context = TemplateActionValidationContext(
+        expects={
+            "my_input": ExpectedField(type="str"),
+            "other_input": ExpectedField(type="int"),
+        },
+        step_refs={"step1", "step2"},
+    )
+
+    visitor = TemplateActionExprValidator(
+        validation_context=validation_context,
+    )
+    exprs = extract_expressions(expr)
+    for _expr in exprs:
+        _expr.validate(visitor)
+
+    errors = list(visitor.results())
+
+    for actual, ex in zip(errors, expected, strict=True):
+        assert_validation_result(actual, **ex)
+
+
+@pytest.mark.parametrize(
+    "expr,expected_error",
+    [
+        # Test that ACTION expressions are not supported
+        (
+            "${{ ACTIONS.some_action.result }}",
+            {
+                "type": ExprType.ACTION,
+                "status": "error",
+                "contains_msg": "ACTIONS expressions are not supported in Template Actions",
+            },
+        ),
+        # Test that INPUT expressions are not supported
+        (
+            "${{ INPUTS.some_input }}",
+            {
+                "type": ExprType.INPUT,
+                "status": "error",
+                "contains_msg": "INPUTS expressions are not supported in Template Actions",
+            },
+        ),
+        # Test that TRIGGER expressions are not supported
+        (
+            "${{ TRIGGER.some_data }}",
+            {
+                "type": ExprType.TRIGGER,
+                "status": "error",
+                "contains_msg": "TRIGGER expressions are not supported in Template Actions",
+            },
+        ),
+        # Test that ENV expressions are not supported
+        (
+            "${{ ENV.some_var }}",
+            {
+                "type": ExprType.ENV,
+                "status": "error",
+                "contains_msg": "ENV expressions are not supported in Template Actions",
+            },
+        ),
+        # Test that local var expressions are not supported
+        (
+            "${{ var.some_var }}",
+            {
+                "type": ExprType.LOCAL_VARS,
+                "status": "error",
+                "contains_msg": "var expressions are not supported in Template Actions",
+            },
+        ),
+        # Test that iterator expressions are not supported
+        (
+            "${{ for var.item in [1,2,3] }}",
+            {
+                "type": ExprType.ITERATOR,
+                "status": "error",
+                "contains_msg": "for_each expressions are not supported in Template Actions",
+            },
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_template_action_validator_unsupported_expressions(expr, expected_error):
+    """Test validation of unsupported expressions in template actions."""
+    validation_context = TemplateActionValidationContext(expects={}, step_refs=set())
+
+    visitor = TemplateActionExprValidator(
+        validation_context=validation_context,
+    )
+    exprs = extract_expressions(expr)
+    for _expr in exprs:
+        _expr.validate(visitor)
+
+    val_results = list(visitor.results())
+
+    # Expect that in the validation results, the expected error is present
+    found_err = next(
+        (
+            r
+            for r in val_results
+            if (
+                r.expression_type == expected_error["type"]
+                and r.status == expected_error["status"]
+                and expected_error["contains_msg"] in r.msg
+            )
+        ),
+        None,
+    )
+
+    assert found_err is not None, f"Expected {expected_error}, got {val_results}"

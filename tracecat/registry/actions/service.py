@@ -11,6 +11,11 @@ from tracecat_registry import RegistrySecret
 
 from tracecat import config
 from tracecat.db.schemas import RegistryAction, RegistryRepository
+from tracecat.expressions.eval import extract_expressions
+from tracecat.expressions.parser.validator import (
+    TemplateActionExprValidator,
+    TemplateActionValidationContext,
+)
 from tracecat.registry.actions.enums import (
     TemplateActionValidationErrorType,
 )
@@ -26,7 +31,11 @@ from tracecat.registry.actions.models import (
 from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.service import BaseService
-from tracecat.types.exceptions import RegistryError, RegistryValidationError
+from tracecat.types.exceptions import (
+    RegistryActionValidationError,
+    RegistryError,
+    RegistryValidationError,
+)
 
 
 class RegistryActionsService(BaseService):
@@ -77,7 +86,7 @@ class RegistryActionsService(BaseService):
         result = await self.session.exec(statement)
         action = result.one_or_none()
         if not action:
-            raise RegistryError(f"Action {namespace}.{name} not found in repository")
+            raise RegistryError(f"Action {namespace}.{name} not found in the registry")
         return action
 
     async def get_actions(self, action_names: list[str]) -> Sequence[RegistryAction]:
@@ -193,10 +202,9 @@ class RegistryActionsService(BaseService):
             if errs := await self.validate_action_template(action, repo):
                 val_errs[action.action].extend(errs)
         if val_errs:
-            detail = {k: [e.model_dump() for e in v] for k, v in val_errs.items()}
-            raise RegistryError(
-                f"Got {sum(len(v) for v in val_errs.values())} validation errors",
-                detail=detail,
+            raise RegistryActionValidationError(
+                f"Found {sum(len(v) for v in val_errs.values())} validation error(s)",
+                detail=val_errs,
             )
 
         # NOTE: We should start a transaction here and commit it after the sync is complete
@@ -218,7 +226,10 @@ class RegistryActionsService(BaseService):
         if not (action.is_template and action.template_action):
             return []
         val_errs: list[RegistryActionValidationErrorInfo] = []
-        for step in action.template_action.definition.steps:
+
+        defn = action.template_action.definition
+        # 1. Validate template steps
+        for step in defn.steps:
             # (A) Ensure that the step action type exists
             if step.action in repo.store:
                 # If this action is already in the repo, we can just use it
@@ -230,8 +241,8 @@ class RegistryActionsService(BaseService):
                 # Action not found in the repo or DB
                 val_errs.append(
                     RegistryActionValidationErrorInfo(
-                        step_ref=step.ref,
-                        step_action=step.action,
+                        loc_primary=f"steps.{step.ref}",
+                        loc_secondary=step.action,
                         type=TemplateActionValidationErrorType.ACTION_NOT_FOUND,
                         details=[f"Action `{step.action}` not found in repository."],
                         is_template=action.is_template,
@@ -257,13 +268,35 @@ class RegistryActionsService(BaseService):
                     details = [str(e.err)] if e.err else []
                 val_errs.append(
                     RegistryActionValidationErrorInfo(
-                        step_ref=step.ref,
-                        step_action=step.action,
+                        loc_primary=f"steps.{step.ref}",
+                        loc_secondary=step.action,
                         type=TemplateActionValidationErrorType.STEP_VALIDATION_ERROR,
                         details=details,
                         is_template=action.is_template,
                     )
                 )
+        # 2. Validate expressions
+        validator = TemplateActionExprValidator(
+            validation_context=TemplateActionValidationContext(
+                expects=defn.expects,
+                step_refs={step.ref for step in defn.steps},
+            ),
+        )
+        for step in defn.steps:
+            for field, value in step.args.items():
+                for expr in extract_expressions(value):
+                    expr.validate(validator, loc=f"steps.{step.ref}.args.{field}")
+        for expr in extract_expressions(defn.returns):
+            expr.validate(validator, loc="returns")
+        expr_errs = set(validator.errors())
+        self.logger.warning("Expression validation errors", errors=expr_errs)
+        val_errs.extend(
+            RegistryActionValidationErrorInfo.from_validation_result(
+                e, is_template=action.is_template
+            )
+            for e in expr_errs
+        )
+
         return val_errs
 
     # We need to call this first for UDFs

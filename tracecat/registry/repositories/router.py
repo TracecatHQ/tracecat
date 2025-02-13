@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from typing import cast
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
@@ -8,13 +7,8 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.registry.actions.models import (
-    RegistryActionRead,
-    RegistryActionValidationErrorInfo,
-)
-from tracecat.registry.actions.service import (
-    RegistryActionsService,
-)
+from tracecat.registry.actions.models import RegistryActionRead
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.common import reload_registry
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
@@ -30,7 +24,11 @@ from tracecat.registry.repositories.models import (
 )
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import RegistryError, TracecatValidationError
+from tracecat.types.exceptions import (
+    RegistryActionValidationError,
+    RegistryError,
+    TracecatValidationError,
+)
 
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 
@@ -61,6 +59,7 @@ async def reload_registry_repositories(
             "description": "Registry sync validation error",
         },
         404: {"description": "Registry repository not found"},
+        400: {"description": "Cannot sync repository"},
     },
 )
 async def sync_registry_repository(
@@ -79,6 +78,7 @@ async def sync_registry_repository(
     Raises:
         422: If there is an error syncing the repository (validation error)
         404: If the repository is not found
+        400: If there is an error syncing the repository
     """
     repos_service = RegistryReposService(session, role)
     try:
@@ -112,14 +112,17 @@ async def sync_registry_repository(
     except RegistryError as e:
         logger.warning("Cannot sync repository", exc=e)
         raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except RegistryActionValidationError as e:
+        logger.warning("Validation errors while syncing repository", exc=e)
+        raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=RegistryRepositoryErrorDetail(
                 id=str(repo.id),
                 origin=repo.origin,
-                message=f"Error while syncing repository: {e}",
-                errors=cast(
-                    dict[str, list[RegistryActionValidationErrorInfo]], e.detail
-                ),
+                message=str(e),
+                errors=e.detail,
             ).model_dump(),
         ) from e
     except Exception as e:

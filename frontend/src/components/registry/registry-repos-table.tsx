@@ -197,8 +197,10 @@ export function RegistryRepositoriesTable() {
 
   const alertContent = getAlertContent()
 
-  const errorDetail = syncRepoError?.body
-    .detail as RegistryRepositoryErrorDetail | null
+  const errorDetail =
+    syncRepoError?.status === 422
+      ? (syncRepoError?.body.detail as RegistryRepositoryErrorDetail)
+      : null
   return (
     <TooltipProvider>
       {errorDetail && (
@@ -207,7 +209,7 @@ export function RegistryRepositoriesTable() {
             <CollapsibleTrigger asChild className="group">
               <div className="flex cursor-pointer items-center justify-between text-sm font-bold text-rose-500">
                 <div className="flex items-center">
-                  <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
+                  <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-rose-200" />
                   <span>{errorDetail.message}</span>
                 </div>
                 <ChevronDownIcon className="size-4 group-data-[state=closed]:rotate-0 group-data-[state=open]:rotate-180" />
@@ -228,26 +230,22 @@ export function RegistryRepositoriesTable() {
                               <div className="flex items-center">
                                 <span className="mx-2 inline-block size-1 rounded-full bg-current" />
                                 <span className="font-mono tracking-tighter">
-                                  {error.is_template ? (
-                                    <span>
-                                      <span className="font-semibold text-foreground/50">
-                                        steps.{error.step_ref}{" "}
-                                      </span>
-                                      <span className="text-muted-foreground">
-                                        ({error.step_action})
-                                      </span>
+                                  <span className="font-semibold text-foreground/50">
+                                    {error.loc_primary}{" "}
+                                  </span>
+                                  {error.loc_secondary && (
+                                    <span className="text-muted-foreground">
+                                      ({error.loc_secondary})
                                     </span>
-                                  ) : (
-                                    <span>steps.${error.step_ref}</span>
                                   )}
                                 </span>
                               </div>
                               {error.details.map((detail, detailIndex) => (
                                 <p
                                   key={`${detail}-${errorIndex}-${detailIndex}`}
-                                  className="ml-4 flex items-center text-foreground/60"
+                                  className="ml-4 flex items-start text-foreground/60"
                                 >
-                                  <CornerDownRightIcon className="mr-2 size-3" />
+                                  <CornerDownRightIcon className="mr-2 mt-0.5 size-3" />
                                   <span>{detail}</span>
                                 </p>
                               ))}
