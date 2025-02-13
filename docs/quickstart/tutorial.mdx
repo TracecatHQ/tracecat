@@ -1,54 +1,305 @@
 ---
-title: Tutorial
-description: Learn the basics of Tracecat in 15 minutes.
+title: Quickstart
+description: Everything you need to know to get started with Tracecat.
+icon: rocket
 ---
 
-Learn how to connect to REST APIs, define if-conditions, and loop through data in Tracecat.
+## What you'll learn
+
+By the end of this tutorial, you'll learn how to:
+
+- Call REST APIs via the `core.http_request` action
+- Call polling APIs via the `core.http_poll` action
+- Trigger workflows manually via the UI
+- Add secrets to your workflows
+- Define if-conditions in your workflows
+- Run actions in a loop
+- Use pre-built integrations
 
 ## Prerequisites
 
-- Have Tracecat installed.
-- A [URLScan API key](https://urlscan.io/user/profile/).
+- Have Tracecat [installed](/quickstart/install)
+- An API key from [URLScan](https://urlscan.io/user/profile/)
 
-## Create new workflow
+## Your first workflow
 
-<Steps>
-  <Step title="Create workflow">
-    These are instructions or content that only pertain to the first step.
-  </Step>
-  <Step title="Tag the workflow">
-    These are instructions or content that only pertain to the third step.
-  </Step>
-  <Step title="View new workflow">
-    These are instructions or content that only pertain to the second step.
-  </Step>
-</Steps>
+<Note>
+  Tracecat uses YAML to define inputs and configurations for actions and workflows.
+  YAML is a human-readable configuration language that is easy to write and read.
+  It is also more concise than JSON and more customizable than HTML forms.
+
+  If you're new to YAML, you can learn more [here](https://docs.ansible.com/ansible/latest/reference_appendices/YAMLSyntax.html).
+  YAML is also widely used in DevOps tools like Ansible, GitHub Actions, and Docker Compose.
+</Note>
+
+<AccordionGroup>
+  <Accordion title="Create new workflow" icon="circle-plus">
+    Click the `Create new` button in the top right corner of the workflows page.
+    ![Create workflow](/img/quickstart/tutorial/create-workflow.png)
+  </Accordion>
+  <Accordion title="Rename workflow" icon="pencil">
+    Click on the empty workflow canvas to open the workflow settings panel.
+    You can change the name and description of the workflow here.
+    ![Rename workflow](/img/quickstart/tutorial/rename-workflow.png)
+  </Accordion>
+  <Accordion title="View available actions" icon="square-plus">
+    To add a new node to the workflow, either drag out the actions dropdown menu from the trigger node or right click on the workflow canvas.
+    ![Drag out actions](/img/quickstart/tutorial/drag-out-actions.png)
+  </Accordion>
+  <Accordion title="Add HTTP request action" icon="globe">
+    Search for and select the `core.http_request` action.
+    ![Add HTTP action](/img/quickstart/tutorial/add-http-action.png)
+  </Accordion>
+  <Accordion title="Call an external weather API" icon="cloud-sun">
+    Click on the `core.http_request` node and fill in the inputs.
+    Tracecat uses YAML to define action inputs.
+    Press the `cmd+s` or `ctrl+s` keys to save your inputs.
+
+    ```yaml
+    url: https://api.open-meteo.com/v1/forecast
+    method: GET
+    params:
+      latitude: 37.773972
+      longitude: -122.431297
+      current: temperature_2m,precipitation_probability
+    ```
+
+    ![Fill in HTTP request inputs](/img/quickstart/tutorial/http-inputs.png)
+  </Accordion>
+  <Accordion title="Save workflow" icon="floppy-disk">
+    Before you can run your workflow, you need to save it.
+    You must explicitly save your workflow for changes to take effect in workflow runs.
+
+    ![Save workflow](/img/quickstart/tutorial/save-workflow.png)
+  </Accordion>
+  <Accordion title="Run workflow via UI" icon="play">
+    Click the `Run` button to execute your workflow.
+
+    You can ignore the sample webhook payload.
+    In a future [tutorial](/docs/workflows/triggers), we will learn how to pass custom payloads into workflows manually via UI or webhook.
+
+    ![Run workflow](/img/quickstart/tutorial/run-workflow.png)
+  </Accordion>
+  <Accordion title="View most recent run" icon="person-running">
+    You can view the status of your most recent run in the left side panel.
+    Select actions row by row to view their inputs and outputs.
+
+    <Tabs>
+      <Tab title="Events">
+        ![View recent run](/img/quickstart/tutorial/view-recent-run.png)
+      </Tab>
+      <Tab title="Action input">
+        ![View action input](/img/quickstart/tutorial/view-action-input.png)
+      </Tab>
+      <Tab title="Action result">
+        ![View action result](/img/quickstart/tutorial/view-action-result.png)
+      </Tab>
+    </Tabs>
+  </Accordion>
+  <Accordion title="View supported action inputs" icon="list">
+    You can view the required and optional inputs for an action under the `Input Schema` section.
+    ![View input schema](/img/quickstart/tutorial/view-input-schema.png)
+  </Accordion>
+</AccordionGroup>
 
 ## HTTP Request
 
-### GET
+The `core.http_request` action supports `GET`, `POST`, `PUT`, `PATCH`, and `DELETE` requests.
 
-### POST
+- To make a `GET` request with query parameters, specify the `params` field.
+- To make a request (e.g. `POST`, `PUT`, `PATCH`) with a JSON encoded body, specify the `payload` field.
+- To make a request (e.g. `POST`, `PUT`, `PATCH`) with form-encoded data, specify the `form_data` field.
+- To make a request with a custom HTTP headers, specify the `headers` field.
 
-### Other HTTP methods
+**Examples**
+
+<CodeGroup>
+  ```yaml GET
+  url: https://api.open-meteo.com/v1/forecast
+  method: GET
+  params:
+    latitude: 37.773972
+    longitude: -122.431297
+    current: temperature_2m,precipitation_probability
+  ```
+
+  ```yaml POST
+  url: https://api.urlscan.io/v1/scan
+  method: POST
+  headers:
+    API-Key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+    Content-Type: application/json
+  payload:
+    url: https://example.com
+    visibility: private
+  ```
+</CodeGroup>
 
 ## Polling HTTP Request
 
-Many APIs require you to poll them for results.
-For example, to run a query in most SIEMs via API, you first call the `/search` endpoint with your query, then poll it repeatedly until the query is complete.
+Tracecat makes it easy to poll APIs with long-running operations using the `core.http_poll` action.
+To configure the `core.http_poll` action, you'll need to specify one of the following inputs:
 
-Tracecat handles this for you with the `core.http_poll` action.
+- `poll_retry_codes`: List of status codes on which the action will retry.
+- `poll_condition`: A Python lambda function string that determines whether to retry.
 
-## If-condition
+If the operation doesn't poll on a status code, `poll_condition` is required.
+It is a Python lambda function string that determines whether to retry based on:
+- `headers`: The HTTP headers of the response.
+- `data`: The JSON decoded response body.
 
-Tracecat reduces the
+For example, to poll on a response body containing `"status"` until it equals `"complete"`, you can specify the following:
 
-## Run actions in a loop
+```yaml
+poll_condition: "lambda x: x['data']['status'] == 'complete'"
+```
 
-## Pre-built integrations
+You can further configure the polling behavior via the optional inputs:
+
+- `poll_interval`: Seconds between polling attempts. Defaults to exponential wait.
+- `poll_max_attempts`: Maximum number of polling attempts. Defaults to 10.
+
+**Example**
+
+URLScan uses a two-step process to get a threat intelligence report on a URL:
+
+1. Call the `/scan` endpoint to submit the URL for scanning.
+2. Poll the `/result` endpoint repeatedly until the status code changes from `404` to `200`.
+
+<Steps>
+  <Step title="Create URLScan secret">
+    Add URLScan API key to Tracecat's built-in secrets manager.
+
+    <Tabs>
+      <Tab title="Open credentials settings">
+        Select the settings icon in the top right corner of the page and click on `Credentials`.
+        ![Credentials settings](/img/quickstart/tutorial/credentials-settings.png)
+      </Tab>
+      <Tab title="Create secret">
+        Click on the `Create secret` button, name the secret `urlscan`,
+        and add the URLScan API key as a key-value pair with key name `URLSCAN_API_KEY`.
+        ![Create URLScan secret](/img/quickstart/tutorial/create-urlscan-secret.png)
+      </Tab>
+    </Tabs>
+  </Step>
+  <Step title="Call /scan endpoint">
+    Add the `core.http_request` action to your workflow.
+    Rename it to `Submit URL` and configure it with the following inputs:
+
+    ```yaml
+    url: https://urlscan.io/api/v1/scan/
+    method: POST
+    headers:
+      API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+    payload:
+      url: https://crowdstrikebluescreen.com
+      visibility: private
+    ```
+
+    ![Scan URL](/img/quickstart/tutorial/scan-url.png)
+  </Step>
+  <Step title="Poll /result endpoint">
+    Add the `core.http_poll` action to your workflow.
+    Rename it to `Get result` and configure it with the following inputs:
+
+    ```yaml
+    url: https://urlscan.io/api/v1/result/${{ ACTIONS.scan_url.result.data.uuid }}
+    method: GET
+    poll_retry_codes: [404]
+    headers:
+      API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+    ```
+
+    ![Get URLScan result](/img/quickstart/tutorial/get-urlscan-result.png)
+  </Step>
+  <Step title="Run workflow">
+    Run the workflow to submit the URL for scanning and get the threat intelligence report.
+    Under the hood, `Get result` calls the `/result` endpoint repeatedly until the status code is `200`.
+
+    <Tabs>
+      <Tab title="Events">
+        ![View URLScan run](/img/quickstart/tutorial/view-urlscan-run.png)
+      </Tab>
+      <Tab title="Scan URL output">
+        ![View scan URL output](/img/quickstart/tutorial/view-scan-url-output.png)
+      </Tab>
+      <Tab title="Get result output">
+        ![View get result output](/img/quickstart/tutorial/view-get-result-output.png)
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
+
+## Pre-built Integrations
+
+<Tip>
+  All of Tracecat's pre-built integrations are open source and available in the [Tracecat GitHub repository](https://github.com/TracecatHQ/tracecat).
+
+  - View YAML action templates [here](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates).
+  - View Python integrations [here](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations).
+
+</Tip>
+
+## If-conditions
+
+Every action can be turned into a conditional action.
+Under the `If condition / Loops` tab, you can specify a condition that determines whether the action should be executed.
+
+For example, to run the `Get result` action only if the URL submission was successful, go to the `If condition / Loops` tab and specify the following in the `Run if` input:
+
+```yaml
+${{ ACTIONS.scan_url.result.data.message == "Submission successful" }}
+```
+
+![Run if](/img/quickstart/tutorial/run-if.png)
+
+## Loops
+
+Every action can be turned into a looped action.
+Under the `If condition / Loops` tab, you can specify loop expressions to iterate over a list of items and run the action for each item.
+
+You can loop over any list of items in your workflow context.
+It can be a list of file hashes in a previous action `ACTIONS.some_intel_feed.result.data.malware_samples` or even a list of items received via webhook in `TRIGGER`.
+
+**Example**
+
+<Steps>
+  <Step title="Define the loop">
+    Define a loop expression using the `${{ for var.some_variable_name in some_list }}` syntax.
+    The variable name can be anything you want, but we recommend using a name that makes sense for the items in the list.
+
+    In this example, we iterate through a list of numbers send via webhook in `TRIGGER`.
+
+    ```yaml
+    ${{ for var.number in TRIGGER.numbers }}
+    ```
+
+    ![Define loop expression](/img/quickstart/tutorial/loop-expression.png)
+  </Step>
+  <Step title="Use the loop variable">
+    Go back to the action's `Inputs` tab.
+    You can now use the loop variable in the action's inputs using the `${{ var.some_variable_name }}` syntax.
+    During the workflow run, each `var.some_variable_name` in the loop expression is replaced with the current item in the list.
+
+    In this example, we use the loop variable in `core.transform.reshape` action to iterate through a list of numbers and add one to each number.
+
+    ```yaml
+    value: ${{ var.number + 1 }}
+    ```
+
+    ![Add one to variable](/img/quickstart/tutorial/add-one-to-variable.png)
+  </Step>
+  <Step title="Run workflow">
+    Run the workflow via UI with the payload `{"numbers": [1, 2, 3]}` to see the loop in action.
+
+    The `core.transform.reshape` action will be executed three times with `var.number` being `1`, `2`, and `3` respectively and the output will be `[2, 3, 4]`.
+
+    ![Run workflow](/img/quickstart/tutorial/run-loop-workflow.png)
+  </Step>
+</Steps>
 
 ## What next?
 
-- Join our [Discord community](https://discord.gg/n3GF4qxFU8) for banter and support.
-- Learn how to schedule workflows and enable webhooks [here](/docs/workflows/scheduling-and-webhooks).
+- Learn how to trigger workflows via webhooks and schedules [here](/docs/workflows/scheduling-and-webhooks).
 - Learn how to build your own custom integrations and templates [here](/docs/templates/custom-integrations).
+- Join our [Discord community](https://discord.gg/n3GF4qxFU8) for ideas and support.
