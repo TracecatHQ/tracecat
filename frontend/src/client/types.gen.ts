@@ -678,7 +678,7 @@ export type RegistryActionValidationErrorInfo = {
   type: TemplateActionValidationErrorType
   details: Array<string>
   is_template: boolean
-  loc_primary?: string | null
+  loc_primary: string
   loc_secondary?: string | null
 }
 
@@ -3181,6 +3181,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Cannot sync repository
+         */
+        400: unknown
         /**
          * Registry repository not found
          */

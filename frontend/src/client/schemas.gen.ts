@@ -2053,14 +2053,7 @@ export const $RegistryActionValidationErrorInfo = {
       title: "Is Template",
     },
     loc_primary: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "string",
       title: "Loc Primary",
     },
     loc_secondary: {
@@ -2076,7 +2069,7 @@ export const $RegistryActionValidationErrorInfo = {
     },
   },
   type: "object",
-  required: ["type", "details", "is_template"],
+  required: ["type", "details", "is_template", "loc_primary"],
   title: "RegistryActionValidationErrorInfo",
 } as const
 

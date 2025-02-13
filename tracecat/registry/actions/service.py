@@ -31,7 +31,11 @@ from tracecat.registry.actions.models import (
 from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.service import BaseService
-from tracecat.types.exceptions import RegistryError, RegistryValidationError
+from tracecat.types.exceptions import (
+    RegistryActionValidationError,
+    RegistryError,
+    RegistryValidationError,
+)
 
 
 class RegistryActionsService(BaseService):
@@ -82,7 +86,7 @@ class RegistryActionsService(BaseService):
         result = await self.session.exec(statement)
         action = result.one_or_none()
         if not action:
-            raise RegistryError(f"Action {namespace}.{name} not found in repository")
+            raise RegistryError(f"Action {namespace}.{name} not found in the registry")
         return action
 
     async def get_actions(self, action_names: list[str]) -> Sequence[RegistryAction]:
@@ -198,10 +202,9 @@ class RegistryActionsService(BaseService):
             if errs := await self.validate_action_template(action, repo):
                 val_errs[action.action].extend(errs)
         if val_errs:
-            detail = {k: [e.model_dump() for e in v] for k, v in val_errs.items()}
-            raise RegistryError(
-                f"Got {sum(len(v) for v in val_errs.values())} validation errors",
-                detail=detail,
+            raise RegistryActionValidationError(
+                f"Got {sum(len(v) for v in val_errs.values())} validation error(s)",
+                detail=val_errs,
             )
 
         # NOTE: We should start a transaction here and commit it after the sync is complete
