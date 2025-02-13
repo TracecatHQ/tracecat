@@ -12,7 +12,11 @@ from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
 from tracecat.expressions.parser.core import parser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
-from tracecat.expressions.parser.validator import ExprValidator
+from tracecat.expressions.parser.validator import (
+    BaseExprValidator,
+    ExprValidator,
+    TemplateActionExprValidator,
+)
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
 from tracecat.types.exceptions import TracecatExpressionError
@@ -45,7 +49,9 @@ class Expression:
                 "Visitor is required to evaluate an expression"
             )
         match getattr(self._visitor, "_visitor_name", None):
-            case ExprValidator._visitor_name:
+            case (
+                ExprValidator._visitor_name | TemplateActionExprValidator._visitor_name
+            ):
                 return self.result()
             case ExprExtractor._visitor_name:
                 visitor = cast(ExprExtractor, self._visitor)
@@ -78,7 +84,7 @@ class Expression:
 
     def validate(
         self,
-        visitor: ExprValidator,
+        visitor: BaseExprValidator,
         *,
         loc: str | None = None,
         exclude: set[ExprType] | None = None,
