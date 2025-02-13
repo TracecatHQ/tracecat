@@ -2544,7 +2544,7 @@ def assert_error_handler_initiated_correctly(
                     "------------------------------\n"
                     "File: /app/tracecat/expressions/core.py\n"
                     "Function: result\n"
-                    "Line: 74"
+                    "Line: 73"
                 ),
                 "ref": "failing_action",
                 "type": "ExecutorClientError",
@@ -2571,7 +2571,7 @@ def assert_error_handler_initiated_correctly(
             "------------------------------\n"
             "File: /app/tracecat/expressions/core.py\n"
             "Function: result\n"
-            "Line: 74"
+            "Line: 73"
         ),
         "orig_wf_exec_id": failing_wf_exec_id,
         "orig_wf_id": str(failing_wf_id),
