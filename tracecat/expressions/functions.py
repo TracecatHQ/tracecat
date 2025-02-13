@@ -45,9 +45,9 @@ def url_encode(x: str) -> str:
     return urllib.parse.quote(x)
     
 
-def url_encode(x: str) -> str:
-    """Converts URL-unsafe characters into percent-encoded characters."""
-    return urllib.parse.quote(x)
+def url_decode(x: str) -> str:
+    """Converts percent-encoded characters back into their original form."""
+    return urllib.parse.unquote(x)
     
 
 def add_prefix(x: str | list[str], prefix: str) -> str | list[str]:
