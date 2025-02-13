@@ -44,4 +44,4 @@ definition:
         params:
           body:
             ids: ${{ steps.query_detects.result.body.resources }}
-  returns: ${{ steps.query_detect_summaries.result }}
+  returns: ${{ steps.get_detect_summaries.result }}
