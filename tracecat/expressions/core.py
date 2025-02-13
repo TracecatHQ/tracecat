@@ -4,7 +4,7 @@ import abc
 import re
 from collections import defaultdict
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
 
 from lark import Token, Tree, Visitor
 
@@ -12,11 +12,7 @@ from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
 from tracecat.expressions.parser.core import parser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
-from tracecat.expressions.parser.validator import (
-    BaseExprValidator,
-    ExprValidator,
-    TemplateActionExprValidator,
-)
+from tracecat.expressions.parser.validator import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
 from tracecat.types.exceptions import TracecatExpressionError
@@ -48,14 +44,11 @@ class Expression:
             raise TracecatExpressionError(
                 "Visitor is required to evaluate an expression"
             )
-        match getattr(self._visitor, "_visitor_name", None):
-            case (
-                ExprValidator._visitor_name | TemplateActionExprValidator._visitor_name
-            ):
+        match self._visitor:
+            case BaseExprValidator():
                 return self.result()
-            case ExprExtractor._visitor_name:
-                visitor = cast(ExprExtractor, self._visitor)
-                return self.extract(visitor)
+            case ExprExtractor():
+                return self.extract(self._visitor)
             case _:
                 raise TracecatExpressionError("Unsupported visitor")
 
