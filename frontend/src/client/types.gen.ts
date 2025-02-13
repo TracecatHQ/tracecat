@@ -678,8 +678,8 @@ export type RegistryActionValidationErrorInfo = {
   type: TemplateActionValidationErrorType
   details: Array<string>
   is_template: boolean
-  step_ref?: string | null
-  step_action?: string | null
+  loc_primary?: string | null
+  loc_secondary?: string | null
 }
 
 export type RegistryRepositoryCreate = {
@@ -1120,6 +1120,7 @@ export type TemplateActionValidationErrorType =
   | "ACTION_NOT_FOUND"
   | "ACTION_NAME_CONFLICT"
   | "STEP_VALIDATION_ERROR"
+  | "EXPRESSION_VALIDATION_ERROR"
 
 export type Trigger = {
   type: "schedule" | "webhook"

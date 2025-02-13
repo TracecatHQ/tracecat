@@ -228,17 +228,13 @@ export function RegistryRepositoriesTable() {
                               <div className="flex items-center">
                                 <span className="mx-2 inline-block size-1 rounded-full bg-current" />
                                 <span className="font-mono tracking-tighter">
-                                  {error.is_template ? (
-                                    <span>
-                                      <span className="font-semibold text-foreground/50">
-                                        steps.{error.step_ref}{" "}
-                                      </span>
-                                      <span className="text-muted-foreground">
-                                        ({error.step_action})
-                                      </span>
+                                  <span className="font-semibold text-foreground/50">
+                                    {error.loc_primary}{" "}
+                                  </span>
+                                  {error.loc_secondary && (
+                                    <span className="text-muted-foreground">
+                                      ({error.loc_secondary})
                                     </span>
-                                  ) : (
-                                    <span>steps.${error.step_ref}</span>
                                   )}
                                 </span>
                               </div>

@@ -1171,14 +1171,12 @@ async def test_template_action_validator(expr, expected):
         step_refs={"step1", "step2"},
     )
 
-    async with GatheringTaskGroup() as tg:
-        visitor = TemplateActionExprValidator(
-            task_group=tg,
-            validation_context=validation_context,
-        )
-        exprs = extract_expressions(expr)
-        for _expr in exprs:
-            _expr.validate(visitor)
+    visitor = TemplateActionExprValidator(
+        validation_context=validation_context,
+    )
+    exprs = extract_expressions(expr)
+    for _expr in exprs:
+        _expr.validate(visitor)
 
     errors = list(visitor.results())
 
@@ -1250,14 +1248,12 @@ async def test_template_action_validator_unsupported_expressions(expr, expected_
     """Test validation of unsupported expressions in template actions."""
     validation_context = TemplateActionValidationContext(expects={}, step_refs=set())
 
-    async with GatheringTaskGroup() as tg:
-        visitor = TemplateActionExprValidator(
-            task_group=tg,
-            validation_context=validation_context,
-        )
-        exprs = extract_expressions(expr)
-        for _expr in exprs:
-            _expr.validate(visitor)
+    visitor = TemplateActionExprValidator(
+        validation_context=validation_context,
+    )
+    exprs = extract_expressions(expr)
+    for _expr in exprs:
+        _expr.validate(visitor)
 
     val_results = list(visitor.results())
 

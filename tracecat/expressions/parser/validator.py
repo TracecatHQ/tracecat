@@ -22,7 +22,10 @@ from tracecat.expressions.expectations import ExpectedField
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.exceptions import TracecatExpressionError
-from tracecat.validation.models import ExprValidationResult
+from tracecat.validation.models import (
+    ExprValidationResult,
+    TemplateActionExprValidationResult,
+)
 
 T = TypeVar("T")
 
@@ -46,13 +49,11 @@ class BaseExprValidator(Visitor):
 
     def __init__(
         self,
-        task_group: GatheringTaskGroup,
         validators: dict[ExprType, Awaitable[ExprValidationResult]] | None = None,
         *,
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
         strict: bool = True,
     ) -> None:
-        self._task_group = task_group
         self._results: list[ExprValidationResult] = []
         self._strict = strict
         self._loc: str = "expression"
@@ -76,7 +77,7 @@ class BaseExprValidator(Visitor):
 
     def results(self) -> Iterator[ExprValidationResult]:
         """Return all validation results."""
-        yield from chain(self._task_group.results(), self._results)
+        yield from self._results
 
     def errors(self) -> list[ExprValidationResult]:
         """Return all validation errors."""
@@ -167,7 +168,7 @@ class BaseExprValidator(Visitor):
             msg=f"for_each expressions are not supported in {self._expr_kind}",
         )
 
-    def secrets(self, node: Tree[Token]):
+    def secrets(self, node: Tree[Token]) -> tuple[str, str] | None:
         self.logger.trace("Visit secret expression", expr=node)
 
         expr = node.children[0]
@@ -175,7 +176,6 @@ class BaseExprValidator(Visitor):
             raise ValueError("Expected a string token")
         try:
             sec_path = expr.lstrip(".")
-            name, key = sec_path.split(".")
         except ValueError:
             sec_jsonpath = ExprContext.SECRETS + expr
             return self.add(
@@ -183,11 +183,22 @@ class BaseExprValidator(Visitor):
                 msg=f"Invalid secret usage: {sec_jsonpath!r}. Must be in the format `SECRETS.my_secret.KEY`",
                 type=ExprType.SECRET,
             )
-
-        coro = self._validators[ExprType.SECRET](
-            name=name, key=key, environment=self._environment, loc=self._loc
-        )  # type: ignore
-        self._task_group.create_task(coro)
+        parts = sec_path.split(".")
+        if len(parts) > 2:
+            return self.add(
+                status="error",
+                msg=f"Invalid secret usage: {sec_path!r}. Got extra segments {parts[2:]!r}."
+                "Must be in the format `SECRETS.my_secret.KEY`",
+                type=ExprType.SECRET,
+            )
+        elif len(parts) == 1:
+            return self.add(
+                status="error",
+                msg=f"Invalid secret usage: {sec_path!r}. Must be in the format `SECRETS.my_secret.KEY`",
+                type=ExprType.SECRET,
+            )
+        name, key = parts
+        return name, key
 
     def function(self, node: Tree[Token]):
         fn_name = node.children[0]
@@ -290,8 +301,13 @@ class ExprValidator(BaseExprValidator):
         validators: dict[ExprType, Awaitable[ExprValidationResult]] | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(task_group, validators, **kwargs)
+        super().__init__(validators, **kwargs)
         self._context = validation_context
+        self._task_group = task_group
+
+    def results(self) -> Iterator[ExprValidationResult]:
+        """Return all validation results."""
+        yield from chain(self._task_group.results(), self._results)
 
     def actions(self, node: Tree[Token]):
         token = node.children[0]
@@ -319,6 +335,17 @@ class ExprValidator(BaseExprValidator):
             )
         else:
             self.add(status="success", type=ExprType.ACTION)
+
+    def secrets(self, node: Tree[Token]):
+        name_key = super().secrets(node)
+        if name_key is None:
+            return
+        name, key = name_key
+        # Check that we've defined the secret in the SM
+        coro = self._validators[ExprType.SECRET](
+            name=name, key=key, environment=self._environment, loc=self._loc
+        )  # type: ignore
+        self._task_group.create_task(coro)
 
     def inputs(self, node: Tree[Token]):
         self.logger.trace("Visit input expression", node=node)
@@ -387,13 +414,35 @@ class TemplateActionExprValidator(BaseExprValidator):
 
     def __init__(
         self,
-        task_group: GatheringTaskGroup,
         validation_context: TemplateActionValidationContext,
-        validators: dict[ExprType, Awaitable[ExprValidationResult]] | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(task_group, validators, **kwargs)
+        super().__init__(**kwargs)
         self._context = validation_context
+        self._results: list[TemplateActionExprValidationResult] = []  # Type override
+
+    @override
+    def results(self) -> Iterator[TemplateActionExprValidationResult]:
+        yield from self._results
+
+    @override
+    def errors(self) -> list[TemplateActionExprValidationResult]:
+        return [res for res in self.results() if res.status == "error"]
+
+    def add(
+        self,
+        status: Literal["success", "error"],
+        msg: str = "",
+        type: ExprType = ExprType.GENERIC,
+    ) -> None:
+        self._results.append(
+            TemplateActionExprValidationResult(
+                status=status,
+                msg=msg,
+                expression_type=type,
+                loc=self._loc,
+            )
+        )
 
     def template_action_inputs(self, node: Tree[Token]) -> None:
         """Validate template action input references."""

@@ -40,17 +40,17 @@ class Expression:
         return f"Expression(expression={self._expr}, operand={self._operand})"
 
     def __call__(self) -> Any:
-        if self._visitor is None:
-            raise TracecatExpressionError(
-                "Visitor is required to evaluate an expression"
-            )
         match self._visitor:
             case BaseExprValidator():
                 return self.result()
             case ExprExtractor():
                 return self.extract(self._visitor)
+            case None:
+                raise TracecatExpressionError(
+                    "Visitor is required to evaluate an expression"
+                )
             case _:
-                raise TracecatExpressionError("Unsupported visitor")
+                raise TracecatExpressionError(f"Unsupported visitor: {self._visitor}")
 
     def result(self) -> Any:
         """Evaluate the expression and return the result."""

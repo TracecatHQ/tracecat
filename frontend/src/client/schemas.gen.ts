@@ -2052,7 +2052,7 @@ export const $RegistryActionValidationErrorInfo = {
       type: "boolean",
       title: "Is Template",
     },
-    step_ref: {
+    loc_primary: {
       anyOf: [
         {
           type: "string",
@@ -2061,9 +2061,9 @@ export const $RegistryActionValidationErrorInfo = {
           type: "null",
         },
       ],
-      title: "Step Ref",
+      title: "Loc Primary",
     },
-    step_action: {
+    loc_secondary: {
       anyOf: [
         {
           type: "string",
@@ -2072,7 +2072,7 @@ export const $RegistryActionValidationErrorInfo = {
           type: "null",
         },
       ],
-      title: "Step Action",
+      title: "Loc Secondary",
     },
   },
   type: "object",
@@ -3477,7 +3477,12 @@ export const $TemplateActionDefinition = {
 
 export const $TemplateActionValidationErrorType = {
   type: "string",
-  enum: ["ACTION_NOT_FOUND", "ACTION_NAME_CONFLICT", "STEP_VALIDATION_ERROR"],
+  enum: [
+    "ACTION_NOT_FOUND",
+    "ACTION_NAME_CONFLICT",
+    "STEP_VALIDATION_ERROR",
+    "EXPRESSION_VALIDATION_ERROR",
+  ],
   title: "TemplateActionValidationErrorType",
 } as const
 
