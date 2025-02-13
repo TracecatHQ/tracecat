@@ -203,7 +203,7 @@ class RegistryActionsService(BaseService):
                 val_errs[action.action].extend(errs)
         if val_errs:
             raise RegistryActionValidationError(
-                f"Got {sum(len(v) for v in val_errs.values())} validation error(s)",
+                f"Found {sum(len(v) for v in val_errs.values())} validation error(s)",
                 detail=val_errs,
             )
 
