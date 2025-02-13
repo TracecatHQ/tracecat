@@ -59,56 +59,19 @@
             "group": "Integrations",
             "pages": [
               "integrations/overview",
-              {
-                "group": "Detect",
-                "pages": [
-                  "integrations/detect/overview"
-                ]
-              },
-              {
-                "group": "Notify",
-                "pages": [
-                  "integrations/notify/overview"
-                ]
-              },
-              {
-                "group": "Isolate",
-                "pages": [
-                  "integrations/isolate/overview"
-                ]
-              },
-              {
-                "group": "Evict",
-                "pages": [
-                  "integrations/evict/overview"
-                ]
-              },
-              {
-                "group": "Model",
-                "pages": [
-                  "integrations/model/overview"
-                ]
-              },
-              {
-                "group": "Harden",
-                "pages": [
-                  "integrations/harden/overview"
-                ]
-              }
+              "integrations/template-structure",
+              "integrations/python-udfs",
+              "integrations/best-practices"
             ]
-          }
-        ]
-      },
-      {
-        "tab": "Cheatsheets",
-        "groups": [
+          },
           {
-            "group": "Cheatsheets",
+            "group": "Templates",
             "pages": [
-              "cheatsheets/expressions",
-              "cheatsheets/functions",
-              "cheatsheets/operators",
-              "cheatsheets/secrets"
+              "templates/detect",
+              "templates/notify",
+              "templates/isolate",
+              "templates/evict",
+              "templates/model"
             ]
           }
         ]
