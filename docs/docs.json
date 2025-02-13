@@ -42,18 +42,12 @@
           {
             "group": "Data Manipulation",
             "pages": [
-              "data-types/overview",
-              {
-                "group": "Data Types",
-                "pages": [
-                  "data-types/json",
-                  "data-types/arrays",
-                  "data-types/datetimes",
-                  "data-types/strings",
-                  "data-types/booleans",
-                  "data-types/cryptography"
-                ]
-              }
+              "data-types/json",
+              "data-types/arrays",
+              "data-types/datetimes",
+              "data-types/strings",
+              "data-types/booleans",
+              "data-types/cryptography"
             ]
           }
         ]
