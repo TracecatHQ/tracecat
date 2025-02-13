@@ -241,7 +241,7 @@ async def http_poll(
     poll_interval: Annotated[
         float | None,
         Doc(
-            "Interval in seconds between polling attempts. If not specified, defaults to polling with expotential wait."
+            "Interval in seconds between polling attempts. If not specified, defaults to polling with exponential wait."
         ),
     ] = None,
     poll_max_attempts: Annotated[
