@@ -43,7 +43,12 @@ def slugify_(x: str) -> str:
 def url_encode(x: str) -> str:
     """Converts URL-unsafe characters into percent-encoded characters."""
     return urllib.parse.quote(x)
+    
 
+def url_encode(x: str) -> str:
+    """Converts URL-unsafe characters into percent-encoded characters."""
+    return urllib.parse.quote(x)
+    
 
 def add_prefix(x: str | list[str], prefix: str) -> str | list[str]:
     """Add a prefix to a string or list of strings."""
@@ -766,6 +771,7 @@ _FUNCTION_MAPPING = {
     "titleize": titleize,
     "uppercase": uppercase,
     "url_encode": url_encode,
+    "url_decode": url_decode,
     # Comparison
     "less_than": less_than,
     "less_than_or_equal": less_than_or_equal,
