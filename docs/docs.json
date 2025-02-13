@@ -19,7 +19,8 @@
               "introduction",
               "quickstart/install",
               "quickstart/admin",
-              "quickstart/tutorial"
+              "quickstart/tutorial",
+              "quickstart/expressions"
             ]
           },
           {

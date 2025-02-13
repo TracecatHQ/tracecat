@@ -1,0 +1,82 @@
+---
+title: Expressions
+description: Reference action outputs, webhook payloads, secrets, and more.
+icon: dollar-sign
+---
+
+## `ACTIONS.` namespace
+
+<Info>
+  Tracecat uses [JSONPath](https://github.com/h2non/jsonpath-ng?tab=readme-ov-file#jsonpath-syntax) and dot notation to select outputs from previous actions.
+</Info>
+
+You can reference outputs from a previous action in the same workflow using the `ACTIONS.` namespace.
+Actions are referenced by a sluggified version of their name.
+
+<Accordion title="Example">
+  <Steps>
+    <Step title="Rename action">
+      For example, let's assume you renamed the `core.http_request` action in [Your first workflow](#your-first-workflow) from `HTTP Request` to `Get weather`.
+      You can rename the action under the `General` section in the action inputs panel.
+
+      ![Rename action](/img/quickstart/expressions/rename-action.png)
+    </Step>
+    <Step title="Reference action output">
+      You can then reference the `Get weather` action's output in the next action by using the `ACTIONS.get_weather.result` namespace.
+      For example, you can use the `core.transform.reshape` action as a pass-through action to extract and organize the weather data.
+
+      ```yaml
+      value:
+        temp: ${{ ACTIONS.get_weather.result.data.current.temperature_2m }}
+        rain: ${{ ACTIONS.get_weather.result.data.current.temperature_2m }}
+      ```
+
+      ![Reference action result](/img/quickstart/expressions/reference-action-result.png)
+
+      You can then reference the `temp` and `rain` outputs in downstream actions in the workflow using:
+
+      ```yaml
+      ${{ ACTIONS.reshape.result.temp }}
+      ${{ ACTIONS.reshape.result.rain }}
+      ```
+    </Step>
+  </Steps>
+</Accordion>
+
+## `TRIGGER.` namespace
+
+<Info>
+  Check out the [triggers](/tutorials/triggers.mdx) tutorial for a detailed guide setting up webhooks for workflows.
+</Info>
+
+You can reference the payload of the webhook event that triggered the workflow using the `TRIGGER.` namespace.
+
+For example,
+
+```yaml
+url: https://api.open-meteo.com/v1/forecast
+method: GET
+params:
+  latitude: ${{ TRIGGER.lat }}
+  longitude: ${{ TRIGGER.long }}
+  current: temperature_2m,precipitation_probability
+```
+
+## `SECRETS.` namespace
+
+<Info>
+  Check out the [secrets](/tutorials/secrets) tutorial for a detailed guide on storing and referencing secrets in Tracecat.
+</Info>
+
+## `FN.` namespace
+
+<Info>
+  Check out the full list of supported functions in the [functions](/cheatsheet/functions) cheatsheet.
+</Info>
+
+Tracecat supports inline functions in the `FN.` namespace.
+For example, you can use the `FN.deserialize_json` function to decode a JSON string into a JSON object.
+
+```yaml
+${{ FN.deserialize_json(ACTIONS.get_weather.result.data) }}
+```
