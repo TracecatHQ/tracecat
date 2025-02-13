@@ -10,7 +10,7 @@ from tracecat_registry import RegistrySecret
 from tracecat import config
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import create_expectation_model
-from tracecat.expressions.validation import CoreSchemaTemplateValidator
+from tracecat.expressions.validation import TemplateValidator
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     BoundRegistryAction,
@@ -43,7 +43,7 @@ def get_bound_action_impl(
         # Add validators to the function
         validated_kwargs = RegisterKwargs.model_validate(kwargs)
         if mode == "validation":
-            attach_validators(fn, CoreSchemaTemplateValidator())
+            attach_validators(fn, TemplateValidator())
         args_docs = get_signature_docs(fn)
         # Generate the model from the function signature
         args_cls, rtype, rtype_adapter = generate_model_from_function(

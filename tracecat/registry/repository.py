@@ -30,7 +30,7 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.expressions.expectations import create_expectation_model
-from tracecat.expressions.validation import CoreSchemaTemplateValidator
+from tracecat.expressions.validation import TemplateValidator
 from tracecat.git import GitUrl, get_git_repository_sha, parse_git_url
 from tracecat.logger import logger
 from tracecat.parse import safe_url
@@ -458,7 +458,7 @@ class Repository:
         logger.debug("Registering UDF", key=key, name=name)
         # Add validators to the function
         validated_kwargs = RegisterKwargs.model_validate(kwargs)
-        attach_validators(fn, CoreSchemaTemplateValidator())
+        attach_validators(fn, TemplateValidator())
         args_docs = get_signature_docs(fn)
         # Generate the model from the function signature
         args_cls, rtype, rtype_adapter = generate_model_from_function(

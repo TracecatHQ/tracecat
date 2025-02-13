@@ -15,23 +15,6 @@ def is_standalone_template(template: str) -> bool:
 T = TypeVar("T")
 
 
-# We can bundle validators and unpack them in a single expression
-class TemplateValidator:
-    def __new__(cls):
-        return WrapValidator(cls.maybe_templated_expression)
-
-    @classmethod
-    def maybe_templated_expression(
-        cls, v: Any, handler: ValidatorFunctionWrapHandler, info: ValidationInfo
-    ) -> Any:
-        try:
-            # Quick win for simple expressions
-            return handler(v)
-        except Exception:
-            # Fallback to recursive validation for template expressions
-            return template_or_original_validator(v, handler)
-
-
 def template_or_original_validator(
     v: Any, handler: ValidatorFunctionWrapHandler
 ) -> Any:
@@ -56,7 +39,7 @@ def template_or_original_validator(
     return handler(v)
 
 
-class CoreSchemaTemplateValidator:
+class TemplateValidator:
     def __get_pydantic_core_schema__(
         self, source_type: Any, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:

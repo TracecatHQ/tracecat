@@ -5,14 +5,14 @@ from pydantic import BaseModel
 from tracecat_registry import registry
 from typing_extensions import Doc
 
-from tracecat.expressions.validation import CoreSchemaTemplateValidator
+from tracecat.expressions.validation import TemplateValidator
 from tracecat.registry.repository import Repository
 from tracecat.types.exceptions import RegistryValidationError
 
 
 def test_template_validator():
     class MyModel(BaseModel):
-        my_action: Annotated[list[str], CoreSchemaTemplateValidator()]
+        my_action: Annotated[list[str], TemplateValidator()]
 
     # Sanity check
     model = MyModel(my_action=["hello", "world"])
