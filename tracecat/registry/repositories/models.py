@@ -3,7 +3,10 @@ from datetime import datetime
 
 from pydantic import UUID4, BaseModel, Field, field_validator
 
-from tracecat.registry.actions.models import RegistryActionRead
+from tracecat.registry.actions.models import (
+    RegistryActionRead,
+    RegistryActionValidationErrorInfo,
+)
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
@@ -86,3 +89,12 @@ class RegistryRepositoryUpdate(BaseModel):
         min_length=1,
         max_length=255,
     )
+
+
+class RegistryRepositoryErrorDetail(BaseModel):
+    """Error response model for registry sync failures."""
+
+    id: str
+    origin: str
+    message: str
+    errors: dict[str, list[RegistryActionValidationErrorInfo]]

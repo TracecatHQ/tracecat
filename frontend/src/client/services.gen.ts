@@ -1878,6 +1878,10 @@ export const registryRepositoriesReloadRegistryRepositories =
 /**
  * Sync Registry Repository
  * Load actions from a specific registry repository.
+ *
+ * Raises:
+ * 422: If there is an error syncing the repository (validation error)
+ * 404: If the repository is not found
  * @param data The data for the request.
  * @param data.repositoryId
  * @returns void Successful Response
@@ -1893,7 +1897,8 @@ export const registryRepositoriesSyncRegistryRepository = (
       repository_id: data.repositoryId,
     },
     errors: {
-      422: "Validation Error",
+      404: "Registry repository not found",
+      422: "Registry sync validation error",
     },
   })
 }

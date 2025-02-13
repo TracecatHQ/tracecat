@@ -22,6 +22,7 @@ from tracecat_registry import RegistrySecret
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
+from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.types.exceptions import (
     RegistryActionError,
     RegistryValidationError,
@@ -194,6 +195,10 @@ class TemplateActionDefinition(BaseModel):
     # Validate steps
     @model_validator(mode="after")
     def validate_steps(self):
+        # Check for at least 1 step
+        if not self.steps:
+            raise TracecatValidationError("Template action must have at least 1 step")
+
         step_refs = [step.ref for step in self.steps]
         unique_step_refs = set(step_refs)
 
@@ -564,3 +569,11 @@ class model_converters:
                     f"Unknown implementation type: {action.implementation}"
                 )
         return intf
+
+
+class RegistryActionValidationErrorInfo(BaseModel):
+    type: TemplateActionValidationErrorType
+    details: list[str]
+    is_template: bool
+    step_ref: str | None = None
+    step_action: str | None = None

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import cast
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
@@ -7,8 +8,13 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.registry.actions.models import RegistryActionRead
-from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.actions.models import (
+    RegistryActionRead,
+    RegistryActionValidationErrorInfo,
+)
+from tracecat.registry.actions.service import (
+    RegistryActionsService,
+)
 from tracecat.registry.common import reload_registry
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
@@ -17,6 +23,7 @@ from tracecat.registry.constants import (
 )
 from tracecat.registry.repositories.models import (
     RegistryRepositoryCreate,
+    RegistryRepositoryErrorDetail,
     RegistryRepositoryRead,
     RegistryRepositoryReadMinimal,
     RegistryRepositoryUpdate,
@@ -45,7 +52,17 @@ async def reload_registry_repositories(
     await reload_registry(session, role)
 
 
-@router.post("/{repository_id}/sync", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/{repository_id}/sync",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        422: {
+            "model": RegistryRepositoryErrorDetail,
+            "description": "Registry sync validation error",
+        },
+        404: {"description": "Registry repository not found"},
+    },
+)
 async def sync_registry_repository(
     *,
     role: Role = RoleACL(
@@ -57,7 +74,12 @@ async def sync_registry_repository(
     session: AsyncDBSession,
     repository_id: UUID4,
 ) -> None:
-    """Load actions from a specific registry repository."""
+    """Load actions from a specific registry repository.
+
+    Raises:
+        422: If there is an error syncing the repository (validation error)
+        404: If the repository is not found
+    """
     repos_service = RegistryReposService(session, role)
     try:
         repo = await repos_service.get_repository_by_id(repository_id)
@@ -90,8 +112,15 @@ async def sync_registry_repository(
     except RegistryError as e:
         logger.warning("Cannot sync repository", exc=e)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error while syncing repository {repo.origin!r}: {e}",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=RegistryRepositoryErrorDetail(
+                id=str(repo.id),
+                origin=repo.origin,
+                message=f"Error while syncing repository: {e}",
+                errors=cast(
+                    dict[str, list[RegistryActionValidationErrorInfo]], e.detail
+                ),
+            ).model_dump(),
         ) from e
     except Exception as e:
         logger.error("Unexpected error while syncing repository", exc=e)

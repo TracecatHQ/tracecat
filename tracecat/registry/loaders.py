@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Callable
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 
 from pydantic import BaseModel, TypeAdapter
 from tracecat_registry import RegistrySecret
@@ -27,9 +27,11 @@ from tracecat.registry.repository import (
 
 F = Callable[..., Any]
 
+LoaderMode = Literal["validation", "execution"]
+
 
 def get_bound_action_impl(
-    action: RegistryAction,
+    action: RegistryAction, *, mode: LoaderMode = "validation"
 ) -> BoundRegistryAction:
     impl = RegistryActionImplValidator.validate_python(action.implementation)
     secrets = [RegistrySecret(**secret) for secret in action.secrets or []]
@@ -40,7 +42,8 @@ def get_bound_action_impl(
         logger.trace("Binding UDF", key=key, name=action.name, kwargs=kwargs)
         # Add validators to the function
         validated_kwargs = RegisterKwargs.model_validate(kwargs)
-        attach_validators(fn, TemplateValidator())
+        if mode == "validation":
+            attach_validators(fn, TemplateValidator())
         args_docs = get_signature_docs(fn)
         # Generate the model from the function signature
         args_cls, rtype, rtype_adapter = generate_model_from_function(

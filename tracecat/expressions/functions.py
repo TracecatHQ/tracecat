@@ -19,7 +19,7 @@ from uuid import uuid4
 import orjson
 from slugify import slugify
 
-from tracecat.expressions.validation import is_iterable
+from tracecat.common import is_iterable
 
 
 def _bool(x: Any) -> bool:
