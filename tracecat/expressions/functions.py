@@ -277,12 +277,12 @@ def compact(x: list[Any]) -> list[Any]:
     return [item for item in x if item is not None]
 
 
-def is_in(item: Any, container: Sequence[Any]) -> bool:
+def contains(item: Any, container: Sequence[Any]) -> bool:
     """Check if item exists in container."""
     return item in container
 
 
-def is_not_in(item: Any, container: Sequence[Any]) -> bool:
+def does_not_contain(item: Any, container: Sequence[Any]) -> bool:
     """Check if item does not exist in container."""
     return item not in container
 
@@ -787,10 +787,10 @@ _FUNCTION_MAPPING = {
     "regex_not_match": regex_not_match,
     # Arrays
     "compact": compact,
+    "contains": contains,
+    "does_not_contain": does_not_contain,
     "flatten": flatten,
     "is_empty": is_empty,
-    "is_in": is_in,
-    "is_not_in": is_not_in,
     "length": len,
     "not_empty": not_empty,
     "unique": unique,
