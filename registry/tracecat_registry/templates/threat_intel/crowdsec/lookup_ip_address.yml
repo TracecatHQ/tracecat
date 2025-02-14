@@ -5,7 +5,7 @@ definition:
   title: Lookup IP address
   description: Get threat intel report for an IP address from CrowdSec.
   display_group: CrowdSec
-  doc_url: https://crowdsecurity.github.io/api_doc/lapi/#/watchers/searchAlerts
+  doc_url: https://docs.crowdsec.net/u/cti_api/getting_started
   author: bouddha-fr
   secrets:
     - name: crowdsec_cti
