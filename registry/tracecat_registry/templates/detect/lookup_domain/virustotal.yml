@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: Lookup Domain
+  title: Lookup domain
   description: Get VirusTotal report for a domain.
   display_group: VirusTotal
   doc_url: https://docs.virustotal.com/reference/domain-info
