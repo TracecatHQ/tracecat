@@ -20,7 +20,8 @@
               "quickstart/install",
               "quickstart/admin",
               "quickstart/tutorial",
-              "quickstart/expressions"
+              "quickstart/expressions",
+              "quickstart/secrets"
             ]
           },
           {
