@@ -1,0 +1,31 @@
+type: action
+definition:
+  name: lookup_file_hash
+  namespace: tools.threatstream
+  title: Lookup File Hash
+  description: Search Anomali ThreatStream for reputation of a file hash
+  display_group: Anomali ThreatStream
+  secrets:
+    - name: threatstream
+      keys:
+        - USERNAME
+        - API_KEY
+  expects:
+    file_hash:
+      type: str
+      description: File hash to lookup.
+  steps:
+    - ref: make_request
+      action: core.http_request
+      args:
+        url: https://api.threatstream.com/api/v2/intelligence/
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: apikey ${{ SECRETS.threatstream.USERNAME}}:${{ SECRETS.threatstream.API_KEY }}
+        params:
+          value: ${{ inputs.file_hash }}
+          type: md5
+          status: active
+          limit: 0
+  returns: ${{ steps.make_request.result.data }}
