@@ -27,8 +27,8 @@
           {
             "group": "Tutorials",
             "pages": [
-              "tutorials/triggers",
-              "tutorials/response-as-code",
+              "tutorials/workflow-triggers",
+              "tutorials/custom-integrations",
               "tutorials/data-transforms",
               "tutorials/child-workflows",
               "tutorials/explode-implode",
