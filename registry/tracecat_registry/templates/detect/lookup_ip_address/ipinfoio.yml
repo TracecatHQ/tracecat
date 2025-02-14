@@ -1,0 +1,26 @@
+type: action
+definition:
+  name: lookup_ip_address
+  namespace: tools.ipinfoio
+  title: Lookup IP address
+  description: Get IPinfo.io report for an IP address
+  display_group: IPinfo.io
+  doc_url: https://ipinfo.io/developers
+  secrets:
+    - name: ipinfoio
+      keys:
+        - API_KEY
+  expects:
+    ip_address:
+      type: str
+      description: IP address to lookup.
+  steps:
+    - ref: make_request
+      action: core.http_request
+      args:
+        url: https://ipinfo.io/${{ inputs.ip_address }}
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.ipinfoio.API_KEY }}
+  returns: ${{ steps.make_request.result.data }}
