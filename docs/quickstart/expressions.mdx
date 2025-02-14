@@ -30,10 +30,10 @@ Expressions are evaluated into values at the start of each action run.
   For example, `ACTIONS.my_action.result.data.items` selects the `items` field from a nested JSON object returned by the `my_action` action.
 </Info>
 
-You can reference outputs from a previous action in the same workflow using the `ACTIONS.` namespace.
+You can reference outputs from a previous action in the same workflow using the `ACTIONS` context.
 Actions are referenced by a sluggified version of their name.
 
-<Accordion title="Example">
+<Accordion icon="book-open" title="Example">
   <Steps>
     <Step title="Rename action">
       For example, let's assume you renamed the `core.http_request` action in [Your first workflow](#your-first-workflow) from `HTTP Request` to `Get weather`.
@@ -42,13 +42,13 @@ Actions are referenced by a sluggified version of their name.
       ![Rename action](/img/quickstart/expressions/rename-action.png)
     </Step>
     <Step title="Reference action output">
-      You can then reference the `Get weather` action's output in the next action by using the `ACTIONS.get_weather.result` namespace.
+      You can then reference the `Get weather` action's output in the next action by using the `ACTIONS.get_weather.result` expression.
       For example, you can use the `core.transform.reshape` action as a pass-through action to extract and organize the weather data.
 
       ```yaml
       value:
         temp: ${{ ACTIONS.get_weather.result.data.current.temperature_2m }}
-        rain: ${{ ACTIONS.get_weather.result.data.current.temperature_2m }}
+        rain: ${{ ACTIONS.get_weather.result.data.current.precipitation_probability }}
       ```
 
       ![Reference action result](/img/quickstart/expressions/reference-action-result.png)
@@ -69,34 +69,79 @@ Actions are referenced by a sluggified version of their name.
   Check out the [triggers](/tutorials/triggers.mdx) tutorial for a detailed guide setting up webhooks for workflows.
 </Info>
 
-You can reference the payload of the webhook event that triggered the workflow using the `TRIGGER.` context.
+Workflows can be triggered via webhook, manual UI trigger, or the `Execute Child Workflow` action.
+Use the `TRIGGER` context to reference the data from the trigger as a JSON object.
 
-For example,
 
-```yaml
-url: https://api.open-meteo.com/v1/forecast
-method: GET
-params:
-  latitude: ${{ TRIGGER.lat }}
-  longitude: ${{ TRIGGER.long }}
-  current: temperature_2m,precipitation_probability
-```
+<Accordion title="Manual trigger example" icon="play">
+  <Steps>
+    <Step title="Send webhook">
+      For example, if you send a `POST` request to the workflow's webhook URL with the following payload:
+
+      ```json
+      {"lat": 40, "long": 70}
+      ```
+    </Step>
+    <Step title="Reference webhook payload">
+      You can reference the `lat` and `long` values in an action's inputs using the `TRIGGER` context.
+
+      ```yaml
+      url: https://api.open-meteo.com/v1/forecast
+      method: GET
+      params:
+        latitude: ${{ TRIGGER.lat }}
+        longitude: ${{ TRIGGER.long }}
+            current: temperature_2m,precipitation_probability
+      ```
+
+      ![Reference webhook payload](/img/quickstart/expressions/reference-webhook-payload.png)
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="Webhook example" icon="globe">
+  Given a workflow with a live webhook, the following curl command will send the JSON payload `{"data": {"name": "John", "age": 30}}` and trigger the workflow:
+
+  ```bash
+  export WEBHOOK_URL=https://tracecat.com/api/webhooks/<webhook_id>/<secret>
+  curl -X POST $WEBHOOK_URL \
+      -H "Content-Type: application/json" \
+      -d '{"data": {"name": "John", "age": 30}}'
+  ```
+
+  The following expression will return the string `John`:
+
+  ```php
+  ${{ TRIGGER.data.name }}
+  ```
+</Accordion>
 
 ## `SECRETS` context
 
-<Info>
-  Check out the [secrets](/tutorials/secrets) tutorial for a detailed guide on storing and referencing secrets in Tracecat.
-</Info>
+Tracecat comes with a built-in secrets manager.
+This allows you to store and retrieve sensitive data **scoped to a workspace** without exposing the value in plaintext.
+Secrets are encrypted at rest and stored in the database.
+
+Secrets stored in the secrets manager can be accessed using the `SECRETS` prefix:
+
+```php
+${{ SECRETS.<name>.<key> }}
+```
+
+Tracecat will automatically replace the expression with the secret value at runtime.
+Retrieved secrets are deleted from memory after the workflow run completes.
 
 ## `FN` context
 
-<Info>
+<Tip>
   Check out the full list of supported functions in the [functions](/cheatsheet/functions) cheatsheet.
-</Info>
+</Tip>
 
-Tracecat supports inline functions in the `FN.` context.
+Tracecat supports inline functions in the `FN` context.
 For example, you can use the `FN.deserialize_json` function to decode a JSON string into a JSON object.
 
 ```yaml
 ${{ FN.deserialize_json(ACTIONS.get_weather.result.data) }}
 ```
+
+Check out the docs on [Data manipulation](/introduction#data-manipulation) to learn more about the different data types and how to manipulate them.
