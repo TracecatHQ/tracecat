@@ -46,6 +46,15 @@
                   "self-hosting/aws-fargate"
                 ]
               },
+              {
+                "group": "Authentication",
+                "pages": [
+                  "self-hosting/auth/overview",
+                  "self-hosting/auth/basic",
+                  "self-hosting/auth/google-oauth",
+                  "self-hosting/auth/saml-sso"
+                ]
+              },
               "self-hosting/updating",
               "self-hosting/https",
               "self-hosting/ai"
