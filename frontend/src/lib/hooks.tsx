@@ -1187,31 +1187,25 @@ export function useRegistryRepositories() {
         description: "Registry repositories synced successfully.",
       })
     },
-    onError: (
-      error: TracecatApiError,
-      { repositoryId }: RegistryRepositoriesSyncRegistryRepositoryData
-    ) => {
+    onError: (error: TracecatApiError) => {
       switch (error.status) {
         case 400:
           toast({
             title: "Couldn't sync repository",
             description: (
-              <div>
-                <p>Repository: {repositoryId}</p>
-                <p>
-                  {error.message}: {String(error.body.detail)}
-                </p>
+              <div className="flex items-start gap-2">
+                <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
+                <span>{String(error.body.detail)}</span>
               </div>
             ),
           })
           break
         case 422:
-          const { message, errors } = error.body
-            .detail as RegistryRepositoryErrorDetail
+          const { message } = error.body.detail as RegistryRepositoryErrorDetail
           toast({
-            title: "Got validation errors",
+            title: "Repository validation failed",
             description: (
-              <div className="flex items-center gap-2">
+              <div className="flex items-start gap-2">
                 <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
                 <span>{message}</span>
               </div>
@@ -1222,15 +1216,13 @@ export function useRegistryRepositories() {
           toast({
             title: "Unexpected error syncing repositories",
             description: (
-              <div>
-                <p>Repository: {repositoryId}</p>
-                <p>{error.message}</p>
-                <p>{String(error.body.detail)}</p>
+              <div className="flex items-start gap-2">
+                <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
+                <span>{error.message}</span>
+                <span>{String(error.body.detail)}</span>
               </div>
             ),
-            variant: "destructive",
           })
-          break
       }
       return error
     },
