@@ -2,7 +2,7 @@ type: action
 definition:
   name: lookup_domain
   namespace: tools.threatstream
-  title: Lookup Domain
+  title: Lookup domain
   description: Search Anomali ThreatStream for reputation of a domain
   display_group: Anomali ThreatStream
   secrets:
