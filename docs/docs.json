@@ -28,8 +28,8 @@
             "group": "Tutorials",
             "pages": [
               "tutorials/triggers",
-              "tutorials/build-templates",
-              "tutorials/git-repository",
+              "tutorials/response-as-code",
+              "tutorials/data-transforms",
               "tutorials/child-workflows",
               "tutorials/explode-implode",
               "tutorials/alert-on-failure"
