@@ -1,0 +1,90 @@
+---
+title: Workflow triggers
+description: Learn how to use webhooks and schedules to trigger workflows.
+sidebarTitle: Triggers
+---
+
+<Note>
+  This tutorial does not cover how to expose your Tracecat instance to the public internet.
+
+  - If you're running Tracecat locally, you'll need use a tunneling service like [ngrok](https://ngrok.com/) to receive webhook requests from the public internet.
+  - If you're running Tracecat on AWS Fargate, Tracecat is automatically exposed to the public internet via an Application Load Balancer.
+</Note>
+
+By the end of this tutorial, you'll learn how to create two types of workflows:
+
+- A scheduled workflow that sends a notification to a Slack channel at a regular interval.
+- A webhook workflow that receives an encoded file string then processes it using the Tracecat's built-in `Cyberchef` action.
+
+## Prerequisites
+
+- A Slack workspace with a Slack app installed into a channel.
+- The Slack app has the `chat:write` bot token scope.
+
+## Scheduled workflow
+
+<Steps>
+  <Step title="Post notification action">
+    Add the Slack `Post notification` action to the workflow.
+
+    <Accordion title="Sample inputs" icon="code">
+      For the purpose of this tutorial, we'll hardcode the inputs for the `Post notification` action.
+      Replace the `channel` value with your Slack channel ID.
+
+      ```yaml
+      channel: <your-slack-channel-id>
+      choices:
+        - ":white_check_mark: Confirm"
+        - ":x: Deny"
+      description: |
+        Suspicious login detected.
+        Please review the details below and confirm or deny if this was intentional.
+      links:
+        - https://en.wikipedia.org/wiki/San_Francisco
+        - https://en.wikipedia.org/wiki/Tallinn
+      metadata:
+        - Detection: Impossible travel
+        - (Geo) From: San Francisco, USA
+        - (Geo) To: Tallinn, Estonia
+        - IPv4: 192.0.2.1 -> 198.51.100.2
+        - Distance: 8400km
+        - Time elapsed: 30 minutes
+      prompt: "Requires: TOTP code to confirm"
+      summary: ":warning: Suspicious access"
+      ```
+      </Accordion>
+
+      ![Post notification action](/img/tutorials/triggers/post-notification.png)
+    </Step>
+    <Step title="Schedule workflow">
+      Add the `Schedule` trigger to the workflow.
+
+      ![Schedule trigger](/img/tutorials/triggers/schedule.png)
+    </Step>
+    <Step title="Configure schedule">
+      Configure the schedule to run every 60 seconds.
+
+      ![Schedule form](/img/tutorials/triggers/schedule-form.png)
+    </Step>
+    <Step title="Enable workflow">
+      Save the workflow, then press the `Enable workflow` button for the schedule to start running.
+
+      ![Enable workflow](/img/tutorials/triggers/enable-workflow.png)
+
+      <Accordion title="Sample Slack notification" icon="slack">
+        ![Slack notification](/img/tutorials/triggers/slack-notification.png)
+      </Accordion>
+    </Step>
+    <Step title="View workflow runs">
+      You can view the workflow runs in the `Runs` view.
+
+      ![Workflow runs](/img/tutorials/triggers/workflow-runs.png)
+    </Step>
+    <Step title="Pause or delete schedule">
+      You can pause or delete the schedule by selecting the schedule menu in the `Trigger` settings panel.
+
+      ![Pause or delete schedule](/img/tutorials/triggers/pause-delete-schedule.png)
+    </Step>
+  </Steps>
+
+## Webhook workflow
