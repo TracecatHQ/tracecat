@@ -41,18 +41,18 @@ What Sigma rules did for detection and Nuclei did for vulnerability scanning, Tr
 <Note>
   One of the most powerful features of Tracecat is the ability to sync custom YAML templates and Python scripts from your private GitHub / GitLab repo.
 
-  Learn how to sync custom integrations in the [Git repository](/tutorials/git-repository) tutorial.
+  These concepts are covered in the [Custom integrations](/tutorials/custom-integrations) tutorial.
 </Note>
 
 <CardGroup cols={3}>
   <Card title="Trigger workflows" icon="bolt" href="/tutorials/trigger-workflows">
     Trigger a workflow via the UI, webhook, or schedule.
   </Card>
-  <Card title="Build a template action" icon="code" href="/tutorials/build-templates">
-    Turn API calls into reusable YAML-based integrations.
+  <Card title="Custom integrations" icon="code-branch" href="/tutorials/custom-integrations">
+    Sync custom integrations from your git repository.
   </Card>
-  <Card title="Git repository" icon="code-branch" href="/tutorials/git-repository">
-    Manage custom Python scripts and YAML templates in git.
+  <Card title="Data transforms" icon="brackets-curly" href="/tutorials/data-transforms">
+    Filter and manipulate data with transform actions and inline functions.
   </Card>
   <Card title="Child workflows" icon="diagram-project" href="/tutorials/child-workflows">
     Build and execute workflows of workflows.
@@ -62,29 +62,6 @@ What Sigma rules did for detection and Nuclei did for vulnerability scanning, Tr
   </Card>
   <Card title="Alert on failure" icon="triangle-exclamation" href="/tutorials/alert-on-failure">
     Notify your team when a workflow fails.
-  </Card>
-</CardGroup>
-
-## Integrations
-
-<CardGroup cols={3}>
-  <Card title="Detect" icon="magnifying-glass" href="/templates/detect">
-    Ingest and analyze alerts and incidents.
-  </Card>
-  <Card title="Notify" icon="bell" href="/templates/notify">
-    Add tickets, interact with users, and track cases.
-  </Card>
-  <Card title="Isolate" icon="shield" href="/templates/isolate">
-    Isolate, networks, devices, and users.
-  </Card>
-  <Card title="Evict" icon="ban" href="/templates/evict">
-    Remove unhealthy or malicious actors.
-  </Card>
-  <Card title="Model" icon="list-check" href="/templates/model">
-    Build asset, IoC, and vulnerability inventories.
-  </Card>
-  <Card title="Harden" icon="lock" href="/templates/harden">
-    Update assets, configs, and policies.
   </Card>
 </CardGroup>
 
@@ -108,5 +85,28 @@ What Sigma rules did for detection and Nuclei did for vulnerability scanning, Tr
   </Card>
   <Card title="Cryptography" icon="key" href="/data-types/cryptography">
     Hash, encrypt, and decrypt data.
+  </Card>
+</CardGroup>
+
+## Integrations
+
+<CardGroup cols={3}>
+  <Card title="Detect" icon="magnifying-glass" href="/templates/detect">
+    Ingest and analyze alerts and incidents.
+  </Card>
+  <Card title="Notify" icon="bell" href="/templates/notify">
+    Add tickets, interact with users, and track cases.
+  </Card>
+  <Card title="Isolate" icon="shield" href="/templates/isolate">
+    Isolate, networks, devices, and users.
+  </Card>
+  <Card title="Evict" icon="ban" href="/templates/evict">
+    Remove unhealthy or malicious actors.
+  </Card>
+  <Card title="Model" icon="list-check" href="/templates/model">
+    Build asset, IoC, and vulnerability inventories.
+  </Card>
+  <Card title="Harden" icon="lock" href="/templates/harden">
+    Update assets, configs, and policies.
   </Card>
 </CardGroup>
