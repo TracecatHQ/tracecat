@@ -3,7 +3,7 @@ definition:
   name: lookup_domain
   namespace: tools.threatstream
   title: Lookup domain
-  description: Search Anomali ThreatStream for reputation of a domain
+  description: Search Anomali ThreatStream for reputation of a domain.
   display_group: Anomali ThreatStream
   secrets:
     - name: threatstream
