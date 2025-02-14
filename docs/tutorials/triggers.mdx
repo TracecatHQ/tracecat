@@ -13,19 +13,84 @@ sidebarTitle: Triggers
 
 By the end of this tutorial, you'll learn how to create two types of workflows:
 
+- A webhook workflow that receives a JSON string and decodes it using the `FN.deserialize_json` function.
 - A scheduled workflow that sends a notification to a Slack channel at a regular interval.
-- A webhook workflow that receives an encoded file string then processes it using the Tracecat's built-in `Cyberchef` action.
 
-## Prerequisites
+## Webhook workflow
+
+<Warning>
+  Webhook URLs are **secrets** and should not be exposed in public.
+  The webhook URL shown in the UI screenshots are for demonstration only.
+</Warning>
+
+<Note>
+  Webhooks currently support the following content types:
+  - `application/json`
+  - `application/x-ndjson`
+  - `application/www-form-urlencoded`
+</Note>
+
+Webhooks are disabled by default. To activate a workflow's webhook, click on the `Trigger` action, toggle the webhook on, then enable the workflow.
+Webhook URLs are formatted as:
+
+```bash
+https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-secret>
+```
+
+<Steps>
+  <Step title="Deserialize JSON action">
+    Add the `core.transform.reshape` action to the workflow.
+    Use the `FN.deserialize_json` function to decode an incoming JSON string via webhook.
+
+    ```yaml
+    value: ${{ FN.deserialize_json(TRIGGER.payload)}}
+    ```
+
+    ![Deserialize JSON action](/img/tutorials/triggers/deserialize-json.png)
+  </Step>
+  <Step title="Toggle webhook">
+    Click on the `Trigger` action.
+    Enable the webhook by clicking on the toggle switch.
+
+    ![Toggle webhook](/img/tutorials/triggers/toggle-webhook.png)
+  </Step>
+  <Step title="Enable workflow">
+    Save the workflow, then press the `Enable workflow` button for the webhook to start receiving requests.
+
+    ![Enable workflow](/img/tutorials/triggers/enable-workflow.png)
+  </Step>
+  <Step title="POST webhook request">
+    Copy the webhook URL to your clipboard, then make a `POST` request to the webhook URL.
+    For example, using `curl`:
+
+    ```bash
+    curl -X POST \
+      -H "Content-Type: application/json" \
+      -d '{"payload": "{\"name\": \"John\", \"age\": 30}"}' \
+      <webhook-url>
+    ```
+  </Step>
+  <Step title="View workflow runs">
+    Go to the `Runs` view and check that the workflow has run successfully.
+    The workflow should have received the webhook payload and deserialized it into a JSON object.
+
+    ![Deserialize JSON result](/img/tutorials/triggers/deserialize-json-result.png)
+  </Step>
+</Steps>
+
+
+## Scheduled workflow
+
+This tutorial requires:
 
 - A Slack workspace with a Slack app installed into a channel.
 - The Slack app has the `chat:write` bot token scope.
 
-## Scheduled workflow
-
 <Steps>
   <Step title="Post notification action">
     Add the Slack `Post notification` action to the workflow.
+    Don't forget to add your Slack bot token as a [workspace secret](/quickstart/secrets).
+    This secret must be named `slack` with the key `SLACK_BOT_TOKEN`.
 
     <Accordion title="Sample inputs" icon="code">
       For the purpose of this tutorial, we'll hardcode the inputs for the `Post notification` action.
@@ -86,5 +151,3 @@ By the end of this tutorial, you'll learn how to create two types of workflows:
       ![Pause or delete schedule](/img/tutorials/triggers/pause-delete-schedule.png)
     </Step>
   </Steps>
-
-## Webhook workflow
