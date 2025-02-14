@@ -20,6 +20,7 @@ import orjson
 from slugify import slugify
 
 from tracecat.common import is_iterable
+from tracecat.dsl.workflow_time import adjusted_workflow_time
 
 
 def _bool(x: Any) -> bool:
@@ -646,16 +647,19 @@ def to_isoformat(x: datetime | str) -> str:
     return x.isoformat()
 
 
+@adjusted_workflow_time
 def now() -> datetime:
-    """Return the current datetime."""
+    """Return the current datetime, adjusted for workflow time offset if in a DSLWorkflow."""
     return datetime.now()
 
 
+@adjusted_workflow_time
 def utcnow() -> datetime:
     """Return the current timezone-aware datetime."""
     return datetime.now(UTC)
 
 
+@adjusted_workflow_time
 def today() -> date:
     """Return the current date."""
     return date.today()
