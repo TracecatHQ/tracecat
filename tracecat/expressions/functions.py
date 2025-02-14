@@ -45,6 +45,11 @@ def url_encode(x: str) -> str:
     return urllib.parse.quote(x)
 
 
+def url_decode(x: str) -> str:
+    """Converts percent-encoded characters back into their original form."""
+    return urllib.parse.unquote(x)
+
+
 def add_prefix(x: str | list[str], prefix: str) -> str | list[str]:
     """Add a prefix to a string or list of strings."""
     if is_iterable(x, container_only=True):
@@ -766,6 +771,7 @@ _FUNCTION_MAPPING = {
     "titleize": titleize,
     "uppercase": uppercase,
     "url_encode": url_encode,
+    "url_decode": url_decode,
     # Comparison
     "less_than": less_than,
     "less_than_or_equal": less_than_or_equal,
