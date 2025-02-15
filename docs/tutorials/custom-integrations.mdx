@@ -59,8 +59,10 @@ definition:
   returns: <returns>
 ```
 
-Secrets used in templates must be defined in the `secrets` section.
-They are retrieved from Tracecat's secrets manager at runtime.
+<Note>
+  Secrets used in templates must be defined in the `secrets` section.
+  They are retrieved from Tracecat's secrets manager at runtime and garbage collected after the action is executed.
+</Note>
 
 ### Actions in templates
 
@@ -90,24 +92,73 @@ ${{ FN.strip(FN.to_base64url(inputs.url), "=") }}
 ## Python UDFs
 
 <Tip>
-  Check out Tracecat's open source [Python integrations](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) on GitHub for examples.
+  Check out Tracecat's open source [core actions](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/base/core)
+  and [Python integrations](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) on GitHub for examples.
 </Tip>
 
 Tracecat makes it easy to turn your Python scripts into no-code workflow actions, which we call **user-defined functions (UDFs)**.
-All you need is a single Python decorator.
+All you need is a:
+- Single Python decorator
+- `from typing import Annotated`
+- `from typing_extensions import Doc`
 
+For example:
+
+```python
+from typing import Annotated
+from typing_extensions import Doc
+
+from tracecat_registry import registry, RegistrySecret, secrets
+
+
+# (Optional) Define secrets used in the function
+secret_name = RegistrySecret(
+  name="secret_name",
+  keys=["SECRET_NAME"],
+  optional_keys=["OPTIONAL_SECRET_NAME"],
+)
+
+
+# Register the function as a Tracecat UDF
+@registry.register(
+    default_title="Say Goodbye Secretly",
+    description="This is a function that says goodbye",
+    display_group="Greetings",
+    namespace="integrations.greetings",
+    # (Optional) Define secrets used in the function
+    secrets=[secret_name],
+)
+def say_goodbye_secretly(
+    name: Annotated[str, Doc("The name to say goodbye to")],
+):
+    secret = secrets.get("SECRET_NAME")
+    # We're returning the secret for demonstration only.
+    # Do not do this in your own functions!
+    return {"message": f"Goodbye, {name}! Secret: {secret}"}
+```
 
 <Note>
-  To run and test your Python UDFs locally, you need to install [`tracecat_registry`](https://github.com/TracecatHQ/tracecat/tree/main/registry).
-
-  [custom-integrations-starter-kit](https://github.com/TracecatHQ/custom-integrations-starter-kit) makes this easy.
-  All you need to do is specify `dev` dependencies when installing the project.
-
-  ```bash
-  cd custom-integrations-starter-kit
-  pip install -e ".[dev]"
-  ```
+  Secrets used in UDFs must be defined as `RegistrySecret` objects in the `secrets` argument of the `@registry.register` decorator.
+  They are retrieved from Tracecat's secrets manager at runtime and garbage collected after the action is executed.
 </Note>
+
+<Info>
+  `Annotated` and `Doc` are used to convert your Python function arguments into Tracecat action inputs.
+
+  They **do not affect** the function's behavior in Python.
+  You can continue using the function as normal in your scripts and tests.
+</Info>
+
+### Run and test UDFs locally
+
+You will need to install [`tracecat_registry`](https://github.com/TracecatHQ/tracecat/tree/main/registry).
+The recommended way to do this is by using the [custom-integrations-starter-kit](https://github.com/TracecatHQ/custom-integrations-starter-kit).
+All you need to do is specify `dev` dependencies when installing the project.
+
+```bash
+cd custom-integrations-starter-kit
+pip install -e ".[dev]"
+```
 
 ## Tutorial
 
