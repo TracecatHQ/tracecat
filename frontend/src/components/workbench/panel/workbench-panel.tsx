@@ -45,7 +45,7 @@ export const WorkbenchPanel = React.forwardRef<ActionPanelRef>((_, ref) => {
             </code>
             <p className="text-sm leading-relaxed text-muted-foreground">
               This can happen if you've deleted the node or renamed it without
-              saving.
+              saving the workflow.
             </p>
           </div>
         </div>
