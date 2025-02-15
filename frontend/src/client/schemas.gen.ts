@@ -57,7 +57,8 @@ export const $ActionControlFlow = {
     start_delay: {
       type: "number",
       title: "Start Delay",
-      description: "Delay before starting the action in seconds.",
+      description:
+        "Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.",
       default: 0,
     },
     wait_until: {
@@ -70,7 +71,8 @@ export const $ActionControlFlow = {
         },
       ],
       title: "Wait Until",
-      description: "Delay until a specific date and time.",
+      description:
+        "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.",
     },
   },
   type: "object",
@@ -285,7 +287,7 @@ export const $ActionStatement = {
       type: "number",
       title: "Start Delay",
       description:
-        "Delay before starting the action in seconds. If `wait_until` is also provided, the wait_until timer will take precedence.",
+        "Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.",
       default: 0,
     },
     wait_until: {
@@ -299,7 +301,7 @@ export const $ActionStatement = {
       ],
       title: "Wait Until",
       description:
-        "Delay until a specific date and time. Overrides `start_delay` if both are provided.",
+        "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.",
     },
     join_strategy: {
       allOf: [
@@ -2034,6 +2036,43 @@ export const $RegistryActionValidateResponse = {
   title: "RegistryActionValidateResponse",
 } as const
 
+export const $RegistryActionValidationErrorInfo = {
+  properties: {
+    type: {
+      $ref: "#/components/schemas/TemplateActionValidationErrorType",
+    },
+    details: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Details",
+    },
+    is_template: {
+      type: "boolean",
+      title: "Is Template",
+    },
+    loc_primary: {
+      type: "string",
+      title: "Loc Primary",
+    },
+    loc_secondary: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Loc Secondary",
+    },
+  },
+  type: "object",
+  required: ["type", "details", "is_template", "loc_primary"],
+  title: "RegistryActionValidationErrorInfo",
+} as const
+
 export const $RegistryRepositoryCreate = {
   properties: {
     origin: {
@@ -2047,6 +2086,37 @@ export const $RegistryRepositoryCreate = {
   type: "object",
   required: ["origin"],
   title: "RegistryRepositoryCreate",
+} as const
+
+export const $RegistryRepositoryErrorDetail = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    origin: {
+      type: "string",
+      title: "Origin",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    errors: {
+      additionalProperties: {
+        items: {
+          $ref: "#/components/schemas/RegistryActionValidationErrorInfo",
+        },
+        type: "array",
+      },
+      type: "object",
+      title: "Errors",
+    },
+  },
+  type: "object",
+  required: ["id", "origin", "message", "errors"],
+  title: "RegistryRepositoryErrorDetail",
+  description: "Error response model for registry sync failures.",
 } as const
 
 export const $RegistryRepositoryRead = {
@@ -3396,6 +3466,17 @@ export const $TemplateActionDefinition = {
     "returns",
   ],
   title: "TemplateActionDefinition",
+} as const
+
+export const $TemplateActionValidationErrorType = {
+  type: "string",
+  enum: [
+    "ACTION_NOT_FOUND",
+    "ACTION_NAME_CONFLICT",
+    "STEP_VALIDATION_ERROR",
+    "EXPRESSION_VALIDATION_ERROR",
+  ],
+  title: "TemplateActionValidationErrorType",
 } as const
 
 export const $Trigger = {

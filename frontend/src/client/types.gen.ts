@@ -11,11 +11,11 @@ export type ActionControlFlow = {
   join_strategy?: JoinStrategy
   retry_policy?: ActionRetryPolicy
   /**
-   * Delay before starting the action in seconds.
+   * Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.
    */
   start_delay?: number
   /**
-   * Delay until a specific date and time.
+   * Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.
    */
   wait_until?: string | null
 }
@@ -93,11 +93,11 @@ export type ActionStatement = {
    */
   retry_policy?: ActionRetryPolicy
   /**
-   * Delay before starting the action in seconds. If `wait_until` is also provided, the wait_until timer will take precedence.
+   * Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.
    */
   start_delay?: number
   /**
-   * Delay until a specific date and time. Overrides `start_delay` if both are provided.
+   * Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.
    */
   wait_until?: string | null
   /**
@@ -674,11 +674,31 @@ export type RegistryActionValidateResponse = {
   action_ref?: string | null
 }
 
+export type RegistryActionValidationErrorInfo = {
+  type: TemplateActionValidationErrorType
+  details: Array<string>
+  is_template: boolean
+  loc_primary: string
+  loc_secondary?: string | null
+}
+
 export type RegistryRepositoryCreate = {
   /**
    * The origin of the repository
    */
   origin: string
+}
+
+/**
+ * Error response model for registry sync failures.
+ */
+export type RegistryRepositoryErrorDetail = {
+  id: string
+  origin: string
+  message: string
+  errors: {
+    [key: string]: Array<RegistryActionValidationErrorInfo>
+  }
 }
 
 export type RegistryRepositoryRead = {
@@ -1095,6 +1115,12 @@ export type TemplateActionDefinition = {
         [key: string]: unknown
       }
 }
+
+export type TemplateActionValidationErrorType =
+  | "ACTION_NOT_FOUND"
+  | "ACTION_NAME_CONFLICT"
+  | "STEP_VALIDATION_ERROR"
+  | "EXPRESSION_VALIDATION_ERROR"
 
 export type Trigger = {
   type: "schedule" | "webhook"
@@ -3156,9 +3182,17 @@ export type $OpenApiTs = {
          */
         204: void
         /**
-         * Validation Error
+         * Cannot sync repository
          */
-        422: HTTPValidationError
+        400: unknown
+        /**
+         * Registry repository not found
+         */
+        404: unknown
+        /**
+         * Registry sync validation error
+         */
+        422: RegistryRepositoryErrorDetail
       }
     }
   }

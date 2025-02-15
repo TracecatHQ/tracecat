@@ -19,7 +19,7 @@ from uuid import uuid4
 import orjson
 from slugify import slugify
 
-from tracecat.expressions.validation import is_iterable
+from tracecat.common import is_iterable
 
 
 def _bool(x: Any) -> bool:
@@ -43,6 +43,11 @@ def slugify_(x: str) -> str:
 def url_encode(x: str) -> str:
     """Converts URL-unsafe characters into percent-encoded characters."""
     return urllib.parse.quote(x)
+
+
+def url_decode(x: str) -> str:
+    """Converts percent-encoded characters back into their original form."""
+    return urllib.parse.unquote(x)
 
 
 def add_prefix(x: str | list[str], prefix: str) -> str | list[str]:
@@ -766,6 +771,7 @@ _FUNCTION_MAPPING = {
     "titleize": titleize,
     "uppercase": uppercase,
     "url_encode": url_encode,
+    "url_decode": url_decode,
     # Comparison
     "less_than": less_than,
     "less_than_or_equal": less_than_or_equal,

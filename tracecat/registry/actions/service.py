@@ -1,27 +1,41 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Sequence
 
-from pydantic import UUID4
-from pydantic_core import to_jsonable_python
+from pydantic import UUID4, ValidationError
+from pydantic_core import ErrorDetails, to_jsonable_python
 from sqlalchemy import Boolean
 from sqlmodel import cast, func, or_, select
 from tracecat_registry import RegistrySecret
 
 from tracecat import config
 from tracecat.db.schemas import RegistryAction, RegistryRepository
+from tracecat.expressions.eval import extract_expressions
+from tracecat.expressions.parser.validator import (
+    TemplateActionExprValidator,
+    TemplateActionValidationContext,
+)
+from tracecat.registry.actions.enums import (
+    TemplateActionValidationErrorType,
+)
 from tracecat.registry.actions.models import (
     BoundRegistryAction,
     RegistryActionCreate,
     RegistryActionImplValidator,
     RegistryActionRead,
     RegistryActionUpdate,
+    RegistryActionValidationErrorInfo,
     model_converters,
 )
-from tracecat.registry.loaders import get_bound_action_impl
+from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.service import BaseService
-from tracecat.types.exceptions import RegistryError
+from tracecat.types.exceptions import (
+    RegistryActionValidationError,
+    RegistryError,
+    RegistryValidationError,
+)
 
 
 class RegistryActionsService(BaseService):
@@ -72,7 +86,7 @@ class RegistryActionsService(BaseService):
         result = await self.session.exec(statement)
         action = result.one_or_none()
         if not action:
-            raise RegistryError(f"Action {namespace}.{name} not found in repository")
+            raise RegistryError(f"Action {namespace}.{name} not found in the registry")
         return action
 
     async def get_actions(self, action_names: list[str]) -> Sequence[RegistryAction]:
@@ -172,6 +186,124 @@ class RegistryActionsService(BaseService):
         sha = None if pull_remote else db_repo.commit_sha
         commit_sha = await repo.load_from_origin(commit_sha=sha)
 
+        # TODO: Move this into it's own function and service it from the registry repository router
+        # (1.5) Validate all actions
+        # (A) Validate that all actions and steps are valid
+        # (B) Validate that each step is correctly formatted
+        # - This means taking the step action and looking up the interface
+        # - Then we validate the args against the interface
+        # (C) Validate that template aciton name doesn't conflict with another action? Doesn't seem like we need this
+        # (D) Validate expressions in the args
+        self.logger.info("Validating actions", all_actions=repo.store.keys())
+        val_errs: dict[str, list[RegistryActionValidationErrorInfo]] = defaultdict(list)
+        for action in repo.store.values():
+            if not action.is_template:
+                continue
+            if errs := await self.validate_action_template(action, repo):
+                val_errs[action.action].extend(errs)
+        if val_errs:
+            raise RegistryActionValidationError(
+                f"Found {sum(len(v) for v in val_errs.values())} validation error(s)",
+                detail=val_errs,
+            )
+
+        # NOTE: We should start a transaction here and commit it after the sync is complete
+        await self.upsert_actions_from_repo(repo, db_repo)
+
+        return commit_sha
+
+    async def get_action_or_none(self, action_name: str) -> RegistryAction | None:
+        """Get an action by name, returning None if it doesn't exist."""
+        try:
+            return await self.get_action(action_name)
+        except RegistryError:
+            return None
+
+    async def validate_action_template(
+        self, action: BoundRegistryAction, repo: Repository
+    ) -> list[RegistryActionValidationErrorInfo]:
+        """Validate that a template action is correctly formatted."""
+        if not (action.is_template and action.template_action):
+            return []
+        val_errs: list[RegistryActionValidationErrorInfo] = []
+
+        defn = action.template_action.definition
+        # 1. Validate template steps
+        for step in defn.steps:
+            # (A) Ensure that the step action type exists
+            if step.action in repo.store:
+                # If this action is already in the repo, we can just use it
+                # We will overwrite the action in the DB anyways
+                bound_action = repo.store[step.action]
+            elif (reg_action := await self.get_action_or_none(step.action)) is not None:
+                bound_action = get_bound_action_impl(reg_action, mode="validation")
+            else:
+                # Action not found in the repo or DB
+                val_errs.append(
+                    RegistryActionValidationErrorInfo(
+                        loc_primary=f"steps.{step.ref}",
+                        loc_secondary=step.action,
+                        type=TemplateActionValidationErrorType.ACTION_NOT_FOUND,
+                        details=[f"Action `{step.action}` not found in repository."],
+                        is_template=action.is_template,
+                    )
+                )
+                self.logger.warning(
+                    "Step action not found, skipping",
+                    step_ref=step.ref,
+                    step_action=step.action,
+                )
+                continue
+
+            # (B) Validate that the step is correctly formatted
+            try:
+                bound_action.validate_args(**step.args)
+            except RegistryValidationError as e:
+                if isinstance(e.err, ValidationError):
+                    details = []
+                    for err in e.err.errors():
+                        msg = error_details_to_message(err)
+                        details.append(msg)
+                else:
+                    details = [str(e.err)] if e.err else []
+                val_errs.append(
+                    RegistryActionValidationErrorInfo(
+                        loc_primary=f"steps.{step.ref}",
+                        loc_secondary=step.action,
+                        type=TemplateActionValidationErrorType.STEP_VALIDATION_ERROR,
+                        details=details,
+                        is_template=action.is_template,
+                    )
+                )
+        # 2. Validate expressions
+        validator = TemplateActionExprValidator(
+            validation_context=TemplateActionValidationContext(
+                expects=defn.expects,
+                step_refs={step.ref for step in defn.steps},
+            ),
+        )
+        for step in defn.steps:
+            for field, value in step.args.items():
+                for expr in extract_expressions(value):
+                    expr.validate(validator, loc=f"steps.{step.ref}.args.{field}")
+        for expr in extract_expressions(defn.returns):
+            expr.validate(validator, loc="returns")
+        expr_errs = set(validator.errors())
+        self.logger.warning("Expression validation errors", errors=expr_errs)
+        val_errs.extend(
+            RegistryActionValidationErrorInfo.from_validation_result(
+                e, is_template=action.is_template
+            )
+            for e in expr_errs
+        )
+
+        return val_errs
+
+    # We need to call this first for UDFs
+    async def upsert_actions_from_repo(
+        self, repo: Repository, db_repo: RegistryRepository
+    ) -> None:
+        """Upsert a list of actions."""
         # (2) Handle DB bookkeeping for the API's view of the repository
         # Perform diffing here. The expectation for this endpoint is to sync Tracecat's view of
         # the repository with the remote repository -- meaning any creation/updates/deletions to
@@ -179,14 +311,12 @@ class RegistryActionsService(BaseService):
         # Safety: We're in a db session so we can call this
         db_actions = db_repo.actions
         db_actions_map = {db_action.action: db_action for db_action in db_actions}
-
         self.logger.info(
             "Syncing actions from repository",
             repository=db_repo.origin,
             incoming_actions=len(repo.store.keys()),
             existing_actions=len(db_actions_map.keys()),
         )
-
         n_created = 0
         n_updated = 0
         n_deleted = 0
@@ -237,36 +367,21 @@ class RegistryActionsService(BaseService):
             deleted=n_deleted,
         )
 
-        return commit_sha
-
-    async def load_action_impl(self, action_name: str) -> BoundRegistryAction:
+    async def load_action_impl(
+        self, action_name: str, mode: LoaderMode = "validation"
+    ) -> BoundRegistryAction:
         """
         Load the implementation for a registry action.
         """
         action = await self.get_action(action_name=action_name)
-        bound_action = get_bound_action_impl(action)
+        bound_action = get_bound_action_impl(action, mode=mode)
         return bound_action
-
-    async def get_action_implicit_secrets(
-        self, action: RegistryAction
-    ) -> list[RegistrySecret]:
-        """Extract the implicit secrets from the template action's steps."""
-        impl = RegistryActionImplValidator.validate_python(action.implementation)
-        if impl.type != "template":
-            return []
-        implicit_secrets: list[RegistrySecret] = []
-        for step in impl.template_action.definition.steps:
-            inner_action = await self.get_action(action_name=step.action)
-            implicit_secrets.extend(
-                RegistrySecret(**secret) for secret in inner_action.secrets or []
-            )
-        return implicit_secrets
 
     async def read_action_with_implicit_secrets(
         self, action: RegistryAction
     ) -> RegistryActionRead:
-        extra_secrets = await self.get_action_implicit_secrets(action)
-        return RegistryActionRead.from_database(action, extra_secrets)
+        extra_secrets = await self.fetch_all_action_secrets(action)
+        return RegistryActionRead.from_database(action, list(extra_secrets))
 
     async def fetch_all_action_secrets(
         self, action: RegistryAction
@@ -299,6 +414,24 @@ class RegistryActionsService(BaseService):
                 secrets.update(step_secrets)
         return secrets
 
-    def get_bound(self, action: RegistryAction) -> BoundRegistryAction:
+    def get_bound(
+        self,
+        action: RegistryAction,
+        mode: LoaderMode = "execution",
+    ) -> BoundRegistryAction:
         """Get the bound action for a registry action."""
-        return get_bound_action_impl(action)
+        return get_bound_action_impl(action, mode=mode)
+
+
+def error_details_to_message(err: ErrorDetails) -> str:
+    loc = err["loc"]
+    if isinstance(loc, tuple):
+        loc = ", ".join(f"'{i}'" for i in loc)
+    match err.get("type"):
+        case "missing":
+            msg = f"Missing required field(s): {loc}"
+        case "extra_forbidden":
+            msg = f"Got unexpected field(s): {loc}"
+        case _:
+            msg = f"{err['msg']}: {loc}"
+    return msg

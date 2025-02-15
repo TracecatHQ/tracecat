@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.23.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.24.0}
     container_name: api
     restart: unless-stopped
     networks:
@@ -26,7 +26,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}
-      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__APP_ENV: production
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
@@ -67,7 +67,7 @@ services:
       - executor
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.23.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.24.0}
     restart: unless-stopped
     networks:
       - core
@@ -77,7 +77,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}
       TRACECAT__API_URL: ${TRACECAT__API_URL}
-      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__APP_ENV: production
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
@@ -97,7 +97,7 @@ services:
     command: ["python", "tracecat/dsl/worker.py"]
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.23.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.24.0}
     restart: unless-stopped
     networks:
       - core
@@ -105,7 +105,7 @@ services:
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
-      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__APP_ENV: production
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
@@ -137,18 +137,18 @@ services:
       ]
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.23.0}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.24.0}
     container_name: ui
     restart: unless-stopped
     networks:
       - core
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-      NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV}
+      NEXT_PUBLIC_APP_ENV: production
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
       NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
       NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
-      NODE_ENV: ${NODE_ENV}
+      NODE_ENV: production
     depends_on:
       - api
 

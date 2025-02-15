@@ -232,7 +232,7 @@ class Repository:
             return None
 
         elif self._origin == CUSTOM_REPOSITORY_ORIGIN:
-            raise RegistryError("You cannot sync this repository.")
+            raise RegistryError("This repository cannot be synced.")
         # Handle local git repositories
         elif self._origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
             # The local repo doesn't have to be a git repo, but it should be a directory

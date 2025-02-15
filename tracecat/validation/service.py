@@ -101,7 +101,7 @@ async def check_action_secrets(
     """Check all secrets for a single action."""
     results: list[SecretValidationResult] = []
     secrets = [RegistrySecret(**secret) for secret in action.secrets or []]
-    implicit_secrets = await registry_service.get_action_implicit_secrets(action)
+    implicit_secrets = await registry_service.fetch_all_action_secrets(action)
     secrets.extend(implicit_secrets)
 
     for registry_secret in secrets:
