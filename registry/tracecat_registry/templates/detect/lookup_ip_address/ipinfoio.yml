@@ -15,7 +15,7 @@ definition:
       type: str
       description: IP address to lookup.
   steps:
-    - ref: make_request
+    - ref: getInformationByIp
       action: core.http_request
       args:
         url: https://ipinfo.io/${{ inputs.ip_address }}
