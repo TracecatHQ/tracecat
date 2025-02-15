@@ -38,7 +38,7 @@ export const WorkbenchPanel = React.forwardRef<ActionPanelRef>((_, ref) => {
           </div>
           <div className="flex flex-col space-y-3">
             <h4 className="text-base font-semibold tracking-tight">
-              Node not found
+              Action not found
             </h4>
             <code className="rounded bg-muted px-0 py-1 font-mono text-sm tracking-tighter text-muted-foreground">
               {selectedNodeId}
