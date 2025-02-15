@@ -2,6 +2,7 @@ import React from "react"
 import { WorkflowRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
+import { AlertCircle, Search } from "lucide-react"
 
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
@@ -30,11 +31,24 @@ export const WorkbenchPanel = React.forwardRef<ActionPanelRef>((_, ref) => {
   }
   if (selectedNodeId && !selectedNode) {
     return (
-      <div className="flex size-full items-center justify-center">
-        <AlertNotification
-          level="error"
-          message={`Node ${selectedNodeId} not found`}
-        />
+      <div className="flex size-full flex-col items-center justify-center">
+        <div className="flex max-w-[50%] flex-col items-center gap-6 p-8 text-center">
+          <div className="rounded-full bg-muted/80 p-4">
+            <Search className="size-8 text-muted-foreground/80" />
+          </div>
+          <div className="flex flex-col space-y-3">
+            <h4 className="text-base font-semibold tracking-tight">
+              Node not found
+            </h4>
+            <code className="rounded bg-muted px-0 py-1 font-mono text-sm tracking-tighter text-muted-foreground">
+              {selectedNodeId}
+            </code>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              This can happen if you've deleted the node or renamed it without
+              saving.
+            </p>
+          </div>
+        </div>
       </div>
     )
   }
