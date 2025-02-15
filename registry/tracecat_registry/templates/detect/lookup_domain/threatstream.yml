@@ -15,7 +15,7 @@ definition:
       type: str
       description: Domain to lookup.
   steps:
-    - ref: make_request
+    - ref: get_reputation
       action: core.http_request
       args:
         url: https://api.threatstream.com/api/v2/intelligence/
