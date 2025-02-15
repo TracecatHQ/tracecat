@@ -4,8 +4,117 @@ description: Build and sync custom integrations from a private Git repository in
 icon: code-branch
 ---
 
+<Tip>
+  Get started by cloning the [custom-integrations-starter-kit](https://github.com/TracecatHQ/custom-integrations-starter-kit) template repo.
+</Tip>
+
 By the end of this tutorial, you'll learn how to:
 
-- Build a custom integration from a private Git repository.
-- Sync the integration into Tracecat.
-- Use the integration in a workflow.
+- Build custom integrations in YAML and Python
+- Version control your integrations with Git
+- Sync custom integrations into Tracecat
+- Use custom integrations in workflows
+
+## Prerequisites
+
+- Access to a private Git repository (e.g. GitHub, GitLab)
+- Basic knowledge of Python, [`pip`](https://pip.pypa.io/en/stable/getting-started/), and YAML
+
+## YAML Action Templates
+
+<Tip>
+  Check out Tracecat's open source [Action Templates](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates) on GitHub for examples.
+  More information on when and how to build effective templates can be found in the [integrations best practices](/integrations/best-practices) docs.
+</Tip>
+
+If you find yourself using a generic action (e.g. `core.http_request`) with the same parameters in multiple workflows, we recommend creating a YAML action template.
+
+Every **Action Template** follows the same structure:
+
+```yaml
+type: action
+definition:
+  title: <title>
+  description: <description>
+  display_group: <display_group>
+  doc_url: <doc_url>
+  namespace: <namespace>
+  name: <name>
+  secrets:  # Secrets are optional
+    - name: <secret_name>
+      keys:
+        - <key_name>
+      optional_keys:
+        - <key_name>
+  expects:
+    <param_name>:
+      type: <type>
+      description: <description>
+      default: <default_value>  # Optional
+  steps:
+    - ref: <step_id>
+      action: <action_namespace>.<action_name>
+      args:
+        <param_name>: <param_value>
+  returns: <returns>
+```
+
+Secrets used in templates must be defined in the `secrets` section.
+They are retrieved from Tracecat's secrets manager at runtime.
+
+### Actions in templates
+
+Templates support all actions defined in the **Tracecat Registry**.
+Actions, such as `core.http_request` and `tools.falconpy.call_command`, can all be used in templates by specifying the `steps.action` field.
+
+### Expressions in templates
+
+Templates support the following expressions:
+
+- `inputs`: Reference inputs into the action as defined in the `expects` section.
+- `steps`: Reference results from previous steps in the same template.
+- `SECRETS`: Reference secrets.
+- `FN`: Reference functions.
+
+`inputs` and `steps` are expressions specific to templates.
+`SECRETS` and `FN` are used in the same way as in workflows.
+
+This means that templates have full support for Tracecat's powerful [inline functions](/quickstart/expressions).
+For example:
+
+```yaml
+${{ FN.to_isoformat(inputs.start_time) }}
+${{ FN.strip(FN.to_base64url(inputs.url), "=") }}
+```
+
+## Python UDFs
+
+<Tip>
+  Check out Tracecat's open source [Python integrations](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) on GitHub for examples.
+</Tip>
+
+Tracecat makes it easy to turn your Python scripts into no-code workflow actions, which we call **user-defined functions (UDFs)**.
+All you need is a single Python decorator.
+
+
+<Note>
+  To run and test your Python UDFs locally, you need to install [`tracecat_registry`](https://github.com/TracecatHQ/tracecat/tree/main/registry).
+
+  [custom-integrations-starter-kit](https://github.com/TracecatHQ/custom-integrations-starter-kit) makes this easy.
+  All you need to do is specify `dev` dependencies when installing the project.
+
+  ```bash
+  cd custom-integrations-starter-kit
+  pip install -e ".[dev]"
+  ```
+</Note>
+
+## Tutorial
+
+## Next steps
+
+In this tutorial, you successfully converted a YAML template and Python script into no-code actions used in Tracecat workflows.
+
+- Join our [Discord community](https://discord.gg/n3GF4qxFU8) and meet other Tracecat users and contributors.
+- Have integrations you'd like to share with the community? Open up an [issue](https://github.com/TracecatHQ/tracecat/issues) on GitHub and start contributing to open source!
+- Check out [integrations best practices](/integrations/best-practices).
