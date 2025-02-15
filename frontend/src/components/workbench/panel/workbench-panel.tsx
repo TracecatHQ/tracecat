@@ -2,7 +2,7 @@ import React from "react"
 import { WorkflowRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { AlertCircle, Search } from "lucide-react"
+import { Search } from "lucide-react"
 
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
@@ -44,8 +44,8 @@ export const WorkbenchPanel = React.forwardRef<ActionPanelRef>((_, ref) => {
               {selectedNodeId}
             </code>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              This can happen if you've deleted the node or renamed it without
-              saving the workflow.
+              This can happen if you&apos;ve deleted the node or renamed it
+              without saving the workflow.
             </p>
           </div>
         </div>

@@ -88,8 +88,8 @@ from tracecat.expressions.functions import (
     to_timestamp,
     unset_timezone,
     uppercase,
-    url_encode,
     url_decode,
+    url_encode,
     weeks_between,
     zip_iterables,
 )
