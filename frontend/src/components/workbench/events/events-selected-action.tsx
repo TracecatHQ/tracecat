@@ -312,7 +312,7 @@ export function JsonViewWithControls({
                 toast({
                   title: "Copied JSONPath to clipboard",
                   description: (
-                    <Badge variant="secondary" className="text-xs">
+                    <Badge variant="secondary" className="text-xs font-normal">
                       {copyValue}
                     </Badge>
                   ),
