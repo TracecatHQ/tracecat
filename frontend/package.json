@@ -75,7 +75,7 @@
     "react-spinners": "^0.13.8",
     "react-syntax-highlighter": "^15.5.0",
     "react-use-websocket": "^4.8.1",
-    "react18-json-view": "^0.2.8",
+    "react18-json-view": "0.2.9-canary.10",
     "reactflow": "^11.11.3",
     "sharp": "^0.33.4",
     "tailwind-merge": "^2.3.0",
