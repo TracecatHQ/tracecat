@@ -42,22 +42,21 @@
               {
                 "group": "Deployments",
                 "pages": [
-                  "self-hosting/docker-compose",
-                  "self-hosting/aws-fargate"
+                  "self-hosting/deployment-options/docker-compose",
+                  "self-hosting/deployment-options/aws-ecs"
                 ]
               },
               {
                 "group": "Authentication",
                 "pages": [
-                  "self-hosting/auth/overview",
-                  "self-hosting/auth/basic",
-                  "self-hosting/auth/google-oauth",
-                  "self-hosting/auth/saml-sso"
+                  "self-hosting/authentication/overview",
+                  "self-hosting/authentication/basic",
+                  "self-hosting/authentication/google-oauth",
+                  "self-hosting/authentication/saml-sso"
                 ]
               },
               "self-hosting/updating",
-              "self-hosting/https",
-              "self-hosting/ai"
+              "self-hosting/llms"
             ]
           },
           {
