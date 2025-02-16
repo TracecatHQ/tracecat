@@ -569,7 +569,7 @@ class Repository:
             )
 
     def load_template_action_from_file(
-        self, file_path: Path, origin: str
+        self, file_path: Path, origin: str, *, overwrite: bool = True
     ) -> TemplateAction | None:
         """Load a template action from a YAML file.
 
@@ -596,15 +596,22 @@ class Repository:
             )
             return None
         key = template_action.definition.action
-        if key in self._store:
+        if key in self._store and not overwrite:
             logger.debug("Template action already registered, skipping", key=key)
             return None
+        else:
+            logger.debug("Overwriting template action", key=key)
 
         self.register_template_action(template_action, origin=origin)
         return template_action
 
     def load_template_actions_from_path(
-        self, *, path: Path, origin: str, ignore_path: str = "schemas"
+        self,
+        *,
+        path: Path,
+        origin: str,
+        ignore_path: str = "schemas",
+        overwrite: bool = True,
     ) -> int:
         """Load template actions from a package."""
         n_loaded = 0
@@ -613,7 +620,9 @@ class Repository:
             if ignore_path in file_path.parts:
                 continue
 
-            template_action = self.load_template_action_from_file(file_path, origin)
+            template_action = self.load_template_action_from_file(
+                file_path, origin, overwrite=overwrite
+            )
             if template_action is None:
                 continue
 
