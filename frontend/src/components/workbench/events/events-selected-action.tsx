@@ -7,14 +7,21 @@ import {
   WorkflowExecutionReadCompact,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { CircleDot, LoaderIcon } from "lucide-react"
+import { CheckCheckIcon, CircleDot, CopyIcon, LoaderIcon } from "lucide-react"
 import JsonView from "react18-json-view"
+import { NodeMeta } from "react18-json-view/dist/types"
 
 import { useAction } from "@/lib/hooks"
-import { slugify } from "@/lib/utils"
+import { cn, slugify } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import { CodeBlock } from "@/components/code-block"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -158,6 +165,7 @@ export function ActionEventDetails({
               : actionEvent.action_result
           }
           defaultExpanded={true}
+          copyPrefix={`ACTIONS.${actionRef}.result`}
         />
       )}
     </div>
@@ -211,9 +219,11 @@ function flattenObject(
 export function JsonViewWithControls({
   src,
   defaultExpanded = false,
+  copyPrefix,
 }: {
   src: unknown
   defaultExpanded?: boolean
+  copyPrefix?: string
 }): JSX.Element {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
 
@@ -268,10 +278,87 @@ export function JsonViewWithControls({
               src={source}
               className="w-full overflow-x-scroll text-wrap text-xs"
               theme="atom"
+              CopyComponent={({ onClick, className }) => (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <CopyIcon
+                      className={cn(
+                        "m-0 size-3 p-0 text-muted-foreground",
+                        className
+                      )}
+                      onClick={onClick}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent>Copy JSONPath</TooltipContent>
+                </Tooltip>
+              )}
+              CopiedComponent={({ className, style }) => (
+                <CheckCheckIcon
+                  className={cn("text-muted-foreground", className)}
+                  style={style}
+                />
+              )}
+              customizeCopy={(
+                node: unknown,
+                nodeMeta: NodeMeta | undefined
+              ) => {
+                const { parentPath, indexOrName } = nodeMeta || {}
+                const copyValue = buildJsonPath(
+                  parentPath ?? [],
+                  indexOrName ? String(indexOrName) : undefined,
+                  copyPrefix
+                )
+
+                toast({
+                  title: "Copied JSONPath to clipboard",
+                  description: (
+                    <Badge variant="secondary" className="text-xs">
+                      {copyValue}
+                    </Badge>
+                  ),
+                })
+                return copyValue
+              }}
             />
           </TabsContent>
         ))}
       </Tabs>
     </div>
   )
+}
+
+function buildJsonPath(
+  parentPaths: string[],
+  indexOrName?: string,
+  prefix?: string
+): string | undefined {
+  // Combine the arrays
+  if (parentPaths.length === 0 && !indexOrName && !prefix) {
+    return undefined
+  }
+  const allSegments = []
+  if (prefix) {
+    allSegments.push(prefix)
+  }
+  if (parentPaths.length > 0) {
+    allSegments.push(...parentPaths)
+  }
+  if (indexOrName) {
+    allSegments.push(indexOrName)
+  }
+  return allSegments.reduce((path, segment, index) => {
+    // Convert segment to string for type safety
+    const currentSegment = String(segment)
+    // Check if the segment is numeric
+    const isNumeric = /^\d+$/.test(currentSegment)
+
+    // Handle different cases
+    if (isNumeric) {
+      // For numeric segments, use bracket notation
+      return `${path}[${currentSegment}]`
+    } else {
+      // For string segments, use dot notation unless it's the first segment
+      return index === 0 ? currentSegment : `${path}.${currentSegment}`
+    }
+  }, "")
 }
