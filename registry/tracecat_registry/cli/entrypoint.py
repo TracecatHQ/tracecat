@@ -1,11 +1,15 @@
+import warnings
+
 import typer
 from tracecat.logger import logger
 
 from . import validate
 
+# Silence loggers
 logger.remove()
 
-# Set logger log level
+# Filter out Pydantic serializer warnings
+warnings.filterwarnings("ignore", message="Pydantic serializer warning*")
 
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
