@@ -3,3 +3,181 @@ title: Child workflows
 description: Build and execute workflows of workflows.
 icon: diagram-project
 ---
+
+<Note>
+  Tracecat will always support unlimited workflows.
+  We recommend breaking up your workflows into smaller, reusable workflows whenever possible.
+</Note>
+
+
+By the end of this tutorial, you'll learn how to:
+
+- Call a workflow from another workflow
+- Give a workflow a human-readable `alias`
+- Use `trigger_input` to pass data into a child workflow
+- Use `Output Schema` to define the data returned from a child workflow
+
+## Execute child workflow
+
+Use the `core.workflow.execute` action to call a workflow from another workflow.
+You can call a workflow by `workflow_alias` (recommended) or by `workflow_id`.
+
+![Execute child workflow](/img/tutorials/child-workflows/execute-child-workflow.png)
+
+### Alias
+
+Give your workflows an `alias` to call them by a human-readable name, in `core.workflow.execute`, as opposed to the workflow ID.
+
+![Configure workflow alias](/img/tutorials/child-workflows/workflow-alias.png)
+
+### Trigger Inputs
+
+<Tip>
+  In the [workflow triggers](/docs/workflows/triggers) tutorial, we learned how to pass data into workflows via webhook payloads.
+  Passing data into child workflows works the same way.
+</Tip>
+
+To pass data into a child workflow, specify `trigger_inputs` in the `core.workflow.execute` action's inputs.
+`trigger_inputs` takes a JSON-serializable object exactly like webhook payloads.
+
+For example, the `core.workflow.execute` action inputs might be configured as:
+
+```yaml
+workflow_alias: get_weather
+trigger_inputs:
+  latitude: 37.773972
+  longitude: -122.431297
+```
+
+### Output Schema
+
+<Tip>
+  We recommend users define an `Output Schema` for every workflow.
+</Tip>
+
+<Note>
+  You can use all core expression contexts: e.g. `ACTIONS`, `TRIGGER`, `FN` within the `Output Schema` field.
+</Note>
+
+By default, workflows return a JSON object that contains the entire workflow context.
+The workflow context includes the inputs and outputs of every action from the workflow run.
+
+You almost never want to return the entire workflow context as the output of a workflow.
+The `Output Schema` field under the `Schemas` tab in workflow settings allows you to define the data returned from a workflow.
+
+![Output Schema](/img/tutorials/child-workflows/output-schema.png)
+
+The data returned from a workflow can be any JSON-serializable value.
+For example, the `Output Schema` field can be configured as a nested JSON object:
+
+```yaml
+temperature: ${{ ACTIONS.http_request.result.data.current.temperature_2m }}
+coordinates:
+  lat: ${{ TRIGGER.latitude }}
+  long: ${{ TRIGGER.longitude }}
+timestamp: ${{ ACTIONS.http_request.result.data.time }}
+```
+
+or even a single value:
+
+```yaml
+${{ ACTIONS.http_request.result.data.current.temperature_2m }}
+```
+
+## Tutorial
+
+<Info>
+  This tutorial assumes you've already completed the [Quickstart](/quickstart/tutorial) tutorial.
+</Info>
+
+In the [quickstart](/quickstart/tutorial) tutorial, we built a workflow called `Get weather` that calls a weather API for the temperature.
+Let's build another workflow that calls the `Get weather` workflow for three different locations (New York, London, and Tokyo).
+
+<Steps>
+  <Step title="Parameterize child workflow">
+    We currently hardcode the coordinates in the `Get weather` workflow.
+    Let's change this so that we can pass in coordinates from the webhook trigger into the `HTTP Request` action.
+
+    ```yaml
+    url: https://api.open-meteo.com/v1/forecast
+    method: GET
+    params:
+      latitude: ${{ TRIGGER.latitude }}  # Was 37.773972
+      longitude: ${{ TRIGGER.longitude }}  # Was -122.431297
+      current: temperature_2m
+    ```
+
+    ![Latitude and longitude trigger inputs](/img/tutorials/child-workflows/lat-long-trigger.png)
+  </Step>
+  <Step title="Create parent workflow">
+    Create a new workflow.
+    Add three `core.workflow.execute` actions to the workflow, one for each location.
+    Configure each `core.workflow.execute` action to call the `Get weather` workflow (with alias `get_weather`) with the appropriate coordinates.
+
+    <CodeGroup>
+      ```yaml New York
+      workflow_alias: get_weather
+      trigger_inputs:
+        latitude: 40.7128
+        longitude: 74.0060
+      ```
+
+      ```yaml London
+      workflow_alias: get_weather
+      trigger_inputs:
+        latitude: 51.5072
+        longitude: 0.1276
+      ```
+
+      ```yaml Tokyo
+      workflow_alias: get_weather
+      trigger_inputs:
+        latitude: 35.6764
+        longitude: 139.6500
+      ```
+    </CodeGroup>
+
+    ![Parent workflow](/img/tutorials/child-workflows/parent-workflow.png)
+  </Step>
+
+  <Step title="Run parent workflow">
+    Run the parent workflow.
+    Notice in `Action result` that the child workflow returns the entire workflow context as the output of the parent workflow.
+    In this next step, we'll add an `Output Schema` to the `Get weather` child workflow to return only the temperature.
+
+    <Tabs>
+      <Tab title="Events">
+        ![View events](/img/tutorials/child-workflows/view-events.png)
+      </Tab>
+      <Tab title="Action input">
+        ![View action input](/img/tutorials/child-workflows/view-action-input.png)
+      </Tab>
+      <Tab title="Action result">
+        ![View action result](/img/tutorials/child-workflows/view-action-result.png)
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Add output schema">
+    Add an `Output Schema` to the `Get weather` workflow.
+    Configure the `Output Schema` to return only the temperature.
+    Save the workflow.
+
+    ```yaml
+    ${{ ACTIONS.http_request.result.data.current.temperature_2m }}
+    ```
+
+    ![Return value](/img/tutorials/child-workflows/return-value.png)
+  </Step>
+
+  <Step title="Rerun parent workflow">
+    Run the parent workflow again.
+    Notice in `Action result` that the child workflow now returns only the temperature.
+
+    ![Rerun parent workflow](/img/tutorials/child-workflows/rerun-parent-workflow.png)
+  </Step>
+</Steps>
+
+## What next?
+
+Learn the recommended way to process lists of complex data, such as alerts or threat feeds, using loops and child workflows in the [explode-implode tutorial](/tutorials/explode-implode).
