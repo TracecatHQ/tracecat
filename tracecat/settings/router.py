@@ -9,6 +9,8 @@ from tracecat.config import SAML_PUBLIC_ACS_URL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
 from tracecat.settings.models import (
+    AppSettingsRead,
+    AppSettingsUpdate,
     AuthSettingsRead,
     AuthSettingsUpdate,
     GitSettingsRead,
@@ -160,3 +162,27 @@ async def update_oauth_settings(
     if not params.oauth_google_enabled:
         await check_other_auth_enabled(service, AuthType.GOOGLE_OAUTH)
     await service.update_oauth_settings(params)
+
+
+@router.get("/app", response_model=AppSettingsRead)
+async def get_app_settings(
+    *,
+    role: OrgAdminUserRole,
+    session: AsyncDBSession,
+) -> AppSettingsRead:
+    service = SettingsService(session, role)
+    keys = AppSettingsRead.keys()
+    settings = await service.list_org_settings(keys=keys)
+    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
+    return AppSettingsRead(**settings_dict)
+
+
+@router.patch("/app", status_code=status.HTTP_204_NO_CONTENT)
+async def update_app_settings(
+    *,
+    role: OrgAdminUserRole,
+    session: AsyncDBSession,
+    params: AppSettingsUpdate,
+) -> None:
+    service = SettingsService(session, role)
+    await service.update_app_settings(params)
