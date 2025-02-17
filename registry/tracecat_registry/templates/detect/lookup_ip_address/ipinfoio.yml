@@ -26,5 +26,6 @@ definition:
         method: GET
         headers:
           Accept: application/json
-          Authorization: Bearer ${{ SECRETS.ipinfoio.API_KEY }}
+          Authorization: Bearer ${{ SECRETS.ipinfo.IPINFO_API_TOKEN }}
+
   returns: ${{ steps.make_request.result.data }}
