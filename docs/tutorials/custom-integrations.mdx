@@ -5,10 +5,17 @@ icon: github
 ---
 
 import YamlNote from "/snippets/yaml-note.mdx";
+import ActionTemplatesSection from "/snippets/action-templates-section.mdx";
+import PythonUDFsSection from "/snippets/python-udfs-section.mdx";
 
 <Tip>
   Get started by cloning the [custom-integrations-starter-kit](https://github.com/TracecatHQ/custom-integrations-starter-kit) template repo.
 </Tip>
+
+<Note>
+  Git sync is the recommended way to sync custom integrations into Tracecat in production.
+  For development,
+</Note>
 
 <YamlNote />
 
@@ -27,71 +34,13 @@ By the end of this tutorial, you'll learn how to:
 ## Action Templates
 
 <Tip>
+  If you find yourself using a generic action (e.g. `core.http_request`) with the same parameters in multiple workflows, we recommend creating a YAML action template.
+
   Check out Tracecat's open source [Action Templates](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates) on GitHub for examples.
   More information on when and how to build effective templates can be found in the [integrations best practices](/integrations/best-practices).
 </Tip>
 
-If you find yourself using a generic action (e.g. `core.http_request`) with the same parameters in multiple workflows, we recommend creating a YAML action template.
-
-Every **Action Template** follows the same structure:
-
-```yaml
-type: action
-definition:
-  title: <title>
-  description: <description>
-  display_group: <display_group>
-  doc_url: <doc_url>
-  namespace: <namespace>
-  name: <name>
-  secrets:  # Secrets are optional
-    - name: <secret_name>
-      keys:
-        - <key_name>
-      optional_keys:
-        - <key_name>
-  expects:
-    <param_name>:
-      type: <type>
-      description: <description>
-      default: <default_value>  # Optional
-  steps:
-    - ref: <step_id>
-      action: <action_namespace>.<action_name>
-      args:
-        <param_name>: <param_value>
-  returns: <returns>
-```
-
-<Note>
-  Secrets used in templates must be defined in the `secrets` section.
-  They are retrieved from Tracecat's secrets manager at runtime and garbage collected after the action is executed.
-</Note>
-
-### Actions in templates
-
-Templates support all actions defined in the **Tracecat Registry**.
-Actions, such as `core.http_request` and `tools.falconpy.call_command`, can all be used in templates by specifying the `steps.action` field.
-
-### Expressions in templates
-
-Templates support the following expressions:
-
-- `inputs`: Reference inputs into the action as defined in the `expects` section.
-- `steps`: Reference results from previous steps in the same template.
-- `SECRETS`: Reference secrets.
-- `FN`: Reference functions.
-
-`inputs` and `steps` are expressions specific to templates.
-`SECRETS` and `FN` are used in the same way as in workflows.
-
-This means that templates have full support for Tracecat's powerful [inline functions](/quickstart/expressions).
-For example:
-
-```yaml
-${{ FN.to_isoformat(inputs.start_time) }}
-${{ FN.strip(FN.to_base64url(inputs.url), "=") }}
-```
+<ActionTemplatesSection />
 
 ## Python UDFs
 
@@ -100,69 +49,8 @@ ${{ FN.strip(FN.to_base64url(inputs.url), "=") }}
   and [Python integrations](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) on GitHub for examples.
 </Tip>
 
-Tracecat makes it easy to turn your Python scripts into no-code workflow actions, which we call **user-defined functions (UDFs)**.
-All you need is a:
-- Single Python decorator
-- `from typing import Annotated`
-- `from typing_extensions import Doc`
+<PythonUDFsSection />
 
-For example:
-
-```python
-from typing import Annotated
-from typing_extensions import Doc
-
-from tracecat_registry import registry, RegistrySecret, secrets
-
-
-# (Optional) Define secrets used in the function
-secret_name = RegistrySecret(
-  name="secret_name",
-  keys=["SECRET_NAME"],
-  optional_keys=["OPTIONAL_SECRET_NAME"],
-)
-
-
-# Register the function as a Tracecat UDF
-@registry.register(
-    default_title="Say Goodbye Secretly",
-    description="This is a function that says goodbye",
-    display_group="Greetings",
-    namespace="integrations.greetings",
-    # (Optional) Define secrets used in the function
-    secrets=[secret_name],
-)
-def say_goodbye_secretly(
-    name: Annotated[str, Doc("The name to say goodbye to")],
-):
-    secret = secrets.get("SECRET_NAME")
-    # We're returning the secret for demonstration only.
-    # Do not do this in your own functions!
-    return {"message": f"Goodbye, {name}! Secret: {secret}"}
-```
-
-<Note>
-  Secrets used in UDFs must be defined as `RegistrySecret` objects in the `secrets` argument of the `@registry.register` decorator.
-  They are retrieved from Tracecat's secrets manager at runtime and garbage collected after the action is executed.
-</Note>
-
-<Info>
-  `Annotated` and `Doc` are used to convert your Python function arguments into Tracecat action inputs.
-
-  They **do not affect** the function's behavior in Python.
-  You can continue using the function as normal in your scripts and tests.
-</Info>
-
-### Run and test UDFs locally
-
-You will need to install [`tracecat_registry`](https://github.com/TracecatHQ/tracecat/tree/main/registry).
-The recommended way to do this is by using the [custom-integrations-starter-kit](https://github.com/TracecatHQ/custom-integrations-starter-kit).
-All you need to do is specify `dev` dependencies when installing the project.
-
-```bash
-cd custom-integrations-starter-kit
-pip install -e ".[dev]"
-```
 
 ## Git sync tutorial
 

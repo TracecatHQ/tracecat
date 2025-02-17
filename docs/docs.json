@@ -80,7 +80,7 @@
             "group": "Integrations",
             "pages": [
               "integrations/overview",
-              "integrations/template-structure",
+              "integrations/action-templates",
               "integrations/python-udfs",
               "integrations/development",
               "integrations/best-practices"

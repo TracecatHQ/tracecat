@@ -4,8 +4,6 @@ description: Pre-built integrations and response actions in both YAML and Python
 sidebarTitle: Overview
 ---
 
-import YamlNote from "/snippets/yaml-note.mdx";
-
 <Tip>
   All integrations are open source in the [Tracecat GitHub repository](https://github.com/TracecatHQ/tracecat).
 
@@ -35,12 +33,6 @@ For example, the [Crowdstrike list alerts](https://github.com/TracecatHQ/traceca
 action is called `tools.crowdstrike.list_alerts` and the [Slack post notification](https://github.com/TracecatHQ/tracecat/blob/main/registry/tracecat_registry/templates/notify/post_notification/slack.yml)
 action is called `tools.slack.post_notification`.
 
-## Action Templates
-
-<YamlNote />
-
-## Python UDFs
-
 ## Unified Ontology for Response Actions
 
 <Tip>
@@ -53,11 +45,11 @@ action is called `tools.slack.post_notification`.
 ## Learn more
 
 <CardGroup cols={2}>
-  <Card title="Template Structure" icon="file-code" href="/integrations/template-structure">
-    Learn what makes up the structure of a Tracecat action template.
+  <Card title="Action Templates" icon="file-code" href="/integrations/action-templates">
+    Build flexible integrations fast with Tracecat's YAML-based DSL.
   </Card>
   <Card title="Python UDFs" icon="python" href="/integrations/python-udfs">
-    Learn how to turn your Python scripts into Tracecat no-code actions.
+    Turn your Python scripts into Tracecat no-code actions.
   </Card>
   <Card title="Local Development" icon="terminal" href="/integrations/development">
     Learn how to build and test Tracecat integrations locally.
