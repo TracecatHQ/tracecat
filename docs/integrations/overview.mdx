@@ -1,0 +1,57 @@
+---
+title: Overview
+description: Pre-built integrations and response actions in both YAML and Python.
+sidebarTitle: Overview
+---
+
+import ContributingCTA from "/snippets/contributing-cta.mdx";
+
+<Tip>
+  All integrations are open source in the [Tracecat GitHub repository](https://github.com/TracecatHQ/tracecat).
+
+  - View YAML action templates [here](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates).
+  - View Python integrations [here](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations).
+</Tip>
+
+<ContributingCTA />
+
+## What is Tracecat Registry?
+
+**Tracecat Registry** is a collection of community-driven integrations and response actions in both YAML and Python.
+The majority of integrations are written in YAML as **Action Templates**, which are reusable building blocks for response automation.
+
+All integrations can be found under the `tools` namespace with the following naming convention in lower snake case:
+
+```
+tools.<integration_name>.<action_name>
+```
+
+For example, the [Crowdstrike list alerts](https://github.com/TracecatHQ/tracecat/blob/main/registry/tracecat_registry/templates/detect/list_alerts/crowdstrike_alerts.yml)
+action is called `tools.crowdstrike.list_alerts` and the [Slack post notification](https://github.com/TracecatHQ/tracecat/blob/main/registry/tracecat_registry/templates/notify/post_notification/slack.yml)
+action is called `tools.slack.post_notification`.
+
+## Unified Ontology for Response Actions
+
+<Tip>
+  All template schemas can be found in the Tracecat GitHub repository under [`registry/tracecat_registry/schemas`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/schemas).
+
+  Can't find the schema you're looking for?
+  Check out the [contributing](/integrations/contributing) guide to learn how to suggest a new template schema.
+</Tip>
+
+## Learn more
+
+<CardGroup cols={2}>
+  <Card title="Action Templates" icon="file-code" href="/integrations/action-templates">
+    Build flexible integrations fast with Tracecat's YAML-based DSL.
+  </Card>
+  <Card title="Python UDFs" icon="python" href="/integrations/python-udfs">
+    Turn your Python scripts into Tracecat no-code actions.
+  </Card>
+  <Card title="Local Development" icon="terminal" href="/integrations/development">
+    Learn how to build and test Tracecat integrations locally.
+  </Card>
+  <Card title="Contributing" icon="github" href="/integrations/contributing">
+    Got integrations to share? Contribute to the Tracecat Registry!
+  </Card>
+</CardGroup>

@@ -1,0 +1,89 @@
+---
+title: Action Templates
+---
+
+import ActionTemplatesSection from "/snippets/action-templates-section.mdx";
+
+<YamlNote />
+
+<ActionTemplatesSection />
+
+## OAuth 2.0 Authentication
+
+Use **Action Templates** to securely call external APIs that use OAuth 2.0 for authentication.
+There are two steps to calling REST APIs that use OAuth 2.0 authentication:
+
+1. Retrieve a token given a client ID and client secret
+2. Use the token to make a request to the API
+
+**Action Templates** provide a secure way to retrieve OAuth 2.0 tokens without exposing the secret in Tracecat logs.
+The first step of the template is a Python UDF action, such as `tools.microsoft_graph.get_access_token`, which retrieves the token.
+The second step is then typically a `core.http_request` action that uses the token to make a request to the API.
+
+<Tip>
+  We recommend using a Python UDF to handle the process of retrieving and refreshing OAuth 2.0 tokens.
+
+  Check out Tracecat's [Wiz](https://github.com/TracecatHQ/tracecat/blob/main/registry/tracecat_registry/integrations/wiz.py),
+  [Microsoft Graph](https://github.com/TracecatHQ/tracecat/blob/main/registry/tracecat_registry/integrations/microsoft_graph.py),
+  and [Jamf](https://github.com/TracecatHQ/tracecat/blob/main/registry/tracecat_registry/integrations/jamf.py) `get_access_token`
+  Python integrations on GitHub for examples.
+</Tip>
+
+<Note>
+  One reason for using Python UDFs is many vendors, such as Microsoft Graph and Google APIs, have official Python client libraries.
+  These clients are more reliable than trying to implement OAuth 2.0 flows manually using `core.http_request`.
+
+  Even if a client library is not available, different vendors implement OAuth 2.0 flows slightly differently.
+  A Python UDF allows you to abstract the underlying implementation details of the OAuth 2.0 flow.
+</Note>
+<Accordion title="Example templates with OAuth 2.0" icon="file-code">
+  <CodeGroup>
+    ```yaml Microsoft Graph
+
+    ```
+
+    ```yaml Jamf Pro
+    type: action
+    definition:
+    title: Lock device
+    description: Lock a device managed by Jamf Pro with a user-provided 6-digit pin.
+    display_group: Jamf
+    doc_url: https://developer.jamf.com/jamf-pro/reference/post_v2-mdm-commands
+    namespace: tools.jamf
+    name: lock_device
+    expects:
+      device_id:
+        type: str
+        description: Management ID of the device to lock.
+      message:
+        type: str
+        description: Message to display on the device.
+      pin:
+        type: str
+        description: 6-digit PIN to lock and unlock the device.
+      base_url:
+        type: str
+        description: Base URL for the Jamf Pro API.
+    steps:
+      - ref: get_access_token
+        action: tools.jamf.get_access_token
+        args:
+          base_url: ${{ inputs.base_url }}
+      - ref: post_mdm_command
+        action: core.http_request
+        args:
+          url: ${{ inputs.base_url }}/api/v2/mdm/commands
+          method: POST
+          headers:
+            Authorization: Bearer ${{ steps.get_access_token.result }}
+          payload:
+            clientData:
+              managementId: ${{ inputs.device_id }}
+            commandData:
+              commandType: DEVICE_LOCK
+              message: ${{ inputs.message }}
+              pin: ${{ inputs.pin }}
+    returns: ${{ steps.post_mdm_command.result }}
+    ```
+  </CodeGroup>
+</Accordion>

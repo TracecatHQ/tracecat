@@ -235,30 +235,25 @@ async def http_poll(
     poll_retry_codes: Annotated[
         int | list[int] | None,
         Doc(
-            "Status codes on which the action will retry."
-            "If not specified, `poll_condition` must be provided."
+            "Status codes on which the action will retry. If not specified, `poll_condition` must be provided."
         ),
     ] = None,
     poll_interval: Annotated[
         float | None,
         Doc(
-            "Interval in seconds between polling attempts. "
-            "If not specified, defaults to polling with expotential wait."
+            "Interval in seconds between polling attempts. If not specified, defaults to polling with exponential wait."
         ),
     ] = None,
     poll_max_attempts: Annotated[
         int,
         Doc(
-            "Maximum number of polling attempts. "
-            "If set to 0, the action will poll indefinitely (until timeout)."
+            "Maximum number of polling attempts. If set to 0, the action will poll indefinitely (until timeout)."
         ),
     ] = 10,
     poll_condition: Annotated[
         str | None,
         Doc(
-            "User defined condition that determines whether to retry. "
-            "The condition is a Python lambda function string."
-            "If not specified, `poll_retry_codes` must be provided."
+            "User defined condition that determines whether to retry. The condition is a Python lambda function string. If not specified, `poll_retry_codes` must be provided."
         ),
     ] = None,
 ) -> HTTPResponse:

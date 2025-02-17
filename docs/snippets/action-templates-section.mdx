@@ -1,0 +1,161 @@
+import SecretsUsage from '/snippets/secrets-usage.mdx'
+
+**Action Templates** are custom integrations built on Tracecat's YAML-based DSL (domain specific language).
+A template comprises of the following elements:
+
+- A unique `title`, `description`, and `display group`
+- A `namespace` (e.g. `tools.falconpy`) and `name` (e.g. `call_command`) for the action
+- Inputs defined in the `expects` section
+- Steps defined in the `steps` section
+- An optional `secrets` section
+
+Steps consist of 1-2 commonly used actions, such as `core.http_request`, configured to call an external API.
+These steps are also parameterized with the inputs defined in the `expects` section.
+
+<Note>
+  Only data specified in the `returns` field of the template is logged in Tracecat workflows.
+  Outputs between steps are not logged unless specified in `returns`.
+</Note>
+
+Every template follows the same structure:
+
+```yaml
+type: action
+definition:
+  title: <title>
+  description: <description>
+  display_group: <display_group>
+  doc_url: <doc_url>
+  namespace: <namespace>
+  name: <name>
+  secrets:  # Secrets are optional
+    - name: <secret_name>
+      keys:
+        - <key_name>
+      optional_keys:
+        - <key_name>
+  expects:
+    <param_name>:
+      type: <type>
+      description: <description>
+      default: <default_value>  # Optional
+  steps:
+    - ref: <step_id>
+      action: <action_namespace>.<action_name>
+      args:
+        <param_name>: <param_value>
+  returns: <returns>
+```
+
+<Accordion title="Example templates" icon="file-code">
+  <CodeGroup>
+    ```yaml Lookup URL in VirusTotal
+    type: action
+    definition:
+      title: Lookup URL
+      description: Get VirusTotal report for a URL.
+      display_group: VirusTotal
+      doc_url: https://docs.virustotal.com/reference/url-info
+      namespace: tools.virustotal
+      name: lookup_url
+      secrets:
+        - name: virustotal
+          keys: ["VIRUSTOTAL_API_KEY"]
+      expects:
+        url:
+          type: str
+          description: URL to lookup.
+      steps:
+        - ref: get_url_report
+          action: core.http_request
+          args:
+            url: https://www.virustotal.com/api/v3/urls/${{ FN.strip(FN.to_base64url(inputs.url), "=") }}
+            method: GET
+            headers:
+              x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+      returns: ${{ steps.get_url_report.result }}
+    ```
+
+    ```yaml List Crowdstrike detects
+    type: action
+    definition:
+      title: List detects
+      description: Query for CrowdStrike detects and summaries via the Falcon SIEM API.
+      display_group: CrowdStrike
+      doc_url: https://falconpy.io/Service-Collections/Detects.html
+      namespace: tools.crowdstrike
+      name: list_detects
+      expects:
+        start_time:
+          type: datetime
+          description: Start time for the query (inclusive).
+        end_time:
+          type: datetime
+          description: End time for the query (exclusive).
+        query:
+          type: str | None
+          description: |
+            Falcon Query Language (FQL) filter to apply to alerts.
+            If specified, overrides `start_time` and `end_time`.
+          default: null
+        limit:
+          type: int
+          description: Maximum number of alerts to return.
+          default: 100
+        member_cid:
+          type: str | None
+          description: Crowdstrike member CID.
+          default: null
+      steps:
+        - ref: query_detects
+          action: tools.falconpy.call_command
+          args:
+            operation_id: QueryDetects
+            member_cid: ${{ inputs.member_cid }}
+            params:
+              filter: ${{ inputs.query || "created_date:>='FN.to_isoformat(inputs.start_time)' + created_date:<'FN.to_isoformat(inputs.end_time)'"  }}
+              limit: ${{ inputs.limit }}
+        - ref: get_detect_summaries
+          action: tools.falconpy.call_command
+          args:
+            operation_id: GetDetectSummaries
+            member_cid: ${{ inputs.member_cid }}
+            params:
+              body:
+                ids: ${{ steps.query_detects.result.body.resources }}
+      returns: ${{ steps.get_detect_summaries.result }}
+    ```
+  </CodeGroup>
+</Accordion>
+
+### Actions in templates
+
+Templates support all actions defined in the **Tracecat Registry**.
+Actions, such as `core.http_request` and `tools.falconpy.call_command`, can all be used in templates by specifying the `steps.action` field.
+
+### Expressions in templates
+
+Templates support the following expressions:
+
+- `inputs`: Reference inputs into the action as defined in the `expects` section.
+- `steps`: Reference results from previous steps in the same template.
+- `SECRETS`: Reference secrets.
+- `FN`: Reference functions.
+
+`inputs` and `steps` are expressions specific to templates.
+`SECRETS` and `FN` are used in the same way as in workflows.
+
+This means that templates have full support for Tracecat's powerful [inline functions](/quickstart/expressions).
+For example:
+
+```php
+${{ FN.to_isoformat(inputs.start_time) }}
+${{ FN.strip(FN.to_base64url(inputs.url), "=") }}
+```
+
+## Secrets in templates
+
+Secrets used in templates must be defined in the `secrets` section.
+You must specify the secret's `name`, `key`, and (if applicable) `optional_keys`.
+
+<SecretsUsage />

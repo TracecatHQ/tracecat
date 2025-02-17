@@ -1,0 +1,148 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "willow",
+  "name": "Tracecat | Documentation",
+  "colors": {
+    "primary": "#6F9954",
+    "light": "#C1DEAF",
+    "dark": "#111011"
+  },
+  "favicon": "/favicon.png",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart/install",
+              "quickstart/admin",
+              "quickstart/tutorial",
+              "quickstart/core-actions",
+              "quickstart/expressions",
+              "quickstart/secrets"
+            ]
+          },
+          {
+            "group": "Tutorials",
+            "pages": [
+              "tutorials/workflow-triggers",
+              "tutorials/custom-integrations",
+              "tutorials/child-workflows",
+              "tutorials/explode-implode",
+              "tutorials/data-transforms",
+              "tutorials/alert-on-failure"
+            ]
+          },
+          {
+            "group": "Self Host",
+            "pages": [
+              "self-hosting/overview",
+              {
+                "group": "Deployments",
+                "pages": [
+                  "self-hosting/deployment-options/docker-compose",
+                  "self-hosting/deployment-options/aws-ecs"
+                ]
+              },
+              {
+                "group": "Authentication",
+                "pages": [
+                  "self-hosting/authentication/overview",
+                  "self-hosting/authentication/basic",
+                  "self-hosting/authentication/google-oauth",
+                  "self-hosting/authentication/saml-sso"
+                ]
+              },
+              "self-hosting/updating",
+              "self-hosting/llms"
+            ]
+          },
+          {
+            "group": "Data Manipulation",
+            "pages": [
+              "data-types/json",
+              "data-types/arrays",
+              "data-types/datetimes",
+              "data-types/strings",
+              "data-types/booleans",
+              "data-types/cryptography"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/overview",
+              "integrations/action-templates",
+              "integrations/python-udfs",
+              "integrations/development",
+              "integrations/best-practices"
+            ]
+          },
+          {
+            "group": "Templates",
+            "pages": [
+              "templates/detect",
+              "templates/notify",
+              "templates/isolate",
+              "templates/evict",
+              "templates/model"
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Website",
+          "href": "https://tracecat.com",
+          "icon": "globe"
+        },
+        {
+          "anchor": "Get Live Help",
+          "href": "https://cal.com/team/tracecat/onboarding",
+          "icon": "headphones"
+        },
+        {
+          "anchor": "Join Discord",
+          "href": "https://discord.gg/n3GF4qxFU8",
+          "icon": "discord"
+        }
+      ]
+    }
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "appearance": {
+    "default": "light"
+  },
+  "background": {
+    "color": {
+      "light": "#FFFFFF",
+      "dark": "#111011"
+    }
+  },
+  "navbar": {
+    "links": [],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/TracecatHQ/tracecat"
+    }
+  },
+  "footer": {
+    "socials": {
+      "discord": "https://discord.gg/n3GF4qxFU8",
+      "github": "https://github.com/TracecatHQ/tracecat"
+    }
+  }
+}
