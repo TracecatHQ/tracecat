@@ -8,8 +8,8 @@ definition:
   secrets:
     - name: threatstream
       keys:
-        - USERNAME
-        - API_KEY
+        - ANOMALI_USERNAME
+        - ANOMALI_API_KEY
   expects:
     domain:
       type: str
@@ -22,10 +22,10 @@ definition:
         method: GET
         headers:
           Accept: application/json
-          Authorization: apikey ${{ SECRETS.threatstream.USERNAME}}:${{ SECRETS.threatstream.API_KEY }}
+          Authorization: apikey ${{ SECRETS.threatstream.ANOMALI_USERNAME}}:${{ SECRETS.threatstream.ANOMALI_API_KEY }}
         params:
           value: ${{ inputs.domain }}
           type: domain
           status: active
           limit: 0
-  returns: ${{ steps.make_request.result.data }}
+  returns: ${{ steps.get_reputation.result.data }}
