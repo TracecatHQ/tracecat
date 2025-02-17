@@ -9,12 +9,11 @@ icon: rocket
 By the end of this tutorial, you'll learn how to:
 
 - Call REST APIs via the `core.http_request` action
-- Call polling APIs via the `core.http_poll` action
 - Trigger workflows manually via the UI
 - Add secrets to your workflows
 - Define if-conditions in your workflows
+- Define any / all conditions in your workflows
 - Run actions in a loop
-- Use pre-built integrations
 
 ## Prerequisites
 
@@ -102,134 +101,6 @@ By the end of this tutorial, you'll learn how to:
   </Accordion>
 </AccordionGroup>
 
-## HTTP Request
-
-The `core.http_request` action supports `GET`, `POST`, `PUT`, `PATCH`, and `DELETE` requests.
-
-- To make a `GET` request with query parameters, specify the `params` field.
-- To make a request (e.g. `POST`, `PUT`, `PATCH`) with a JSON encoded body, specify the `payload` field.
-- To make a request (e.g. `POST`, `PUT`, `PATCH`) with form-encoded data, specify the `form_data` field.
-- To make a request with a custom HTTP headers, specify the `headers` field.
-
-**Examples**
-
-<CodeGroup>
-  ```yaml GET
-  url: https://api.open-meteo.com/v1/forecast
-  method: GET
-  params:
-    latitude: 37.773972
-    longitude: -122.431297
-    current: temperature_2m,precipitation_probability
-  ```
-
-  ```yaml POST
-  url: https://api.urlscan.io/v1/scan
-  method: POST
-  headers:
-    API-Key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
-    Content-Type: application/json
-  payload:
-    url: https://example.com
-    visibility: private
-  ```
-</CodeGroup>
-
-## Polling HTTP Request
-
-Tracecat makes it easy to poll APIs with long-running operations using the `core.http_poll` action.
-To configure the `core.http_poll` action, you'll need to specify one of the following inputs:
-
-- `poll_retry_codes`: List of status codes on which the action will retry.
-- `poll_condition`: A Python lambda function string that determines whether to retry.
-
-If the operation doesn't poll on a status code, `poll_condition` is required.
-It is a Python lambda function string that determines whether to retry based on:
-- `headers`: The HTTP headers of the response.
-- `data`: The JSON decoded response body.
-
-For example, to poll on a response body containing `"status"` until it equals `"complete"`, you can specify the following:
-
-```yaml
-poll_condition: "lambda x: x['data']['status'] == 'complete'"
-```
-
-You can further configure the polling behavior via the optional inputs:
-
-- `poll_interval`: Seconds between polling attempts. Defaults to exponential wait.
-- `poll_max_attempts`: Maximum number of polling attempts. Defaults to 10.
-
-**Example**
-
-URLScan uses a two-step process to get a threat intelligence report on a URL:
-
-1. Call the `/scan` endpoint to submit the URL for scanning.
-2. Poll the `/result` endpoint repeatedly until the status code changes from `404` to `200`.
-
-<Steps>
-  <Step title="Create URLScan secret">
-    Add URLScan API key to Tracecat's built-in secrets manager.
-
-    <Tabs>
-      <Tab title="Open credentials settings">
-        Select the settings icon in the top right corner of the page and click on `Credentials`.
-        ![Credentials settings](/img/quickstart/tutorial/credentials-settings.png)
-      </Tab>
-      <Tab title="Create secret">
-        Click on the `Create secret` button, name the secret `urlscan`,
-        and add the URLScan API key as a key-value pair with key name `URLSCAN_API_KEY`.
-        ![Create URLScan secret](/img/quickstart/tutorial/create-urlscan-secret.png)
-      </Tab>
-    </Tabs>
-  </Step>
-  <Step title="Call /scan endpoint">
-    Add the `core.http_request` action to your workflow.
-    Rename it to `Submit URL` and configure it with the following inputs:
-
-    ```yaml
-    url: https://urlscan.io/api/v1/scan/
-    method: POST
-    headers:
-      API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
-    payload:
-      url: https://crowdstrikebluescreen.com
-      visibility: private
-    ```
-
-    ![Scan URL](/img/quickstart/tutorial/scan-url.png)
-  </Step>
-  <Step title="Poll /result endpoint">
-    Add the `core.http_poll` action to your workflow.
-    Rename it to `Get result` and configure it with the following inputs:
-
-    ```yaml
-    url: https://urlscan.io/api/v1/result/${{ ACTIONS.scan_url.result.data.uuid }}
-    method: GET
-    poll_retry_codes: [404]
-    headers:
-      API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
-    ```
-
-    ![Get URLScan result](/img/quickstart/tutorial/get-urlscan-result.png)
-  </Step>
-  <Step title="Run workflow">
-    Run the workflow to submit the URL for scanning and get the threat intelligence report.
-    Under the hood, `Get result` calls the `/result` endpoint repeatedly until the status code is `200`.
-
-    <Tabs>
-      <Tab title="Events">
-        ![View URLScan run](/img/quickstart/tutorial/view-urlscan-run.png)
-      </Tab>
-      <Tab title="Scan URL output">
-        ![View scan URL output](/img/quickstart/tutorial/view-scan-url-output.png)
-      </Tab>
-      <Tab title="Get result output">
-        ![View get result output](/img/quickstart/tutorial/view-get-result-output.png)
-      </Tab>
-    </Tabs>
-  </Step>
-</Steps>
-
 ## Pre-built Integrations
 
 <Tip>
@@ -237,7 +108,6 @@ URLScan uses a two-step process to get a threat intelligence report on a URL:
 
   - View YAML action templates [here](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates).
   - View Python integrations [here](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations).
-
 </Tip>
 
 ## If-conditions
@@ -252,6 +122,8 @@ ${{ ACTIONS.scan_url.result.data.message == "Submission successful" }}
 ```
 
 ![Run if](/img/quickstart/tutorial/run-if.png)
+
+## Any / All Conditions
 
 ## Loops
 
