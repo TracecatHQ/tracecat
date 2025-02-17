@@ -1,6 +1,7 @@
 ---
 title: Core Actions
-description: Tracecat's core actions.
+description: Building blocks of Tracecat workflows and action templates.
+icon: cube
 ---
 
 import SecretsExample from '/snippets/secrets-example.mdx'
@@ -9,7 +10,12 @@ import SecretsExample from '/snippets/secrets-example.mdx'
   All core actions are open source and available in [Tracecat's GitHub repository](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/base/core).
 </Tip>
 
-Core actions are the building blocks of Tracecat workflows.
+<Note>
+  The docs below only cover the `core` namespace.
+  For information on `core.transform` and `core.workflow`, check out the tutorials on [Data Transforms](/quickstart/data-transforms) and [Child Workflows](/quickstart/child-workflows).
+</Note>
+
+Core actions are the building blocks of Tracecat workflows and action templates.
 All core actions are under the `core` namespace.
 They are distinct from pre-built integrations in the `tools` namespace, which are pre-configured for specific 3rd-party tools.
 
@@ -19,20 +25,23 @@ There are three sub-namespaces under `core`:
 - `core.transform`
 - `core.workflow`
 
-This tutorial covers the following `core` actions:
+`core` actions are the most commonly used actions in Tracecat.
+They include:
 
-- `core.http_request`
-- `core.http_poll`
-- `core.transform`
-- `core.workflow`
+| Name | Display Name | Description |
+| --- | --- | --- |
+| `core.http_request` | `HTTP Request` | Make a HTTP request. |
+| `core.http_poll` | `HTTP Polling` | Poll a REST API until a condition is met. |
+| `core.ai_action` | `AI Action` | Prompt a LLM (e.g. OpenAI, self-hosted) to take an action. |
 
 ## HTTP Request
 
 The `core.http_request` action supports `GET`, `POST`, `PUT`, `PATCH`, and `DELETE` requests.
 
 - To make a `GET` request with query parameters, specify the `params` field.
-- To make a request (e.g. `POST`, `PUT`, `PATCH`) with a JSON encoded body, specify the `payload` field.
-- To make a request (e.g. `POST`, `PUT`, `PATCH`) with form-encoded data, specify the `form_data` field.
+- To make a `POST`, `PUT`, or `PATCH` request with:
+  - JSON encoded body, specify the `payload` field.
+  - Form-encoded data, specify the `form_data` field.
 - To make a request with a custom HTTP headers, specify the `headers` field.
 
 **Examples**
@@ -83,64 +92,74 @@ You can further configure the polling behavior via the optional inputs:
 - `poll_interval`: Seconds between polling attempts. Defaults to exponential wait.
 - `poll_max_attempts`: Maximum number of polling attempts. Defaults to 10.
 
-**Example**
+<Accordion title="Example: URLScan" icon="globe">
+  URLScan uses a two-step process to get a threat intelligence report on a URL:
 
-URLScan uses a two-step process to get a threat intelligence report on a URL:
+  1. Call the `/scan` endpoint to submit the URL for scanning.
+  2. Poll the `/result` endpoint repeatedly until the status code changes from `404` to `200`.
 
-1. Call the `/scan` endpoint to submit the URL for scanning.
-2. Poll the `/result` endpoint repeatedly until the status code changes from `404` to `200`.
+  <Steps>
+    <Step title="Create URLScan secret">
+      Add URLScan API key to Tracecat's built-in secrets manager.
 
-<Steps>
-  <Step title="Create URLScan secret">
-    Add URLScan API key to Tracecat's built-in secrets manager.
+      <SecretsExample />
 
-    <SecretsExample />
+    </Step>
+    <Step title="Call /scan endpoint">
+      Add the `core.http_request` action to your workflow.
+      Rename it to `Submit URL` and configure it with the following inputs:
 
-  </Step>
-  <Step title="Call /scan endpoint">
-    Add the `core.http_request` action to your workflow.
-    Rename it to `Submit URL` and configure it with the following inputs:
+      ```yaml
+      url: https://urlscan.io/api/v1/scan/
+      method: POST
+      headers:
+        API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+      payload:
+        url: https://crowdstrikebluescreen.com
+        visibility: private
+      ```
 
-    ```yaml
-    url: https://urlscan.io/api/v1/scan/
-    method: POST
-    headers:
-      API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
-    payload:
-      url: https://crowdstrikebluescreen.com
-      visibility: private
-    ```
+      ![Scan URL](/img/quickstart/core-actions/scan-url.png)
+    </Step>
+    <Step title="Poll /result endpoint">
+      Add the `core.http_poll` action to your workflow.
+      Rename it to `Get result` and configure it with the following inputs:
 
-    ![Scan URL](/img/quickstart/core-actions/scan-url.png)
-  </Step>
-  <Step title="Poll /result endpoint">
-    Add the `core.http_poll` action to your workflow.
-    Rename it to `Get result` and configure it with the following inputs:
+      ```yaml
+      url: https://urlscan.io/api/v1/result/${{ ACTIONS.scan_url.result.data.uuid }}
+      method: GET
+      poll_retry_codes: [404]
+      headers:
+        API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+      ```
 
-    ```yaml
-    url: https://urlscan.io/api/v1/result/${{ ACTIONS.scan_url.result.data.uuid }}
-    method: GET
-    poll_retry_codes: [404]
-    headers:
-      API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
-    ```
+      ![Get URLScan result](/img/quickstart/core-actions/get-urlscan-result.png)
+    </Step>
+    <Step title="Run workflow">
+      Run the workflow to submit the URL for scanning and get the threat intelligence report.
+      Under the hood, `Get result` calls the `/result` endpoint repeatedly until the status code is `200`.
 
-    ![Get URLScan result](/img/quickstart/core-actions/get-urlscan-result.png)
-  </Step>
-  <Step title="Run workflow">
-    Run the workflow to submit the URL for scanning and get the threat intelligence report.
-    Under the hood, `Get result` calls the `/result` endpoint repeatedly until the status code is `200`.
+      <Tabs>
+        <Tab title="Events">
+          ![View URLScan run](/img/quickstart/core-actions/view-urlscan-run.png)
+        </Tab>
+        <Tab title="Scan URL result">
+          ![View scan URL result](/img/quickstart/core-actions/view-scan-url-result.png)
+        </Tab>
+        <Tab title="Get result result">
+          ![View urlscan result](/img/quickstart/core-actions/view-urlscan-result.png)
+        </Tab>
+      </Tabs>
+    </Step>
+  </Steps>
+</Accordion>
 
-    <Tabs>
-      <Tab title="Events">
-        ![View URLScan run](/img/quickstart/core-actions/view-urlscan-run.png)
-      </Tab>
-      <Tab title="Scan URL result">
-        ![View scan URL result](/img/quickstart/core-actions/view-scan-url-result.png)
-      </Tab>
-      <Tab title="Get result result">
-        ![View urlscan result](/img/quickstart/core-actions/view-urlscan-result.png)
-      </Tab>
-    </Tabs>
-  </Step>
-</Steps>
+## AI Action
+
+<Note>
+  Tracecat supports self-hosted LLMs such as `llama`, `mistral`, and `deepseek`.
+  Check out the [self-hosted LLM](/self-hosted-llm) deployment guide to learn how to set it up.
+</Note>
+
+🚧 The AI action is currently under heavy development.
+Please contact us on [Discord](https://discord.gg/n3GF4qxFU8) for up-to-date information and usage examples.
