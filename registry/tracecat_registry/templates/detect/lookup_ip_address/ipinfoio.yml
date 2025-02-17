@@ -9,7 +9,8 @@ definition:
 
   doc_url: https://ipinfo.io/developers
   secrets:
-    - name: ipinfoio
+    - name: ipinfo
+
       keys:
         - API_KEY
   expects:
