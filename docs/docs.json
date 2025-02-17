@@ -120,6 +120,16 @@
       ]
     }
   },
+  "redirects": [
+    {
+      "source": "/self-hosting/introduction",
+      "destination": "/self-hosting/overview"
+    },
+    {
+      "source": "/self-hosting/authentication/introduction",
+      "destination": "/self-hosting/authentication/overview"
+    }
+  ],
   "logo": {
     "light": "/logo/light.svg",
     "dark": "/logo/dark.svg"
