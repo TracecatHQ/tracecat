@@ -4336,6 +4336,11 @@ export const $WorkflowExecutionEventCompact = {
       ],
       title: "Child Wf Exec Id",
     },
+    child_wf_count: {
+      type: "integer",
+      title: "Child Wf Count",
+      default: 0,
+    },
   },
   type: "object",
   required: [

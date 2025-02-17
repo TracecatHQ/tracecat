@@ -1347,6 +1347,7 @@ export type WorkflowExecutionEventCompact = {
   action_result?: unknown | null
   action_error?: EventFailure | null
   child_wf_exec_id?: string | null
+  child_wf_count?: number
 }
 
 export type WorkflowExecutionEventStatus =
