@@ -93,7 +93,8 @@
               "templates/notify",
               "templates/isolate",
               "templates/evict",
-              "templates/model"
+              "templates/model",
+              "templates/harden"
             ]
           }
         ]
