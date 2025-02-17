@@ -100,6 +100,7 @@
     "@typescript-eslint/parser": "^7.18.0",
     "autoprefixer": "^10.4.20",
     "cross-spawn": "7.0.6",
+    "esbuild": "^0.25.0",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.23",
     "eslint-config-prettier": "^8.10.0",
