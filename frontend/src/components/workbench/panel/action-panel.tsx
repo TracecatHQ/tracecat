@@ -241,20 +241,24 @@ export function ActionPanel({
           // Set form errors from API validation errors
 
           const errors: Record<string, { message: string }> = {}
-          const details = apiError.body.detail as RequestValidationError[]
-          console.error("Validation errors", details)
-          details.forEach(({ loc, msg }) => {
-            let key: string = loc.slice(1).join(".")
-            if (isControlFlowOption(key)) {
-              key = "control_flow.options"
-            }
-            // Combine errors if they have the same key
-            if (errors[key]) {
-              errors[key].message += `\n${msg}`
-            } else {
-              errors[key] = { message: msg }
-            }
-          })
+          if (Array.isArray(apiError.body.detail)) {
+            const valErrs = apiError.body.detail as RequestValidationError[]
+            console.error("Validation errors", valErrs)
+            valErrs.forEach(({ loc, msg }) => {
+              let key: string = loc.slice(1).join(".")
+              if (isControlFlowOption(key)) {
+                key = "control_flow.options"
+              }
+              // Combine errors if they have the same key
+              if (errors[key]) {
+                errors[key].message += `\n${msg}`
+              } else {
+                errors[key] = { message: msg }
+              }
+            })
+          } else {
+            errors["inputs"] = { message: String(apiError.body.detail) }
+          }
           Object.entries(errors).forEach(([key, { message }]) => {
             console.log("Setting error", key, message)
             methods.setError(key as keyof ActionFormSchema, {
