@@ -101,8 +101,6 @@ By the end of this tutorial, you'll learn how to:
   </Accordion>
 </AccordionGroup>
 
-## Action Inputs
-
 ## If-conditions
 
 Every action can be turned into a conditional action.
@@ -117,6 +115,13 @@ ${{ ACTIONS.scan_url.result.data.message == "Submission successful" }}
 ![Run if](/img/quickstart/tutorial/run-if.png)
 
 ## Any / All Conditions
+
+Consider the case where you have multiple upstream actions that connect to one downstream joining node.
+You can control whether the joining node should run if `all` or `any` of the upstream actions succeed or fail.
+
+Configure this by going to the `If condition / Loops` tab of the joining node and setting the `join_strategy` option to `all` or `any`.
+
+![Join strategy](/img/quickstart/tutorial/join-strategy.png)
 
 ## Loops
 
