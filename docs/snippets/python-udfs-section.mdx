@@ -5,6 +5,19 @@ All you need is a:
 - `from typing import Annotated`
 - `from typing_extensions import Doc`
 
+<Note>
+  Secrets used in UDFs must be defined as `RegistrySecret` objects in the `secrets` argument of the `@registry.register` decorator.
+  They are retrieved from Tracecat's secrets manager at runtime and garbage collected after the action is executed.
+</Note>
+
+<Info>
+  `Annotated` and `Doc` are used to convert your Python function arguments into Tracecat action inputs.
+
+  They **do not affect** the function's behavior in Python.
+  You can continue using the function as normal in your scripts and tests.
+</Info>
+
+
 For example:
 
 ```python
@@ -39,15 +52,3 @@ def say_goodbye_secretly(
     # Do not do this in your own functions!
     return {"message": f"Goodbye, {name}! Secret: {secret}"}
 ```
-
-<Note>
-  Secrets used in UDFs must be defined as `RegistrySecret` objects in the `secrets` argument of the `@registry.register` decorator.
-  They are retrieved from Tracecat's secrets manager at runtime and garbage collected after the action is executed.
-</Note>
-
-<Info>
-  `Annotated` and `Doc` are used to convert your Python function arguments into Tracecat action inputs.
-
-  They **do not affect** the function's behavior in Python.
-  You can continue using the function as normal in your scripts and tests.
-</Info>
