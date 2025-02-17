@@ -4,7 +4,8 @@ definition:
   namespace: tools.ipinfoio
   title: Lookup IP address
   description: Get IPinfo.io report for an IP address
-  display_group: IPinfo.io
+  display_group: IPinfo
+
   doc_url: https://ipinfo.io/developers
   secrets:
     - name: ipinfoio
