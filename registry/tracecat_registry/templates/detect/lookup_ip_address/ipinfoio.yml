@@ -19,7 +19,7 @@ definition:
       type: str
       description: IP address to lookup.
   steps:
-    - ref: getInformationByIp
+    - ref: get_ip_info
       action: core.http_request
       args:
         url: https://ipinfo.io/${{ inputs.ip_address }}
