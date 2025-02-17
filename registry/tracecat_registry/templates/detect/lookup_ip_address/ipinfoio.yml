@@ -1,7 +1,8 @@
 type: action
 definition:
   name: lookup_ip_address
-  namespace: tools.ipinfoio
+  namespace: tools.ipinfo
+
   title: Lookup IP address
   description: Get IPinfo.io report for an IP address
   display_group: IPinfo
