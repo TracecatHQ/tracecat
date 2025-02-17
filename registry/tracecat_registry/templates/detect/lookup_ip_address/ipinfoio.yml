@@ -2,18 +2,14 @@ type: action
 definition:
   name: lookup_ip_address
   namespace: tools.ipinfo
-
   title: Lookup IP address
-  description: Get IPinfo.io report for an IP address
+  description: Get IPinfo.io report for an IP address.
   display_group: IPinfo
-
   doc_url: https://ipinfo.io/developers
   secrets:
     - name: ipinfo
-
       keys:
         - IPINFO_API_TOKEN
-
   expects:
     ip_address:
       type: str
@@ -27,6 +23,4 @@ definition:
         headers:
           Accept: application/json
           Authorization: Bearer ${{ SECRETS.ipinfo.IPINFO_API_TOKEN }}
-
-  returns: ${{ steps. get_ip_info.result.data }}
-
+  returns: ${{ steps.get_ip_info.result.data }}
