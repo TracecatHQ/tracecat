@@ -101,14 +101,7 @@ By the end of this tutorial, you'll learn how to:
   </Accordion>
 </AccordionGroup>
 
-## Pre-built Integrations
-
-<Tip>
-  All of Tracecat's pre-built integrations are open source and available in the [Tracecat GitHub repository](https://github.com/TracecatHQ/tracecat).
-
-  - View YAML action templates [here](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates).
-  - View Python integrations [here](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations).
-</Tip>
+## Action Inputs
 
 ## If-conditions
 
@@ -130,8 +123,10 @@ ${{ ACTIONS.scan_url.result.data.message == "Submission successful" }}
 Every action can be turned into a looped action.
 Under the `If condition / Loops` tab, you can specify loop expressions to iterate over a list of items and run the action for each item.
 
-You can loop over any list of items in your workflow context.
-It can be a list of file hashes in a previous action `ACTIONS.some_intel_feed.result.data.malware_samples` or even a list of items received via webhook in `TRIGGER`.
+<Tip>
+  You can loop over any list of items in your workflow context.
+  For example, it can be a list of file hashes in a previous action `ACTIONS.some_intel_feed.result.data.malware_samples` or a list of items received via webhook in `TRIGGER`.
+</Tip>
 
 **Example**
 
