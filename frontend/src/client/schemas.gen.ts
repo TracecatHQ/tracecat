@@ -399,6 +399,33 @@ export const $ActionUpdate = {
   title: "ActionUpdate",
 } as const
 
+export const $AppSettingsRead = {
+  properties: {
+    app_registry_validation_enabled: {
+      type: "boolean",
+      title: "App Registry Validation Enabled",
+    },
+  },
+  type: "object",
+  required: ["app_registry_validation_enabled"],
+  title: "AppSettingsRead",
+  description: "Settings for the app.",
+} as const
+
+export const $AppSettingsUpdate = {
+  properties: {
+    app_registry_validation_enabled: {
+      type: "boolean",
+      title: "App Registry Validation Enabled",
+      description: "Whether registry validation is enabled.",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "AppSettingsUpdate",
+  description: "Settings for OAuth authentication.",
+} as const
+
 export const $AuthSettingsRead = {
   properties: {
     auth_basic_enabled: {

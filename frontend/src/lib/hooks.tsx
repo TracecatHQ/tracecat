@@ -6,6 +6,7 @@ import {
   actionsUpdateAction,
   ActionUpdate,
   ApiError,
+  AppSettingsRead,
   AuthSettingsRead,
   CreateWorkspaceParams,
   GitSettingsRead,
@@ -57,10 +58,13 @@ import {
   secretsUpdateSecretById,
   SecretUpdate,
   SessionRead,
+  settingsGetAppSettings,
   settingsGetAuthSettings,
   settingsGetGitSettings,
   settingsGetOauthSettings,
   settingsGetSamlSettings,
+  settingsUpdateAppSettings,
+  SettingsUpdateAppSettingsData,
   settingsUpdateAuthSettings,
   SettingsUpdateAuthSettingsData,
   settingsUpdateGitSettings,
@@ -1643,6 +1647,64 @@ export function useOrgSamlSettings() {
     updateSamlSettings,
     updateSamlSettingsIsPending,
     updateSamlSettingsError,
+  }
+}
+
+export function useOrgAppSettings() {
+  const queryClient = useQueryClient()
+
+  // Get App settings
+  const {
+    data: appSettings,
+    isLoading: appSettingsIsLoading,
+    error: appSettingsError,
+  } = useQuery<AppSettingsRead>({
+    queryKey: ["org-app-settings"],
+    queryFn: async () => await settingsGetAppSettings(),
+  })
+
+  // Update App settings
+  const {
+    mutateAsync: updateAppSettings,
+    isPending: updateAppSettingsIsPending,
+    error: updateAppSettingsError,
+  } = useMutation({
+    mutationFn: async (params: SettingsUpdateAppSettingsData) =>
+      await settingsUpdateAppSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-app-settings"] })
+      toast({
+        title: "Updated App settings",
+        description: "App settings updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to update App settings", error)
+          toast({
+            title: "Failed to update App settings",
+            description: `An error occurred while updating the App settings: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    // Get
+    appSettings,
+    appSettingsIsLoading,
+    appSettingsError,
+    // Update
+    updateAppSettings,
+    updateAppSettingsIsPending,
+    updateAppSettingsError,
   }
 }
 

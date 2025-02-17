@@ -106,10 +106,13 @@ import type {
   SecretsSearchSecretsResponse,
   SecretsUpdateSecretByIdData,
   SecretsUpdateSecretByIdResponse,
+  SettingsGetAppSettingsResponse,
   SettingsGetAuthSettingsResponse,
   SettingsGetGitSettingsResponse,
   SettingsGetOauthSettingsResponse,
   SettingsGetSamlSettingsResponse,
+  SettingsUpdateAppSettingsData,
+  SettingsUpdateAppSettingsResponse,
   SettingsUpdateAuthSettingsData,
   SettingsUpdateAuthSettingsResponse,
   SettingsUpdateGitSettingsData,
@@ -2249,6 +2252,40 @@ export const settingsUpdateOauthSettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/settings/oauth",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get App Settings
+ * @returns AppSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const settingsGetAppSettings =
+  (): CancelablePromise<SettingsGetAppSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/settings/app",
+    })
+  }
+
+/**
+ * Update App Settings
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const settingsUpdateAppSettings = (
+  data: SettingsUpdateAppSettingsData
+): CancelablePromise<SettingsUpdateAppSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/settings/app",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {

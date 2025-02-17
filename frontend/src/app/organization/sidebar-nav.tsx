@@ -30,6 +30,10 @@ const settingsNavItems: NavItem[] = [
     title: "Authentication",
     href: "/organization/settings/auth",
   },
+  {
+    title: "Application",
+    href: "/organization/settings/app",
+  },
 ]
 
 const secretNavItems: NavItem[] = [

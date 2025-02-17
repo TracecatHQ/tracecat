@@ -32,6 +32,7 @@ from tracecat.registry.actions.models import (
 from tracecat.registry.loaders import LoaderMode, get_bound_action_impl
 from tracecat.registry.repository import Repository
 from tracecat.service import BaseService
+from tracecat.settings.service import get_setting_cached
 from tracecat.types.exceptions import (
     RegistryActionValidationError,
     RegistryError,
@@ -195,18 +196,26 @@ class RegistryActionsService(BaseService):
         # - Then we validate the args against the interface
         # (C) Validate that template aciton name doesn't conflict with another action? Doesn't seem like we need this
         # (D) Validate expressions in the args
-        self.logger.info("Validating actions", all_actions=repo.store.keys())
-        val_errs: dict[str, list[RegistryActionValidationErrorInfo]] = defaultdict(list)
-        for action in repo.store.values():
-            if not action.is_template:
-                continue
-            if errs := await self.validate_action_template(action, repo):
-                val_errs[action.action].extend(errs)
-        if val_errs:
-            raise RegistryActionValidationError(
-                f"Found {sum(len(v) for v in val_errs.values())} validation error(s)",
-                detail=val_errs,
+        should_validate = await get_setting_cached(
+            "app_registry_validation_enabled",
+            default=False,
+        )
+        self.logger.info("Registry validation enabled", enabled=should_validate)
+        if should_validate:
+            self.logger.info("Validating actions", all_actions=repo.store.keys())
+            val_errs: dict[str, list[RegistryActionValidationErrorInfo]] = defaultdict(
+                list
             )
+            for action in repo.store.values():
+                if not action.is_template:
+                    continue
+                if errs := await self.validate_action_template(action, repo):
+                    val_errs[action.action].extend(errs)
+            if val_errs:
+                raise RegistryActionValidationError(
+                    f"Found {sum(len(v) for v in val_errs.values())} validation error(s)",
+                    detail=val_errs,
+                )
 
         # NOTE: We should start a transaction here and commit it after the sync is complete
         await self.upsert_actions_from_repo(repo, db_repo)
