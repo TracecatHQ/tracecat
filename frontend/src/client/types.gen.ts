@@ -125,6 +125,23 @@ export type ActionUpdate = {
   control_flow?: ActionControlFlow | null
 }
 
+/**
+ * Settings for the app.
+ */
+export type AppSettingsRead = {
+  app_registry_validation_enabled: boolean
+}
+
+/**
+ * Settings for OAuth authentication.
+ */
+export type AppSettingsUpdate = {
+  /**
+   * Whether registry validation is enabled.
+   */
+  app_registry_validation_enabled?: boolean
+}
+
 export type AuthSettingsRead = {
   auth_basic_enabled: boolean
   auth_require_email_verification: boolean
@@ -2155,6 +2172,14 @@ export type SettingsUpdateOauthSettingsData = {
 
 export type SettingsUpdateOauthSettingsResponse = void
 
+export type SettingsGetAppSettingsResponse = AppSettingsRead
+
+export type SettingsUpdateAppSettingsData = {
+  requestBody: AppSettingsUpdate
+}
+
+export type SettingsUpdateAppSettingsResponse = void
+
 export type OrganizationSecretsListOrgSecretsData = {
   /**
    * Filter by secret type
@@ -3404,6 +3429,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateOauthSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/app": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AppSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateAppSettingsData
       res: {
         /**
          * Successful Response

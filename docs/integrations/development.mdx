@@ -90,7 +90,7 @@ The recommended way to start developing custom integrations is to use the [integ
     ```
 
     This `-e` flag installs the package in editable mode, which allows you to make changes to the package and have them reflected immediately.
-    The `.[dev]` flag installs the development dependencies, which includes the `tracecat_registry` [Python package](https://github.com/TracecatHQ/tracecat/tree/main/registry).
+    The `.[dev]` flag installs the development dependencies, which includes the [`tracecat`](https://github.com/TracecatHQ/tracecat) and [`tracecat_registry`](https://github.com/TracecatHQ/tracecat/tree/main/registry) [Python packages].
 
     Find out more about the `tracecat_registry` package below.
   </Step>
@@ -101,6 +101,19 @@ The recommended way to start developing custom integrations is to use the [integ
 </Steps>
 
 ## Tracecat Registry
+
+<Note>
+  `tracecat_registry` requires `tracecat` to be installed.
+</Note>
+
+<Info>
+  For advanced users, you can install `tracecat` and `tracecat_registry` manually with the following commands:
+
+  ```bash
+  pip install tracecat @ git+https://github.com/TracecatHQ/tracecat
+  pip install tracecat_registry @ git+https://github.com/TracecatHQ/tracecat#subdirectory=registry&egg=tracecat_registry
+  ```
+</Info>
 
 Installing `tracecat_registry` will give you access to the `tc` CLI, which is used to validate your templates before syncing and running them in Tracecat.
 It also includes the `tracecat_registry` package, which contains necessary imports for building Tracecat Python UDFs.
