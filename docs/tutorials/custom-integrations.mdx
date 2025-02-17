@@ -4,9 +4,13 @@ description: Build and sync custom integrations from a private Git repository in
 icon: github
 ---
 
+import YamlNote from "/snippets/yaml-note.mdx";
+
 <Tip>
   Get started by cloning the [custom-integrations-starter-kit](https://github.com/TracecatHQ/custom-integrations-starter-kit) template repo.
 </Tip>
+
+<YamlNote />
 
 By the end of this tutorial, you'll learn how to:
 
@@ -20,11 +24,11 @@ By the end of this tutorial, you'll learn how to:
 - Access to a private Git repository (e.g. GitHub, GitLab)
 - Basic knowledge of Python, [`pip`](https://pip.pypa.io/en/stable/getting-started/), and YAML
 
-## YAML Action Templates
+## Action Templates
 
 <Tip>
   Check out Tracecat's open source [Action Templates](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates) on GitHub for examples.
-  More information on when and how to build effective templates can be found in the [integrations best practices](/integrations/best-practices) docs.
+  More information on when and how to build effective templates can be found in the [integrations best practices](/integrations/best-practices).
 </Tip>
 
 If you find yourself using a generic action (e.g. `core.http_request`) with the same parameters in multiple workflows, we recommend creating a YAML action template.
