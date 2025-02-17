@@ -168,8 +168,8 @@ importers:
         specifier: ^4.8.1
         version: 4.11.1
       react18-json-view:
-        specifier: 0.2.9-canary.10
-        version: 0.2.9-canary.10(react@18.3.1)
+        specifier: 0.2.9-canary.11
+        version: 0.2.9-canary.11(react@18.3.1)
       reactflow:
         specifier: ^11.11.3
         version: 11.11.4(@types/react@18.3.18)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4505,8 +4505,8 @@ packages:
   react-use-websocket@4.11.1:
     resolution: {integrity: sha512-39e8mK2a2A1h8uY3ePF45b2q0vwMOmaEy7J5qEhQg4n7vYa5oDLmqutG36kZQgAQ/3KCZS0brlGRbbZJ0+zfKQ==}
 
-  react18-json-view@0.2.9-canary.10:
-    resolution: {integrity: sha512-BTWTdpnZd7G7nO54WYNI70+XoIzQyXKXuAfah57656NLhx1AI9+cIsuebLLFBGljB99FVibFOEr7oSEr+zpQ3Q==}
+  react18-json-view@0.2.9-canary.11:
+    resolution: {integrity: sha512-ddoJCZ0ONr3CRMlKDlqpKCkfSEew8unciA2bwsOoAkyf8xw23yIT8ULACodA3uMYU1mxUOHE3fi+U/iCFKGu5w==}
     peerDependencies:
       react: '>=16.8.0'
 
@@ -10095,7 +10095,7 @@ snapshots:
 
   react-use-websocket@4.11.1: {}
 
-  react18-json-view@0.2.9-canary.10(react@18.3.1):
+  react18-json-view@0.2.9-canary.11(react@18.3.1):
     dependencies:
       copy-to-clipboard: 3.3.3
       react: 18.3.1
