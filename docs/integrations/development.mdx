@@ -3,11 +3,158 @@ title: Local Development
 description: Learn how to develop custom integrations for Tracecat locally.
 ---
 
-You will need to install [`tracecat_registry`](https://github.com/TracecatHQ/tracecat/tree/main/registry).
-The recommended way to do this is by using the [custom-integrations-starter-kit](https://github.com/TracecatHQ/custom-integrations-starter-kit).
-All you need to do is specify `dev` dependencies when installing the project.
+import ContributingCTA from "/snippets/contributing-cta.mdx";
+import CreateNewRepoStep from "/snippets/create-new-repo-step.mdx";
+
+<Tip>
+  We recommend installing [uv](https://docs.astral.sh/uv/), which is a fast Python package and project manager, before starting this tutorial.
+</Tip>
+
+<ContributingCTA />
+
+## Prerequisites
+
+- A local Tracecat Docker Compose [deployment](/self-hosting/deployment-options/docker-compose)
+- Python 3.12
+- A python package manager (e.g. [pip](https://pip.pypa.io/en/stable/) or [uv](https://docs.astral.sh/uv/))
+- (Recommended) A new [isolated Python environment](https://docs.astral.sh/uv/pip/environments/)
+
+## Linting
+
+<Note>
+  You can safely skip this section if you do not need automatic linting and formatting.
+  This setup, however, is required for contributors.
+</Note>
+
+Tracecat uses [ruff](https://docs.astral.sh/ruff/) and [pre-commit hooks](https://pre-commit.com/) for linting and formatting code.
+The easiest way to set up both ruff and pre-commit is to `cd` into the `custom-integrations-starter-kit` directory, add the following `.pre-commit-config.yaml` file:
+
+<Accordion title="pre-commit-config.yaml" icon="code">
+  ```yaml
+  # See https://pre-commit.com for more information
+  # See https://pre-commit.com/hooks.html for more hooks
+  default_language_version:
+    python: python3.12
+  default_install_hook_types: [pre-commit, commit-msg]
+
+  repos:
+    - repo: https://github.com/pre-commit/pre-commit-hooks
+      rev: v4.6.0
+      hooks:
+        - id: check-added-large-files
+          args:
+            - --maxkb=3000
+        - id: check-toml
+        - id: check-yaml
+          args:
+            - --unsafe
+        - id: end-of-file-fixer
+        - id: trailing-whitespace
+
+    - repo: https://github.com/charliermarsh/ruff-pre-commit
+      rev: v0.9.1
+      hooks:
+        - id: ruff
+          args:
+            - --fix
+            - --show-fixes # Show what files were fixed
+            - --verbose
+        - id: ruff-format
+          verbose: true
+  ```
+</Accordion>
+
+Then run the following commands:
 
 ```bash
-cd custom-integrations-starter-kit
-pip install -e ".[dev]"
+pip install pre-commit  # Or `uv pip install pre-commit`
+pre-commit install
 ```
+
+The pre-commit hooks will run automatically when you commit code to your local repository.
+Linting helps keep code consistent according to best practices.
+
+## Integrations Starter Kit
+
+The recommended way to start developing custom integrations is to use the [integrations starter kit](https://github.com/TracecatHQ/custom-integrations-starter-kit).
+
+<Steps>
+  <CreateNewRepoStep />
+  <Step title="Install package and tracecat_registry">
+    The starter kit is a Python package with a `pyproject.toml` file.
+    To install it, run the following command:
+
+    ```bash
+    cd custom-integrations-starter-kit
+    pip install -e ".[dev]"
+    ```
+
+    This `-e` flag installs the package in editable mode, which allows you to make changes to the package and have them reflected immediately.
+    The `.[dev]` flag installs the development dependencies, which includes the `tracecat_registry` [Python package](https://github.com/TracecatHQ/tracecat/tree/main/registry).
+
+    Find out more about the `tracecat_registry` package below.
+  </Step>
+  <Step title="Setup development environment">
+    The final step is to link the local registry to your local Tracecat instance.
+    Step-by-step instructions are available in the [development environment](#development-environment) section below.
+  </Step>
+</Steps>
+
+## Tracecat Registry
+
+Installing `tracecat_registry` will give you access to the `tc` CLI, which is used to validate your templates before syncing and running them in Tracecat.
+It also includes the `tracecat_registry` package, which contains necessary imports for building Tracecat Python UDFs.
+
+### Validation CLI
+
+<Tip>
+  We **highly recommend** using this CLI to validate your templates before syncing and running them in Tracecat.
+
+  This will save you a lot of time debugging syntax issues.
+</Tip>
+
+To check if your templates are valid, run the following command:
+
+```bash
+tc validate template <path-to-templates>
+```
+
+![Registry CLI](/img/integrations/registry-cli.png)
+
+### Local testing
+
+`registry.register`, `Annotated`, `Doc`, and `RegistrySecret` are used to convert your Python function arguments into Tracecat action inputs.
+
+They **do not affect** the function's behavior in Python.
+You can continue using the function as normal in your scripts and tests.
+
+## Development Environment
+
+<Note>
+  This tutorial assumes you have a local Tracecat Docker Compose [deployment](/self-hosting/deployment-options/docker-compose).
+</Note>
+
+<Warning>
+  This is for local development only.
+
+  For production, please sync your custom integrations into Tracecat from a secure remote repository (e.g. GitHub, GitLab).
+  Check out the [custom integrations tutorial](/tutorials/custom-integrations) for more information.
+</Warning>
+
+You can point Tracecat to your local registry by setting the following environment variables in your `.env` file:
+
+```bash
+TRACECAT__LOCAL_REPOSITORY_ENABLED=true
+TRACECAT__LOCAL_REPOSITORY_PATH=<path-to-local-registry>
+# E.g. TRACECAT__LOCAL_REPOSITORY_PATH=~/repos/org/custom-integrations-starter-kit
+```
+
+Don't forget to restart Tracecat:
+
+```bash
+docker compose up -d
+```
+
+Action templates and Python UDFs will be hot loaded into your Tracecat instance.
+Changes in your local registry are automatically reflected in Tracecat.
+No sync is required.

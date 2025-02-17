@@ -7,6 +7,7 @@ icon: github
 import YamlNote from "/snippets/yaml-note.mdx";
 import ActionTemplatesSection from "/snippets/action-templates-section.mdx";
 import PythonUDFsSection from "/snippets/python-udfs-section.mdx";
+import CreateNewRepoStep from "/snippets/create-new-repo-step.mdx";
 
 <Tip>
   Get started by cloning the [custom-integrations-starter-kit](https://github.com/TracecatHQ/custom-integrations-starter-kit) template repo.
@@ -21,46 +22,20 @@ import PythonUDFsSection from "/snippets/python-udfs-section.mdx";
 
 By the end of this tutorial, you'll learn how to:
 
-- Build custom integrations in YAML and Python
-- Version control your integrations with Git
 - Sync custom integrations into Tracecat
-- Use custom integrations in workflows
+- Build custom integrations in YAML and Python
 
 ## Prerequisites
 
 - Access to a private Git repository (e.g. GitHub, GitLab)
 - Basic knowledge of Python, [`pip`](https://pip.pypa.io/en/stable/getting-started/), and YAML
 
-## Action Templates
-
-<Tip>
-  If you find yourself using a generic action (e.g. `core.http_request`) with the same parameters in multiple workflows, we recommend creating a YAML action template.
-
-  Check out Tracecat's open source [Action Templates](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates) on GitHub for examples.
-  More information on when and how to build effective templates can be found in the [integrations best practices](/integrations/best-practices).
-</Tip>
-
-<ActionTemplatesSection />
-
-## Python UDFs
-
-<Tip>
-  Check out Tracecat's open source [core actions](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/base/core)
-  and [Python integrations](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) on GitHub for examples.
-</Tip>
-
-<PythonUDFsSection />
-
-
-## Git sync tutorial
+## Sync remote git repository
 
 In this section, we'll walk through the process of securely syncing custom integrations into Tracecat.
 
 <Steps>
-  <Step title="Create new repo">
-    Create a new repo from the [custom-integrations-starter-kit](https://github.com/TracecatHQ/custom-integrations-starter-kit) template.
-    ![Custom integrations template](/img/tutorials/custom-integrations/create-new-repo.png)
-  </Step>
+  <CreateNewRepoStep />
   <Step title="Configure remote repo URL">
     Go to the `Git Repository` section in `Organization` settings and configure the remote repo URL to point to your private repository.
 
@@ -94,6 +69,26 @@ In this section, we'll walk through the process of securely syncing custom integ
     Updates and new actions will show up immediately.
   </Step>
 </Steps>
+
+## Action Templates
+
+<Tip>
+  If you find yourself using a generic action (e.g. `core.http_request`) with the same parameters in multiple workflows, we recommend creating a YAML action template.
+
+  Check out Tracecat's open source [Action Templates](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates) on GitHub for examples.
+  More information on when and how to build effective templates can be found in the [integrations best practices](/integrations/best-practices).
+</Tip>
+
+<ActionTemplatesSection />
+
+## Python UDFs
+
+<Tip>
+  Check out Tracecat's open source [core actions](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/base/core)
+  and [Python integrations](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) on GitHub for examples.
+</Tip>
+
+<PythonUDFsSection />
 
 ## Next steps
 
