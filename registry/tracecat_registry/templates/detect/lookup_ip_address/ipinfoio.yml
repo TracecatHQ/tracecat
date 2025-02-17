@@ -12,7 +12,8 @@ definition:
     - name: ipinfo
 
       keys:
-        - API_KEY
+        - IPINFO_API_TOKEN
+
   expects:
     ip_address:
       type: str
