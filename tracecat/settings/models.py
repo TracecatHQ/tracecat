@@ -101,6 +101,20 @@ class OAuthSettingsUpdate(BaseSettingsGroup):
     )
 
 
+class AppSettingsRead(BaseSettingsGroup):
+    """Settings for the app."""
+
+    app_registry_validation_enabled: bool
+
+
+class AppSettingsUpdate(BaseSettingsGroup):
+    """Settings for OAuth authentication."""
+
+    app_registry_validation_enabled: bool = Field(
+        default=False, description="Whether registry validation is enabled."
+    )
+
+
 class ValueType(StrEnum):
     # This is the default type
     JSON = "json"
