@@ -16,6 +16,7 @@ from tracecat.expressions.parser.validator import (
     TemplateActionExprValidator,
     TemplateActionValidationContext,
 )
+from tracecat.logger import logger
 from tracecat.registry.actions.enums import (
     TemplateActionValidationErrorType,
 )
@@ -223,81 +224,9 @@ class RegistryActionsService(BaseService):
         self, action: BoundRegistryAction, repo: Repository
     ) -> list[RegistryActionValidationErrorInfo]:
         """Validate that a template action is correctly formatted."""
-        if not (action.is_template and action.template_action):
-            return []
-        val_errs: list[RegistryActionValidationErrorInfo] = []
-
-        defn = action.template_action.definition
-        # 1. Validate template steps
-        for step in defn.steps:
-            # (A) Ensure that the step action type exists
-            if step.action in repo.store:
-                # If this action is already in the repo, we can just use it
-                # We will overwrite the action in the DB anyways
-                bound_action = repo.store[step.action]
-            elif (reg_action := await self.get_action_or_none(step.action)) is not None:
-                bound_action = get_bound_action_impl(reg_action, mode="validation")
-            else:
-                # Action not found in the repo or DB
-                val_errs.append(
-                    RegistryActionValidationErrorInfo(
-                        loc_primary=f"steps.{step.ref}",
-                        loc_secondary=step.action,
-                        type=TemplateActionValidationErrorType.ACTION_NOT_FOUND,
-                        details=[f"Action `{step.action}` not found in repository."],
-                        is_template=action.is_template,
-                    )
-                )
-                self.logger.warning(
-                    "Step action not found, skipping",
-                    step_ref=step.ref,
-                    step_action=step.action,
-                )
-                continue
-
-            # (B) Validate that the step is correctly formatted
-            try:
-                bound_action.validate_args(**step.args)
-            except RegistryValidationError as e:
-                if isinstance(e.err, ValidationError):
-                    details = []
-                    for err in e.err.errors():
-                        msg = error_details_to_message(err)
-                        details.append(msg)
-                else:
-                    details = [str(e.err)] if e.err else []
-                val_errs.append(
-                    RegistryActionValidationErrorInfo(
-                        loc_primary=f"steps.{step.ref}",
-                        loc_secondary=step.action,
-                        type=TemplateActionValidationErrorType.STEP_VALIDATION_ERROR,
-                        details=details,
-                        is_template=action.is_template,
-                    )
-                )
-        # 2. Validate expressions
-        validator = TemplateActionExprValidator(
-            validation_context=TemplateActionValidationContext(
-                expects=defn.expects,
-                step_refs={step.ref for step in defn.steps},
-            ),
+        return await validate_action_template(
+            action, repo, check_db=True, ra_service=self
         )
-        for step in defn.steps:
-            for field, value in step.args.items():
-                for expr in extract_expressions(value):
-                    expr.validate(validator, loc=f"steps.{step.ref}.args.{field}")
-        for expr in extract_expressions(defn.returns):
-            expr.validate(validator, loc="returns")
-        expr_errs = set(validator.errors())
-        self.logger.warning("Expression validation errors", errors=expr_errs)
-        val_errs.extend(
-            RegistryActionValidationErrorInfo.from_validation_result(
-                e, is_template=action.is_template
-            )
-            for e in expr_errs
-        )
-
-        return val_errs
 
     # We need to call this first for UDFs
     async def upsert_actions_from_repo(
@@ -435,3 +364,96 @@ def error_details_to_message(err: ErrorDetails) -> str:
         case _:
             msg = f"{err['msg']}: {loc}"
     return msg
+
+
+async def validate_action_template(
+    action: BoundRegistryAction,
+    repo: Repository,
+    *,
+    check_db: bool = False,
+    ra_service: RegistryActionsService | None = None,
+) -> list[RegistryActionValidationErrorInfo]:
+    """Validate that a template action is correctly formatted."""
+    if not (action.is_template and action.template_action):
+        return []
+    if check_db and not ra_service:
+        raise ValueError("RegistryActionsService is required if check_db is True")
+    val_errs: list[RegistryActionValidationErrorInfo] = []
+    log = ra_service.logger if ra_service else logger
+
+    defn = action.template_action.definition
+    # 1. Validate template steps
+    for step in defn.steps:
+        # (A) Ensure that the step action type exists
+        if step.action in repo.store:
+            # If this action is already in the repo, we can just use it
+            # We will overwrite the action in the DB anyways
+            bound_action = repo.store[step.action]
+        elif (
+            check_db
+            and ra_service
+            and (reg_action := await ra_service.get_action_or_none(step.action))
+            is not None
+        ):
+            bound_action = get_bound_action_impl(reg_action, mode="validation")
+        else:
+            # Action not found in the repo or DB
+            val_errs.append(
+                RegistryActionValidationErrorInfo(
+                    loc_primary=f"steps.{step.ref}",
+                    loc_secondary=step.action,
+                    type=TemplateActionValidationErrorType.ACTION_NOT_FOUND,
+                    details=[f"Action `{step.action}` not found in repository."],
+                    is_template=action.is_template,
+                )
+            )
+            log.warning(
+                "Step action not found, skipping",
+                step_ref=step.ref,
+                step_action=step.action,
+            )
+            continue
+
+        # (B) Validate that the step is correctly formatted
+        try:
+            bound_action.validate_args(**step.args)
+        except RegistryValidationError as e:
+            if isinstance(e.err, ValidationError):
+                details = []
+                for err in e.err.errors():
+                    msg = error_details_to_message(err)
+                    details.append(msg)
+            else:
+                details = [str(e.err)] if e.err else []
+            val_errs.append(
+                RegistryActionValidationErrorInfo(
+                    loc_primary=f"steps.{step.ref}",
+                    loc_secondary=step.action,
+                    type=TemplateActionValidationErrorType.STEP_VALIDATION_ERROR,
+                    details=details,
+                    is_template=action.is_template,
+                )
+            )
+    # 2. Validate expressions
+    validator = TemplateActionExprValidator(
+        validation_context=TemplateActionValidationContext(
+            expects=defn.expects,
+            step_refs={step.ref for step in defn.steps},
+        ),
+    )
+    for step in defn.steps:
+        for field, value in step.args.items():
+            for expr in extract_expressions(value):
+                expr.validate(validator, loc=f"steps.{step.ref}.args.{field}")
+    for expr in extract_expressions(defn.returns):
+        expr.validate(validator, loc="returns")
+    expr_errs = set(validator.errors())
+    log.warning("Expression validation errors", errors=expr_errs)
+    val_errs.extend(
+        RegistryActionValidationErrorInfo.from_validation_result(
+            e, is_template=action.is_template
+        )
+        for e in expr_errs
+    )
+
+    return val_errs

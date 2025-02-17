@@ -1,11 +1,12 @@
 ---
 title: Basic
 description: Learn how to authenticate into Tracecat with email and password.
+icon: keyboard
 ---
 
 <Warning>
   Basic auth should only be used for local development.
-  For production, use [Google OAuth](/self-hosting/authentication/google) or [SAML SSO](/self-hosting/authentication/sso).
+  For production, use [Google OAuth](/self-hosting/authentication/google-oauth) or [SAML SSO](/self-hosting/authentication/saml-sso).
 </Warning>
 
 # Configuration
@@ -19,6 +20,6 @@ TRACECAT__SETTING_OVERRIDE_AUTH_BASIC_ENABLED=true
 
 ## Sign-up
 
-Create a new user to sign-in with a minimum password length of 16 characters.
+Create a new user to sign-in with a minimum password length of 12 characters.
 
 ![Sign-up](/img/self-hosting/signup.png)

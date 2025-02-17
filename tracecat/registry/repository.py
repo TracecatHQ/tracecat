@@ -223,7 +223,10 @@ class Repository:
         self._register_udfs_from_package(tracecat_registry)
 
     async def load_from_origin(self, commit_sha: str | None = None) -> str | None:
-        """Load the registry from the origin and return the commit sha."""
+        """Load the registry from the origin and return the commit sha.
+
+        If we pass a local directory, load the files directly.
+        """
         if self._origin == DEFAULT_REGISTRY_ORIGIN:
             # This is a builtin registry, nothing to load
             logger.info("Loading builtin registry")
@@ -565,8 +568,50 @@ class Repository:
                 "No template actions found in package", package_name=base_package
             )
 
+    def load_template_action_from_file(
+        self, file_path: Path, origin: str, *, overwrite: bool = True
+    ) -> TemplateAction | None:
+        """Load a template action from a YAML file.
+
+        Args:
+            file_path: Path to the YAML file
+
+        Returns:
+            The loaded template action, or None if loading failed
+        """
+        logger.debug("Loading template action from path", path=file_path)
+        try:
+            template_action = TemplateAction.from_yaml(file_path)
+        except ValidationError as e:
+            logger.error(
+                f"Could not parse {file_path!s} as template action, skipped",
+                error=e,
+            )
+            return None
+        except Exception as e:
+            logger.error(
+                "Unexpected error loading template action",
+                error=e,
+                path=file_path,
+            )
+            return None
+        key = template_action.definition.action
+        if key in self._store and not overwrite:
+            logger.debug("Template action already registered, skipping", key=key)
+            return None
+        else:
+            logger.debug("Overwriting template action", key=key)
+
+        self.register_template_action(template_action, origin=origin)
+        return template_action
+
     def load_template_actions_from_path(
-        self, *, path: Path, origin: str, ignore_path: str = "schemas"
+        self,
+        *,
+        path: Path,
+        origin: str,
+        ignore_path: str = "schemas",
+        overwrite: bool = True,
     ) -> int:
         """Load template actions from a package."""
         n_loaded = 0
@@ -574,30 +619,13 @@ class Repository:
         for file_path in all_paths:
             if ignore_path in file_path.parts:
                 continue
-            logger.debug("Loading template action from path", path=file_path)
-            # Load TemplateActionDefinition
-            try:
-                template_action = TemplateAction.from_yaml(file_path)
-            except ValidationError as e:
-                logger.error(
-                    f"Could not parse {file_path!s} as template action, skipped",
-                    error=e,
-                )
-                continue
-            except Exception as e:
-                logger.error(
-                    "Unexpected error loading template action",
-                    error=e,
-                    path=file_path,
-                )
+
+            template_action = self.load_template_action_from_file(
+                file_path, origin, overwrite=overwrite
+            )
+            if template_action is None:
                 continue
 
-            key = template_action.definition.action
-            if key in self._store:
-                logger.debug("Template action already registered, skipping", key=key)
-                continue
-
-            self.register_template_action(template_action, origin=origin)
             n_loaded += 1
         return n_loaded
 

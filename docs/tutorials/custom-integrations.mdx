@@ -1,0 +1,97 @@
+---
+title: Custom integrations
+description: Build and sync custom integrations from a private Git repository into Tracecat.
+icon: github
+---
+
+import YamlNote from "/snippets/yaml-note.mdx";
+import ActionTemplatesSection from "/snippets/action-templates-section.mdx";
+import PythonUDFsSection from "/snippets/python-udfs-section.mdx";
+import CreateNewRepoStep from "/snippets/create-new-repo-step.mdx";
+
+<Tip>
+  Get started by cloning the [custom-integrations-starter-kit](https://github.com/TracecatHQ/custom-integrations-starter-kit) template repo.
+</Tip>
+
+<Note>
+  Git sync is the recommended way to sync custom integrations into Tracecat in production.
+  For development,
+</Note>
+
+<YamlNote />
+
+By the end of this tutorial, you'll learn how to:
+
+- Sync custom integrations into Tracecat
+- Build custom integrations in YAML and Python
+
+## Prerequisites
+
+- Access to a private Git repository (e.g. GitHub, GitLab)
+- Basic knowledge of Python, [`pip`](https://pip.pypa.io/en/stable/getting-started/), and YAML
+
+## Sync remote git repository
+
+In this section, we'll walk through the process of securely syncing custom integrations into Tracecat.
+
+<Steps>
+  <CreateNewRepoStep />
+  <Step title="Configure remote repo URL">
+    Go to the `Git Repository` section in `Organization` settings and configure the remote repo URL to point to your private repository.
+
+  </Step>
+  <Step title="GitHub SSH deploy key">
+    Create a SSH public / private key pair (without a passphrase) and store the public key in GitHub.
+    Store the public key in GitHub.
+  </Step>
+  <Step title="Private key in Tracecat">
+    Go to the `SSH Keys` section in `Organizations` settings and add the private key with the name `github-ssh-key`.
+
+    <Note>
+      Do not change the key name. The `github-ssh-key` key name works for both GitHub and GitLab.
+    </Note>
+  </Step>
+  <Step title="Refresh repos in Tracecat">
+    Go to the `Repositories` section in the `Registry` page and refresh the repos.
+    Your custom repo should now be visible.
+  </Step>
+  <Step title="Sync custom repo">
+    In the same `Repositories` section, select your custom repo and press the `Sync from remote`.
+    Your custom integrations should now be visible in your Tracecat instance's registry.
+  </Step>
+  <Step title="View custom integrations">
+    Go to the `Actions` view in the `Registry` page and filter by `Origin` to view synced actions.
+  </Step>
+  <Step title="🎉 That's it!">
+    Feel free to add your own custom Python UDFs and YAML templates to the custom integrations repo.
+
+    Just push to your changes to the git repo and press sync in Tracecat Registry.
+    Updates and new actions will show up immediately.
+  </Step>
+</Steps>
+
+## Action Templates
+
+<Tip>
+  If you find yourself using a generic action (e.g. `core.http_request`) with the same parameters in multiple workflows, we recommend creating a YAML action template.
+
+  Check out Tracecat's open source [Action Templates](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates) on GitHub for examples.
+  More information on when and how to build effective templates can be found in the [integrations best practices](/integrations/best-practices).
+</Tip>
+
+<ActionTemplatesSection />
+
+## Python UDFs
+
+<Tip>
+  Check out Tracecat's open source [core actions](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/base/core)
+  and [Python integrations](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) on GitHub for examples.
+</Tip>
+
+<PythonUDFsSection />
+
+## Next steps
+
+- Join our [Discord community](https://discord.gg/n3GF4qxFU8) and meet other Tracecat users and contributors.
+- Have integrations you'd like to share with the community? Open up an [issue](https://github.com/TracecatHQ/tracecat/issues) on GitHub and start contributing to open source!
+- Check out [integrations best practices](/integrations/best-practices).

@@ -1,0 +1,57 @@
+---
+title: Overview
+description: Learn how to configure authentication with Tracecat.
+icon: lock
+---
+
+## Owner
+
+The owner role is assigned to the first user who logs into Tracecat. This user has admin rights to every workspace in the Tracecat instance.
+
+## Domain whitelist
+
+To prevent unauthorized access to your Tracecat instance, you can configure a list of allowed domains for authentication.
+You can do this by setting the `TRACECAT__AUTH_ALLOWED_DOMAINS` environment variable. For example:
+
+```bash
+TRACECAT__AUTH_ALLOWED_DOMAINS=acme.com,acme.ai
+```
+
+## Authentication Methods
+
+<Warning>
+  In production, use [Google OAuth](/self-hosting/authentication/google-oauth) or [SAML SSO](/self-hosting/authentication/saml-sso).
+  Basic auth is meant for local development only.
+</Warning>
+
+Tracecat currently supports the following authentication methods:
+
+- `basic`: Email and Password
+- `google_oauth`: Google OAuth
+- `saml`: SAML SSO
+
+Choose from a number of authentication methods listed below to get started.
+
+<CardGroup cols={2}>
+  <Card
+    title="Basic Auth"
+    icon="keyboard"
+    href="/self-hosting/authentication/basic"
+  >
+    Email and password authentication.
+  </Card>
+  <Card
+    title="Google OAuth"
+    icon="google"
+    href="/self-hosting/authentication/google-oauth"
+  >
+    Learn how to authenticate into Tracecat using Google OAuth.
+  </Card>
+  <Card
+    title="SAML SSO"
+    icon="user-lock"
+    href="/self-hosting/authentication/saml-sso"
+  >
+    Learn how to authenticate into Tracecat using SAML SSO.
+  </Card>
+</CardGroup>
