@@ -1,0 +1,46 @@
+
+Tracecat makes it easy to turn your Python scripts into no-code workflow actions, which we call **user-defined functions (UDFs)**.
+All you need is a:
+- Single Python decorator
+- `from typing import Annotated`
+- `from typing_extensions import Doc`
+
+<Note>
+  Secrets used in UDFs must be defined as `RegistrySecret` objects in the `secrets` argument of the `@registry.register` decorator.
+  They are retrieved from Tracecat's secrets manager at runtime and garbage collected after the action is executed.
+</Note>
+
+For example:
+
+```python
+from typing import Annotated
+from typing_extensions import Doc
+
+from tracecat_registry import registry, RegistrySecret, secrets
+
+
+# (Optional) Define secrets used in the function
+secret_name = RegistrySecret(
+  name="secret_name",
+  keys=["SECRET_NAME"],
+  optional_keys=["OPTIONAL_SECRET_NAME"],
+)
+
+
+# Register the function as a Tracecat UDF
+@registry.register(
+    default_title="Say Goodbye Secretly",
+    description="This is a function that says goodbye",
+    display_group="Greetings",
+    namespace="integrations.greetings",
+    # (Optional) Define secrets used in the function
+    secrets=[secret_name],
+)
+def say_goodbye_secretly(
+    name: Annotated[str, Doc("The name to say goodbye to")],
+):
+    secret = secrets.get("SECRET_NAME")
+    # We're returning the secret for demonstration only.
+    # Do not do this in your own functions!
+    return {"message": f"Goodbye, {name}! Secret: {secret}"}
+```

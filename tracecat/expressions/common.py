@@ -62,6 +62,8 @@ class ExprType(TracecatEnum):
     ITERATOR = auto()
     TERNARY = auto()
     TRIGGER = auto()
+    TEMPLATE_ACTION_STEP = auto()
+    TEMPLATE_ACTION_INPUT = auto()
 
 
 VISITOR_NODE_TO_EXPR_TYPE = {

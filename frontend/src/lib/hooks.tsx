@@ -38,6 +38,7 @@ import {
   registryRepositoriesReloadRegistryRepositories,
   registryRepositoriesSyncRegistryRepository,
   RegistryRepositoriesSyncRegistryRepositoryData,
+  RegistryRepositoryErrorDetail,
   RegistryRepositoryReadMinimal,
   SAMLSettingsRead,
   Schedule,
@@ -104,7 +105,7 @@ import {
 import { useWorkspace } from "@/providers/workspace"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
-import { CircleCheck } from "lucide-react"
+import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 
 import { getBaseUrl } from "@/lib/api"
 import { retryHandler, TracecatApiError } from "@/lib/errors"
@@ -1186,21 +1187,27 @@ export function useRegistryRepositories() {
         description: "Registry repositories synced successfully.",
       })
     },
-    onError: (
-      error: TracecatApiError,
-      variables: RegistryRepositoriesSyncRegistryRepositoryData
-    ) => {
-      const apiError = error as TracecatApiError
-      switch (apiError.status) {
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
         case 400:
           toast({
             title: "Couldn't sync repository",
             description: (
-              <div>
-                <p>Repository: {variables.repositoryId}</p>
-                <p>
-                  {apiError.message}: {String(apiError.body.detail)}
-                </p>
+              <div className="flex items-start gap-2">
+                <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
+                <span>{String(error.body.detail)}</span>
+              </div>
+            ),
+          })
+          break
+        case 422:
+          const { message } = error.body.detail as RegistryRepositoryErrorDetail
+          toast({
+            title: "Repository validation failed",
+            description: (
+              <div className="flex items-start gap-2">
+                <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
+                <span>{message}</span>
               </div>
             ),
           })
@@ -1209,16 +1216,15 @@ export function useRegistryRepositories() {
           toast({
             title: "Unexpected error syncing repositories",
             description: (
-              <div>
-                <p>Repository: {variables.repositoryId}</p>
-                <p>{apiError.message}</p>
-                <p>{apiError.body.detail as string}</p>
+              <div className="flex items-start gap-2">
+                <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
+                <span>{error.message}</span>
+                <span>{String(error.body.detail)}</span>
               </div>
             ),
-            variant: "destructive",
           })
-          break
       }
+      return error
     },
   })
 

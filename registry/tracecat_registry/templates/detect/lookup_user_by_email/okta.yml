@@ -20,7 +20,7 @@ definition:
     - ref: search_query
       action: core.transform.reshape
       args:
-        query: profile.email eq ${{ inputs.email }}
+        value: profile.email eq ${{ inputs.email }}
     - ref: search_user_by_email
       action: core.http_request
       args:

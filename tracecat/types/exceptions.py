@@ -15,6 +15,7 @@ from pydantic_core import ValidationError
 
 if TYPE_CHECKING:
     from tracecat.executor.models import ExecutorActionErrorInfo
+    from tracecat.registry.actions.models import RegistryActionValidationErrorInfo
 
 
 class TracecatException(Exception):
@@ -63,6 +64,19 @@ class RegistryError(TracecatException):
 
 class RegistryActionError(RegistryError):
     """Exception raised when a registry action error occurs."""
+
+
+class RegistryActionValidationError(TracecatException):
+    """Exception raised when a registry action validation error occurs."""
+
+    def __init__(
+        self,
+        *args,
+        detail: dict[str, list[RegistryActionValidationErrorInfo]],
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.detail = detail
 
 
 class RegistryValidationError(RegistryError):

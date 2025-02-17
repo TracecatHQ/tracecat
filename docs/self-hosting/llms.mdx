@@ -1,0 +1,67 @@
+---
+title: Self-hosted LLMs
+description: Learn how to self-host LLMs in Tracecat with Ollama.
+---
+
+## Prerequisites
+
+- Basic Tracecat deployment with [Docker Compose](/self-hosting/deployment-options/docker-compose)
+- Minimum 10GB of disk space
+
+## Instructions
+
+<Note>
+    Deploying self-hosted LLMs is resource intensive with large downloads and large model weights.
+    The Ollama Docker image is 1.5GB+ large and model weights can vary greatly in size.
+
+    Only models less than 5GB in size are currently supported.
+</Note>
+
+Tracecat supports self-hosted LLMs through [Ollama](https://ollama.ai/).
+
+Supported models:
+
+- [`llama3.2:1b`](https://ollama.com/library/llama3.2): 1.3GB
+- [`llama3.2`](https://ollama.com/library/llama3.2): 2.0GB (the default `3b` model)
+
+<Steps>
+    <Step title="Configure open source models">
+        Specify the open source models you wish to use in Tracecat by setting the `TRACECAT__PRELOAD_OSS_MODELS` environment variable in the `.env` file.
+
+        For example, to preload the `llama3.2` model, set the following:
+        ```
+        TRACECAT__PRELOAD_OSS_MODELS=llama3.2
+        ```
+    </Step>
+    <Step title="Configure the Ollama service">
+        Uncomment out the `ollama` service and `ollama` volume at the bottom of the `docker-compose.yml` file.
+
+        ```yaml
+        ollama:
+          image: ollama/ollama:${OLLAMA__VERSION}
+          ports:
+            - 11434:11434
+          networks:
+            - core
+          volumes:
+            - ollama:/root/.ollama
+
+        volumes:
+            core-db:
+            temporal-db:
+            ollama:
+        ```
+
+    </Step>
+    <Step title="Deploy">
+        Deploy Tracecat with the Ollama docker compose extension:
+        ```bash
+        docker compose up -d
+        ```
+    </Step>
+    <Step title="AI Action">
+        You can now use Tracecat's AI action to call your preloaded open source LLMs.
+        For example, to call the `llama3.2` model, you can specify the following arguments:
+        ![AI Action](/img/self-hosting/ai-action.png)
+    </Step>
+</Steps>

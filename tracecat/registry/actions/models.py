@@ -22,12 +22,16 @@ from tracecat_registry import RegistrySecret
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
+from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.types.exceptions import (
     RegistryActionError,
     RegistryValidationError,
     TracecatValidationError,
 )
-from tracecat.validation.models import ValidationResult
+from tracecat.validation.models import (
+    TemplateActionExprValidationResult,
+    ValidationResult,
+)
 
 ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
 RegistryActionType = Literal["udf", "template"]
@@ -194,6 +198,10 @@ class TemplateActionDefinition(BaseModel):
     # Validate steps
     @model_validator(mode="after")
     def validate_steps(self):
+        # Check for at least 1 step
+        if not self.steps:
+            raise TracecatValidationError("Template action must have at least 1 step")
+
         step_refs = [step.ref for step in self.steps]
         unique_step_refs = set(step_refs)
 
@@ -564,3 +572,25 @@ class model_converters:
                     f"Unknown implementation type: {action.implementation}"
                 )
         return intf
+
+
+class RegistryActionValidationErrorInfo(BaseModel):
+    type: TemplateActionValidationErrorType
+    details: list[str]
+    is_template: bool
+    """Some context about where the error occurred"""
+    loc_primary: str
+    """Primary location of the error"""
+    loc_secondary: str | None = None
+    """Secondary location of the error. Displayed in parentheses next to the primary location."""
+
+    @staticmethod
+    def from_validation_result(
+        v: TemplateActionExprValidationResult, is_template: bool = True
+    ) -> RegistryActionValidationErrorInfo:
+        return RegistryActionValidationErrorInfo(
+            type=TemplateActionValidationErrorType.EXPRESSION_VALIDATION_ERROR,
+            details=[v.msg],
+            is_template=is_template,
+            loc_primary=v.loc,
+        )

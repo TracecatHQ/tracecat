@@ -186,7 +186,7 @@ class SecretsService(BaseService):
         owner_id = self.role.workspace_id
         if owner_id is None:
             raise TracecatAuthorizationError(
-                "Unauthorized to search secrets for organization secrets"
+                "Workspace ID is required to search secrets"
             )
         stmt = select(Secret).where(Secret.owner_id == owner_id)
         fields = params.model_dump(exclude_unset=True)

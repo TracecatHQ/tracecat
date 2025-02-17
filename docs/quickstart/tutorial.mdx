@@ -1,0 +1,172 @@
+---
+title: Quickstart
+description: Everything you need to know to get started with Tracecat.
+icon: rocket
+---
+
+import YamlNote from "/snippets/yaml-note.mdx";
+
+## What you'll learn
+
+By the end of this tutorial, you'll learn how to:
+
+- Call REST APIs via the `core.http_request` action
+- Trigger workflows manually via the UI
+- Add secrets to your workflows
+- Define if-conditions in your workflows
+- Define any / all conditions in your workflows
+- Run actions in a loop
+
+## Prerequisites
+
+- Have Tracecat [installed](/quickstart/install)
+- An API key from [URLScan](https://urlscan.io/user/profile/)
+
+## Your first workflow
+
+<YamlNote />
+
+<AccordionGroup>
+  <Accordion title="Create new workflow" icon="circle-plus">
+    Click the `Create new` button in the top right corner of the workflows page.
+    ![Create workflow](/img/quickstart/tutorial/create-workflow.png)
+  </Accordion>
+  <Accordion title="Rename workflow" icon="pencil">
+    Click on the empty workflow canvas to open the workflow settings panel.
+    You can change the name and description of the workflow here.
+    ![Rename workflow](/img/quickstart/tutorial/rename-workflow.png)
+  </Accordion>
+  <Accordion title="View available actions" icon="square-plus">
+    To add a new node to the workflow, either drag out the actions dropdown menu from the trigger node or right click on the workflow canvas.
+    ![View available actions](/img/quickstart/tutorial/view-available-actions.png)
+  </Accordion>
+  <Accordion title="Add HTTP request action" icon="globe">
+    Search for and select the `core.http_request` action.
+    ![Add HTTP action](/img/quickstart/tutorial/add-http-action.png)
+  </Accordion>
+  <Accordion title="Call an external weather API" icon="cloud-sun">
+    Click on the `core.http_request` node and fill in the inputs.
+    Tracecat uses YAML to define action inputs.
+    Press the `cmd+s` or `ctrl+s` keys to save your inputs.
+
+    ```yaml
+    url: https://api.open-meteo.com/v1/forecast
+    method: GET
+    params:
+      latitude: 37.773972
+      longitude: -122.431297
+      current: temperature_2m,precipitation_probability
+    ```
+
+    ![Fill in HTTP request inputs](/img/quickstart/tutorial/http-inputs.png)
+  </Accordion>
+  <Accordion title="Save workflow" icon="floppy-disk">
+    Before you can run your workflow, you need to save it.
+    You must explicitly save your workflow for changes to take effect in workflow runs.
+
+    ![Save workflow](/img/quickstart/tutorial/save-workflow.png)
+  </Accordion>
+  <Accordion title="Run workflow via UI" icon="play">
+    Click the `Run` button to execute your workflow.
+
+    You can ignore the sample webhook payload.
+    In a future [tutorial](/tutorials/workflow-triggers), we will learn how to pass custom payloads into workflows manually via UI or webhook.
+
+    ![Run workflow](/img/quickstart/tutorial/run-workflow.png)
+  </Accordion>
+  <Accordion title="View most recent run" icon="person-running">
+    You can view the status of your most recent run in the left side panel.
+    Select actions row by row to view their inputs and outputs.
+
+    <Tabs>
+      <Tab title="Events">
+        ![View events](/img/quickstart/tutorial/view-events.png)
+      </Tab>
+      <Tab title="Action input">
+        ![View action input](/img/quickstart/tutorial/view-action-input.png)
+      </Tab>
+      <Tab title="Action result">
+        ![View action result](/img/quickstart/tutorial/view-action-result.png)
+      </Tab>
+    </Tabs>
+  </Accordion>
+  <Accordion title="View supported action inputs" icon="list">
+    You can view the required and optional inputs for an action under the `Input Schema` section.
+    ![View input schema](/img/quickstart/tutorial/view-input-schema.png)
+  </Accordion>
+</AccordionGroup>
+
+## If-conditions
+
+Every action can be turned into a conditional action.
+Under the `If condition / Loops` tab, you can specify a condition that determines whether the action should be executed.
+
+For example, to run the `Get result` action only if the URL submission was successful, go to the `If condition / Loops` tab and specify the following in the `Run if` input:
+
+```yaml
+${{ ACTIONS.scan_url.result.data.message == "Submission successful" }}
+```
+
+![Run if](/img/quickstart/tutorial/run-if.png)
+
+## Any / All Conditions
+
+Consider the case where you have multiple upstream actions that connect to one downstream joining node.
+You can control whether the joining node should run if `all` or `any` of the upstream actions succeed or fail.
+
+Configure this by going to the `If condition / Loops` tab of the joining node and setting the `join_strategy` option to `all` or `any`.
+
+![Join strategy](/img/quickstart/tutorial/join-strategy.png)
+
+## Loops
+
+Every action can be turned into a looped action.
+Under the `If condition / Loops` tab, you can specify loop expressions to iterate over a list of items and run the action for each item.
+
+<Tip>
+  You can loop over any list of items in your workflow context.
+  For example, it can be a list of file hashes in a previous action `ACTIONS.some_intel_feed.result.data.malware_samples` or a list of items received via webhook in `TRIGGER`.
+</Tip>
+
+**Example**
+
+<Steps>
+  <Step title="Define the loop">
+    Define a loop expression using the `${{ for var.some_variable_name in some_list }}` syntax.
+    The variable name can be anything you want, but we recommend using a name that makes sense for the items in the list.
+
+    In this example, we iterate through a list of numbers send via webhook in `TRIGGER`.
+
+    ```yaml
+    ${{ for var.number in TRIGGER.numbers }}
+    ```
+
+    ![Define loop expression](/img/quickstart/tutorial/loop-expression.png)
+  </Step>
+  <Step title="Use the loop variable">
+    Go back to the action's `Inputs` tab.
+    You can now use the loop variable in the action's inputs using the `${{ var.some_variable_name }}` syntax.
+    During the workflow run, each `var.some_variable_name` in the loop expression is replaced with the current item in the list.
+
+    In this example, we use the loop variable in `core.transform.reshape` action to iterate through a list of numbers and add one to each number.
+
+    ```yaml
+    value: ${{ var.number + 1 }}
+    ```
+
+    ![Add one to variable](/img/quickstart/tutorial/add-one-to-variable.png)
+  </Step>
+  <Step title="Run workflow">
+    Run the workflow via UI with the payload `{"numbers": [1, 2, 3]}` to see the loop in action.
+
+    The `core.transform.reshape` action will be executed three times with `var.number` being `1`, `2`, and `3` respectively and the output will be `[2, 3, 4]`.
+
+    ![Run workflow](/img/quickstart/tutorial/run-loop-workflow.png)
+  </Step>
+</Steps>
+
+## What next?
+
+- Learn how to trigger workflows via webhooks and schedules [here](/tutorials/workflow-triggers).
+- Learn how to build your own custom integrations and templates [here](/tutorials/custom-integrations).
+- Join our [Discord community](https://discord.gg/n3GF4qxFU8) for ideas and support.

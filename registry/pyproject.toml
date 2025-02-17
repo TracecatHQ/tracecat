@@ -43,10 +43,16 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+cli = ["typer>=0.15.1", "rich>=13.7.0"]
+
 [project.urls]
 Homepage = "https://tracecat.com"
 Documentation = "https://docs.tracecat.com"
 Repository = "https://github.com/TracecatHQ/tracecat"
+
+[project.scripts]
+tc = "tracecat_registry.__main__:main"
 
 [tool.hatch.version]
 path = "tracecat_registry/__init__.py"

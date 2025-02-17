@@ -1,0 +1,162 @@
+---
+title: Workflow triggers
+description: Learn how to use webhooks and schedules to trigger workflows.
+icon: bolt
+---
+
+<Note>
+  This tutorial does not cover how to expose your Tracecat instance to the public internet.
+
+  - If you're running Tracecat locally, you'll need use a tunneling service like [ngrok](https://ngrok.com/) to receive webhook requests from the public internet.
+  - If you're running Tracecat on AWS Fargate, Tracecat is automatically exposed to the public internet via an Application Load Balancer.
+</Note>
+
+By the end of this tutorial, you'll learn how to create two types of workflows:
+
+- A webhook workflow that receives a JSON string and decodes it using the `FN.deserialize_json` function.
+- A scheduled workflow that sends a notification to a Slack channel at a regular interval.
+
+## Trigger Action
+
+Every Tracecat workflow comes with a single `Trigger` action.
+This trigger action cannot be deleted.
+
+Click on the `Trigger` action to activate the webhooks and schedules configuration panel.
+
+![Trigger action](/img/tutorials/triggers/trigger-action.png)
+
+## Webhook workflow
+
+<Warning>
+  Webhook URLs are **secrets** and should not be exposed in public.
+  The webhook URL shown in the UI screenshots are for demonstration only.
+</Warning>
+
+<Note>
+  Webhooks currently support the following content types:
+  - `application/json`
+  - `application/x-ndjson`
+  - `application/www-form-urlencoded`
+</Note>
+
+Webhooks are disabled by default. To activate a workflow's webhook, click on the `Trigger` action, toggle the webhook on, then enable the workflow.
+Webhook URLs are formatted as:
+
+```bash
+https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-secret>
+```
+
+<Steps>
+  <Step title="Deserialize JSON action">
+    Add the `core.transform.reshape` action to the workflow.
+    Use the `FN.deserialize_json` function to decode an incoming JSON string via webhook.
+
+    ```yaml
+    value: ${{ FN.deserialize_json(TRIGGER.payload)}}
+    ```
+
+    ![Deserialize JSON action](/img/tutorials/triggers/deserialize-json.png)
+  </Step>
+  <Step title="Toggle webhook">
+    Click on the `Trigger` action.
+    Enable the webhook by clicking on the toggle switch.
+
+    ![Toggle webhook](/img/tutorials/triggers/toggle-webhook.png)
+  </Step>
+  <Step title="Enable workflow">
+    Save the workflow, then press the `Enable workflow` button for the webhook to start receiving requests.
+
+    ![Enable workflow](/img/tutorials/triggers/enable-workflow.png)
+  </Step>
+  <Step title="POST webhook request">
+    Copy the webhook URL to your clipboard, then make a `POST` request to the webhook URL.
+    For example, using `curl`:
+
+    ```bash
+    curl -X POST \
+      -H "Content-Type: application/json" \
+      -d '{"payload": "{\"name\": \"John\", \"age\": 30}"}' \
+      <webhook-url>
+    ```
+  </Step>
+  <Step title="View workflow runs">
+    Go to the `Runs` view and check that the workflow has run successfully.
+    The workflow should have received the webhook payload and deserialized it into a JSON object.
+
+    ![Deserialize JSON result](/img/tutorials/triggers/deserialize-json-result.png)
+  </Step>
+</Steps>
+
+
+## Scheduled workflow
+
+This tutorial requires:
+
+- A Slack workspace with a Slack app installed into a channel.
+- The Slack app has the `chat:write` bot token scope.
+
+<Steps>
+  <Step title="Post notification action">
+    Add the Slack `Post notification` action to the workflow.
+    Don't forget to add your Slack bot token as a [workspace secret](/quickstart/secrets).
+    This secret must be named `slack` with the key `SLACK_BOT_TOKEN`.
+
+    <Accordion title="Sample inputs" icon="code">
+      For the purpose of this tutorial, we'll hardcode the inputs for the `Post notification` action.
+      Replace the `channel` value with your Slack channel ID.
+
+      ```yaml
+      channel: <your-slack-channel-id>
+      choices:
+        - ":white_check_mark: Confirm"
+        - ":x: Deny"
+      description: |
+        Suspicious login detected.
+        Please review the details below and confirm or deny if this was intentional.
+      links:
+        - https://en.wikipedia.org/wiki/San_Francisco
+        - https://en.wikipedia.org/wiki/Tallinn
+      metadata:
+        - Detection: Impossible travel
+        - (Geo) From: San Francisco, USA
+        - (Geo) To: Tallinn, Estonia
+        - IPv4: 192.0.2.1 -> 198.51.100.2
+        - Distance: 8400km
+        - Time elapsed: 30 minutes
+      prompt: "Requires: TOTP code to confirm"
+      summary: ":warning: Suspicious access"
+      ```
+      </Accordion>
+
+      ![Post notification action](/img/tutorials/triggers/post-notification.png)
+    </Step>
+    <Step title="Schedule workflow">
+      Add the `Schedule` trigger to the workflow.
+
+      ![Schedule trigger](/img/tutorials/triggers/schedule.png)
+    </Step>
+    <Step title="Configure schedule">
+      Configure the schedule to run every 60 seconds.
+
+      ![Schedule form](/img/tutorials/triggers/schedule-form.png)
+    </Step>
+    <Step title="Enable workflow">
+      Save the workflow, then press the `Enable workflow` button for the schedule to start running.
+
+      ![Enable workflow](/img/tutorials/triggers/enable-workflow.png)
+
+      <Accordion title="Sample Slack notification" icon="slack">
+        ![Slack notification](/img/tutorials/triggers/slack-notification.png)
+      </Accordion>
+    </Step>
+    <Step title="View workflow runs">
+      You can view the workflow runs in the `Runs` view.
+
+      ![Workflow runs](/img/tutorials/triggers/workflow-runs.png)
+    </Step>
+    <Step title="Pause or delete schedule">
+      You can pause or delete the schedule by selecting the schedule menu in the `Trigger` settings panel.
+
+      ![Pause or delete schedule](/img/tutorials/triggers/pause-delete-schedule.png)
+    </Step>
+  </Steps>

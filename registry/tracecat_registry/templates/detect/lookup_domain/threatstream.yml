@@ -1,0 +1,31 @@
+type: action
+definition:
+  name: lookup_domain
+  namespace: tools.threatstream
+  title: Lookup domain
+  description: Search Anomali ThreatStream for reputation of a domain.
+  display_group: Anomali ThreatStream
+  secrets:
+    - name: threatstream
+      keys:
+        - ANOMALI_USERNAME
+        - ANOMALI_API_KEY
+  expects:
+    domain:
+      type: str
+      description: Domain to lookup.
+  steps:
+    - ref: get_reputation
+      action: core.http_request
+      args:
+        url: https://api.threatstream.com/api/v2/intelligence/
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: apikey ${{ SECRETS.threatstream.ANOMALI_USERNAME}}:${{ SECRETS.threatstream.ANOMALI_API_KEY }}
+        params:
+          value: ${{ inputs.domain }}
+          type: domain
+          status: active
+          limit: 0
+  returns: ${{ steps.get_reputation.result.data }}
