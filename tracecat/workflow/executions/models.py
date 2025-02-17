@@ -285,6 +285,7 @@ class WorkflowExecutionEventCompact(BaseModel):
     action_result: Any | None = None
     action_error: EventFailure | None = None
     child_wf_exec_id: WorkflowExecutionID | None = None
+    child_wf_count: int = 0
 
     @staticmethod
     def from_source_event(

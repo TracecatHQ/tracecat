@@ -241,7 +241,40 @@ class WorkflowExecutionsService:
                     source.action_result = get_result(event)
                 if is_error_event(event):
                     source.action_error = EventFailure.from_history_event(event)
-        return list(id2event.values())
+        # For the resultant values, if there are duplicate source action_refs,
+        #  we should merge them into a single event.
+        finalRef2events: dict[str, WorkflowExecutionEventCompact] = {}
+        for event in id2event.values():
+            if event.action_ref in finalRef2events:
+                group_event = finalRef2events[event.action_ref]
+                group_event.child_wf_count += 1
+                # Take the min start time
+                if group_event.start_time and event.start_time:
+                    group_event.start_time = min(
+                        group_event.start_time, event.start_time
+                    )
+                if group_event.schedule_time and event.schedule_time:
+                    group_event.schedule_time = min(
+                        group_event.schedule_time, event.schedule_time
+                    )
+                if group_event.close_time and event.close_time:
+                    group_event.close_time = max(
+                        group_event.close_time, event.close_time
+                    )
+                if group_event.action_result and isinstance(
+                    group_event.action_result, list
+                ):
+                    group_event.action_result.append(event.action_result)
+
+            else:
+                finalRef2events[event.action_ref] = event
+                # Turn the action_result into a list of results
+                if event.action_result is not None:
+                    finalRef2events[event.action_ref].action_result = [
+                        event.action_result
+                    ]
+        #
+        return list(finalRef2events.values())
 
     async def list_workflow_execution_events(
         self,
