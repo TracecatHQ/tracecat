@@ -302,17 +302,16 @@ export function JsonViewWithControls({
                 node: unknown,
                 nodeMeta: NodeMeta | undefined
               ) => {
-                const { parentPath, indexOrName } = nodeMeta || {}
-                const copyValue = buildJsonPath(
-                  parentPath ?? [],
-                  indexOrName ? String(indexOrName) : undefined,
-                  copyPrefix
-                )
+                const { currentPath } = nodeMeta || {}
+                const copyValue = buildJsonPath(currentPath || [], copyPrefix)
 
                 toast({
                   title: "Copied JSONPath to clipboard",
                   description: (
-                    <Badge variant="secondary" className="text-xs font-normal">
+                    <Badge
+                      variant="secondary"
+                      className="bg-muted-foreground/10 font-mono text-xs font-normal tracking-tight"
+                    >
                       {copyValue}
                     </Badge>
                   ),
@@ -327,24 +326,17 @@ export function JsonViewWithControls({
   )
 }
 
-function buildJsonPath(
-  parentPaths: string[],
-  indexOrName?: string,
-  prefix?: string
-): string | undefined {
+function buildJsonPath(path: string[], prefix?: string): string | undefined {
   // Combine the arrays
-  if (parentPaths.length === 0 && !indexOrName && !prefix) {
+  if (path.length === 0 && !prefix) {
     return undefined
   }
   const allSegments = []
   if (prefix) {
     allSegments.push(prefix)
   }
-  if (parentPaths.length > 0) {
-    allSegments.push(...parentPaths)
-  }
-  if (indexOrName) {
-    allSegments.push(indexOrName)
+  if (path.length > 0) {
+    allSegments.push(...path)
   }
   return allSegments.reduce((path, segment, index) => {
     // Convert segment to string for type safety
