@@ -22,22 +22,24 @@ def extract_ip_addresses(
         str | list[str],
         Field(..., description="Text or list of text to extract IP addresses from"),
     ],
+    ip_version: int | None = None,
 ) -> list[str]:
     """Extract unique IPv4 and IPv6 addresses from a list of strings."""
 
     if isinstance(texts, str):
         texts = [texts]
 
-    ip_addresses = itertools.chain.from_iterable(
+    ip_candidates = itertools.chain.from_iterable(
         re.findall(IPV4_REGEX, text) + re.findall(IPV6_REGEX, text, re.IGNORECASE) for text in texts
     )
 
     # Validate IP addresses
     valid_ips = set()
-    for ip in ip_addresses:
+    for ip in ip_candidates:
         try:
             ip_obj = ipaddress.ip_address(ip)
-            valid_ips.add(str(ip_obj))
+            if ip_version is None or ip_obj.version == ip_version:
+                valid_ips.add(str(ip_obj))
         except ValueError:
             continue  # Skip invalid IP addresses
 
