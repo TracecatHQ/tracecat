@@ -599,6 +599,44 @@ export type RegistryActionRead = {
   readonly is_template: boolean
 }
 
+/**
+ * API minimal read model for a registered action.
+ */
+export type RegistryActionReadMinimal = {
+  /**
+   * The name of the action
+   */
+  name: string
+  /**
+   * The description of the action
+   */
+  description: string
+  /**
+   * The namespace of the action
+   */
+  namespace: string
+  /**
+   * The type of the action
+   */
+  type: "udf" | "template"
+  /**
+   * The origin of the action as a url
+   */
+  origin: string
+  /**
+   * The default title of the action
+   */
+  default_title?: string | null
+  /**
+   * The presentation group of the action
+   */
+  display_group?: string | null
+  /**
+   * The full action identifier.
+   */
+  readonly action: string
+}
+
 export type RegistryActionTemplateImpl_Input = {
   type?: "template"
   /**
@@ -2115,7 +2153,7 @@ export type RegistryRepositoriesDeleteRegistryRepositoryData = {
 export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void
 
 export type RegistryActionsListRegistryActionsResponse =
-  Array<RegistryActionRead>
+  Array<RegistryActionReadMinimal>
 
 export type RegistryActionsCreateRegistryActionData = {
   requestBody: RegistryActionCreate
@@ -3293,7 +3331,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<RegistryActionRead>
+        200: Array<RegistryActionReadMinimal>
       }
     }
     post: {

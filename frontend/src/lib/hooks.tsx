@@ -26,6 +26,7 @@ import {
   OrgMemberRead,
   RegistryActionCreate,
   RegistryActionRead,
+  RegistryActionReadMinimal,
   registryActionsCreateRegistryAction,
   registryActionsDeleteRegistryAction,
   RegistryActionsDeleteRegistryActionData,
@@ -974,14 +975,16 @@ export function useWorkbenchRegistryActions(versions?: string[]) {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
-  } = useQuery<RegistryActionRead[]>({
+  } = useQuery<RegistryActionReadMinimal[]>({
     queryKey: ["workbench_registry_actions", versions],
     queryFn: async () => {
       return await registryActionsListRegistryActions()
     },
   })
 
-  const getRegistryAction = (key: string): RegistryActionRead | undefined => {
+  const getRegistryAction = (
+    key: string
+  ): RegistryActionReadMinimal | undefined => {
     return registryActions?.find((action) => action.action === key)
   }
 
@@ -991,6 +994,26 @@ export function useWorkbenchRegistryActions(versions?: string[]) {
     registryActionsError,
     getRegistryAction,
   }
+}
+
+export function useGetRegistryAction(actionName?: string) {
+  const {
+    data: registryAction,
+    isLoading: registryActionIsLoading,
+    error: registryActionError,
+  } = useQuery<RegistryActionRead | undefined>({
+    queryKey: ["registry_action", actionName],
+    queryFn: async () => {
+      if (!actionName) {
+        return undefined
+      }
+      return await registryActionsGetRegistryAction({
+        actionName,
+      })
+    },
+  })
+
+  return { registryAction, registryActionIsLoading, registryActionError }
 }
 
 // This is for the action panel in the workbench
@@ -1018,18 +1041,12 @@ export function useRegistryActions(versions?: string[]) {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
-  } = useQuery<RegistryActionRead[]>({
+  } = useQuery<RegistryActionReadMinimal[]>({
     queryKey: ["registry_actions", versions],
     queryFn: async () => {
       return await registryActionsListRegistryActions()
     },
   })
-
-  const getRegistryAction = (
-    actionName: string
-  ): RegistryActionRead | undefined => {
-    return registryActions?.find((action) => action.action === actionName)
-  }
 
   const {
     mutateAsync: createRegistryAction,
@@ -1143,7 +1160,6 @@ export function useRegistryActions(versions?: string[]) {
     registryActions,
     registryActionsIsLoading,
     registryActionsError,
-    getRegistryAction,
     createRegistryAction,
     createRegistryActionIsPending,
     createRegistryActionError,
