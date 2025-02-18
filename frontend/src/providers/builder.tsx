@@ -44,8 +44,8 @@ interface ReactFlowContextType {
   toggleSidebar: () => void
   toggleActionPanel: () => void
   expandSidebarAndFocusEvents: () => void
-  selectedNodeEventId?: string
-  setSelectedNodeEventId: React.Dispatch<SetStateAction<string | undefined>>
+  selectedActionEventRef?: string
+  setSelectedActionEventRef: React.Dispatch<SetStateAction<string | undefined>>
 }
 
 const ReactFlowInteractionsContext = createContext<
@@ -63,7 +63,7 @@ export const WorkflowBuilderProvider: React.FC<
   const { workspaceId, workflowId, error, updateWorkflow } = useWorkflow()
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  const [selectedNodeEventId, setSelectedNodeEventId] = useState<
+  const [selectedActionEventRef, setSelectedActionEventRef] = useState<
     string | undefined
   >(undefined)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
@@ -145,12 +145,12 @@ export const WorkflowBuilderProvider: React.FC<
       workflowId,
       workspaceId,
       selectedNodeId,
-      selectedNodeEventId,
+      selectedActionEventRef,
       getNode: reactFlowInstance.getNode,
       setNodes: setReactFlowNodes,
       setEdges: setReactFlowEdges,
       setSelectedNodeId,
-      setSelectedNodeEventId,
+      setSelectedActionEventRef,
       reactFlow: reactFlowInstance,
       canvasRef,
       sidebarRef,
@@ -169,8 +169,8 @@ export const WorkflowBuilderProvider: React.FC<
       setReactFlowNodes,
       setReactFlowEdges,
       setSelectedNodeId,
-      selectedNodeEventId,
-      setSelectedNodeEventId,
+      selectedActionEventRef,
+      setSelectedActionEventRef,
       canvasRef,
       sidebarRef,
       isSidebarCollapsed,

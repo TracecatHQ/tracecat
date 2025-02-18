@@ -70,7 +70,7 @@ export default React.memo(function ActionNode({
     workspaceId,
     reactFlow,
     sidebarRef,
-    setSelectedNodeEventId,
+    setSelectedActionEventRef,
   } = useWorkflowBuilder()
   const { toast } = useToast()
   // SAFETY: Node only exists if it's in the workflow
@@ -223,7 +223,7 @@ export default React.memo(function ActionNode({
                     onClick={(e) => {
                       e.stopPropagation()
                       sidebarRef.current?.setActiveTab("action-input")
-                      setSelectedNodeEventId(action.id)
+                      setSelectedActionEventRef(slugify(action.title))
                     }}
                   >
                     <LayoutListIcon className="mr-2 size-4" />
@@ -233,7 +233,7 @@ export default React.memo(function ActionNode({
                     onClick={(e) => {
                       e.stopPropagation()
                       sidebarRef.current?.setActiveTab("action-result")
-                      setSelectedNodeEventId(action.id)
+                      setSelectedActionEventRef(slugify(action.title))
                     }}
                   >
                     <CircleCheckBigIcon className="mr-2 size-4" />
