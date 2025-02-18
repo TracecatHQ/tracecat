@@ -7,6 +7,7 @@ from tracecat_registry.base.core.transform import (
     filter,
     is_in,
     is_not_in,
+    map,
     unique,
 )
 
@@ -59,6 +60,50 @@ def test_filter(items: list[Any], python_lambda: str, expected: list[Any]) -> No
 @pytest.mark.parametrize(
     "input,python_lambda,expected",
     [
+        # Basic transformations
+        (1, "lambda x: x + 1", 2),
+        ("hello", "lambda x: x.upper()", "HELLO"),
+        # JSON/dict transformations
+        (
+            {"ip": "192.168.1.1", "severity": "low"},
+            "lambda x: {**x, 'severity': x['severity'].upper()}",
+            {"ip": "192.168.1.1", "severity": "LOW"},
+        ),
+        # String formatting for alerts
+        (
+            "suspicious_login",
+            'lambda x: f\'ALERT: {x.replace("_", " ").title()}\'',
+            "ALERT: Suspicious Login",
+        ),
+        # Timestamp conversions
+        (
+            "2024-03-14T12:00:00Z",
+            "lambda x: x.replace('T', ' ').replace('Z', ' UTC')",
+            "2024-03-14 12:00:00 UTC",
+        ),
+        # Risk score normalization
+        (75, "lambda x: 'High' if x >= 70 else 'Medium' if x >= 40 else 'Low'", "High"),
+        # Hash formatting
+        (
+            "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
+            "lambda x: x[:8] + '...' + x[-8:]",
+            "5e884898...1d1542d8",
+        ),
+        # Network data transformation
+        (
+            {"source_ip": "10.0.0.1", "dest_port": "443"},
+            "lambda x: f\"{x['source_ip']}:{x['dest_port']}\"",
+            "10.0.0.1:443",
+        ),
+    ],
+)
+def test_apply(input: Any, python_lambda: str, expected: Any) -> None:
+    assert apply(input, python_lambda) == expected
+
+
+@pytest.mark.parametrize(
+    "input,python_lambda,expected",
+    [
         # Test string format
         (["a", "b", "c"], "lambda x: f'field:{x}'", ["field:a", "field:b", "field:c"]),
         # Test arithmetic
@@ -105,8 +150,8 @@ def test_filter(items: list[Any], python_lambda: str, expected: list[Any]) -> No
         ),
     ],
 )
-def test_apply(input: list[Any], python_lambda: str, expected: list[Any]) -> None:
-    assert apply(input, python_lambda) == expected
+def test_map(input: list[Any], python_lambda: str, expected: list[Any]) -> None:
+    assert map(input, python_lambda) == expected
 
 
 @pytest.mark.parametrize(
