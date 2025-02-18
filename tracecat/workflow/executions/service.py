@@ -146,7 +146,7 @@ class WorkflowExecutionsService:
                 legacy_wf_exec_id = f"{legacy_wf_id}:{legacy_ex_id}"
                 parts.append(f"WorkflowId = '{legacy_wf_exec_id}'")
         query = " OR ".join(parts)
-        self.logger.info("Querying executions", query=query)
+        self.logger.debug("Querying executions", query=query)
         it = self._client.list_workflows(query=query)
         return await anext(it, None)
 
