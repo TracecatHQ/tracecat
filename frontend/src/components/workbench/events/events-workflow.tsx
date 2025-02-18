@@ -288,7 +288,7 @@ export function WorkflowEvents({
                           className="flex items-center gap-2 text-xs"
                         >
                           <ScanEyeIcon className="size-4" />
-                          <span>Focus node</span>
+                          <span>Focus Action</span>
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
