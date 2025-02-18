@@ -181,36 +181,59 @@ function ErrorEvent({ failure }: { failure: EventFailure }) {
 }
 
 function flattenObject(
-  obj: Record<string, unknown>,
+  obj: Record<string, unknown> | unknown[],
   prefix = ""
 ): Record<string, unknown> {
+  // Handle root level array
+  if (Array.isArray(obj)) {
+    return obj.reduce((acc: Record<string, unknown>, item, index) => {
+      const arrayPath = `[${index}]`
+      if (typeof item === "object" && item !== null) {
+        Object.assign(
+          acc,
+          flattenObject(
+            item as Record<string, unknown>,
+            prefix ? `${prefix}${arrayPath}` : arrayPath
+          )
+        )
+      } else {
+        acc[prefix ? `${prefix}${arrayPath}` : arrayPath] = item
+      }
+      return acc
+    }, {})
+  }
+
+  // Original object handling
   return Object.keys(obj).reduce((acc: Record<string, unknown>, k: string) => {
-    const pre = prefix.length ? prefix + "." : ""
+    const pre = prefix.length ? `${prefix}.` : ""
+
     if (typeof obj[k] === "object" && obj[k] !== null) {
       if (Array.isArray(obj[k])) {
-        // Handle arrays by flattening each element with index
         ;(obj[k] as unknown[]).forEach((item, index) => {
+          const arrayPath = `${k}[${index}]`
           if (typeof item === "object" && item !== null) {
             Object.assign(
               acc,
               flattenObject(
                 item as Record<string, unknown>,
-                `${pre}${k}[${index}]`
+                pre ? `${pre}${arrayPath}` : arrayPath
               )
             )
           } else {
-            acc[`${pre}${k}[${index}]`] = item
+            acc[pre ? `${pre}${arrayPath}` : arrayPath] = item
           }
         })
       } else {
-        // Handle nested objects
         Object.assign(
           acc,
-          flattenObject(obj[k] as Record<string, unknown>, pre + k)
+          flattenObject(
+            obj[k] as Record<string, unknown>,
+            pre ? `${pre}${k}` : k
+          )
         )
       }
     } else {
-      acc[pre + k] = obj[k]
+      acc[pre ? `${pre}${k}` : k] = obj[k]
     }
     return acc
   }, {})
@@ -326,6 +349,9 @@ export function JsonViewWithControls({
   )
 }
 
+function isNumeric(str: string): boolean {
+  return /^\d+$/.test(str)
+}
 function buildJsonPath(path: string[], prefix?: string): string | undefined {
   // Combine the arrays
   if (path.length === 0 && !prefix) {
@@ -341,13 +367,14 @@ function buildJsonPath(path: string[], prefix?: string): string | undefined {
   return allSegments.reduce((path, segment, index) => {
     // Convert segment to string for type safety
     const currentSegment = String(segment)
-    // Check if the segment is numeric
-    const isNumeric = /^\d+$/.test(currentSegment)
 
     // Handle different cases
-    if (isNumeric) {
+    if (isNumeric(currentSegment)) {
       // For numeric segments, use bracket notation
       return `${path}[${currentSegment}]`
+    } else if (currentSegment.startsWith("[")) {
+      // For array segments, use bracket notation
+      return `${path}${currentSegment}`
     } else {
       // For string segments, use dot notation unless it's the first segment
       return index === 0 ? currentSegment : `${path}.${currentSegment}`
