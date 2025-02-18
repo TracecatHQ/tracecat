@@ -4341,6 +4341,17 @@ export const $WorkflowExecutionEventCompact = {
       title: "Child Wf Count",
       default: 0,
     },
+    loop_index: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Loop Index",
+    },
   },
   type: "object",
   required: [
