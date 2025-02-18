@@ -8,27 +8,28 @@ from pydantic import Field
 from tracecat_registry import registry
 
 IPV4_REGEX = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
+IPV6_REGEX = r"\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b"
 
 
 @registry.register(
-    default_title="Extract IPv4 addresses",
-    description="Extract unique IPv4 addresses from a list of strings.",
+    default_title="Extract IP addresses",
+    description="Extract unique IPv4 and IPv6 addresses from a list of strings.",
     namespace="etl.extraction",
     display_group="Data Extraction",
 )
-def extract_ipv4_addresses(
+def extract_ip_addresses(
     texts: Annotated[
         str | list[str],
         Field(..., description="Text or list of text to extract IP addresses from"),
     ],
 ) -> list[str]:
-    """Extract unique IPv4 addresses from a list of strings."""
+    """Extract unique IPv4 and IPv6 addresses from a list of strings."""
 
     if isinstance(texts, str):
         texts = [texts]
 
     ip_addresses = itertools.chain.from_iterable(
-        re.findall(IPV4_REGEX, text) for text in texts
+        re.findall(IPV4_REGEX, text) + re.findall(IPV6_REGEX, text, re.IGNORECASE) for text in texts
     )
 
     # Validate IP addresses
@@ -36,8 +37,7 @@ def extract_ipv4_addresses(
     for ip in ip_addresses:
         try:
             ip_obj = ipaddress.ip_address(ip)
-            if ip_obj.version == 4:
-                valid_ips.add(str(ip_obj))
+            valid_ips.add(str(ip_obj))
         except ValueError:
             continue  # Skip invalid IP addresses
 
