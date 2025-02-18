@@ -352,9 +352,9 @@ class RegistryActionRead(RegistryActionBase):
         action: RegistryAction, extra_secrets: list[RegistrySecret] | None = None
     ) -> RegistryActionRead:
         impl = RegistryActionImplValidator.validate_python(action.implementation)
-        secrets = [RegistrySecret(**secret) for secret in action.secrets or []]
+        secrets = {RegistrySecret(**secret) for secret in action.secrets or []}
         if extra_secrets:
-            secrets.extend(extra_secrets)
+            secrets.update(extra_secrets)
         return RegistryActionRead(
             repository_id=action.repository_id,
             name=action.name,
@@ -370,7 +370,7 @@ class RegistryActionRead(RegistryActionBase):
             display_group=action.display_group,
             origin=action.origin,
             options=RegistryActionOptions(**action.options),
-            secrets=secrets,
+            secrets=sorted(secrets, key=lambda x: x.name),
         )
 
 
