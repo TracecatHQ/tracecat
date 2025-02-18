@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState } from "react"
-import { RegistryActionRead } from "@/client"
+import { RegistryActionReadMinimal } from "@/client"
 
 import { useRegistryActions } from "@/lib/hooks"
 import {
@@ -23,8 +23,8 @@ export function DeleteRegistryActionAlertDialog({
   setSelectedAction,
   children,
 }: React.PropsWithChildren<{
-  selectedAction: RegistryActionRead | null
-  setSelectedAction: (selectedAction: RegistryActionRead | null) => void
+  selectedAction: RegistryActionReadMinimal | null
+  setSelectedAction: (selectedAction: RegistryActionReadMinimal | null) => void
 }>) {
   const { deleteRegistryAction } = useRegistryActions()
   const [confirmationInput, setConfirmationInput] = useState<string>("")
