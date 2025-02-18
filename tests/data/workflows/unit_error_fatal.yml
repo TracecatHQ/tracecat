@@ -26,10 +26,9 @@ actions:
         valid: ${{ INPUTS.valid }}
 
   - ref: b
-    action: example.add
+    action: core.transform.reshape
     depends_on:
       - a
     args:
       # This should fail
-      lhs: ${{ ACTIONS.a.result.invalid }}
-      rhs: ${{ INPUTS.value.another_valid }}
+      value: ${{ int(ACTIONS.a.result.invalid) + int(INPUTS.value.another_valid) }}
