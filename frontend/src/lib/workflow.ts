@@ -1,7 +1,5 @@
-import { WorkflowRead } from "@/client"
 import { ReactFlowInstance } from "reactflow"
 
-import { slugify } from "@/lib/utils"
 import { isEphemeral } from "@/components/workbench/canvas/canvas"
 
 export const CHILD_WORKFLOW_ACTION_TYPE = "core.workflow.execute" as const
@@ -31,13 +29,4 @@ export function pruneGraphObject(reactFlowInstance: ReactFlowInstance) {
     throw new Error("Workflow cannot be saved without a trigger node")
   }
   return object
-}
-export function ref2id(
-  ref: string,
-  workflow: WorkflowRead | null
-): string | undefined {
-  const action = Object.values(workflow?.actions || {}).find(
-    (act) => slugify(act.title) === ref
-  )
-  return action?.id
 }
