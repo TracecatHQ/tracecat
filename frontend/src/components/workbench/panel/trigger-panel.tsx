@@ -231,9 +231,6 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
             <TableHead className="text-xs font-semibold">Interval</TableHead>
             <TableHead className="text-xs font-semibold">Status</TableHead>
             <TableHead className="text-xs font-semibold">Timeout</TableHead>
-            <TableHead className="pr-3 text-right text-xs font-semibold">
-              Actions
-            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
