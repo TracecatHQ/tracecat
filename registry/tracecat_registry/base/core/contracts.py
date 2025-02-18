@@ -6,11 +6,11 @@ from tracecat_registry import registry
 
 
 @registry.register(
-    default_title="Ensure",
-    description="Check a condition. Returns `True` if the condition is true, otherwise raises `AssertionError`.",
+    default_title="Require Condition",
+    description="Check a condition. Raises `AssertionError` if the condition is false. Returns `True` if the condition is true.",
     namespace="core",
 )
-def ensure(
+def require(
     lhs: Annotated[Any, Doc("Left hand side of the condition.")],
     rhs: Annotated[Any, Doc("Right hand side of the condition.")],
     condition: Annotated[
