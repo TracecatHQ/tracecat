@@ -22,7 +22,10 @@ import {
   WorkflowEventsHeader,
 } from "@/components/workbench/events/events-workflow"
 
-export type EventsSidebarTabs = "workflow-events" | "action-event"
+export type EventsSidebarTabs =
+  | "workflow-events"
+  | "action-input"
+  | "action-result"
 /**
  * Interface for controlling the events sidebar through a ref
  */
