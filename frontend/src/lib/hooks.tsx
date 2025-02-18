@@ -566,11 +566,7 @@ export function useManualWorkflowExecution(
       onSuccess: async () => {
         // NOTE(daryl): This is a hack to ensure that the last execution is refetched
         // and the UI is updated.
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        await queryClient.refetchQueries({
-          queryKey: ["last-manual-execution"],
-          type: "all",
-        })
+        await new Promise((resolve) => setTimeout(resolve, 200))
         await queryClient.refetchQueries({
           queryKey: ["last-manual-execution"],
           type: "all",
