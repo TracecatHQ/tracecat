@@ -192,17 +192,6 @@ class WorkflowExecutionsService:
         # Position -> WFECompact
         id2event: OrderedDict[int, WorkflowExecutionEventCompact] = OrderedDict()
 
-        """
-        Objective:
-        - Organize individual events into a linear sequence of events
-        - The data shape should be as close to what we want the UI to display
-
-        Logic:
-        1. If we get a scheduled event, add to the OD as a source event
-        2. If we get a start event, find and update the status of the source event
-        3. If we get a close event, find and update the status of the source event
-        """
-
         async for event in self.handle(wf_exec_id).fetch_history_events(**kwargs):
             if is_scheduled_event(event):
                 # Create a new source event
@@ -215,7 +204,7 @@ class WorkflowExecutionsService:
                     continue
                 id2event[event.event_id] = source
             else:
-                logger.trace("Processing event", event_id=event.event_type)
+                logger.trace("Processing event", event_type=event.event_type)
                 source_id = get_source_event_id(event)
                 if source_id is None:
                     logger.trace(
@@ -265,15 +254,18 @@ class WorkflowExecutionsService:
                     group_event.action_result, list
                 ):
                     group_event.action_result.append(event.action_result)
-
             else:
                 finalRef2events[event.action_ref] = event
-                # Turn the action_result into a list of results
-                if event.action_result is not None:
+                # There's an edge case where a direct child wf invocation and a single looped child wf invocation
+                # is ambiguous - how do we tell whether we should wrap the result in a list or not?
+                # We use Temporal memo to store the loop index, so we can detect this case
+                # If the loop index is None, it means it was a direct child wf invocation
+                # Otherwise, it was a looped child wf invocation
+                if event.loop_index is not None:
                     finalRef2events[event.action_ref].action_result = [
                         event.action_result
                     ]
-        #
+
         return list(finalRef2events.values())
 
     async def list_workflow_execution_events(

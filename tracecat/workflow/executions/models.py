@@ -286,6 +286,7 @@ class WorkflowExecutionEventCompact(BaseModel):
     action_error: EventFailure | None = None
     child_wf_exec_id: WorkflowExecutionID | None = None
     child_wf_count: int = 0
+    loop_index: int | None = None
 
     @staticmethod
     def from_source_event(
@@ -366,6 +367,7 @@ class WorkflowExecutionEventCompact(BaseModel):
             action_ref=memo.action_ref,
             action_input=dsl_run_args.trigger_inputs,
             child_wf_exec_id=wf_exec_id,
+            loop_index=memo.loop_index,
         )
 
 
