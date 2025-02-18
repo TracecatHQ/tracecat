@@ -1,12 +1,14 @@
 "use client"
 
-import React from "react"
+import React, { useMemo } from "react"
 import {
   EventFailure,
   WorkflowExecutionEventCompact,
   WorkflowExecutionReadCompact,
+  WorkflowRead,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkflow } from "@/providers/workflow"
 import { CheckCheckIcon, CircleDot, CopyIcon, LoaderIcon } from "lucide-react"
 import JsonView from "react18-json-view"
 import { NodeMeta } from "react18-json-view/dist/types"
@@ -14,6 +16,14 @@ import { NodeMeta } from "react18-json-view/dist/types"
 import { useAction } from "@/lib/hooks"
 import { cn, slugify } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -27,6 +37,15 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { getWorkflowEventIcon } from "@/components/workbench/events/events-workflow"
 
+function ref2id(
+  ref: string,
+  workflow: WorkflowRead | null
+): string | undefined {
+  const action = Object.values(workflow?.actions || {}).find(
+    (act) => slugify(act.title) === ref
+  )
+  return action?.id
+}
 export function ActionEvent({
   execution,
   type,
@@ -34,47 +53,66 @@ export function ActionEvent({
   execution: WorkflowExecutionReadCompact
   type: "input" | "result"
 }) {
-  const { workflowId, selectedNodeId, getNode, workspaceId } =
-    useWorkflowBuilder()
-  const node = getNode(selectedNodeId ?? "")
+  const {
+    workflowId,
+    selectedNodeEventId,
+    setSelectedNodeEventId,
+    workspaceId,
+  } = useWorkflowBuilder()
+  const { workflow } = useWorkflow()
+  const selectedNodeEventRef = useMemo(() => {
+    return selectedNodeEventId
+      ? slugify(workflow?.actions[selectedNodeEventId]?.title || "")
+      : undefined
+  }, [selectedNodeEventId, workflow])
+
   if (!workflowId)
     return <AlertNotification level="error" message="No workflow in context" />
-  if (selectedNodeId && !node) {
-    return (
-      <AlertNotification
-        level="error"
-        message={`Node ${selectedNodeId} not found`}
-      />
-    )
-  }
-  if (!node) {
-    return (
-      <div className="flex items-center justify-center p-4 text-xs text-muted-foreground">
-        No action node selected.
-      </div>
-    )
-  }
-  if (node.type !== "udf") {
-    const capitalizedType = node.type
-      ? node.type[0].toUpperCase() + node.type.slice(1)
-      : "Unknown"
-    return (
-      <div className="flex flex-col  items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-        <span>{capitalizedType} node does not support viewing events.</span>
-        <span>Please select an action node instead.</span>
-      </div>
-    )
-  }
+
   return (
-    <div className="p-4">
-      <ActionEventDetails
-        actionId={node.id}
-        workflowId={workflowId}
-        workspaceId={workspaceId}
-        status={execution.status}
-        events={execution.events}
-        type={type}
-      />
+    <div className="flex flex-col gap-4 p-4">
+      <Select
+        value={selectedNodeEventRef}
+        onValueChange={(actionRef: string | undefined) => {
+          if (!actionRef) {
+            setSelectedNodeEventId(undefined)
+          } else {
+            const id = ref2id(actionRef, workflow)
+            if (id) {
+              setSelectedNodeEventId(id)
+            }
+          }
+        }}
+      >
+        <SelectTrigger className="h-8 text-xs text-foreground/70 focus:ring-0 focus:ring-offset-0">
+          <SelectValue placeholder="Select an event" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {execution.events.map((event) => (
+              <SelectItem
+                key={event.action_ref}
+                value={event.action_ref}
+                className="max-h-8 py-1 text-xs"
+              >
+                {event.action_ref}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      <div>
+        {selectedNodeEventId && (
+          <ActionEventDetails
+            actionId={selectedNodeEventId}
+            workflowId={workflowId}
+            workspaceId={workspaceId}
+            status={execution.status}
+            events={execution.events}
+            type={type}
+          />
+        )}
+      </div>
     </div>
   )
 }

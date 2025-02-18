@@ -8,6 +8,7 @@ import {
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
+import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   AlarmClockCheckIcon,
   AlarmClockOffIcon,
@@ -20,6 +21,7 @@ import {
   CircleX,
   Loader2,
   LoaderIcon,
+  ScanEyeIcon,
   SquareArrowOutUpRightIcon,
   WorkflowIcon,
 } from "lucide-react"
@@ -27,6 +29,14 @@ import {
 import { executionId } from "@/lib/event-history"
 import { cn, slugify, undoSlugify } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Table,
@@ -176,34 +186,46 @@ export function WorkflowEvents({
 }: {
   events: WorkflowExecutionEventCompact[]
 }) {
-  const { selectedNodeId, setSelectedNodeId, setNodes, canvasRef } =
+  const { selectedNodeEventId, setSelectedNodeEventId, setNodes, canvasRef } =
     useWorkflowBuilder()
   const { workflow } = useWorkflow()
 
+  const centerNode = useCallback((actionRef: string) => {
+    const action = Object.values(workflow?.actions || {}).find(
+      (act) => slugify(act.title) === actionRef
+    )
+    const id = action?.id
+    if (id) {
+      setNodes((nodes) =>
+        nodes.map((node) => ({
+          ...node,
+          selected: Boolean(node.id === action.id),
+        }))
+      )
+      canvasRef.current?.centerOnNode(id)
+    }
+  }, [])
   const handleRowClick = useCallback(
     (actionRef: string) => {
-      setSelectedNodeId(actionRef)
       const action = Object.values(workflow?.actions || {}).find(
         (act) => slugify(act.title) === actionRef
       )
-      if (action) {
-        console.log("action", action, canvasRef.current)
-        const id = action.id
-        setSelectedNodeId(id)
-        setNodes((nodes) =>
-          nodes.map((node) => ({ ...node, selected: Boolean(node.id === id) }))
-        )
-        canvasRef.current?.centerOnNode(id)
+      const id = action?.id
+      if (!id) return
+      if (selectedNodeEventId === id) {
+        setSelectedNodeEventId(undefined)
+      } else {
+        setSelectedNodeEventId(id)
       }
     },
-    [setSelectedNodeId, workflow, canvasRef.current]
+    [selectedNodeEventId, setSelectedNodeEventId, workflow, canvasRef.current]
   )
 
   const selectedNodeRef = useMemo(() => {
-    return selectedNodeId
-      ? slugify(workflow?.actions[selectedNodeId]?.title || "")
+    return selectedNodeEventId
+      ? slugify(workflow?.actions[selectedNodeEventId]?.title || "")
       : null
-  }, [selectedNodeId, workflow])
+  }, [selectedNodeEventId, workflow])
 
   return (
     <ScrollArea className="p-4 pt-0">
@@ -251,6 +273,30 @@ export function WorkflowEvents({
                         ? new Date(event.start_time).toLocaleTimeString()
                         : "-"}
                     </Badge>
+                  </TableCell>
+                  <TableCell className="max-w-10 text-xs">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button className="size-6 p-0" variant="ghost">
+                          <DotsHorizontalIcon className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel className="py-0 text-xs text-muted-foreground">
+                          Actions
+                        </DropdownMenuLabel>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            centerNode(event.action_ref)
+                          }}
+                          className="flex items-center gap-2 text-xs"
+                        >
+                          <ScanEyeIcon className="size-4" />
+                          <span>Focus node</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))
