@@ -474,6 +474,7 @@ class RegistryActionUpdate(BaseModel):
             author=action.author,
             deprecated=action.deprecated,
             options=RegistryActionOptions(include_in_schema=action.include_in_schema),
+            secrets=action.secrets,
         )
 
 
