@@ -36,6 +36,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -283,6 +284,7 @@ export function WorkflowEvents({
                         <DropdownMenuLabel className="py-0 text-xs text-muted-foreground">
                           Actions
                         </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation()
