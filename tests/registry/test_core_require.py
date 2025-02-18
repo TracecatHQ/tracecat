@@ -1,5 +1,5 @@
 import pytest
-from tracecat_registry.base.core.contracts import require
+from tracecat_registry.base.core.require import require
 
 
 @pytest.mark.parametrize(
