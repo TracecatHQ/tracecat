@@ -310,6 +310,28 @@ class RegistryActionBase(BaseModel):
     repository_id: UUID4 = Field(..., description="The repository id")
 
 
+class RegistryActionReadMinimal(BaseModel):
+    """API minimal read model for a registered action."""
+
+    name: str = Field(..., description="The name of the action")
+    description: str = Field(..., description="The description of the action")
+    namespace: str = Field(..., description="The namespace of the action")
+    type: RegistryActionType = Field(..., description="The type of the action")
+    origin: str = Field(..., description="The origin of the action as a url")
+    default_title: str | None = Field(
+        None, description="The default title of the action"
+    )
+    display_group: str | None = Field(
+        None, description="The presentation group of the action"
+    )
+
+    @computed_field(return_type=str)
+    @property
+    def action(self) -> str:
+        """The full action identifier."""
+        return f"{self.namespace}.{self.name}"
+
+
 class RegistryActionRead(RegistryActionBase):
     """API read model for a registered action."""
 

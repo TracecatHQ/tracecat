@@ -1800,6 +1800,71 @@ export const $RegistryActionRead = {
   description: "API read model for a registered action.",
 } as const
 
+export const $RegistryActionReadMinimal = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+      description: "The name of the action",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+      description: "The description of the action",
+    },
+    namespace: {
+      type: "string",
+      title: "Namespace",
+      description: "The namespace of the action",
+    },
+    type: {
+      type: "string",
+      enum: ["udf", "template"],
+      title: "Type",
+      description: "The type of the action",
+    },
+    origin: {
+      type: "string",
+      title: "Origin",
+      description: "The origin of the action as a url",
+    },
+    default_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Title",
+      description: "The default title of the action",
+    },
+    display_group: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Group",
+      description: "The presentation group of the action",
+    },
+    action: {
+      type: "string",
+      title: "Action",
+      description: "The full action identifier.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["name", "description", "namespace", "type", "origin", "action"],
+  title: "RegistryActionReadMinimal",
+  description: "API minimal read model for a registered action.",
+} as const
+
 export const $RegistryActionTemplateImpl_Input = {
   properties: {
     type: {
