@@ -28,6 +28,7 @@ import {
 
 import { executionId } from "@/lib/event-history"
 import { cn, slugify, undoSlugify } from "@/lib/utils"
+import { ref2id } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -207,10 +208,7 @@ export function WorkflowEvents({
   }, [])
   const handleRowClick = useCallback(
     (actionRef: string) => {
-      const action = Object.values(workflow?.actions || {}).find(
-        (act) => slugify(act.title) === actionRef
-      )
-      const id = action?.id
+      const id = ref2id(actionRef, workflow)
       if (!id) return
       if (selectedNodeEventId === id) {
         setSelectedNodeEventId(undefined)

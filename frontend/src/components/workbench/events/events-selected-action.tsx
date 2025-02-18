@@ -5,7 +5,6 @@ import {
   EventFailure,
   WorkflowExecutionEventCompact,
   WorkflowExecutionReadCompact,
-  WorkflowRead,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -15,6 +14,7 @@ import { NodeMeta } from "react18-json-view/dist/types"
 
 import { useAction } from "@/lib/hooks"
 import { cn, slugify } from "@/lib/utils"
+import { ref2id } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import {
   Select,
@@ -37,15 +37,6 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { getWorkflowEventIcon } from "@/components/workbench/events/events-workflow"
 
-function ref2id(
-  ref: string,
-  workflow: WorkflowRead | null
-): string | undefined {
-  const action = Object.values(workflow?.actions || {}).find(
-    (act) => slugify(act.title) === ref
-  )
-  return action?.id
-}
 export function ActionEvent({
   execution,
   type,
