@@ -19,6 +19,7 @@ import {
   CircleMinusIcon,
   CirclePlayIcon,
   CircleX,
+  EyeOffIcon,
   Loader2,
   LoaderIcon,
   ScanEyeIcon,
@@ -221,6 +222,16 @@ export function WorkflowEvents({
     [selectedActionEventRef, setSelectedActionEventRef]
   )
 
+  const isActionRefValid = useCallback(
+    (actionRef: string) => {
+      const action = Object.values(workflow?.actions || {}).find(
+        (act) => slugify(act.title) === actionRef
+      )
+      return action !== undefined
+    },
+    [workflow]
+  )
+
   return (
     <ScrollArea className="p-4 pt-0">
       <div className="rounded-md border">
@@ -281,13 +292,19 @@ export function WorkflowEvents({
                         </DropdownMenuLabel>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
+                          // Disable if the action reference is not present in the current workflow
+                          disabled={!isActionRefValid(event.action_ref)}
                           onClick={(e) => {
                             e.stopPropagation()
                             centerNode(event.action_ref)
                           }}
                           className="flex items-center gap-2 text-xs"
                         >
-                          <ScanEyeIcon className="size-4" />
+                          {!isActionRefValid(event.action_ref) ? (
+                            <EyeOffIcon className="size-4" />
+                          ) : (
+                            <ScanEyeIcon className="size-4" />
+                          )}
                           <span>Focus Action</span>
                         </DropdownMenuItem>
                       </DropdownMenuContent>
