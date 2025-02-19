@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from pydantic import UUID4, ConfigDict, computed_field
+from pydantic import UUID4, BaseModel, ConfigDict, computed_field
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
@@ -27,11 +27,7 @@ DEFAULT_SA_RELATIONSHIP_KWARGS = {
 }
 
 
-class Resource(SQLModel):
-    """Base class for all resources in the system."""
-
-    surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
-    owner_id: OwnerID
+class TimestampMixin(BaseModel):
     created_at: datetime = Field(
         default_factory=datetime.now,  # Appease type checker
         sa_type=TIMESTAMP(timezone=True),  # type: ignore
@@ -49,6 +45,13 @@ class Resource(SQLModel):
             "nullable": False,
         },
     )
+
+
+class Resource(SQLModel, TimestampMixin):
+    """Base class for all resources in the system."""
+
+    surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
+    owner_id: OwnerID
 
 
 class OAuthAccount(SQLModelBaseOAuthAccount, table=True):
