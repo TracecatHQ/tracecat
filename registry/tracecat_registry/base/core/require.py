@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from typing_extensions import Doc
 
@@ -12,7 +12,7 @@ from tracecat_registry import registry
 )
 def require(
     exprs: Annotated[
-        str | list[str],
+        Any | list[Any],
         Doc(
             "Conditional expression(s) to evaluate. All must be true for the result to be true."
         ),
