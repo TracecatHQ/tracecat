@@ -34,7 +34,8 @@ from tracecat_registry.base.core.require import require
     ],
 )
 def test_require_pass(lhs, rhs, condition):
-    assert require(lhs, rhs, condition) is True
+    expr = f"${{{{ {lhs!r} {condition} {rhs!r} }}}}"
+    assert require(expr) is True
 
 
 @pytest.mark.parametrize(
@@ -77,8 +78,9 @@ def test_require_pass(lhs, rhs, condition):
     ],
 )
 def test_require_fail(lhs, rhs, condition):
+    expr = f"${{{{ {lhs!r} {condition} {rhs!r} }}}}"
     with pytest.raises(AssertionError):
-        require(lhs, rhs, condition)
+        require(expr)
 
 
 @pytest.mark.parametrize(
@@ -113,8 +115,9 @@ def test_require_fail(lhs, rhs, condition):
     ],
 )
 def test_require(lhs, rhs, condition, should_pass):
+    expr = f"${{{{ {lhs!r} {condition} {rhs!r} }}}}"
     if should_pass:
-        assert require(lhs, rhs, condition) is True
+        assert require(expr) is True
     else:
         with pytest.raises(AssertionError):
-            require(lhs, rhs, condition)
+            require(expr)
