@@ -1,5 +1,5 @@
 # TODO: Add require to workflow tests
-# NOTE: We instead test `eval_templated_object` directly to check if binary ops (e.g. ==, !=, >, <, etc.) all work in `unit/test_expressions.py`
+# NOTE: We instead test `eval_templated_object` directly to check if binary ops (e.g. ==, !=, >, <, etc.) all work: `test_expression_binary_ops` in `unit/test_expressions.py`
 # AKA we assume-by-induction that `core.require` works as expected, since `core.require` functions like `core.transform.reshape`.
 
 import pytest
