@@ -44,6 +44,8 @@ interface ReactFlowContextType {
   toggleSidebar: () => void
   toggleActionPanel: () => void
   expandSidebarAndFocusEvents: () => void
+  selectedActionEventRef?: string
+  setSelectedActionEventRef: React.Dispatch<SetStateAction<string | undefined>>
 }
 
 const ReactFlowInteractionsContext = createContext<
@@ -61,6 +63,9 @@ export const WorkflowBuilderProvider: React.FC<
   const { workspaceId, workflowId, error, updateWorkflow } = useWorkflow()
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [selectedActionEventRef, setSelectedActionEventRef] = useState<
+    string | undefined
+  >(undefined)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
   const [isActionPanelCollapsed, setIsActionPanelCollapsed] =
     React.useState(false)
@@ -140,10 +145,12 @@ export const WorkflowBuilderProvider: React.FC<
       workflowId,
       workspaceId,
       selectedNodeId,
+      selectedActionEventRef,
       getNode: reactFlowInstance.getNode,
       setNodes: setReactFlowNodes,
       setEdges: setReactFlowEdges,
-      setSelectedNodeId: setSelectedNodeId,
+      setSelectedNodeId,
+      setSelectedActionEventRef,
       reactFlow: reactFlowInstance,
       canvasRef,
       sidebarRef,
@@ -162,6 +169,8 @@ export const WorkflowBuilderProvider: React.FC<
       setReactFlowNodes,
       setReactFlowEdges,
       setSelectedNodeId,
+      selectedActionEventRef,
+      setSelectedActionEventRef,
       canvasRef,
       sidebarRef,
       isSidebarCollapsed,

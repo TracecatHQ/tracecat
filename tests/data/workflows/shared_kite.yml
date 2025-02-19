@@ -32,44 +32,49 @@ triggers:
 # form an execution DAG.
 actions:
   - ref: a
-    action: example.my_function
+    action: core.transform.reshape
     args:
-      name: "name from a"
-      age: 1000000000
-      is_member: true
+      value:
+        name: "name from a"
+        age: 1000000000
+        is_member: true
 
   - ref: b
-    action: example.my_function
+    action: core.transform.reshape
     args:
-      name: "name from b"
-      age: ${{ ACTIONS.a.result.age -> int}}
-      is_member: true
+      value:
+        name: "name from b"
+        age: ${{ ACTIONS.a.result.age -> int}}
+        is_member: true
     depends_on:
       - a
 
   - ref: c
-    action: example.another_function
+    action: core.transform.reshape
     args:
-      name: "name from c"
-      age: 3000000
-      is_member: false
+      value:
+        name: "name from c"
+        age: 3000000
+        is_member: false
     depends_on:
       - a
 
   - ref: d
-    action: example.another_function
+    action: core.transform.reshape
     args:
-      name: "name from d"
-      age: 3000000
-      is_member: false
+      value:
+        name: "name from d"
+        age: 3000000
+        is_member: false
     depends_on:
       - b
       - c
   - ref: e
-    action: example.another_function
+    action: core.transform.reshape
     args:
-      name: "finale name from e"
-      age: 3000000
-      is_member: false
+      value:
+        name: "finale name from e"
+        age: 3000000
+        is_member: false
     depends_on:
       - d

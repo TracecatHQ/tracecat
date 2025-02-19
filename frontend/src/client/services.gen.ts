@@ -2019,7 +2019,7 @@ export const registryRepositoriesDeleteRegistryRepository = (
 /**
  * List Registry Actions
  * List all actions in a registry.
- * @returns RegistryActionRead Successful Response
+ * @returns RegistryActionReadMinimal Successful Response
  * @throws ApiError
  */
 export const registryActionsListRegistryActions =

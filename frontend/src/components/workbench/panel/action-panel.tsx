@@ -37,7 +37,7 @@ import YAML from "yaml"
 import { z } from "zod"
 
 import { RequestValidationError, TracecatApiError } from "@/lib/errors"
-import { useAction, useWorkbenchRegistryActions } from "@/lib/hooks"
+import { useAction, useGetRegistryAction } from "@/lib/hooks"
 import { cn, slugify } from "@/lib/utils"
 import {
   Accordion,
@@ -174,11 +174,8 @@ export function ActionPanel({
     workspaceId,
     workflowId
   )
-  const { getRegistryAction, registryActionsIsLoading } =
-    useWorkbenchRegistryActions()
-  const registryAction = action?.type
-    ? getRegistryAction(action.type)
-    : undefined
+  const { registryAction, registryActionIsLoading, registryActionError } =
+    useGetRegistryAction(action?.type)
   const { for_each, run_if, retry_policy, ...options } =
     action?.control_flow ?? {}
   const methods = useForm<ActionFormSchema>({
@@ -320,10 +317,10 @@ export function ActionPanel({
     return () => document.removeEventListener("keydown", handleKeyDown)
   }, [methods, onSubmit, action])
 
-  if (actionIsLoading || registryActionsIsLoading) {
+  if (actionIsLoading || registryActionIsLoading) {
     return <CenteredSpinner />
   }
-  if (!registryAction) {
+  if (!registryAction || registryActionError) {
     return (
       <div className="flex h-full items-center justify-center space-x-2 p-4">
         <AlertNotification

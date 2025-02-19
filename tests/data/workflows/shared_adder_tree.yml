@@ -24,56 +24,49 @@ triggers:
 
 actions:
   - ref: a
-    action: example.passthrough # NOTE: THIS IS DEFINED IN A PYTEST FIXTURE
+    action: core.transform.reshape # NOTE: THIS IS DEFINED IN A PYTEST FIXTURE
     args:
       value: "1"
 
   - ref: b
-    action: example.add
+    action: core.transform.reshape
     args:
-      # Demonstrate casting
-      lhs: ${{ ACTIONS.a.result -> int }}
-      rhs: 1
+      value: ${{ int(ACTIONS.a.result) + 1 }}
     depends_on:
       - a
 
   - ref: c
-    action: example.add
+    action: core.transform.reshape
     args:
-      lhs: 3
-      rhs: ${{ ACTIONS.a.result -> int }}
+      value: ${{ int(ACTIONS.a.result) + 3 }}
     depends_on:
       - a
 
   - ref: d
-    action: example.add
+    action: core.transform.reshape
     args:
-      lhs: ${{ ACTIONS.b.result -> int }}
-      rhs: ${{ ACTIONS.b.result -> int }}
+      value: ${{ int(ACTIONS.b.result) + int(ACTIONS.b.result) }}
     depends_on:
       - b
 
   - ref: e
-    action: example.add
+    action: core.transform.reshape
     args:
-      lhs: 8
-      rhs: 9
+      value: ${{ int(ACTIONS.b.result) + 8 }}
     depends_on:
       - b
 
   - ref: f
-    action: example.add
+    action: core.transform.reshape
     args:
       # Grab the result from 2 parents above
-      lhs: ${{ ACTIONS.c.result -> int }}
-      rhs: ${{ ACTIONS.c.result -> int }}
+      value: ${{ int(ACTIONS.c.result) + int(ACTIONS.c.result) }}
     depends_on:
       - c
 
   - ref: g
-    action: example.add
+    action: core.transform.reshape
     args:
-      lhs: 9
-      rhs: 10
+      value: ${{ int(ACTIONS.c.result) + 10 }}
     depends_on:
       - c

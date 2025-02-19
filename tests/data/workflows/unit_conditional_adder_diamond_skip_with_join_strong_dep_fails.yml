@@ -32,23 +32,21 @@ triggers:
 
 actions:
   - ref: a
-    action: example.passthrough
+    action: core.transform.reshape
     args:
       value: "1"
 
   - ref: b
-    action: example.add
+    action: core.transform.reshape
     args:
-      lhs: ${{ ACTIONS.a.result -> int }}
-      rhs: 1
+      value: ${{ int(ACTIONS.a.result) + 1 }}
     depends_on:
       - a
 
   - ref: c
-    action: example.add
+    action: core.transform.reshape
     args:
-      lhs: 3
-      rhs: ${{ ACTIONS.a.result -> int }}
+      value: ${{ int(ACTIONS.a.result) + 3 }}
     depends_on:
       - a
     # This expression returns false and the task should not run, as a.result is "1"
@@ -56,10 +54,9 @@ actions:
 
   # This task should still run, as B runs
   - ref: d
-    action: example.add
+    action: core.transform.reshape
     args:
-      lhs: ${{ ACTIONS.c.result -> int }}
-      rhs: 4
+      value: ${{ int(ACTIONS.c.result) + 4 }}
     depends_on:
       - b
       - c

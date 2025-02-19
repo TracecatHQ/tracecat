@@ -24,12 +24,12 @@ triggers:
 
 actions:
   - ref: a
-    action: example.passthrough
+    action: core.transform.reshape
     args:
       value: This is from A
 
   - ref: b
-    action: example.passthrough
+    action: core.transform.reshape
     args:
       value: ${{ ACTIONS.a.result -> str }}
     depends_on:
@@ -37,43 +37,46 @@ actions:
 
   - ref: c
     # Testing we can call different functions
-    action: example.my_function
+    action: core.transform.reshape
     args:
-      name: ${{ ACTIONS.a.result -> str }}
-      age: 3000000
-      is_member: false
+      value:
+        name: ${{ ACTIONS.a.result -> str }}
+        age: 3000000
+        is_member: false
     depends_on:
       - a
 
   - ref: d
-    action: example.passthrough
+    action: core.transform.reshape
     args:
       value: ${{ ACTIONS.b.result -> str }}
     depends_on:
       - b
 
   - ref: e
-    action: example.passthrough
+    action: core.transform.reshape
     args:
       value: "5"
     depends_on:
       - b
 
   - ref: f
-    action: example.my_function
+    action: core.transform.reshape
     args:
       # Grab the result from 2 parents above
-      name: ${{ ACTIONS.a.result -> str }}
-      age: 99999999
-      is_member: true
+      value:
+        name: ${{ ACTIONS.a.result -> str }}
+        age: 99999999
+        is_member: true
     depends_on:
       - c
 
   - ref: g
-    action: example.my_function
+    action: core.transform.reshape
     args:
-      name: ${{ ACTIONS.c.result.name -> str }}
-      age: ${{ ACTIONS.c.result.age -> int }}
-      is_member: false
+      value:
+        name: ${{ ACTIONS.c.result.name -> str }}
+        age: ${{ ACTIONS.c.result.age -> int }}
+        is_member: false
     depends_on:
       - c

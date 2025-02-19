@@ -664,24 +664,26 @@ class DSLWorkflow:
 
         if fail_strategy == FailStrategy.ALL:
             async with GatheringTaskGroup() as tg:
-                for patched_run_args in iter_patched_args():
+                for i, patched_run_args in enumerate(iter_patched_args()):
                     logger.trace(
                         "Run child workflow batch",
                         fail_strategy=fail_strategy,
                         patched_run_args=patched_run_args,
                     )
-                    tg.create_task(self._run_child_workflow(task, patched_run_args))
+                    tg.create_task(
+                        self._run_child_workflow(task, patched_run_args, loop_index=i)
+                    )
             return tg.results()
         else:
             # Isolated
             coros = []
-            for patched_run_args in iter_patched_args():
+            for i, patched_run_args in enumerate(iter_patched_args()):
                 logger.trace(
                     "Run child workflow batch",
                     fail_strategy=fail_strategy,
                     patched_run_args=patched_run_args,
                 )
-                coro = self._run_child_workflow(task, patched_run_args)
+                coro = self._run_child_workflow(task, patched_run_args, loop_index=i)
                 coros.append(coro)
             gather_result = await asyncio.gather(*coros, return_exceptions=True)
             result: list[DSLExecutionError | Any] = [
@@ -857,13 +859,13 @@ class DSLWorkflow:
         )
 
     async def _run_child_workflow(
-        self, task: ActionStatement, run_args: DSLRunArgs
+        self, task: ActionStatement, run_args: DSLRunArgs, loop_index: int | None = None
     ) -> Any:
         self.logger.info("Running child workflow", run_args=run_args)
         wf_exec_id = identifiers.workflow.generate_exec_id(run_args.wf_id)
         wf_info = workflow.info()
         # Use Temporal memo to store the action ref in the child workflow run
-        memo = ChildWorkflowMemo(action_ref=task.ref)
+        memo = ChildWorkflowMemo(action_ref=task.ref, loop_index=loop_index)
         return await workflow.execute_child_workflow(
             DSLWorkflow.run,
             run_args,

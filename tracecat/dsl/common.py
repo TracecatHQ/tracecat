@@ -280,12 +280,20 @@ class ChildWorkflowMemo(BaseModel):
     action_ref: str = Field(
         ..., description="The action ref that initiated the child workflow."
     )
+    loop_index: int | None = Field(
+        default=None,
+        description="The loop index of the child workflow, if any.",
+    )
 
     @staticmethod
     def from_temporal(memo: temporalio.api.common.v1.Memo) -> ChildWorkflowMemo:
         try:
             action_ref = orjson.loads(memo.fields["action_ref"].data)
-            return ChildWorkflowMemo(action_ref=action_ref)
+            if loop_index_data := memo.fields["loop_index"].data:
+                loop_index = orjson.loads(loop_index_data)
+            else:
+                loop_index = None
+            return ChildWorkflowMemo(action_ref=action_ref, loop_index=loop_index)
         except Exception as e:
             logger.opt(exception=e).error("Error parsing child workflow memo")
             raise e

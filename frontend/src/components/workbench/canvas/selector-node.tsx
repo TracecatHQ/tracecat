@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef } from "react"
-import { actionsCreateAction, RegistryActionRead } from "@/client"
+import { actionsCreateAction, RegistryActionReadMinimal } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import fuzzysort from "fuzzysort"
 import { CloudOffIcon, XIcon } from "lucide-react"
@@ -31,10 +31,10 @@ const SEARCH_KEYS = [
   "action",
   "default_title",
   "display_group",
-] as (keyof RegistryActionRead)[]
+] as (keyof RegistryActionReadMinimal)[]
 
-function filterActions(actions: RegistryActionRead[], search: string) {
-  const results = fuzzysort.go<RegistryActionRead>(search, actions, {
+function filterActions(actions: RegistryActionReadMinimal[], search: string) {
+  const results = fuzzysort.go<RegistryActionReadMinimal>(search, actions, {
     all: true,
     keys: SEARCH_KEYS,
   })
@@ -208,7 +208,7 @@ function ActionCommandGroup({
 }: {
   group: string
   nodeId: string
-  registryActions: RegistryActionRead[]
+  registryActions: RegistryActionReadMinimal[]
   inputValue: string
 }) {
   const { workspaceId, workflowId, reactFlow } = useWorkflowBuilder()
@@ -224,7 +224,7 @@ function ActionCommandGroup({
   }, [sortedActions, inputValue])
 
   const handleSelect = useCallback(
-    async (registryAction: RegistryActionRead) => {
+    async (registryAction: RegistryActionReadMinimal) => {
       if (!workflowId) {
         return
       }
@@ -297,7 +297,7 @@ function ActionCommandGroup({
               acc[key] = currRes.highlight() || String(action[key])
               return acc
             },
-            {} as Record<keyof RegistryActionRead, string>
+            {} as Record<keyof RegistryActionReadMinimal, string>
           )
 
           return (

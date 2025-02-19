@@ -63,11 +63,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -236,126 +231,97 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
             <TableHead className="text-xs font-semibold">Interval</TableHead>
             <TableHead className="text-xs font-semibold">Status</TableHead>
             <TableHead className="text-xs font-semibold">Timeout</TableHead>
-            <TableHead className="pr-3 text-right text-xs font-semibold">
-              Actions
-            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {schedules.length > 0 ? (
             schedules.map(({ id, status, inputs, every, timeout }) => (
-              <HoverCard>
-                <HoverCardTrigger asChild className="hover:border-none">
-                  <TableRow key={id} className="ext-xs text-muted-foreground">
-                    <TableCell className="items-center pl-3 text-xs">
-                      {id}
-                    </TableCell>
-                    <TableCell className="items-center text-xs">
-                      {durationToHumanReadable(every)}
-                    </TableCell>
-                    <TableCell className="text-xs capitalize">
-                      <div className="flex">
-                        <p>{status}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs capitalize">
-                      <div className="flex">
-                        <p>{timeout ? `${timeout}s` : "None"}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell className="items-center pr-3 text-xs">
-                      <div className="flex justify-end">
-                        <AlertDialog>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button className="size-6 p-0" variant="ghost">
-                                <DotsHorizontalIcon className="size-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuLabel className="text-xs">
-                                Actions
-                              </DropdownMenuLabel>
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  navigator.clipboard.writeText(id!)
-                                }
-                                className="text-xs"
-                              >
-                                Copy ID
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className={cn("text-xs", status === "online")}
-                                onClick={async () =>
-                                  await updateSchedule({
-                                    workspaceId,
-                                    scheduleId: id!,
-                                    requestBody: {
-                                      status:
-                                        status === "online"
-                                          ? "offline"
-                                          : "online",
-                                    },
-                                  })
-                                }
-                              >
-                                {status === "online" ? "Pause" : "Unpause"}
-                              </DropdownMenuItem>
-                              <AlertDialogTrigger asChild>
-                                <DropdownMenuItem className="text-xs text-rose-500 focus:text-rose-600">
-                                  Delete
-                                </DropdownMenuItem>
-                              </AlertDialogTrigger>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                Delete schedule
-                              </AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to delete this schedule?
-                                This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                variant="destructive"
-                                onClick={async () =>
-                                  await deleteSchedule({
-                                    workspaceId,
-                                    scheduleId: id!,
-                                  })
-                                }
-                              >
-                                Confirm
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                </HoverCardTrigger>
-                <HoverCardContent
-                  className="max-w-300 w-200 space-y-2 p-3"
-                  side="left"
-                  align="start"
-                >
-                  <div className="w-full space-y-1">
-                    <span className="text-xs font-semibold text-muted-foreground">
-                      Inputs
-                    </span>
-                    <div className="rounded-md border bg-muted-foreground/10 p-2">
-                      <pre className="text-xs font-light text-foreground/80">
-                        {JSON.stringify(inputs, null, 2)}
-                      </pre>
-                    </div>
+              <TableRow key={id} className="ext-xs text-muted-foreground">
+                <TableCell className="items-center pl-3 text-xs">
+                  {id}
+                </TableCell>
+                <TableCell className="items-center text-xs">
+                  {durationToHumanReadable(every)}
+                </TableCell>
+                <TableCell className="text-xs capitalize">
+                  <div className="flex">
+                    <p>{status}</p>
                   </div>
-                </HoverCardContent>
-              </HoverCard>
+                </TableCell>
+                <TableCell className="text-xs capitalize">
+                  <div className="flex">
+                    <p>{timeout ? `${timeout}s` : "None"}</p>
+                  </div>
+                </TableCell>
+                <TableCell className="items-center pr-3 text-xs">
+                  <div className="flex justify-end">
+                    <AlertDialog>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button className="size-6 p-0" variant="ghost">
+                            <DotsHorizontalIcon className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel className="text-xs">
+                            Actions
+                          </DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onClick={() => navigator.clipboard.writeText(id!)}
+                            className="text-xs"
+                          >
+                            Copy ID
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className={cn("text-xs", status === "online")}
+                            onClick={async () =>
+                              await updateSchedule({
+                                workspaceId,
+                                scheduleId: id!,
+                                requestBody: {
+                                  status:
+                                    status === "online" ? "offline" : "online",
+                                },
+                              })
+                            }
+                          >
+                            {status === "online" ? "Pause" : "Unpause"}
+                          </DropdownMenuItem>
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem className="text-xs text-rose-500 focus:text-rose-600">
+                              Delete
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete schedule</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete this schedule? This
+                            action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            variant="destructive"
+                            onClick={async () =>
+                              await deleteSchedule({
+                                workspaceId,
+                                scheduleId: id!,
+                              })
+                            }
+                          >
+                            Confirm
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </TableCell>
+              </TableRow>
             ))
           ) : (
             <TableRow className="justify-center text-xs text-muted-foreground">

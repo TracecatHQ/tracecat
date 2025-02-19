@@ -1,4 +1,9 @@
-from builtins import filter as filter_
+from builtins import (
+    filter as filter_,
+)
+from builtins import (
+    map as map_,
+)
 from typing import Annotated, Any
 
 from tracecat.expressions.common import (
@@ -182,14 +187,34 @@ def deduplicate(
 
 @registry.register(
     default_title="Apply",
-    description="Apply a Python lambda function to each item in a list.",
+    description="Apply a Python lambda function to a value.",
     display_group="Data Transform",
     namespace="core.transform",
 )
 def apply(
+    value: Annotated[
+        Any,
+        Doc("Value to apply the lambda function to."),
+    ],
+    python_lambda: Annotated[
+        str,
+        Doc("Python lambda function as a string (e.g. `\"lambda x: x.get('name')\"`)."),
+    ],
+) -> Any:
+    fn = build_safe_lambda(python_lambda)
+    return fn(value)
+
+
+@registry.register(
+    default_title="Map",
+    description="Map a Python lambda function to each item in a list.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def map(
     items: Annotated[
         list[Any],
-        Doc("Items to apply the lambda function to."),
+        Doc("Items to map the lambda function to."),
     ],
     python_lambda: Annotated[
         str,
@@ -197,7 +222,7 @@ def apply(
     ],
 ) -> list[Any]:
     fn = build_safe_lambda(python_lambda)
-    return list(map(fn, items))
+    return list(map_(fn, items))
 
 
 @registry.register(

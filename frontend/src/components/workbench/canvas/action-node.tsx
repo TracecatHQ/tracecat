@@ -28,6 +28,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
@@ -62,7 +64,14 @@ export default React.memo(function ActionNode({
   id,
 }: NodeProps<ActionNodeData>) {
   const [error, setError] = useState<string | null>(null)
-  const { workflowId, getNode, workspaceId, reactFlow } = useWorkflowBuilder()
+  const {
+    workflowId,
+    getNode,
+    workspaceId,
+    reactFlow,
+    sidebarRef,
+    setSelectedActionEventRef,
+  } = useWorkflowBuilder()
   const { toast } = useToast()
   // SAFETY: Node only exists if it's in the workflow
   const { action, actionIsLoading } = useAction(id, workspaceId, workflowId!)
@@ -206,6 +215,30 @@ export default React.memo(function ActionNode({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuLabel className="py-0 text-xs text-muted-foreground">
+                    Quick Actions
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      sidebarRef.current?.setActiveTab("action-input")
+                      setSelectedActionEventRef(slugify(action.title))
+                    }}
+                  >
+                    <LayoutListIcon className="mr-2 size-4" />
+                    <span className="text-xs">View Last Input</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      sidebarRef.current?.setActiveTab("action-result")
+                      setSelectedActionEventRef(slugify(action.title))
+                    }}
+                  >
+                    <CircleCheckBigIcon className="mr-2 size-4" />
+                    <span className="text-xs">View Last Result</span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleDeleteNode}>
                     <Trash2Icon className="mr-2 size-4 text-red-600" />
                     <span className="text-xs text-red-600">Delete</span>

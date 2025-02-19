@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { RegistryActionRead } from "@/client"
+import { RegistryActionReadMinimal } from "@/client"
 import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
@@ -32,7 +32,7 @@ export function RegistryActionsTable() {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
   const [selectedAction, setSelectedAction] =
-    useState<RegistryActionRead | null>(null)
+    useState<RegistryActionReadMinimal | null>(null)
 
   // Create a memoized version of the toolbar props
   const toolbarProps: DataTableToolbarProps = useMemo(() => {
@@ -88,7 +88,7 @@ export function RegistryActionsTable() {
     }
   }, [registryActions])
 
-  const handleOnClickRow = (row: Row<RegistryActionRead>) => () => {
+  const handleOnClickRow = (row: Row<RegistryActionReadMinimal>) => () => {
     // Link to workflow detail page
     console.debug("Clicked row", row)
     setSelectedAction(row.original)
@@ -117,7 +117,7 @@ export function RegistryActionsTable() {
             ),
             cell: ({ row }) => (
               <div className="text-xs text-foreground/80">
-                {row.getValue<RegistryActionRead["default_title"]>(
+                {row.getValue<RegistryActionReadMinimal["default_title"]>(
                   "default_title"
                 )}
               </div>
@@ -144,7 +144,7 @@ export function RegistryActionsTable() {
             enableColumnFilter: true,
             filterFn: (row, id, value) => {
               return value.includes(
-                row.getValue<RegistryActionRead["namespace"]>(id)
+                row.getValue<RegistryActionReadMinimal["namespace"]>(id)
               )
             },
           },
@@ -160,7 +160,9 @@ export function RegistryActionsTable() {
             cell: ({ row }) => {
               return (
                 <div className="text-xs text-foreground/80">
-                  {row.getValue<RegistryActionRead["origin"]>("origin") || "-"}
+                  {row.getValue<RegistryActionReadMinimal["origin"]>(
+                    "origin"
+                  ) || "-"}
                 </div>
               )
             },
@@ -169,7 +171,7 @@ export function RegistryActionsTable() {
             enableColumnFilter: true,
             filterFn: (row, id, value) => {
               return value.includes(
-                row.getValue<RegistryActionRead["origin"]>(id)
+                row.getValue<RegistryActionReadMinimal["origin"]>(id)
               )
             },
           },
@@ -185,7 +187,7 @@ export function RegistryActionsTable() {
             cell: ({ row }) => {
               return (
                 <div className="text-xs text-foreground/80">
-                  {row.getValue<RegistryActionRead["type"]>("type")}
+                  {row.getValue<RegistryActionReadMinimal["type"]>("type")}
                 </div>
               )
             },
@@ -194,7 +196,7 @@ export function RegistryActionsTable() {
             enableColumnFilter: true,
             filterFn: (row, id, value) => {
               return value.includes(
-                row.getValue<RegistryActionRead["type"]>(id)
+                row.getValue<RegistryActionReadMinimal["type"]>(id)
               )
             },
           },
@@ -215,7 +217,7 @@ export function RegistryActionsTable() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    {row.original.is_template && (
+                    {row.original.type === "template" && (
                       <>
                         <DropdownMenuLabel className="p-2 text-xs font-semibold text-muted-foreground">
                           Templates

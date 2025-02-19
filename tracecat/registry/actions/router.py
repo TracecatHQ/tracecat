@@ -2,12 +2,12 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.registry.actions.models import (
     RegistryActionCreate,
     RegistryActionRead,
+    RegistryActionReadMinimal,
     RegistryActionUpdate,
 )
 from tracecat.registry.actions.service import RegistryActionsService
@@ -27,15 +27,14 @@ async def list_registry_actions(
         require_workspace="no",
     ),
     session: AsyncDBSession,
-) -> list[RegistryActionRead]:
+) -> list[RegistryActionReadMinimal]:
     """List all actions in a registry."""
     service = RegistryActionsService(session, role)
     actions = await service.list_actions()
-
-    async with GatheringTaskGroup[RegistryActionRead]() as tg:
-        for action in actions:
-            tg.create_task(service.read_action_with_implicit_secrets(action))
-    return tg.results()
+    return [
+        RegistryActionReadMinimal.model_validate(action, from_attributes=True)
+        for action in actions
+    ]
 
 
 @router.get(
