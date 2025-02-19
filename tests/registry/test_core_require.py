@@ -1,5 +1,34 @@
+# TODO: Add require to workflow tests
+# NOTE: We instead test TemplateExpression directly to check if binary ops (e.g. ==, !=, >, <, etc.) all work.
+# AKA we assume-by-induction that `core.require` works as expected, since `core.require` functions like `core.transform.reshape`.
+
 import pytest
 from tracecat_registry.base.core.require import require
+
+
+@pytest.mark.parametrize(
+    "exprs",
+    [
+        True,
+        [True, True],
+        [True, True, True],
+    ],
+)
+def test_require_all(exprs):
+    assert require(exprs) is True
+
+
+@pytest.mark.parametrize(
+    "exprs",
+    [
+        False,
+        [True, False],
+        [False, True],
+    ],
+)
+def test_require_all_fail(exprs):
+    with pytest.raises(AssertionError):
+        require(exprs)
 
 
 @pytest.mark.parametrize(
@@ -81,43 +110,3 @@ def test_require_fail(lhs, rhs, condition):
     expr = f"${{{{ {lhs!r} {condition} {rhs!r} }}}}"
     with pytest.raises(AssertionError):
         require(expr)
-
-
-@pytest.mark.parametrize(
-    "lhs, rhs, condition, should_pass",
-    [
-        # Threat score comparisons
-        (85, 75, ">", True),
-        (60, 60, ">=", True),
-        (30, 50, "<", True),
-        # IP address checks
-        ("192.168.1.1", ["192.168.1.1", "10.0.0.1"], "in", True),
-        ("8.8.8.8", ["192.168.1.1", "10.0.0.1"], "not in", True),
-        # Status code validation
-        (200, 200, "==", True),
-        (403, 200, "!=", True),
-        # Alert severity matching
-        ("critical", "critical", "==", True),
-        ("high", "medium", "!=", True),
-        # Malware hash verification
-        ("e1234...abc", "e1234...abc", "is", True),
-        ("abc123", ["abc123", "def456"], "in", True),
-        # Domain blocklist check
-        ("malicious.com", ["malicious.com", "evil.com"], "in", True),
-        ("good.com", ["malicious.com", "evil.com"], "not in", True),
-        # Process state validation
-        (None, None, "is", True),  # Process not found
-        ("running", ["running", "suspended"], "in", True),
-        # Incident count thresholds
-        (5, 3, ">", True),
-        (10, 10, ">=", True),
-        (2, 5, "<", True),
-    ],
-)
-def test_require(lhs, rhs, condition, should_pass):
-    expr = f"${{{{ {lhs!r} {condition} {rhs!r} }}}}"
-    if should_pass:
-        assert require(expr) is True
-    else:
-        with pytest.raises(AssertionError):
-            require(expr)

@@ -1,6 +1,5 @@
 from typing import Annotated
 
-from tracecat.expressions.core import TemplateExpression
 from typing_extensions import Doc
 
 from tracecat_registry import registry
@@ -11,12 +10,27 @@ from tracecat_registry import registry
     description="Evaluate a conditional expression. Raises `AssertionError` if the condition is false. Returns `True` if the condition is true.",
     namespace="core",
 )
-def require(expr: Annotated[str, Doc("Conditional expression to evaluate.")]) -> bool:
-    result = TemplateExpression(template=expr).result()
-    if not isinstance(result, bool):
+def require(
+    exprs: Annotated[
+        str | list[str],
+        Doc(
+            "Conditional expression(s) to evaluate. All must be true for the result to be true."
+        ),
+    ],
+) -> bool:
+    if not isinstance(exprs, list):
+        exprs = [exprs]
+
+    if not all(isinstance(expr, bool) for expr in exprs):
         raise ValueError(
-            f"Expected `{expr}` to evaluate to a boolean, but it evaluated to `{result}`."
+            "All expressions must evaluate to a boolean. Got types: "
+            + ", ".join(type(expr).__name__ for expr in exprs)
         )
-    if not bool(result):
-        raise AssertionError(f"Expected `{expr}` to be true, but it was false.")
+
+    if not all(exprs):
+        raise AssertionError(
+            "All expressions must evaluate to true. Got values: "
+            + ", ".join(str(expr) for expr in exprs)
+        )
+
     return True
