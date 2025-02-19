@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react"
+import { useCallback } from "react"
 import Link from "next/link"
 import {
   WorkflowExecutionEventCompact,
@@ -8,6 +8,7 @@ import {
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
+import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   AlarmClockCheckIcon,
   AlarmClockOffIcon,
@@ -18,8 +19,10 @@ import {
   CircleMinusIcon,
   CirclePlayIcon,
   CircleX,
+  EyeOffIcon,
   Loader2,
   LoaderIcon,
+  ScanEyeIcon,
   SquareArrowOutUpRightIcon,
   WorkflowIcon,
 } from "lucide-react"
@@ -27,6 +30,15 @@ import {
 import { executionId } from "@/lib/event-history"
 import { cn, slugify, undoSlugify } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Table,
@@ -176,34 +188,49 @@ export function WorkflowEvents({
 }: {
   events: WorkflowExecutionEventCompact[]
 }) {
-  const { selectedNodeId, setSelectedNodeId, setNodes, canvasRef } =
-    useWorkflowBuilder()
+  const {
+    selectedActionEventRef,
+    setSelectedActionEventRef,
+    setNodes,
+    canvasRef,
+  } = useWorkflowBuilder()
   const { workflow } = useWorkflow()
 
+  const centerNode = useCallback((actionRef: string) => {
+    const action = Object.values(workflow?.actions || {}).find(
+      (act) => slugify(act.title) === actionRef
+    )
+    const id = action?.id
+    if (id) {
+      setNodes((nodes) =>
+        nodes.map((node) => ({
+          ...node,
+          selected: Boolean(node.id === action.id),
+        }))
+      )
+      canvasRef.current?.centerOnNode(id)
+    }
+  }, [])
   const handleRowClick = useCallback(
     (actionRef: string) => {
-      setSelectedNodeId(actionRef)
+      if (selectedActionEventRef === actionRef) {
+        setSelectedActionEventRef(undefined)
+      } else {
+        setSelectedActionEventRef(actionRef)
+      }
+    },
+    [selectedActionEventRef, setSelectedActionEventRef]
+  )
+
+  const isActionRefValid = useCallback(
+    (actionRef: string) => {
       const action = Object.values(workflow?.actions || {}).find(
         (act) => slugify(act.title) === actionRef
       )
-      if (action) {
-        console.log("action", action, canvasRef.current)
-        const id = action.id
-        setSelectedNodeId(id)
-        setNodes((nodes) =>
-          nodes.map((node) => ({ ...node, selected: Boolean(node.id === id) }))
-        )
-        canvasRef.current?.centerOnNode(id)
-      }
+      return action !== undefined
     },
-    [setSelectedNodeId, workflow, canvasRef.current]
+    [workflow]
   )
-
-  const selectedNodeRef = useMemo(() => {
-    return selectedNodeId
-      ? slugify(workflow?.actions[selectedNodeId]?.title || "")
-      : null
-  }, [selectedNodeId, workflow])
 
   return (
     <ScrollArea className="p-4 pt-0">
@@ -229,7 +256,7 @@ export function WorkflowEvents({
                   key={event.source_event_id}
                   className={cn(
                     "cursor-pointer hover:bg-muted/50",
-                    selectedNodeRef === event.action_ref &&
+                    selectedActionEventRef === event.action_ref &&
                       "bg-muted-foreground/10"
                   )}
                   onClick={() => handleRowClick(event.action_ref)}
@@ -251,6 +278,37 @@ export function WorkflowEvents({
                         ? new Date(event.start_time).toLocaleTimeString()
                         : "-"}
                     </Badge>
+                  </TableCell>
+                  <TableCell className="max-w-10 text-xs">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button className="size-6 p-0" variant="ghost">
+                          <DotsHorizontalIcon className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel className="py-0 text-xs text-muted-foreground">
+                          Actions
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          // Disable if the action reference is not present in the current workflow
+                          disabled={!isActionRefValid(event.action_ref)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            centerNode(event.action_ref)
+                          }}
+                          className="flex items-center gap-2 text-xs"
+                        >
+                          {!isActionRefValid(event.action_ref) ? (
+                            <EyeOffIcon className="size-4" />
+                          ) : (
+                            <ScanEyeIcon className="size-4" />
+                          )}
+                          <span>Focus Action</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))

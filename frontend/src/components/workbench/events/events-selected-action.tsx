@@ -11,9 +11,16 @@ import { CheckCheckIcon, CircleDot, CopyIcon, LoaderIcon } from "lucide-react"
 import JsonView from "react18-json-view"
 import { NodeMeta } from "react18-json-view/dist/types"
 
-import { useAction } from "@/lib/hooks"
-import { cn, slugify } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -23,7 +30,6 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { CodeBlock } from "@/components/code-block"
-import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { getWorkflowEventIcon } from "@/components/workbench/events/events-workflow"
 
@@ -34,82 +40,58 @@ export function ActionEvent({
   execution: WorkflowExecutionReadCompact
   type: "input" | "result"
 }) {
-  const { workflowId, selectedNodeId, getNode, workspaceId } =
+  const { workflowId, selectedActionEventRef, setSelectedActionEventRef } =
     useWorkflowBuilder()
-  const node = getNode(selectedNodeId ?? "")
+
   if (!workflowId)
     return <AlertNotification level="error" message="No workflow in context" />
-  if (selectedNodeId && !node) {
-    return (
-      <AlertNotification
-        level="error"
-        message={`Node ${selectedNodeId} not found`}
-      />
-    )
-  }
-  if (!node) {
-    return (
-      <div className="flex items-center justify-center p-4 text-xs text-muted-foreground">
-        No action node selected.
-      </div>
-    )
-  }
-  if (node.type !== "udf") {
-    const capitalizedType = node.type
-      ? node.type[0].toUpperCase() + node.type.slice(1)
-      : "Unknown"
-    return (
-      <div className="flex flex-col  items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-        <span>{capitalizedType} node does not support viewing events.</span>
-        <span>Please select an action node instead.</span>
-      </div>
-    )
-  }
+
   return (
-    <div className="p-4">
-      <ActionEventDetails
-        actionId={node.id}
-        workflowId={workflowId}
-        workspaceId={workspaceId}
-        status={execution.status}
-        events={execution.events}
-        type={type}
-      />
+    <div className="flex flex-col gap-4 p-4">
+      <Select
+        value={selectedActionEventRef}
+        onValueChange={setSelectedActionEventRef}
+      >
+        <SelectTrigger className="h-8 text-xs text-foreground/70 focus:ring-0 focus:ring-offset-0">
+          <SelectValue placeholder="Select an event" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {execution.events.map((event) => (
+              <SelectItem
+                key={event.action_ref}
+                value={event.action_ref}
+                className="max-h-8 py-1 text-xs"
+              >
+                {event.action_ref}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      {selectedActionEventRef && (
+        <ActionEventDetails
+          eventRef={selectedActionEventRef}
+          status={execution.status}
+          events={execution.events}
+          type={type}
+        />
+      )}
     </div>
   )
 }
 export function ActionEventDetails({
-  actionId,
-  workflowId,
-  workspaceId,
+  eventRef,
   status,
   events,
   type,
 }: {
-  actionId: string
-  workflowId: string
-  workspaceId: string
+  eventRef: string
   status: WorkflowExecutionReadCompact["status"]
   events: WorkflowExecutionEventCompact[]
   type: "input" | "result"
 }) {
-  const { action, actionIsLoading, actionError } = useAction(
-    actionId,
-    workspaceId,
-    workflowId!
-  )
-  // Filter only the events for this action
-  if (actionIsLoading) return <CenteredSpinner />
-  if (actionError || !action)
-    return (
-      <AlertNotification
-        level="error"
-        message={`Error loading action: ${actionError?.message || "Action undefined"}`}
-      />
-    )
-
-  const actionRef = slugify(action.title)
-  const actionEventsForRef = events.filter((e) => e.action_ref === actionRef)
+  const actionEventsForRef = events.filter((e) => e.action_ref === eventRef)
   // No events for ref, either the action has not executed or there was no event for the action.
   if (actionEventsForRef.length === 0) {
     return (
@@ -131,7 +113,7 @@ export function ActionEventDetails({
   // More than 1, error
   if (actionEventsForRef.length > 1) {
     console.error(
-      `More than 1 event for action ${action.title}: ${JSON.stringify(
+      `More than 1 event for action reference ${eventRef}: ${JSON.stringify(
         actionEventsForRef
       )}`
     )
@@ -165,7 +147,7 @@ export function ActionEventDetails({
               : actionEvent.action_result
           }
           defaultExpanded={true}
-          copyPrefix={`ACTIONS.${actionRef}.result`}
+          copyPrefix={`ACTIONS.${eventRef}.result`}
         />
       )}
     </div>
