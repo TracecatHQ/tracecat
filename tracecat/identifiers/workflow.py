@@ -16,6 +16,8 @@ WF_ID_PREFIX = "wf_"
 WF_ID_SHORT_PATTERN = rf"{WF_ID_PREFIX}[0-9a-zA-Z]+"
 EXEC_ID_PREFIX = "exec_"
 EXEC_ID_SHORT_PATTERN = rf"{EXEC_ID_PREFIX}[0-9a-zA-Z]+"
+WS_ID_PREFIX = "ws_"
+WS_ID_SHORT_PATTERN = rf"{WS_ID_PREFIX}[0-9a-zA-Z]+"
 
 LEGACY_WF_ID_PATTERN = r"wf-[0-9a-f]{32}"
 LEGACY_EXEC_ID_PATTERN = r"exec-[\w-]+"
@@ -42,6 +44,15 @@ Examples
 - short -> `exec_4itKqkgCZrLhgYiq5L211X`
 """
 
+WorkspaceIDShort = Annotated[str, StringConstraints(pattern=WS_ID_SHORT_PATTERN)]
+"""A short base62 encoded string representation of a workspace UUID.
+
+Examples
+--------
+- long ->  `8d3885a9-6470-4ee0-9d4d-d507cc97393d`
+- short -> `ws_4itKqkgCZrLhgYiq5L211X`
+"""
+
 
 class WorkflowUUID(TracecatUUID[WorkflowIDShort]):
     """UUID for workflow resources."""
@@ -55,6 +66,12 @@ class ExecutionUUID(TracecatUUID[ExecutionIDShort]):
 
     prefix = EXEC_ID_PREFIX
     legacy_prefix = "exec-"
+
+
+class WorkspaceUUID(TracecatUUID[WorkspaceIDShort]):
+    """UUID for workspace resources."""
+
+    prefix = WS_ID_PREFIX
 
 
 # Annotations
@@ -80,6 +97,9 @@ AnyWorkflowID = WorkflowID | WorkflowIDShort | LegacyWorkflowID
 
 AnyExecutionID = ExecutionUUID | ExecutionIDShort
 """Either manual or scheduled execution ID."""
+
+AnyWorkspaceID = WorkspaceUUID | WorkspaceIDShort | UUID4
+"""A workspace ID that can be either a UUID or a short string."""
 
 WorkflowExecutionID = Annotated[str, StringConstraints(pattern=WF_EXEC_ID_PATTERN)]
 """The full unique ID for a workflow execution.
