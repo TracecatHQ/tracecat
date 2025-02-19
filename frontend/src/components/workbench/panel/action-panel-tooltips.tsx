@@ -21,13 +21,31 @@ export function RunIfTooltip() {
       </div>
       <div className="flex w-full flex-col space-y-2 text-muted-foreground">
         <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            {"${{ FN.not_empty(ACTIONS.my_action.result) }}"}
-          </pre>
-        </div>
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            {"${{ ACTIONS.my_action.result.value > 5 }}"}
+          <pre className="whitespace-pre-wrap text-xs text-foreground/70">
+            <span className="text-xs text-muted-foreground">
+              # Check if user has admin role
+            </span>
+            <p>{"${{ ACTIONS.check_user.result.role == 'admin' }}"}</p>
+            {"\n"}
+            <span className="text-xs text-muted-foreground">
+              # Check alert severity level
+            </span>
+            <p>{"${{ TRIGGER.alert.severity in ['high', 'critical'] }}"}</p>
+            {"\n"}
+            <span className="text-xs text-muted-foreground">
+              # Check if failed login attempts exceed threshold
+            </span>
+            <p>{"${{ ACTIONS.count_failed_logins.result > 5 }}"}</p>
+            {"\n"}
+            <span className="text-xs text-muted-foreground">
+              # Search logs for error patterns
+            </span>
+            <p>{"${{ FN.regex_match('error|failed', ACTIONS.get_logs.result) }}"}</p>
+            {"\n"}
+            <span className="text-xs text-muted-foreground">
+              # Verify logs are not empty
+            </span>
+            <p>{"${{ FN.not_empty(ACTIONS.get_logs.result) }}"}</p>
           </pre>
         </div>
       </div>
@@ -249,25 +267,17 @@ export function ControlFlowOptionsTooltip() {
             <span className="text-xs text-muted-foreground">
               # Run at 3pm the next day
             </span>
-            <p>wait_until: tomorrow at 3pm </p>
+            <p>wait_until: tomorrow at 3pm</p>
+            {"\n"}
             <span className="text-xs text-muted-foreground">
               # Run 2 hours after the action is scheduled
             </span>
-            <p>wait_until: in 2 hours </p>
+            <p>wait_until: in 2 hours</p>
+            {"\n"}
             <span className="text-xs text-muted-foreground">
               # Run at 3:30pm on March 21st, 2026
             </span>
-            <p>wait_until: &quot;2026-03-21 15:30:00&quot; </p>
-          </pre>
-        </div>
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="text-xs text-foreground/70">
-            <p>
-              start_delay: 1.5{" "}
-              <span className="text-xs text-muted-foreground">
-                # 1.5 seconds
-              </span>
-            </p>
+            <p>wait_until: &quot;2026-03-21 15:30:00&quot;</p>
           </pre>
         </div>
       </div>
