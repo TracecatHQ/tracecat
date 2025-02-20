@@ -55,7 +55,7 @@ async def workflow_id(
     session.add(workflow)
     await session.commit()
     try:
-        yield workflow.id
+        yield WorkflowID.new(workflow.id)
     finally:
         # Clean up the workflow after tests
         await session.delete(workflow)
