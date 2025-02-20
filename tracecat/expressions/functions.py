@@ -881,7 +881,6 @@ OPERATORS = {
     "*": mul,
     "/": div,
     "%": mod,
-    "!": not_,
     "in": contains,
     "not in": does_not_contain,
     "is": lambda x, y: x is y,
