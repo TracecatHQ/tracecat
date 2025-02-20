@@ -449,7 +449,7 @@ def test_template_action_parses_from_dict():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "test_args,expected_result,should_raise",
+    "test_args,expected,should_raise",
     [
         (
             {"user_id": "john@tracecat.com", "service_source": "custom", "limit": 99},
