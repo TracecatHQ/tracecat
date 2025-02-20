@@ -449,7 +449,7 @@ def test_template_action_parses_from_dict():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "test_args,expected_result",
+    "test_args,expected_result,should_raise",
     [
         (
             {"user_id": "john@tracecat.com", "service_source": "custom", "limit": 99},
@@ -469,7 +469,7 @@ def test_template_action_parses_from_dict():
     ],
     ids=["valid", "with_defaults", "missing_required"],
 )
-async def test_template_action_runs(test_args, expected_result, should_raise):
+async def test_template_action_runs(test_args, expected, should_raise):
     action = TemplateAction(
         **{
             "type": "action",
@@ -556,12 +556,12 @@ async def test_template_action_runs(test_args, expected_result, should_raise):
             args=test_args,
             context={},
         )
-        assert result == expected_result
+        assert result == expected
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "test_args,expected_result,should_raise",
+    "test_args,expected,should_raise",
     [
         (
             {"status": "critical", "message": "System CPU usage above 90%"},
@@ -584,7 +584,7 @@ async def test_template_action_runs(test_args, expected_result, should_raise):
     ],
     ids=["valid_status", "default_status", "invalid_status"],
 )
-async def test_template_action_with_enums(test_args, expected_result, should_raise):
+async def test_template_action_with_enums(test_args, expected, should_raise):
     """Test template action with enums.
     This test verifies that:
     1. The action can be constructed with an enum status
@@ -651,4 +651,4 @@ async def test_template_action_with_enums(test_args, expected_result, should_rai
             args=test_args,
             context={},
         )
-        assert result == expected_result
+        assert result == expected
