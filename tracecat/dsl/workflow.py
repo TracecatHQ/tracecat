@@ -547,7 +547,7 @@ class DSLWorkflow:
             task_result.update(error=msg, error_typename=err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
-            logger.debug("Setting action result", task_result=task_result)
+            logger.trace("Setting action result", task_result=task_result)
             self.context[ExprContext.ACTIONS][task.ref] = task_result  # type: ignore
         return task_result
 
@@ -845,7 +845,7 @@ class DSLWorkflow:
         arg = RunActionInput(
             task=task, run_context=self.run_context, exec_context=self.context
         )
-        self.logger.debug("RUN UDF ACTIVITY", arg=arg)
+        self.logger.debug("RUN UDF ACTIVITY", action=task.action)
 
         return await workflow.execute_activity(
             DSLActivities.run_action_activity,
