@@ -18,7 +18,7 @@ from tracecat.tables.models import (
     TableRowInsert,
     TableUpdate,
 )
-from tracecat.types.auth import AccessLevel, Role
+from tracecat.types.auth import AccessLevel
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 
 
@@ -337,43 +337,3 @@ class TablesService(BaseService):
         )
         # Convert SQLAlchemy RowMapping objects to plain dictionaries
         return [dict(row) for row in result.mappings().all()]
-
-
-async def main():
-    role = Role(
-        type="user",
-        workspace_id=UUID("3ef66353-b08d-4848-bd2e-c2fc14b6eae1"),
-        service_id="tracecat-api",
-        access_level=AccessLevel.ADMIN,
-    )
-    async with TablesService.with_session(role=role) as service:
-        # Create table
-        table = await service.get_table_by_name("test")
-        print(table)
-        # # Create column
-        # column = await service.create_column(
-        #     table, TableColumnCreate(name="name", type="TEXT")
-        # )
-        # print(column)
-        column = await service.create_column(
-            table, TableColumnCreate(name="age", type="INTEGER")
-        )
-        print(column)
-
-        # Add row
-        row = await service.insert_row(
-            table, TableRowInsert(data={"name": "John", "age": 30})
-        )
-        print(row)
-        # Lookup
-        print(
-            await service.lookup_row(
-                "test", columns=["name", "age"], values=["John", 30]
-            )
-        )
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    asyncio.run(main())
