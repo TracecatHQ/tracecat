@@ -3,7 +3,6 @@ from pathlib import Path
 from tracecat.expressions.common import eval_jsonpath
 from tracecat.parse import (
     get_pyproject_toml_required_deps,
-    to_flat_dict,
     traverse_expressions,
     traverse_leaves,
 )
@@ -173,27 +172,3 @@ invalid toml content
     # Test parsing
     deps = get_pyproject_toml_required_deps(pyproject)
     assert deps == []
-
-
-def test_to_flat_dict_basic() -> None:
-    """Test basic dictionary flattening."""
-    result = to_flat_dict({"a": [{"b": 1}, {"b": 2}]})
-    assert result == {"a[0].b": 1, "a[1].b": 2}
-
-
-def test_to_flat_dict_with_dots() -> None:
-    """Test flattening dictionary with dots in keys."""
-    result = to_flat_dict({"a.b": {"c": 1}})
-    assert result == {"'a.b'.c": 1}
-
-
-def test_to_flat_dict_nested() -> None:
-    """Test flattening deeply nested dictionary."""
-    result = to_flat_dict({"a": {"b": {"c": 1, "d": 2}}})
-    assert result == {"a.b.c": 1, "a.b.d": 2}
-
-
-def test_to_flat_dict_with_prefix() -> None:
-    """Test flattening dictionary with prefix."""
-    result = to_flat_dict({"a": {"b": {"c": 1, "d": 2}}, "e": 3}, prefix="var")
-    assert result == {"var.a.b.c": 1, "var.a.b.d": 2, "var.e": 3}
