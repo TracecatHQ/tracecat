@@ -1,7 +1,9 @@
 from typing import Annotated, Any
 from uuid import UUID
 
+from asyncpg import DuplicateColumnError
 from fastapi import APIRouter, HTTPException, status
+from sqlalchemy.exc import ProgrammingError
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
@@ -137,7 +139,22 @@ async def create_table_column(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    await service.create_column(table, params)
+    try:
+        await service.create_column(table, params)
+    except ProgrammingError as e:
+        # Drill down to the root cause
+        while (cause := e.__cause__) is not None:
+            e = cause
+        if isinstance(e, DuplicateColumnError):
+            # Format: 'column "field>" of relation "<table>" already exists'
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e).capitalize().replace("relation", "table"),
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error occurred: {e}",
+        ) from e
 
 
 @router.delete(
