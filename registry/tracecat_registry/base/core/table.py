@@ -2,7 +2,7 @@ from typing import Annotated, Any
 
 from typing_extensions import Doc
 
-from tracecat_registry import RegistryActionError, registry
+from tracecat_registry import ActionIsInterfaceError, registry
 
 
 @registry.register(
@@ -25,7 +25,4 @@ async def lookup(
         Doc("The value to lookup."),
     ],
 ) -> Any:
-    raise RegistryActionError(
-        "This UDF only defines an interface and cannot be invoked directly."
-        "If you are seeing this error, please contact your administrator."
-    )
+    raise ActionIsInterfaceError
