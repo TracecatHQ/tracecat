@@ -1,6 +1,11 @@
 from enum import StrEnum, auto
 
 
+class CoreActions(StrEnum):
+    CHILD_WORKFLOW_EXECUTE = "core.workflow.execute"
+    TABLE_LOOKUP = "core.table.lookup"
+
+
 class FailStrategy(StrEnum):
     ISOLATED = "isolated"
     ALL = "all"
