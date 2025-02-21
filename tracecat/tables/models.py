@@ -1,6 +1,7 @@
 import re
 from typing import Any
 
+import sqlalchemy as sa
 from pydantic import BaseModel, Field, field_validator
 
 from tracecat.identifiers import TableColumnID, TableID
@@ -49,24 +50,8 @@ class TableColumnCreate(BaseModel):
     @classmethod
     def validate_sql_type(cls, value: str) -> str:
         """Validate SQL type to prevent injection."""
-        # List of allowed SQL types (extend as needed)
-        allowed_types = {
-            "TEXT",
-            "INTEGER",
-            "BOOLEAN",
-            "FLOAT",
-            "TIMESTAMP",
-            "VARCHAR",
-            "NUMERIC",
-            "DATE",
-            "TIME",
-            "JSONB",
-        }
-        clean_type = value.upper().split("(")[0].strip()
-        if clean_type not in allowed_types:
-            raise ValueError(
-                f"Invalid SQL type. Allowed types are: {', '.join(sorted(allowed_types))}"
-            )
+        if not hasattr(sa.types, value):
+            raise ValueError(f"Invalid SQL type: {value}")
         return value
 
 
@@ -93,6 +78,14 @@ class TableColumnUpdate(BaseModel):
         default=None,
         description="The default value of the column",
     )
+
+    @field_validator("type")
+    @classmethod
+    def validate_sql_type(cls, value: str) -> str:
+        """Validate SQL type to prevent injection."""
+        if not hasattr(sa.types, value):
+            raise ValueError(f"Invalid SQL type: {value}")
+        return value
 
 
 class TableRowInsert(BaseModel):
