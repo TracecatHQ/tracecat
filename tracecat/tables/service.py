@@ -1,9 +1,8 @@
-import textwrap
 from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
+import sqlalchemy as sa
 from sqlmodel import select
 
 from tracecat.authz.controls import require_access_level
@@ -35,18 +34,18 @@ class TablesService(BaseService):
             raise ValueError("Identifier must start with a letter")
         return sanitized.lower()
 
-    def _get_schema_name(self, workspace_id: WorkspaceUUID) -> str:
+    def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
+        ws_id = workspace_id or self._workspace_id()
         # Using double quotes to allow dots in schema name
-        return f'"tables.{workspace_id.short()}"'
+        return f"tables_{ws_id.short()}"
 
     def _full_table_name(
         self, table_name: str, workspace_id: WorkspaceUUID | None = None
     ) -> str:
         """Get the full table name for a table."""
-        ws_id = workspace_id or self._workspace_id()
-        schema_name = self._get_schema_name(ws_id)
-        return f"{schema_name}.{table_name}"
+        schema_name = self._get_schema_name(workspace_id)
+        return f'"{schema_name}".{table_name}'
 
     def _workspace_id(self) -> WorkspaceUUID:
         """Get the workspace ID for the current role."""
@@ -111,27 +110,55 @@ class TablesService(BaseService):
 
     @require_access_level(AccessLevel.ADMIN)
     async def create_table(self, params: TableCreate) -> Table:
-        """Create a new lookup table."""
+        """Create a new lookup table.
+
+        Args:
+            params: Parameters for creating the table
+
+        Returns:
+            The created Table metadata object
+
+        Raises:
+            TracecatAuthorizationError: If user lacks required permissions
+            ValueError: If table name is invalid
+        """
         ws_id = self._workspace_id()
         schema_name = self._get_schema_name(ws_id)
+        table_name = self._sanitize_identifier(params.name)
 
         # Create schema if it doesn't exist
         conn = await self.session.connection()
-        await conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_name}"))
+        await conn.execute(sa.DDL('CREATE SCHEMA IF NOT EXISTS "%s"', schema_name))
 
-        # Create the table with just id and timestamp columns initially
-        table_name = self._sanitize_identifier(params.name)
-        create_table_sql = textwrap.dedent(f"""
-        CREATE TABLE IF NOT EXISTS {schema_name}.{table_name} (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        # Define table using SQLAlchemy schema objects
+        new_table = sa.Table(
+            table_name,
+            sa.MetaData(),
+            sa.Column(
+                "id",
+                sa.UUID,
+                primary_key=True,
+                server_default=sa.text("gen_random_uuid()"),
+            ),
+            sa.Column(
+                "created_at",
+                sa.TIMESTAMP(timezone=True),
+                nullable=False,
+                server_default=sa.text("now()"),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.TIMESTAMP(timezone=True),
+                nullable=False,
+                server_default=sa.text("now()"),
+            ),
+            schema=schema_name,
         )
-        """)
-        logger.info(f"Creating table {table_name} with SQL:\n{create_table_sql}")
+
+        logger.info("Creating table", table_name=table_name, schema_name=schema_name)
 
         # Create the physical table
-        await conn.execute(text(create_table_sql))
+        await conn.run_sync(new_table.create)
 
         # Create metadata entry
         metadata = Table(owner_id=ws_id, name=table_name)
@@ -160,7 +187,7 @@ class TablesService(BaseService):
         # Drop the actual table
         full_table_name = self._full_table_name(table.name)
         conn = await self.session.connection()
-        await conn.execute(text(f"DROP TABLE IF EXISTS {full_table_name}"))
+        await conn.execute(sa.DDL("DROP TABLE IF EXISTS %s", full_table_name))
 
     """Columns"""
 
@@ -180,7 +207,18 @@ class TablesService(BaseService):
     async def create_column(
         self, table: Table, params: TableColumnCreate
     ) -> TableColumn:
-        """Add a new column to an existing table."""
+        """Add a new column to an existing table.
+
+        Args:
+            table: The table to add the column to
+            params: Parameters for the new column
+
+        Returns:
+            The created TableColumn metadata object
+
+        Raises:
+            ValueError: If the column type is invalid
+        """
         column_name = self._sanitize_identifier(params.name)
         full_table_name = self._full_table_name(table.name)
 
@@ -196,13 +234,21 @@ class TablesService(BaseService):
 
         # Add the column to the physical table
         conn = await self.session.connection()
-        nullable = "" if params.nullable else "NOT NULL"
-        default = f"DEFAULT {params.default}" if params.default is not None else ""
+        if not hasattr(sa.types, params.type):
+            raise ValueError(f"Invalid type: {params.type}")
 
+        # Build the column definition string
+        column_def = [f"{column_name} {params.type}"]
+        if not params.nullable:
+            column_def.append("NOT NULL")
+        if params.default is not None:
+            column_def.append(f"DEFAULT {params.default}")
+
+        column_def_str = " ".join(column_def)
         await conn.execute(
-            text(
-                f"ALTER TABLE {full_table_name} "
-                f"ADD COLUMN {column_name} {params.type} {nullable} {default}"
+            sa.DDL(
+                "ALTER TABLE %s ADD COLUMN %s",
+                (full_table_name, column_def_str),
             )
         )
 
@@ -213,17 +259,19 @@ class TablesService(BaseService):
     @require_access_level(AccessLevel.ADMIN)
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
-        ws_id = self._workspace_id()
-        full_table_name = self._full_table_name(column.table.name, ws_id)
+        full_table_name = self._full_table_name(column.table.name)
         sanitized_column = self._sanitize_identifier(column.name)
 
         # Delete the column metadata first
         await self.session.delete(column)
 
-        # Drop the column from the physical table
+        # Drop the column from the physical table using DDL
         conn = await self.session.connection()
         await conn.execute(
-            text(f"ALTER TABLE {full_table_name} DROP COLUMN {sanitized_column}")
+            sa.DDL(
+                "ALTER TABLE %s DROP COLUMN %s",
+                (full_table_name, sanitized_column),
+            )
         )
 
         await self.session.commit()
@@ -232,12 +280,14 @@ class TablesService(BaseService):
 
     async def get_row(self, table: Table, row_id: UUID) -> Any:
         """Get a row by ID."""
-        full_table_name = self._full_table_name(table.name)
+        schema_name = self._get_schema_name()
         conn = await self.session.connection()
-        result = await conn.execute(
-            text(f"SELECT * FROM {full_table_name} WHERE id = :row_id"),
-            {"row_id": row_id},
+        stmt = (
+            sa.select("*")
+            .select_from(sa.table(table.name, schema=schema_name))
+            .where(sa.column("id") == row_id)
         )
+        result = await conn.execute(stmt)
         row = result.mappings().first()
         if row is None:
             raise TracecatNotFoundError(f"Row {row_id} not found in table {table.name}")
@@ -257,22 +307,18 @@ class TablesService(BaseService):
         Returns:
             A mapping containing the inserted row data
         """
-        full_table_name = self._full_table_name(table.name)
+        schema_name = self._get_schema_name()
+        conn = await self.session.connection()
 
         data = params.data
-        columns = ", ".join(self._sanitize_identifier(k) for k in data.keys())
-        placeholders = ", ".join(f":{k}" for k in data.keys())
-
-        conn = await self.session.connection()
-        result = await conn.execute(
-            text(
-                f"INSERT INTO {full_table_name} ({columns}) "
-                f"VALUES ({placeholders}) RETURNING *"
-            ),
-            data,
+        cols = [sa.column(self._sanitize_identifier(k)) for k in data.keys()]
+        stmt = (
+            sa.insert(sa.table(table.name, *cols, schema=schema_name))
+            .values(**data)
+            .returning(sa.text("*"))
         )
+        result = await conn.execute(stmt)
         await self.session.commit()
-        # Return the full row as a mapping instead of just the scalar value
         row = result.mappings().one()
         return dict(row)
 
@@ -281,34 +327,42 @@ class TablesService(BaseService):
         table: Table,
         row_id: UUID,
         data: dict[str, Any],
-    ) -> Mapping[str, Any] | None:
+    ) -> Mapping[str, Any]:
         """Update an existing row in the table.
 
         Args:
-            workspace_id: The workspace ID where the table exists
-            table_name: The name of the table
+            table: The table containing the row to update
             row_id: The ID of the row to update
             data: Dictionary of column names and values to update
 
         Returns:
-            The updated row data or None if update failed
+            The updated row data
+
+        Raises:
+            TracecatNotFoundError: If the row does not exist
         """
-        full_table_name = self._full_table_name(table.name)
-
-        set_clause = ", ".join(
-            f"{self._sanitize_identifier(k)} = :{k}" for k in data.keys()
-        )
-
+        schema_name = self._get_schema_name()
         conn = await self.session.connection()
-        result = await conn.execute(
-            text(
-                f"UPDATE {full_table_name} SET {set_clause} "
-                f"WHERE id = :row_id RETURNING *"
-            ),
-            {**data, "row_id": row_id},
+
+        # Build update statement using SQLAlchemy
+        cols = [sa.column(self._sanitize_identifier(k)) for k in data.keys()]
+        stmt = (
+            sa.update(sa.table(table.name, *cols, schema=schema_name))
+            .where(sa.column("id") == row_id)
+            .values(**data)
+            .returning(sa.text("*"))
         )
+
+        result = await conn.execute(stmt)
         await self.session.commit()
-        row = result.mappings().one()
+
+        try:
+            row = result.mappings().one()
+        except sa.exc.NoResultFound:
+            raise TracecatNotFoundError(
+                f"Row {row_id} not found in table {table.name}"
+            ) from None
+
         return dict(row)
 
     "Lookups"
@@ -326,14 +380,17 @@ class TablesService(BaseService):
         """
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
-        full_table_name = self._full_table_name(table_name)
+        schema_name = self._get_schema_name()
         conn = await self.session.connection()
-        result = await conn.execute(
-            text(
-                f"SELECT * FROM {full_table_name} WHERE "
-                f"{' AND '.join(f'{c} = :{c}' for c in columns)}"
-            ),
-            dict(zip(columns, values, strict=True)),
+        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
+        stmt = (
+            sa.select(sa.text("*"))
+            .select_from(sa.table(table_name, schema=schema_name))
+            .where(
+                sa.and_(
+                    *[col == value for col, value in zip(cols, values, strict=True)]
+                )
+            )
         )
-        # Convert SQLAlchemy RowMapping objects to plain dictionaries
+        result = await conn.execute(stmt)
         return [dict(row) for row in result.mappings().all()]
