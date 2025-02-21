@@ -108,6 +108,9 @@ services:
     restart: unless-stopped
     ports:
       - 8265:8265
+      # NOTE: Unit tests in `test_workflows.py` need
+      # to connect to the executor directly
+      - 8001:8000
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
