@@ -183,6 +183,7 @@ services:
     container_name: temporal
     restart: always
     networks:
+      - core
       - temporal
       - temporal-db
     environment:
