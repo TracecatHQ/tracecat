@@ -1,7 +1,9 @@
 from typing import Annotated, Any
 from uuid import UUID
 
+from asyncpg import DuplicateColumnError, DuplicateTableError
 from fastapi import APIRouter, HTTPException, status
+from sqlalchemy.exc import ProgrammingError
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
@@ -54,7 +56,21 @@ async def create_table(
 ) -> None:
     """Create a new table."""
     service = TablesService(session, role=role)
-    await service.create_table(params)
+    try:
+        await service.create_table(params)
+    except ProgrammingError as e:
+        # Drill down to the root cause
+        while (cause := e.__cause__) is not None:
+            e = cause
+        if isinstance(e, DuplicateTableError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e).replace("relation", "table").capitalize(),
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error occurred: {e}",
+        ) from e
 
 
 @router.get("/{table_id}", response_model=TableRead)
@@ -73,13 +89,12 @@ async def get_table(
             detail=str(e),
         ) from e
 
-    cols = table.columns
     return TableRead(
         id=table.id,
         name=table.name,
         columns=[
             TableColumnRead.model_validate(column, from_attributes=True)
-            for column in cols
+            for column in table.columns
         ],
     )
 
@@ -137,7 +152,22 @@ async def create_table_column(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    await service.create_column(table, params)
+    try:
+        await service.create_column(table, params)
+    except ProgrammingError as e:
+        # Drill down to the root cause
+        while (cause := e.__cause__) is not None:
+            e = cause
+        if isinstance(e, DuplicateColumnError):
+            # Format: 'column "field>" of relation "<table>" already exists'
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e).replace("relation", "table").capitalize(),
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error occurred: {e}",
+        ) from e
 
 
 @router.delete(

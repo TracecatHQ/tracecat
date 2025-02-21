@@ -299,6 +299,12 @@ class ChildWorkflowMemo(BaseModel):
             raise e
 
 
+class RunTableLookupArgs(BaseModel):
+    table: str
+    column: str
+    value: Any
+
+
 AdjDst = tuple[str, EdgeType]
 
 

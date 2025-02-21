@@ -3,7 +3,18 @@ from typing import Any
 from uuid import UUID
 
 import sqlalchemy as sa
+from asyncpg.exceptions import (
+    InFailedSQLTransactionError,
+    InvalidCachedStatementError,
+)
+from sqlalchemy.exc import DBAPIError
 from sqlmodel import select
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from tracecat.authz.controls import require_access_level
 from tracecat.db.schemas import Table, TableColumn
@@ -19,6 +30,12 @@ from tracecat.tables.models import (
 )
 from tracecat.types.auth import AccessLevel
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+
+_RETRYABLE_DB_EXCEPTIONS = (
+    InvalidCachedStatementError,
+    InFailedSQLTransactionError,
+    DBAPIError,
+)
 
 
 class TablesService(BaseService):
@@ -367,6 +384,12 @@ class TablesService(BaseService):
 
     "Lookups"
 
+    @retry(
+        retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.1, min=0.2, max=2),
+        reraise=True,
+    )
     async def lookup_row(
         self,
         table_name: str,
@@ -374,14 +397,12 @@ class TablesService(BaseService):
         columns: Sequence[str],
         values: Sequence[Any],
     ) -> Sequence[Mapping[str, Any]]:
-        """Lookup a value in a table.
-
-        This should absolutely be cached in the future.
-        """
+        """Lookup a value in a table with automatic retry on database errors."""
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
+
         schema_name = self._get_schema_name()
-        conn = await self.session.connection()
+
         cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
         stmt = (
             sa.select(sa.text("*"))
@@ -392,5 +413,34 @@ class TablesService(BaseService):
                 )
             )
         )
-        result = await conn.execute(stmt)
-        return [dict(row) for row in result.mappings().all()]
+        async with self.session.begin() as txn:
+            conn = await txn.session.connection()
+            try:
+                result = await conn.execute(
+                    stmt,
+                    execution_options={
+                        "isolation_level": "READ COMMITTED",
+                    },
+                )
+                return [dict(row) for row in result.mappings().all()]
+            except _RETRYABLE_DB_EXCEPTIONS as e:
+                # Log the error for debugging
+                logger.warning(
+                    "Retryable DB exception occurred",
+                    kind=type(e).__name__,
+                    error=str(e),
+                    table=table_name,
+                    schema=schema_name,
+                )
+                # Ensure transaction is rolled back
+                await conn.rollback()
+                raise
+            except Exception as e:
+                logger.error(
+                    "Unexpected DB exception occurred",
+                    kind=type(e).__name__,
+                    error=str(e),
+                    table=table_name,
+                    schema=schema_name,
+                )
+                raise
