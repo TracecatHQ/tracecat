@@ -302,7 +302,7 @@ class ChildWorkflowMemo(BaseModel):
 class RunTableLookupArgs(BaseModel):
     table: str
     column: str
-    value: str
+    value: Any
 
 
 AdjDst = tuple[str, EdgeType]
