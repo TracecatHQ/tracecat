@@ -1,20 +1,17 @@
 <!--
   Thank you for taking the time to contribute to Tracecat!
 
-  Before you open this PR, please check the following:
-  - :white_check_mark: Read the [CONTRIBUTING](CONTRIBUTING.md) guide.
-  - :white_check_mark: Gave the PR a short and non-generic title.
-  - :white_check_mark: PR only implements a single feature or fixes a single bug.
-  - :white_check_mark: Added tests for your changes.
-  - :white_check_mark: Used descriptive commit messages.
-  - :white_check_mark: Updated any related documentation and included relevant screenshots.
-
   For Work In Progress Pull Requests, please use the Draft PR feature,
   see https://github.blog/2019-02-14-introducing-draft-pull-requests/ for further details.
-
-  For a timely review/response, please avoid force-pushing additional
-  commits if your PR already received reviews or comments.
 -->
+
+## Checklist
+
+- [ ] Read the [CONTRIBUTING](CONTRIBUTING.md) guide.
+- [ ] PR title is short and non-generic (see previously [merged PRs](https://github.com/TracecatHQ/tracecat/pulls?q=is%3Apr+is%3Aclosed) for examples).
+- [ ] PR only implements a single feature or fixes a single bug.
+- [ ] Tests passing (`uv run pytest tests`)?
+- [ ] [Lint](https://docs.astral.sh/ruff/) / [pre-commits](https://pre-commit.com/) passing (`pre-commit run --all-files`)?
 
 ## Description
 
