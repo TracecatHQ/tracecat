@@ -31,7 +31,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Workflow
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs, RunTableLookupArgs
 from tracecat.dsl.enums import LoopStrategy
 from tracecat.dsl.models import (
     ActionStatement,
@@ -46,6 +46,8 @@ from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID, Workf
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
+from tracecat.tables.models import TableColumnCreate, TableCreate, TableRowInsert
+from tracecat.tables.service import TablesService
 from tracecat.types.auth import Role
 from tracecat.workflow.executions.enums import WorkflowEventType
 from tracecat.workflow.executions.models import (
@@ -2755,3 +2757,115 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     cause1 = cause0.cause
     assert isinstance(cause1, ApplicationError)
     assert str(cause1) == expected_err_msg
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_workflow_lookup_table_success(
+    test_role: Role, temporal_client: Client, test_admin_role: Role
+):
+    """
+    Test that a workflow can lookup a table
+
+    1. Create a table
+    2. Create a workflow that looks up the table
+    3. Run the workflow
+    4. Check that the workflow can lookup the table
+    """
+    test_name = test_workflow_lookup_table_success.__name__
+
+    async with TablesService.with_session(role=test_admin_role) as service:
+        table = await service.create_table(TableCreate(name="test"))
+        await service.create_column(
+            table,
+            TableColumnCreate(name="number", type="INTEGER"),
+        )
+        await service.insert_row(
+            table,
+            TableRowInsert(data={"number": 1}),
+        )
+
+    dsl = DSLInput(
+        title=test_name,
+        description="Test Workflow",
+        entrypoint=DSLEntrypoint(ref="lookup_table"),
+        actions=[
+            ActionStatement(
+                ref="lookup_table",
+                action="core.table.lookup",
+                args=RunTableLookupArgs(
+                    table=table.name,
+                    column="number",
+                    value=1,
+                ).model_dump(),
+            ),
+        ],
+        returns="${{ ACTIONS.lookup_table.result }}",
+    )
+    # Run the workflow
+    wf_exec_id = generate_test_exec_id(test_name)
+    run_args = DSLRunArgs(
+        dsl=dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    assert "number" in result
+    assert result["number"] == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_workflow_lookup_table_missing_value(
+    test_role: Role, temporal_client: Client, test_admin_role: Role
+):
+    """
+    Test that a workflow returns None when looking up a non-existent value in a table.
+
+    1. Create a table with a single row
+    2. Create a workflow that looks up a non-existent value
+    3. Run the workflow
+    4. Check that the workflow returns None
+    """
+    test_name = test_workflow_lookup_table_missing_value.__name__
+
+    # Create table with a single row containing number=1
+    async with TablesService.with_session(role=test_admin_role) as service:
+        table = await service.create_table(TableCreate(name="test_missing"))
+        await service.create_column(
+            table,
+            TableColumnCreate(name="number", type="INTEGER"),
+        )
+        await service.insert_row(
+            table,
+            TableRowInsert(data={"number": 1}),
+        )
+
+    # Create workflow that looks up non-existent value (2)
+    dsl = DSLInput(
+        title=test_name,
+        description="Test Workflow",
+        entrypoint=DSLEntrypoint(ref="lookup_table"),
+        actions=[
+            ActionStatement(
+                ref="lookup_table",
+                action="core.table.lookup",
+                args=RunTableLookupArgs(
+                    table=table.name,
+                    column="number",
+                    value=2,  # This value doesn't exist in the table
+                ).model_dump(),
+            ),
+        ],
+        returns="${{ ACTIONS.lookup_table.result }}",
+    )
+
+    # Run the workflow
+    wf_exec_id = generate_test_exec_id(test_name)
+    run_args = DSLRunArgs(
+        dsl=dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    assert result is None
