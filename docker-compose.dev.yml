@@ -106,6 +106,8 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     restart: unless-stopped
+    ports:
+      - 8265:8265
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
@@ -132,8 +134,6 @@ services:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
-    ports:
-      - 8001:8000
     command:
       [
         "python",
@@ -220,10 +220,10 @@ services:
     image: temporalio/ui:${TEMPORAL__UI_VERSION}
     container_name: temporal_ui
     ports:
-      - 9090:8080
+      - 8080:8080
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
     depends_on:
       - temporal
     attach: false
