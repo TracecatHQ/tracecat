@@ -75,13 +75,12 @@ async def get_table(
             detail=str(e),
         ) from e
 
-    cols = table.columns
     return TableRead(
         id=table.id,
         name=table.name,
         columns=[
             TableColumnRead.model_validate(column, from_attributes=True)
-            for column in cols
+            for column in table.columns
         ],
     )
 
