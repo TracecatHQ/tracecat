@@ -98,16 +98,91 @@ By the end of this tutorial, you'll learn how to:
 
 ## If-conditions
 
+<Tip>
+  View all supported binary operators (e.g. `==`, `>`,`in`) in the [functions cheatsheet](/cheatsheets/functions).
+</Tip>
+
 Every action can be turned into a conditional action.
 Under the `If condition / Loops` tab, you can specify a condition that determines whether the action should be executed.
 
 For example, to run the `Get result` action only if the URL submission was successful, go to the `If condition / Loops` tab and specify the following in the `Run if` input:
 
-```yaml
+```php
 ${{ ACTIONS.scan_url.result.data.message == "Submission successful" }}
 ```
 
 ![Run if](/img/quickstart/tutorial/run-if.png)
+
+**Examples**
+
+<Note>
+  Conditional expressions are one of the most powerful features in Tracecat.
+  Combine binary operators and in-line functions to express complex conditions with ease.
+</Note>
+
+Here are examples of commonly used conditional expressions:
+
+<CodeGroup>
+  ```php Basic Comparison
+  # Equal to
+  ${{ ACTIONS.user_role.result == "admin" }}
+
+  # Not equal to
+  ${{ ACTIONS.environment.result != "production" }}
+
+  # Greater than
+  ${{ ACTIONS.failed_attempts.result > 5 }}
+
+  # Less than
+  ${{ ACTIONS.response_time.result < 1000 }}
+
+  # Greater than or equal to
+  ${{ ACTIONS.cpu_usage.result >= 90 }}
+
+  # Less than or equal to
+  ${{ ACTIONS.memory_usage.result <= 80 }}
+  ```
+
+  ```php List Operations
+  # Check if value is in list
+  ${{ ACTIONS.ip_address.result in ['192.168.1.1', '10.0.0.1'] }}
+
+  # Check if value is not in list
+  ${{ ACTIONS.status.result not in ['error', 'failed', 'timeout'] }}
+
+  # Check if value is in dynamic list
+  ${{ ACTIONS.alert.severity in ACTIONS.get_critical_levels.result }}
+  ```
+
+  ```php Boolean Checks
+  # Check if condition is True
+  ${{ bool(ACTIONS.is_enabled.result) is True }}
+
+  # Check if condition is False
+  ${{ bool(ACTIONS.is_locked.result) is False }}
+  ```
+
+  ```php Identity Checks
+  # Check if value is None/null
+  ${{ ACTIONS.optional_field.result is None }}
+
+  # Check if value is not None/null
+  ${{ ACTIONS.required_field.result is not None }}
+
+  # Check if service status is running
+  ${{ ACTIONS.service_status.result is 'running' }}
+  ```
+</CodeGroup>
+
+You can also combine multiple conditions using the `&&` and `||` operators:
+
+```php Combined Conditions
+# Check if user is admin and CPU usage is high
+${{ ACTIONS.user_role.result == "admin" && ACTIONS.cpu_usage.result >= 90 }}
+
+# Check if either memory or CPU usage is critical
+${{ ACTIONS.memory_usage.result >= 95 || ACTIONS.cpu_usage.result >= 95 }}
+```
 
 ## Any / All Conditions
 
@@ -137,7 +212,7 @@ Under the `If condition / Loops` tab, you can specify loop expressions to iterat
 
     In this example, we iterate through a list of numbers send via webhook in `TRIGGER`.
 
-    ```yaml
+    ```php
     ${{ for var.number in TRIGGER.numbers }}
     ```
 
@@ -150,7 +225,7 @@ Under the `If condition / Loops` tab, you can specify loop expressions to iterat
 
     In this example, we use the loop variable in `core.transform.reshape` action to iterate through a list of numbers and add one to each number.
 
-    ```yaml
+    ```php
     value: ${{ var.number + 1 }}
     ```
 

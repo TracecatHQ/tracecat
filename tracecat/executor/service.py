@@ -254,7 +254,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     if mask_values:
         result = apply_masks_object(result, masks=mask_values)
 
-    act_logger.debug("Result", result=result)
+    act_logger.trace("Result", result=result)
     return result
 
 
@@ -338,7 +338,7 @@ async def run_action_on_ray_cluster(
 
     runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
 
-    logger.info("Running action on ray cluster", runtime_env=runtime_env)
+    logger.trace("Running action on ray cluster", runtime_env=runtime_env)
     obj_ref = run_action_task.options(runtime_env=runtime_env).remote(input, ctx.role)
     try:
         coro = asyncio.to_thread(ray.get, obj_ref)
@@ -356,7 +356,7 @@ async def run_action_on_ray_cluster(
     # Here, we have some result or error.
     # Reconstruct the error and raise some kind of proxy
     if isinstance(exec_result, ExecutorActionErrorInfo):
-        logger.info("Raising executor error proxy", exec_result=exec_result)
+        logger.trace("Raising executor error proxy", exec_result=exec_result)
         if iteration is not None:
             exec_result.loop_iteration = iteration
             exec_result.loop_vars = input.exec_context[ExprContext.LOCAL_VARS]

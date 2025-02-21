@@ -8,9 +8,7 @@ from typing import Any
 from pydantic import UUID4, BaseModel
 
 from tracecat.config import TRACECAT__APP_ENV
-from tracecat.expressions.common import ExprContext
 from tracecat.git import GitUrl
-from tracecat.parse import to_flat_dict
 from tracecat.types.auth import Role
 
 
@@ -49,12 +47,9 @@ class ExecutorActionErrorInfo(BaseModel):
         parts = []
         msg = f"\n{self.type}: {self.message}"
         if self.loop_iteration is not None:
-            flattened = to_flat_dict(
-                self.loop_vars or {}, prefix=ExprContext.LOCAL_VARS
-            )
             parts.append(
                 f"\n[for_each] (Iteration {self.loop_iteration})"
-                f"\n\nLoop variables:\n```\n{json.dumps(flattened, indent=2)}\n```"
+                f"\n\nLoop variables:\n```\n{json.dumps(self.loop_vars or {}, indent=2)}\n```"
                 f"\n\n{msg}"
                 "\n\nPlease ensure that the loop is iterable and that the loop variable has the correct type."
             )

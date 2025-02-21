@@ -55,7 +55,7 @@ async def run_action(
         ) from e
     except LoopExecutionError as e:
         err_info_list = [e.info.model_dump(mode="json") for e in e.loop_errors]
-        act_logger.error("Error in loop", errors=err_info_list)
+        act_logger.error("Error in loop", n_errors=len(err_info_list))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=err_info_list,

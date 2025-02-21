@@ -61,7 +61,7 @@ FN_TRANSFORM: "." CNAME
 
 PARTIAL_JSONPATH_EXPR: /(?:\.(\.)?(?:[a-zA-Z_][a-zA-Z0-9_]*|\*|'[^']*'|"[^"]*"|\[[^\]]+\]|\`[^\`]*\`)|\.\.|\[[^\]]+\])+/
 
-OPERATOR: "+" | "-" | "*" | "/" | "%" | "==" | "!=" | ">" | "<" | ">=" | "<=" | "&&" | "||" | "in"
+OPERATOR: "not in" | "is not" | "in" | "is" | "==" | "!=" | ">=" | "<=" | ">" | "<" | "&&" | "||" | "+" | "-" | "*" | "/" | "%"
 TYPE_SPECIFIER: "int" | "float" | "str" | "bool"
 STRING_LITERAL: /'(?:[^'\\]|\\.)*'/ | /"(?:[^"\\]|\\.)*"/
 BOOL_LITERAL: "True" | "False"

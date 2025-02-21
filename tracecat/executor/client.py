@@ -51,7 +51,7 @@ class ExecutorClient:
     async def run_action_memory_backend(self, input: RunActionInput) -> Any:
         action_type = input.task.action
         content = input.model_dump_json()
-        logger.debug(
+        logger.trace(
             f"Calling action {action_type!r} with content",
             content=content,
             role=self.role,
@@ -124,22 +124,29 @@ class ExecutorClient:
             resp = {}
         match resp:
             case {"detail": detail} if _looks_like_error_info(detail):
-                logger.warning("Looks like error info", detail=detail)
+                logger.info("Looks like error info")
                 detail = str(ExecutorActionErrorInfo(**detail))
             case {"detail": detail} if isinstance(detail, list) and all(
                 _looks_like_error_info(r) for r in detail
             ):
-                logger.warning("Looks like list of error info", detail=detail)
-                detail = "\n".join(str(ExecutorActionErrorInfo(**r)) for r in detail)
+                logger.info("Looks like list of error info", n_errors=len(detail))
+                length = len(detail)
+                body = []
+                if length > 1:
+                    body.append(f"Showing the first of {length} similar errors.")
+                body.append(str(ExecutorActionErrorInfo(**detail[0])))
+                detail = "\n\n".join(body)
             case _:
-                logger.warning("Looks like unknown error", resp=resp)
+                logger.info("Looks like unknown error")
                 detail = e.response.text
-        self.logger.error("Executor returned an error", error=e, detail=detail)
+        logger.error("Executor returned an error")
         if e.response.status_code / 100 == 5:
+            logger.error("There was an error in the executor when calling action")
             raise ExecutorClientError(
                 f"There was an error in the executor when calling action {action_type!r} ({e.response.status_code}).\n\n{detail}"
             ) from e
         else:
+            logger.error("Unexpected executor error")
             raise ExecutorClientError(
                 f"Unexpected executor error ({e.response.status_code}):\n\n{e}\n\n{detail}"
             ) from e

@@ -786,6 +786,55 @@ def test_expression_parser(expr, expected):
     assert actual == expected
 
 
+@pytest.mark.parametrize(
+    "lhs, rhs, condition, expected",
+    [
+        ## Truthy cases
+        # Basic comparison operators
+        (85, 75, ">", True),  # Greater than
+        (60, 60, ">=", True),  # Greater than or equal
+        (30, 50, "<", True),  # Less than
+        (200, 200, "==", True),  # Equal
+        (403, 200, "!=", True),  # Not equal
+        # Membership operators
+        ("192.168.1.1", ["192.168.1.1", "10.0.0.1"], "in", True),  # In list
+        ("8.8.8.8", ["192.168.1.1", "10.0.0.1"], "not in", True),  # Not in list
+        # Identity operators
+        (None, None, "is", True),  # Is same object
+        (None, "not_none", "is not", True),  # Is not same object
+        ## Falsy cases
+        # Basic comparison operators
+        (75, 85, ">", False),  # Greater than
+        (50, 60, ">=", False),  # Greater than or equal
+        (50, 30, "<", False),  # Less than
+        (40, 30, "<=", False),  # Less than or equal
+        (404, 200, "==", False),  # Equal
+        (200, 200, "!=", False),  # Not equal
+        # Membership operators
+        ("192.168.1.1", ["10.0.0.1", "172.16.0.1"], "in", False),  # In list
+        ("192.168.1.1", ["192.168.1.1", "10.0.0.1"], "not in", False),  # Not in list
+        # Identity operators
+        ("running", None, "is", False),  # Is same object
+        (None, None, "is not", False),  # Is not same object
+    ],
+)
+def test_expression_binary_ops(lhs, rhs, condition, expected):
+    """Tests all binary operators:
+    - ==
+    - !=
+    - >
+    - >=
+    - <
+    - <=
+    - in
+    - not in
+    - is
+    - is not
+    """
+    expr = f"${{{{ {lhs!r} {condition} {rhs!r} }}}}"
+    assert eval_templated_object(expr) == expected
+
+
 def test_jsonpath_wildcard():
     context = {
         ExprContext.ACTIONS: {

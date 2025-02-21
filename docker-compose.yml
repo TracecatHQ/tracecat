@@ -14,13 +14,12 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.26.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.26.1}
     container_name: api
     restart: unless-stopped
     networks:
       - core
       - core-db
-      - temporal
     environment:
       # App
       LOG_LEVEL: ${LOG_LEVEL}
@@ -67,7 +66,7 @@ services:
       - executor
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.26.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.26.1}
     restart: unless-stopped
     networks:
       - core
@@ -97,11 +96,13 @@ services:
     command: ["python", "tracecat/dsl/worker.py"]
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.26.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.26.1}
     restart: unless-stopped
     networks:
-      - core
       - core-db
+      - temporal
+    # ports:
+    #   - 8265:8265
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
@@ -137,7 +138,7 @@ services:
       ]
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.26.0}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.26.1}
     container_name: ui
     restart: unless-stopped
     networks:
@@ -182,6 +183,7 @@ services:
     container_name: temporal
     restart: always
     networks:
+      - core
       - temporal
       - temporal-db
     environment:
@@ -193,6 +195,20 @@ services:
       - LOG_LEVEL=warn
     depends_on:
       - temporal_postgres_db
+
+  temporal_ui:
+    image: temporalio/ui:${TEMPORAL__UI_VERSION}
+    container_name: temporal_ui
+    networks:
+      - temporal
+    # ports:
+    #   - 8080:8080
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+    depends_on:
+      - temporal
+    attach: false
 
   # ollama:
   #   image: ollama/ollama:${OLLAMA__VERSION}

@@ -8,6 +8,9 @@ on:
       - registry/**
       - tests/**
       - pyproject.toml
+      - Dockerfile
+      - docker-compose.yml
+      - docker-compose.dev.yml
       - .github/workflows/test-python.yml
   pull_request:
     branches: ["main", "staging"]
@@ -16,6 +19,9 @@ on:
       - registry/**
       - tests/**
       - pyproject.toml
+      - Dockerfile
+      - docker-compose.yml
+      - docker-compose.dev.yml
       - .github/workflows/test-python.yml
   workflow_dispatch:
     inputs:
