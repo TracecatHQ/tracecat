@@ -220,23 +220,34 @@ class DSLScheduler:
         for task_ref, indegree in self.indegrees.items():
             if indegree == 0:
                 self.queue.put_nowait(task_ref)
+        running_tasks: set[asyncio.Task[Any]] = set()
         while not self.task_exceptions and (
-            not self.queue.empty() or len(self.completed_tasks) < len(self.tasks)
+            not self.queue.empty()
+            or running_tasks
+            or len(self.completed_tasks) < len(self.tasks)
         ):
+            q_size = self.queue.qsize()
             self.logger.debug(
                 "Waiting for tasks.",
-                qsize=self.queue.qsize(),
+                qsize=q_size,
                 n_visited=len(self.completed_tasks),
+                n_running=len(running_tasks),
                 n_tasks=len(self.tasks),
             )
-            try:
-                task_ref = await asyncio.wait_for(
-                    self.queue.get(), timeout=self._queue_wait_timeout
-                )
-            except TimeoutError:
-                continue
+            for _ in range(q_size):
+                task_ref = await self.queue.get()
+                task = asyncio.create_task(self._schedule_task(task_ref))
+                running_tasks.add(task)
 
-            asyncio.create_task(self._schedule_task(task_ref))
+            if running_tasks:
+                logger.debug(
+                    "Waiting for running tasks to complete", n=len(running_tasks)
+                )
+                done, _ = await asyncio.wait(
+                    running_tasks, return_when=asyncio.FIRST_COMPLETED
+                )
+                running_tasks.difference_update(done)
+
         if self.task_exceptions:
             self.logger.warning(
                 "DSLScheduler got task exceptions, stopping...",
