@@ -20,7 +20,6 @@ services:
     networks:
       - core
       - core-db
-      - temporal
     environment:
       # App
       LOG_LEVEL: ${LOG_LEVEL}
@@ -100,8 +99,10 @@ services:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.26.0}
     restart: unless-stopped
     networks:
-      - core
       - core-db
+      - temporal
+    # ports:
+    #   - 8265:8265
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
@@ -193,6 +194,20 @@ services:
       - LOG_LEVEL=warn
     depends_on:
       - temporal_postgres_db
+
+  temporal_ui:
+    image: temporalio/ui:${TEMPORAL__UI_VERSION}
+    container_name: temporal_ui
+    networks:
+      - temporal
+    # ports:
+    #   - 8080:8080
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+    depends_on:
+      - temporal
+    attach: false
 
   # ollama:
   #   image: ollama/ollama:${OLLAMA__VERSION}
