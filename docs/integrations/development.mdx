@@ -68,7 +68,7 @@ Then run the following commands:
 
 ```bash
 pip install pre-commit  # Or `uv pip install pre-commit`
-pre-commit install
+pre-commit install  # Or `uv run pre-commit install`
 ```
 
 The pre-commit hooks will run automatically when you commit code to your local repository.
@@ -86,11 +86,11 @@ The recommended way to start developing custom integrations is to use the [integ
 
     ```bash
     cd custom-integrations-starter-kit
-    pip install -e ".[dev]"
+    pip install -e ".[cli]"  # Or `uv pip install -e ".[cli]"`
     ```
 
     This `-e` flag installs the package in editable mode, which allows you to make changes to the package and have them reflected immediately.
-    The `.[dev]` flag installs the development dependencies, which includes the [`tracecat`](https://github.com/TracecatHQ/tracecat) and [`tracecat_registry`](https://github.com/TracecatHQ/tracecat/tree/main/registry) [Python packages].
+    The `.[cli]` flag installs core and command-line dependencies, which includes the `tracecat` Python package.
 
     Find out more about the `tracecat_registry` package below.
   </Step>
@@ -106,15 +106,6 @@ The recommended way to start developing custom integrations is to use the [integ
   `tracecat_registry` requires `tracecat` to be installed.
 </Note>
 
-<Info>
-  For advanced users, you can install `tracecat` and `tracecat_registry` manually with the following commands:
-
-  ```bash
-  pip install tracecat @ git+https://github.com/TracecatHQ/tracecat
-  pip install tracecat_registry @ git+https://github.com/TracecatHQ/tracecat#subdirectory=registry&egg=tracecat_registry
-  ```
-</Info>
-
 Installing `tracecat_registry` will give you access to the `tc` CLI, which is used to validate your templates before syncing and running them in Tracecat.
 It also includes the `tracecat_registry` package, which contains necessary imports for building Tracecat Python UDFs.
 
@@ -129,7 +120,7 @@ It also includes the `tracecat_registry` package, which contains necessary impor
 To check if your templates are valid, run the following command:
 
 ```bash
-tc validate template <path-to-templates>
+tc validate template <path-to-templates>  # Or `uv run tc validate template <path-to-templates>`
 ```
 
 ![Registry CLI](/img/integrations/registry-cli.png)
