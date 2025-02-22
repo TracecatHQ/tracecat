@@ -86,11 +86,11 @@ The recommended way to start developing custom integrations is to use the [integ
 
     ```bash
     cd custom-integrations-starter-kit
-    pip install -e ".[cli]"  # Or `uv pip install -e ".[cli]"`
+    pip install -e ".[dev]"  # Or `uv pip install -e ".[dev]"`
     ```
 
     This `-e` flag installs the package in editable mode, which allows you to make changes to the package and have them reflected immediately.
-    The `.[cli]` flag installs core and command-line dependencies, which includes the `tracecat` Python package.
+    The `.[dev]` flag installs core and dev dependencies, which includes the `tracecat` and `tracecat_registry[cli]` Python packages.
 
     Find out more about the `tracecat_registry` package below.
   </Step>
