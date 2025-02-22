@@ -13,6 +13,7 @@ from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import (
     DSLInput,
     ExecuteChildWorkflowArgs,
+    RunTableInsertRowArgs,
     RunTableLookupArgs,
     context_locator,
 )
@@ -170,6 +171,8 @@ async def validate_registry_action_args(
                 validated = ExecuteChildWorkflowArgs.model_validate(args)
             elif action_name == CoreActions.TABLE_LOOKUP:
                 validated = RunTableLookupArgs.model_validate(args)
+            elif action_name == CoreActions.TABLE_INSERT_ROW:
+                validated = RunTableInsertRowArgs.model_validate(args)
             else:
                 service = RegistryActionsService(session)
                 action = await service.get_action(action_name=action_name)

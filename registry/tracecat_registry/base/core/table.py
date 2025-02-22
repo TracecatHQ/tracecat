@@ -26,3 +26,22 @@ async def lookup(
     ],
 ) -> Any:
     raise ActionIsInterfaceError
+
+
+@registry.register(
+    default_title="Insert Row",
+    description="Insert a row into a table.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def insert_row(
+    table: Annotated[
+        str,
+        Doc("The table to insert the row into."),
+    ],
+    row_data: Annotated[
+        dict[str, Any],
+        Doc("The data to insert into the row."),
+    ],
+) -> Any:
+    raise ActionIsInterfaceError

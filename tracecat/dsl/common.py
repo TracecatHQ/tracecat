@@ -305,6 +305,11 @@ class RunTableLookupArgs(BaseModel):
     value: Any
 
 
+class RunTableInsertRowArgs(BaseModel):
+    table: str
+    row_data: dict[str, Any]
+
+
 AdjDst = tuple[str, EdgeType]
 
 

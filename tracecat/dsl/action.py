@@ -10,13 +10,14 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.common import RunTableLookupArgs
+from tracecat.dsl.common import RunTableInsertRowArgs, RunTableLookupArgs
 from tracecat.dsl.enums import CoreActions
 from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
 from tracecat.executor.client import ExecutorClient
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
+from tracecat.tables.models import TableRowInsert
 from tracecat.tables.service import TablesService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import ExecutorClientError, RegistryError
@@ -120,6 +121,13 @@ class DSLActivities:
                         values=[args.value],
                     )
                 return rows[0] if rows else None
+            elif task.action == CoreActions.TABLE_INSERT_ROW:
+                args = RunTableInsertRowArgs.model_validate(task.args)
+                params = TableRowInsert(data=args.row_data)
+                async with TablesService.with_session(role=role) as service:
+                    table = await service.get_table_by_name(args.table)
+                    row = await service.insert_row(table=table, params=params)
+                return row
             else:
                 # Run other actions in the executor
                 client = ExecutorClient(role=role)
