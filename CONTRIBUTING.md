@@ -1,5 +1,17 @@
 # Contributing to Tracecat
 
+Tracecat is currently supporting contributions for new integrations (in Tracecat Registry) and inline functions for our [expressions](https://docs.tracecat.com/expressions) domain-specific language.
+
+**Tracecat Registry** is a collection of integration and response-as-code templates. Response actions, called **Action Templates**, are organized into [MITRE D3FEND](https://d3fend.mitre.org/) categories (detect, isolate, evict, restore, harden, model) and Tracecat's own ontology of capabilities (e.g. `list_alerts`, `list_cases`, `list_users`).
+Template inputs (e.g. `start_time`, `end_time`) are normalized to fit the [Open Cyber Security Schema (OCSF)](https://schema.ocsf.io/) ontology where possible.
+
+We have a growing number of HTTP and Python client (e.g. `boto3`, `falconpy`) based integrations contributed by an active open source community.
+Come join Tracecat's community of security and IT engineers :heart:, gain development experience with a well-maintained project, and improve your work portfolio through open source!
+
+You'll find us in the `#contributors` channel on [Discord](https://discord.gg/H4XZwsYzY4).
+
+## Git workflow
+
 Please create a [issue](https://github.com/TracecatHQ/tracecat/issues) to collect feedback prior to opening up a [pull request (PR)](https://github.com/TracecatHQ/tracecat/pulls). If possible try to keep PRs scoped to one feature, and add tests for new features. We use the fork-based contribution model described by [GitHub's documentation](https://docs.github.com/en/get-started/exploring-projects-on-github/contributing-to-a-project).
 (In short: Fork the Tracecat repo and open a PR back from your fork into our `main` branch.)
 
@@ -12,7 +24,7 @@ We use the following branch naming convention: `{feat/fix}/{short-description}` 
 > We use [`uv`](https://docs.astral.sh/uv/)'s `pip` [interface](https://docs.astral.sh/uv/pip/) to run tests in an isolated Python environment.
 
 > [!NOTE]
-> `tracecat` and `tracecat_registry` Python dependencies under the `[project]` and `[project.optional-dependencies]` sections in the [`pyproject.toml`](https://github.com/TracecatHQ/tracecat/blob/main/pyproject.toml) and [`registry/pyproject.toml`](https://github.com/TracecatHQ/tracecat/blob/main/registry/pyproject.toml) files.
+> You can find `tracecat` and `tracecat_registry` Python dependencies under the `[project]` and `[project.optional-dependencies]` sections in the [`pyproject.toml`](https://github.com/TracecatHQ/tracecat/blob/main/pyproject.toml) and [`registry/pyproject.toml`](https://github.com/TracecatHQ/tracecat/blob/main/registry/pyproject.toml) files.
 
 The Tracecat development environment consists of a:
 
@@ -39,7 +51,7 @@ uv venv --python 3.12
 # Install Tracecat and Tracecat Registry
 # Python packages and dependencies into venv
 uv pip install -e ".[dev]"
-uv pip install -e "tracecat_registry @ ./registry"
+uv pip install -e "tracecat_registry[cli] @ ./registry"
 
 # Install pre-commit hooks
 uv pip install pre-commit
@@ -86,6 +98,10 @@ We currently support contributions for new integrations and inline functions.
 > [!NOTE]
 > You can find existing Action Templates in the [`registry/tracecat_registry/templates/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates) directory.
 
+Every **Action Template** must be a YAML file that:
+- Follows Tracecat's template [schema](https://docs.tracecat.com/integrations/action-templates)
+- Has `expects`
+
 ### YAML Schemas
 
 > [!NOTE]
@@ -93,7 +109,7 @@ We currently support contributions for new integrations and inline functions.
 
 ### Python Integrations
 
-> [!NOTE]
+> [!NOTE
 > You can find existing Python integrations in the [`registry/tracecat_registry/integrations/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) directory.
 
 ### Inline Functions
@@ -103,6 +119,8 @@ We currently support contributions for new integrations and inline functions.
 
 ## Sharing Ideas / Feature Requests
 
+If you have an idea or feature request, please [open an issue](https://github.com/TracecatHQ/tracecat/issues) or join our [Discord server](https://discord.gg/H4XZwsYzY4) to discuss in the `#questions` channel!
+
 ## Reporting Bugs
 
 If you encounter an invalid Action Template, Python integration, or inline function, please [open an issue](https://github.com/TracecatHQ/tracecat/issues).
@@ -110,28 +128,9 @@ Make sure to provide the following information:
 
 - Tracecat version (e.g. `0.26.1`)
 
-## Advanced Contributions
+## Frontend / Backend Contributions
 
-The following sections are provided for reference only.
-If you're an experienced Python or JavaScript developer with a well-scoped and urgent contribution,
+We do not officially support contributions to `api`, `worker`, `executor`, or `ui` services.
+
+Nevertheless, if you're an experienced Python or JavaScript developer with a well-scoped and urgent contribution,
 please contact the Tracecat team on [Discord](https://discord.gg/H4XZwsYzY4) for guidance.
-
-### Backend
-
-> [!WARNING]
-> We do not officially support contributions to the API, worker, and executor.
-
-### Frontend
-
-> [!WARNING]
-> We do not officially support frontend contributions.
-
-We use `pnpm` as our package manager.
-After spinning up the Tracecat development environment, run the following commands to install frontend dependencies:
-
-```bash
-cd tracecat/frontend
-pnpm install
-```
-
-You can now access the frontend at [http://localhost](http://localhost) running in `pnpm dev` mode (i.e. hot reloading).
