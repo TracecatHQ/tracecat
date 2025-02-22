@@ -50,7 +50,7 @@ import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
-} from "@/components/table"
+} from "@/components/data-table"
 
 export function OrgMembersTable() {
   const [selectedMember, setSelectedMember] = useState<OrgMemberRead | null>(

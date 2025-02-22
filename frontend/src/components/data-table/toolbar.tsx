@@ -5,8 +5,8 @@ import { Table } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { DataTableViewOptions } from "@/components/table"
-import { DataTableFacetedFilter } from "@/components/table/faceted-filter"
+import { DataTableViewOptions } from "@/components/data-table"
+import { DataTableFacetedFilter } from "@/components/data-table/faceted-filter"
 
 export interface DataTableToolbarProps {
   filterProps?: DataTableToolbarFilterProps
