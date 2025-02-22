@@ -101,13 +101,82 @@ We currently support contributions for new integrations and inline functions.
 > You can find existing Action Templates in the [`registry/tracecat_registry/templates/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates) directory.
 
 Every **Action Template** must be a YAML file that:
-- Follows Tracecat's template [schema](https://docs.tracecat.com/integrations/action-templates)
-- Has `expects`
 
-### YAML Schemas
+- Follows Tracecat's template [schema](https://docs.tracecat.com/integrations/action-templates).
+- Has `expects` with arguments that match a supported [**Response Schema**](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/schemas) (e.g. `list_alerts`, `list_cases`, `list_users`).
+- All required arguments in the API call in `steps` are mapped to an argument in a **Response Schema**.
+- No optional arguments in the API call in `steps` are specified, unless required by a **Response Schema** or satisfies one of the conditions below.
+
+**Optional arguments**
+
+
+**`base_url`**
+If the integration has a paramterized API URL (e.g. Jira, Microsoft Graph), add the following argument to the `expects` section:
+
+```yaml
+expects:
+  base_url:
+    type: str
+    description: Base URL for the API
+```
+
+**Example template**
+
+```yaml
+type: action
+definition:
+title: Lock device
+description: Lock a device managed by Jamf Pro with a user-provided 6-digit pin.
+display_group: Jamf
+doc_url: https://developer.jamf.com/jamf-pro/reference/post_v2-mdm-commands
+namespace: tools.jamf
+name: lock_device
+expects:
+  device_id:
+    type: str
+    description: Management ID of the device to lock.
+  message:
+    type: str
+    description: Message to display on the device.
+  pin:
+    type: str
+    description: 6-digit PIN to lock and unlock the device.
+  base_url:
+    type: str
+    description: Base URL for the Jamf Pro API.
+steps:
+  - ref: get_access_token
+    action: tools.jamf.get_access_token
+    args:
+      base_url: ${{ inputs.base_url }}
+  - ref: post_mdm_command
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/api/v2/mdm/commands
+      method: POST
+      headers:
+        Authorization: Bearer ${{ steps.get_access_token.result }}
+      payload:
+        clientData:
+          managementId: ${{ inputs.device_id }}
+        commandData:
+          commandType: DEVICE_LOCK
+          message: ${{ inputs.message }}
+          pin: ${{ inputs.pin }}
+returns: ${{ steps.post_mdm_command.result }}
+```
+
+### Response Schemas
 
 > [!NOTE]
 > You can find existing YAML schemas in the [`registry/tracecat_registry/schemas/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/schemas) directory.
+
+If you can't find a schema that matches your integration or want to suggest a change to an existing schema, please [open an issue](https://github.com/TracecatHQ/tracecat/issues). Provide the following information:
+
+- Link to the closest [MITRE D3FEND](https://d3fend.mitre.org/) category (e.g. `detect`, `isolate`, `evict`, `restore`, `harden`, `model`).
+- Links to the relevant [OCSF](https://schema.ocsf.io/) classes and objects.
+- Links to any similar or related schemas in Tracecat Registry.
+- (If applicable) Suggested name of the new capability (e.g. `list_alerts`, `list_cases`, `list_users`)
 
 ### Python Integrations
 
