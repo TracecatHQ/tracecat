@@ -2,6 +2,7 @@
 # https://support.pagerduty.com/main/docs/pd-cef
 # https://www.servicenow.com/docs/bundle/xanadu-it-operations-management/page/product/event-management/concept/c_EMIntegrateRequirementEvent.html
 # https://confluence.atlassian.com/adminjiraserver/issue-fields-and-statuses-938847116.html
+# https://medium.com/brexeng/elevating-security-alert-management-using-automation-828004ad596c
 # NOTE: Should only be used to create a new case, not to update an existing case.
 # If this is a retrospective case, use the `update_case_status` action after creating the case.
 summary:
@@ -22,9 +23,9 @@ priority:
   type: str | None
   description: Priority of the incident.
   default: null
-tags:
+labels:
   type: list[str]
-  description: Tags to categorize the incident.
+  description: Labels to categorize the incident.
   default: []
 metadata:
   type: list[dict[str, any]]

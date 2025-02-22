@@ -19,9 +19,9 @@ definition:
     severity:
       type: str
       description: Severity of the incident.
-    tags:
+    labels:
       type: list[str]
-      description: Tags to categorize the incident.
+      description: Labels to categorize the incident.
       default: []
     custom_fields:
       type: list[dict[str, any]]
