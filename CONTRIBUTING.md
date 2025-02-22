@@ -21,11 +21,13 @@ We use the following branch naming convention: `{feat/fix}/{short-description}` 
 
 ## Before you start
 
-> [!TIP]
-> This is the same development setup used by the core Tracecat team!
-> We use [`uv`](https://docs.astral.sh/uv/)'s `pip` [interface](https://docs.astral.sh/uv/pip/) to run tests in an isolated Python environment.
-
 > [!NOTE]
+> This is the same development setup used by the core Tracecat team.
+> We use [`uv`](https://docs.astral.sh/uv/)'s `pip` [interface](https://docs.astral.sh/uv/pip/) to run tests in an isolated Python environment.
+>
+> The whole development environment takes less than 5 minutes to set up.
+
+> [!TIP]
 > You can find `tracecat` and `tracecat_registry` Python dependencies under the `[project]` and `[project.optional-dependencies]` sections in the [`pyproject.toml`](https://github.com/TracecatHQ/tracecat/blob/main/pyproject.toml) and [`registry/pyproject.toml`](https://github.com/TracecatHQ/tracecat/blob/main/registry/pyproject.toml) files.
 
 The Tracecat development environment consists of a:
@@ -104,23 +106,40 @@ Every **Action Template** must be a YAML file that:
 
 - Follows Tracecat's template [schema](https://docs.tracecat.com/integrations/action-templates).
 - Has `expects` with arguments that match a supported [**Response Schema**](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/schemas) (e.g. `list_alerts`, `list_cases`, `list_users`).
-- All required arguments in the API call in `steps` are mapped to an argument in a **Response Schema**.
-- No optional arguments in the API call in `steps` are specified, unless required by a **Response Schema** or satisfies one of the conditions below.
+- All required arguments in the API call in `steps` are mapped to an argument in a Response Schema.
+- No optional arguments in the API call in `steps` are specified, unless required by a Response Schema or satisfies one of the conditions below.
 
-**Optional arguments**
+We support `expects` arguments that are not in the **Response Schema** as long as they satisfy one of the following conditions:
 
+- Is an argument relevant to the integration's core functionality (e.g. `channel` and `thread_ts` in Slack messaging APIs).
+- Requires an API URL specific to the tenant (`base_url`).
 
-**`base_url`**
-If the integration has a paramterized API URL (e.g. Jira, Microsoft Graph), add the following argument to the `expects` section:
+These additional arguments can be added to the end of the `expects` section.
+`base_url` must be the last argument in the `expects` section:
 
 ```yaml
-expects:
-  base_url:
-    type: str
-    description: Base URL for the API
+base_url:
+  type: str
+  description: Base URL for the {integration_name} API
 ```
 
-**Example template**
+> [!IMPORTANT]
+> If the above conditions are insufficient for your use-case, please check out the [Response Schemas](#response-schemas) contribution guide below.
+
+#### Naming conventions
+
+Our naming convention is simple:
+- `title` must be less than 5 words and only describe the action (i.e. does not include the integration name).
+- `description` should be a single sentence that describes the action and includes the integration name.
+- `namespace` must following the format `tools.{integration_name}`.
+- If the integration wraps a Python client, the integration name is the name of the client (e.g. `tools.slack_sdk`, `tools.aws_boto3`, `tools.falconpy`).
+
+For example:
+- `title`: List alerts
+- `description`: Query for Crowdstrike alerts via the Falcon SIEM API.
+- `namespace`: `tools.crowdstrike`
+
+#### Example template
 
 ```yaml
 type: action
