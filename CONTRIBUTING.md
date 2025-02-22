@@ -8,7 +8,7 @@ Tracecat is currently accepting contributions for:
 Template inputs (e.g. `start_time`, `end_time`) are normalized to fit the [Open Cyber Security Schema (OCSF)](https://schema.ocsf.io/) ontology where possible.
 
 We have a growing open source community contributing normalized HTTP and Python client (e.g. `boto3`, `falconpy`) based integrations.
-We hope you contribute to Tracecat, join our community of security / IT engineers :heart:, gain experience with a full-stack project, and improve your work portfolio through open source!
+We hope you contribute to Tracecat, join our community of security / IT engineers :heart:, gain experience with a production code-base, and improve your work portfolio through open source!
 
 You'll find us in the `#contributors` channel on [Discord](https://discord.gg/H4XZwsYzY4).
 
