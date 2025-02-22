@@ -1,6 +1,8 @@
 # Contributing to Tracecat
 
-Tracecat is currently supporting contributions for new integrations (in Tracecat Registry) and inline functions for our [expressions](https://docs.tracecat.com/expressions) domain-specific language.
+Tracecat is currently accepting contributions for:
+- **Action Templates** and **Python integrations** in [Tracecat Registry](https://docs.tracecat.com/integrations/overview)
+- **Inline functions** for Tracecat's [expressions](https://docs.tracecat.com/expressions) engine
 
 **Tracecat Registry** is a collection of integration and response-as-code templates. Response actions, called **Action Templates**, are organized into [MITRE D3FEND](https://d3fend.mitre.org/) categories (detect, isolate, evict, restore, harden, model) and Tracecat's own ontology of capabilities (e.g. `list_alerts`, `list_cases`, `list_users`).
 Template inputs (e.g. `start_time`, `end_time`) are normalized to fit the [Open Cyber Security Schema (OCSF)](https://schema.ocsf.io/) ontology where possible.
