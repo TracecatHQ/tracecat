@@ -178,15 +178,28 @@ If you can't find a schema that matches your integration or want to suggest a ch
 - Links to any similar or related schemas in Tracecat Registry.
 - (If applicable) Suggested name of the new capability (e.g. `list_alerts`, `list_cases`, `list_users`)
 
-### Python Integrations
-
-> [!NOTE
-> You can find existing Python integrations in the [`registry/tracecat_registry/integrations/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) directory.
-
 ### Inline Functions
 
 > [!NOTE]
 > You can find existing inline functions in the [`tracecat/expressions/functions.py`](https://github.com/TracecatHQ/tracecat/blob/main/tracecat/expressions/functions.py) file.
+
+Please add tests for the new inline function.
+You can find the tests in the [`tests/unit/test_functions.py`](https://github.com/TracecatHQ/tracecat/blob/main/tests/unit/test_functions.py) file.
+
+To run the tests in isolation, use the following command:
+
+```bash
+uv run pytest tests/unit/test_functions.py -x --last-failed
+```
+
+> [!TIP]
+> - `-x` flag stops the tests at the first failure
+> - `--last-failed` option re-runs all tests that failed in the previous run
+
+### Python Integrations
+
+> [!NOTE]
+> You can find existing Python integrations in the [`registry/tracecat_registry/integrations/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) directory.
 
 ## Sharing Ideas / Feature Requests
 
