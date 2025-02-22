@@ -7,7 +7,7 @@
 
 ## Checklist
 
-- [ ] Read the [CONTRIBUTING](CONTRIBUTING.md) guide.
+- [ ] Read [CONTRIBUTING.md](https://github.com/TracecatHQ/tracecat/blob/main/CONTRIBUTING.md).
 - [ ] PR title is short and non-generic (see previously [merged PRs](https://github.com/TracecatHQ/tracecat/pulls?q=is%3Apr+is%3Aclosed) for examples).
 - [ ] PR only implements a single feature or fixes a single bug.
 - [ ] Tests passing (`uv run pytest tests`)?
