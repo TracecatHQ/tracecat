@@ -10,7 +10,7 @@ Objectives
 
 import asyncio
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -31,7 +31,13 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Workflow
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs, RunTableLookupArgs
+from tracecat.dsl.common import (
+    DSLEntrypoint,
+    DSLInput,
+    DSLRunArgs,
+    RunTableInsertRowArgs,
+    RunTableLookupArgs,
+)
 from tracecat.dsl.enums import LoopStrategy
 from tracecat.dsl.models import (
     ActionStatement,
@@ -2869,3 +2875,69 @@ async def test_workflow_lookup_table_missing_value(
     )
     result = await _run_workflow(temporal_client, wf_exec_id, run_args)
     assert result is None
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_workflow_insert_table_row_success(
+    test_role: Role, temporal_client: Client, test_admin_role: Role
+):
+    """
+    Test that a workflow can insert a row into a table.
+
+    1. Create a table with a column
+    2. Create a workflow that inserts a row into the table
+    3. Run the workflow
+    4. Verify the row was inserted correctly
+    """
+    test_name = test_workflow_insert_table_row_success.__name__
+
+    # Create table with a number column
+    table_name = None
+    async with TablesService.with_session(role=test_admin_role) as service:
+        table = await service.create_table(TableCreate(name="test_insert"))
+        table_name = table.name
+        await service.create_column(
+            table,
+            TableColumnCreate(name="number", type="INTEGER"),
+        )
+
+    # Create workflow that inserts a row
+    dsl = DSLInput(
+        title=test_name,
+        description="Test inserting a row into a table via workflow",
+        entrypoint=DSLEntrypoint(ref="insert_row"),
+        actions=[
+            ActionStatement(
+                ref="insert_row",
+                action="core.table.insert_row",
+                args=RunTableInsertRowArgs(
+                    table=table.name,
+                    row_data={"number": 42},
+                ).model_dump(),
+            ),
+        ],
+        returns="${{ ACTIONS.insert_row.result }}",
+    )
+
+    # Run the workflow
+    wf_exec_id = generate_test_exec_id(test_name)
+    run_args = DSLRunArgs(
+        dsl=dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+
+    # Verify the result indicates success
+    assert result is not None
+    assert isinstance(result, Mapping)
+    assert "id" in result
+    assert "number" in result
+    assert result["number"] == 42
+
+    # Verify the row was actually inserted
+    async with TablesService.with_session(role=test_admin_role) as service:
+        rows = await service.lookup_row(table_name, columns=["number"], values=[42])
+    assert len(rows) == 1
+    assert rows[0]["number"] == 42
