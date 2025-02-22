@@ -7,8 +7,8 @@ Tracecat is currently accepting contributions for:
 **Tracecat Registry** is a collection of integration and response-as-code templates. Response actions, called **Action Templates**, are organized into [MITRE D3FEND](https://d3fend.mitre.org/) categories (detect, isolate, evict, restore, harden, model) and Tracecat's own ontology of capabilities (e.g. `list_alerts`, `list_cases`, `list_users`).
 Template inputs (e.g. `start_time`, `end_time`) are normalized to fit the [Open Cyber Security Schema (OCSF)](https://schema.ocsf.io/) ontology where possible.
 
-We have a growing number of HTTP and Python client (e.g. `boto3`, `falconpy`) based integrations contributed by an active open source community.
-Come join Tracecat's community of security and IT engineers :heart:, gain development experience with a well-maintained project, and improve your work portfolio through open source!
+We have a growing open source community contributing normalized HTTP and Python client (e.g. `boto3`, `falconpy`) based integrations.
+We hope you contribute to Tracecat, join our community of security / IT engineers :heart:, gain experience with a full-stack project, and improve your work portfolio through open source!
 
 You'll find us in the `#contributors` channel on [Discord](https://discord.gg/H4XZwsYzY4).
 
@@ -23,12 +23,8 @@ We use the following branch naming convention: `{feat/fix}/{short-description}` 
 
 > [!NOTE]
 > This is the same development setup used by the core Tracecat team.
-> We use [`uv`](https://docs.astral.sh/uv/)'s `pip` [interface](https://docs.astral.sh/uv/pip/) to run tests in an isolated Python environment.
->
+> We use `uv`'s `pip` [interface](https://docs.astral.sh/uv/pip/) to run tests in an isolated Python environment.
 > The whole development environment takes less than 5 minutes to set up.
-
-> [!TIP]
-> You can find `tracecat` and `tracecat_registry` Python dependencies under the `[project]` and `[project.optional-dependencies]` sections in the [`pyproject.toml`](https://github.com/TracecatHQ/tracecat/blob/main/pyproject.toml) and [`registry/pyproject.toml`](https://github.com/TracecatHQ/tracecat/blob/main/registry/pyproject.toml) files.
 
 The Tracecat development environment consists of a:
 
@@ -65,6 +61,9 @@ uv run pre-commit install
 pnpm install --dir frontend
 ```
 
+> [!NOTE]
+> You can find `tracecat` and `tracecat_registry` Python dependencies under the `[project]` and `[project.optional-dependencies]` sections in the [`pyproject.toml`](https://github.com/TracecatHQ/tracecat/blob/main/pyproject.toml) and [`registry/pyproject.toml`](https://github.com/TracecatHQ/tracecat/blob/main/registry/pyproject.toml) files.
+
 You've now configured a development environment.
 Let's now spin up the Tracecat development stack with the following command:
 
@@ -99,7 +98,7 @@ We currently support contributions for new integrations and inline functions.
 
 ### YAML Action Templates
 
-> [!NOTE]
+> [!TIP]
 > You can find existing Action Templates in the [`registry/tracecat_registry/templates/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates) directory.
 
 Every **Action Template** must be a YAML file that:
@@ -110,6 +109,9 @@ Every **Action Template** must be a YAML file that:
 - No optional arguments in the API call in `steps` are specified, unless required by a Response Schema or satisfies one of the conditions below.
 
 We support `expects` arguments that are not in the **Response Schema** as long as they satisfy one of the following conditions:
+
+> [!IMPORTANT]
+> If the following conditions are insufficient for your use-case, please check out the [Response Schemas](#response-schemas) contribution guide below.
 
 - Is an argument relevant to the integration's core functionality (e.g. `channel` and `thread_ts` in Slack messaging APIs).
 - Requires an API URL specific to the tenant (`base_url`).
@@ -122,9 +124,6 @@ base_url:
   type: str
   description: Base URL for the {integration_name} API
 ```
-
-> [!IMPORTANT]
-> If the above conditions are insufficient for your use-case, please check out the [Response Schemas](#response-schemas) contribution guide below.
 
 #### Naming conventions
 
@@ -187,7 +186,7 @@ returns: ${{ steps.post_mdm_command.result }}
 
 ### Response Schemas
 
-> [!NOTE]
+> [!TIP]
 > You can find existing YAML schemas in the [`registry/tracecat_registry/schemas/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/schemas) directory.
 
 If you can't find a schema that matches your integration or want to suggest a change to an existing schema, please [open an issue](https://github.com/TracecatHQ/tracecat/issues). Provide the following information:
@@ -199,7 +198,7 @@ If you can't find a schema that matches your integration or want to suggest a ch
 
 ### Inline Functions
 
-> [!NOTE]
+> [!TIP]
 > You can find existing inline functions in the [`tracecat/expressions/functions.py`](https://github.com/TracecatHQ/tracecat/blob/main/tracecat/expressions/functions.py) file.
 
 Please add tests for the new inline function.
@@ -211,13 +210,13 @@ To run the tests in isolation, use the following command:
 uv run pytest tests/unit/test_functions.py -x --last-failed
 ```
 
-> [!TIP]
+> [!NOTE]
 > - `-x` flag stops the tests at the first failure
 > - `--last-failed` option re-runs all tests that failed in the previous run
 
 ### Python Integrations
 
-> [!NOTE]
+> [!TIP]
 > You can find existing Python integrations in the [`registry/tracecat_registry/integrations/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) directory.
 
 ## Sharing Ideas / Feature Requests
