@@ -192,6 +192,19 @@ def test_role(test_workspace, mock_org_id):
 
 
 @pytest.fixture(scope="session")
+def test_admin_role(test_workspace, mock_org_id):
+    """Create a test role for the test session and set `ctx_role`."""
+    admin_role = Role(
+        type="user",
+        user_id=mock_org_id,
+        workspace_id=test_workspace.id,
+        access_level=AccessLevel.ADMIN,
+        service_id="tracecat-runner",
+    )
+    return admin_role
+
+
+@pytest.fixture(scope="session")
 def test_config_path(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     tmp_path = tmp_path_factory.mktemp("config")
     config_path = tmp_path / "test_config.json"
