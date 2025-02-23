@@ -15,12 +15,10 @@ definition:
       description: Brief one-line summary of the incident.
     description:
       type: str
-      description: A detailed description of the incident.
-    priority:
+      description: Detailed description of the incident.
+    priority_id:
       type: str
-      description: |
-        Priority of the incident.
-        This is the priority name, not the priority ID.
+      description: Priority ID. Must be one of the priorities in the priority scheme.
     tags:
       type: list[str]
       description: Tags to categorize the incident. Added as Jira labels.
@@ -28,8 +26,7 @@ definition:
     metadata:
       type: list[dict[str, any]]
       description: >-
-        Context related to the incident, where the keys are Jira custom field names.
-        Field names are automatically mapped to Jira custom field IDs.
+        Context related to the incident. Keys are Jira custom field IDs.
       default: []
     project_id:
       type: str
@@ -44,16 +41,6 @@ definition:
       type: str
       description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
   steps:
-    # Map priority name to ID
-    - ref: get_priorities
-      action: tools.jira.get_priorities
-      args:
-        priority_scheme_id: ${{ inputs.priority_scheme_id }}
-        base_url: ${{ inputs.base_url }}
-    - ref: priority_name_to_id
-      action: core.transform.reshape
-      args:
-        value: ${{ FN.index_by_key(steps.get_priorities.result, "name", "id") }}
     # Format the required fields
     - ref: required_fields
       action: core.transform.reshape
@@ -71,29 +58,16 @@ definition:
                     text: ${{ inputs.description }}
           labels: ${{ inputs.tags }}
           priority:
-            id: ${{ FN.lookup(steps.priority_name_to_id.result, inputs.priority) }}
+            id: ${{ inputs.priority_id }}
           project:
             id: ${{ inputs.project_id }}
           issuetype:
             id: ${{ inputs.issue_type_id }}
-    # Map custom field names to IDs
-    - ref: get_fields
-      action: tools.jira.get_fields
-      args:
-        base_url: ${{ inputs.base_url }}
-    - ref: custom_field_name_to_id
-      action: core.transform.reshape
-      args:
-        value: ${{ FN.index_by_key(steps.get_fields.result, "name", "id") }}
-    - ref: custom_fields
-      action: core.transform.reshape
-      args:
-        value: ${{ FN.map_keys(FN.merge(inputs.metadata), steps.custom_field_name_to_id.result) }}
     # Fields
     - ref: fields
       action: core.transform.reshape
       args:
-        value: ${{ FN.merge([steps.required_fields.result, steps.custom_fields.result]) }}
+        value: ${{ FN.merge([steps.required_fields.result, FN.merge(inputs.metadata)]) }}
     # Create the issue
     - ref: create_issue
       action: core.http_request

@@ -10,10 +10,12 @@ summary:
   description: Brief one-line summary of the incident.
 description:
   type: str
-  description: A detailed description of the incident.
+  description: Detailed description of the incident.
 # NOTE: Not all integrations support both severity and priority.
 # If the integration only supports severity, use the `severity` field.
 # If the integration only supports priority, use the `priority` field.
+# If the integration only supports a ID field (e.g. Jira), call the field:
+# `severity_id` or `priority_id` and set the value to the ID.
 severity:
   type: str
   description: Severity of the incident.
