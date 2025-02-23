@@ -21,4 +21,4 @@ definition:
         method: GET
         headers:
           Authorization: Basic ${{ FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
-  returns: ${{ steps.get_fields.result }}
+  returns: ${{ steps.get_fields.result.data }}
