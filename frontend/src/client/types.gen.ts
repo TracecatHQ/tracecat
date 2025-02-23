@@ -887,9 +887,9 @@ export type SAMLSettingsUpdate = {
 }
 
 export type Schedule = {
-  owner_id: string
   created_at?: string
   updated_at?: string
+  owner_id: string
   id?: string
   status?: string
   cron?: string | null
@@ -1068,6 +1068,130 @@ export type SessionRead = {
  * A sentinel user ID that represents the current user.
  */
 export type SpecialUserID = "current"
+
+/**
+ * Supported SQL types.
+ */
+export type SqlType_Output =
+  | "TEXT"
+  | "VARCHAR"
+  | "INTEGER"
+  | "BIGINT"
+  | "DECIMAL"
+  | "BOOLEAN"
+  | "TIMESTAMP"
+  | "TIMESTAMPTZ"
+  | "JSONB"
+  | "UUID"
+
+/**
+ * Create model for a table column.
+ */
+export type TableColumnCreate = {
+  /**
+   * The name of the column
+   */
+  name: string
+  /**
+   * The SQL type of the column
+   */
+  type: tracecat__tables__enums__SqlType__1
+  nullable?: boolean
+  default?: unknown | null
+}
+
+/**
+ * Definition for a table column.
+ */
+export type TableColumnRead = {
+  id: string
+  name: string
+  type: SqlType_Output
+  nullable?: boolean
+  default?: unknown | null
+}
+
+/**
+ * Update model for a table column.
+ */
+export type TableColumnUpdate = {
+  /**
+   * The name of the column
+   */
+  name?: string | null
+  /**
+   * The SQL type of the column
+   */
+  type?: tracecat__tables__enums__SqlType__1 | null
+  /**
+   * Whether the column can be null
+   */
+  nullable?: boolean | null
+  /**
+   * The default value of the column
+   */
+  default?: unknown | null
+}
+
+/**
+ * Create model for a table.
+ */
+export type TableCreate = {
+  /**
+   * The name of the table
+   */
+  name: string
+  /**
+   * The columns of the table
+   */
+  columns?: Array<TableColumnCreate>
+}
+
+/**
+ * Read model for a table.
+ */
+export type TableRead = {
+  id: string
+  name: string
+  columns: Array<TableColumnRead>
+}
+
+/**
+ * Read model for a table.
+ */
+export type TableReadMinimal = {
+  id: string
+  name: string
+}
+
+/**
+ * Insert model for a table row.
+ */
+export type TableRowInsert = {
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Read model for a table row.
+ */
+export type TableRowRead = {
+  id: string
+  created_at: string
+  updated_at: string
+  [key: string]: unknown | string
+}
+
+/**
+ * Update model for a table.
+ */
+export type TableUpdate = {
+  /**
+   * The name of the table
+   */
+  name?: string | null
+}
 
 /**
  * Model for creating new tags with validation.
@@ -1253,9 +1377,9 @@ export type ValidationError = {
 }
 
 export type WebhookResponse = {
-  owner_id: string
   created_at?: string
   updated_at?: string
+  owner_id: string
   id: string
   secret: string
   status: "online" | "offline"
@@ -1303,9 +1427,9 @@ export type status2 = "success" | "failure"
  * - 1 Workflow to many WorkflowDefinitions
  */
 export type WorkflowDefinition = {
-  owner_id: string
   created_at?: string
   updated_at?: string
+  owner_id: string
   id?: string
   /**
    * DSL spec version
@@ -1646,6 +1770,24 @@ export type login = {
   client_id?: string | null
   client_secret?: string | null
 }
+
+/**
+ * Supported SQL types.
+ */
+export type tracecat__tables__enums__SqlType__1 =
+  | "TEXT"
+  | "VARCHAR"
+  | "INTEGER"
+  | "BIGINT"
+  | "DECIMAL"
+  | "BOOLEAN"
+  | "TIMESTAMP"
+  | "TIMESTAMPTZ"
+  | "JSONB"
+  | "UUID"
+
+export type tracecat__tables__enums__SqlType__2 =
+  tracecat__tables__enums__SqlType__1
 
 export type PublicIncomingWebhookData = {
   contentType?: string | null
@@ -2254,6 +2396,105 @@ export type OrganizationSecretsDeleteOrgSecretByIdData = {
 }
 
 export type OrganizationSecretsDeleteOrgSecretByIdResponse = void
+
+export type TablesListTablesData = {
+  workspaceId: string
+}
+
+export type TablesListTablesResponse = Array<TableReadMinimal>
+
+export type TablesCreateTableData = {
+  requestBody: TableCreate
+  workspaceId: string
+}
+
+export type TablesCreateTableResponse = unknown
+
+export type TablesGetTableData = {
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesGetTableResponse = TableRead
+
+export type TablesUpdateTableData = {
+  requestBody: TableUpdate
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesUpdateTableResponse = void
+
+export type TablesDeleteTableData = {
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesDeleteTableResponse = void
+
+export type TablesCreateColumnData = {
+  requestBody: TableColumnCreate
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesCreateColumnResponse = unknown
+
+export type TablesUpdateColumnData = {
+  columnId: string
+  requestBody: TableColumnUpdate
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesUpdateColumnResponse = void
+
+export type TablesDeleteColumnData = {
+  columnId: string
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesDeleteColumnResponse = void
+
+export type TablesListRowsData = {
+  /**
+   * Maximum number of rows to return
+   */
+  limit?: number
+  /**
+   * Number of rows to skip
+   */
+  offset?: number
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesListRowsResponse = Array<TableRowRead>
+
+export type TablesInsertRowData = {
+  requestBody: TableRowInsert
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesInsertRowResponse = unknown
+
+export type TablesGetRowData = {
+  rowId: string
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesGetRowResponse = unknown
+
+export type TablesDeleteRowData = {
+  rowId: string
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesDeleteRowResponse = void
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -3563,6 +3804,174 @@ export type $OpenApiTs = {
     }
     delete: {
       req: OrganizationSecretsDeleteOrgSecretByIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables": {
+    get: {
+      req: TablesListTablesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<TableReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: TablesCreateTableData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables/{table_id}": {
+    get: {
+      req: TablesGetTableData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TablesUpdateTableData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TablesDeleteTableData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables/{table_id}/columns": {
+    post: {
+      req: TablesCreateColumnData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables/{table_id}/columns/{column_id}": {
+    patch: {
+      req: TablesUpdateColumnData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TablesDeleteColumnData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables/{table_id}/rows": {
+    get: {
+      req: TablesListRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<TableRowRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: TablesInsertRowData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables/{table_id}/rows/{row_id}": {
+    get: {
+      req: TablesGetRowData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TablesDeleteRowData
       res: {
         /**
          * Successful Response
