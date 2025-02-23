@@ -569,6 +569,23 @@ export const $Body_auth_verify_verify = {
   title: "Body_auth-verify:verify",
 } as const
 
+export const $Body_tables_import_csv = {
+  properties: {
+    file: {
+      type: "string",
+      format: "binary",
+      title: "File",
+    },
+    column_mapping: {
+      type: "string",
+      title: "Column Mapping",
+    },
+  },
+  type: "object",
+  required: ["file", "column_mapping"],
+  title: "Body_tables-import_csv",
+} as const
+
 export const $Body_workflows_create_workflow = {
   properties: {
     title: {

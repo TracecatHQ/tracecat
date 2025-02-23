@@ -137,6 +137,8 @@ import type {
   TablesGetRowResponse,
   TablesGetTableData,
   TablesGetTableResponse,
+  TablesImportCsvData,
+  TablesImportCsvResponse,
   TablesInsertRowData,
   TablesInsertRowResponse,
   TablesListRowsData,
@@ -2811,6 +2813,36 @@ export const tablesBatchInsertRows = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Import Csv
+ * Import data from a CSV file into a table.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.formData
+ * @returns TableRowInsertBatchResponse Successful Response
+ * @throws ApiError
+ */
+export const tablesImportCsv = (
+  data: TablesImportCsvData
+): CancelablePromise<TablesImportCsvResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/{table_id}/import",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    formData: data.formData,
+    mediaType: "multipart/form-data",
     errors: {
       422: "Validation Error",
     },
