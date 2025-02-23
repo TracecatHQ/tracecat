@@ -60,14 +60,15 @@ definition:
       args:
         value:
           summary: ${{ inputs.summary }}
+          # See: https://developer.atlassian.com/cloud/jira/platform/apis/document/playground/
           description:
-            type: doc
             version: 1
+            type: doc
             content:
               - type: paragraph
                 content:
-                  - text: ${{ inputs.description }}
-                    type: text
+                  - type: text
+                    text: ${{ inputs.description }}
           labels: ${{ inputs.tags }}
           priority:
             id: ${{ FN.lookup(steps.priority_name_to_id.result, inputs.priority) }}
@@ -87,16 +88,21 @@ definition:
     - ref: custom_fields
       action: core.transform.reshape
       args:
-        value: ${{ FN.map_keys(inputs.metadata, steps.custom_field_name_to_id.result) }}
+        value: ${{ FN.map_keys(FN.merge(inputs.metadata), steps.custom_field_name_to_id.result) }}
+    # Fields
+    - ref: fields
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.merge([steps.required_fields.result, steps.custom_fields.result]) }}
     # Create the issue
     - ref: create_issue
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/rest/api/3/issue/
+        url: ${{ inputs.base_url }}/rest/api/3/issue
         method: POST
         headers:
           Authorization: Basic ${{ FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
         payload:
           # Merge required fields with custom fields
-          fields: ${{ FN.merge(steps.required_fields.result, steps.custom_fields.result) }}
-  returns: ${{ steps.create_issue.result }}
+          fields: ${{ steps.fields.result }}
+  returns: ${{ steps.fields.result }}
