@@ -17,6 +17,9 @@ type DynamicNavbarParams = {
 export function DynamicNavbar() {
   const pathname = usePathname()
   const params = useParams<DynamicNavbarParams>()
+  if (!pathname) {
+    return null
+  }
   return <Navbar>{getNavBar(pathname, params)}</Navbar>
 }
 
