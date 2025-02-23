@@ -37,7 +37,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 
 export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
-  const { appInfo, appInfoIsLoading } = useAppInfo()
+  const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const router = useRouter()
   if (user) {
     router.push("/workspaces")
@@ -45,6 +45,9 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
 
   if (appInfoIsLoading) {
     return <CenteredSpinner />
+  }
+  if (appInfoError) {
+    throw appInfoError
   }
 
   const allowedAuthTypes: string[] = appInfo?.auth_allowed_types ?? []
