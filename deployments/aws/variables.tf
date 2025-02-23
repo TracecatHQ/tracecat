@@ -265,12 +265,12 @@ variable "remote_repository_url" {
 
 variable "api_cpu" {
   type    = string
-  default = "512"
+  default = "1024"
 }
 
 variable "api_memory" {
   type    = string
-  default = "1024"
+  default = "2048"
 }
 
 variable "worker_cpu" {
