@@ -54,6 +54,11 @@ async def list_workspaces(
     if role.access_level == AccessLevel.ADMIN:
         workspaces = await service.admin_list_workspaces()
     else:
+        if role.user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User ID is required",
+            )
         workspaces = await service.list_workspaces(role.user_id)
     return [
         WorkspaceMetadataResponse(id=ws.id, name=ws.name, n_members=ws.n_members)
@@ -297,7 +302,7 @@ async def get_workspace_membership(
     workspace_id: WorkspaceID,
     user_id: UserID,
     session: AsyncDBSession,
-) -> list[WorkspaceMembershipResponse]:
+) -> WorkspaceMembershipResponse:
     """Get a workspace membership for a user."""
     service = MembershipService(session, role=role)
     membership = await service.get_membership(workspace_id, user_id=user_id)
