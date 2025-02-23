@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import { ApiError, TableRead } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
@@ -83,7 +83,6 @@ export function TableImportCsvDialog({
 
   const [isUploading, setIsUploading] = useState(false)
   const [csvPreview, setCsvPreview] = useState<CsvPreviewData | null>(null)
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
   const form = useForm<CsvImportFormValues>({
     resolver: zodResolver(csvImportSchema),
@@ -100,13 +99,12 @@ export function TableImportCsvDialog({
     }
   }, [open, form])
 
-  const handleCreatePreview = async () => {
+  const handleCreatePreview = useCallback(async () => {
     const { file } = form.getValues()
     try {
       setIsUploading(true)
       const parsedData = await getCsvPreview(file)
       setCsvPreview(parsedData)
-      setSelectedFile(file)
     } catch (error) {
       console.error("Error parsing CSV preview:", error)
       toast({
@@ -116,16 +114,16 @@ export function TableImportCsvDialog({
     } finally {
       setIsUploading(false)
     }
-  }
+  }, [form])
 
-  const onSubmit = async (values: CsvImportFormValues) => {
-    if (!csvPreview || !selectedFile || !table) return
+  const onSubmit = async ({ file, columnMapping }: CsvImportFormValues) => {
+    if (!csvPreview || !table) return
 
     try {
       const response = await importCsv({
         formData: {
-          file: selectedFile,
-          column_mapping: JSON.stringify(values.columnMapping),
+          file,
+          column_mapping: JSON.stringify(columnMapping),
         },
         tableId,
         workspaceId,
