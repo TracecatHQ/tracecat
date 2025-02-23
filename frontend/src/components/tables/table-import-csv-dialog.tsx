@@ -125,7 +125,7 @@ export function TableImportCsvDialog({
       const response = await importCsv({
         formData: {
           file: selectedFile,
-          column_mapping: values.columnMapping,
+          column_mapping: JSON.stringify(values.columnMapping),
         },
         tableId,
         workspaceId,
