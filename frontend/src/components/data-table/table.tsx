@@ -30,8 +30,8 @@ import {
 import AuxClickMenu, {
   AuxClickMenuOptionProps,
 } from "@/components/aux-click-menu"
+import { DataTablePagination, DataTableToolbar } from "@/components/data-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { DataTablePagination, DataTableToolbar } from "@/components/table"
 
 import { DataTableToolbarProps } from "./toolbar"
 

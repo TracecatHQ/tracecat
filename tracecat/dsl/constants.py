@@ -1,2 +1,1 @@
 DEFAULT_ACTION_TIMEOUT = 300  # Seconds
-CHILD_WORKFLOW_EXECUTE_ACTION = "core.workflow.execute"

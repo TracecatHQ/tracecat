@@ -3,7 +3,7 @@ from typing import Annotated, Any, Literal
 from tracecat.identifiers.workflow import AnyWorkflowID
 from typing_extensions import Doc
 
-from tracecat_registry import RegistryActionError, registry
+from tracecat_registry import ActionIsInterfaceError, registry
 
 
 @registry.register(
@@ -62,7 +62,4 @@ async def execute(
         Doc("Fail strategy to use when a child workflow fails."),
     ] = "isolated",
 ) -> Any:
-    raise RegistryActionError(
-        "This UDF only defines a controller interface and cannot be invoked directly."
-        "If you are seeing this error, please contact your administrator."
-    )
+    raise ActionIsInterfaceError

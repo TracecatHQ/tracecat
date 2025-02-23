@@ -35,7 +35,7 @@ import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
-} from "@/components/table"
+} from "@/components/data-table"
 
 export function WorkflowsDashboardTable() {
   const router = useRouter()

@@ -49,7 +49,7 @@ import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
-} from "@/components/table"
+} from "@/components/data-table"
 
 enum AlertAction {
   SYNC,

@@ -9,6 +9,7 @@ import {
   Send,
   ShieldAlert,
   Sparkles,
+  Table,
   WandSparkles,
   WorkflowIcon,
   ZapIcon,
@@ -243,11 +244,6 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Send {...rest} />
       </div>
     ),
-    "integrations.email.send_email_resend": ({ className, ...rest }) => (
-      <div className={cn("bg-lime-100", basicIconsCommon, className)}>
-        <Send {...rest} />
-      </div>
-    ),
     "core.send_email_smtp": ({ className, ...rest }) => (
       <div className={cn("bg-lime-100", basicIconsCommon, className)}>
         <Send {...rest} />
@@ -274,6 +270,11 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "core.workflow": ({ className, ...rest }) => (
       <div className={cn("bg-violet-200/70", basicIconsCommon, className)}>
         <WorkflowIcon {...rest} />
+      </div>
+    ),
+    "core.table": ({ className, ...rest }) => (
+      <div className={cn("bg-sky-200/50", basicIconsCommon, className)}>
+        <Table {...rest} />
       </div>
     ),
     // AWS namespace

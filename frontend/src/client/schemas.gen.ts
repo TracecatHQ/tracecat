@@ -2600,11 +2600,6 @@ export const $SAMLSettingsUpdate = {
 
 export const $Schedule = {
   properties: {
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -2614,6 +2609,11 @@ export const $Schedule = {
       type: "string",
       format: "date-time",
       title: "Updated At",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
     },
     id: {
       type: "string",
@@ -3309,6 +3309,287 @@ export const $SpecialUserID = {
   description: "A sentinel user ID that represents the current user.",
 } as const
 
+export const $SqlType_Output = {
+  type: "string",
+  enum: [
+    "TEXT",
+    "VARCHAR",
+    "INTEGER",
+    "BIGINT",
+    "DECIMAL",
+    "BOOLEAN",
+    "TIMESTAMP",
+    "TIMESTAMPTZ",
+    "JSONB",
+    "UUID",
+  ],
+  title: "SqlType",
+  description: "Supported SQL types.",
+} as const
+
+export const $TableColumnCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+      description: "The name of the column",
+    },
+    type: {
+      allOf: [
+        {
+          $ref: "#/components/schemas/tracecat__tables__enums__SqlType__1",
+        },
+      ],
+      maxLength: 100,
+      minLength: 1,
+      description: "The SQL type of the column",
+    },
+    nullable: {
+      type: "boolean",
+      title: "Nullable",
+      default: true,
+    },
+    default: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+    },
+  },
+  type: "object",
+  required: ["name", "type"],
+  title: "TableColumnCreate",
+  description: "Create model for a table column.",
+} as const
+
+export const $TableColumnRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    type: {
+      $ref: "#/components/schemas/SqlType-Output",
+    },
+    nullable: {
+      type: "boolean",
+      title: "Nullable",
+      default: true,
+    },
+    default: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "type"],
+  title: "TableColumnRead",
+  description: "Definition for a table column.",
+} as const
+
+export const $TableColumnUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+      description: "The name of the column",
+    },
+    type: {
+      anyOf: [
+        {
+          allOf: [
+            {
+              $ref: "#/components/schemas/tracecat__tables__enums__SqlType__1",
+            },
+          ],
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "The SQL type of the column",
+    },
+    nullable: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Nullable",
+      description: "Whether the column can be null",
+    },
+    default: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+      description: "The default value of the column",
+    },
+  },
+  type: "object",
+  title: "TableColumnUpdate",
+  description: "Update model for a table column.",
+} as const
+
+export const $TableCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+      description: "The name of the table",
+    },
+    columns: {
+      items: {
+        $ref: "#/components/schemas/TableColumnCreate",
+      },
+      type: "array",
+      title: "Columns",
+      description: "The columns of the table",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "TableCreate",
+  description: "Create model for a table.",
+} as const
+
+export const $TableRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    columns: {
+      items: {
+        $ref: "#/components/schemas/TableColumnRead",
+      },
+      type: "array",
+      title: "Columns",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "columns"],
+  title: "TableRead",
+  description: "Read model for a table.",
+} as const
+
+export const $TableReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name"],
+  title: "TableReadMinimal",
+  description: "Read model for a table.",
+} as const
+
+export const $TableRowInsert = {
+  properties: {
+    data: {
+      type: "object",
+      title: "Data",
+    },
+  },
+  type: "object",
+  required: ["data"],
+  title: "TableRowInsert",
+  description: "Insert model for a table row.",
+} as const
+
+export const $TableRowRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  additionalProperties: true,
+  type: "object",
+  required: ["id", "created_at", "updated_at"],
+  title: "TableRowRead",
+  description: "Read model for a table row.",
+} as const
+
+export const $TableUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+      description: "The name of the table",
+    },
+  },
+  type: "object",
+  title: "TableUpdate",
+  description: "Update model for a table.",
+} as const
+
 export const $TagCreate = {
   properties: {
     name: {
@@ -3965,11 +4246,6 @@ export const $ValidationError = {
 
 export const $WebhookResponse = {
   properties: {
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -3979,6 +4255,11 @@ export const $WebhookResponse = {
       type: "string",
       format: "date-time",
       title: "Updated At",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
     },
     id: {
       type: "string",
@@ -4085,11 +4366,6 @@ export const $WorkflowCommitResponse = {
 
 export const $WorkflowDefinition = {
   properties: {
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -4099,6 +4375,11 @@ export const $WorkflowDefinition = {
       type: "string",
       format: "date-time",
       title: "Updated At",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
     },
     id: {
       type: "string",
@@ -5370,4 +5651,27 @@ export const $login = {
   type: "object",
   required: ["username", "password"],
   title: "Body_auth-auth:database.login",
+} as const
+
+export const $tracecat__tables__enums__SqlType__1 = {
+  type: "string",
+  enum: [
+    "TEXT",
+    "VARCHAR",
+    "INTEGER",
+    "BIGINT",
+    "DECIMAL",
+    "BOOLEAN",
+    "TIMESTAMP",
+    "TIMESTAMPTZ",
+    "JSONB",
+    "UUID",
+  ],
+  title: "SqlType",
+  description: "Supported SQL types.",
+} as const
+
+export const $tracecat__tables__enums__SqlType__2 = {
+  $ref: "#/components/schemas/tracecat__tables__enums__SqlType__1",
+  minLength: 1,
 } as const

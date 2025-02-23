@@ -34,7 +34,7 @@ import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
-} from "@/components/table"
+} from "@/components/data-table"
 
 export function OrgSessionsTable() {
   const [selectedSession, setSelectedSession] = useState<SessionRead | null>(

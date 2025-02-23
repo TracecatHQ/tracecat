@@ -39,8 +39,7 @@ with workflow.unsafe.imports_passed_through():
         ExecuteChildWorkflowArgs,
         dsl_execution_error_from_exception,
     )
-    from tracecat.dsl.constants import CHILD_WORKFLOW_EXECUTE_ACTION
-    from tracecat.dsl.enums import FailStrategy, LoopStrategy
+    from tracecat.dsl.enums import CoreActions, FailStrategy, LoopStrategy
     from tracecat.dsl.models import (
         ActionErrorInfo,
         ActionStatement,
@@ -480,7 +479,7 @@ class DSLWorkflow:
         try:
             await self._handle_timers(task)
             # Do action stuff
-            if self._should_execute_child_workflow(task):
+            if task.action == CoreActions.CHILD_WORKFLOW_EXECUTE:
                 # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
                 # 1. Prepare the child workflow
                 logger.trace("Preparing child workflow")
@@ -491,7 +490,6 @@ class DSLWorkflow:
                 action_result = await self._execute_child_workflow(
                     task=task, child_run_args=child_run_args
                 )
-
             else:
                 # Below this point, we're executing the task
                 logger.trace(
@@ -845,7 +843,7 @@ class DSLWorkflow:
         arg = RunActionInput(
             task=task, run_context=self.run_context, exec_context=self.context
         )
-        self.logger.debug("RUN UDF ACTIVITY", action=task.action)
+        self.logger.debug("Running action", action=task.action)
 
         return await workflow.execute_activity(
             DSLActivities.run_action_activity,
@@ -878,9 +876,6 @@ class DSLWorkflow:
             memo=memo.model_dump(),
             search_attributes=wf_info.typed_search_attributes,
         )
-
-    def _should_execute_child_workflow(self, task: ActionStatement) -> bool:
-        return task.action == CHILD_WORKFLOW_EXECUTE_ACTION
 
     async def _get_error_handler_workflow_id(
         self, args: DSLRunArgs

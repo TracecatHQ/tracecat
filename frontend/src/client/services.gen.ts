@@ -121,6 +121,30 @@ import type {
   SettingsUpdateOauthSettingsResponse,
   SettingsUpdateSamlSettingsData,
   SettingsUpdateSamlSettingsResponse,
+  TablesCreateColumnData,
+  TablesCreateColumnResponse,
+  TablesCreateTableData,
+  TablesCreateTableResponse,
+  TablesDeleteColumnData,
+  TablesDeleteColumnResponse,
+  TablesDeleteRowData,
+  TablesDeleteRowResponse,
+  TablesDeleteTableData,
+  TablesDeleteTableResponse,
+  TablesGetRowData,
+  TablesGetRowResponse,
+  TablesGetTableData,
+  TablesGetTableResponse,
+  TablesInsertRowData,
+  TablesInsertRowResponse,
+  TablesListRowsData,
+  TablesListRowsResponse,
+  TablesListTablesData,
+  TablesListTablesResponse,
+  TablesUpdateColumnData,
+  TablesUpdateColumnResponse,
+  TablesUpdateTableData,
+  TablesUpdateTableResponse,
   TagsCreateTagData,
   TagsCreateTagResponse,
   TagsDeleteTagData,
@@ -2408,6 +2432,349 @@ export const organizationSecretsDeleteOrgSecretById = (
     url: "/organization/secrets/{secret_id}",
     path: {
       secret_id: data.secretId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Tables
+ * List all tables.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns TableReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const tablesListTables = (
+  data: TablesListTablesData
+): CancelablePromise<TablesListTablesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/tables",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Table
+ * Create a new table.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const tablesCreateTable = (
+  data: TablesCreateTableData
+): CancelablePromise<TablesCreateTableResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Table
+ * Get a table by ID.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @returns TableRead Successful Response
+ * @throws ApiError
+ */
+export const tablesGetTable = (
+  data: TablesGetTableData
+): CancelablePromise<TablesGetTableResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/tables/{table_id}",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Table
+ * Update table metadata.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const tablesUpdateTable = (
+  data: TablesUpdateTableData
+): CancelablePromise<TablesUpdateTableResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/tables/{table_id}",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Table
+ * Delete a table.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const tablesDeleteTable = (
+  data: TablesDeleteTableData
+): CancelablePromise<TablesDeleteTableResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/tables/{table_id}",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Column
+ * Add a column to a table.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const tablesCreateColumn = (
+  data: TablesCreateColumnData
+): CancelablePromise<TablesCreateColumnResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/{table_id}/columns",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Column
+ * Update a column.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.columnId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const tablesUpdateColumn = (
+  data: TablesUpdateColumnData
+): CancelablePromise<TablesUpdateColumnResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/tables/{table_id}/columns/{column_id}",
+    path: {
+      table_id: data.tableId,
+      column_id: data.columnId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Column
+ * Delete a column from a table.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.columnId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const tablesDeleteColumn = (
+  data: TablesDeleteColumnData
+): CancelablePromise<TablesDeleteColumnResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/tables/{table_id}/columns/{column_id}",
+    path: {
+      table_id: data.tableId,
+      column_id: data.columnId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Rows
+ * Get a row by ID.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.limit Maximum number of rows to return
+ * @param data.offset Number of rows to skip
+ * @returns TableRowRead Successful Response
+ * @throws ApiError
+ */
+export const tablesListRows = (
+  data: TablesListRowsData
+): CancelablePromise<TablesListRowsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/tables/{table_id}/rows",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      limit: data.limit,
+      offset: data.offset,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Insert Row
+ * Create a new row in a table.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const tablesInsertRow = (
+  data: TablesInsertRowData
+): CancelablePromise<TablesInsertRowResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/{table_id}/rows",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Row
+ * Get a row by ID.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.rowId
+ * @param data.workspaceId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const tablesGetRow = (
+  data: TablesGetRowData
+): CancelablePromise<TablesGetRowResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/tables/{table_id}/rows/{row_id}",
+    path: {
+      table_id: data.tableId,
+      row_id: data.rowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Row
+ * Delete a row from a table.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.rowId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const tablesDeleteRow = (
+  data: TablesDeleteRowData
+): CancelablePromise<TablesDeleteRowResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/tables/{table_id}/rows/{row_id}",
+    path: {
+      table_id: data.tableId,
+      row_id: data.rowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from pydantic import UUID4, ConfigDict, computed_field
+from pydantic import UUID4, BaseModel, ConfigDict, computed_field
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
@@ -27,11 +27,7 @@ DEFAULT_SA_RELATIONSHIP_KWARGS = {
 }
 
 
-class Resource(SQLModel):
-    """Base class for all resources in the system."""
-
-    surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
-    owner_id: OwnerID
+class TimestampMixin(BaseModel):
     created_at: datetime = Field(
         default_factory=datetime.now,  # Appease type checker
         sa_type=TIMESTAMP(timezone=True),  # type: ignore
@@ -49,6 +45,13 @@ class Resource(SQLModel):
             "nullable": False,
         },
     )
+
+
+class Resource(SQLModel, TimestampMixin):
+    """Base class for all resources in the system."""
+
+    surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
+    owner_id: OwnerID
 
 
 class OAuthAccount(SQLModelBaseOAuthAccount, table=True):
@@ -577,4 +580,54 @@ class OrganizationSetting(Resource, table=True):
     )
     is_encrypted: bool = Field(
         default=False, description="Whether the setting is encrypted"
+    )
+
+
+class Table(Resource, table=True):
+    """Metadata for lookup tables."""
+
+    __tablename__: str = "tables"
+    __table_args__ = (UniqueConstraint("owner_id", "name"),)
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    name: str = Field(..., index=True)
+    # Add relationship to columns
+    columns: list["TableColumn"] = Relationship(
+        back_populates="table",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+
+class TableColumn(SQLModel, TimestampMixin, table=True):
+    """Column definitions for tables."""
+
+    __tablename__: str = "table_columns"
+    __table_args__ = (UniqueConstraint("table_id", "name"),)
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    table_id: uuid.UUID = Field(
+        sa_column=Column(UUID, ForeignKey("tables.id", ondelete="CASCADE")),
+    )
+    name: str = Field(..., index=True)
+    type: str = Field(..., description="SQL type like 'TEXT', 'INTEGER', etc.")
+    nullable: bool = Field(default=True)
+    default: Any | None = Field(default=None, sa_column=Column(JSONB))
+    # Relationship back to the table
+    table: Table = Relationship(
+        back_populates="columns",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )

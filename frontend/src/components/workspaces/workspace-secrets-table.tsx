@@ -13,13 +13,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
-} from "@/components/table"
+} from "@/components/data-table"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import {
   DeleteSecretAlertDialog,
   DeleteSecretAlertDialogTrigger,

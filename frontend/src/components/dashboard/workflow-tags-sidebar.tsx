@@ -435,7 +435,9 @@ function TagItem({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="right">
-              <DropdownMenuLabel className="text-xs">Actions</DropdownMenuLabel>
+              <DropdownMenuLabel className="py-0 text-xs text-muted-foreground">
+                Actions
+              </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <AlertDialogTrigger asChild>
                 <DropdownMenuItem

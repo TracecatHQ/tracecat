@@ -18,14 +18,14 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
 import {
-  DeleteRegistryActionAlertDialog,
-  DeleteRegistryActionAlertDialogTrigger,
-} from "@/components/registry/delete-registry-action"
-import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
-} from "@/components/table"
+} from "@/components/data-table"
+import {
+  DeleteRegistryActionAlertDialog,
+  DeleteRegistryActionAlertDialogTrigger,
+} from "@/components/registry/delete-registry-action"
 
 export function RegistryActionsTable() {
   const router = useRouter()

@@ -1,15 +1,8 @@
-from builtins import (
-    filter as filter_,
-)
-from builtins import (
-    map as map_,
-)
+from builtins import filter as filter_
+from builtins import map as map_
 from typing import Annotated, Any
 
-from tracecat.expressions.common import (
-    build_safe_lambda,
-    eval_jsonpath,
-)
+from tracecat.expressions.common import build_safe_lambda, eval_jsonpath
 from tracecat.expressions.functions import flatten as flatten_
 from typing_extensions import Doc
 

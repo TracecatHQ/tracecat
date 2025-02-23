@@ -40,7 +40,9 @@ export function RunIfTooltip() {
             <span className="text-xs text-muted-foreground">
               # Search logs for error patterns
             </span>
-            <p>{"${{ FN.regex_match('error|failed', ACTIONS.get_logs.result) }}"}</p>
+            <p>
+              {"${{ FN.regex_match('error|failed', ACTIONS.get_logs.result) }}"}
+            </p>
             {"\n"}
             <span className="text-xs text-muted-foreground">
               # Verify logs are not empty
