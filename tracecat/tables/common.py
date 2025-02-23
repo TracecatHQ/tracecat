@@ -1,4 +1,8 @@
+from datetime import datetime
 from typing import Any
+from uuid import UUID
+
+import orjson
 
 from tracecat.tables.enums import SqlType
 
@@ -35,3 +39,34 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case _:
             raise ValueError(f"Unsupported SQL type for default value: {type}")
     return default_value
+
+
+def convert_value(value: str, type: SqlType) -> Any:
+    try:
+        match type:
+            case SqlType.INTEGER | SqlType.BIGINT:
+                return int(value)
+            case SqlType.DECIMAL:
+                return float(value)
+            case SqlType.BOOLEAN:
+                match value.lower():
+                    case "true" | "1":
+                        return True
+                    case "false" | "0":
+                        return False
+                    case _:
+                        raise ValueError(f"Invalid boolean value: {value}")
+            case SqlType.JSONB:
+                return orjson.loads(value)
+            case SqlType.TEXT | SqlType.VARCHAR:
+                return str(value)
+            case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+                return datetime.fromisoformat(value)
+            case SqlType.UUID:
+                return UUID(value)
+            case _:
+                raise ValueError(f"Unsupported SQL type for value conversion: {type}")
+    except Exception as e:
+        raise TypeError(
+            f"Cannot convert value {value!r} to {type.__class__.__name__} {type.value}"
+        ) from e
