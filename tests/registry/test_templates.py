@@ -12,13 +12,6 @@ from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.repository import Repository
 
 
-@pytest.fixture(scope="module")
-def registry():
-    registry = Repository()
-    registry.init(include_base=False, include_templates=True)
-    return registry
-
-
 @pytest.mark.anyio
 async def test_base_registry_validate_template_actions():
     origin = DEFAULT_REGISTRY_ORIGIN
@@ -74,12 +67,16 @@ async def test_base_registry_validate_template_actions():
     list(Path("registry/tracecat_registry/templates").rglob("*.yml")),
     ids=lambda path: str(path.parts[-2:]),
 )
-async def test_template_action_validation(file_path, registry):
+async def test_template_action_validation(file_path):
+    # Initialize the repository
+    repo = Repository()
+    repo.init(include_base=False, include_templates=True)
+
     # Test parsing
     action = TemplateAction.from_yaml(file_path)
     assert action.type == "action"
     assert action.definition
 
     # Test registration
-    registry.register_template_action(action)
-    assert action.definition.action in registry
+    repo.register_template_action(action)
+    assert action.definition.action in repo
