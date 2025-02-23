@@ -226,15 +226,13 @@ export function RegistryActionsTable() {
                           className="flex items-center text-xs"
                           onClick={async (e) => {
                             e.stopPropagation() // Prevent row click
-                            // popup a dialog to create a new  from this template
                             router.push(
-                              // NOTE: This is hardcoded to the custom origin. Maybe put this in an API call later.
-                              `/registry/actions/new?template=${row.original.action}&origin=custom`
+                              `/registry/actions/edit?template=${row.original.action}&origin=${row.original.origin}`
                             )
                           }}
                         >
-                          <FilePlusIcon className="mr-2 size-4" />
-                          <span>New from template</span>
+                          <Edit2Icon className="mr-2 size-4" />
+                          <span>Edit template</span>
                         </DropdownMenuItem>
                       </>
                     )}
