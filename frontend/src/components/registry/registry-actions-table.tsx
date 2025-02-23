@@ -6,7 +6,7 @@ import { RegistryActionReadMinimal } from "@/client"
 import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
-import { CopyIcon, Edit2Icon, FilePlusIcon, TrashIcon } from "lucide-react"
+import { CopyIcon, FilePlusIcon, TrashIcon } from "lucide-react"
 
 import { useRegistryActions } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
@@ -235,18 +235,6 @@ export function RegistryActionsTable() {
                         >
                           <FilePlusIcon className="mr-2 size-4" />
                           <span>New from template</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="flex items-center text-xs"
-                          onClick={async (e) => {
-                            e.stopPropagation() // Prevent row click
-                            router.push(
-                              `/registry/actions/edit?template=${row.original.action}&origin=${row.original.origin}`
-                            )
-                          }}
-                        >
-                          <Edit2Icon className="mr-2 size-4" />
-                          <span>Edit template</span>
                         </DropdownMenuItem>
                       </>
                     )}
