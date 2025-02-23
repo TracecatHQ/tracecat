@@ -34,7 +34,7 @@ definition:
     project_id:
       type: str
       description: Jira project ID.
-    scheme_id:
+    priority_scheme_id:
       type: str
       description: Jira priority scheme ID.
     issue_type_id:
@@ -76,14 +76,14 @@ definition:
           issuetype:
             id: ${{ inputs.issue_type_id }}
     # Map custom field names to IDs
-    - ref: get_custom_fields
-      action: tools.jira.get_custom_fields
+    - ref: get_fields
+      action: tools.jira.get_fields
       args:
         base_url: ${{ inputs.base_url }}
     - ref: custom_field_name_to_id
       action: core.transform.reshape
       args:
-        value: ${{ FN.index_by_key(steps.get_custom_fields.result, "name", "id") }}
+        value: ${{ FN.index_by_key(steps.get_fields.result, "name", "id") }}
     - ref: custom_fields
       action: core.transform.reshape
       args:
