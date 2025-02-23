@@ -6,7 +6,7 @@ import { RegistryActionReadMinimal } from "@/client"
 import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
-import { CopyIcon, FilePlusIcon, TrashIcon } from "lucide-react"
+import { CopyIcon, TrashIcon } from "lucide-react"
 
 import { useRegistryActions } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
@@ -217,27 +217,6 @@ export function RegistryActionsTable() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    {row.original.type === "template" && (
-                      <>
-                        <DropdownMenuLabel className="p-2 text-xs font-semibold text-muted-foreground">
-                          Templates
-                        </DropdownMenuLabel>
-                        <DropdownMenuItem
-                          className="flex items-center text-xs"
-                          onClick={async (e) => {
-                            e.stopPropagation() // Prevent row click
-                            // popup a dialog to create a new  from this template
-                            router.push(
-                              // NOTE: This is hardcoded to the custom origin. Maybe put this in an API call later.
-                              `/registry/actions/new?template=${row.original.action}&origin=custom`
-                            )
-                          }}
-                        >
-                          <FilePlusIcon className="mr-2 size-4" />
-                          <span>New from template</span>
-                        </DropdownMenuItem>
-                      </>
-                    )}
                     <DropdownMenuLabel className="p-2 text-xs font-semibold text-muted-foreground">
                       Actions
                     </DropdownMenuLabel>
