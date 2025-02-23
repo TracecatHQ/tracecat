@@ -113,7 +113,7 @@ export function CreateWorkflowButton() {
         <DropdownMenuTrigger asChild>
           <Button
             role="combobox"
-            className="items-center space-x-2 bg-emerald-500 tracking-wide text-white shadow-sm hover:bg-emerald-500"
+            className="items-center space-x-2 bg-emerald-500 text-white shadow-sm hover:bg-emerald-500"
           >
             <span>Create new</span>
             <ChevronDownIcon className="size-4" />

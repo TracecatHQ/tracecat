@@ -74,6 +74,32 @@ import {
   SettingsUpdateOauthSettingsData,
   settingsUpdateSamlSettings,
   SettingsUpdateSamlSettingsData,
+  TableRead,
+  TableReadMinimal,
+  TableRowRead,
+  tablesCreateColumn,
+  TablesCreateColumnData,
+  tablesCreateTable,
+  TablesCreateTableData,
+  TablesCreateTableResponse,
+  tablesDeleteColumn,
+  TablesDeleteColumnData,
+  tablesDeleteRow,
+  TablesDeleteRowData,
+  tablesDeleteTable,
+  TablesDeleteTableData,
+  tablesGetTable,
+  TablesGetTableData,
+  tablesInsertRow,
+  TablesInsertRowData,
+  tablesListRows,
+  TablesListRowsData,
+  tablesListTables,
+  TablesListTablesData,
+  tablesUpdateColumn,
+  TablesUpdateColumnData,
+  tablesUpdateTable,
+  TablesUpdateTableData,
   TagRead,
   tagsCreateTag,
   TagsCreateTagData,
@@ -1858,5 +1884,304 @@ export function useOrgOAuthSettings() {
     updateOAuthSettings,
     updateOAuthSettingsIsPending,
     updateOAuthSettingsError,
+  }
+}
+
+export function useListTables({ workspaceId }: TablesListTablesData) {
+  const {
+    data: tables,
+    isLoading: tablesIsLoading,
+    error: tablesError,
+  } = useQuery<TableReadMinimal[], ApiError>({
+    queryKey: ["tables", workspaceId],
+    queryFn: async () => await tablesListTables({ workspaceId }),
+  })
+
+  return {
+    tables,
+    tablesIsLoading,
+    tablesError,
+  }
+}
+
+export function useGetTable({ tableId, workspaceId }: TablesGetTableData) {
+  const {
+    data: table,
+    isLoading: tableIsLoading,
+    error: tableError,
+  } = useQuery<TableRead, ApiError>({
+    queryKey: ["table", tableId],
+    queryFn: async () => await tablesGetTable({ tableId, workspaceId }),
+  })
+
+  return {
+    table,
+    tableIsLoading,
+    tableError,
+  }
+}
+
+export function useCreateTable() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: createTable,
+    isPending: createTableIsPending,
+    error: createTableError,
+  } = useMutation<
+    TablesCreateTableResponse,
+    TracecatApiError,
+    TablesCreateTableData
+  >({
+    mutationFn: async (params: TablesCreateTableData) =>
+      await tablesCreateTable(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["tables", variables.workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Error creating table", error)
+          break
+      }
+    },
+  })
+
+  return {
+    createTable,
+    createTableIsPending,
+    createTableError,
+  }
+}
+
+export function useUpdateTable() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: updateTable,
+    isPending: updateTableIsPending,
+    error: updateTableError,
+  } = useMutation({
+    mutationFn: async (params: TablesUpdateTableData) =>
+      await tablesUpdateTable(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["tables", variables.workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["table", variables.tableId],
+      })
+    },
+  })
+
+  return {
+    updateTable,
+    updateTableIsPending,
+    updateTableError,
+  }
+}
+
+export function useDeleteTable() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: deleteTable,
+    isPending: deleteTableIsPending,
+    error: deleteTableError,
+  } = useMutation({
+    mutationFn: async (params: TablesDeleteTableData) =>
+      await tablesDeleteTable(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["tables", variables.workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["table", variables.tableId],
+      })
+    },
+  })
+
+  return {
+    deleteTable,
+    deleteTableIsPending,
+    deleteTableError,
+  }
+}
+
+export function useListRows({ tableId, workspaceId }: TablesListRowsData) {
+  const {
+    data: rows,
+    isLoading: rowsIsLoading,
+    error: rowsError,
+  } = useQuery<TableRowRead[], TracecatApiError>({
+    queryKey: ["rows", tableId],
+    queryFn: async () => await tablesListRows({ tableId, workspaceId }),
+  })
+
+  return {
+    rows,
+    rowsIsLoading,
+    rowsError,
+  }
+}
+
+export function useInsertColumn() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: insertColumn,
+    isPending: insertColumnIsPending,
+    error: insertColumnError,
+  } = useMutation({
+    mutationFn: async (params: TablesCreateColumnData) =>
+      await tablesCreateColumn(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["tables", variables.workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["table", variables.tableId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Error inserting column", error)
+          break
+      }
+    },
+  })
+
+  return {
+    insertColumn,
+    insertColumnIsPending,
+    insertColumnError,
+  }
+}
+
+export function useUpdateColumn() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: updateColumn,
+    isPending: updateColumnIsPending,
+    error: updateColumnError,
+  } = useMutation({
+    mutationFn: async (params: TablesUpdateColumnData) =>
+      await tablesUpdateColumn(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["table", variables.tableId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Error updating column", error)
+          break
+      }
+    },
+  })
+
+  return {
+    updateColumn,
+    updateColumnIsPending,
+    updateColumnError,
+  }
+}
+
+export function useDeleteColumn() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: deleteColumn,
+    isPending: deleteColumnIsPending,
+    error: deleteColumnError,
+  } = useMutation({
+    mutationFn: async (params: TablesDeleteColumnData) =>
+      await tablesDeleteColumn(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["table", variables.tableId],
+      })
+    },
+  })
+
+  return {
+    deleteColumn,
+    deleteColumnIsPending,
+    deleteColumnError,
+  }
+}
+
+export function useInsertRow() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: insertRow,
+    isPending: insertRowIsPending,
+    error: insertRowError,
+  } = useMutation({
+    mutationFn: async (params: TablesInsertRowData) =>
+      await tablesInsertRow(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+    },
+  })
+
+  return {
+    insertRow,
+    insertRowIsPending,
+    insertRowError,
+  }
+}
+
+export function useDeleteRow() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: deleteRow,
+    isPending: deleteRowIsPending,
+    error: deleteRowError,
+  } = useMutation({
+    mutationFn: async (params: TablesDeleteRowData) =>
+      await tablesDeleteRow(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["table", variables.tableId],
+      })
+    },
+  })
+
+  return {
+    deleteRow,
+    deleteRowIsPending,
+    deleteRowError,
   }
 }
