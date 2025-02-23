@@ -6,7 +6,7 @@ import { RegistryActionReadMinimal } from "@/client"
 import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
-import { CopyIcon, FilePlusIcon, TrashIcon } from "lucide-react"
+import { CopyIcon, Edit2Icon, TrashIcon } from "lucide-react"
 
 import { useRegistryActions } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
