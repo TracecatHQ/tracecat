@@ -67,6 +67,7 @@ SessionID = UUID4
 TagID = UUID4
 TableID = UUID4
 TableColumnID = UUID4
+TableRowID = UUID4
 
 InternalServiceID = Literal[
     "tracecat-runner",

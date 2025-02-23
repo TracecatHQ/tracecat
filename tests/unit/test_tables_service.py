@@ -5,8 +5,10 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import Table, TableColumn
+from tracecat.tables.enums import SqlType
 from tracecat.tables.models import (
     TableColumnCreate,
+    TableColumnUpdate,
     TableCreate,
     TableRowInsert,
     TableUpdate,
@@ -33,11 +35,13 @@ async def table_with_columns(
     table = await tables_service.create_table(TableCreate(name="row_table"))
     name_col = await tables_service.create_column(
         table,
-        TableColumnCreate(name="name", type="TEXT", nullable=True, default=None),
+        TableColumnCreate(name="name", type=SqlType.TEXT, nullable=True, default=None),
     )
     age_col = await tables_service.create_column(
         table,
-        TableColumnCreate(name="age", type="INTEGER", nullable=True, default=None),
+        TableColumnCreate(
+            name="age", type=SqlType.INTEGER, nullable=True, default=None
+        ),
     )
     return table, name_col, age_col
 
@@ -109,14 +113,15 @@ class TestTableColumns:
 
         # Create a new column using TableColumnCreate
         col_create = TableColumnCreate(
-            name="age", type="INTEGER", nullable=True, default=None
+            name="age", type=SqlType.INTEGER, nullable=True, default=None
         )
         column = await tables_service.create_column(table, col_create)
 
         # Retrieve the column by id
-        retrieved_col = await tables_service.get_column(table, column.id)
+        retrieved_col = await tables_service.get_column(table.id, column.id)
         assert retrieved_col.id == column.id
         assert retrieved_col.name == "age"
+        assert retrieved_col.type == SqlType.INTEGER
 
     async def test_delete_column(self, tables_service: TablesService) -> None:
         """Test deleting a column from a table and ensuring it is removed."""
@@ -125,7 +130,7 @@ class TestTableColumns:
             TableCreate(name="delete_column_table")
         )
         col_create = TableColumnCreate(
-            name="temp_column", type="TEXT", nullable=True, default=None
+            name="temp_column", type=SqlType.TEXT, nullable=True, default=None
         )
         column = await tables_service.create_column(table, col_create)
 
@@ -134,7 +139,40 @@ class TestTableColumns:
 
         # Attempt to retrieve the deleted column; should raise TracecatNotFoundError
         with pytest.raises(TracecatNotFoundError):
-            await tables_service.get_column(table, column.id)
+            await tables_service.get_column(table.id, column.id)
+
+    async def test_update_column(self, tables_service: TablesService) -> None:
+        """Test updating a column's properties."""
+        # Create a table first
+        table = await tables_service.create_table(
+            TableCreate(name="update_column_table")
+        )
+
+        # Create initial column
+        col_create = TableColumnCreate(
+            name="old_name", type=SqlType.TEXT, nullable=True
+        )
+        column = await tables_service.create_column(table, col_create)
+
+        # Update the column with new properties
+        col_update = TableColumnUpdate(
+            name="new_name", nullable=False, default="default_value"
+        )
+        updated_column = await tables_service.update_column(column, col_update)
+
+        # Verify the updates
+        assert updated_column.name == "new_name"
+        assert updated_column.nullable is False
+        assert updated_column.default == "default_value"
+        # Type should remain unchanged
+        assert updated_column.type == SqlType.TEXT
+
+        # Verify by retrieving the column again
+        retrieved_column = await tables_service.get_column(table.id, column.id)
+        assert retrieved_column.name == "new_name"
+        assert retrieved_column.nullable is False
+        assert retrieved_column.default == "default_value"
+        assert retrieved_column.type == SqlType.TEXT
 
 
 @pytest.mark.anyio
@@ -156,14 +194,11 @@ class TestTableRows:
         # Retrieve the row using get_row
         retrieved = await tables_service.get_row(table, row_id)
 
-        # Verify the inserted data, handling both dict and object cases
-        name_val = retrieved.get("name")
-        age_val = retrieved.get("age")
-
-        assert name_val == "John"
-        assert age_val is not None, "Age value should exist in retrieved row"
-        age_int: int = int(age_val)
-        assert age_int == 30
+        # Verify the inserted data
+        assert retrieved["name"] == "John"
+        assert retrieved["age"] == 30
+        assert "created_at" in retrieved
+        assert "updated_at" in retrieved
 
     async def test_update_row(
         self, tables_service: TablesService, table_with_columns: tuple
@@ -182,20 +217,31 @@ class TestTableRows:
         updated = await tables_service.update_row(table, row_id, {"age": 26})
         assert updated is not None, "Updated row should not be None"
 
-        age_val = updated.get("age")
-        updated_at_val = updated.get("updated_at")
+        # Verify the update
+        assert updated["age"] == 26
+        assert updated["name"] == "Alice"  # Name should remain unchanged
+        assert "updated_at" in updated
+        assert isinstance(updated["updated_at"], datetime)
 
-        assert age_val is not None, "Age value should exist in updated row"
-        age_int: int = int(age_val)
-        assert age_int == 26
+    async def test_delete_row(
+        self, tables_service: TablesService, table_with_columns: tuple
+    ) -> None:
+        """Test deleting a row and verifying it no longer exists."""
+        table, _, _ = table_with_columns
 
-        assert updated_at_val is not None, "Updated_at should be present"
-        # Convert to datetime if needed
-        if isinstance(updated_at_val, str):
-            updated_at = datetime.fromisoformat(updated_at_val)
-        else:
-            updated_at = updated_at_val
-        assert isinstance(updated_at, datetime)
+        # Insert a row
+        row_insert = TableRowInsert(data={"name": "Bob", "age": 40})
+        inserted = await tables_service.insert_row(table, row_insert)
+        assert inserted is not None, "Inserted row should not be None"
+
+        row_id: UUID = inserted["id"]
+
+        # Delete the row
+        await tables_service.delete_row(table, row_id)
+
+        # Attempt to retrieve the deleted row; should raise TracecatNotFoundError
+        with pytest.raises(TracecatNotFoundError):
+            await tables_service.get_row(table, row_id)
 
     async def test_lookup_row(
         self, tables_service: TablesService, table_with_columns: tuple
@@ -222,9 +268,43 @@ class TestTableRows:
         # Verify that only one row matches
         assert len(results) == 1
         result = results[0]
-        name_val = result.get("name")
-        age_val = result.get("age")
-        assert name_val == "Bob"
-        assert age_val is not None, "Age value should exist in looked up row"
-        age_int: int = int(age_val)
-        assert age_int == 40
+        assert result["name"] == "Bob"
+        assert result["age"] == 40
+
+    async def test_list_rows(
+        self, tables_service: TablesService, table_with_columns: tuple
+    ) -> None:
+        """Test listing rows with pagination using limit and offset."""
+        table, _, _ = table_with_columns
+
+        # Insert multiple test rows
+        test_data = [
+            {"name": "Alice", "age": 25},
+            {"name": "Bob", "age": 30},
+            {"name": "Carol", "age": 35},
+            {"name": "David", "age": 40},
+            {"name": "Eve", "age": 45},
+        ]
+
+        for data in test_data:
+            await tables_service.insert_row(table, TableRowInsert(data=data))
+
+        # Test default pagination (limit=100, offset=0)
+        all_rows = await tables_service.list_rows(table)
+        assert len(all_rows) == 5
+
+        # Test with limit
+        limited_rows = await tables_service.list_rows(table, limit=2)
+        assert len(limited_rows) == 2
+        assert limited_rows[0]["name"] == "Alice"
+        assert limited_rows[1]["name"] == "Bob"
+
+        # Test with offset
+        offset_rows = await tables_service.list_rows(table, offset=2, limit=2)
+        assert len(offset_rows) == 2
+        assert offset_rows[0]["name"] == "Carol"
+        assert offset_rows[1]["name"] == "David"
+
+        # Test with offset that exceeds available rows
+        empty_rows = await tables_service.list_rows(table, offset=10)
+        assert len(empty_rows) == 0

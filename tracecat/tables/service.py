@@ -7,7 +7,7 @@ from asyncpg.exceptions import (
     InFailedSQLTransactionError,
     InvalidCachedStatementError,
 )
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlmodel import select
 from tenacity import (
     retry,
@@ -22,8 +22,11 @@ from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.logger import logger
 from tracecat.service import BaseService
+from tracecat.tables.common import handle_default_value, is_valid_sql_type
+from tracecat.tables.enums import SqlType
 from tracecat.tables.models import (
     TableColumnCreate,
+    TableColumnUpdate,
     TableCreate,
     TableRowInsert,
     TableUpdate,
@@ -188,7 +191,28 @@ class TablesService(BaseService):
     @require_access_level(AccessLevel.ADMIN)
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
         """Update a lookup table."""
-        for key, value in params.model_dump(exclude_unset=True).items():
+        # We need to update the table name in the physical table
+        set_fields = params.model_dump(exclude_unset=True)
+        if new_name := set_fields.get("name"):
+            try:
+                conn = await self.session.connection()
+                old_full_table_name = self._full_table_name(table.name)
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s RENAME TO %s",
+                        (old_full_table_name, new_name),
+                    )
+                )
+            except ProgrammingError as e:
+                logger.error(
+                    "Error renaming table",
+                    error=e,
+                    table=table.name,
+                    new_name=params.name,
+                )
+                raise
+        # Update DB Table
+        for key, value in set_fields.items():
             setattr(table, key, value)
 
         await self.session.commit()
@@ -196,7 +220,7 @@ class TablesService(BaseService):
         return table
 
     @require_access_level(AccessLevel.ADMIN)
-    async def delete_table(self, table: Table):
+    async def delete_table(self, table: Table) -> None:
         """Delete a lookup table."""
         # Delete the metadata first
         await self.session.delete(table)
@@ -205,13 +229,16 @@ class TablesService(BaseService):
         full_table_name = self._full_table_name(table.name)
         conn = await self.session.connection()
         await conn.execute(sa.DDL("DROP TABLE IF EXISTS %s", full_table_name))
+        await self.session.commit()
 
     """Columns"""
 
-    async def get_column(self, table: Table, column_id: TableColumnID) -> TableColumn:
+    async def get_column(
+        self, table_id: TableID, column_id: TableColumnID
+    ) -> TableColumn:
         """Get a column by ID."""
         statement = select(TableColumn).where(
-            TableColumn.table_id == table.id,
+            TableColumn.table_id == table_id,
             TableColumn.id == column_id,
         )
         result = await self.session.exec(statement)
@@ -239,35 +266,107 @@ class TablesService(BaseService):
         column_name = self._sanitize_identifier(params.name)
         full_table_name = self._full_table_name(table.name)
 
+        # Validate SQL type first
+        if not is_valid_sql_type(params.type):
+            raise ValueError(f"Invalid type: {params.type}")
+        sql_type = SqlType(params.type)
+
+        # Handle default value based on type
+        default_value = params.default
+        if default_value is not None:
+            default_value = handle_default_value(sql_type, default_value)
         # Create the column metadata first
         column = TableColumn(
             table_id=table.id,
             name=column_name,
-            type=params.type,
+            type=sql_type.value,
             nullable=params.nullable,
-            default=params.default,
+            default=default_value,  # Store original default in metadata
         )
         self.session.add(column)
 
-        # Add the column to the physical table
-        conn = await self.session.connection()
-        if not hasattr(sa.types, params.type):
-            raise ValueError(f"Invalid type: {params.type}")
-
         # Build the column definition string
-        column_def = [f"{column_name} {params.type}"]
+        column_def = [f"{column_name} {sql_type.value}"]
         if not params.nullable:
             column_def.append("NOT NULL")
-        if params.default is not None:
-            column_def.append(f"DEFAULT {params.default}")
+        if default_value is not None:
+            column_def.append(f"DEFAULT {default_value}")
 
         column_def_str = " ".join(column_def)
+
+        # Add the column to the physical table
+        conn = await self.session.connection()
         await conn.execute(
             sa.DDL(
                 "ALTER TABLE %s ADD COLUMN %s",
                 (full_table_name, column_def_str),
             )
         )
+
+        await self.session.commit()
+        await self.session.refresh(column)
+        return column
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def update_column(
+        self,
+        column: TableColumn,
+        params: TableColumnUpdate,
+    ) -> TableColumn:
+        """Update a column in an existing table.
+
+        Args:
+            column: The column to update
+            params: Parameters for updating the column
+
+        Returns:
+            The updated TableColumn metadata object
+
+        Raises:
+            ValueError: If the column type is invalid
+            ProgrammingError: If the database operation fails
+        """
+        set_fields = params.model_dump(exclude_unset=True)
+        full_table_name = self._full_table_name(column.table.name)
+        conn = await self.session.connection()
+
+        # Handle physical column changes if name or type is being updated
+        if "name" in set_fields or "type" in set_fields:
+            old_name = self._sanitize_identifier(column.name)
+            new_name = self._sanitize_identifier(set_fields.get("name", column.name))
+            new_type = set_fields.get("type", column.type)
+
+            if not is_valid_sql_type(new_type):
+                raise ValueError(f"Invalid type: {new_type}")
+
+            # Build ALTER COLUMN statement
+            alter_stmts = []
+            if "name" in set_fields:
+                alter_stmts.append(f"RENAME COLUMN {old_name} TO {new_name}")
+            if "type" in set_fields:
+                alter_stmts.append(f"ALTER COLUMN {new_name} TYPE {new_type}")
+            if "nullable" in set_fields:
+                constraint = (
+                    "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
+                )
+                alter_stmts.append(f'ALTER COLUMN "{new_name}" {constraint}')
+            if "default" in set_fields:
+                updated_default = set_fields["default"]
+                if updated_default is None:
+                    alter_stmts.append(f'ALTER COLUMN "{new_name}" DROP DEFAULT')
+                else:
+                    alter_stmts.append(
+                        f"ALTER COLUMN \"{new_name}\" SET DEFAULT '{updated_default}'"
+                    )
+
+            # Execute all ALTER statements
+            logger.info("Updating column", stmts=alter_stmts)
+            for stmt in alter_stmts:
+                await conn.execute(sa.DDL(f"ALTER TABLE {full_table_name} {stmt}"))
+
+        # Update the column metadata
+        for key, value in set_fields.items():
+            setattr(column, key, value)
 
         await self.session.commit()
         await self.session.refresh(column)
@@ -294,6 +393,21 @@ class TablesService(BaseService):
         await self.session.commit()
 
     """Rows"""
+
+    async def list_rows(
+        self, table: Table, *, limit: int = 100, offset: int = 0
+    ) -> Sequence[Mapping[str, Any]]:
+        """List all rows in a table."""
+        schema_name = self._get_schema_name()
+        conn = await self.session.connection()
+        stmt = (
+            sa.select("*")
+            .select_from(sa.table(table.name, schema=schema_name))
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await conn.execute(stmt)
+        return [dict(row) for row in result.mappings().all()]
 
     async def get_row(self, table: Table, row_id: UUID) -> Any:
         """Get a row by ID."""
@@ -381,6 +495,16 @@ class TablesService(BaseService):
             ) from None
 
         return dict(row)
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def delete_row(self, table: Table, row_id: UUID) -> None:
+        """Delete a row from the table."""
+        schema_name = self._get_schema_name()
+        conn = await self.session.connection()
+        table_clause = sa.table(table.name, schema=schema_name)
+        stmt = sa.delete(table_clause).where(sa.column("id") == row_id)
+        await conn.execute(stmt)
+        await self.session.commit()
 
     "Lookups"
 

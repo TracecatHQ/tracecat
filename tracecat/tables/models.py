@@ -1,10 +1,11 @@
 import re
+from datetime import datetime
 from typing import Any
 
-import sqlalchemy as sa
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from tracecat.identifiers import TableColumnID, TableID
+from tracecat.identifiers import TableColumnID, TableID, TableRowID
+from tracecat.tables.enums import SqlType
 
 
 class TableColumnRead(BaseModel):
@@ -12,7 +13,7 @@ class TableColumnRead(BaseModel):
 
     id: TableColumnID
     name: str
-    type: str  # SQL type like 'TEXT', 'INTEGER', etc.
+    type: SqlType
     nullable: bool = True
     default: Any | None = None
 
@@ -26,7 +27,7 @@ class TableColumnCreate(BaseModel):
         min_length=1,
         max_length=100,
     )
-    type: str = Field(
+    type: SqlType = Field(
         ...,
         description="The SQL type of the column",
         min_length=1,
@@ -46,14 +47,6 @@ class TableColumnCreate(BaseModel):
             )
         return value
 
-    @field_validator("type")
-    @classmethod
-    def validate_sql_type(cls, value: str) -> str:
-        """Validate SQL type to prevent injection."""
-        if not hasattr(sa.types, value):
-            raise ValueError(f"Invalid SQL type: {value}")
-        return value
-
 
 class TableColumnUpdate(BaseModel):
     """Update model for a table column."""
@@ -64,7 +57,7 @@ class TableColumnUpdate(BaseModel):
         min_length=1,
         max_length=100,
     )
-    type: str | None = Field(
+    type: SqlType | None = Field(
         default=None,
         description="The SQL type of the column",
         min_length=1,
@@ -79,13 +72,14 @@ class TableColumnUpdate(BaseModel):
         description="The default value of the column",
     )
 
-    @field_validator("type")
-    @classmethod
-    def validate_sql_type(cls, value: str) -> str:
-        """Validate SQL type to prevent injection."""
-        if not hasattr(sa.types, value):
-            raise ValueError(f"Invalid SQL type: {value}")
-        return value
+
+class TableRowRead(BaseModel):
+    """Read model for a table row."""
+
+    model_config = ConfigDict(extra="allow")
+    id: TableRowID
+    created_at: datetime
+    updated_at: datetime
 
 
 class TableRowInsert(BaseModel):
@@ -95,14 +89,14 @@ class TableRowInsert(BaseModel):
 
 
 class TableReadMinimal(BaseModel):
-    """Read model for a lookup table."""
+    """Read model for a table."""
 
     id: TableID
     name: str
 
 
 class TableRead(BaseModel):
-    """Read model for a lookup table."""
+    """Read model for a table."""
 
     id: TableID
     name: str
@@ -110,13 +104,17 @@ class TableRead(BaseModel):
 
 
 class TableCreate(BaseModel):
-    """Create model for a lookup table."""
+    """Create model for a table."""
 
     name: str = Field(
         ...,
-        description="The name of the lookup table",
+        description="The name of the table",
         min_length=1,
         max_length=100,
+    )
+    columns: list[TableColumnCreate] = Field(
+        default_factory=list,
+        description="The columns of the table",
     )
 
     @field_validator("name")
@@ -132,11 +130,11 @@ class TableCreate(BaseModel):
 
 
 class TableUpdate(BaseModel):
-    """Update model for a lookup table."""
+    """Update model for a table."""
 
     name: str | None = Field(
         default=None,
-        description="The name of the lookup table",
+        description="The name of the table",
         min_length=1,
         max_length=100,
     )
