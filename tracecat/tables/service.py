@@ -336,7 +336,7 @@ class TablesService(BaseService):
             new_name = self._sanitize_identifier(set_fields.get("name", column.name))
             new_type = set_fields.get("type", column.type)
 
-            if not hasattr(sa.types, new_type):
+            if not is_valid_sql_type(new_type):
                 raise ValueError(f"Invalid type: {new_type}")
 
             # Build ALTER COLUMN statement
@@ -349,16 +349,18 @@ class TablesService(BaseService):
                 constraint = (
                     "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
                 )
-                alter_stmts.append(f"ALTER COLUMN {new_name} {constraint}")
+                alter_stmts.append(f'ALTER COLUMN "{new_name}" {constraint}')
             if "default" in set_fields:
-                if set_fields["default"] is None:
-                    alter_stmts.append(f"ALTER COLUMN {new_name} DROP DEFAULT")
+                updated_default = set_fields["default"]
+                if updated_default is None:
+                    alter_stmts.append(f'ALTER COLUMN "{new_name}" DROP DEFAULT')
                 else:
                     alter_stmts.append(
-                        f"ALTER COLUMN {new_name} SET DEFAULT {set_fields['default']}"
+                        f"ALTER COLUMN \"{new_name}\" SET DEFAULT '{updated_default}'"
                     )
 
             # Execute all ALTER statements
+            logger.info("Updating column", stmts=alter_stmts)
             for stmt in alter_stmts:
                 await conn.execute(sa.DDL(f"ALTER TABLE {full_table_name} {stmt}"))
 

@@ -74,7 +74,7 @@ async def create_table(
             e = cause
         if isinstance(e, DuplicateTableError):
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_409_CONFLICT,
                 detail=str(e).replace("relation", "table").capitalize(),
             ) from e
         raise HTTPException(
@@ -92,7 +92,7 @@ async def create_table(
             if isinstance(e, DuplicateColumnError):
                 # Format: 'column "field>" of relation "<table>" already exists'
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_409_CONFLICT,
                     detail=str(e).replace("relation", "table").capitalize(),
                 ) from e
             raise HTTPException(
@@ -149,6 +149,11 @@ async def update_table(
         # Drill down to the root cause
         while (cause := e.__cause__) is not None:
             e = cause
+        if isinstance(e, DuplicateTableError):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(e).replace("relation", "table").capitalize(),
+            ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected DB error occurred: {e}",
@@ -198,7 +203,7 @@ async def create_column(
         if isinstance(e, DuplicateColumnError):
             # Format: 'column "field>" of relation "<table>" already exists'
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_409_CONFLICT,
                 detail=str(e).replace("relation", "table").capitalize(),
             ) from e
         raise HTTPException(
@@ -227,7 +232,21 @@ async def update_column(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    await service.update_column(column, params)
+    try:
+        await service.update_column(column, params)
+    except ProgrammingError as e:
+        # Drill down to the root cause
+        while (cause := e.__cause__) is not None:
+            e = cause
+        if isinstance(e, DuplicateColumnError):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(e).replace("relation", "table").capitalize(),
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error occurred: {e}",
+        ) from e
 
 
 @router.delete(
