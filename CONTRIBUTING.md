@@ -138,6 +138,15 @@ For example:
 - `description`: Query for Crowdstrike alerts via the Falcon SIEM API.
 - `namespace`: `tools.crowdstrike`
 
+### Testing
+
+Though we run tests in GitHub Actions, we highly recommend testing locally to speed up development.
+You can do this by running:
+
+```bash
+uv run pytest tests/registry
+```
+
 #### Example template
 
 ```yaml
