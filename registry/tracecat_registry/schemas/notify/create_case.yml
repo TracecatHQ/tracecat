@@ -4,16 +4,13 @@
 # https://confluence.atlassian.com/adminjiraserver/issue-fields-and-statuses-938847116.html
 # https://medium.com/brexeng/elevating-security-alert-management-using-automation-828004ad596c
 # NOTE: Should only be used to create a new case, not to update an existing case.
-# If this is a retrospective case, use the `update_case_status` action after creating the case.
+# NOTE: If this is a retrospective case, use the `update_case_status` action after creating the case.
 summary:
   type: str
   description: Brief one-line summary of the incident.
 description:
   type: str
   description: A detailed description of the incident.
-status:
-  type: str
-  description: Status of the incident.
 # NOTE: Not all integrations support both severity and priority.
 # If the integration only supports severity, use the `severity` field.
 # If the integration only supports priority, use the `priority` field.
