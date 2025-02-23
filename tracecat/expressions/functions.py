@@ -356,9 +356,9 @@ def index_by_key(
     return {item[field_key]: item for item in x}
 
 
-def merge_dicts(x: dict[Any, Any], y: dict[Any, Any]) -> dict[Any, Any]:
-    """Merge two objects. Similar to merge function in Terraform."""
-    return {**x, **y}
+def merge_dicts(x: list[dict[Any, Any]]) -> dict[Any, Any]:
+    """Merge list of objects. Similar to merge function in Terraform."""
+    return {k: v for d in x for k, v in d.items()}
 
 
 def dict_keys(x: dict[Any, Any]) -> list[Any]:

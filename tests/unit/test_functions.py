@@ -844,29 +844,31 @@ def test_map_dict_keys(input_list: list[dict], key: str, expected: dict) -> None
 
 
 @pytest.mark.parametrize(
-    "dict1,dict2,expected",
+    "dict_list,expected",
     [
         # Basic case
-        ({"a": 1}, {"b": 2}, {"a": 1, "b": 2}),
+        ([{"a": 1}, {"b": 2}], {"a": 1, "b": 2}),
         # Empty dictionaries
-        ({}, {}, {}),
-        ({}, {"a": 1}, {"a": 1}),
-        ({"a": 1}, {}, {"a": 1}),
-        # Overlapping keys (second dict takes precedence)
-        ({"a": 1}, {"a": 2}, {"a": 2}),
+        ([], {}),
+        ([{}], {}),
+        ([{}, {"a": 1}], {"a": 1}),
+        ([{"a": 1}, {}], {"a": 1}),
+        # Overlapping keys (last dict takes precedence)
+        ([{"a": 1}, {"a": 2}], {"a": 2}),
         # Nested dictionaries
-        ({"a": {"x": 1}}, {"b": {"y": 2}}, {"a": {"x": 1}, "b": {"y": 2}}),
+        ([{"a": {"x": 1}}, {"b": {"y": 2}}], {"a": {"x": 1}, "b": {"y": 2}}),
         # Mixed value types
         (
-            {"a": 1, "b": "str"},
-            {"c": [1, 2], "d": {"x": 1}},
+            [{"a": 1, "b": "str"}, {"c": [1, 2], "d": {"x": 1}}],
             {"a": 1, "b": "str", "c": [1, 2], "d": {"x": 1}},
         ),
+        # More than two dictionaries
+        ([{"a": 1}, {"b": 2}, {"c": 3}], {"a": 1, "b": 2, "c": 3}),
     ],
 )
-def test_merge_dicts(dict1: dict, dict2: dict, expected: dict) -> None:
-    """Test merging two dictionaries."""
-    assert merge_dicts(dict1, dict2) == expected
+def test_merge_dicts(dict_list: list[dict], expected: dict) -> None:
+    """Test merging a list of dictionaries."""
+    assert merge_dicts(dict_list) == expected
 
 
 @pytest.mark.parametrize(
