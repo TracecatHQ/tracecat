@@ -616,6 +616,7 @@ class TablesService(BaseService):
         try:
             # Execute insert and get rowcount directly
             result = await conn.execute(stmt)
+            await self.session.commit()
             return result.rowcount
         except Exception as e:
             # Let the transaction context manager handle rollback
