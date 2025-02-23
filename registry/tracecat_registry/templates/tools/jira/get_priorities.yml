@@ -20,8 +20,8 @@ definition:
     - ref: get_priorities
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/rest/api/3/priorityscheme/${{ inputs.priority_scheme_id }}/priority
+        url: ${{ inputs.base_url }}/rest/api/3/priorityscheme/${{ inputs.priority_scheme_id }}/priorities
         method: GET
         headers:
           Authorization: Basic ${{ FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
-  returns: ${{ steps.get_priorities.result.values }}
+  returns: ${{ steps.get_priorities.result.data.values }}
