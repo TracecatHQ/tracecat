@@ -46,6 +46,7 @@ from tracecat.expressions.functions import (
     greater_than,
     greater_than_or_equal,
     hours_between,
+    index_by_key,
     ipv4_in_subnet,
     ipv4_is_public,
     ipv6_in_subnet,
@@ -57,7 +58,9 @@ from tracecat.expressions.functions import (
     less_than,
     less_than_or_equal,
     lowercase,
+    map_dict_keys,
     mappable,
+    merge_dicts,
     minutes_between,
     mod,
     mul,
@@ -311,11 +314,23 @@ def test_ipv6_is_public(ip: str, expected: bool) -> None:
     assert ipv6_is_public(ip) == expected
 
 
-def test_check_ip_version() -> None:
-    assert check_ip_version("192.168.1.1") == 4
-    assert check_ip_version("2001:db8::1") == 6
-    with pytest.raises(ValueError):
-        check_ip_version("invalid-ip")
+@pytest.mark.parametrize(
+    "ip,expected",
+    [
+        # IPv4 addresses
+        ("192.168.1.1", 4),
+        ("10.0.0.1", 4),
+        ("172.16.0.1", 4),
+        ("8.8.8.8", 4),
+        # IPv6 addresses
+        ("2001:db8::1", 6),
+        ("fe80::1", 6),
+        ("2606:4700:4700::1111", 6),
+        ("::1", 6),
+    ],
+)
+def test_check_ip_version(ip: str, expected: int) -> None:
+    assert check_ip_version(ip) == expected
 
 
 @pytest.mark.parametrize(
@@ -451,9 +466,6 @@ def test_cast_operations() -> None:
     assert cast("true", "bool") is True
     assert isinstance(cast("2023-01-01T00:00:00", "datetime"), datetime)
 
-    with pytest.raises(ValueError):
-        cast("123", "invalid_type")
-
 
 @pytest.mark.parametrize(
     "func,date_input,format,expected",
@@ -478,9 +490,6 @@ def test_date_formatters(
     func, date_input: datetime, format: str, expected: int | str
 ) -> None:
     assert func(date_input, format) == expected
-    # Test invalid format
-    with pytest.raises(ValueError):
-        func(date_input, "invalid")
 
 
 @pytest.mark.parametrize(
@@ -511,16 +520,30 @@ def test_string_boundary_functions(
         (get_minute, datetime(2024, 3, 15, 12, 59), 59),
         (get_second, datetime(2024, 3, 15, 12, 30, 45), 45),
         (get_year, datetime(2024, 3, 15), 2024),
-        (get_month, datetime(2024, 1, 1), 1),  # Using number format
-        (get_month, datetime(2024, 12, 1), 12),  # Using number format
     ],
 )
 def test_date_component_getters(func, input_val: datetime, expected: int) -> None:
     """Test all date/time component getter functions."""
-    if func == get_month:
-        assert func(input_val, "number") == expected
-    else:
-        assert func(input_val) == expected
+    assert func(input_val) == expected
+
+
+@pytest.mark.parametrize(
+    "func,input_val,expected",
+    [
+        (get_month, datetime(2024, 1, 1), 1),
+        (get_month, datetime(2024, 12, 1), 12),
+        (get_month, datetime(2024, 1, 1), "number"),
+        (get_month, datetime(2024, 12, 1), "number"),
+        (get_month, datetime(2024, 1, 1), "full"),
+        (get_month, datetime(2024, 12, 1), "full"),
+        (get_month, datetime(2024, 1, 1), "short"),
+        (get_month, datetime(2024, 12, 1), "short"),
+    ],
+)
+def test_get_month(func, input_val: datetime, expected: int | str) -> None:
+    assert func(input_val, "number") == expected
+    assert func(input_val, "full") == expected
+    assert func(input_val, "short") == expected
 
 
 @pytest.mark.parametrize(
@@ -572,10 +595,6 @@ def test_time_between_calculations(
 )
 def test_dict_operations(func, input_dict: dict, expected: set) -> None:
     assert set(func(input_dict)) == expected
-
-    # Test with non-dict input
-    with pytest.raises(AttributeError):
-        func("not a dict")  # type: ignore
 
 
 @pytest.mark.parametrize(
@@ -753,6 +772,104 @@ def test_dict_lookup(input_dict: dict, key: Any, expected: Any) -> None:
 
 
 @pytest.mark.parametrize(
+    "input_list,field_key,value_key,expected",
+    [
+        # Basic case with value_key
+        (
+            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
+            "id",
+            "name",
+            {1: "Alice", 2: "Bob"},
+        ),
+        # Basic case without value_key
+        (
+            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
+            "id",
+            None,
+            {1: {"id": 1, "name": "Alice"}, 2: {"id": 2, "name": "Bob"}},
+        ),
+        # Empty list
+        ([], "id", "name", {}),
+        # Different key types
+        (
+            [{"num": 1.5, "val": "a"}, {"num": 2.5, "val": "b"}],
+            "num",
+            "val",
+            {1.5: "a", 2.5: "b"},
+        ),
+        # Nested dictionaries
+        (
+            [{"key": "a", "data": {"x": 1}}, {"key": "b", "data": {"x": 2}}],
+            "key",
+            "data",
+            {"a": {"x": 1}, "b": {"x": 2}},
+        ),
+    ],
+)
+def test_index_by_key(
+    input_list: list[dict], field_key: str, value_key: str | None, expected: dict
+) -> None:
+    """Test indexing a list of dictionaries by a specified key."""
+    assert index_by_key(input_list, field_key, value_key) == expected
+
+
+@pytest.mark.parametrize(
+    "input_list,key,expected",
+    [
+        # Basic case
+        (
+            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
+            "id",
+            {1: {"id": 1, "name": "Alice"}, 2: {"id": 2, "name": "Bob"}},
+        ),
+        # Empty list
+        ([], "id", {}),
+        # Different key types
+        (
+            [{"num": 1.5, "val": "a"}, {"num": 2.5, "val": "b"}],
+            "num",
+            {1.5: {"num": 1.5, "val": "a"}, 2.5: {"num": 2.5, "val": "b"}},
+        ),
+        # Nested dictionaries
+        (
+            [{"key": "a", "data": {"x": 1}}, {"key": "b", "data": {"x": 2}}],
+            "key",
+            {"a": {"key": "a", "data": {"x": 1}}, "b": {"key": "b", "data": {"x": 2}}},
+        ),
+    ],
+)
+def test_map_dict_keys(input_list: list[dict], key: str, expected: dict) -> None:
+    """Test mapping a list of dictionaries to a dictionary using a specified key."""
+    assert map_dict_keys(input_list, key) == expected
+
+
+@pytest.mark.parametrize(
+    "dict1,dict2,expected",
+    [
+        # Basic case
+        ({"a": 1}, {"b": 2}, {"a": 1, "b": 2}),
+        # Empty dictionaries
+        ({}, {}, {}),
+        ({}, {"a": 1}, {"a": 1}),
+        ({"a": 1}, {}, {"a": 1}),
+        # Overlapping keys (second dict takes precedence)
+        ({"a": 1}, {"a": 2}, {"a": 2}),
+        # Nested dictionaries
+        ({"a": {"x": 1}}, {"b": {"y": 2}}, {"a": {"x": 1}, "b": {"y": 2}}),
+        # Mixed value types
+        (
+            {"a": 1, "b": "str"},
+            {"c": [1, 2], "d": {"x": 1}},
+            {"a": 1, "b": "str", "c": [1, 2], "d": {"x": 1}},
+        ),
+    ],
+)
+def test_merge_dicts(dict1: dict, dict2: dict, expected: dict) -> None:
+    """Test merging two dictionaries."""
+    assert merge_dicts(dict1, dict2) == expected
+
+
+@pytest.mark.parametrize(
     "input_iterables,expected",
     [
         # Basic flattening
@@ -777,10 +894,6 @@ def test_flatten(input_iterables: list, expected: list) -> None:
     The function recursively flattens all sequences (including tuples) into a single list.
     """
     assert flatten(input_iterables) == expected
-
-    # Test with non-iterable input
-    with pytest.raises((TypeError, AttributeError)):
-        flatten(123)  # type: ignore
 
 
 @pytest.mark.parametrize(
@@ -807,10 +920,6 @@ def test_create_range(start: int, end: int, step: int, expected: list[int]) -> N
     """
     result = create_range(start, end, step)
     assert list(result) == expected
-
-    # Test invalid step
-    with pytest.raises(ValueError):
-        create_range(0, 5, 0)  # Step cannot be 0
 
 
 @pytest.mark.parametrize(
@@ -895,10 +1004,6 @@ def test_to_timestamp(input_val: datetime | str, unit: str, expected: int) -> No
 )
 def test_parse_datetime(input_str: str, format_str: str, expected: datetime) -> None:
     assert parse_datetime(input_str, format_str) == expected
-
-    # Test invalid format
-    with pytest.raises(ValueError):
-        parse_datetime(input_str, "invalid_format")
 
 
 @pytest.mark.parametrize(

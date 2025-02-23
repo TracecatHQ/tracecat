@@ -163,7 +163,7 @@ def generate_uuid() -> str:
 
 
 def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
-    """Parse newline-delimited JSON string into list of dictionaries."""
+    """Parse newline-delimited JSON string into list of objects."""
     return [orjson.loads(line) for line in x.splitlines()]
 
 
@@ -342,30 +342,42 @@ def create_range(start: int, end: int, step: int = 1) -> range:
 
 
 # Dictionary functions
+# NOTE: Use "object" in docstrings to align to Javascript / JSON terminology.
+
+
+def index_by_key(
+    x: list[dict[str, Any]],
+    field_key: str,
+    value_key: str | None = None,
+) -> dict[str, Any]:
+    """Convert a list of objects into an object indexed by the specified key."""
+    if value_key:
+        return {item[field_key]: item[value_key] for item in x}
+    return {item[field_key]: item for item in x}
 
 
 def merge_dicts(x: dict[Any, Any], y: dict[Any, Any]) -> dict[Any, Any]:
-    """Merge two dictionaries. Similar to merge function in Terraform."""
+    """Merge two objects. Similar to merge function in Terraform."""
     return {**x, **y}
 
 
 def dict_keys(x: dict[Any, Any]) -> list[Any]:
-    """Extract keys from dictionary."""
+    """Extract keys from an object."""
     return list(x.keys())
 
 
 def dict_lookup(d: dict[Any, Any], k: Any) -> Any:
-    """Safely get value from dictionary."""
+    """Safely get value from an object."""
     return d.get(k)
 
 
 def dict_values(x: dict[Any, Any]) -> list[Any]:
-    """Extract values from dictionary."""
+    """Extract values from an object."""
     return list(x.values())
 
 
 def map_dict_keys(x: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
-    """Map keys in dictionary to new keys."""
+    """Map keys in an object to new keys."""
     try:
         return {keys[k]: v for k, v in x.items()}
     except KeyError as e:
@@ -817,6 +829,7 @@ _FUNCTION_MAPPING = {
     # Generators
     "uuid4": generate_uuid,
     # JSON functions
+    "index_by_key": index_by_key,
     "lookup": dict_lookup,
     "map_keys": map_dict_keys,
     "merge": merge_dicts,
