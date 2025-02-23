@@ -12,20 +12,21 @@ description:
   type: str
   description: A detailed description of the incident.
 status:
-  type: str | None
+  type: str
   description: Status of the incident.
-  default: null
+# NOTE: Not all integrations support both severity and priority.
+# If the integration only supports severity, use the `severity` field.
+# If the integration only supports priority, use the `priority` field.
 severity:
-  type: str | None
+  type: str
   description: Severity of the incident.
-  default: null
 priority:
-  type: str | None
+  type: str
   description: Priority of the incident.
-  default: null
-labels:
+# NOTE: We normalize labels and tags to `tags`.
+tags:
   type: list[str]
-  description: Labels to categorize the incident.
+  description: Tags or labels to categorize the incident.
   default: []
 metadata:
   type: list[dict[str, any]]
