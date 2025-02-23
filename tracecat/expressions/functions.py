@@ -364,6 +364,14 @@ def dict_values(x: dict[Any, Any]) -> list[Any]:
     return list(x.values())
 
 
+def map_dict_keys(x: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
+    """Map keys in dictionary to new keys."""
+    try:
+        return {keys[k]: v for k, v in x.items()}
+    except KeyError as e:
+        raise ValueError(f"Key {e} not found in keys mapping {keys}.") from e
+
+
 def serialize_to_json(x: Any) -> str:
     """Convert object to JSON string."""
     return orjson.dumps(x).decode()
@@ -810,6 +818,7 @@ _FUNCTION_MAPPING = {
     "uuid4": generate_uuid,
     # JSON functions
     "lookup": dict_lookup,
+    "map_keys": map_dict_keys,
     "merge": merge_dicts,
     "to_keys": dict_keys,
     "to_values": dict_values,
