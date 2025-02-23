@@ -3543,6 +3543,35 @@ export const $TableRowInsert = {
   description: "Insert model for a table row.",
 } as const
 
+export const $TableRowInsertBatch = {
+  properties: {
+    rows: {
+      items: {
+        type: "object",
+      },
+      type: "array",
+      title: "Rows",
+    },
+  },
+  type: "object",
+  required: ["rows"],
+  title: "TableRowInsertBatch",
+  description: "Request body for batch inserting rows.",
+} as const
+
+export const $TableRowInsertBatchResponse = {
+  properties: {
+    rows_inserted: {
+      type: "integer",
+      title: "Rows Inserted",
+    },
+  },
+  type: "object",
+  required: ["rows_inserted"],
+  title: "TableRowInsertBatchResponse",
+  description: "Response for batch insert operation.",
+} as const
+
 export const $TableRowRead = {
   properties: {
     id: {

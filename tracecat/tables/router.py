@@ -3,7 +3,7 @@ from uuid import UUID
 
 from asyncpg import DuplicateColumnError, DuplicateTableError
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
@@ -17,6 +17,8 @@ from tracecat.tables.models import (
     TableRead,
     TableReadMinimal,
     TableRowInsert,
+    TableRowInsertBatch,
+    TableRowInsertBatchResponse,
     TableRowRead,
     TableUpdate,
 )
@@ -349,3 +351,43 @@ async def delete_row(
             detail=str(e),
         ) from e
     await service.delete_row(table, row_id)
+
+
+@router.post("/{table_id}/rows/batch", status_code=status.HTTP_201_CREATED)
+async def batch_insert_rows(
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    table_id: TableID,
+    params: TableRowInsertBatch,
+) -> TableRowInsertBatchResponse:
+    """Insert multiple rows into a table atomically.
+
+    All rows will be inserted in a single transaction. If any row fails,
+    the entire batch will be rolled back.
+    """
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table(table_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+
+    try:
+        count = await service.batch_insert_rows(table, params.rows)
+        return TableRowInsertBatchResponse(rows_inserted=count)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except DBAPIError as e:
+        # Extract useful info from database error
+        detail = str(e)
+        if isinstance(e.__cause__, Exception):
+            detail = str(e.__cause__)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Database error: {detail}",
+        ) from e

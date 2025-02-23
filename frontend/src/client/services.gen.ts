@@ -121,6 +121,8 @@ import type {
   SettingsUpdateOauthSettingsResponse,
   SettingsUpdateSamlSettingsData,
   SettingsUpdateSamlSettingsResponse,
+  TablesBatchInsertRowsData,
+  TablesBatchInsertRowsResponse,
   TablesCreateColumnData,
   TablesCreateColumnResponse,
   TablesCreateTableData,
@@ -2776,6 +2778,39 @@ export const tablesDeleteRow = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Insert Rows
+ * Insert multiple rows into a table atomically.
+ *
+ * All rows will be inserted in a single transaction. If any row fails,
+ * the entire batch will be rolled back.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TableRowInsertBatchResponse Successful Response
+ * @throws ApiError
+ */
+export const tablesBatchInsertRows = (
+  data: TablesBatchInsertRowsData
+): CancelablePromise<TablesBatchInsertRowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/{table_id}/rows/batch",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
