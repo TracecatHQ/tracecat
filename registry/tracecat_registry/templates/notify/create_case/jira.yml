@@ -16,52 +16,87 @@ definition:
     description:
       type: str
       description: A detailed description of the incident.
-    severity:
+    priority:
       type: str
-      description: Severity of the incident.
-    labels:
+      description: |
+        Priority of the incident.
+        This is the priority name, not the priority ID.
+    tags:
       type: list[str]
-      description: Labels to categorize the incident.
+      description: Tags to categorize the incident. Added as Jira labels.
       default: []
-    custom_fields:
+    metadata:
       type: list[dict[str, any]]
-      description: Custom fields to add to the incident.
+      description: >-
+        Context related to the incident, where the keys are Jira custom field names.
+        Field names are automatically mapped to Jira custom field IDs.
       default: []
-    severity_to_priority_id:
-      type: dict[str, str]
-      description: Mapping of severity to priority ID.
-    base_url:
-      type: str
-      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
     project_id:
       type: str
       description: Jira project ID.
+    scheme_id:
+      type: str
+      description: Jira priority scheme ID.
     issue_type_id:
       type: str
       description: Jira issue type ID.
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
   steps:
+    # Map priority name to ID
+    - ref: get_priorities
+      action: tools.jira.get_priorities
+      args:
+        priority_scheme_id: ${{ inputs.priority_scheme_id }}
+        base_url: ${{ inputs.base_url }}
+    - ref: priority_name_to_id
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.index_by_key(steps.get_priorities.result, "name", "id") }}
+    # Format the required fields
+    - ref: required_fields
+      action: core.transform.reshape
+      args:
+        value:
+          summary: ${{ inputs.summary }}
+          description:
+            type: doc
+            version: 1
+            content:
+              - type: paragraph
+                content:
+                  - text: ${{ inputs.description }}
+                    type: text
+          labels: ${{ inputs.tags }}
+          priority:
+            id: ${{ FN.lookup(steps.priority_name_to_id.result, inputs.priority) }}
+          project:
+            id: ${{ inputs.project_id }}
+          issuetype:
+            id: ${{ inputs.issue_type_id }}
+    # Map custom field names to IDs
+    - ref: get_custom_fields
+      action: tools.jira.get_custom_fields
+      args:
+        base_url: ${{ inputs.base_url }}
+    - ref: custom_field_name_to_id
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.index_by_key(steps.get_custom_fields.result, "name", "id") }}
+    - ref: custom_fields
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.map_keys(inputs.metadata, steps.custom_field_name_to_id.result) }}
+    # Create the issue
     - ref: create_issue
       action: core.http_request
       args:
         url: ${{ inputs.base_url }}/rest/api/3/issue/
         method: POST
         headers:
-          Authorization: Basic ${{ SECRETS.jira.JIRA_BASE64_TOKEN || FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
+          Authorization: Basic ${{ FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
         payload:
-          fields:
-            summary: ${{ inputs.summary }}
-            description:
-              type: doc
-              version: 1
-              content:
-                - type: paragraph
-                  content:
-                    - text: ${{ inputs.description }}
-                      type: text
-            priority:
-              id: ${{ FN.lookup(inputs.severity_to_priority_id, inputs.severity) }}
-            project:
-              id: ${{ inputs.project_id }}
-            issuetype:
-              id: ${{ inputs.issue_type_id }}
+          # Merge required fields with custom fields
+          fields: ${{ FN.merge(steps.required_fields.result, steps.custom_fields.result) }}
   returns: ${{ steps.create_issue.result }}
