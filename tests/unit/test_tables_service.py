@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 import pytest
+from sqlalchemy.exc import DBAPIError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import Table, TableColumn
@@ -308,3 +309,78 @@ class TestTableRows:
         # Test with offset that exceeds available rows
         empty_rows = await tables_service.list_rows(table, offset=10)
         assert len(empty_rows) == 0
+
+    async def test_batch_insert_rows(
+        self, tables_service: TablesService, table_with_columns: tuple
+    ) -> None:
+        """Test batch inserting multiple rows."""
+        table, _, _ = table_with_columns
+
+        # Test data
+        rows = [
+            {"name": "Alice", "age": 25},
+            {"name": "Bob", "age": 30},
+            {"name": "Carol", "age": 35},
+        ]
+
+        # Insert batch
+        inserted_count = await tables_service.batch_insert_rows(table, rows)
+        assert inserted_count == 3
+
+        # Verify all rows were inserted
+        all_rows = await tables_service.list_rows(table)
+        assert len(all_rows) == 3
+        names = {row["name"] for row in all_rows}
+        assert names == {"Alice", "Bob", "Carol"}
+
+    async def test_batch_insert_exceeding_chunk_size(
+        self, tables_service: TablesService, table_with_columns: tuple
+    ) -> None:
+        """Test batch insert fails when exceeding chunk size."""
+        table, _, _ = table_with_columns
+
+        # Create more rows than the chunk size
+        rows = [
+            {"name": f"Person{i}", "age": i}
+            for i in range(1001)  # Default chunk size is 1000
+        ]
+
+        # Should raise ValueError
+        with pytest.raises(ValueError) as exc_info:
+            await tables_service.batch_insert_rows(table, rows)
+        assert "exceeds maximum" in str(exc_info.value)
+
+    async def test_batch_insert_rollback_on_error(
+        self, tables_service: TablesService, table_with_columns: tuple
+    ) -> None:
+        """Test that no rows are inserted if there's an error with any row."""
+        table, _, _ = table_with_columns
+
+        # Mix of valid and invalid data (invalid type for age)
+        rows = [
+            {"name": "Alice", "age": 25},
+            {"name": "Bob", "age": "invalid"},  # This should cause an error
+            {"name": "Carol", "age": 35},
+        ]
+
+        # Should raise DBAPIError
+        with pytest.raises(DBAPIError):
+            await tables_service.batch_insert_rows(table, rows)
+
+        # Verify no rows were inserted (transaction rolled back)
+        all_rows = await tables_service.list_rows(table)
+        assert len(all_rows) == 0
+
+    async def test_batch_insert_empty_list(
+        self, tables_service: TablesService, table_with_columns: tuple
+    ) -> None:
+        """Test batch insert with empty list."""
+        table, _, _ = table_with_columns
+
+        # Insert empty list
+        inserted_count = await tables_service.batch_insert_rows(table, [])
+        assert inserted_count == 0
+
+        # Verify no rows were inserted
+        all_rows = await tables_service.list_rows(table)
+        assert len(all_rows) == 0

@@ -568,3 +568,55 @@ class TablesService(BaseService):
                     schema=schema_name,
                 )
                 raise
+
+    async def batch_insert_rows(
+        self,
+        table: Table,
+        rows: list[dict[str, Any]],
+        *,
+        chunk_size: int = 1000,
+    ) -> int:
+        """Insert multiple rows into the table atomically.
+
+        Args:
+            table: The table to insert into
+            rows: List of row data to insert
+            chunk_size: Maximum number of rows to insert in a single transaction
+
+        Returns:
+            Number of rows inserted
+
+        Raises:
+            ValueError: If the batch size exceeds the chunk_size
+            DBAPIError: If there's a database error during insertion
+        """
+        if not rows:
+            return 0
+
+        if len(rows) > chunk_size:
+            raise ValueError(f"Batch size {len(rows)} exceeds maximum of {chunk_size}")
+
+        schema_name = self._get_schema_name()
+
+        # Get all unique column names from the rows
+        all_columns = set()
+        for row in rows:
+            all_columns.update(row.keys())
+
+        # Create sanitized column list
+        cols = [sa.column(self._sanitize_identifier(k)) for k in all_columns]
+
+        # Start transaction
+        conn = await self.session.connection()
+
+        # Build multi-row insert
+        # Build multi-row insert statement without returning clause
+        stmt = sa.insert(sa.table(table.name, *cols, schema=schema_name)).values(rows)
+
+        try:
+            # Execute insert and get rowcount directly
+            result = await conn.execute(stmt)
+            return result.rowcount
+        except Exception as e:
+            # Let the transaction context manager handle rollback
+            raise DBAPIError("Failed to insert batch", str(e), e) from e
