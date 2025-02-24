@@ -730,7 +730,7 @@ export function ActionPanel({
                     {/* Loop */}
                     <div className="flex flex-col space-y-2">
                       <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>For each item in loop</span>
+                        <span>For loops</span>
                       </FormLabel>
                       <div className="mb-2 flex items-center">
                         <HoverCard openDelay={100} closeDelay={100}>
