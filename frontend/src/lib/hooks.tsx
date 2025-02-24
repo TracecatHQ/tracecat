@@ -77,6 +77,8 @@ import {
   TableRead,
   TableReadMinimal,
   TableRowRead,
+  tablesBatchInsertRows,
+  TablesBatchInsertRowsData,
   tablesCreateColumn,
   TablesCreateColumnData,
   tablesCreateTable,
@@ -90,6 +92,8 @@ import {
   TablesDeleteTableData,
   tablesGetTable,
   TablesGetTableData,
+  tablesImportCsv,
+  TablesImportCsvData,
   tablesInsertRow,
   TablesInsertRowData,
   tablesListRows,
@@ -142,21 +146,33 @@ import { getBaseUrl } from "@/lib/api"
 import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { toast } from "@/components/ui/use-toast"
 
+interface AppInfo {
+  public_app_url: string
+  auth_allowed_types: string[]
+  auth_basic_enabled: boolean
+  oauth_google_enabled: boolean
+  saml_enabled: boolean
+}
+
 export function useAppInfo() {
-  const { data: appInfo, isLoading: appInfoIsLoading } = useQuery<{
-    public_app_url: string
-    auth_allowed_types: string[]
-    auth_basic_enabled: boolean
-    oauth_google_enabled: boolean
-    saml_enabled: boolean
-  }>({
+  const {
+    data: appInfo,
+    isLoading: appInfoIsLoading,
+    error: appInfoError,
+  } = useQuery<AppInfo, Error>({
     queryKey: ["app-info"],
     queryFn: async () => {
       const resp = await fetch(getBaseUrl() + "/info")
-      return await resp.json()
+      try {
+        return await resp.json()
+      } catch (error) {
+        throw new Error(
+          "Unable to fetch authentication settings. This could be a network issue with the Tracecat API."
+        )
+      }
     },
   })
-  return { appInfo, appInfoIsLoading }
+  return { appInfo, appInfoIsLoading, appInfoError }
 }
 
 export function useLocalStorage<T>(
@@ -590,13 +606,27 @@ export function useManualWorkflowExecution(
           requestBody: params,
         })
       },
-      onSuccess: async () => {
-        // NOTE(daryl): This is a hack to ensure that the last execution is refetched
-        // and the UI is updated.
-        await new Promise((resolve) => setTimeout(resolve, 200))
+      onSuccess: async ({ wf_exec_id }) => {
+        // Immediately update the last-manual-execution query cache with the new execution
+        queryClient.setQueryData<WorkflowExecutionReadMinimal>(
+          ["last-manual-execution", workflowId],
+          {
+            id: wf_exec_id,
+            run_id: "pending",
+            start_time: new Date().toISOString(),
+            status: "RUNNING",
+            workflow_type: "DSLWorkflow",
+            task_queue: "default",
+            history_length: 0,
+          }
+        )
+
+        // Then trigger a background refetch to get the complete data
         await queryClient.refetchQueries({
           queryKey: ["last-manual-execution"],
-          type: "all",
+        })
+        await queryClient.refetchQueries({
+          queryKey: ["last-manual-execution", workflowId],
         })
       },
     })
@@ -622,6 +652,7 @@ export function useManualWorkflowExecution(
     staleTime: 0,
     ...options,
   })
+
   return {
     lastExecution,
     lastExecutionIsLoading,
@@ -630,7 +661,6 @@ export function useManualWorkflowExecution(
     createExecutionIsPending,
   }
 }
-
 export function useSchedules(workflowId: string) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
@@ -2137,6 +2167,41 @@ export function useDeleteColumn() {
   }
 }
 
+export function useBatchInsertRows() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: insertRows,
+    isPending: insertRowsIsPending,
+    error: insertRowsError,
+  } = useMutation({
+    mutationFn: async (params: TablesBatchInsertRowsData) =>
+      await tablesBatchInsertRows(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+      toast({
+        title: "Imported rows successfully",
+        description: "The data has been imported into the table.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Error batch inserting rows:", error)
+      toast({
+        title: "Failed to import rows",
+        description: "There was an error importing the data. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    insertRows,
+    insertRowsIsPending,
+    insertRowsError,
+  }
+}
+
 export function useInsertRow() {
   const queryClient = useQueryClient()
   const {
@@ -2183,5 +2248,32 @@ export function useDeleteRow() {
     deleteRow,
     deleteRowIsPending,
     deleteRowError,
+  }
+}
+
+export function useImportCsv() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: importCsv,
+    isPending: importCsvIsPending,
+    error: importCsvError,
+  } = useMutation({
+    mutationFn: async (params: TablesImportCsvData) =>
+      await tablesImportCsv(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+      toast({
+        title: "Imported rows successfully",
+        description: "The data has been imported into the table.",
+      })
+    },
+  })
+
+  return {
+    importCsv,
+    importCsvIsPending,
+    importCsvError,
   }
 }

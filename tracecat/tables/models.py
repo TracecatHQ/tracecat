@@ -88,6 +88,18 @@ class TableRowInsert(BaseModel):
     data: dict[str, Any]
 
 
+class TableRowInsertBatch(BaseModel):
+    """Request body for batch inserting rows."""
+
+    rows: list[dict[str, Any]]
+
+
+class TableRowInsertBatchResponse(BaseModel):
+    """Response for batch insert operation."""
+
+    rows_inserted: int
+
+
 class TableReadMinimal(BaseModel):
     """Read model for a table."""
 

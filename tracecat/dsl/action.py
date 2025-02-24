@@ -5,6 +5,7 @@ from typing import Any
 
 import dateparser
 from pydantic import BaseModel
+from sqlalchemy.exc import DBAPIError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -132,6 +133,19 @@ class DSLActivities:
                 # Run other actions in the executor
                 client = ExecutorClient(role=role)
                 return await client.run_action_memory_backend(input)
+        except DBAPIError as e:
+            # We only expect DBAPIError to be raised from the tables service
+            kind = e.__class__.__name__
+            msg = str(e)
+            act_logger.error("Database exception occurred", error=msg, detail=e.detail)
+            err_info = ActionErrorInfo(
+                ref=task.ref,
+                message=msg,
+                type=kind,
+                attempt=attempt,
+            )
+            err_msg = err_info.format("run_action")
+            raise ApplicationError(err_msg, err_info, type=kind) from e
         except ExecutorClientError as e:
             # We only expect ExecutorClientError to be raised from the executor client
             kind = e.__class__.__name__

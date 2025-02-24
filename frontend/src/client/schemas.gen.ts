@@ -569,6 +569,23 @@ export const $Body_auth_verify_verify = {
   title: "Body_auth-verify:verify",
 } as const
 
+export const $Body_tables_import_csv = {
+  properties: {
+    file: {
+      type: "string",
+      format: "binary",
+      title: "File",
+    },
+    column_mapping: {
+      type: "string",
+      title: "Column Mapping",
+    },
+  },
+  type: "object",
+  required: ["file", "column_mapping"],
+  title: "Body_tables-import_csv",
+} as const
+
 export const $Body_workflows_create_workflow = {
   properties: {
     title: {
@@ -3541,6 +3558,35 @@ export const $TableRowInsert = {
   required: ["data"],
   title: "TableRowInsert",
   description: "Insert model for a table row.",
+} as const
+
+export const $TableRowInsertBatch = {
+  properties: {
+    rows: {
+      items: {
+        type: "object",
+      },
+      type: "array",
+      title: "Rows",
+    },
+  },
+  type: "object",
+  required: ["rows"],
+  title: "TableRowInsertBatch",
+  description: "Request body for batch inserting rows.",
+} as const
+
+export const $TableRowInsertBatchResponse = {
+  properties: {
+    rows_inserted: {
+      type: "integer",
+      title: "Rows Inserted",
+    },
+  },
+  type: "object",
+  required: ["rows_inserted"],
+  title: "TableRowInsertBatchResponse",
+  description: "Response for batch insert operation.",
 } as const
 
 export const $TableRowRead = {

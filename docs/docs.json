@@ -98,6 +98,29 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "Cheatsheets",
+        "pages": [
+          "cheatsheet/functions",
+          "cheatsheet/integrations"
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/introduction",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "REST API",
+            "openapi": "/openapi.yml"
+          }
+        ]
       }
     ],
     "global": {

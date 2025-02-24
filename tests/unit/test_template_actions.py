@@ -530,17 +530,17 @@ async def test_template_action_runs(test_args, expected, should_raise):
     )
 
     # Register the action
-    registry = Repository()
-    registry.init(include_base=True, include_templates=False)
-    registry.register_template_action(action)
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+    repo.register_template_action(action)
 
     # Check that the action is registered
     assert action.definition.action == "integrations.test.wrapper"
-    assert "core.transform.reshape" in registry
-    assert action.definition.action in registry
+    assert "core.transform.reshape" in repo
+    assert action.definition.action in repo
 
     # Get the registered action
-    bound_action = registry.get(action.definition.action)
+    bound_action = repo.get(action.definition.action)
 
     # Run the action
     if should_raise:
@@ -630,12 +630,12 @@ async def test_template_action_with_enums(test_args, expected, should_raise):
     action = TemplateAction.model_validate(data)
 
     # Register the action
-    registry = Repository()
-    registry.init(include_base=True, include_templates=False)
-    registry.register_template_action(action)
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+    repo.register_template_action(action)
 
     # Get the registered action
-    bound_action = registry.get(action.definition.action)
+    bound_action = repo.get(action.definition.action)
 
     # Run the action
     if should_raise:

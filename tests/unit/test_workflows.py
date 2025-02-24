@@ -52,6 +52,7 @@ from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID, Workf
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
+from tracecat.tables.enums import SqlType
 from tracecat.tables.models import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
 from tracecat.types.auth import Role
@@ -2784,7 +2785,7 @@ async def test_workflow_lookup_table_success(
         table = await service.create_table(TableCreate(name="test"))
         await service.create_column(
             table,
-            TableColumnCreate(name="number", type="INTEGER"),
+            TableColumnCreate(name="number", type=SqlType.INTEGER),
         )
         await service.insert_row(
             table,
@@ -2840,7 +2841,7 @@ async def test_workflow_lookup_table_missing_value(
         table = await service.create_table(TableCreate(name="test_missing"))
         await service.create_column(
             table,
-            TableColumnCreate(name="number", type="INTEGER"),
+            TableColumnCreate(name="number", type=SqlType.INTEGER),
         )
         await service.insert_row(
             table,
@@ -2899,7 +2900,7 @@ async def test_workflow_insert_table_row_success(
         table_name = table.name
         await service.create_column(
             table,
-            TableColumnCreate(name="number", type="INTEGER"),
+            TableColumnCreate(name="number", type=SqlType.INTEGER),
         )
 
     # Create workflow that inserts a row

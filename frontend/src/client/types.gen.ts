@@ -194,6 +194,11 @@ export type Body_auth_verify_verify = {
   token: string
 }
 
+export type Body_tables_import_csv = {
+  file: Blob | File
+  column_mapping: string
+}
+
 export type Body_workflows_create_workflow = {
   title?: string | null
   description?: string | null
@@ -1174,6 +1179,22 @@ export type TableRowInsert = {
 }
 
 /**
+ * Request body for batch inserting rows.
+ */
+export type TableRowInsertBatch = {
+  rows: Array<{
+    [key: string]: unknown
+  }>
+}
+
+/**
+ * Response for batch insert operation.
+ */
+export type TableRowInsertBatchResponse = {
+  rows_inserted: number
+}
+
+/**
  * Read model for a table row.
  */
 export type TableRowRead = {
@@ -1859,7 +1880,7 @@ export type WorkspacesGetWorkspaceMembershipData = {
 }
 
 export type WorkspacesGetWorkspaceMembershipResponse =
-  Array<WorkspaceMembershipResponse>
+  WorkspaceMembershipResponse
 
 export type WorkspacesDeleteWorkspaceMembershipData = {
   userId: string
@@ -2496,6 +2517,22 @@ export type TablesDeleteRowData = {
 
 export type TablesDeleteRowResponse = void
 
+export type TablesBatchInsertRowsData = {
+  requestBody: TableRowInsertBatch
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesBatchInsertRowsResponse = TableRowInsertBatchResponse
+
+export type TablesImportCsvData = {
+  formData: Body_tables_import_csv
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesImportCsvResponse = TableRowInsertBatchResponse
+
 export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
@@ -2733,7 +2770,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceMembershipResponse>
+        200: WorkspaceMembershipResponse
         /**
          * Validation Error
          */
@@ -3977,6 +4014,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables/{table_id}/rows/batch": {
+    post: {
+      req: TablesBatchInsertRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TableRowInsertBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables/{table_id}/import": {
+    post: {
+      req: TablesImportCsvData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TableRowInsertBatchResponse
         /**
          * Validation Error
          */

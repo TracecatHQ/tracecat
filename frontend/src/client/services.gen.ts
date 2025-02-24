@@ -121,6 +121,8 @@ import type {
   SettingsUpdateOauthSettingsResponse,
   SettingsUpdateSamlSettingsData,
   SettingsUpdateSamlSettingsResponse,
+  TablesBatchInsertRowsData,
+  TablesBatchInsertRowsResponse,
   TablesCreateColumnData,
   TablesCreateColumnResponse,
   TablesCreateTableData,
@@ -135,6 +137,8 @@ import type {
   TablesGetRowResponse,
   TablesGetTableData,
   TablesGetTableResponse,
+  TablesImportCsvData,
+  TablesImportCsvResponse,
   TablesInsertRowData,
   TablesInsertRowResponse,
   TablesListRowsData,
@@ -2776,6 +2780,69 @@ export const tablesDeleteRow = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Insert Rows
+ * Insert multiple rows into a table atomically.
+ *
+ * All rows will be inserted in a single transaction. If any row fails,
+ * the entire batch will be rolled back.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TableRowInsertBatchResponse Successful Response
+ * @throws ApiError
+ */
+export const tablesBatchInsertRows = (
+  data: TablesBatchInsertRowsData
+): CancelablePromise<TablesBatchInsertRowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/{table_id}/rows/batch",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Import Csv
+ * Import data from a CSV file into a table.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.formData
+ * @returns TableRowInsertBatchResponse Successful Response
+ * @throws ApiError
+ */
+export const tablesImportCsv = (
+  data: TablesImportCsvData
+): CancelablePromise<TablesImportCsvResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/{table_id}/import",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    formData: data.formData,
+    mediaType: "multipart/form-data",
     errors: {
       422: "Validation Error",
     },

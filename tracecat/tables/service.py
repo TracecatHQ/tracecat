@@ -22,7 +22,11 @@ from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.logger import logger
 from tracecat.service import BaseService
-from tracecat.tables.common import handle_default_value, is_valid_sql_type
+from tracecat.tables.common import (
+    handle_default_value,
+    is_valid_sql_type,
+    to_sql_clause,
+)
 from tracecat.tables.enums import SqlType
 from tracecat.tables.models import (
     TableColumnCreate,
@@ -305,6 +309,7 @@ class TablesService(BaseService):
 
         await self.session.commit()
         await self.session.refresh(column)
+        await self.session.refresh(table)
         return column
 
     @require_access_level(AccessLevel.ADMIN)
@@ -441,11 +446,18 @@ class TablesService(BaseService):
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        data = params.data
-        cols = [sa.column(self._sanitize_identifier(k)) for k in data.keys()]
+        row_data = params.data
+        col_map = {c.name: c for c in table.columns}
+
+        value_clauses: dict[str, sa.TextClause] = {}
+        cols = []
+        for col, value in row_data.items():
+            value_clauses[col] = to_sql_clause(value, col_map[col])
+            cols.append(sa.column(self._sanitize_identifier(col)))
+
         stmt = (
             sa.insert(sa.table(table.name, *cols, schema=schema_name))
-            .values(**data)
+            .values(**value_clauses)
             .returning(sa.text("*"))
         )
         result = await conn.execute(stmt)
@@ -568,3 +580,56 @@ class TablesService(BaseService):
                     schema=schema_name,
                 )
                 raise
+
+    async def batch_insert_rows(
+        self,
+        table: Table,
+        rows: list[dict[str, Any]],
+        *,
+        chunk_size: int = 1000,
+    ) -> int:
+        """Insert multiple rows into the table atomically.
+
+        Args:
+            table: The table to insert into
+            rows: List of row data to insert
+            chunk_size: Maximum number of rows to insert in a single transaction
+
+        Returns:
+            Number of rows inserted
+
+        Raises:
+            ValueError: If the batch size exceeds the chunk_size
+            DBAPIError: If there's a database error during insertion
+        """
+        if not rows:
+            return 0
+
+        if len(rows) > chunk_size:
+            raise ValueError(f"Batch size {len(rows)} exceeds maximum of {chunk_size}")
+
+        schema_name = self._get_schema_name()
+
+        # Get all unique column names from the rows
+        all_columns = set()
+        for row in rows:
+            all_columns.update(row.keys())
+
+        # Create sanitized column list
+        cols = [sa.column(self._sanitize_identifier(k)) for k in all_columns]
+
+        # Start transaction
+        conn = await self.session.connection()
+
+        # Build multi-row insert
+        # Build multi-row insert statement without returning clause
+        stmt = sa.insert(sa.table(table.name, *cols, schema=schema_name)).values(rows)
+
+        try:
+            # Execute insert and get rowcount directly
+            result = await conn.execute(stmt)
+            await self.session.commit()
+            return result.rowcount
+        except Exception as e:
+            # Let the transaction context manager handle rollback
+            raise DBAPIError("Failed to insert batch", str(e), e) from e

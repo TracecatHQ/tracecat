@@ -68,6 +68,6 @@ definition:
           attachments:
             - color: ${{ "#22c55e" if inputs.status == "done" else "#eab308" if inputs.status == "in_progress" else "" }}
               blocks:
-                - "${{ FN.merge(steps.summary_block.result, {'accessory': steps.overflow_menu.result}) }}"
+                - "${{ FN.merge([steps.summary_block.result, {'accessory': steps.overflow_menu.result}]) }}"
                 - "${{ steps.metadata_block.result }}"
   returns: ${{ steps.post_message.result.message }}

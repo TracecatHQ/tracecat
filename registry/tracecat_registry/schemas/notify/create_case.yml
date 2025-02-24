@@ -2,29 +2,30 @@
 # https://support.pagerduty.com/main/docs/pd-cef
 # https://www.servicenow.com/docs/bundle/xanadu-it-operations-management/page/product/event-management/concept/c_EMIntegrateRequirementEvent.html
 # https://confluence.atlassian.com/adminjiraserver/issue-fields-and-statuses-938847116.html
+# https://medium.com/brexeng/elevating-security-alert-management-using-automation-828004ad596c
 # NOTE: Should only be used to create a new case, not to update an existing case.
-# If this is a retrospective case, use the `update_case_status` action after creating the case.
+# NOTE: If this is a retrospective case, use the `update_case_status` action after creating the case.
 summary:
   type: str
   description: Brief one-line summary of the incident.
 description:
   type: str
-  description: A detailed description of the incident.
-status:
-  type: str | None
-  description: Status of the incident.
-  default: null
+  description: Detailed description of the incident.
+# NOTE: Not all integrations support both severity and priority.
+# If the integration only supports severity, use the `severity` field.
+# If the integration only supports priority, use the `priority` field.
+# If the integration only supports a ID field (e.g. Jira), call the field:
+# `severity_id` or `priority_id` and set the value to the ID.
 severity:
-  type: str | None
+  type: str
   description: Severity of the incident.
-  default: null
 priority:
-  type: str | None
+  type: str
   description: Priority of the incident.
-  default: null
+# NOTE: We normalize labels and tags to `tags`.
 tags:
   type: list[str]
-  description: Tags to categorize the incident.
+  description: Tags or labels to categorize the incident.
   default: []
 metadata:
   type: list[dict[str, any]]
