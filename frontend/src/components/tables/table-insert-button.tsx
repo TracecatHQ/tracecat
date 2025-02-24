@@ -44,7 +44,7 @@ export function TableInsertButton() {
           >
             <BetweenHorizonalStartIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Insert Row</span>
+              <span>Insert row</span>
               <span className="text-xs text-muted-foreground">
                 Insert a new row into the table
               </span>
@@ -56,20 +56,19 @@ export function TableInsertButton() {
           >
             <BetweenVerticalStartIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Insert Column</span>
+              <span>Insert column</span>
               <span className="text-xs text-muted-foreground">
                 Insert a new column into the table
               </span>
             </div>
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
           <DropdownMenuItem
             className="flex items-center gap-2"
             onSelect={() => setActiveDialog("csv")}
           >
             <FileUpIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Add Rows from CSV</span>
+              <span>Add rows from CSV</span>
               <span className="text-xs text-muted-foreground">
                 Add rows from a CSV file
               </span>
