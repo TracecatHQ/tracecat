@@ -312,7 +312,7 @@ def flatten(iterables: Sequence[Sequence[Any]]) -> list[Any]:
 
 
 def unique(items: Sequence[Any]) -> list[Any]:
-    """Return unique items from sequence."""
+    """List of hashable items (e.g. strings, numbers) to remove duplicates from."""
     return list(set(items))
 
 

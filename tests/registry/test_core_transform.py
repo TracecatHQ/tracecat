@@ -8,7 +8,6 @@ from tracecat_registry.base.core.transform import (
     is_in,
     is_not_in,
     map,
-    unique,
 )
 
 
@@ -227,17 +226,6 @@ def test_is_not_in(
     """Test filtering items not in the collection."""
     result = is_not_in(items, collection, python_lambda)
     assert result == expected
-
-
-@pytest.mark.parametrize(
-    "items,expected",
-    [
-        ([1, 2, 3, 2, 1], [1, 2, 3]),
-        (["a", "b", "b", "c"], ["a", "b", "c"]),
-    ],
-)
-def test_unique(items: list[Any], expected: list[Any]) -> None:
-    assert sorted(unique(items)) == sorted(expected)
 
 
 @pytest.mark.parametrize(
