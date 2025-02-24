@@ -13,6 +13,10 @@ definition:
     base_url:
       type: str
       description: Jira tenant URL (e.g. https://tracecat.atlassian.net)
+    limit:
+      type: int
+      description: Maximum number of priority schemes to return.
+      default: 50
   steps:
     - ref: get_priority_schemes
       action: core.http_request
@@ -21,4 +25,6 @@ definition:
         method: GET
         headers:
           Authorization: Basic ${{ FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
+        params:
+          maxResults: ${{ inputs.limit }}
   returns: ${{ steps.get_priority_schemes.result.data.values }}
