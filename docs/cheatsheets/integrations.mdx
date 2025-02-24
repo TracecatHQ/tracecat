@@ -1,0 +1,134 @@
+---
+title: Integrations
+description: A cheatsheet of core actions, integrations, and credentials supported by Tracecat.
+---
+
+## Core Actions
+
+<Note>
+Core action namespaces are prefixed with `core.`.
+</Note>
+
+| Namespace | Function | Secrets |
+| --- | --- | --- |
+| core | ai_action | `llm` |
+| core | http_poll | `ssl` |
+| core | http_request | `ssl` |
+| core | require | - |
+| core | send_email_smtp | `smtp` |
+| core.table | insert_row | - |
+| core.table | lookup | - |
+| core.transform | apply | - |
+| core.transform | deduplicate | - |
+| core.transform | filter | - |
+| core.transform | flatten | - |
+| core.transform | is_in | - |
+| core.transform | is_not_in | - |
+| core.transform | map | - |
+| core.transform | merge | - |
+| core.transform | reshape | - |
+| core.transform | unique | - |
+| core.workflow | execute | - |
+
+## Integrations
+
+<Note>
+Integration namespaces are prefixed with `tools.`.
+</Note>
+
+| Namespace | Function | Secrets |
+| --- | --- | --- |
+| tools.ansible | run_playbook | `ansible` |
+| tools.aws_boto3 | call_api | `aws` |
+| tools.aws_boto3 | call_paginated_api | `aws` |
+| tools.aws_s3 | download_object | `aws_s3` |
+| tools.aws_s3 | parse_uri | `aws_s3` |
+| tools.check_point_infinity | get_access_token | `check_point_infinity` |
+| tools.crowdsec | lookup_ip_address | `crowdsec_cti`, `ssl` |
+| tools.crowdstrike | list_alerts | `crowdstrike` |
+| tools.crowdstrike | list_cases | `crowdstrike` |
+| tools.crowdstrike | list_detects | `crowdstrike` |
+| tools.datadog | list_security_signals | `datadog`, `ssl` |
+| tools.elastic_security | list_detection_signals | `elastic_security`, `ssl` |
+| tools.falconpy | call_command | `crowdstrike` |
+| tools.google_api | get_access_token | `google_api` |
+| tools.ipinfo | lookup_ip_address | `ipinfo`, `ssl` |
+| tools.jamf | get_access_token | `jamf` |
+| tools.jamf | list_computers | `jamf`, `ssl` |
+| tools.jamf | lock_device | `jamf`, `ssl` |
+| tools.jira | create_issue | `jira`, `ssl` |
+| tools.jira | get_fields | `jira`, `ssl` |
+| tools.jira | get_priorities | `jira`, `ssl` |
+| tools.jira | get_priority_schemes | `jira`, `ssl` |
+| tools.jira | get_projects | `jira`, `ssl` |
+| tools.ldap | add_entry | `ldap` |
+| tools.ldap | delete_entry | `ldap` |
+| tools.ldap | modify_entry | `ldap` |
+| tools.ldap | search_entries | `ldap` |
+| tools.microsoft_graph | get_access_token | `microsoft_graph` |
+| tools.okta | lookup_user_by_email | `okta`, `ssl` |
+| tools.okta | revoke_sessions | `okta`, `ssl` |
+| tools.pymongo | execute_operation | `mongodb` |
+| tools.pytenable | call_api | `tenable_nessus` |
+| tools.sentinel_one | list_threats | `sentinel_one`, `ssl` |
+| tools.slack | ask_text_input | `slack` |
+| tools.slack | lookup_user_by_email | `slack` |
+| tools.slack | post_notification | `slack` |
+| tools.slack | post_todo | `slack` |
+| tools.slack | post_update | `slack` |
+| tools.slack | revoke_sessions | `slack` |
+| tools.slack_blocks | format_choices | - |
+| tools.slack_blocks | format_links | - |
+| tools.slack_blocks | format_metadata | - |
+| tools.slack_blocks | format_metadata_context | - |
+| tools.slack_blocks | format_text_input | - |
+| tools.slack_elements | format_overflow_menu | - |
+| tools.slack_sdk | call_method | `slack` |
+| tools.slack_sdk | call_paginated_method | `slack` |
+| tools.threatstream | lookup_domain | `ssl`, `threatstream` |
+| tools.threatstream | lookup_email | `ssl`, `threatstream` |
+| tools.threatstream | lookup_file_hash | `ssl`, `threatstream` |
+| tools.threatstream | lookup_ip_address | `ssl`, `threatstream` |
+| tools.threatstream | lookup_url | `ssl`, `threatstream` |
+| tools.urlscan | lookup_url | `ssl`, `urlscan` |
+| tools.virustotal | lookup_domain | `ssl`, `virustotal` |
+| tools.virustotal | lookup_file_hash | `ssl`, `virustotal` |
+| tools.virustotal | lookup_ip_address | `ssl`, `virustotal` |
+| tools.virustotal | lookup_url | `ssl`, `virustotal` |
+| tools.wiz | get_access_token | `wiz` |
+
+## Credentials
+
+<Note>
+Tracecat uses secret keys associated with each integration for 3rd-party authentication.
+Find out more about how secrets work in Tracecat [here](/quickstart/secrets).
+</Note>
+
+| Secret Name | Required Keys | Optional Keys |
+| --- | --- | --- |
+| `ansible` | `ANSIBLE_SSH_KEY` | `ANSIBLE_PASSWORDS` |
+| `aws_s3` | - | `AWS_ACCESS_KEY_ID` `AWS_PROFILE_NAME` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
+| `aws` | - | `AWS_ACCESS_KEY_ID` `AWS_PROFILE_NAME` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
+| `check_point_infinity` | `CHECKPOINT_ACCESS_KEY` `CHECKPOINT_CLIENT_ID` | - |
+| `crowdsec_cti` | `CTI_API_KEY` | - |
+| `crowdstrike` | `CROWDSTRIKE_CLIENT_ID` `CROWDSTRIKE_CLIENT_SECRET` | - |
+| `datadog` | `DATADOG_API_KEY` `DATADOG_APP_KEY` | - |
+| `elastic_security` | `ELASTIC_API_KEY` | - |
+| `google_api` | `GOOGLE_API_CREDENTIALS` | - |
+| `ipinfo` | `IPINFO_API_TOKEN` | - |
+| `jamf` | `JAMF_CLIENT_ID` `JAMF_CLIENT_SECRET` | - |
+| `jira` | `JIRA_API_TOKEN` `JIRA_USEREMAIL` | - |
+| `ldap` | `LDAP_HOST` `LDAP_PASSWORD` `LDAP_PORT` `LDAP_USER` | - |
+| `llm` | - | `OPENAI_API_KEY` |
+| `microsoft_graph` | `MICROSOFT_GRAPH_CLIENT_ID` `MICROSOFT_GRAPH_CLIENT_SECRET` | - |
+| `mongodb` | `MONGODB_CONNECTION_STRING` | - |
+| `okta` | `OKTA_API_TOKEN` | - |
+| `sentinel_one` | `SENTINEL_ONE_API_TOKEN` | - |
+| `slack` | `SLACK_BOT_TOKEN` | - |
+| `smtp` | `SMTP_HOST` `SMTP_PASS` `SMTP_PORT` `SMTP_USER` | - |
+| `ssl` | - | `SSL_CLIENT_CERT` `SSL_CLIENT_KEY` `SSL_CLIENT_PASSWORD` |
+| `tenable_nessus` | `TENABLE_ACCESS_KEY` `TENABLE_SECRET_KEY` | - |
+| `threatstream` | `ANOMALI_API_KEY` `ANOMALI_USERNAME` | - |
+| `urlscan` | `URLSCAN_API_KEY` | - |
+| `virustotal` | `VIRUSTOTAL_API_KEY` | - |
+| `wiz` | `WIZ_CLIENT_ID` `WIZ_CLIENT_SECRET` | - |
