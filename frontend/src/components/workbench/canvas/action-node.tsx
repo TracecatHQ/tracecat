@@ -214,11 +214,7 @@ export default React.memo(function ActionNode({
                     <ChevronDownIcon className="m-1 size-4 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel className="py-0 text-xs text-muted-foreground">
-                    Quick Actions
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
+                <DropdownMenuContent>
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation()
