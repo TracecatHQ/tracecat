@@ -264,11 +264,11 @@ export function WorkflowEvents({
                   onClick={() => handleRowClick(event.action_ref)}
                 >
                   <TableCell className="p-0 text-xs font-medium">
-                    <div className="flex size-full items-center justify-start py-3 pl-4">
+                    <div className="flex size-full items-center justify-start pl-4">
                       <WorkflowEventStatusIcon status={event.status} />
                     </div>
                   </TableCell>
-                  <TableCell className="text-xs text-foreground/70">
+                  <TableCell className="text-xs text-foreground/70 max-w-28">
                     <div className="truncate">
                       {event.action_ref}
                     </div>
@@ -283,10 +283,10 @@ export function WorkflowEvents({
                         : "-"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="max-w-10 text-xs">
+                  <TableCell className="max-w-12 text-xs">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button className="size-6 p-0" variant="ghost">
+                        <Button className="size-4 p-0" variant="ghost">
                           <DotsHorizontalIcon className="size-4" />
                         </Button>
                       </DropdownMenuTrigger>

@@ -26,7 +26,7 @@ interface WorkbenchProps {
   defaultCollapsed?: boolean
 }
 
-export function Workbench({ defaultLayout = [0, 68, 32] }: WorkbenchProps) {
+export function Workbench({ defaultLayout = [0, 68, 24] }: WorkbenchProps) {
   const {
     canvasRef,
     sidebarRef,
@@ -52,8 +52,8 @@ export function Workbench({ defaultLayout = [0, 68, 32] }: WorkbenchProps) {
           defaultSize={defaultLayout[0]}
           collapsedSize={0}
           collapsible={true}
-          minSize={20}
-          maxSize={40}
+          minSize={24}
+          maxSize={48}
           className="h-full"
         >
           <WorkbenchSidebarEvents />
@@ -110,8 +110,8 @@ export function Workbench({ defaultLayout = [0, 68, 32] }: WorkbenchProps) {
           defaultSize={defaultLayout[2]}
           collapsedSize={0}
           collapsible={true}
-          minSize={32}
-          maxSize={60}
+          minSize={24}
+          maxSize={48}
           className="h-full"
         >
           <WorkbenchPanel ref={actionPanelRef} />
