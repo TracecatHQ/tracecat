@@ -163,7 +163,7 @@ export function useAppInfo() {
         return await resp.json()
       } catch (error) {
         throw new Error(
-          "Couldn't fetch app configuration. This could be a network configuration issue with the backend."
+          "Unable to fetch authentication settings. This could be a network issue with the Tracecat API."
         )
       }
     },
