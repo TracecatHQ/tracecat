@@ -189,12 +189,8 @@ export function WorkflowsDashboardTable() {
                       <DotsHorizontalIcon className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent>
                     <DropdownMenuGroup>
-                      <DropdownMenuLabel className="text-xs">
-                        Actions
-                      </DropdownMenuLabel>
-                      <DropdownMenuSeparator />
                       <DropdownMenuItem
                         className="text-xs"
                         onClick={(e) => {
