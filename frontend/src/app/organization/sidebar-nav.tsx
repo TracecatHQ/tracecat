@@ -27,7 +27,7 @@ const settingsNavItems: NavItem[] = [
     href: "/organization/settings/oauth",
   },
   {
-    title: "Authentication",
+    title: "Email authentication",
     href: "/organization/settings/auth",
   },
   {

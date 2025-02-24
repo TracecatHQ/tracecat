@@ -175,7 +175,7 @@ export function OrgSettingsAuthForm() {
         />
 
         <Button type="submit" disabled={updateAuthSettingsIsPending}>
-          Update authentication settings
+          Update email authentication settings
         </Button>
       </form>
     </Form>
