@@ -30,6 +30,9 @@ RUN chmod +x /app/entrypoint.sh
 RUN uv pip install -e .
 RUN uv pip install -e ./registry
 
+# Create symlink for uv binary to point to /root/.local/bin/uv
+RUN mkdir -p ~/.local/bin && ln -s $(command -v uv) ~/.local/bin/uv
+
 # Install git
 RUN apt-get update && apt-get install -y git
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import os
 import traceback
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -334,8 +335,18 @@ async def run_action_on_ray_cluster(
 
     # Add pip dependencies to runtime env
     if pip_deps:
-        additional_vars["pip"] = pip_deps
+        additional_vars["uv"] = pip_deps
+        # Always use user-specific installation path
+        python_user_base = Path.home().joinpath(".local").as_posix()
+        logger.debug("Installing to PYTHONUSERBASE", python_user_base=python_user_base)
 
+        # Set both env vars and install options
+        env_vars["PYTHONUSERBASE"] = python_user_base
+        additional_vars["uv_pip_install_options"] = [
+            "--user",  # Changed from --system to --user
+            "--target",
+            python_user_base,
+        ]
     runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
 
     logger.trace("Running action on ray cluster", runtime_env=runtime_env)
