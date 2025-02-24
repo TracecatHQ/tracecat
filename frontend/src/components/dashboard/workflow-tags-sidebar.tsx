@@ -148,7 +148,7 @@ export function WorkflowTagsSidebar({ workspaceId }: { workspaceId: string }) {
       </div>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create New Tag</DialogTitle>
+          <DialogTitle>Create new tag</DialogTitle>
           <DialogDescription>
             Enter a name for your new workflow tag.
           </DialogDescription>

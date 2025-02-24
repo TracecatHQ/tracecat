@@ -554,7 +554,7 @@ export function ActionPanel({
                       <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
                         <div className="flex items-center">
                           <ShapesIcon className="mr-3 size-4" />
-                          <span>Input Schema</span>
+                          <span>Input schema</span>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent className="space-y-4">

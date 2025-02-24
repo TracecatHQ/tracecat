@@ -16,7 +16,7 @@ export default function SSHKeysPage() {
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
-            <h2 className="text-2xl font-semibold tracking-tight">SSH Keys</h2>
+            <h2 className="text-2xl font-semibold tracking-tight">SSH keys</h2>
             <p className="text-md text-muted-foreground">
               View your organization-wide SSH keys here. Tracecat uses SSH keys
               to authenticate into your private action registry.
@@ -47,7 +47,7 @@ export default function SSHKeysPage() {
             </CreateOrgSSHKeyDialog>
           </>
           <>
-            <h6 className="text-sm font-semibold">Manage Secrets</h6>
+            <h6 className="text-sm font-semibold">Manage secrets</h6>
             <OrgSSHKeysTable />
           </>
         </div>

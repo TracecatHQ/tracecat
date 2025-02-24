@@ -535,7 +535,7 @@ export function WorkflowPanel({
                       <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
                         <div className="flex items-center">
                           <Redo2Icon className="mr-3 size-4" />
-                          <span className="capitalize">Input Schema</span>
+                          <span className="capitalize">Input schema</span>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
@@ -775,7 +775,7 @@ function WorkflowInputSchemaTooltip() {
   return (
     <div className="flex w-full flex-col space-y-4">
       <div className="flex w-full items-center justify-between text-muted-foreground">
-        <span className="font-mono text-sm font-semibold">Input Schema</span>
+        <span className="font-mono text-sm font-semibold">Input schema</span>
         <span className="text-xs text-muted-foreground/80">(optional)</span>
       </div>
       <span className="w-full text-muted-foreground">

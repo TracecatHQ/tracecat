@@ -53,7 +53,7 @@ export function OrgSettingsOAuthForm() {
         requestBody: conditional,
       })
     } catch {
-      console.error("Failed to update Auth settings")
+      console.error("Failed to update auth settings")
     }
   }
 
@@ -78,8 +78,8 @@ export function OrgSettingsOAuthForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel className="text-base">
-                  Enable Google OAuth Sign-In
+                <FormLabel>
+                  Enable Google OAuth sign-in
                 </FormLabel>
                 <FormDescription>
                   {isOauthAllowed
@@ -103,7 +103,7 @@ export function OrgSettingsOAuthForm() {
           type="submit"
           disabled={!isOauthAllowed || updateOAuthSettingsIsPending}
         >
-          Update OAuth Settings
+          Update OAuth settings
         </Button>
       </form>
     </Form>

@@ -9,10 +9,10 @@ export default function AppSettingsPage() {
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">
-              Application Settings
+              Application settings
             </h2>
             <p className="text-md text-muted-foreground">
-              View and manage your organization App settings here.
+              View and manage your organization application settings here.
             </p>
           </div>
         </div>

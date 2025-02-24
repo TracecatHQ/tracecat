@@ -9,7 +9,7 @@ export default function MembersPage() {
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">
-              Organization Members
+              Organization members
             </h2>
             <p className="text-md text-muted-foreground">
               View all organization members here.
@@ -19,7 +19,7 @@ export default function MembersPage() {
         </div>
         <div className="space-y-4">
           <>
-            <h6 className="text-sm font-semibold">Manage Members</h6>
+            <h6 className="text-sm font-semibold">Manage members</h6>
             <OrgMembersTable />
           </>
         </div>

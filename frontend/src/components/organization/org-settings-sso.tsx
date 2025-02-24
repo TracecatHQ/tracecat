@@ -88,7 +88,7 @@ export function OrgSettingsSsoForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel className="text-base"> Enable SAML SSO</FormLabel>
+                <FormLabel>Enable SAML SSO</FormLabel>
                 <FormDescription>
                   Enable SAML SSO for your organization.
                 </FormDescription>
@@ -107,7 +107,7 @@ export function OrgSettingsSsoForm() {
           name="saml_idp_metadata_url"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>IdP Metadata URL</FormLabel>
+              <FormLabel>IdP metadata URL</FormLabel>
               <FormControl>
                 <Input
                   placeholder="https://tenant.provider.com/app/hash/sso/saml/metadata"
@@ -129,12 +129,12 @@ export function OrgSettingsSsoForm() {
           render={({ field }) => (
             <FormItem className="flex flex-col">
               <FormLabel className="flex items-center gap-2">
-                <span>Service Provider ACS URL</span>
+                <span>Service provider ACS URL</span>
                 <TooltipProvider>
                   {field.value && (
                     <CopyButton
                       value={field.value}
-                      toastMessage="Copied Service Provider ACS URL to clipboard"
+                      toastMessage="Copied Service provider ACS URL to clipboard"
                     />
                   )}
                 </TooltipProvider>
