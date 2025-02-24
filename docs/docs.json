@@ -112,8 +112,7 @@
           {
             "group": "Overview",
             "pages": [
-              "api/introduction",
-              "api/authentication"
+              "api/introduction"
             ]
           },
           {
