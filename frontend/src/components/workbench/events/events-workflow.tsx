@@ -66,9 +66,11 @@ export function WorkflowEventsHeader({
   const parentExecId = parentExec ? executionId(parentExec) : null
   return (
     <div className="space-y-2 p-4 text-xs text-muted-foreground">
-      <div className="flex items-center gap-2 pb-2">
-        <CircleDot className="size-4" />
-        <span className="font-semibold">Status</span>
+      <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <CircleDot className="size-4" />
+          <span>Status</span>
+        </div>
         <div className="ml-auto">
           <Tooltip>
             <TooltipTrigger>
@@ -89,7 +91,7 @@ export function WorkflowEventsHeader({
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-2">
           <CalendarIcon className="size-4" />
-          <span className="font-semibold">Scheduled</span>
+          <span>Scheduled</span>
         </div>
         <Badge
           variant="secondary"
@@ -101,7 +103,7 @@ export function WorkflowEventsHeader({
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-2">
           <AlarmClockPlusIcon className="size-4" />
-          <span className="font-semibold">Started</span>
+          <span>Start time</span>
         </div>
         <Badge
           variant="secondary"
@@ -115,7 +117,7 @@ export function WorkflowEventsHeader({
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-2">
           <AlarmClockCheckIcon className="size-4" />
-          <span className="font-semibold">Completed</span>
+          <span>End time</span>
         </div>
         <Badge
           variant="secondary"
@@ -132,7 +134,7 @@ export function WorkflowEventsHeader({
           <div className="flex items-center gap-1">
             <div className="flex items-center gap-2">
               <CirclePlayIcon className="size-4" />
-              <span className="font-semibold">Parent Run</span>
+              <span>Parent run</span>
             </div>
             <Badge variant="outline" className="ml-auto text-foreground/70">
               <Link
@@ -155,7 +157,7 @@ export function WorkflowEventsHeader({
           <div className="flex items-center gap-1">
             <div className="flex items-center gap-2">
               <WorkflowIcon className="size-4" />
-              <span className="font-semibold">Parent Workflow</span>
+              <span>Parent workflow</span>
             </div>
             <Badge variant="outline" className="ml-auto text-foreground/70">
               <Link
@@ -238,14 +240,14 @@ export function WorkflowEvents({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="h-8 text-xs font-semibold">
+              <TableHead className="h-8 text-xs">
                 Status
               </TableHead>
-              <TableHead className="h-8 truncate text-xs font-semibold">
-                Action Reference
+              <TableHead className="h-8 truncate text-xs">
+                Action
               </TableHead>
-              <TableHead className="h-8 text-xs font-semibold">
-                Start Time
+              <TableHead className="h-8 text-xs">
+                Start time
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -267,9 +269,11 @@ export function WorkflowEvents({
                     </div>
                   </TableCell>
                   <TableCell className="text-xs text-foreground/70">
-                    {event.action_ref}
+                    <div className="truncate">
+                      {event.action_ref}
+                    </div>
                   </TableCell>
-                  <TableCell className="text-xs">
+                  <TableCell className="whitespace-nowrap text-xs">
                     <Badge
                       variant="secondary"
                       className="font-normal text-foreground/70"
@@ -286,11 +290,7 @@ export function WorkflowEvents({
                           <DotsHorizontalIcon className="size-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel className="py-0 text-xs text-muted-foreground">
-                          Actions
-                        </DropdownMenuLabel>
-                        <DropdownMenuSeparator />
+                      <DropdownMenuContent>
                         <DropdownMenuItem
                           // Disable if the action reference is not present in the current workflow
                           disabled={!isActionRefValid(event.action_ref)}
@@ -305,7 +305,7 @@ export function WorkflowEvents({
                           ) : (
                             <ScanEyeIcon className="size-4" />
                           )}
-                          <span>Focus Action</span>
+                          <span>Focus action</span>
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
