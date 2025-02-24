@@ -118,7 +118,7 @@ export function WorkspaceSecretsTable() {
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Secret Keys"
+                  title="Secret keys"
                 />
               ),
               cell: ({ row }) => {

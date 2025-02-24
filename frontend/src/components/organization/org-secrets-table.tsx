@@ -114,7 +114,7 @@ export function OrgSecretsTable() {
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Secret Keys"
+                  title="Secret keys"
                 />
               ),
               cell: ({ row }) => {
@@ -296,7 +296,7 @@ export function OrgSSHKeysTable() {
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Secret Keys"
+                  title="Secret keys"
                 />
               ),
               cell: ({ row }) => {

@@ -130,7 +130,7 @@ export function WorkspaceMembersTable({
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="First Name"
+                  title="First name"
                 />
               ),
               cell: ({ row }) => (
@@ -148,7 +148,7 @@ export function WorkspaceMembersTable({
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Last Name"
+                  title="Last name"
                 />
               ),
               cell: ({ row }) => (

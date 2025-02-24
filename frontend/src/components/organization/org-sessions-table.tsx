@@ -90,7 +90,7 @@ export function OrgSessionsTable() {
             {
               accessorKey: "created_at",
               header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Created At" />
+                <DataTableColumnHeader column={column} title="Created at" />
               ),
               cell: ({ row }) => {
                 const createdAt =

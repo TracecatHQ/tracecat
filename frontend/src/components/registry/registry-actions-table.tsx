@@ -131,7 +131,7 @@ export function RegistryActionsTable() {
               <DataTableColumnHeader
                 className="text-xs"
                 column={column}
-                title="Action Name"
+                title="Action name"
               />
             ),
             cell: ({ row }) => (
