@@ -35,7 +35,7 @@ export function TableViewAction({ row }: { row: Row<TableRowRead> }) {
             <DotsHorizontalIcon className="size-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent>
           <DropdownMenuItem
             className="py-1 text-xs text-foreground/80"
             onClick={(e) => {

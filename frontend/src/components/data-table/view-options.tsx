@@ -40,7 +40,7 @@ export function DataTableViewOptions<TData>({
           View
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[150px]">
+      <DropdownMenuContent className="w-[150px]">
         <DropdownMenuSeparator />
         {filterCols.map((column) => {
           return (

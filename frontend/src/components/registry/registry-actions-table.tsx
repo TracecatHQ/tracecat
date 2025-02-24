@@ -216,10 +216,7 @@ export function RegistryActionsTable() {
                       <DotsHorizontalIcon className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel className="p-2 text-xs font-semibold text-muted-foreground">
-                      Actions
-                    </DropdownMenuLabel>
+                  <DropdownMenuContent>
                     <DropdownMenuItem
                       className="flex items-center text-xs"
                       onClick={(e) => {

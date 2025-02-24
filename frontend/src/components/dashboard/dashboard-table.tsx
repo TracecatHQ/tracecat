@@ -214,7 +214,7 @@ export function WorkflowsDashboardTable() {
                           })
                         }}
                       >
-                        Copy Workflow ID
+                        Copy workflow ID
                       </DropdownMenuItem>
                       {tags && tags.length > 0 ? (
                         <DropdownMenuSub>

@@ -37,7 +37,7 @@ export function TableInsertButton() {
             <span>Insert</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent>
           <DropdownMenuItem
             className="flex items-center gap-2"
             onSelect={() => setActiveDialog("row")}

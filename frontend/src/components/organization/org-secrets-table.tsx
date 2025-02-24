@@ -148,13 +148,13 @@ export function OrgSecretsTable() {
                         <DotsHorizontalIcon className="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent>
                       <DropdownMenuItem
                         onClick={() =>
                           navigator.clipboard.writeText(row.original.id)
                         }
                       >
-                        Copy Secret ID
+                        Copy secret ID
                       </DropdownMenuItem>
 
                       <UpdateOrgSecretDialogTrigger asChild>
@@ -330,13 +330,13 @@ export function OrgSSHKeysTable() {
                         <DotsHorizontalIcon className="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent>
                       <DropdownMenuItem
                         onClick={() =>
                           navigator.clipboard.writeText(row.original.id)
                         }
                       >
-                        Copy Secret ID
+                        Copy secret ID
                       </DropdownMenuItem>
 
                       <UpdateOrgSecretDialogTrigger asChild>

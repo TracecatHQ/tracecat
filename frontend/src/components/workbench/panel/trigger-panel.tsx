@@ -262,7 +262,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                             <DotsHorizontalIcon className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
+                        <DropdownMenuContent>
                           <DropdownMenuLabel className="text-xs">
                             Actions
                           </DropdownMenuLabel>

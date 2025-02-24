@@ -119,7 +119,7 @@ export function OrgSessionsTable() {
                         <DotsHorizontalIcon className="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent>
                       <DropdownMenuItem
                         onClick={() =>
                           navigator.clipboard.writeText(row.original.user_id)

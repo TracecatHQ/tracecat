@@ -259,7 +259,7 @@ export function OrgMembersTable() {
                         <DotsHorizontalIcon className="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent>
                       <DropdownMenuItem
                         onClick={() =>
                           navigator.clipboard.writeText(row.original.user_id)
@@ -270,8 +270,6 @@ export function OrgMembersTable() {
 
                       {privileged && (
                         <DropdownMenuGroup>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Manage</DropdownMenuLabel>
                           <DialogTrigger asChild>
                             <DropdownMenuItem
                               onClick={() => {

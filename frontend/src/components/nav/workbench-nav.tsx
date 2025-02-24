@@ -550,7 +550,7 @@ function WorkbenchNavOptions({
               <span className="sr-only">More</span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent>
             <DropdownMenuItem
               className="text-xs text-foreground/70"
               onClick={async () => {
