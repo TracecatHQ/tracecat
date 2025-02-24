@@ -512,7 +512,7 @@ def test_string_boundary_functions(
 
 
 @pytest.mark.parametrize(
-    "func,input_val,expected",
+    "func,dt,expected",
     [
         (get_day, datetime(2024, 3, 1), 1),
         (get_day, datetime(2024, 3, 31), 31),
@@ -522,28 +522,24 @@ def test_string_boundary_functions(
         (get_year, datetime(2024, 3, 15), 2024),
     ],
 )
-def test_date_component_getters(func, input_val: datetime, expected: int) -> None:
+def test_date_component_getters(func, dt: datetime, expected: int) -> None:
     """Test all date/time component getter functions."""
-    assert func(input_val) == expected
+    assert func(dt) == expected
 
 
 @pytest.mark.parametrize(
-    "func,input_val,expected",
+    "dt,format,expected",
     [
-        (get_month, datetime(2024, 1, 1), 1),
-        (get_month, datetime(2024, 12, 1), 12),
-        (get_month, datetime(2024, 1, 1), "number"),
-        (get_month, datetime(2024, 12, 1), "number"),
-        (get_month, datetime(2024, 1, 1), "full"),
-        (get_month, datetime(2024, 12, 1), "full"),
-        (get_month, datetime(2024, 1, 1), "short"),
-        (get_month, datetime(2024, 12, 1), "short"),
+        (datetime(2024, 1, 1), "number", 1),
+        (datetime(2024, 12, 1), "number", 12),
+        (datetime(2024, 1, 1), "full", "January"),
+        (datetime(2024, 12, 1), "full", "December"),
+        (datetime(2024, 1, 1), "short", "Jan"),
+        (datetime(2024, 12, 1), "short", "Dec"),
     ],
 )
-def test_get_month(func, input_val: datetime, expected: int | str) -> None:
-    assert func(input_val, "number") == expected
-    assert func(input_val, "full") == expected
-    assert func(input_val, "short") == expected
+def test_get_month(dt: datetime, format: str, expected: int | str) -> None:
+    assert get_month(dt, format) == expected
 
 
 @pytest.mark.parametrize(
