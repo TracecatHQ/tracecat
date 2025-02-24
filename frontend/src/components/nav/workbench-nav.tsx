@@ -218,18 +218,18 @@ export function WorkbenchNav() {
                   className={cn(
                     "h-7 text-xs font-bold",
                     isOnline
-                      ? "text-rose-400 hover:text-rose-600"
+                      ? "text-red-400 hover:text-red-500"
                       : "bg-emerald-500 text-white hover:bg-emerald-500/80 hover:text-white"
                   )}
                 >
-                  {isOnline ? "Disable Workflow" : "Enable Workflow"}
+                  {isOnline ? "Disable workflow" : "Enable workflow"}
                 </Button>
               </AlertDialogTrigger>
             </TooltipTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>
-                  {isOnline ? "Disable Workflow?" : "Enable Workflow?"}
+                  {isOnline ? "Disable workflow?" : "Enable workflow?"}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {isOnline

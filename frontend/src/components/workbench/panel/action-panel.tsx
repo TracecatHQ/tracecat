@@ -696,14 +696,14 @@ export function ActionPanel({
                       <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
                         <div className="flex items-center">
                           <SplitIcon className="mr-3 size-4" />
-                          <span>Control Flow</span>
+                          <span>Control flow</span>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent className="space-y-4">
                         {/* Run if */}
                         <div className="flex flex-col space-y-4 px-4">
                           <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                            <span>Run If</span>
+                            <span>Run if</span>
                           </FormLabel>
                           <div className="flex items-center">
                             <HoverCard openDelay={100} closeDelay={100}>
@@ -749,7 +749,7 @@ export function ActionPanel({
                         {/* Loop */}
                         <div className="flex flex-col space-y-4 px-4">
                           <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                            <span>Loop Iteration</span>
+                            <span>For each item in loop</span>
                           </FormLabel>
                           <div className="flex items-center">
                             <HoverCard openDelay={100} closeDelay={100}>
@@ -854,14 +854,14 @@ export function ActionPanel({
                       <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
                         <div className="flex items-center">
                           <RotateCcwIcon className="mr-3 size-4" />
-                          <span>Retry Policy</span>
+                          <span>Retries</span>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent className="space-y-4">
                         {/* Retry Policy */}
                         <div className="flex flex-col space-y-4 px-4">
                           <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                            <span>Retry Policy</span>
+                            <span>Retries</span>
                           </FormLabel>
                           <div className="flex items-center">
                             <HoverCard openDelay={100} closeDelay={100}>
