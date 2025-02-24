@@ -810,33 +810,31 @@ def test_index_by_key(
 
 
 @pytest.mark.parametrize(
-    "input_list,key,expected",
+    "input_dict,key_mapping,expected",
     [
-        # Basic case
+        # Basic key mapping
+        ({"a": 1, "b": 2}, {"a": "x", "b": "y"}, {"x": 1, "y": 2}),
+        # Empty dictionary
+        ({}, {}, {}),
+        # Subset of keys
+        ({"a": 1, "b": 2}, {"a": "x"}, {"x": 1}),
+        # Different value types
         (
-            [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
-            "id",
-            {1: {"id": 1, "name": "Alice"}, 2: {"id": 2, "name": "Bob"}},
-        ),
-        # Empty list
-        ([], "id", {}),
-        # Different key types
-        (
-            [{"num": 1.5, "val": "a"}, {"num": 2.5, "val": "b"}],
-            "num",
-            {1.5: {"num": 1.5, "val": "a"}, 2.5: {"num": 2.5, "val": "b"}},
-        ),
-        # Nested dictionaries
-        (
-            [{"key": "a", "data": {"x": 1}}, {"key": "b", "data": {"x": 2}}],
-            "key",
-            {"a": {"key": "a", "data": {"x": 1}}, "b": {"key": "b", "data": {"x": 2}}},
+            {"a": [1, 2], "b": {"c": 3}},
+            {"a": "x", "b": "y"},
+            {"x": [1, 2], "y": {"c": 3}},
         ),
     ],
 )
-def test_map_dict_keys(input_list: list[dict], key: str, expected: dict) -> None:
-    """Test mapping a list of dictionaries to a dictionary using a specified key."""
-    assert map_dict_keys(input_list, key) == expected
+def test_map_dict_keys(input_dict: dict, key_mapping: dict, expected: dict) -> None:
+    """Test mapping dictionary keys using a key mapping dictionary."""
+    assert map_dict_keys(input_dict, key_mapping) == expected
+
+
+def test_map_dict_keys_missing_key() -> None:
+    """Test that map_dict_keys raises ValueError when key mapping is missing."""
+    with pytest.raises(ValueError, match="Key 'missing' not found in keys mapping"):
+        map_dict_keys({"missing": 1}, {"other": "x"})
 
 
 @pytest.mark.parametrize(
