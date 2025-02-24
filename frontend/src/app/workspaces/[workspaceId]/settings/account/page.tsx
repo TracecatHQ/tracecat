@@ -15,32 +15,39 @@ export default function AccountSettingsPage() {
     return router.push("/sign-in")
   }
   return (
-    <div className="h-full space-y-6">
-      <div className="flex items-end justify-between">
-        <h3 className="text-lg font-semibold">Account</h3>
-      </div>
-      <Separator />
-      <div className="space-y-8">
-        <div className="space-y-2 text-sm">
-          <h6 className="font-bold">Settings</h6>
-          <div className="flex items-center justify-between">
-            <div className="text-muted-foreground">
-              <UserDetails user={user} />
-            </div>
+    <div className="size-full overflow-auto">
+      <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
+        <div className="flex w-full">
+          <div className="items-start space-y-3 text-left">
+            <h2 className="text-2xl font-semibold tracking-tight">Account</h2>
+            <p className="text-md text-muted-foreground">
+              Manage your account settings and preferences.
+            </p>
           </div>
         </div>
 
-        <div className="space-y-2 text-sm">
-          <h6 className="font-bold">Update Email</h6>
-          <div className="flex items-center justify-between">
-            <UpdateEmailForm user={user} />
+        <div className="space-y-8">
+          <div className="space-y-2 text-sm">
+            <h6 className="font-bold">Settings</h6>
+            <div className="flex items-center justify-between">
+              <div className="text-muted-foreground">
+                <UserDetails user={user} />
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="space-y-2 text-sm">
-          <h6 className="font-bold">Update Password</h6>
-          <div className="flex items-center justify-between">
-            <div className="text-muted-foreground">
-              <UpdatePasswordForm />
+
+          <div className="space-y-2 text-sm">
+            <h6 className="font-bold">Update Email</h6>
+            <div className="flex items-center justify-between">
+              <UpdateEmailForm user={user} />
+            </div>
+          </div>
+          <div className="space-y-2 text-sm">
+            <h6 className="font-bold">Update Password</h6>
+            <div className="flex items-center justify-between">
+              <div className="text-muted-foreground">
+                <UpdatePasswordForm />
+              </div>
             </div>
           </div>
         </div>

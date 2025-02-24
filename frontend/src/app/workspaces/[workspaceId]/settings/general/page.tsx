@@ -28,22 +28,29 @@ export default function WorkspaceGeneralSettingsPage() {
     )
   }
   return (
-    <div className="container-sm space-y-6">
-      <div className="flex items-end justify-between">
-        <h3 className="text-lg font-semibold">Workspace</h3>
-      </div>
-      <Separator />
-      <div className="space-y-8">
-        <div className="space-y-2 text-sm">
-          <h6 className="text-sm font-semibold">General</h6>
-          <WorkspaceGeneralSettings workspace={workspace} />
-        </div>
-        {isAdmin && (
-          <div className="space-y-2 text-sm">
-            <h6 className="text-sm font-semibold text-rose-500">Danger Zone</h6>
-            <DangerZone workspace={workspace} />
+    <div className="size-full overflow-auto">
+      <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
+        <div className="flex w-full">
+          <div className="items-start space-y-3 text-left">
+            <h2 className="text-2xl font-semibold tracking-tight">Workspace</h2>
+            <p className="text-md text-muted-foreground">
+              Manage general settings for the workspace.
+            </p>
           </div>
-        )}
+        </div>
+
+        <div className="space-y-8">
+          <div className="space-y-2 text-sm">
+            <h6 className="text-sm font-semibold">General</h6>
+            <WorkspaceGeneralSettings workspace={workspace} />
+          </div>
+          {isAdmin && (
+            <div className="space-y-2 text-sm">
+              <h6 className="text-sm font-semibold text-rose-500">Danger Zone</h6>
+              <DangerZone workspace={workspace} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
