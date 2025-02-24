@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Lookup URL
+  description: Lookup a URL using URLScan.
+  display_group: URLScan
+  doc_url: https://urlscan.io/docs/api/
+  name: lookup_url
+  namespace: tools.urlscan
+  secrets:
+    - name: urlscan
+      keys:
+        - URLSCAN_API_KEY
+  expects:
+    url:
+      type: str
+      description: URL to lookup.
+    visibility:
+      type: str
+      description: Visibility of the scan.
+      default: private
+  steps:
+    - ref: scan_url
+      action: core.http_request
+      args:
+        url: https://urlscan.io/api/v1/scan/
+        method: POST
+        headers:
+          API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+        payload:
+          url: ${{ inputs.url }}
+          visibility: ${{ inputs.visibility }}
+    - ref: get_scan_result
+      action: core.http_polling
+      args:
+        url: https://urlscan.io/api/v1/result/${{ steps.scan_url.result.data.uuid }}
+        method: GET
+        headers:
+          API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+        poll_retry_codes:
+          - 400
+  returns: ${{ steps.get_scan_result.result }}
