@@ -50,6 +50,10 @@ FILES=(
     "docs/self-hosting/deployment-options/docker-compose.mdx"
     "deployments/aws/variables.tf"
     "deployments/aws/ecs/variables.tf"
+    "docs/quickstart/install.mdx"
+    "docs/self-hosting/updating.mdx"
+    "CONTRIBUTING.md"
+    ".github/ISSUE_TEMPLATE/bug_report.md"
 )
 
 # Function to update version in a file
@@ -64,9 +68,23 @@ update_version() {
     echo "Updating $file..."
     # On MacOS, sed requires a different syntax for in-place editing
     if [[ "$(uname)" == "Darwin" ]]; then
-        sed -i '' "s/$CURRENT_VERSION/$NEW_VERSION/g" "$file" && echo "✓ Updated $file" || echo "✗ Failed to update $file"
+        # Update version numbers in various formats:
+        # - Regular version strings
+        # - Git commit references in URLs
+        # - Version references in code examples and text
+        sed -i '' -E "s/$CURRENT_VERSION/$NEW_VERSION/g" "$file" && \
+        sed -i '' -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+\//\/blob\/$NEW_VERSION\//g" "$file" && \
+        sed -i '' -E "s/\`[0-9]+\.[0-9]+\.[0-9]+\`/\`$NEW_VERSION\`/g" "$file" && \
+        echo "✓ Updated $file" || echo "✗ Failed to update $file"
     else
-        sed -i "s/$CURRENT_VERSION/$NEW_VERSION/g" "$file" && echo "✓ Updated $file" || echo "✗ Failed to update $file"
+        # Update version numbers in various formats:
+        # - Regular version strings
+        # - Git commit references in URLs
+        # - Version references in code examples and text
+        sed -i -E "s/$CURRENT_VERSION/$NEW_VERSION/g" "$file" && \
+        sed -i -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+\//\/blob\/$NEW_VERSION\//g" "$file" && \
+        sed -i -E "s/\`[0-9]+\.[0-9]+\.[0-9]+\`/\`$NEW_VERSION\`/g" "$file" && \
+        echo "✓ Updated $file" || echo "✗ Failed to update $file"
     fi
 }
 
