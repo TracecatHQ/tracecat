@@ -197,7 +197,7 @@ export function CreateOrgSSHKeyDialog({
                 <DialogClose asChild>
                   <Button className="ml-auto space-x-2" type="submit">
                     <KeyRoundIcon className="mr-2 size-4" />
-                    Create SSH Key
+                    Create SSH key
                   </Button>
                 </DialogClose>
               </DialogFooter>
