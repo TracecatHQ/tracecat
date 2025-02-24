@@ -606,13 +606,27 @@ export function useManualWorkflowExecution(
           requestBody: params,
         })
       },
-      onSuccess: async () => {
-        // NOTE(daryl): This is a hack to ensure that the last execution is refetched
-        // and the UI is updated.
-        await new Promise((resolve) => setTimeout(resolve, 200))
+      onSuccess: async ({ wf_exec_id }) => {
+        // Immediately update the last-manual-execution query cache with the new execution
+        queryClient.setQueryData<WorkflowExecutionReadMinimal>(
+          ["last-manual-execution", workflowId],
+          {
+            id: wf_exec_id,
+            run_id: "pending",
+            start_time: new Date().toISOString(),
+            status: "RUNNING",
+            workflow_type: "DSLWorkflow",
+            task_queue: "default",
+            history_length: 0,
+          }
+        )
+
+        // Then trigger a background refetch to get the complete data
         await queryClient.refetchQueries({
           queryKey: ["last-manual-execution"],
-          type: "all",
+        })
+        await queryClient.refetchQueries({
+          queryKey: ["last-manual-execution", workflowId],
         })
       },
     })
@@ -638,6 +652,7 @@ export function useManualWorkflowExecution(
     staleTime: 0,
     ...options,
   })
+
   return {
     lastExecution,
     lastExecutionIsLoading,
@@ -646,7 +661,6 @@ export function useManualWorkflowExecution(
     createExecutionIsPending,
   }
 }
-
 export function useSchedules(workflowId: string) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
