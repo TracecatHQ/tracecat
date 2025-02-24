@@ -1,5 +1,6 @@
 """Use this in worker to execute actions."""
 
+import asyncio
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from json import JSONDecodeError
@@ -36,6 +37,9 @@ class ExecutorClient:
     """Use this to interact with the remote executor service."""
 
     _timeout: float = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+    # Add class-level semaphore that's shared across all instances
+    _max_concurrent_requests: int = 100  # Conservative default
+    _shared_semaphore: asyncio.Semaphore = asyncio.Semaphore(_max_concurrent_requests)
 
     def __init__(self, role: Role | None = None):
         self.role = role or ctx_role.get()
@@ -58,17 +62,23 @@ class ExecutorClient:
             timeout=self._timeout,
         )
         try:
-            async with self._client() as client:
-                # No need to include role headers here because it's already
-                # added in AuthenticatedServiceClient
-                response = await client.post(
-                    f"/run/{action_type}",
-                    headers={"Content-Type": "application/json"},
-                    content=content,
-                    timeout=self._timeout,
+            # Use the semaphore to limit concurrent requests
+            async with ExecutorClient._shared_semaphore:
+                logger.info(
+                    "Acquired executor semaphore",
+                    action=action_type,
+                    n_waiting=self._max_concurrent_requests
+                    - ExecutorClient._shared_semaphore._value,
                 )
-            response.raise_for_status()
-            return orjson.loads(response.content)
+                async with self._client() as client:
+                    response = await client.post(
+                        f"/run/{action_type}",
+                        headers={"Content-Type": "application/json"},
+                        content=content,
+                        timeout=self._timeout,
+                    )
+                response.raise_for_status()
+                return orjson.loads(response.content)
         except httpx.HTTPStatusError as e:
             self._handle_http_status_error(e, action_type)
         except httpx.ReadTimeout as e:
