@@ -110,7 +110,6 @@ export function Workbench({ defaultLayout = [0, 68, 24] }: WorkbenchProps) {
           defaultSize={defaultLayout[2]}
           collapsedSize={0}
           collapsible={true}
-          minSize={24}
           maxSize={48}
           className="h-full"
         >
