@@ -30,12 +30,12 @@ definition:
           url: ${{ inputs.url }}
           visibility: ${{ inputs.visibility }}
     - ref: get_scan_result
-      action: core.http_polling
+      action: core.http_poll
       args:
         url: https://urlscan.io/api/v1/result/${{ steps.scan_url.result.data.uuid }}
         method: GET
         headers:
           API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
         poll_retry_codes:
-          - 400
+          - 404
   returns: ${{ steps.get_scan_result.result }}
