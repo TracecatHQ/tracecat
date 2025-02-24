@@ -816,8 +816,8 @@ def test_index_by_key(
         ({"a": 1, "b": 2}, {"a": "x", "b": "y"}, {"x": 1, "y": 2}),
         # Empty dictionary
         ({}, {}, {}),
-        # Subset of keys
-        ({"a": 1, "b": 2}, {"a": "x"}, {"x": 1}),
+        # All keys must be mapped
+        ({"a": 1}, {"a": "x"}, {"x": 1}),
         # Different value types
         (
             {"a": [1, 2], "b": {"c": 3}},
