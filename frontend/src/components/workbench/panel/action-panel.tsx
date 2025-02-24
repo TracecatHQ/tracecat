@@ -236,6 +236,7 @@ export function ActionPanel({
           console.error("Application failed to validate action", apiError.body)
 
           // Set form errors from API validation errors
+          // NOTE: We do this dynamically because we already do server side validation.
           const errors: Record<string, { message: string }> = {}
           if (Array.isArray(apiError.body.detail)) {
             const valErrs = apiError.body.detail as RequestValidationError[]
@@ -252,17 +253,23 @@ export function ActionPanel({
                 errors[key] = { message: msg }
               }
             })
+          } else {
+            errors["inputs"] = { message: String(apiError.body.detail) }
           }
-          methods.setError("inputs", errors.inputs || {})
-          methods.setError("control_flow.options", errors["control_flow.options"] || {})
-          methods.setError("control_flow.for_each", errors["control_flow.for_each"] || {})
-          methods.setError("control_flow.run_if", errors["control_flow.run_if"] || {})
-          methods.setError("control_flow.retry_policy", errors["control_flow.retry_policy"] || {})
+          Object.entries(errors).forEach(([key, { message }]) => {
+            console.log("Setting error", key, message)
+            methods.setError(key as keyof ActionFormSchema, {
+              message,
+            })
+          })
+          console.log("Errors", errors)
+        } else {
+          console.error("Validation failed, unknown error", error)
         }
         setSaveState(SaveState.ERROR)
       }
     },
-    [registryAction, action, updateAction, methods, setSaveState, setActionValidationErrors]
+    [workspaceId, registryAction, action, updateAction, methods, setSaveState, setActionValidationErrors]
   )
 
   // If the form is dirty, set the save state to unsaved
