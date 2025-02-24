@@ -14,7 +14,9 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.27.0}
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: api
     restart: unless-stopped
     networks:
@@ -66,7 +68,10 @@ services:
       - executor
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.27.0}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: worker
     restart: unless-stopped
     networks:
       - core
@@ -96,13 +101,16 @@ services:
     command: ["python", "tracecat/dsl/worker.py"]
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.27.0}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: executor
     restart: unless-stopped
     networks:
       - core-db
       - temporal
-    # ports:
-    #   - 8265:8265
+    ports:
+      - 8265:8265
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}

@@ -28,15 +28,16 @@ RUN chmod +x auto-update.sh && \
 RUN groupadd -g 1001 apiuser && \
     useradd -m -u 1001 -g apiuser apiuser
 
-# Set up directories for uv and pip
-RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.local && \
+# Set up directories for uv and pip with proper permissions
+RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.local/bin /home/apiuser/.local/lib/python3.12/site-packages && \
     chown -R apiuser:apiuser /home/apiuser/.cache /home/apiuser/.local && \
     chmod -R 755 /home/apiuser/.cache /home/apiuser/.local
 
+# Ensure PYTHONUSERBASE and UV paths are set
 ENV PYTHONUSERBASE="/home/apiuser/.local"
 ENV UV_CACHE_DIR="/home/apiuser/.cache/uv"
-ENV PYTHONPATH=/home/apiuser/.local:$PYTHONPATH
-ENV PATH=/home/apiuser/.local/bin:$PATH
+ENV PATH="/home/apiuser/.local/bin:$PATH"
+ENV PYTHONPATH="/home/apiuser/.local/lib/python3.12/site-packages:$PYTHONPATH"
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -57,6 +58,9 @@ RUN chmod +x /app/entrypoint.sh
 # Install package and registry
 RUN uv pip install .
 RUN uv pip install ./registry
+
+# Create symlink for uv binary to point to /home/apiuser/.local/bin/uv
+RUN ln -s $(command -v uv) /home/apiuser/.local/bin/uv
 
 # Ensure apiuser has write permissions to necessary directories
 RUN chown -R apiuser:apiuser /tmp /home/apiuser
