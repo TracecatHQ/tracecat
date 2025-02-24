@@ -194,6 +194,11 @@ export type Body_auth_verify_verify = {
   token: string
 }
 
+export type Body_tables_import_csv = {
+  file: Blob | File
+  column_mapping: string
+}
+
 export type Body_workflows_create_workflow = {
   title?: string | null
   description?: string | null
@@ -1875,7 +1880,7 @@ export type WorkspacesGetWorkspaceMembershipData = {
 }
 
 export type WorkspacesGetWorkspaceMembershipResponse =
-  Array<WorkspaceMembershipResponse>
+  WorkspaceMembershipResponse
 
 export type WorkspacesDeleteWorkspaceMembershipData = {
   userId: string
@@ -2520,6 +2525,14 @@ export type TablesBatchInsertRowsData = {
 
 export type TablesBatchInsertRowsResponse = TableRowInsertBatchResponse
 
+export type TablesImportCsvData = {
+  formData: Body_tables_import_csv
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesImportCsvResponse = TableRowInsertBatchResponse
+
 export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
@@ -2757,7 +2770,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceMembershipResponse>
+        200: WorkspaceMembershipResponse
         /**
          * Validation Error
          */
@@ -4011,6 +4024,21 @@ export type $OpenApiTs = {
   "/tables/{table_id}/rows/batch": {
     post: {
       req: TablesBatchInsertRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TableRowInsertBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/tables/{table_id}/import": {
+    post: {
+      req: TablesImportCsvData
       res: {
         /**
          * Successful Response

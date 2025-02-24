@@ -122,3 +122,7 @@ class LoopExecutionError(TracecatException):
 
 class TracecatSettingsError(TracecatException):
     """Exception raised when a setting error occurs."""
+
+
+class TracecatImportError(TracecatException):
+    """Exception raised when an import error occurs."""

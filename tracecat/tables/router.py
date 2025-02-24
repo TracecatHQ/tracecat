@@ -1,14 +1,27 @@
-from typing import Annotated
+import csv
+from io import StringIO
+from typing import Annotated, Any
 from uuid import UUID
 
+import orjson
 from asyncpg import DuplicateColumnError, DuplicateTableError
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
+from tracecat.tables.importer import CSVImporter
 from tracecat.tables.models import (
     TableColumnCreate,
     TableColumnRead,
@@ -24,7 +37,7 @@ from tracecat.tables.models import (
 )
 from tracecat.tables.service import TablesService
 from tracecat.types.auth import AccessLevel, Role
-from tracecat.types.exceptions import TracecatNotFoundError
+from tracecat.types.exceptions import TracecatImportError, TracecatNotFoundError
 
 router = APIRouter(prefix="/tables", tags=["tables"])
 
@@ -391,3 +404,73 @@ async def batch_insert_rows(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Database error: {detail}",
         ) from e
+
+
+async def get_column_mapping(column_mapping: str = Form(...)) -> dict[str, str]:
+    try:
+        return orjson.loads(column_mapping)
+    except orjson.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON format for column_mapping",
+        ) from e
+
+
+@router.post("/{table_id}/import", status_code=status.HTTP_201_CREATED)
+async def import_csv(
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    table_id: TableID,
+    file: UploadFile = File(...),
+    column_mapping: dict[str, str] = Depends(get_column_mapping),
+) -> TableRowInsertBatchResponse:
+    """Import data from a CSV file into a table."""
+    service = TablesService(session, role=role)
+
+    # Get table info
+    try:
+        table = await service.get_table(table_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+
+    # Initialize import service
+    importer = CSVImporter(table.columns)
+
+    # Process CSV file
+    try:
+        contents = await file.read()
+        csv_file = StringIO(contents.decode())
+        csv_reader = csv.DictReader(csv_file)
+
+        current_chunk: list[dict[str, Any]] = []
+
+        # Process rows in chunks
+        for row in csv_reader:
+            mapped_row = importer.map_row(row, column_mapping)
+            current_chunk.append(mapped_row)
+
+            if len(current_chunk) >= importer.chunk_size:
+                await importer.process_chunk(current_chunk, service, table)
+                current_chunk = []
+
+        # Process remaining rows
+        await importer.process_chunk(current_chunk, service, table)
+    except TracecatImportError as e:
+        logger.warning(f"Error during import: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        logger.warning(f"Unexpected error during import: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error processing CSV: {str(e)}",
+        ) from e
+    finally:
+        csv_file.close()
+
+    return TableRowInsertBatchResponse(rows_inserted=importer.total_rows_inserted)

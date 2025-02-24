@@ -9,7 +9,6 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { TableImportCsvDialog } from "@/components/tables/table-import-csv-dialog"
 import { TableInsertColumnDialog } from "@/components/tables/table-insert-column-dialog"
 import { TableInsertRowDialog } from "@/components/tables/table-insert-row-dialog"
 
@@ -88,14 +88,10 @@ export function TableInsertButton() {
         onOpenChange={() => setActiveDialog(null)}
       />
 
-      <Dialog
+      <TableImportCsvDialog
         open={activeDialog === "csv"}
         onOpenChange={() => setActiveDialog(null)}
-      >
-        <DialogContent>
-          <div>CSV</div>
-        </DialogContent>
-      </Dialog>
+      />
     </>
   )
 }

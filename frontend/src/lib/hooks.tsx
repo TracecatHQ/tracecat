@@ -77,6 +77,8 @@ import {
   TableRead,
   TableReadMinimal,
   TableRowRead,
+  tablesBatchInsertRows,
+  TablesBatchInsertRowsData,
   tablesCreateColumn,
   TablesCreateColumnData,
   tablesCreateTable,
@@ -90,6 +92,8 @@ import {
   TablesDeleteTableData,
   tablesGetTable,
   TablesGetTableData,
+  tablesImportCsv,
+  TablesImportCsvData,
   tablesInsertRow,
   TablesInsertRowData,
   tablesListRows,
@@ -2149,6 +2153,41 @@ export function useDeleteColumn() {
   }
 }
 
+export function useBatchInsertRows() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: insertRows,
+    isPending: insertRowsIsPending,
+    error: insertRowsError,
+  } = useMutation({
+    mutationFn: async (params: TablesBatchInsertRowsData) =>
+      await tablesBatchInsertRows(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+      toast({
+        title: "Imported rows successfully",
+        description: "The data has been imported into the table.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Error batch inserting rows:", error)
+      toast({
+        title: "Failed to import rows",
+        description: "There was an error importing the data. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    insertRows,
+    insertRowsIsPending,
+    insertRowsError,
+  }
+}
+
 export function useInsertRow() {
   const queryClient = useQueryClient()
   const {
@@ -2195,5 +2234,32 @@ export function useDeleteRow() {
     deleteRow,
     deleteRowIsPending,
     deleteRowError,
+  }
+}
+
+export function useImportCsv() {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: importCsv,
+    isPending: importCsvIsPending,
+    error: importCsvError,
+  } = useMutation({
+    mutationFn: async (params: TablesImportCsvData) =>
+      await tablesImportCsv(params),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      })
+      toast({
+        title: "Imported rows successfully",
+        description: "The data has been imported into the table.",
+      })
+    },
+  })
+
+  return {
+    importCsv,
+    importCsvIsPending,
+    importCsvError,
   }
 }

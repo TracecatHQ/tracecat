@@ -1,11 +1,13 @@
-from datetime import datetime
-from uuid import UUID
+from datetime import UTC, datetime
+from decimal import Decimal
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.exc import DBAPIError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.db.schemas import Table, TableColumn
+from tracecat.db.schemas import Table
+from tracecat.logger import logger
 from tracecat.tables.enums import SqlType
 from tracecat.tables.models import (
     TableColumnCreate,
@@ -29,22 +31,20 @@ async def tables_service(session: AsyncSession, svc_admin_role: Role) -> TablesS
 
 # New fixture to create a table with 'name' and 'age' columns for row tests
 @pytest.fixture
-async def table_with_columns(
-    tables_service: TablesService,
-) -> tuple[Table, TableColumn, TableColumn]:
+async def table(tables_service: TablesService) -> Table:
     """Fixture to create a table and add two columns ('name' and 'age') for row tests."""
     table = await tables_service.create_table(TableCreate(name="row_table"))
-    name_col = await tables_service.create_column(
+    await tables_service.create_column(
         table,
         TableColumnCreate(name="name", type=SqlType.TEXT, nullable=True, default=None),
     )
-    age_col = await tables_service.create_column(
+    await tables_service.create_column(
         table,
         TableColumnCreate(
             name="age", type=SqlType.INTEGER, nullable=True, default=None
         ),
     )
-    return table, name_col, age_col
+    return table
 
 
 @pytest.mark.anyio
@@ -179,11 +179,9 @@ class TestTableColumns:
 @pytest.mark.anyio
 class TestTableRows:
     async def test_insert_and_get_row(
-        self, tables_service: TablesService, table_with_columns: tuple
+        self, tables_service: TablesService, table: Table
     ) -> None:
         """Test inserting a new row and then retrieving it."""
-        table, _, _ = table_with_columns
-
         # Insert a row using TableRowInsert
         row_insert = TableRowInsert(data={"name": "John", "age": 30})
         inserted = await tables_service.insert_row(table, row_insert)
@@ -196,16 +194,16 @@ class TestTableRows:
         retrieved = await tables_service.get_row(table, row_id)
 
         # Verify the inserted data
+        logger.info("Retrieved row", retrieved=retrieved)
         assert retrieved["name"] == "John"
         assert retrieved["age"] == 30
         assert "created_at" in retrieved
         assert "updated_at" in retrieved
 
     async def test_update_row(
-        self, tables_service: TablesService, table_with_columns: tuple
+        self, tables_service: TablesService, table: Table
     ) -> None:
         """Test updating an existing row and verifying the data changed."""
-        table, _, _ = table_with_columns
 
         # Insert a row
         row_insert = TableRowInsert(data={"name": "Alice", "age": 25})
@@ -225,11 +223,9 @@ class TestTableRows:
         assert isinstance(updated["updated_at"], datetime)
 
     async def test_delete_row(
-        self, tables_service: TablesService, table_with_columns: tuple
+        self, tables_service: TablesService, table: Table
     ) -> None:
         """Test deleting a row and verifying it no longer exists."""
-        table, _, _ = table_with_columns
-
         # Insert a row
         row_insert = TableRowInsert(data={"name": "Bob", "age": 40})
         inserted = await tables_service.insert_row(table, row_insert)
@@ -245,11 +241,9 @@ class TestTableRows:
             await tables_service.get_row(table, row_id)
 
     async def test_lookup_row(
-        self, tables_service: TablesService, table_with_columns: tuple
+        self, tables_service: TablesService, table: Table
     ) -> None:
         """Test the lookup_row method to filter rows by column values."""
-        table, _, _ = table_with_columns
-
         # Insert multiple rows
         await tables_service.insert_row(
             table, TableRowInsert(data={"name": "Bob", "age": 40})
@@ -272,12 +266,8 @@ class TestTableRows:
         assert result["name"] == "Bob"
         assert result["age"] == 40
 
-    async def test_list_rows(
-        self, tables_service: TablesService, table_with_columns: tuple
-    ) -> None:
+    async def test_list_rows(self, tables_service: TablesService, table: Table) -> None:
         """Test listing rows with pagination using limit and offset."""
-        table, _, _ = table_with_columns
-
         # Insert multiple test rows
         test_data = [
             {"name": "Alice", "age": 25},
@@ -311,10 +301,9 @@ class TestTableRows:
         assert len(empty_rows) == 0
 
     async def test_batch_insert_rows(
-        self, tables_service: TablesService, table_with_columns: tuple
+        self, tables_service: TablesService, table: Table
     ) -> None:
         """Test batch inserting multiple rows."""
-        table, _, _ = table_with_columns
 
         # Test data
         rows = [
@@ -334,11 +323,9 @@ class TestTableRows:
         assert names == {"Alice", "Bob", "Carol"}
 
     async def test_batch_insert_exceeding_chunk_size(
-        self, tables_service: TablesService, table_with_columns: tuple
+        self, tables_service: TablesService, table: Table
     ) -> None:
         """Test batch insert fails when exceeding chunk size."""
-        table, _, _ = table_with_columns
-
         # Create more rows than the chunk size
         rows = [
             {"name": f"Person{i}", "age": i}
@@ -351,11 +338,9 @@ class TestTableRows:
         assert "exceeds maximum" in str(exc_info.value)
 
     async def test_batch_insert_rollback_on_error(
-        self, tables_service: TablesService, table_with_columns: tuple
+        self, tables_service: TablesService, table: Table
     ) -> None:
         """Test that no rows are inserted if there's an error with any row."""
-        table, _, _ = table_with_columns
-
         # Mix of valid and invalid data (invalid type for age)
         rows = [
             {"name": "Alice", "age": 25},
@@ -372,11 +357,9 @@ class TestTableRows:
         assert len(all_rows) == 0
 
     async def test_batch_insert_empty_list(
-        self, tables_service: TablesService, table_with_columns: tuple
+        self, tables_service: TablesService, table: Table
     ) -> None:
         """Test batch insert with empty list."""
-        table, _, _ = table_with_columns
-
         # Insert empty list
         inserted_count = await tables_service.batch_insert_rows(table, [])
         assert inserted_count == 0
@@ -384,3 +367,207 @@ class TestTableRows:
         # Verify no rows were inserted
         all_rows = await tables_service.list_rows(table)
         assert len(all_rows) == 0
+
+
+@pytest.mark.anyio
+class TestTableDataTypes:
+    """Test suite for verifying all supported SQL data types."""
+
+    @pytest.fixture
+    async def complex_table(self, tables_service: TablesService) -> Table:
+        """Create a table with columns for all supported SQL types."""
+        table = await tables_service.create_table(TableCreate(name="type_test_table"))
+
+        # Create columns for each SQL type
+        columns = [
+            TableColumnCreate(name="text_col", type=SqlType.TEXT),
+            TableColumnCreate(name="varchar_col", type=SqlType.VARCHAR),
+            TableColumnCreate(name="int_col", type=SqlType.INTEGER),
+            TableColumnCreate(name="bigint_col", type=SqlType.BIGINT),
+            TableColumnCreate(name="decimal_col", type=SqlType.DECIMAL),
+            TableColumnCreate(name="bool_col", type=SqlType.BOOLEAN),
+            TableColumnCreate(name="json_col", type=SqlType.JSONB),
+            TableColumnCreate(name="timestamp_col", type=SqlType.TIMESTAMP),
+            TableColumnCreate(name="timestamptz_col", type=SqlType.TIMESTAMPTZ),
+            TableColumnCreate(name="uuid_col", type=SqlType.UUID),
+        ]
+
+        for column in columns:
+            await tables_service.create_column(table, column)
+
+        await tables_service.session.refresh(table)
+        return table
+
+    async def test_insert_all_types(
+        self, tables_service: TablesService, complex_table: Table
+    ) -> None:
+        """Test inserting and retrieving values of all supported SQL types."""
+        # Test data for each type
+        test_uuid = uuid4()
+        test_datetime = datetime(2024, 2, 24, 12, 0, tzinfo=UTC)
+        test_json = {"key": "value", "nested": {"list": [1, 2, 3]}}
+
+        # Create test data covering all types
+        test_data = {
+            "text_col": "Hello, World!",
+            "varchar_col": "Variable length text",
+            "int_col": 42,
+            "bigint_col": 9223372036854775807,  # max int64
+            "decimal_col": Decimal("3.14159"),
+            "bool_col": True,
+            "json_col": test_json,
+            "timestamp_col": test_datetime,
+            "timestamptz_col": test_datetime,
+            "uuid_col": test_uuid,
+        }
+
+        # Insert the test data
+        row_insert = TableRowInsert(data=test_data)
+        inserted = await tables_service.insert_row(complex_table, row_insert)
+        assert inserted is not None, "Inserted row should not be None"
+
+        # Retrieve the row
+        row_id = inserted["id"]
+        retrieved = await tables_service.get_row(complex_table, row_id)
+
+        # Verify each column type and value
+        assert retrieved["text_col"] == "Hello, World!"
+        assert retrieved["varchar_col"] == "Variable length text"
+        assert retrieved["int_col"] == 42
+        assert retrieved["bigint_col"] == 9223372036854775807
+        assert retrieved["decimal_col"] == Decimal("3.14159")
+        assert retrieved["bool_col"] is True
+        assert retrieved["json_col"] == test_json
+
+        # DateTime comparisons
+        retrieved_timestamp = retrieved["timestamp_col"]
+        retrieved_timestamptz = retrieved["timestamptz_col"]
+        assert isinstance(retrieved_timestamp, datetime)
+        assert isinstance(retrieved_timestamptz, datetime)
+        assert retrieved_timestamp.replace(tzinfo=UTC) == test_datetime
+        assert retrieved_timestamptz == test_datetime
+
+        # UUID comparison
+        assert str(retrieved["uuid_col"]) == str(test_uuid)
+
+    @pytest.mark.usefixtures("db")
+    @pytest.mark.parametrize(
+        "invalid_data,expected_error",
+        [
+            # Test invalid integer
+            pytest.param(
+                {"int_col": "not a number"},
+                "invalid input syntax for type integer",
+                id="invalid_integer",
+            ),
+            # Test invalid boolean
+            pytest.param(
+                {"bool_col": "not a boolean"},
+                "Expected bool or 0/1, got str: not a boolean",
+                id="invalid_boolean",
+            ),
+            # Test invalid UUID
+            pytest.param(
+                {"uuid_col": "not-a-uuid"},
+                "invalid input syntax for type uuid",
+                id="invalid_uuid",
+            ),
+            # Test invalid JSON
+            pytest.param(
+                {"json_col": object()},
+                "Type is not JSON serializable",
+                id="invalid_json",
+            ),
+            # Test invalid timestamp
+            pytest.param(
+                {"timestamp_col": "not-a-timestamp"},
+                "invalid input syntax for type timestamp",
+                id="invalid_timestamp",
+            ),
+        ],
+        scope="function",
+    )
+    async def test_invalid_type_conversions(
+        self,
+        tables_service: TablesService,
+        complex_table: Table,
+        invalid_data: dict,
+        expected_error: str,
+    ) -> None:
+        """Test that invalid type conversions are handled appropriately."""
+        try:
+            # Don't start a new transaction, just use the existing one
+            with pytest.raises((DBAPIError, TypeError)) as exc_info:
+                row_insert = TableRowInsert(data=invalid_data)
+                await tables_service.insert_row(complex_table, row_insert)
+
+            # Log the actual error for debugging
+            logger.info(
+                "Got expected error",
+                error_type=type(exc_info.value).__name__,
+                error_msg=str(exc_info.value),
+            )
+
+            # Verify the error message
+            assert expected_error in str(exc_info.value)
+
+        except Exception as e:
+            logger.error(
+                "Unexpected error in test",
+                error_type=type(e).__name__,
+                error_msg=str(e),
+                invalid_data=invalid_data,
+            )
+            # Rollback the existing transaction
+            await tables_service.session.rollback()
+            raise
+        finally:
+            # Always ensure we rollback after the test
+            await tables_service.session.rollback()
+
+    async def test_edge_cases(
+        self, tables_service: TablesService, complex_table: Table
+    ) -> None:
+        """Test edge cases for each data type."""
+        edge_cases = {
+            "text_col": "",  # Empty string
+            "varchar_col": "a" * 1000,  # Long string
+            "int_col": 0,  # Zero
+            "bigint_col": -9223372036854775808,  # min int64
+            "decimal_col": Decimal("0.0"),  # Zero decimal
+            "bool_col": False,  # False boolean
+            "json_col": {},  # Empty JSON
+            "timestamp_col": datetime(1, 1, 1, 0, 0, tzinfo=UTC),  # Minimum datetime
+            "timestamptz_col": datetime(
+                9999, 12, 31, 23, 59, 59, 999999, tzinfo=UTC
+            ),  # Maximum datetime
+            "uuid_col": UUID("00000000-0000-0000-0000-000000000000"),  # Nil UUID
+        }
+
+        # Insert edge cases
+        row_insert = TableRowInsert(data=edge_cases)
+        inserted = await tables_service.insert_row(complex_table, row_insert)
+        assert inserted is not None, "Inserted row should not be None"
+
+        # Retrieve and verify
+        row_id = inserted["id"]
+        retrieved = await tables_service.get_row(complex_table, row_id)
+
+        # Verify each edge case
+        assert retrieved["text_col"] == ""
+        assert retrieved["varchar_col"] == "a" * 1000
+        assert retrieved["int_col"] == 0
+        assert retrieved["bigint_col"] == -9223372036854775808
+        assert retrieved["decimal_col"] == Decimal("0.0")
+        assert retrieved["bool_col"] is False
+        assert retrieved["json_col"] == {}
+
+        # DateTime comparisons with timezone
+        assert (
+            retrieved["timestamp_col"].replace(tzinfo=UTC)
+            == edge_cases["timestamp_col"]
+        )
+        assert retrieved["timestamptz_col"] == edge_cases["timestamptz_col"]
+
+        # UUID comparison using string representation
+        assert str(retrieved["uuid_col"]) == str(edge_cases["uuid_col"])
