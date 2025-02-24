@@ -3,7 +3,6 @@ from builtins import map as map_
 from typing import Annotated, Any
 
 from tracecat.expressions.common import build_safe_lambda, eval_jsonpath
-from tracecat.expressions.functions import flatten as flatten_
 from typing_extensions import Doc
 
 from tracecat_registry import registry
@@ -109,38 +108,6 @@ def is_not_in(
 
 
 @registry.register(
-    default_title="Flatten",
-    description="Flatten a list of lists into a single list.",
-    display_group="Data Transform",
-    namespace="core.transform",
-)
-def flatten(
-    items: Annotated[
-        list[list[Any]],
-        Doc("List of lists to flatten."),
-    ],
-) -> list[Any]:
-    return flatten_(items)
-
-
-@registry.register(
-    default_title="Unique",
-    description="Remove duplicate items from a list. Items must be hashable.",
-    display_group="Data Transform",
-    namespace="core.transform",
-)
-def unique(
-    items: Annotated[
-        list[Any],
-        Doc(
-            "List of hashable items (e.g. strings, numbers) to remove duplicates from."
-        ),
-    ],
-) -> list[Any]:
-    return list(set(items))
-
-
-@registry.register(
     default_title="Deduplicate",
     description="Deduplicate list of JSON objects given a list of keys.",
     display_group="Data Transform",
@@ -216,17 +183,3 @@ def map(
 ) -> list[Any]:
     fn = build_safe_lambda(python_lambda)
     return list(map_(fn, items))
-
-
-@registry.register(
-    default_title="Merge JSON objects",
-    description="Merge two JSON objects into a single JSON object.",
-    display_group="Data Transform",
-    namespace="core.transform",
-)
-def merge(
-    left: Annotated[dict[str, Any], Doc("Left JSON object")],
-    right: Annotated[dict[str, Any], Doc("Right JSON object")],
-) -> dict[str, Any]:
-    """Merge two JSON objects into a single JSON object."""
-    return {**left, **right}
