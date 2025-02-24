@@ -78,7 +78,7 @@ export function UpdatePasswordForm() {
                 name="password"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">New Password</FormLabel>
+                    <FormLabel className="text-sm font-medium">New password</FormLabel>
                     <FormControl>
                       <Input
                         type={showPassword ? "text" : "password"}
@@ -97,7 +97,7 @@ export function UpdatePasswordForm() {
                 name="confirmPassword"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">Confirm Password</FormLabel>
+                    <FormLabel className="text-sm font-medium">Confirm password</FormLabel>
                     <FormControl>
                       <Input
                         type={showPassword ? "text" : "password"}
@@ -113,14 +113,14 @@ export function UpdatePasswordForm() {
           </div>
         </div>
         <Button
-          className="text-sm font-semibold"
+          className="rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/90"
           disabled={updateCurrentUserPending}
           type="submit"
         >
           {updateCurrentUserPending && (
             <Icons.spinner className="mr-2 size-4 animate-spin" />
           )}
-          Reset Password
+          Update password
         </Button>
       </form>
     </Form>

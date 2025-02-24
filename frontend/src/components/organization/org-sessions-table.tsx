@@ -26,8 +26,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -90,7 +88,7 @@ export function OrgSessionsTable() {
             {
               accessorKey: "created_at",
               header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Created At" />
+                <DataTableColumnHeader column={column} title="Created at" />
               ),
               cell: ({ row }) => {
                 const createdAt =
@@ -119,7 +117,7 @@ export function OrgSessionsTable() {
                         <DotsHorizontalIcon className="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent>
                       <DropdownMenuItem
                         onClick={() =>
                           navigator.clipboard.writeText(row.original.user_id)
@@ -129,8 +127,6 @@ export function OrgSessionsTable() {
                       </DropdownMenuItem>
                       {privileged && (
                         <DropdownMenuGroup>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Manage</DropdownMenuLabel>
                           <AlertDialogTrigger asChild>
                             <DropdownMenuItem
                               className="text-rose-500 focus:text-rose-600"

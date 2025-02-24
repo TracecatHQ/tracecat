@@ -31,8 +31,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -130,7 +128,7 @@ export function WorkspaceMembersTable({
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="First Name"
+                  title="First name"
                 />
               ),
               cell: ({ row }) => (
@@ -148,7 +146,7 @@ export function WorkspaceMembersTable({
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Last Name"
+                  title="Last name"
                 />
               ),
               cell: ({ row }) => (
@@ -190,7 +188,7 @@ export function WorkspaceMembersTable({
                         <DotsHorizontalIcon className="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent>
                       <DropdownMenuItem
                         onClick={() =>
                           navigator.clipboard.writeText(row.original.user_id)
@@ -201,8 +199,6 @@ export function WorkspaceMembersTable({
 
                       {userIsAdmin && (
                         <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Manage</DropdownMenuLabel>
                           <DialogTrigger asChild>
                             <DropdownMenuItem
                               onClick={() => {

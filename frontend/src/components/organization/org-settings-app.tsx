@@ -75,8 +75,8 @@ export function OrgSettingsAppForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel className="text-base">
-                  Enable Registry Validation
+                <FormLabel>
+                  Enable registry validation
                 </FormLabel>
                 <FormDescription>
                   Enable registry validation (alpha).
@@ -93,7 +93,7 @@ export function OrgSettingsAppForm() {
         />
 
         <Button type="submit" disabled={updateAppSettingsIsPending}>
-          Update App Settings
+          Update application settings
         </Button>
       </form>
     </Form>

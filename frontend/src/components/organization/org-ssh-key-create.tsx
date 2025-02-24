@@ -184,7 +184,7 @@ export function CreateOrgSSHKeyDialog({
                     </FormDescription>
                     <FormControl>
                       <Textarea
-                        className="h-96 text-sm"
+                        className="h-36 text-sm"
                         placeholder="Starts with '-----BEGIN OPENSSH PRIVATE KEY-----"
                         {...register("private_key")}
                       />
@@ -197,7 +197,7 @@ export function CreateOrgSSHKeyDialog({
                 <DialogClose asChild>
                   <Button className="ml-auto space-x-2" type="submit">
                     <KeyRoundIcon className="mr-2 size-4" />
-                    Create SSH Key
+                    Create SSH key
                   </Button>
                 </DialogClose>
               </DialogFooter>

@@ -28,8 +28,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
@@ -96,7 +94,7 @@ export default React.memo(function ActionNode({
         variant: "destructive",
       })
     }
-  }, [id, toast])
+  }, [id, toast, workflowId, getNode, reactFlow])
 
   // Add this to track incoming edges
   const edges = useEdges()
@@ -214,11 +212,7 @@ export default React.memo(function ActionNode({
                     <ChevronDownIcon className="m-1 size-4 text-muted-foreground" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel className="py-0 text-xs text-muted-foreground">
-                    Quick Actions
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
+                <DropdownMenuContent>
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation()

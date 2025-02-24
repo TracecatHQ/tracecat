@@ -9,10 +9,10 @@ export default function AuthSettingsPage() {
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">
-              Authentication
+              Email authentication
             </h2>
             <p className="text-md text-muted-foreground">
-              View and manage your organization authentication settings here.
+              View and manage your organization email authentication settings here.
             </p>
           </div>
         </div>

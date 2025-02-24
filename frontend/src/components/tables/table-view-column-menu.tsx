@@ -43,7 +43,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -83,7 +82,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
             <ChevronDownIcon className="size-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent>
           <DropdownMenuItem
             className="py-1 text-xs text-foreground/80"
             onClick={(e) => {
@@ -102,11 +101,10 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
             }}
           >
             <CopyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-            Copy Name
+            Copy name
           </DropdownMenuItem>
           {isPrivileged && (
             <>
-              <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
                 onClick={(e) => {
@@ -117,7 +115,6 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 <Pencil className="mr-2 size-3 group-hover/item:text-accent-foreground" />
                 Edit
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="py-1 text-xs text-destructive"
                 onClick={(e) => {

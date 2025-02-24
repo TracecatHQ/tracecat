@@ -218,18 +218,18 @@ export function WorkbenchNav() {
                   className={cn(
                     "h-7 text-xs font-bold",
                     isOnline
-                      ? "text-rose-400 hover:text-rose-600"
+                      ? "text-rose-400 hover:text-rose-500"
                       : "bg-emerald-500 text-white hover:bg-emerald-500/80 hover:text-white"
                   )}
                 >
-                  {isOnline ? "Disable Workflow" : "Enable Workflow"}
+                  {isOnline ? "Disable workflow" : "Enable workflow"}
                 </Button>
               </AlertDialogTrigger>
             </TooltipTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>
-                  {isOnline ? "Disable Workflow?" : "Enable Workflow?"}
+                  {isOnline ? "Disable workflow?" : "Enable workflow?"}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {isOnline
@@ -550,7 +550,7 @@ function WorkbenchNavOptions({
               <span className="sr-only">More</span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent>
             <DropdownMenuItem
               className="text-xs text-foreground/70"
               onClick={async () => {

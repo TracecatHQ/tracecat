@@ -9,7 +9,7 @@ export default function SessionsPage() {
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">
-              Organization Sessions
+              Organization sessions
             </h2>
             <p className="text-md text-muted-foreground">
               Manage organization user sessions here.
@@ -19,7 +19,7 @@ export default function SessionsPage() {
         </div>
         <div className="space-y-4">
           <>
-            <h6 className="text-sm font-semibold">Manage Sessions</h6>
+            <h6 className="text-sm font-semibold">Manage sessions</h6>
             <OrgSessionsTable />
           </>
         </div>

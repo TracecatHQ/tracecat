@@ -97,7 +97,7 @@ export function OrgSettingsGitForm() {
           name="git_repo_url"
           render={({ field }) => (
             <FormItem className="flex flex-col">
-              <FormLabel>Remote Repository URL</FormLabel>
+              <FormLabel>Remote repository URL</FormLabel>
               <FormControl>
                 <Input
                   placeholder="git+ssh://git@my-host/my-org/my-repo.git"
@@ -119,7 +119,7 @@ export function OrgSettingsGitForm() {
           name="git_repo_package_name"
           render={({ field }) => (
             <FormItem className="flex flex-col">
-              <FormLabel>Repository Package Name</FormLabel>
+              <FormLabel>Repository package name</FormLabel>
               <FormControl>
                 <Input
                   placeholder="package_name"
@@ -141,7 +141,7 @@ export function OrgSettingsGitForm() {
           name="git_allowed_domains"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Allowed Git Domains</FormLabel>
+              <FormLabel>Allowed Git domains</FormLabel>
               <FormControl>
                 <CustomTagInput
                   {...field}
@@ -159,7 +159,7 @@ export function OrgSettingsGitForm() {
           )}
         />
         <Button type="submit" disabled={updateGitSettingsIsPending}>
-          Update Git Settings
+          Update Git settings
         </Button>
       </form>
     </Form>

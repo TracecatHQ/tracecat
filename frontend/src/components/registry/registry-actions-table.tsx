@@ -1,9 +1,7 @@
 "use client"
 
 import React, { useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
 import { RegistryActionReadMinimal } from "@/client"
-import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
 import { CopyIcon, TrashIcon } from "lucide-react"
@@ -28,7 +26,6 @@ import {
 } from "@/components/registry/delete-registry-action"
 
 export function RegistryActionsTable() {
-  const router = useRouter()
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
   const [selectedAction, setSelectedAction] =
@@ -131,7 +128,7 @@ export function RegistryActionsTable() {
               <DataTableColumnHeader
                 className="text-xs"
                 column={column}
-                title="Action Name"
+                title="Action name"
               />
             ),
             cell: ({ row }) => (
@@ -216,10 +213,7 @@ export function RegistryActionsTable() {
                       <DotsHorizontalIcon className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel className="p-2 text-xs font-semibold text-muted-foreground">
-                      Actions
-                    </DropdownMenuLabel>
+                  <DropdownMenuContent>
                     <DropdownMenuItem
                       className="flex items-center text-xs"
                       onClick={(e) => {

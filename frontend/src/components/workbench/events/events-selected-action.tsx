@@ -281,7 +281,7 @@ export function JsonViewWithControls({
               displaySize
               enableClipboard
               src={source}
-              className="w-full overflow-x-scroll text-wrap text-xs"
+              className="break-all text-xs"
               theme="atom"
               CopyComponent={({ onClick, className }) => (
                 <Tooltip>

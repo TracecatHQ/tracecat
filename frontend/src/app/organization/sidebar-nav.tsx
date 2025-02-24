@@ -15,11 +15,11 @@ type NavItem = {
 
 const settingsNavItems: NavItem[] = [
   {
-    title: "Git Repository",
+    title: "Git repository",
     href: "/organization/settings/git",
   },
   {
-    title: "Single Sign-On",
+    title: "Single sign-on",
     href: "/organization/settings/sso",
   },
   {
@@ -27,7 +27,7 @@ const settingsNavItems: NavItem[] = [
     href: "/organization/settings/oauth",
   },
   {
-    title: "Authentication",
+    title: "Email authentication",
     href: "/organization/settings/auth",
   },
   {
@@ -42,7 +42,7 @@ const secretNavItems: NavItem[] = [
     href: "/organization/credentials",
   },
   {
-    title: "SSH Keys",
+    title: "SSH keys",
     href: "/organization/ssh-keys",
   },
 ]

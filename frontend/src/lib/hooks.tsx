@@ -1824,10 +1824,10 @@ export function useOrgAuthSettings() {
           })
           break
         default:
-          console.error("Failed to update Auth settings", error)
+          console.error("Failed to update auth settings", error)
           toast({
-            title: "Failed to update Auth settings",
-            description: `An error occurred while updating the Auth settings: ${error.body.detail}`,
+            title: "Failed to update auth settings",
+            description: `An error occurred while updating the auth settings: ${error.body.detail}`,
           })
       }
     },

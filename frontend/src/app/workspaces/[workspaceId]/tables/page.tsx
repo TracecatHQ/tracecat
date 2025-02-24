@@ -8,7 +8,7 @@ export default function TablesPage() {
       <div className="flex w-full items-center justify-between">
         <div className="items-start space-y-3 text-left">
           <h2 className="text-2xl font-semibold tracking-tight">
-            Database Tables
+            Tables
           </h2>
           <p className="text-md text-muted-foreground">
             View your workspace&apos;s tables here.

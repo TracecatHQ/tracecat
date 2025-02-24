@@ -36,8 +36,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -148,7 +146,7 @@ export function WorkflowTagsSidebar({ workspaceId }: { workspaceId: string }) {
       </div>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create New Tag</DialogTitle>
+          <DialogTitle>Create new tag</DialogTitle>
           <DialogDescription>
             Enter a name for your new workflow tag.
           </DialogDescription>
@@ -435,10 +433,6 @@ function TagItem({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="right">
-              <DropdownMenuLabel className="py-0 text-xs text-muted-foreground">
-                Actions
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
               <AlertDialogTrigger asChild>
                 <DropdownMenuItem
                   className="text-xs"

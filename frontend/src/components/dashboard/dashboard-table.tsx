@@ -18,9 +18,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuPortal,
-  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -189,12 +187,8 @@ export function WorkflowsDashboardTable() {
                       <DotsHorizontalIcon className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent>
                     <DropdownMenuGroup>
-                      <DropdownMenuLabel className="text-xs">
-                        Actions
-                      </DropdownMenuLabel>
-                      <DropdownMenuSeparator />
                       <DropdownMenuItem
                         className="text-xs"
                         onClick={(e) => {
@@ -218,7 +212,7 @@ export function WorkflowsDashboardTable() {
                           })
                         }}
                       >
-                        Copy Workflow ID
+                        Copy workflow ID
                       </DropdownMenuItem>
                       {tags && tags.length > 0 ? (
                         <DropdownMenuSub>

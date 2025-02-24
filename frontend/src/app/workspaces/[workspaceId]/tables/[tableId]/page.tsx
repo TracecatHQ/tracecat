@@ -18,12 +18,14 @@ import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { DatabaseTable } from "@/components/tables/table-view"
 
 export default function TablePage() {
-  const { tableId } = useParams<{ tableId: string }>()
+  const params = useParams<{ tableId: string }>()
+  const tableId = params?.tableId
   const { workspaceId } = useWorkspace()
   const { table, tableIsLoading, tableError } = useGetTable({
-    tableId,
+    tableId: tableId ?? "",
     workspaceId,
   })
+
   if (tableIsLoading) return <CenteredSpinner />
   if (tableError || !table)
     return (

@@ -48,7 +48,7 @@ export default function CredentialsPage() {
             </CreateOrgSecretDialog>
           </>
           <>
-            <h6 className="text-sm font-semibold">Manage Secrets</h6>
+            <h6 className="text-sm font-semibold">Manage secrets</h6>
             <OrgSecretsTable />
           </>
         </div>

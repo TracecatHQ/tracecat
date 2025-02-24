@@ -511,7 +511,7 @@ function JsonViewWithControls({
           displaySize
           enableClipboard
           src={src}
-          className="text-sm"
+          className="break-all text-xs"
           theme="atom"
         />
       </div>

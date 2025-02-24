@@ -118,7 +118,7 @@ export function WorkspaceSecretsTable() {
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Secret Keys"
+                  title="Secret keys"
                 />
               ),
               cell: ({ row }) => {
@@ -152,7 +152,7 @@ export function WorkspaceSecretsTable() {
                         <DotsHorizontalIcon className="size-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent>
                       <DropdownMenuItem
                         onClick={() =>
                           navigator.clipboard.writeText(row.original.id)

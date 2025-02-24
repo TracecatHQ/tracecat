@@ -144,7 +144,7 @@ export function CreateWorkflowButton() {
         <DialogHeader>
           <DialogTitle>Import workflow from file</DialogTitle>
           <DialogDescription>
-            Import a workflow from either a YAML or JSON file.
+            Import a workflow from a YAML or JSON file.
           </DialogDescription>
         </DialogHeader>
 
@@ -155,7 +155,7 @@ export function CreateWorkflowButton() {
               name="file"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>File Upload</FormLabel>
+                  <FormLabel>YAML / JSON</FormLabel>
                   <FormControl>
                     <Input
                       type="file"
@@ -167,7 +167,7 @@ export function CreateWorkflowButton() {
                       }}
                     />
                   </FormControl>
-                  <FormDescription>Upload a file (max 5MB)</FormDescription>
+                  <FormDescription>Upload file (max 5MB)</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

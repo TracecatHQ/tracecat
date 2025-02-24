@@ -82,7 +82,7 @@ export function OrgSettingsAuthForm() {
         },
       })
     } catch {
-      console.error("Failed to update Auth settings")
+      console.error("Failed to update auth settings")
     }
   }
 
@@ -107,8 +107,8 @@ export function OrgSettingsAuthForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel className="text-base">
-                  Enable Email/Password Authentication
+                <FormLabel>
+                  Enable email / password authentication
                 </FormLabel>
                 <FormDescription>
                   {isBasicAuthAllowed
@@ -134,8 +134,8 @@ export function OrgSettingsAuthForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel className="text-base">
-                  Require Email Verification
+                <FormLabel>
+                  Require email verification
                 </FormLabel>
                 <FormDescription>
                   Require email verification for your organization.
@@ -157,7 +157,7 @@ export function OrgSettingsAuthForm() {
           name="auth_allowed_email_domains"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Allowed Sign-up Email Domains</FormLabel>
+              <FormLabel>Allowed email domains</FormLabel>
               <FormControl>
                 <CustomTagInput
                   {...field}
@@ -167,8 +167,7 @@ export function OrgSettingsAuthForm() {
                 />
               </FormControl>
               <FormDescription>
-                Add domains that are allowed to sign up to the platform. (e.g.,
-                acme.com)
+                Add domains that are allowed to authenticate to the platform (e.g. acme.com).
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -176,7 +175,7 @@ export function OrgSettingsAuthForm() {
         />
 
         <Button type="submit" disabled={updateAuthSettingsIsPending}>
-          Update Auth Settings
+          Update email authentication settings
         </Button>
       </form>
     </Form>

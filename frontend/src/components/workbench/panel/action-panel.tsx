@@ -236,7 +236,7 @@ export function ActionPanel({
           console.error("Application failed to validate action", apiError.body)
 
           // Set form errors from API validation errors
-
+          // NOTE: We do this dynamically because we already do server side validation.
           const errors: Record<string, { message: string }> = {}
           if (Array.isArray(apiError.body.detail)) {
             const valErrs = apiError.body.detail as RequestValidationError[]
@@ -269,7 +269,7 @@ export function ActionPanel({
         setSaveState(SaveState.ERROR)
       }
     },
-    [workspaceId, registryAction, action]
+    [workspaceId, registryAction, action, updateAction, methods, setSaveState, setActionValidationErrors]
   )
 
   // If the form is dirty, set the save state to unsaved
@@ -554,7 +554,7 @@ export function ActionPanel({
                       <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
                         <div className="flex items-center">
                           <ShapesIcon className="mr-3 size-4" />
-                          <span>Input Schema</span>
+                          <span>Input schema</span>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent className="space-y-4">
@@ -687,226 +687,198 @@ export function ActionPanel({
                   </Accordion>
                 </TabsContent>
                 <TabsContent value="control-flow">
-                  <Accordion
-                    type="multiple"
-                    defaultValue={["action-control-flow"]}
-                    className="pb-10"
-                  >
-                    <AccordionItem value="action-control-flow">
-                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-                        <div className="flex items-center">
-                          <SplitIcon className="mr-3 size-4" />
-                          <span>Control Flow</span>
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="space-y-4">
-                        {/* Run if */}
-                        <div className="flex flex-col space-y-4 px-4">
-                          <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                            <span>Run If</span>
-                          </FormLabel>
-                          <div className="flex items-center">
-                            <HoverCard openDelay={100} closeDelay={100}>
-                              <HoverCardTrigger
-                                asChild
-                                className="hover:border-none"
-                              >
-                                <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                              </HoverCardTrigger>
-                              <HoverCardContent
-                                className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                                side="left"
-                                sideOffset={20}
-                              >
-                                <RunIfTooltip />
-                              </HoverCardContent>
-                            </HoverCard>
+                  <div className="mt-6 space-y-8 px-4">
+                    {/* Run if */}
+                    <div className="flex flex-col space-y-2">
+                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                        <span>Run if</span>
+                      </FormLabel>
+                      <div className="mb-2 flex items-center">
+                        <HoverCard openDelay={100} closeDelay={100}>
+                          <HoverCardTrigger
+                            asChild
+                            className="hover:border-none"
+                          >
+                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
+                          </HoverCardTrigger>
+                          <HoverCardContent
+                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                            side="left"
+                            sideOffset={20}
+                          >
+                            <RunIfTooltip />
+                          </HoverCardContent>
+                        </HoverCard>
 
-                            <span className="text-xs text-muted-foreground">
-                              Define a conditional expression that determines if
-                              the action executes.
-                            </span>
-                          </div>
-                          <FormField
-                            name="control_flow.run_if"
-                            control={methods.control}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormControl>
-                                  <DynamicCustomEditor
-                                    className="h-24 w-full"
-                                    defaultLanguage="yaml-extended"
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                    workspaceId={workspaceId}
-                                  />
-                                </FormControl>
-                                <FormMessage className="whitespace-pre-line" />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                        {/* Loop */}
-                        <div className="flex flex-col space-y-4 px-4">
-                          <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                            <span>Loop Iteration</span>
-                          </FormLabel>
-                          <div className="flex items-center">
-                            <HoverCard openDelay={100} closeDelay={100}>
-                              <HoverCardTrigger
-                                asChild
-                                className="hover:border-none"
-                              >
-                                <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                              </HoverCardTrigger>
-                              <HoverCardContent
-                                className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                                side="left"
-                                sideOffset={20}
-                              >
-                                <ForEachTooltip />
-                              </HoverCardContent>
-                            </HoverCard>
+                        <span className="text-xs text-muted-foreground">
+                          Define a conditional expression that determines if
+                          the action executes.
+                        </span>
+                      </div>
+                      <FormField
+                        name="control_flow.run_if"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <DynamicCustomEditor
+                                className="h-24 w-full"
+                                defaultLanguage="yaml-extended"
+                                value={field.value}
+                                onChange={field.onChange}
+                                workspaceId={workspaceId}
+                              />
+                            </FormControl>
+                            <FormMessage className="whitespace-pre-line" />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    {/* Loop */}
+                    <div className="flex flex-col space-y-2">
+                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                        <span>For loops</span>
+                      </FormLabel>
+                      <div className="mb-2 flex items-center">
+                        <HoverCard openDelay={100} closeDelay={100}>
+                          <HoverCardTrigger
+                            asChild
+                            className="hover:border-none"
+                          >
+                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
+                          </HoverCardTrigger>
+                          <HoverCardContent
+                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                            side="left"
+                            sideOffset={20}
+                          >
+                            <ForEachTooltip />
+                          </HoverCardContent>
+                        </HoverCard>
 
-                            <span className="text-xs text-muted-foreground">
-                              Define one or more loop expressions for the action
-                              to iterate over.
-                            </span>
-                          </div>
-                          <FormField
-                            name="control_flow.for_each"
-                            control={methods.control}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormControl>
-                                  <DynamicCustomEditor
-                                    className="h-24 w-full"
-                                    defaultLanguage="yaml-extended"
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                    workspaceId={workspaceId}
-                                    workflowId={workflowId}
-                                  />
-                                </FormControl>
-                                <FormMessage className="whitespace-pre-line" />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                        {/* Other options */}
-                        <div className="flex flex-col space-y-4 px-4">
-                          <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                            <span>Options</span>
-                          </FormLabel>
-                          <div className="flex items-center">
-                            <HoverCard openDelay={100} closeDelay={100}>
-                              <HoverCardTrigger
-                                asChild
-                                className="hover:border-none"
-                              >
-                                <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                              </HoverCardTrigger>
-                              <HoverCardContent
-                                className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                                side="left"
-                                sideOffset={20}
-                              >
-                                <ControlFlowOptionsTooltip />
-                              </HoverCardContent>
-                            </HoverCard>
+                        <span className="text-xs text-muted-foreground">
+                          Define one or more loop expressions for the action
+                          to iterate over.
+                        </span>
+                      </div>
+                      <FormField
+                        name="control_flow.for_each"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <DynamicCustomEditor
+                                className="h-24 w-full"
+                                defaultLanguage="yaml-extended"
+                                value={field.value}
+                                onChange={field.onChange}
+                                workspaceId={workspaceId}
+                                workflowId={workflowId}
+                              />
+                            </FormControl>
+                            <FormMessage className="whitespace-pre-line" />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    {/* Other options */}
+                    <div className="flex flex-col space-y-2">
+                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                        <span>Options</span>
+                      </FormLabel>
+                      <div className="mb-2 flex items-center">
+                        <HoverCard openDelay={100} closeDelay={100}>
+                          <HoverCardTrigger
+                            asChild
+                            className="hover:border-none"
+                          >
+                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
+                          </HoverCardTrigger>
+                          <HoverCardContent
+                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                            side="left"
+                            sideOffset={20}
+                          >
+                            <ControlFlowOptionsTooltip />
+                          </HoverCardContent>
+                        </HoverCard>
 
-                            <span className="text-xs text-muted-foreground">
-                              Define additional control flow options for the
-                              action.
-                            </span>
-                          </div>
-                          <FormField
-                            name="control_flow.options"
-                            control={methods.control}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormControl>
-                                  <DynamicCustomEditor
-                                    className="h-24 w-full"
-                                    defaultLanguage="yaml-extended"
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                    workspaceId={workspaceId}
-                                    workflowId={workflowId}
-                                  />
-                                </FormControl>
-                                <FormMessage className="whitespace-pre-line" />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
+                        <span className="text-xs text-muted-foreground">
+                          Define additional control flow options for the
+                          action.
+                        </span>
+                      </div>
+                      <FormField
+                        name="control_flow.options"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <DynamicCustomEditor
+                                className="h-24 w-full"
+                                defaultLanguage="yaml-extended"
+                                value={field.value}
+                                onChange={field.onChange}
+                                workspaceId={workspaceId}
+                                workflowId={workflowId}
+                              />
+                            </FormControl>
+                            <FormMessage className="whitespace-pre-line" />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
                 </TabsContent>
                 <TabsContent value="retry-policy">
-                  <Accordion
-                    type="multiple"
-                    defaultValue={["action-retry-policy"]}
-                    className="pb-10"
-                  >
-                    <AccordionItem value="action-retry-policy">
-                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-                        <div className="flex items-center">
-                          <RotateCcwIcon className="mr-3 size-4" />
-                          <span>Retry Policy</span>
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="space-y-4">
-                        {/* Retry Policy */}
-                        <div className="flex flex-col space-y-4 px-4">
-                          <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                            <span>Retry Policy</span>
-                          </FormLabel>
-                          <div className="flex items-center">
-                            <HoverCard openDelay={100} closeDelay={100}>
-                              <HoverCardTrigger
-                                asChild
-                                className="hover:border-none"
-                              >
-                                <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                              </HoverCardTrigger>
-                              <HoverCardContent
-                                className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                                side="left"
-                                sideOffset={20}
-                              >
-                                <RetryPolicyTooltip />
-                              </HoverCardContent>
-                            </HoverCard>
+                  <div className="mt-6 space-y-8 px-4">
+                    {/* Retry Policy */}
+                    <div className="flex flex-col space-y-2">
+                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                        <span>Retry policy</span>
+                      </FormLabel>
+                      <div className="mb-2 flex items-center">
+                        <HoverCard openDelay={100} closeDelay={100}>
+                          <HoverCardTrigger
+                            asChild
+                            className="hover:border-none"
+                          >
+                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
+                          </HoverCardTrigger>
+                          <HoverCardContent
+                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                            side="left"
+                            sideOffset={20}
+                          >
+                            <RetryPolicyTooltip />
+                          </HoverCardContent>
+                        </HoverCard>
 
-                            <span className="text-xs text-muted-foreground">
-                              Define the retry policy for the action.
-                            </span>
-                          </div>
-                          <FormField
-                            name="control_flow.retry_policy"
-                            control={methods.control}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormControl>
-                                  <DynamicCustomEditor
-                                    className="h-24 w-full"
-                                    defaultLanguage="yaml-extended"
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                    workspaceId={workspaceId}
-                                    workflowId={workflowId}
-                                  />
-                                </FormControl>
-                                <FormMessage className="whitespace-pre-line" />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
+                        <span className="text-xs text-muted-foreground">
+                          Define the retry policy for the action.
+                        </span>
+                      </div>
+                      <FormField
+                        name="control_flow.retry_policy"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <DynamicCustomEditor
+                                className="h-24 w-full"
+                                defaultLanguage="yaml-extended"
+                                value={field.value}
+                                onChange={field.onChange}
+                                workspaceId={workspaceId}
+                                workflowId={workflowId}
+                              />
+                            </FormControl>
+                            <FormMessage className="whitespace-pre-line" />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
                 </TabsContent>
                 {/* Template */}
                 {registryAction?.implementation && (

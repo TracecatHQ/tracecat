@@ -159,9 +159,9 @@ export function TableImportCsvDialog({
         aria-describedby="csv-import-description"
       >
         <DialogHeader className="space-y-4">
-          <DialogTitle>Import from Csv</DialogTitle>
+          <DialogTitle>Import from CSV</DialogTitle>
           <DialogDescription>
-            Upload a CSV file to import data into your table.
+            Import data from a CSV file into your table.
           </DialogDescription>
         </DialogHeader>
 
@@ -238,7 +238,7 @@ function CsvUploadForm({ isUploading, nextPage }: CsvUploadFormProps) {
         name="file"
         render={({ field }) => (
           <FormItem>
-            <FormLabel>Csv File</FormLabel>
+            <FormLabel>CSV file</FormLabel>
             <FormControl>
               <Input
                 type="file"
@@ -252,7 +252,7 @@ function CsvUploadForm({ isUploading, nextPage }: CsvUploadFormProps) {
               />
             </FormControl>
             <FormDescription>
-              Upload a CSV file (max {FILE_SIZE_LIMIT_MB}MB)
+              Upload file (max {FILE_SIZE_LIMIT_MB}MB)
             </FormDescription>
             <FormMessage />
           </FormItem>

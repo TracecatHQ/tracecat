@@ -65,7 +65,7 @@ export default function UserNav() {
           >
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
               <BookText className="mr-2 size-4" />
-              Read the Docs
+              Read the docs
               <ExternalLink className="ml-auto size-3 text-muted-foreground" />
             </DropdownMenuItem>
           </Link>
@@ -76,7 +76,7 @@ export default function UserNav() {
           >
             <DropdownMenuItem className="text-xs hover:cursor-pointer">
               <Icons.gitHub className="mr-2 size-4" />
-              Github Repository
+              GitHub repository
               <ExternalLink className="ml-auto size-3 text-muted-foreground" />
             </DropdownMenuItem>
           </Link>

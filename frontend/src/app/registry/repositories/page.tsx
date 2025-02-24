@@ -41,7 +41,7 @@ export default function RegistryRepositoriesPage() {
               onClick={refreshRepositories}
             >
               <RefreshCcw className="size-4 text-muted-foreground/80" />
-              <span>Refresh Repositories</span>
+              <span>Refresh repositories</span>
             </Button>
           </div>
         </div>

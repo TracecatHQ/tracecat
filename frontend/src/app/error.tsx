@@ -17,7 +17,7 @@ export default function Error({
   useEffect(() => {
     console.info("Clearing workspace cookies")
     clearLastWorkspaceId()
-  }, [])
+  }, [clearLastWorkspaceId])
 
   return <ErrorPage error={error} />
 }

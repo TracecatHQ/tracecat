@@ -11,8 +11,12 @@ import { Label } from "@/components/ui/label"
 
 const accountNavItems: NavItem[] = [
   {
-    title: "Account",
-    href: "/settings/account",
+    title: "Profile",
+    href: "/settings/profile",
+  },
+  {
+    title: "Security",
+    href: "/settings/security",
   },
 ]
 const workspaceNavItems: NavItem[] = [
@@ -71,7 +75,7 @@ export function SidebarNavBlock({
   const pathname = usePathname()
   const { workspaceId } = useWorkspace()
   const workspaceUrl = `/workspaces/${workspaceId}`
-  const leafRoute = pathname.split("/").pop()
+  const leafRoute = pathname?.split("/").pop()
 
   return (
     <nav
