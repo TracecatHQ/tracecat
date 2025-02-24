@@ -22,7 +22,11 @@ from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.logger import logger
 from tracecat.service import BaseService
-from tracecat.tables.common import handle_default_value, is_valid_sql_type
+from tracecat.tables.common import (
+    handle_default_value,
+    is_valid_sql_type,
+    to_sql_clause,
+)
 from tracecat.tables.enums import SqlType
 from tracecat.tables.models import (
     TableColumnCreate,
@@ -441,11 +445,18 @@ class TablesService(BaseService):
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        data = params.data
-        cols = [sa.column(self._sanitize_identifier(k)) for k in data.keys()]
+        row_data = params.data
+        col_map = {c.name: c for c in table.columns}
+
+        value_clauses: dict[str, sa.TextClause] = {}
+        cols = []
+        for col, value in row_data.items():
+            value_clauses[col] = to_sql_clause(value, col_map[col])
+            cols.append(sa.column(self._sanitize_identifier(col)))
+
         stmt = (
             sa.insert(sa.table(table.name, *cols, schema=schema_name))
-            .values(**data)
+            .values(**value_clauses)
             .returning(sa.text("*"))
         )
         result = await conn.execute(stmt)
