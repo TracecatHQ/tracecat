@@ -110,13 +110,13 @@
         "tab": "API Reference",
         "groups": [
           {
-            "group": "Overview",
+            "group": "REST API",
             "pages": [
-              "api/introduction"
+              "api-reference/overview"
             ]
           },
           {
-            "group": "REST API",
+            "group": "Endpoints",
             "openapi": "/openapi.yml"
           }
         ]
