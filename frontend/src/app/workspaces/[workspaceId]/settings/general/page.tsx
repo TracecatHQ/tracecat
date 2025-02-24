@@ -5,7 +5,6 @@ import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 
 import { useWorkspaceManager } from "@/lib/hooks"
-import { Separator } from "@/components/ui/separator"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { ConfirmDelete } from "@/components/workspaces/delete-workspace"
@@ -39,14 +38,19 @@ export default function WorkspaceGeneralSettingsPage() {
           </div>
         </div>
 
-        <div className="space-y-8">
-          <div className="space-y-2 text-sm">
-            <h6 className="text-sm font-semibold">General</h6>
+        <div className="space-y-14">
+          <div className="flex items-center gap-4">
             <WorkspaceGeneralSettings workspace={workspace} />
           </div>
           {isAdmin && (
-            <div className="space-y-2 text-sm">
-              <h6 className="text-sm font-semibold text-rose-500">Danger Zone</h6>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <h6 className="text-md text-rose-500">Danger zone</h6>
+                <p className="text-sm text-muted-foreground">
+                  Once you delete a workspace, there is no going back. Please be
+                  certain.
+                </p>
+              </div>
               <DangerZone workspace={workspace} />
             </div>
           )}
@@ -68,8 +72,6 @@ function DangerZone({ workspace }: { workspace: WorkspaceResponse }) {
   }
 
   return (
-    <div className="space-y-4">
-      <ConfirmDelete workspaceName={workspace.name} onDelete={handleDelete} />
-    </div>
+    <ConfirmDelete workspaceName={workspace.name} onDelete={handleDelete} />
   )
 }

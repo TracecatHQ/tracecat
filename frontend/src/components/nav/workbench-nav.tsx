@@ -218,7 +218,7 @@ export function WorkbenchNav() {
                   className={cn(
                     "h-7 text-xs font-bold",
                     isOnline
-                      ? "text-red-400 hover:text-red-500"
+                      ? "text-rose-400 hover:text-rose-500"
                       : "bg-emerald-500 text-white hover:bg-emerald-500/80 hover:text-white"
                   )}
                 >

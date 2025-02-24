@@ -50,38 +50,34 @@ export function WorkspaceGeneralSettings({
   }
 
   return (
-    <div className="size-full overflow-auto">
-      <FormProvider {...methods}>
-        <form
-          onSubmit={methods.handleSubmit(onSubmit)}
-          className="flex flex-col overflow-auto"
-        >
-          <div className="my-4 w-1/2 flex-col space-y-4 px-4">
-            <FormField
-              control={methods.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Workspace Name</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Workspace Name"
-                      {...field}
-                      disabled={!hasPermissions}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-          <div className="pt-2">
-            <Button type="submit" variant="default">
-              Update Workspace
-            </Button>
-          </div>
-        </form>
-      </FormProvider>
-    </div>
+    <FormProvider {...methods}>
+      <form
+        onSubmit={methods.handleSubmit(onSubmit)}
+        className="flex items-end gap-4"
+      >
+        <div className="w-[400px]">
+          <FormField
+            control={methods.control}
+            name="name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Workspace name</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder="Workspace name"
+                    {...field}
+                    disabled={!hasPermissions}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+        <Button type="submit" variant="default">
+          Update workspace
+        </Button>
+      </form>
+    </FormProvider>
   )
 }
