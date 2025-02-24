@@ -595,6 +595,10 @@ export type RegistryActionRead = {
    */
   repository_id: string
   /**
+   * The registry action id
+   */
+  id: string
+  /**
    * The full action identifier.
    */
   readonly action: string
@@ -608,6 +612,10 @@ export type RegistryActionRead = {
  * API minimal read model for a registered action.
  */
 export type RegistryActionReadMinimal = {
+  /**
+   * The registry action id
+   */
+  id: string
   /**
    * The name of the action
    */
