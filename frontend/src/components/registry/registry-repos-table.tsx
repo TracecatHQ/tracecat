@@ -5,7 +5,6 @@ import {
   RegistryRepositoryErrorDetail,
   RegistryRepositoryReadMinimal,
 } from "@/client"
-import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   AlertTriangleIcon,
@@ -193,7 +192,7 @@ export function RegistryRepositoriesTable() {
       default:
         return null
     }
-  }, [alertAction, selectedRepo])
+  }, [alertAction, selectedRepo, syncRepo, deleteRepo])
 
   const alertContent = getAlertContent()
 

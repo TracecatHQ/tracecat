@@ -1,9 +1,7 @@
 "use client"
 
 import React, { useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
 import { RegistryActionReadMinimal } from "@/client"
-import { DropdownMenuLabel } from "@radix-ui/react-dropdown-menu"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
 import { CopyIcon, TrashIcon } from "lucide-react"
@@ -28,7 +26,6 @@ import {
 } from "@/components/registry/delete-registry-action"
 
 export function RegistryActionsTable() {
-  const router = useRouter()
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
   const [selectedAction, setSelectedAction] =

@@ -43,7 +43,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -106,7 +105,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
           </DropdownMenuItem>
           {isPrivileged && (
             <>
-=              <DropdownMenuItem
+              <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
                 onClick={(e) => {
                   e.stopPropagation()

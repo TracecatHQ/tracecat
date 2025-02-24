@@ -122,7 +122,7 @@ export function CreateTableDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[625px]">
         <DialogHeader>
-          <DialogTitle>Create New Table</DialogTitle>
+          <DialogTitle>Create new table</DialogTitle>
           <DialogDescription>
             Define your table structure by adding columns and their data types.
           </DialogDescription>

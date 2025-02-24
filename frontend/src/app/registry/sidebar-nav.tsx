@@ -54,7 +54,7 @@ export function SidebarNavBlock({
   ...props
 }: SidebarNavProps) {
   const pathname = usePathname()
-  const leafRoute = pathname.split("/").pop()
+  const leafRoute = pathname?.split("/").pop()
 
   return (
     <nav

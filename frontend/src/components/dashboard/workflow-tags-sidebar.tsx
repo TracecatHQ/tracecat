@@ -36,8 +36,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -435,10 +433,6 @@ function TagItem({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="right">
-              <DropdownMenuLabel className="py-0 text-xs text-muted-foreground">
-                Actions
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
               <AlertDialogTrigger asChild>
                 <DropdownMenuItem
                   className="text-xs"

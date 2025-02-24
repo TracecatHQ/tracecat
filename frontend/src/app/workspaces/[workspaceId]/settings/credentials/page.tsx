@@ -4,7 +4,6 @@ import { useWorkspace } from "@/providers/workspace"
 import { PlusCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import {

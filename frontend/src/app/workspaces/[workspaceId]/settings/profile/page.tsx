@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/providers/auth"
 import { Input } from "@/components/ui/input"
-import { useState } from "react"
 import {
   Form,
   FormControl,
@@ -12,24 +11,33 @@ import {
   FormLabel,
 } from "@/components/ui/form"
 import { useForm } from "react-hook-form"
+import { z } from "zod"
+
+const profileSchema = z.object({
+  email: z.string().email(),
+  firstName: z.string(),
+  lastName: z.string()
+})
+
+type ProfileFormData = z.infer<typeof profileSchema>
 
 export default function ProfileSettingsPage() {
   const { user } = useAuth()
   const router = useRouter()
-
-  if (!user) {
-    return router.push("/sign-in")
-  }
-
-  const form = useForm({
+  const form = useForm<ProfileFormData>({
     defaultValues: {
-      email: user.email ?? '',
-      firstName: user.first_name ?? '',
-      lastName: user.last_name ?? '',
+      email: user?.email ?? '',
+      firstName: user?.first_name ?? '',
+      lastName: user?.last_name ?? '',
     }
   })
 
-  const onSubmit = async (values: any) => {
+  if (!user) {
+    router.push("/sign-in")
+    return null
+  }
+
+  const onSubmit = async (_values: ProfileFormData) => {
     // Add your update logic here
     // Example: await updateUserProfile(values)
   }

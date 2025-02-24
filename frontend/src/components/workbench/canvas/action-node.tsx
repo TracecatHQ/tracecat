@@ -28,8 +28,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
@@ -96,7 +94,7 @@ export default React.memo(function ActionNode({
         variant: "destructive",
       })
     }
-  }, [id, toast])
+  }, [id, toast, workflowId, getNode, reactFlow])
 
   // Add this to track incoming edges
   const edges = useEdges()

@@ -75,7 +75,7 @@ export function SidebarNavBlock({
   const pathname = usePathname()
   const { workspaceId } = useWorkspace()
   const workspaceUrl = `/workspaces/${workspaceId}`
-  const leafRoute = pathname.split("/").pop()
+  const leafRoute = pathname?.split("/").pop()
 
   return (
     <nav

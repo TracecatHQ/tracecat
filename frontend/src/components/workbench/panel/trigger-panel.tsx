@@ -235,7 +235,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
         </TableHeader>
         <TableBody>
           {schedules.length > 0 ? (
-            schedules.map(({ id, status, inputs, every, timeout }) => (
+            schedules.map(({ id, status, every, timeout }) => (
               <TableRow key={id} className="ext-xs text-muted-foreground">
                 <TableCell className="items-center pl-3 text-xs">
                   {id}

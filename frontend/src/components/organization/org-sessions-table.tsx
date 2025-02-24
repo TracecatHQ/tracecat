@@ -26,8 +26,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -129,8 +127,6 @@ export function OrgSessionsTable() {
                       </DropdownMenuItem>
                       {privileged && (
                         <DropdownMenuGroup>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Manage</DropdownMenuLabel>
                           <AlertDialogTrigger asChild>
                             <DropdownMenuItem
                               className="text-rose-500 focus:text-rose-600"

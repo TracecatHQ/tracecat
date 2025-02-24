@@ -31,8 +31,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -201,8 +199,6 @@ export function WorkspaceMembersTable({
 
                       {userIsAdmin && (
                         <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Manage</DropdownMenuLabel>
                           <DialogTrigger asChild>
                             <DropdownMenuItem
                               onClick={() => {
