@@ -184,7 +184,7 @@ export function CreateOrgSSHKeyDialog({
                     </FormDescription>
                     <FormControl>
                       <Textarea
-                        className="h-96 text-sm"
+                        className="h-36 text-sm"
                         placeholder="Starts with '-----BEGIN OPENSSH PRIVATE KEY-----"
                         {...register("private_key")}
                       />
