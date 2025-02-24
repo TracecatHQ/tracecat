@@ -142,21 +142,33 @@ import { getBaseUrl } from "@/lib/api"
 import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { toast } from "@/components/ui/use-toast"
 
+interface AppInfo {
+  public_app_url: string
+  auth_allowed_types: string[]
+  auth_basic_enabled: boolean
+  oauth_google_enabled: boolean
+  saml_enabled: boolean
+}
+
 export function useAppInfo() {
-  const { data: appInfo, isLoading: appInfoIsLoading } = useQuery<{
-    public_app_url: string
-    auth_allowed_types: string[]
-    auth_basic_enabled: boolean
-    oauth_google_enabled: boolean
-    saml_enabled: boolean
-  }>({
+  const {
+    data: appInfo,
+    isLoading: appInfoIsLoading,
+    error: appInfoError,
+  } = useQuery<AppInfo, Error>({
     queryKey: ["app-info"],
     queryFn: async () => {
       const resp = await fetch(getBaseUrl() + "/info")
-      return await resp.json()
+      try {
+        return await resp.json()
+      } catch (error) {
+        throw new Error(
+          "Unable to fetch authentication settings. This could be a network issue with the Tracecat API."
+        )
+      }
     },
   })
-  return { appInfo, appInfoIsLoading }
+  return { appInfo, appInfoIsLoading, appInfoError }
 }
 
 export function useLocalStorage<T>(
