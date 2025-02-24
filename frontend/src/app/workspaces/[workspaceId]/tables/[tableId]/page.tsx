@@ -21,15 +21,11 @@ export default function TablePage() {
   const params = useParams<{ tableId: string }>()
   const tableId = params?.tableId
   const { workspaceId } = useWorkspace()
-
-  if (!tableId) {
-    return <AlertNotification message="Error loading table" variant="error" />
-  }
-
   const { table, tableIsLoading, tableError } = useGetTable({
-    tableId,
+    tableId: tableId ?? "",
     workspaceId,
   })
+
   if (tableIsLoading) return <CenteredSpinner />
   if (tableError || !table)
     return (
