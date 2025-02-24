@@ -11,8 +11,12 @@ import { Label } from "@/components/ui/label"
 
 const accountNavItems: NavItem[] = [
   {
-    title: "Account",
-    href: "/settings/account",
+    title: "Profile",
+    href: "/settings/profile",
+  },
+  {
+    title: "Security",
+    href: "/settings/security",
   },
 ]
 const workspaceNavItems: NavItem[] = [
