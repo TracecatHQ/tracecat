@@ -102,12 +102,11 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
             }}
           >
             <CopyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-            Copy Name
+            Copy name
           </DropdownMenuItem>
           {isPrivileged && (
             <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
+=              <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
                 onClick={(e) => {
                   e.stopPropagation()
@@ -117,7 +116,6 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 <Pencil className="mr-2 size-3 group-hover/item:text-accent-foreground" />
                 Edit
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="py-1 text-xs text-destructive"
                 onClick={(e) => {

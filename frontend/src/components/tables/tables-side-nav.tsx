@@ -140,11 +140,10 @@ function TableItem({
                 className="py-1 text-xs text-foreground/80"
               >
                 <CopyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-                Copy Name
+                Copy name
               </DropdownMenuItem>
               {isPrivileged && (
                 <>
-                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation()
@@ -155,8 +154,6 @@ function TableItem({
                     <PencilIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
                     Edit
                   </DropdownMenuItem>
-
-                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="py-1 text-xs text-destructive/80"
                     onClick={(e) => {
