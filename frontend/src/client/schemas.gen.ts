@@ -1788,6 +1788,12 @@ export const $RegistryActionRead = {
       title: "Repository Id",
       description: "The repository id",
     },
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "The registry action id",
+    },
     action: {
       type: "string",
       title: "Action",
@@ -1810,6 +1816,7 @@ export const $RegistryActionRead = {
     "origin",
     "interface",
     "repository_id",
+    "id",
     "action",
     "is_template",
   ],
@@ -1819,6 +1826,12 @@ export const $RegistryActionRead = {
 
 export const $RegistryActionReadMinimal = {
   properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "The registry action id",
+    },
     name: {
       type: "string",
       title: "Name",
@@ -1877,7 +1890,15 @@ export const $RegistryActionReadMinimal = {
     },
   },
   type: "object",
-  required: ["name", "description", "namespace", "type", "origin", "action"],
+  required: [
+    "id",
+    "name",
+    "description",
+    "namespace",
+    "type",
+    "origin",
+    "action",
+  ],
   title: "RegistryActionReadMinimal",
   description: "API minimal read model for a registered action.",
 } as const
