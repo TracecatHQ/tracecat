@@ -44,7 +44,6 @@ async def table(tables_service: TablesService) -> Table:
             name="age", type=SqlType.INTEGER, nullable=True, default=None
         ),
     )
-    await tables_service.session.refresh(table)
     return table
 
 
