@@ -17,7 +17,7 @@ IPV6_REGEX = (
 )
 
 def extract_ipv4_addresses(texts):
-    """Extrait les adresses IPv4 uniques à partir d'une liste de textes."""
+    """Extract unique IPv4 addresses from a list of strings."""
     if isinstance(texts, str):
         texts = [texts]
 
@@ -32,7 +32,7 @@ def extract_ipv4_addresses(texts):
             if ip_obj.version == 4:
                 valid_ips.add(str(ip_obj))
         except ValueError:
-            continue  # Ignorer les IP invalides
+            continue
 
     return list(valid_ips)
 
@@ -53,6 +53,6 @@ def extract_ipv6_addresses(texts):
             if ip_obj.version == 6:
                 valid_ips.add(str(ip_obj))
         except ValueError:
-            continue  # Ignorer les IP invalides
+            continue
 
     return list(valid_ips)

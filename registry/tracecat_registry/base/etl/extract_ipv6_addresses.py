@@ -1,7 +1,7 @@
 from typing import Annotated
 from pydantic import Field
 from tracecat_registry import registry
-from .extract_ip_addresses import extract_ipv6_addresses  # Import de la fonction
+from .extract_ip_addresses import extract_ipv6_addresses
 
 @registry.register(
     default_title="Extract IPv6 addresses",
@@ -15,5 +15,5 @@ def extract_ipv6(
         Field(..., description="Text or list of text to extract IPv6 addresses from"),
     ],
 ) -> list[str]:
-    """Extraction des adresses IPv6."""
+    """Extraction of IPv6 addresses."""
     return extract_ipv6_addresses(texts)
