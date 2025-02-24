@@ -313,6 +313,7 @@ class RegistryActionBase(BaseModel):
 class RegistryActionReadMinimal(BaseModel):
     """API minimal read model for a registered action."""
 
+    id: UUID4 = Field(..., description="The registry action id")
     name: str = Field(..., description="The name of the action")
     description: str = Field(..., description="The description of the action")
     namespace: str = Field(..., description="The namespace of the action")
@@ -335,6 +336,8 @@ class RegistryActionReadMinimal(BaseModel):
 class RegistryActionRead(RegistryActionBase):
     """API read model for a registered action."""
 
+    id: UUID4 = Field(..., description="The registry action id")
+
     @computed_field(return_type=str)
     @property
     def action(self) -> str:
@@ -356,6 +359,7 @@ class RegistryActionRead(RegistryActionBase):
         if extra_secrets:
             secrets.update(extra_secrets)
         return RegistryActionRead(
+            id=action.id,
             repository_id=action.repository_id,
             name=action.name,
             description=action.description,
