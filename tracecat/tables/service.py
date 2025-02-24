@@ -309,6 +309,7 @@ class TablesService(BaseService):
 
         await self.session.commit()
         await self.session.refresh(column)
+        await self.session.refresh(table)
         return column
 
     @require_access_level(AccessLevel.ADMIN)
