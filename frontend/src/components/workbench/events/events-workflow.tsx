@@ -196,21 +196,24 @@ export function WorkflowEvents({
   } = useWorkflowBuilder()
   const { workflow } = useWorkflow()
 
-  const centerNode = useCallback((actionRef: string) => {
-    const action = Object.values(workflow?.actions || {}).find(
-      (act) => slugify(act.title) === actionRef
-    )
-    const id = action?.id
-    if (id) {
-      setNodes((nodes) =>
-        nodes.map((node) => ({
-          ...node,
-          selected: Boolean(node.id === action.id),
-        }))
+  const centerNode = useCallback(
+    (actionRef: string) => {
+      const action = Object.values(workflow?.actions || {}).find(
+        (act) => slugify(act.title) === actionRef
       )
-      canvasRef.current?.centerOnNode(id)
-    }
-  }, [workflow?.actions, setNodes, canvasRef])
+      const id = action?.id
+      if (id) {
+        setNodes((nodes) =>
+          nodes.map((node) => ({
+            ...node,
+            selected: Boolean(node.id === action.id),
+          }))
+        )
+        canvasRef.current?.centerOnNode(id)
+      }
+    },
+    [workflow?.actions, setNodes, canvasRef]
+  )
   const handleRowClick = useCallback(
     (actionRef: string) => {
       if (selectedActionEventRef === actionRef) {
@@ -238,15 +241,9 @@ export function WorkflowEvents({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="h-8 text-xs">
-                Status
-              </TableHead>
-              <TableHead className="h-8 truncate text-xs">
-                Action
-              </TableHead>
-              <TableHead className="h-8 text-xs">
-                Start time
-              </TableHead>
+              <TableHead className="h-8 text-xs">Status</TableHead>
+              <TableHead className="h-8 truncate text-xs">Action</TableHead>
+              <TableHead className="h-8 text-xs">Start time</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -266,10 +263,8 @@ export function WorkflowEvents({
                       <WorkflowEventStatusIcon status={event.status} />
                     </div>
                   </TableCell>
-                  <TableCell className="text-xs text-foreground/70 max-w-28">
-                    <div className="truncate">
-                      {event.action_ref}
-                    </div>
+                  <TableCell className="max-w-28 text-xs text-foreground/70">
+                    <div className="truncate">{event.action_ref}</div>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-xs">
                     <Badge

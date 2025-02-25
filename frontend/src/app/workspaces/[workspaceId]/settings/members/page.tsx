@@ -30,7 +30,8 @@ export default function WorkspaceMembersPage() {
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">Members</h2>
             <p className="text-md text-muted-foreground">
-              Manage who is a member of <b className="inline-block">{workspace.name}</b> workspace.
+              Manage who is a member of{" "}
+              <b className="inline-block">{workspace.name}</b> workspace.
             </p>
           </div>
         </div>

@@ -107,9 +107,7 @@ export function OrgSettingsAuthForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel>
-                  Enable email / password authentication
-                </FormLabel>
+                <FormLabel>Enable email / password authentication</FormLabel>
                 <FormDescription>
                   {isBasicAuthAllowed
                     ? "Allow users to sign in with email and password. When disabled, only SSO/Oauth login methods will be available."
@@ -134,9 +132,7 @@ export function OrgSettingsAuthForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel>
-                  Require email verification
-                </FormLabel>
+                <FormLabel>Require email verification</FormLabel>
                 <FormDescription>
                   Require email verification for your organization.
                 </FormDescription>
@@ -167,7 +163,8 @@ export function OrgSettingsAuthForm() {
                 />
               </FormControl>
               <FormDescription>
-                Add domains that are allowed to authenticate to the platform (e.g. acme.com).
+                Add domains that are allowed to authenticate to the platform
+                (e.g. acme.com).
               </FormDescription>
               <FormMessage />
             </FormItem>

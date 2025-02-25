@@ -33,9 +33,12 @@ export default function WorkspaceCredentialsPage() {
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
-            <h2 className="text-2xl font-semibold tracking-tight">Credentials</h2>
+            <h2 className="text-2xl font-semibold tracking-tight">
+              Credentials
+            </h2>
             <p className="text-md text-muted-foreground">
-              Manage credentials for the <b className="inline-block">{workspace.name}</b> workspace.
+              Manage credentials for the{" "}
+              <b className="inline-block">{workspace.name}</b> workspace.
             </p>
           </div>
         </div>

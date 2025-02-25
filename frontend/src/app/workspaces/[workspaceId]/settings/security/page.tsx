@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/providers/auth"
+
 import { UpdatePasswordForm } from "@/components/auth/update-password-form"
 
 export default function SecuritySettingsPage() {

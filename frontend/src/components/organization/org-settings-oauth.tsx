@@ -78,9 +78,7 @@ export function OrgSettingsOAuthForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel>
-                  Enable Google OAuth sign-in
-                </FormLabel>
+                <FormLabel>Enable Google OAuth sign-in</FormLabel>
                 <FormDescription>
                   {isOauthAllowed
                     ? "Allow members to sign in to your organization using their Google accounts."
