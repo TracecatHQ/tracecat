@@ -4,7 +4,9 @@ description: Reference action outputs, webhook payloads, secrets, and more.
 icon: dollar-sign
 ---
 
-Expressions is how you reference and manipulate data inline in action inputs, run-if conditions, and loop expressions.
+import JsonpathNote from '/snippets/jsonpath-note.mdx'
+
+Expressions is how you reference and manipulate data inline in action inputs, run-if conditions, loop expressions, and output schemas.
 Tracecat supports the following expression contexts:
 
 | Prefix    | Expression syntax                          | Description                               |
@@ -22,13 +24,9 @@ ${{ <context>.<expression> }}
 
 Expressions are evaluated into values at the start of each action run.
 
+<JsonpathNote />
+
 ## `ACTIONS` context
-
-<Info>
-  Tracecat uses [JSONPath](https://github.com/h2non/jsonpath-ng?tab=readme-ov-file#jsonpath-syntax) and dot notation to select outputs from previous actions.
-
-  For example, `ACTIONS.my_action.result.data.items` selects the `items` field from a nested JSON object returned by the `my_action` action.
-</Info>
 
 You can reference outputs from a previous action in the same workflow using the `ACTIONS` context.
 Actions are referenced by a sluggified version of their name.
@@ -138,10 +136,120 @@ Retrieved secrets are deleted from memory after the workflow run completes.
 </Tip>
 
 Tracecat supports inline functions in the `FN` context.
-For example, you can use the `FN.deserialize_json` function to decode a JSON string into a JSON object.
+Here are some examples of functions you can use with `FN`:
+
+<Info>
+  For the following function examples, we'll use the `Example alert` JSON as sample data.
+  Feel free to copy and paste this into your own workflow to follow along.
+</Info>
+
+<Accordion title="Example alert" icon="bell">
+```json
+{
+  "alert": {
+    "id": "alert-123456",
+    "title": "Suspicious Login Activity",
+    "severity": "high",
+    "created_at": "2023-11-15T08:45:23Z",
+    "source_ip": "203.0.113.42",
+    "destination_ip": "10.0.0.15",
+    "user": {
+      "id": "user-789",
+      "email": "john.doe@example.com",
+      "department": "Finance"
+    },
+    "events": [
+      {
+        "timestamp": "2023-11-15T08:43:12Z",
+        "action": "login_attempt",
+        "status": "failed",
+        "location": "Moscow, Russia",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      },
+      {
+        "timestamp": "2023-11-15T08:44:05Z",
+        "action": "login_attempt",
+        "status": "failed",
+        "location": "Moscow, Russia",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      },
+      {
+        "timestamp": "2023-11-15T08:45:18Z",
+        "action": "login_attempt",
+        "status": "success",
+        "location": "Moscow, Russia",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      }
+    ],
+    "raw_logs": "<syslog><timestamp>2023-11-15T08:45:18Z</timestamp><message>User login successful after multiple failures</message></syslog>",
+    "additional_context": {
+      "last_successful_login": "2023-11-14T17:22:45Z",
+      "usual_location": "New York, USA",
+      "risk_score": 85.7
+    }
+  }
+}
+```
+</Accordion>
 
 ```yaml
-${{ FN.deserialize_json(ACTIONS.get_weather.result.data) }}
+# --- JSON Processing ---
+# Parse a JSON string into an object
+result: ${{ FN.deserialize_json(ACTIONS.get_alert.result.raw_data) }}
+
+# Convert an object to a JSON string
+result: ${{ FN.serialize_json(ACTIONS.transform_data.result) }}
+
+# Format JSON for readability
+result: ${{ FN.prettify_json(ACTIONS.get_alert.result.alert) }}
+
+# Safely access a potentially missing property
+result: ${{ FN.lookup(ACTIONS.get_alert.result.alert.user, "department") }}
+
+# Extract values from a list of objects by a key
+result: ${{ FN.index_by_key(ACTIONS.get_alert.result.alert.events, "timestamp", "action") }}
+
+# Merge multiple objects
+result: >-
+  ${{ FN.merge([
+    ACTIONS.get_user_info.result,
+    ACTIONS.get_device_info.result,
+    {"alert_id": ACTIONS.get_alert.result.alert.id}
+  ]) }}
+
+# --- Date/Time Processing ---
+# Convert ISO string to datetime
+result: ${{ FN.to_datetime(ACTIONS.get_alert.result.alert.created_at) }}
+
+# Format a datetime
+result: ${{ FN.format_datetime(ACTIONS.get_alert.result.alert.created_at, "%Y-%m-%d %H:%M:%S") }}
+
+# Convert datetime to timestamp (seconds since epoch)
+result: ${{ FN.to_timestamp(ACTIONS.get_alert.result.alert.created_at) }}
+
+# Calculate time difference in hours
+result: >-
+  ${{ FN.hours_between(
+    ACTIONS.get_alert.result.alert.additional_context.last_successful_login,
+    ACTIONS.get_alert.result.alert.created_at
+  ) }}
+
+# --- Text Processing ---
+# Extract text using regex
+result: ${{ FN.regex_extract("<timestamp>(.*?)</timestamp>", ACTIONS.get_alert.result.alert.raw_logs) }}
+
+# Extract text from HTML
+result: ${{ FN.extract_text_from_html(ACTIONS.get_webpage.result.html_content) }}
+
+# Transform text
+result: ${{ FN.uppercase(ACTIONS.get_alert.result.alert.title) }}
+
+# --- Conditional Logic ---
+# Check if an IP is public
+result: ${{ FN.ipv4_is_public(ACTIONS.get_alert.result.alert.source_ip) }}
+
+# Check if a value exists in a list
+result: ${{ FN.contains("failed", FN.index_by_key(ACTIONS.get_alert.result.alert.events, "status")) }}
 ```
 
 Check out the docs on [Data manipulation](/introduction#data-manipulation) to learn more about the different data types and how to manipulate them.
