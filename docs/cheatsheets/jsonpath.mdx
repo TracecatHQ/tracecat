@@ -3,11 +3,18 @@ title: JSONPath
 description: A cheatsheet for JSONPath syntax and filters.
 ---
 
-## JSONPath
-
 <Note>
-  Tracecat's JSONPath implementation is based on [jsonpath-ng](https://github.com/h2non/jsonpath-ng?tab=readme-ov-file#jsonpath-syntax).
+  JSONPath and dot notation should be used to:
+  - Get single values from a nested JSON object
+  - Get values from JSON arrays via indexing and slicing
+  - Filter lists of JSONs using simple conditions (e.g. `==`, `!=`, `>`, `>=`, `<`, `<=`)
+
+  For advanced filtering, we recommend using the `core.transform.filter` action.
 </Note>
+
+<Info>
+  Tracecat's JSONPath implementation is based on [jsonpath-ng](https://github.com/h2non/jsonpath-ng?tab=readme-ov-file#jsonpath-syntax).
+</Info>
 
 ### Basic Syntax
 
@@ -30,6 +37,10 @@ We'll use the following JSON as an example:
 
 ### Common JSONPath Expressions
 
+<Note>
+  Replace `$` with `ACTIONS.<action_name>.result` or `TRIGGER` [expression contexts](/quickstart/expressions).
+</Note>
+
 ```php
 $.data                     # Select the data object
 $.data.users               # Select the users array
@@ -48,4 +59,65 @@ $.data.users[0:2]          # Select first two users (slice)
 $.data.users[-1]           # Select the last user
 $.data.users[?(@.roles.length > 1)]  # Select users with multiple roles
 $..users[?(@.name =~ /^J.*/)].name   # Select names starting with J
+```
+
+### Array Indexing
+
+```php
+$.data.users[0]            # Select first user
+$.data.users[1]            # Select second user
+$.data.users[-1]           # Select last user
+$.data.users[-2]           # Select second to last user
+$.data.users[0,1]          # Select first and second users
+$.data.users[0:2]          # Select first two users (slice)
+$.data.users[1:3]          # Select users from index 1 to 2 (exclusive)
+$.data.users[:2]           # Select first two users
+$.data.users[-2:]          # Select last two users
+$.data.users[*]            # Select all users
+```
+
+### Filter Examples
+
+Using this extended JSON for examples:
+```json
+{
+  "data": {
+    "users": [
+      { "id": 1, "name": "John", "age": 30, "active": true, "score": 85 },
+      { "id": 2, "name": "Jane", "age": 25, "active": true, "score": 92 },
+      { "id": 3, "name": "Bob", "age": 35, "active": false, "score": 78 },
+      { "id": 4, "name": "Alice", "age": 28, "active": true, "score": 95 }
+    ]
+  }
+}
+```
+
+#### Basic Filters
+```php
+$.data.users[?(@.age > 30)]               # Users over 30
+$.data.users[?(@.active == true)]         # Active users
+$.data.users[?(@.name == "John")]         # User named John
+$.data.users[?(@.score >= 90)]            # Users with score 90 or higher
+```
+
+#### Comparison Operators
+```php
+$.data.users[?(@.age != 30)]              # Users not age 30
+$.data.users[?(@.score >= 85)]            # Users with score 85 or higher
+$.data.users[?(@.score < 80)]             # Users with score under 80
+$.data.users[?(@.active !== false)]       # Users that are not inactive
+```
+
+#### Multiple Conditions
+```php
+# AND condition
+$.data.users[?(@.age > 25 && @.active == true)]        # Active users over 25
+$.data.users[?(@.score > 80 && @.age < 30)]            # Users under 30 with score over 80
+
+# OR condition
+$.data.users[?(@.name == "John" || @.name == "Jane")]  # Users named John or Jane
+$.data.users[?(@.age < 25 || @.age > 35)]             # Users younger than 25 or older than 35
+
+# Complex conditions
+$.data.users[?(@.active == true && (@.age < 30 || @.score > 90))]  # Active users either under 30 or with score over 90
 ```
