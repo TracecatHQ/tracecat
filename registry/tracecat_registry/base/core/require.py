@@ -11,26 +11,26 @@ from tracecat_registry import registry
     namespace="core",
 )
 def require(
-    exprs: Annotated[
+    conditions: Annotated[
         Any | list[Any],
         Doc(
             "Conditional expression(s) to evaluate. All must be true for the result to be true."
         ),
     ],
 ) -> bool:
-    if not isinstance(exprs, list):
-        exprs = [exprs]
+    if not isinstance(conditions, list):
+        conditions = [conditions]
 
-    if not all(isinstance(expr, bool) for expr in exprs):
+    if not all(isinstance(condition, bool) for condition in conditions):
         raise ValueError(
-            "All expressions must evaluate to a boolean. Got types: "
-            + ", ".join(type(expr).__name__ for expr in exprs)
+            "All conditions must evaluate to a boolean. Got types: "
+            + ", ".join(type(condition).__name__ for condition in conditions)
         )
 
-    if not all(exprs):
+    if not all(conditions):
         raise AssertionError(
-            "All expressions must evaluate to true. Got values: "
-            + ", ".join(str(expr) for expr in exprs)
+            "All conditions must evaluate to true. Got values: "
+            + ", ".join(str(condition) for condition in conditions)
         )
 
     return True

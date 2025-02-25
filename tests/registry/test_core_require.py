@@ -7,25 +7,25 @@ from tracecat_registry.base.core.require import require
 
 
 @pytest.mark.parametrize(
-    "exprs",
+    "conditions",
     [
         True,
         [True, True],
         [True, True, True],
     ],
 )
-def test_require_all(exprs):
-    assert require(exprs) is True
+def test_require_all(conditions):
+    assert require(conditions) is True
 
 
 @pytest.mark.parametrize(
-    "exprs",
+    "conditions",
     [
         False,
         [True, False],
         [False, True],
     ],
 )
-def test_require_all_fail(exprs):
+def test_require_all_fail(conditions):
     with pytest.raises(AssertionError):
-        require(exprs)
+        require(conditions)
