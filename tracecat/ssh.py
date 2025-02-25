@@ -16,6 +16,7 @@ from pydantic import SecretStr
 from slugify import slugify
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
@@ -180,6 +181,15 @@ def add_ssh_key_to_agent_sync(key_data: str, env: SshEnv) -> None:
 async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
     """Asynchronously add the SSH key to the agent then remove it."""
     return await asyncio.to_thread(add_ssh_key_to_agent_sync, key_data, env)
+
+
+async def get_ssh_command(git_url: GitUrl, role: Role, session: AsyncSession) -> str:
+    """Get an SSH command for the given Git URL and SSH key."""
+    role = role or ctx_role.get()
+    service = SecretsService(session=session, role=role)
+    ssh_key = await service.get_ssh_key()
+    ssh_cmd = await prepare_ssh_key_file(git_url=git_url, ssh_key=ssh_key)
+    return ssh_cmd
 
 
 async def prepare_ssh_key_file(git_url: GitUrl, ssh_key: SecretStr) -> str:
