@@ -244,12 +244,15 @@ result: ${{ FN.extract_text_from_html(ACTIONS.get_webpage.result.html_content) }
 # Transform text
 result: ${{ FN.uppercase(ACTIONS.get_alert.result.alert.title) }}
 
-# --- Conditional Logic ---
+# --- IP Addresses ---
+# Check IP address version
+result: ${{ FN.check_ip_version(ACTIONS.get_alert.result.alert.source_ip) }}
+
 # Check if an IP is public
 result: ${{ FN.ipv4_is_public(ACTIONS.get_alert.result.alert.source_ip) }}
 
-# Check if a value exists in a list
-result: ${{ FN.contains("failed", FN.index_by_key(ACTIONS.get_alert.result.alert.events, "status")) }}
+# Check if an IP is private
+result: ${{ FN.ipv4_is_private(ACTIONS.get_alert.result.alert.source_ip) }}
 ```
 
 Check out the docs on [Data manipulation](/introduction#data-manipulation) to learn more about the different data types and how to manipulate them.
