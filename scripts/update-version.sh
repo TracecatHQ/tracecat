@@ -44,7 +44,6 @@ fi
 # List of files to update (hardcoded)
 FILES=(
     "tracecat/__init__.py"
-    "pyproject.toml"
     "docker-compose.yml"
     "docs/tutorials/updating.mdx"
     "docs/self-hosting/deployment-options/docker-compose.mdx"
