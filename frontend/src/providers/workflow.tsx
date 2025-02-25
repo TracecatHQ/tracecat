@@ -9,7 +9,6 @@ import React, {
   useEffect,
   useState,
 } from "react"
-import { useParams } from "next/navigation"
 import {
   ApiError,
   RegistryActionValidateResponse,
@@ -60,14 +59,15 @@ const WorkflowContext = createContext<WorkflowContextType | undefined>(
 )
 
 export function WorkflowProvider({
+  workflowId,
   workspaceId,
   children,
 }: {
+  workflowId: string
   workspaceId: string
   children: ReactNode
 }) {
   const queryClient = useQueryClient()
-  const { workflowId } = useParams<{ workflowId: string }>()
   const [validationErrors, setValidationErrors] = useState<
     RegistryActionValidateResponse[] | null
   >(null)
