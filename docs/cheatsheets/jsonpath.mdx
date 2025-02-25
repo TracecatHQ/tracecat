@@ -1,0 +1,51 @@
+---
+title: JSONPath
+description: A cheatsheet for JSONPath syntax.
+---
+
+## JSONPath
+
+<Note>
+  Tracecat's JSONPath implementation is based on [jsonpath-ng](https://github.com/h2non/jsonpath-ng?tab=readme-ov-file#jsonpath-syntax).
+</Note>
+
+### Basic Syntax
+
+We'll use the following JSON as an example:
+
+```json
+{
+  "data": {
+    "users": [
+      { "id": 1, "name": "John", "roles": ["admin", "user"] },
+      { "id": 2, "name": "Jane", "roles": ["user"] }
+    ],
+    "settings": {
+      "theme": "dark",
+      "notifications": true
+    }
+  }
+}
+```
+
+### Common JSONPath Expressions
+
+```php
+$.data                     # Select the data object
+$.data.users               # Select the users array
+$.data.users[0]            # Select the first user
+$.data.users[*].name       # Select all user names
+$.data.users[?(@.id==1)]   # Select user with id=1
+$.data.users[*].roles[0]   # Select the first role of each user
+$.data.settings.*          # Select all properties of settings
+```
+
+### Advanced JSONPath
+
+```
+$..name                    # Select all name properties at any level
+$.data.users[0:2]          # Select first two users (slice)
+$.data.users[-1]           # Select the last user
+$.data.users[?(@.roles.length > 1)]  # Select users with multiple roles
+$..users[?(@.name =~ /^J.*/)].name   # Select names starting with J
+```
