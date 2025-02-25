@@ -27,6 +27,7 @@ import {
 } from "@tanstack/react-query"
 import { AlertTriangleIcon } from "lucide-react"
 
+import { TracecatApiError } from "@/lib/errors"
 import { toast } from "@/components/ui/use-toast"
 
 type WorkflowContextType = {
@@ -147,15 +148,25 @@ export function WorkflowProvider({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
     },
-    onError: (error: ApiError) => {
+    onError: (error: TracecatApiError) => {
       console.error("Failed to update workflow:", error)
-      toast({
-        title: "Error updating workflow",
-        description:
-          (error.body as TracecatErrorMessage).message ||
-          "Could not update workflow. Please try again.",
-        variant: "destructive",
-      })
+      switch (error.status) {
+        case 409:
+          toast({
+            title: "Failed to update workflow",
+            description:
+              String(error.body.detail) ||
+              "There was a conflict updating the workflow. Please try again.",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to update workflow",
+            description:
+              String(error.body.detail) ||
+              "Could not update workflow. Please the logs for more details.",
+          })
+      }
     },
   })
 
