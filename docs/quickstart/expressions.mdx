@@ -206,7 +206,10 @@ result: ${{ FN.prettify_json(ACTIONS.get_alert.result.alert) }}
 # Safely access a potentially missing property
 result: ${{ FN.lookup(ACTIONS.get_alert.result.alert.user, "department") }}
 
-# Extract values from a list of objects by a key
+# Convert a list of objects into an object indexed by a given key ("timestamp")
+result: ${{ FN.index_by_key(ACTIONS.get_alert.result.alert.events, "timestamp") }}
+
+# Convert a list of objects into an object with key ("timestamp") and value ("action")
 result: ${{ FN.index_by_key(ACTIONS.get_alert.result.alert.events, "timestamp", "action") }}
 
 # Merge multiple objects
