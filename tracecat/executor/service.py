@@ -41,7 +41,8 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
-from tracecat.ssh import opt_temp_key_file
+from tracecat.secrets.service import SecretsService
+from tracecat.ssh import prepare_ssh_key_file
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     ExecutionError,
@@ -389,18 +390,16 @@ async def dispatch_action_on_cluster(
 
     role = ctx_role.get()
 
+    ctx = DispatchActionContext(role=role)
     if git_url:
-        async with opt_temp_key_file(git_url=git_url, session=session) as ssh_command:
-            logger.trace("SSH command", ssh_command=ssh_command)
-            ctx = DispatchActionContext(
-                role=role, git_url=git_url, ssh_command=ssh_command
-            )
-            result = await _dispatch_action(input=input, ctx=ctx)
-    else:
-        result = await _dispatch_action(
-            input=input, ctx=DispatchActionContext(role=role)
-        )
-    return result
+        role = role or ctx_role.get()
+        service = SecretsService(session=session, role=role)
+        ssh_key = await service.get_ssh_key()
+        ssh_cmd = await prepare_ssh_key_file(git_url=git_url, ssh_key=ssh_key)
+        logger.trace("SSH command", ssh_command=ssh_cmd)
+        ctx.ssh_command = ssh_cmd
+        ctx.git_url = git_url
+    return await _dispatch_action(input=input, ctx=ctx)
 
 
 async def _dispatch_action(
