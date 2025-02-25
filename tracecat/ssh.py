@@ -187,22 +187,20 @@ async def prepare_ssh_key_file(git_url: GitUrl, ssh_key: SecretStr) -> str:
     key_dir = Path.home().joinpath(".tracecat")
     key_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     key_path = key_dir / slugify(f"{git_url.host}_{git_url.org}_{git_url.repo}")
-    key_path.touch(mode=0o600, exist_ok=True)
-    # Overwrite file contents
-    async with aiofiles.open(key_path, mode="r+", encoding="utf-8") as f:
-        content = await f.read()
-        new_content = ssh_key.get_secret_value()
-        if content != new_content:
-            logger.debug("Overwriting SSH key file", key_path=key_path)
-            await f.truncate(0)
-            await f.write(new_content)
-            await f.flush()
-        # Set strict permissions (important!)
-        os.chmod(f.name, 0o600)
+
+    # Write the key content to the file with proper permissions
+    async with aiofiles.open(key_path, mode="w", encoding="utf-8") as f:
+        await f.write(ssh_key.get_secret_value())
+        await f.flush()
+
+    # Set strict permissions after writing (important!)
+    os.chmod(key_path, 0o600)
+
+    logger.debug("Created SSH key file", key_path=key_path)
 
     # Use the key file in SSH command with more permissive host key checking
     ssh_cmd = (
-        f"ssh -i {f.name} -o IdentitiesOnly=yes "
+        f"ssh -i {key_path!s} -o IdentitiesOnly=yes "
         "-o StrictHostKeyChecking=accept-new "
         f"-o UserKnownHostsFile={Path.home().joinpath('.ssh/known_hosts')!s}"
     )
