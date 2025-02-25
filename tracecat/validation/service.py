@@ -10,13 +10,7 @@ from tracecat_registry import RegistrySecret
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryAction
-from tracecat.dsl.common import (
-    DSLInput,
-    ExecuteChildWorkflowArgs,
-    RunTableInsertRowArgs,
-    RunTableLookupArgs,
-    context_locator,
-)
+from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs, context_locator
 from tracecat.dsl.enums import CoreActions
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
@@ -169,10 +163,6 @@ async def validate_registry_action_args(
         try:
             if action_name == CoreActions.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteChildWorkflowArgs.model_validate(args)
-            elif action_name == CoreActions.TABLE_LOOKUP:
-                validated = RunTableLookupArgs.model_validate(args)
-            elif action_name == CoreActions.TABLE_INSERT_ROW:
-                validated = RunTableInsertRowArgs.model_validate(args)
             else:
                 service = RegistryActionsService(session)
                 action = await service.get_action(action_name=action_name)

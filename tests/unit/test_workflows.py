@@ -35,8 +35,6 @@ from tracecat.dsl.common import (
     DSLEntrypoint,
     DSLInput,
     DSLRunArgs,
-    RunTableInsertRowArgs,
-    RunTableLookupArgs,
 )
 from tracecat.dsl.enums import LoopStrategy
 from tracecat.dsl.models import (
@@ -2800,11 +2798,11 @@ async def test_workflow_lookup_table_success(
             ActionStatement(
                 ref="lookup_table",
                 action="core.table.lookup",
-                args=RunTableLookupArgs(
-                    table=table.name,
-                    column="number",
-                    value=1,
-                ).model_dump(),
+                args={
+                    "table": table.name,
+                    "column": "number",
+                    "value": 1,
+                },
             ),
         ],
         returns="${{ ACTIONS.lookup_table.result }}",
@@ -2857,11 +2855,11 @@ async def test_workflow_lookup_table_missing_value(
             ActionStatement(
                 ref="lookup_table",
                 action="core.table.lookup",
-                args=RunTableLookupArgs(
-                    table=table.name,
-                    column="number",
-                    value=2,  # This value doesn't exist in the table
-                ).model_dump(),
+                args={
+                    "table": table.name,
+                    "column": "number",
+                    "value": 2,  # This value doesn't exist in the table
+                },
             ),
         ],
         returns="${{ ACTIONS.lookup_table.result }}",
@@ -2912,10 +2910,10 @@ async def test_workflow_insert_table_row_success(
             ActionStatement(
                 ref="insert_row",
                 action="core.table.insert_row",
-                args=RunTableInsertRowArgs(
-                    table=table.name,
-                    row_data={"number": 42},
-                ).model_dump(),
+                args={
+                    "table": table.name,
+                    "row_data": {"number": 42},
+                },
             ),
         ],
         returns="${{ ACTIONS.insert_row.result }}",
@@ -2942,3 +2940,119 @@ async def test_workflow_insert_table_row_success(
         rows = await service.lookup_row(table_name, columns=["number"], values=[42])
     assert len(rows) == 1
     assert rows[0]["number"] == 42
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_workflow_table_actions_in_loop(
+    test_role: Role, temporal_client: Client, test_admin_role: Role
+):
+    """
+    Test that a workflow can perform table operations in a loop.
+
+    1. Create a table with a column
+    2. Create a workflow that inserts multiple rows in a loop
+    3. Run the workflow
+    4. Verify all rows were inserted correctly
+    5. Verify lookup works for each inserted row
+    """
+    test_name = test_workflow_table_actions_in_loop.__name__
+
+    # Create table with a number column
+    table_name = None
+    async with TablesService.with_session(role=test_admin_role) as service:
+        table = await service.create_table(TableCreate(name="test_loop_table"))
+        table_name = table.name
+        await service.create_column(
+            table,
+            TableColumnCreate(name="number", type=SqlType.INTEGER),
+        )
+        await service.create_column(
+            table,
+            TableColumnCreate(name="squared", type=SqlType.INTEGER),
+        )
+
+    # Create workflow that inserts rows in a loop and then looks them up
+    dsl = DSLInput(
+        title=test_name,
+        description="Test running table actions in a loop",
+        entrypoint=DSLEntrypoint(ref="process_numbers"),
+        actions=[
+            # Insert rows in a loop
+            ActionStatement(
+                ref="insert_rows",
+                action="core.table.insert_row",
+                for_each="${{ for var.num in FN.range(1, 6) }}",  # Loop from 1 to 5
+                args={
+                    "table": table_name,
+                    "row_data": {
+                        "number": "${{ var.num }}",
+                        "squared": "${{ var.num * var.num }}",
+                    },
+                },
+            ),
+            # Look up rows in a loop
+            ActionStatement(
+                ref="lookup_rows",
+                action="core.table.lookup",
+                for_each="${{ for var.num in FN.range(1, 6) }}",  # Loop from 1 to 5
+                args={
+                    "table": table_name,
+                    "column": "number",
+                    "value": "${{ var.num }}",
+                },
+                depends_on=["insert_rows"],
+            ),
+            # Process the results
+            ActionStatement(
+                ref="process_numbers",
+                action="core.transform.reshape",
+                args={
+                    "value": {
+                        "inserted_rows": "${{ ACTIONS.insert_rows.result }}",
+                        "looked_up_rows": "${{ ACTIONS.lookup_rows.result }}",
+                    }
+                },
+                depends_on=["lookup_rows"],
+            ),
+        ],
+        returns="${{ ACTIONS.process_numbers.result }}",
+    )
+
+    # Run the workflow
+    wf_exec_id = generate_test_exec_id(test_name)
+    run_args = DSLRunArgs(
+        dsl=dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+
+    # Verify the results
+    assert result is not None
+    assert "inserted_rows" in result
+    assert "looked_up_rows" in result
+
+    # Check inserted rows
+    inserted_rows = result["inserted_rows"]
+    assert len(inserted_rows) == 5
+    for i, row in enumerate(inserted_rows, 1):
+        assert row["number"] == i
+        assert row["squared"] == i * i
+
+    # Check looked up rows
+    looked_up_rows = result["looked_up_rows"]
+    assert len(looked_up_rows) == 5
+    for i, row in enumerate(looked_up_rows, 1):
+        assert row["number"] == i
+        assert row["squared"] == i * i
+
+    # Verify the rows were actually inserted in the database
+    async with TablesService.with_session(role=test_admin_role) as service:
+        table = await service.get_table_by_name(table_name)
+        rows = await service.list_rows(table)
+
+    assert len(rows) == 5
+    for i, row in enumerate(sorted(rows, key=lambda r: r["number"]), 1):
+        assert row["number"] == i
+        assert row["squared"] == i * i

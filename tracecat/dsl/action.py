@@ -5,21 +5,15 @@ from typing import Any
 
 import dateparser
 from pydantic import BaseModel
-from sqlalchemy.exc import DBAPIError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.common import RunTableInsertRowArgs, RunTableLookupArgs
-from tracecat.dsl.enums import CoreActions
 from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
 from tracecat.executor.client import ExecutorClient
-from tracecat.expressions.eval import eval_templated_object
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
-from tracecat.tables.models import TableRowInsert
-from tracecat.tables.service import TablesService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import ExecutorClientError, RegistryError
 from tracecat.validation.service import validate_registry_action_args
@@ -109,43 +103,8 @@ class DSLActivities:
             retry_policy=task.retry_policy,
         )
         try:
-            if task.action == CoreActions.TABLE_LOOKUP:
-                # Do a table lookup
-                resolved_args = eval_templated_object(
-                    task.args, operand=input.exec_context
-                )
-                args = RunTableLookupArgs.model_validate(resolved_args)
-                async with TablesService.with_session(role=role) as service:
-                    rows = await service.lookup_row(
-                        table_name=args.table,
-                        columns=[args.column],
-                        values=[args.value],
-                    )
-                return rows[0] if rows else None
-            elif task.action == CoreActions.TABLE_INSERT_ROW:
-                args = RunTableInsertRowArgs.model_validate(task.args)
-                params = TableRowInsert(data=args.row_data)
-                async with TablesService.with_session(role=role) as service:
-                    table = await service.get_table_by_name(args.table)
-                    row = await service.insert_row(table=table, params=params)
-                return row
-            else:
-                # Run other actions in the executor
-                client = ExecutorClient(role=role)
-                return await client.run_action_memory_backend(input)
-        except DBAPIError as e:
-            # We only expect DBAPIError to be raised from the tables service
-            kind = e.__class__.__name__
-            msg = str(e)
-            act_logger.error("Database exception occurred", error=msg, detail=e.detail)
-            err_info = ActionErrorInfo(
-                ref=task.ref,
-                message=msg,
-                type=kind,
-                attempt=attempt,
-            )
-            err_msg = err_info.format("run_action")
-            raise ApplicationError(err_msg, err_info, type=kind) from e
+            client = ExecutorClient(role=role)
+            return await client.run_action_memory_backend(input)
         except ExecutorClientError as e:
             # We only expect ExecutorClientError to be raised from the executor client
             kind = e.__class__.__name__
