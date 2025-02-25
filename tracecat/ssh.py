@@ -183,17 +183,7 @@ async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
 
 
 async def prepare_ssh_key_file(git_url: GitUrl, ssh_key: SecretStr) -> str:
-    """Create a temporary file containing an SSH key with secure permissions.
-
-    Args:
-        key_content: The SSH key content to write to the temporary file
-
-    Returns:
-        An SSH command string configured to use the temporary key file
-
-    Raises:
-        OSError: If unable to create temp file or set permissions
-    """
+    """Prepare an SSH key file for use in an SSH command."""
     key_dir = Path.home().joinpath(".tracecat")
     key_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     key_path = key_dir / slugify(f"{git_url.host}_{git_url.org}_{git_url.repo}")
