@@ -59,17 +59,6 @@
               "self-hosting/updating",
               "self-hosting/llms"
             ]
-          },
-          {
-            "group": "Data Manipulation",
-            "pages": [
-              "data-types/json",
-              "data-types/arrays",
-              "data-types/datetimes",
-              "data-types/strings",
-              "data-types/booleans",
-              "data-types/cryptography"
-            ]
           }
         ]
       },
