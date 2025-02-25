@@ -22,36 +22,61 @@ export default function WorkspaceLayout({
 }) {
   const { workspaces, workspacesLoading, workspacesError } =
     useWorkspaceManager()
-  const { workspaceId } = useParams<{ workspaceId?: string }>()
+  const params = useParams<{ workspaceId?: string; workflowId?: string }>()
+  const { workspaceId, workflowId } = params
   if (workspacesLoading) {
     return <CenteredSpinner />
   }
   if (workspacesError || !workspaces) {
     throw workspacesError
   }
-  let wsId: string
+  let selectedWorkspaceId: string
   if (workspaceId) {
-    wsId = workspaceId
+    selectedWorkspaceId = workspaceId
   } else if (workspaces.length > 0) {
-    wsId = workspaces[0].id
+    selectedWorkspaceId = workspaces[0].id
   } else {
     return <NoWorkspaces />
   }
 
   return (
-    <WorkspaceProvider workspaceId={wsId}>
-      <WorkflowProvider workspaceId={wsId}>
-        <ReactFlowProvider>
-          <WorkflowBuilderProvider>
-            <div className="no-scrollbar flex h-screen max-h-screen flex-col overflow-hidden">
-              {/* DynamicNavbar needs a WorkflowProvider and a WorkspaceProvider */}
-              <DynamicNavbar />
-              <div className="grow overflow-auto">{children}</div>
-            </div>
-          </WorkflowBuilderProvider>
-        </ReactFlowProvider>
-      </WorkflowProvider>
+    <WorkspaceProvider workspaceId={selectedWorkspaceId}>
+      {workflowId ? (
+        <WorkflowView workspaceId={selectedWorkspaceId} workflowId={workflowId}>
+          <WorkspaceChildren>{children}</WorkspaceChildren>
+        </WorkflowView>
+      ) : (
+        <WorkspaceChildren>{children}</WorkspaceChildren>
+      )}
     </WorkspaceProvider>
+  )
+}
+
+function WorkspaceChildren({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="no-scrollbar flex h-screen max-h-screen flex-col overflow-hidden">
+      {/* DynamicNavbar needs a WorkflowProvider and a WorkspaceProvider */}
+      <DynamicNavbar />
+      <div className="grow overflow-auto">{children}</div>
+    </div>
+  )
+}
+
+function WorkflowView({
+  children,
+  workspaceId,
+  workflowId,
+}: {
+  children: React.ReactNode
+  workspaceId: string
+  workflowId: string
+}) {
+  return (
+    <WorkflowProvider workspaceId={workspaceId} workflowId={workflowId}>
+      <ReactFlowProvider>
+        <WorkflowBuilderProvider>{children}</WorkflowBuilderProvider>
+      </ReactFlowProvider>
+    </WorkflowProvider>
   )
 }
 
