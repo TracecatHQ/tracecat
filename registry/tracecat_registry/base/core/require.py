@@ -6,7 +6,7 @@ from tracecat_registry import registry
 
 
 @registry.register(
-    default_title="Require Condition",
+    default_title="Require",
     description="Evaluate a conditional expression. Raises `AssertionError` if the condition is false. Returns `True` if the condition is true.",
     namespace="core",
 )
