@@ -6,6 +6,7 @@ import sqlalchemy as sa
 from asyncpg.exceptions import (
     InFailedSQLTransactionError,
     InvalidCachedStatementError,
+    UndefinedTableError,
 )
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlmodel import select
@@ -41,7 +42,6 @@ from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFou
 _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
     InFailedSQLTransactionError,
-    DBAPIError,
 )
 
 
@@ -571,6 +571,14 @@ class TablesService(BaseService):
                 # Ensure transaction is rolled back
                 await conn.rollback()
                 raise
+            except ProgrammingError as e:
+                while (cause := e.__cause__) is not None:
+                    e = cause
+                if isinstance(e, UndefinedTableError):
+                    raise TracecatNotFoundError(
+                        f"Table '{table_name}' does not exist"
+                    ) from e
+                raise ValueError(str(e)) from e
             except Exception as e:
                 logger.error(
                     "Unexpected DB exception occurred",

@@ -2,7 +2,10 @@ from typing import Annotated, Any
 
 from typing_extensions import Doc
 
-from tracecat_registry import ActionIsInterfaceError, registry
+
+from tracecat.tables.models import TableRowInsert
+from tracecat.tables.service import TablesService
+from tracecat_registry import registry
 
 
 @registry.register(
@@ -21,11 +24,17 @@ async def lookup(
         Doc("The column to lookup the value in."),
     ],
     value: Annotated[
-        str,
+        Any,
         Doc("The value to lookup."),
     ],
 ) -> Any:
-    raise ActionIsInterfaceError
+    async with TablesService.with_session() as service:
+        rows = await service.lookup_row(
+            table_name=table,
+            columns=[column],
+            values=[value],
+        )
+    return rows[0] if rows else None
 
 
 @registry.register(
@@ -44,4 +53,8 @@ async def insert_row(
         Doc("The data to insert into the row."),
     ],
 ) -> Any:
-    raise ActionIsInterfaceError
+    params = TableRowInsert(data=row_data)
+    async with TablesService.with_session() as service:
+        db_table = await service.get_table_by_name(table)
+        row = await service.insert_row(table=db_table, params=params)
+    return row
