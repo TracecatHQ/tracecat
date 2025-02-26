@@ -3,6 +3,7 @@ from typing import Literal
 
 import orjson
 import yaml
+from asyncpg import UniqueViolationError
 from fastapi import (
     APIRouter,
     File,
@@ -19,6 +20,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlmodel import select
 
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
 from tracecat.dsl.models import DSLConfig
@@ -229,6 +231,21 @@ async def update_workflow(
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+        ) from e
+    except IntegrityError as e:
+        while cause := e.__cause__:
+            e = cause
+        if isinstance(
+            e, UniqueViolationError
+        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(e):
+            logger.warning("Unique violation error", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Workflow already exists",
         ) from e
 
 
