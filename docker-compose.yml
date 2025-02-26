@@ -156,7 +156,7 @@ services:
   postgres_db:
     image: postgres:16
     container_name: postgres_db
-    restart: always
+    restart: unless-stopped
     networks:
       - core-db
     shm_size: 128mb
@@ -169,7 +169,7 @@ services:
   temporal_postgres_db:
     image: postgres:13
     container_name: temporal_postgres_db
-    restart: always
+    restart: unless-stopped
     networks:
       - temporal-db
     environment:
@@ -181,7 +181,7 @@ services:
   temporal:
     image: temporalio/auto-setup:${TEMPORAL__VERSION}
     container_name: temporal
-    restart: always
+    restart: unless-stopped
     networks:
       - core
       - temporal
@@ -199,6 +199,7 @@ services:
   temporal_ui:
     image: temporalio/ui:${TEMPORAL__UI_VERSION}
     container_name: temporal_ui
+    restart: unless-stopped
     networks:
       - temporal
     # ports:
