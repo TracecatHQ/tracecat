@@ -38,7 +38,21 @@ For the following examples, we'll use the following JSON:
     "settings": {
       "theme": "dark",
       "notifications": true
-    }
+    },
+    // Fields with special characters
+    "alert.sample.data": {
+      "id": 1,
+      "name": "John",
+      "age": 30,
+      "active": true,
+      "score": 85
+    },
+    "field-with-dashes": "value",
+    "$field": "value",
+    "field:with:colons": "value",
+    "field@symbol": "value",
+    "field with spaces": "value",
+    "field#hash": "value"
   }
 }
 ```
@@ -46,49 +60,63 @@ For the following examples, we'll use the following JSON:
 ### Dot Notation
 
 ```php
-$.data.settings.theme     # Select the theme property
+$.data.settings.theme  # Select the theme property
+```
+
+### Special Characters
+
+Fields containing special characters like dots, dashes, or starting with `$` can be accessed using quotes:
+
+```php
+$.data."alert.sample.data"  # Access field containing dots
+$.data."field-with-dashes"  # Access field containing dashes
+$.data."$field"  # Access field starting with $
+$.data."field:with:colons"  # Access field containing colons
+$.data."field@symbol"  # Access field containing @ symbol
+$.data."field with spaces"  # Access field containing spaces
+$.data."field#hash"  # Access field containing hash symbol
 ```
 
 ### Array Indexing
 
 ```php
-$.data.users[*]            # Select all users
-$.data.users[0]            # Select the first user
-$.data.users[-1]           # Select last user
-$.data.users[*].name       # Select all user names
-$.data.users[0].name       # Select the name of the first user
-$.data.users[?(@.id==1)]   # Select user with id=1
-$.data.users[*].roles[0]   # Select the first role of each user
-$.data.settings.*          # Select all properties of settings
+$.data.users[*]  # Select all users
+$.data.users[0]  # Select the first user
+$.data.users[-1]  # Select last user
+$.data.users[*].name  # Select all user names
+$.data.users[0].name  # Select the name of the first user
+$.data.users[?(@.id==1)]  # Select user with id=1
+$.data.users[*].roles[0]  # Select the first role of each user
+$.data.settings.*  # Select all properties of settings
 ```
 
 ## Filters
 
 ### Basic Filters
 ```php
-$.data.users[?(@.age > 30)]               # Users over 30
-$.data.users[?(@.active == true)]         # Active users
-$.data.users[?(@.name == "John")]         # User named John
-$.data.users[?(@.score >= 90)]            # Users with score 90 or higher
+$.data.users[?(@.age > 30)]  # Users over 30
+$.data.users[?(@.active == true)]  # Active users
+$.data.users[?(@.name == "John")]  # User named John
+$.data.users[?(@.score >= 90)]  # Users with score 90 or higher
 ```
 
 ### Comparison Operators
 ```php
-$.data.users[?(@.age != 30)]              # Users not age 30
-$.data.users[?(@.score >= 85)]            # Users with score 85 or higher
-$.data.users[?(@.score < 80)]             # Users with score under 80
-$.data.users[?(@.active !== false)]       # Users that are not inactive
+$.data.users[?(@.age != 30)]  # Users not age 30
+$.data.users[?(@.score >= 85)]  # Users with score 85 or higher
+$.data.users[?(@.score < 80)]  # Users with score under 80
+$.data.users[?(@.active !== false)]  # Users that are not inactive
 ```
 
 ### Multiple Conditions
 ```php
 # AND condition
-$.data.users[?(@.age > 25 && @.active == true)]        # Active users over 25
-$.data.users[?(@.score > 80 && @.age < 30)]            # Users under 30 with score over 80
+$.data.users[?(@.age > 25 && @.active == true)]  # Active users over 25
+$.data.users[?(@.score > 80 && @.age < 30)]  # Users under 30 with score over 80
 
 # OR condition
 $.data.users[?(@.name == "John" || @.name == "Jane")]  # Users named John or Jane
-$.data.users[?(@.age < 25 || @.age > 35)]             # Users younger than 25 or older than 35
+$.data.users[?(@.age < 25 || @.age > 35)]  # Users younger than 25 or older than 35
 
 # Complex conditions
 $.data.users[?(@.active == true && (@.age < 30 || @.score > 90))]  # Active users either under 30 or with score over 90
