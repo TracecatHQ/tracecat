@@ -129,12 +129,12 @@ async def test_dispatch_action_with_git_url(mock_session, basic_task_input):
     with (
         patch("tracecat.executor.service.prepare_git_url") as mock_git_url,
         patch("tracecat.executor.service._dispatch_action") as mock_dispatch,
-        patch("tracecat.executor.service.opt_temp_key_file") as mock_key_file,
+        patch("tracecat.executor.service.get_ssh_command") as mock_ssh_cmd,
     ):
         mock_git_url.return_value = GitUrl(
             host="github.com", org="org", repo="repo", ref="abc123"
         )
-        mock_key_file.return_value.__aenter__.return_value = "ssh -i /tmp/key"
+        mock_ssh_cmd.return_value = "ssh -i /tmp/key"
         mock_dispatch.return_value = {"result": "success"}
 
         result = await dispatch_action_on_cluster(
@@ -143,4 +143,4 @@ async def test_dispatch_action_with_git_url(mock_session, basic_task_input):
 
         assert result == {"result": "success"}
         mock_git_url.assert_called_once()
-        mock_key_file.return_value.__aenter__.assert_called_once()
+        mock_ssh_cmd.assert_called_once()
