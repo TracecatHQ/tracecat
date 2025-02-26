@@ -1,14 +1,10 @@
 ---
-title: YAML Syntax
+title: YAML
 description: A cheatsheet for YAML basic syntax, block modifiers, and special characters.
 ---
 
-<Note>
-  Tracecat uses YAML to define inputs and configurations for actions and workflows.
-</Note>
-
-This cheatsheet covers the basics of YAML.
-It also covers some common gotchas (e.g. multi-line text, special characters) and how to deal with them.
+Tracecat uses YAML to define action inputs and workflow configurations.
+This cheatsheet covers the basic YAML syntax, block modifiers to handle multi-line text, and special characters.
 
 ## Basic Syntax
 
@@ -41,10 +37,19 @@ disabled: false
 empty: null
 ```
 
+## Special Characters
+
+YAML supports escaping characters using backslashes:
+
+```yaml
+key: "This is a \"string\" with a quote"
+```
+
 ## Block Modifiers
 
 <Tip>
-  The best way to deal with long configurations and special characters in YAML is to use the block scalars `>-` and `>`.
+  The best way to deal with multi-line configurations and
+  special characters in YAML is to use the block scalars `>-` and `>`.
 </Tip>
 
 ```yaml
