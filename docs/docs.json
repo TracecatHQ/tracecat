@@ -29,10 +29,10 @@
             "group": "Tutorials",
             "pages": [
               "tutorials/workflow-triggers",
-              "tutorials/custom-integrations",
               "tutorials/child-workflows",
               "tutorials/explode-implode",
               "tutorials/data-transforms",
+              "tutorials/custom-integrations",
               "tutorials/alert-on-failure"
             ]
           },
