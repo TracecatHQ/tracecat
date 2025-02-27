@@ -4,14 +4,13 @@ import httpx
 import pytest
 import respx
 from tenacity import RetryError
-from tracecat.types.exceptions import TracecatException
 from tracecat_registry.base.core.http import (
     http_poll,
     http_request,
     httpx_to_response,
 )
 
-from tracecat.logger import logger
+from tracecat.types.exceptions import TracecatException
 
 
 # Test fixtures
