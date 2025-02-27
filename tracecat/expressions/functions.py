@@ -811,6 +811,8 @@ _FUNCTION_MAPPING = {
     "does_not_contain": does_not_contain,
     "flatten": flatten,
     "is_empty": is_empty,
+    "is_in": contains,  # Alias for `contains`
+    "is_not_in": does_not_contain,  # Alias for `does_not_contain`
     "length": len,
     "not_empty": not_empty,
     "unique": unique,
