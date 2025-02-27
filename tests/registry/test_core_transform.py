@@ -6,8 +6,8 @@ from tracecat_registry.base.core.transform import (
     deduplicate,
     filter,
     is_in,
-    is_not_in,
     map,
+    not_in,
 )
 
 
@@ -217,14 +217,14 @@ def test_is_in(
         ),
     ],
 )
-def test_is_not_in(
+def test_not_in(
     items: list[Any],
     collection: list[Any],
     python_lambda: str | None,
     expected: list[Any],
 ) -> None:
     """Test filtering items not in the collection."""
-    result = is_not_in(items, collection, python_lambda)
+    result = not_in(items, collection, python_lambda)
     assert result == expected
 
 
