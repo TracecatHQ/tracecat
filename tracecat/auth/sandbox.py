@@ -31,18 +31,14 @@ class AuthSandbox:
     def __init__(
         self,
         role: Role | None = None,
-        secrets: list[str]
-        | None = None,  # This can be either 'my_secret.KEY' or 'my_secret'
-        target: Literal["env", "context"] = "context",
+        # This can be either 'my_secret.KEY' or 'my_secret'
+        secrets: list[str] | None = None,
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
         optional_secrets: list[str] | None = None,  # Base secret names only
     ):
         self._role = role or ctx_role.get()
         self._secret_paths: list[str] = secrets or []
         self._secret_objs: Sequence[BaseSecret] = []
-        self._target = target
-        if self._target == "env":
-            raise ValueError("Target env is no longer supported.")
         self._context: dict[str, Any] = {}
         self._environment = environment
         self._optional_secrets = set(optional_secrets or [])
