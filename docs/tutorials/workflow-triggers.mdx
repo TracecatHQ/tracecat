@@ -11,6 +11,13 @@ icon: bolt
   - If you're running Tracecat on AWS Fargate, Tracecat is automatically exposed to the public internet via an Application Load Balancer.
 </Note>
 
+<Info>
+  Use the `${{ TRIGGER }}` expression context to reference data passed via webhooks.
+  A child workflow also receives input data via `${{ TRIGGER }}` context.
+
+  Learn more in the [child workflows](/tutorials/child-workflows) and [expressions](/quickstart/expressions#trigger-context) docs.
+</Info>
+
 By the end of this tutorial, you'll learn how to create two types of workflows:
 
 - A webhook workflow that receives a JSON string and decodes it using the `FN.deserialize_json` function.
@@ -20,7 +27,6 @@ By the end of this tutorial, you'll learn how to create two types of workflows:
 
 Every Tracecat workflow comes with a single `Trigger` action.
 This trigger action cannot be deleted.
-
 Click on the `Trigger` action to activate the webhooks and schedules configuration panel.
 
 ![Trigger action](/img/tutorials/triggers/trigger-action.png)
@@ -45,6 +51,10 @@ Webhook URLs are formatted as:
 ```bash
 https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-secret>
 ```
+
+Use the `${{ TRIGGER }}` expression context to reference data from the webhook payload.
+
+![Trigger expression](/img/tutorials/triggers/trigger-expression.png)
 
 <Steps>
   <Step title="Deserialize JSON action">

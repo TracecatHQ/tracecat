@@ -97,40 +97,42 @@ By the end of this tutorial, you'll learn how to:
   </Accordion>
 </AccordionGroup>
 
-## Pre-built integrations
+## Actions and integrations
 
-<Note>
-  Tracecat comes with a library of pre-built integrations in both YAML and Python.
-  Find out more in the [integrations](/integrations/overview) docs.
-</Note>
+Actions are the building blocks of Tracecat workflows.
+Tracecat has two main types of actions:
+
+- `core` actions for core functionality (e.g. HTTP request, AI action, and data transforms).
+- `tools` actions for integrations to 3rd-party services.
+
+Find out more in Tracecat's [core actions](/integrations/core) and [tools](/integrations/tools) docs.
 
 <JsonpathNote />
 
-<AccordionGroup>
-  <Accordion title="Search for integrations" icon="magnifying-glass">
+<Steps>
+  <Step title="Search for integrations" icon="magnifying-glass">
     Search for pre-built integrations in the actions dropdown menu.
     Do this by right clicking on the workflow canvas or dragging it out from an existing node.
 
     ![View available actions](/img/quickstart/tutorial/view-available-actions.png)
-  </Accordion>
-  <Accordion title="Fill in inputs" icon="keyboard">
+  </Step>
+  <Step title="Fill in inputs" icon="keyboard">
     Fill in the required and optional inputs in the `Inputs` section.
 
     ![Action inputs](/img/quickstart/tutorial/action-inputs.png)
-  </Accordion>
-  <Accordion title="View schema and metadata" icon="file-lines">
+  </Step>
+  <Step title="View schema and metadata" icon="file-lines">
     Expand the `Input schema` section to view all supported inputs and required secrets.
 
     ![Action input schema](/img/quickstart/tutorial/action-input-schema.png)
-  </Accordion>
-</AccordionGroup>
+  </Step>
+  <Step title="View template" icon="code">
+    Click on the `View template` tab to view the YAML code for **Action Template** integrations.
+    You can also view the integration's **action type**, **origin**, and **documentation URL** at the top of the action's settings panel.
 
-<Tip>
-  Click on the `View template` tab to view the YAML code for **Action Template** integrations.
-  You can also view the integration's **action type**, **origin**, and **documentation URL** at the top of the action's settings panel.
-
-  ![View template](/img/quickstart/tutorial/view-template.png)
-</Tip>
+    ![View template](/img/quickstart/tutorial/view-template.png)
+  </Step>
+</Steps>
 
 ## If-conditions
 
@@ -278,7 +280,8 @@ Under the `If condition / Loops` tab, you can specify loop expressions to iterat
 
 ## What next?
 
-- Learn how to trigger workflows via webhooks and schedules [here](/tutorials/workflow-triggers).
-- Learn how to build your own custom integrations and templates [here](/tutorials/custom-integrations).
-- Learn about Tracecat's inline functions in the [expressions](/quickstart/expressions) guide and the [functions](/cheatsheets/functions) cheatsheet.
+- Learn about Tracecat's [core actions](/integrations/core).
+- Learn how to trigger workflows via [webhooks and schedules](/tutorials/workflow-triggers).
+- Learn how to reference data from actions and webhooks using [expressions](/quickstart/expressions).
+- Learn how to build and sync your own [custom integrations](/tutorials/custom-integrations]) from a private Git repository.
 - Join our [Discord community](https://discord.gg/n3GF4qxFU8) for ideas and support.
