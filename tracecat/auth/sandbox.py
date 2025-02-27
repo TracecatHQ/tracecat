@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from types import TracebackType
-from typing import Any, Literal, Self
+from typing import Any, Self
 
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import BaseSecret
@@ -31,18 +31,16 @@ class AuthSandbox:
     def __init__(
         self,
         role: Role | None = None,
-        secrets: list[str]
-        | None = None,  # This can be either 'my_secret.KEY' or 'my_secret'
-        target: Literal["env", "context"] = "context",
+        # This can be either 'my_secret.KEY' or 'my_secret'
+        # Keys that are passed here are fetched from the db
+        secrets: Iterable[str] | None = None,
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
-        optional_secrets: list[str] | None = None,  # Base secret names only
+        # Keys specified here will tell the sandbox to ignore if they are missing
+        optional_secrets: Iterable[str] | None = None,  # Base secret names only
     ):
         self._role = role or ctx_role.get()
-        self._secret_paths: list[str] = secrets or []
+        self._secret_paths = set(secrets or [])
         self._secret_objs: Sequence[BaseSecret] = []
-        self._target = target
-        if self._target == "env":
-            raise ValueError("Target env is no longer supported.")
         self._context: dict[str, Any] = {}
         self._environment = environment
         self._optional_secrets = set(optional_secrets or [])
