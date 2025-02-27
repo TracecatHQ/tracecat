@@ -62,25 +62,22 @@ chmod +x env.sh && ./env.sh
 
 You should see the following instructions after executing `env.sh`.
 
-<Info>
 You'll be prompted to input the following:
-- `y` (yes to production mode)
-- `localhost` (default host)
-- `n` (no to postgres SSL mode)
+- Use production mode? - `y` (use `yes` unless you are a Tracecat developer)
+- Enter the IP address or domain - `localhost` (or IP you want Tracecat to be accessible at)
+- Require PostgreSQL SSL mode? - `n`
 
-Otherwise, if you're deploying Tracecat into an external / Cloud VM, input:
-
-- `y` (yes to production mode)
-- `<host-where-tracecat-is-exposed>` (e.g. `localhost:8080`)
-- `n` (no to postgres SSL mode)
+<Info>
+  When installing Tracecat on a local workstation, use `localhost` as the IP address.
+  For installations on a remote server or any external/cloud VM, be sure to use the server's external IP address.
+  Avoid using `0.0.0.0`, as the frontend will attempt to use this address when making requests to the backend API, causing connection issues.
 </Info>
-
 <Note>
   Setting production mode to `n` changes where Tracecat's remote repository is installed.
   Do not set production mode to `n` unless you are a Tracecat developer.
 
-By default, Tracecat will install the remote repository to the user's home directory at `~/.local/lib/python3.12/site-packages/`.
-Setting production mode to `y` will install the remote repository to the `PYTHONUSERBASE` directory specified in enviroment variables.
+  By default, Tracecat will install the remote repository to the user's home directory at `~/.local/lib/python3.12/site-packages/`.
+  Setting production mode to `y` will install the remote repository to the `PYTHONUSERBASE` directory specified in enviroment variables.
 
 </Note>
 
