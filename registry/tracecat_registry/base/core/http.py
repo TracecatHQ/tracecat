@@ -174,7 +174,7 @@ STATUS_HANDLERS: dict[int, Callable[[httpx.HTTPStatusError], str]] = {
     400: lambda e: (
         f"400 Bad request for '{e.response.url}'."
         f"\n\n{_format_response_data(e.response)}"
-        "\n\nThis error occurs when the server cannot understand the request. Please ensure that:"
+        "\n\nThis error occurs when the server cannot understand the request.\nPlease check that:"
         "\n- The request URL is properly formatted"
         "\n- Query parameters are valid"
         "\n- Headers are correctly specified"
@@ -190,7 +190,7 @@ STATUS_HANDLERS: dict[int, Callable[[httpx.HTTPStatusError], str]] = {
     422: lambda e: (
         f"422 Unprocessable entity for '{e.response.url}'."
         f"\n\n{_format_response_data(e.response)}"
-        "\n\nThis error occurs when the server cannot process the request payload. Please ensure that:"
+        "\n\nThis error occurs when the server cannot process the request payload.\nPlease check that:"
         "\n- The request body matches the expected format (e.g. valid JSON)"
         "\n- All required fields are included"
         "\n- Field values match the expected types and constraints"
@@ -198,7 +198,7 @@ STATUS_HANDLERS: dict[int, Callable[[httpx.HTTPStatusError], str]] = {
     500: lambda e: (
         f"500 Internal server error for '{e.response.url}'."
         f"\n\n{_format_response_data(e.response)}"
-        "\n\nThis error occurs when the server encounters an unexpected error while processing the request. Please:"
+        "\n\nThis error occurs when the server encounters an unexpected error while processing the request.\nPlease check that:"
         "\n- Check if the server is running and accessible"
         "\n- Review server logs for error details"
         "\n- Contact the server administrator if the issue persists"
