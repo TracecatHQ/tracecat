@@ -3,7 +3,6 @@
 # This will cause class types to be resolved as strings
 
 from collections.abc import Callable
-import json
 import tempfile
 from json import JSONDecodeError
 from typing import Annotated, Any, Literal, TypedDict
