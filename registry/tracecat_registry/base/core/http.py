@@ -172,7 +172,7 @@ def _format_response_data(response: httpx.Response) -> str:
 
 STATUS_HANDLERS: dict[int, Callable[[httpx.HTTPStatusError], str]] = {
     400: lambda e: (
-        f"400 Bad request for '{e.response.url}':"
+        f"400 Bad request for '{e.response.url}'."
         f"\n\n{_format_response_data(e.response)}"
         "\n\nThis error occurs when the server cannot understand the request. Please ensure that:"
         "\n- The request URL is properly formatted"
@@ -181,14 +181,14 @@ STATUS_HANDLERS: dict[int, Callable[[httpx.HTTPStatusError], str]] = {
         "\n- Request body matches the API requirements"
     ),
     404: lambda e: (
-        f"404 Not found for '{e.response.url}':"
+        f"404 Not found for '{e.response.url}'."
         f"\n\nPlease check that the URL is correct and the resource exists:\n"
         f"\nHost: {e.response.url.host}"
         f"\nPort: {e.response.url.port or '-'}"
         f"\nPath: {e.response.url.path}"
     ),
     422: lambda e: (
-        f"422 Unprocessable entity for '{e.response.url}':"
+        f"422 Unprocessable entity for '{e.response.url}'."
         f"\n\n{_format_response_data(e.response)}"
         "\n\nThis error occurs when the server cannot process the request payload. Please ensure that:"
         "\n- The request body matches the expected format (e.g. valid JSON)"
@@ -196,7 +196,7 @@ STATUS_HANDLERS: dict[int, Callable[[httpx.HTTPStatusError], str]] = {
         "\n- Field values match the expected types and constraints"
     ),
     500: lambda e: (
-        f"500 Internal server error for '{e.response.url}':"
+        f"500 Internal server error for '{e.response.url}'."
         f"\n\n{_format_response_data(e.response)}"
         "\n\nThis error occurs when the server encounters an unexpected error while processing the request. Please:"
         "\n- Check if the server is running and accessible"
