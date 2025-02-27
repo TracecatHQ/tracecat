@@ -793,26 +793,28 @@ _FUNCTION_MAPPING = {
     "url_encode": url_encode,
     "url_decode": url_decode,
     # Comparison
-    "less_than": less_than,
-    "less_than_or_equal": less_than_or_equal,
-    "greater_than": greater_than,
     "greater_than_or_equal": greater_than_or_equal,
-    "not_equal": not_equal,
+    "greater_than": greater_than,
     "is_equal": is_equal,
-    "not_null": not_null,
     "is_null": is_null,
+    "less_than_or_equal": less_than_or_equal,
+    "less_than": less_than,
+    "not_equal": not_equal,
+    "not_null": not_null,
     # Regex
     "regex_extract": regex_extract,
     "regex_match": regex_match,
     "regex_not_match": regex_not_match,
     # Arrays
     "compact": compact,
-    "is_in": is_in,
-    "not_in": not_in,
+    "contains": is_in,  # alias for is_in
+    "does_not_contain": not_in,  # alias for not_in
     "flatten": flatten,
     "is_empty": is_empty,
+    "is_in": is_in,
     "length": len,
     "not_empty": not_empty,
+    "not_in": not_in,
     "unique": unique,
     # Math
     "add": add,
