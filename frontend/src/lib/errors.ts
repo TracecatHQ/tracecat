@@ -20,11 +20,23 @@ export function retryHandler(failureCount: number, error: ApiError) {
  * Type for request validation errors
  * Returned with 422 status code
  */
-export type RequestValidationError = {
+export interface RequestValidationError {
   loc: string[]
   ctx: {
     [key: string]: unknown
   }
   msg: string
   type: string
+}
+
+export function isRequestValidationError(
+  obj: unknown
+): obj is RequestValidationError {
+  return typeof obj === "object" && obj !== null && "loc" in obj && "msg" in obj
+}
+
+export function isRequestValidationErrorArray(
+  obj: unknown
+): obj is RequestValidationError[] {
+  return Array.isArray(obj) && obj.every((o) => isRequestValidationError(o))
 }

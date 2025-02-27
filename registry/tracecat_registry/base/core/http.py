@@ -2,6 +2,7 @@
 # XXX(WARNING): Do not import __future__ annotations from typing
 # This will cause class types to be resolved as strings
 
+from collections.abc import Callable
 import tempfile
 from json import JSONDecodeError
 from typing import Annotated, Any, Literal, TypedDict
@@ -16,10 +17,12 @@ from tenacity import (
     wait_exponential,
     wait_fixed,
 )
+import yaml
 from tracecat.expressions.common import build_safe_lambda
 from tracecat.logger import logger
 from typing_extensions import Doc
 
+from tracecat.types.exceptions import TracecatException
 from tracecat_registry import RegistrySecret, registry, secrets
 
 RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
@@ -153,6 +156,66 @@ def httpx_to_response(response: httpx.Response) -> HTTPResponse:
         )
 
 
+def _try_parse_response_data(response: httpx.Response) -> str | dict[str, Any]:
+    try:
+        return response.json()
+    except JSONDecodeError:
+        return response.text
+
+
+def _format_response_data(response: httpx.Response) -> str:
+    data = _try_parse_response_data(response)
+    if isinstance(data, dict):
+        return yaml.dump(data)
+    return str(data)
+
+
+STATUS_HANDLERS: dict[int, Callable[[httpx.HTTPStatusError], str]] = {
+    400: lambda e: (
+        f"400 Bad request for '{e.response.url}'."
+        f"\n\n{_format_response_data(e.response)}"
+        "\n\nThis error occurs when the server cannot understand the request.\nPlease check that:"
+        "\n- The request URL is properly formatted"
+        "\n- Query parameters are valid"
+        "\n- Headers are correctly specified"
+        "\n- Request body matches the API requirements"
+    ),
+    404: lambda e: (
+        f"404 Not found for '{e.response.url}'."
+        f"\n\nPlease check that the URL is correct and the resource exists:\n"
+        f"\nHost: {e.response.url.host}"
+        f"\nPort: {e.response.url.port or '-'}"
+        f"\nPath: {e.response.url.path}"
+    ),
+    422: lambda e: (
+        f"422 Unprocessable entity for '{e.response.url}'."
+        f"\n\n{_format_response_data(e.response)}"
+        "\n\nThis error occurs when the server cannot process the request payload.\nPlease check that:"
+        "\n- The request body matches the expected format (e.g. valid JSON)"
+        "\n- All required fields are included"
+        "\n- Field values match the expected types and constraints"
+    ),
+    500: lambda e: (
+        f"500 Internal server error for '{e.response.url}'."
+        f"\n\n{_format_response_data(e.response)}"
+        "\n\nThis error occurs when the server encounters an unexpected error while processing the request.\nPlease check that:"
+        "\n- Check if the server is running and accessible"
+        "\n- Review server logs for error details"
+        "\n- Contact the server administrator if the issue persists"
+        "\n- Try the request again after a few minutes"
+    ),
+    # Add more status codes as needed...
+}
+
+
+def _http_status_error_to_message(e: httpx.HTTPStatusError) -> str:
+    if handler := STATUS_HANDLERS.get(e.response.status_code):
+        return handler(e)
+    else:
+        details = _format_response_data(e.response)
+        return f"HTTP request failed with status {e.response.status_code}. Details:\n\n```\n{details}\n```"
+
+
 @registry.register(
     namespace="core",
     description="Perform a HTTP request to a given URL.",
@@ -196,9 +259,14 @@ async def http_request(
             )
         response.raise_for_status()
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP request failed with status {e.response.status_code}.")
-        logger.error(e.response.text)
-        raise e
+        error_message = _http_status_error_to_message(e)
+        logger.error(
+            "HTTP request failed",
+            status_code=e.response.status_code,
+            error_message=error_message,
+        )
+        raise TracecatException(error_message)
+        # raise e
     except httpx.ReadTimeout as e:
         logger.error(f"HTTP request timed out after {timeout} seconds.")
         raise e
@@ -281,10 +349,7 @@ async def http_poll(
     def user_defined_predicate(response: httpx.Response) -> bool:
         if not predicate:
             return False
-        try:
-            data = response.json()
-        except JSONDecodeError:
-            data = response.text
+        data = _try_parse_response_data(response)
         args = PredicateArgs(
             headers=dict(response.headers.items()),
             data=data,

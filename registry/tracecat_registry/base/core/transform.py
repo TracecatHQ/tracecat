@@ -16,7 +16,7 @@ from tracecat_registry import registry
 )
 def reshape(
     value: Annotated[
-        Any,
+        Any | list[Any] | dict[str, Any],
         Doc("The value to reshape"),
     ],
 ) -> Any:
