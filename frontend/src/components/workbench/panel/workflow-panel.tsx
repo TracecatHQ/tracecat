@@ -22,7 +22,7 @@ import { useForm } from "react-hook-form"
 import YAML from "yaml"
 import { z } from "zod"
 
-import { RequestValidationError, TracecatApiError } from "@/lib/errors"
+import { isRequestValidationErrorArray, TracecatApiError } from "@/lib/errors"
 import { isEmptyObjectOrNullish } from "@/lib/utils"
 import {
   Accordion,
@@ -173,12 +173,21 @@ export function WorkflowPanel({
         console.error("Application failed to validate action", apiError.body)
 
         // Set form errors from API validation errors
-        const details = apiError.body.detail as RequestValidationError[]
-        details.forEach((detail) => {
-          methods.setError(detail.loc[1] as keyof WorkflowUpdateForm, {
-            message: detail.msg,
+        if (isRequestValidationErrorArray(apiError.body.detail)) {
+          const details = apiError.body.detail
+          details.forEach((detail) => {
+            methods.setError(detail.loc[1] as keyof WorkflowUpdateForm, {
+              message: detail.msg,
+            })
           })
-        })
+        } else {
+          console.error("Validation failed, unknown error", error)
+          methods.setError("root", {
+            message: `Validation failed, unknown error: ${JSON.stringify(
+              apiError.body.detail
+            )}`,
+          })
+        }
       } else {
         console.error("Validation failed, unknown error", error)
       }
