@@ -1608,7 +1608,7 @@ async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_
 PARTIAL_DIVISION_BY_ZERO_ERROR = {
     "ref": "start",
     "message": (
-        "There was an error in the executor when calling action 'core.transform.reshape' (500).\n"
+        "There was an error in the executor when calling action 'core.transform.reshape'.\n"
         "\n"
         "\n"
         "TracecatExpressionError: Error evaluating expression `1/0`\n"
@@ -2535,7 +2535,7 @@ def assert_error_handler_initiated_correctly(
                 "attempt": 1,
                 "expr_context": "ACTIONS",
                 "message": (
-                    "There was an error in the executor when calling action 'core.transform.reshape' (500).\n\n"
+                    "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
                     "\n"
                     "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
                     "[evaluator] Evaluation failed at node:\n"
@@ -2562,7 +2562,7 @@ def assert_error_handler_initiated_correctly(
             "Workflow failed with 1 task exception(s)\n\n"
             "==================== (1/1) ACTIONS.failing_action ====================\n\n"
             "ExecutorClientError: [ACTIONS.failing_action -> run_action] (Attempt 1)\n\n"
-            "There was an error in the executor when calling action 'core.transform.reshape' (500).\n\n"
+            "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
             "\n"
             "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
             "[evaluator] Evaluation failed at node:\n"

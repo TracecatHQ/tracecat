@@ -143,7 +143,7 @@ class ExecutorClient:
         if e.response.status_code / 100 == 5:
             logger.error("There was an error in the executor when calling action")
             raise ExecutorClientError(
-                f"There was an error in the executor when calling action {action_type!r} ({e.response.status_code}).\n\n{detail}"
+                f"There was an error in the executor when calling action {action_type!r}.\n\n{detail}"
             ) from e
         else:
             logger.error("Unexpected executor error")
