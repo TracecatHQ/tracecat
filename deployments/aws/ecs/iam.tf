@@ -334,3 +334,11 @@ resource "aws_iam_role" "temporal_ui_task" {
   name               = "TracecatTemporalUITaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 }
+
+# Service-linked role for Application Autoscaling
+# This critical role allows AWS to automatically scale ECS services
+# based on metrics and is used by all autoscaling configurations
+resource "aws_iam_service_linked_role" "ecs_autoscaling" {
+  aws_service_name = "ecs.application-autoscaling.amazonaws.com"
+  description      = "Service-linked role for Application Auto Scaling for Amazon ECS"
+}
