@@ -808,7 +808,7 @@ _FUNCTION_MAPPING = {
     # Arrays
     "compact": compact,
     "contains": is_in,  # alias for is_in
-    "not_contains": not_in,  # alias for not_in
+    "does_not_contain": not_in,  # alias for not_in
     "flatten": flatten,
     "is_empty": is_empty,
     "is_in": is_in,
