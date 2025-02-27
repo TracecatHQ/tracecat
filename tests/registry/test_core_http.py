@@ -4,11 +4,14 @@ import httpx
 import pytest
 import respx
 from tenacity import RetryError
+from tracecat.types.exceptions import TracecatException
 from tracecat_registry.base.core.http import (
     http_poll,
     http_request,
     httpx_to_response,
 )
+
+from tracecat.logger import logger
 
 
 # Test fixtures
@@ -119,13 +122,15 @@ async def test_http_request_error() -> None:
         return_value=httpx.Response(status_code=404, json={"error": "Not found"})
     )
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(Exception) as excinfo:
         await http_request(
             url="https://api.example.com",
             method="GET",
         )
 
     assert route.called
+    assert "404" in str(excinfo.value)
+    assert "Not found" in str(excinfo.value)
 
 
 @pytest.mark.anyio
@@ -203,6 +208,55 @@ async def test_http_request_with_json_payload() -> None:
     assert route.called
     assert route.calls.last.request.content.replace(b" ", b"") == b'{"data":"value"}'
     assert result["status_code"] == 200
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_failure() -> None:
+    """Test HTTP request with server error response."""
+    route = respx.get("https://api.example.com").mock(
+        return_value=httpx.Response(
+            status_code=500,
+            headers={"Content-Type": "application/json"},
+            json={"error": "Internal Server Error"},
+        )
+    )
+
+    with pytest.raises(TracecatException) as excinfo:
+        await http_request(
+            url="https://api.example.com",
+            method="GET",
+        )
+
+    assert route.called
+    value = str(excinfo.value)
+    assert "500" in value
+    assert "Internal Server Error" in value
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_bad_request() -> None:
+    """Test HTTP request with 400 Bad Request response."""
+    route = respx.get("https://api.example.com").mock(
+        return_value=httpx.Response(
+            status_code=400,
+            headers={"Content-Type": "application/json"},
+            json={"error": "Bad Request", "message": "Invalid parameters"},
+        )
+    )
+
+    with pytest.raises(TracecatException) as excinfo:
+        await http_request(
+            url="https://api.example.com",
+            method="GET",
+        )
+
+    assert route.called
+    value = str(excinfo.value)
+    assert "400" in value
+    assert "Bad Request" in value
+    assert "Invalid parameters" in value
 
 
 # Test HTTP polling function
