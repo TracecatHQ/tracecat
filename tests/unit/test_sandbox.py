@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import datetime
 
 import pytest
 import pytest_mock
@@ -210,7 +211,6 @@ async def test_auth_sandbox_optional_secrets(
     mocker: pytest_mock.MockFixture, test_role
 ):
     """Test that AuthSandbox handles both required and optional secrets correctly."""
-    from datetime import datetime
 
     role = ctx_role.get()
     assert role is not None
@@ -274,7 +274,6 @@ async def test_auth_sandbox_all_secrets_present(
     mocker: pytest_mock.MockFixture, test_role
 ):
     """Test AuthSandbox when both required and optional secrets are available."""
-    from datetime import datetime
 
     role = ctx_role.get()
     assert role is not None
@@ -347,9 +346,6 @@ async def test_auth_sandbox_optional_secret_with_all_keys(
     mocker: pytest_mock.MockFixture, test_role
 ):
     """Test AuthSandbox when optional secret has all required and optional keys."""
-    from datetime import datetime
-
-    from pydantic import SecretStr
 
     role = ctx_role.get()
     assert role is not None
@@ -420,9 +416,6 @@ async def test_auth_sandbox_optional_secret_missing_optional_key(
     mocker: pytest_mock.MockFixture, test_role
 ):
     """Test AuthSandbox when optional secret has required keys but missing optional keys."""
-    from datetime import datetime
-
-    from pydantic import SecretStr
 
     role = ctx_role.get()
     assert role is not None
