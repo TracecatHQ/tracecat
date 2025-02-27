@@ -30,14 +30,14 @@ import JsonpathNote from '@snippets/jsonpath-note.mdx'
 | `uppercase` | (x: str) -> str | Convert string to uppercase. |
 | `url_encode` | (x: str) -> str | Converts URL-unsafe characters into percent-encoded characters. |
 | `url_decode` | (x: str) -> str | Converts percent-encoded characters back into their original form. |
-| `less_than` | (a: Any, b: Any) -> bool | Check if a is less than b. |
-| `less_than_or_equal` | (a: Any, b: Any) -> bool | Check if a is less than or equal to b. |
-| `greater_than` | (a: Any, b: Any) -> bool | Check if a is greater than b. |
 | `greater_than_or_equal` | (a: Any, b: Any) -> bool | Check if a is greater than or equal to b. |
-| `not_equal` | (a: Any, b: Any) -> bool | Check if a is not equal to b. |
+| `greater_than` | (a: Any, b: Any) -> bool | Check if a is greater than b. |
 | `is_equal` | (a: Any, b: Any) -> bool | Check if a is equal to b. |
-| `not_null` | (x: Any) -> bool | Check if value is not None. |
 | `is_null` | (x: Any) -> bool | Check if value is None. |
+| `less_than_or_equal` | (a: Any, b: Any) -> bool | Check if a is less than or equal to b. |
+| `less_than` | (a: Any, b: Any) -> bool | Check if a is less than b. |
+| `not_equal` | (a: Any, b: Any) -> bool | Check if a is not equal to b. |
+| `not_null` | (x: Any) -> bool | Check if value is not None. |
 | `regex_extract` | (pattern: str, text: str) -> str \| None | Extract first match of regex pattern from text. |
 | `regex_match` | (pattern: str, text: str) -> bool | Check if text matches regex pattern. |
 | `regex_not_match` | (pattern: str, text: str) -> bool | Check if text does not match regex pattern. |
@@ -46,9 +46,11 @@ import JsonpathNote from '@snippets/jsonpath-note.mdx'
 | `does_not_contain` | (item: Any, container: Sequence[Any]) -> bool | Check if item does not exist in container. |
 | `flatten` | (iterables: Sequence[Sequence[Any]]) -> list[Any] | Flatten nested sequences into a single list. |
 | `is_empty` | (x: Sequence[Any]) -> bool | Check if sequence is empty. |
+| `is_in` | (item: Any, container: Sequence[Any]) -> bool | Check if item exists in container. |
 | `length` | (obj, /) | Return the number of items in a container. |
 | `not_empty` | (x: Sequence[Any]) -> bool | Check if sequence is not empty. |
-| `unique` | (items: Sequence[Any]) -> list[Any] | Return unique items from sequence. |
+| `not_in` | (item: Any, container: Sequence[Any]) -> bool | Check if item does not exist in container. |
+| `unique` | (items: Sequence[Any]) -> list[Any] | List of hashable items (e.g. strings, numbers) to remove duplicates from. |
 | `add` | (a: float \| int, b: float \| int) -> float \| int | Add two numbers together. |
 | `sub` | (a: float \| int, b: float \| int) -> float \| int | Subtract second number from first number. |
 | `mul` | (a: float \| int, b: float \| int) -> float \| int | Multiply two numbers together. |
@@ -95,7 +97,7 @@ import JsonpathNote from '@snippets/jsonpath-note.mdx'
 | `seconds_between` | (start: datetime \| str, end: datetime \| str) -> float | Seconds between two datetimes. |
 | `seconds` | (x: int) -> timedelta | Create timedelta with specified seconds. |
 | `set_timezone` | (x: datetime \| str, timezone: str) -> datetime | Convert datetime to different timezone. Timezone must be a valid IANA timezone name (e.g., "America/New_York"). |
-| `to_datetime` | (x: Any, timezone: str \| None = None) -> datetime | Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime. Supports timezone-aware datetime objects if IANA timezone is provided. |
+| `to_datetime` | (x: Any, timezone: str \| None = None) -> datetime | Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime. |
 | `to_isoformat` | (x: datetime \| str) -> str | Convert datetime to ISO format string. |
 | `to_timestamp` | (x: datetime \| str, unit: str = s) -> int | Convert datetime to timestamp in milliseconds ('ms') or seconds ('s'). |
 | `today` | () -> date | Return the current date. |
