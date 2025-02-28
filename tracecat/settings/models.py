@@ -24,7 +24,7 @@ class GitSettingsRead(BaseSettingsGroup):
 
 class GitSettingsUpdate(BaseSettingsGroup):
     git_allowed_domains: list[str] = Field(
-        default_factory=lambda: ["github.com", "gitlab.com", "bitbucket.com"],
+        default_factory=lambda: ["github.com", "gitlab.com", "bitbucket.org"],
         description="Allowed git domains for authentication.",
     )
     git_repo_url: str | None = Field(default=None)
