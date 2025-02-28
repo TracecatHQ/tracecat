@@ -2,7 +2,7 @@ type: action
 definition:
   name: update_agent
   namespace: tools.wazuh
-  title: Update Outdated Agents
+  title: Update agents
   description: Identifies outdated Wazuh agents and updates them.
   display_group: Wazuh
   doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.agent_controller.put_upgrade_agents
@@ -16,20 +16,20 @@ definition:
       type: int
       description: Change the token base duration
       default: 900
-    url:
+    base_url:
       type: str
       description: URL for the Wazuh WUI API.
   steps:
     - ref: get_access_token
       action: tools.wazuh.get_access_token
       args:
-        url: ${{ inputs.url }}
+        url: ${{ inputs.base_url }}
         verify_ssl: ${{ inputs.verify_ssl  }}
         auth_token_exp_timeout: 900
     - ref: get_outdated_agents
       action: core.http_request
       args:
-        url: ${{ inputs.url }}/agents/outdated
+        url: ${{ inputs.base_url }}/agents/outdated
         method: GET
         headers:
           Authorization: Bearer ${{ steps.get_access_token.result }}
@@ -37,7 +37,7 @@ definition:
     - ref: upgrade_agents
       action: core.http_request
       args:
-        url: ${{ inputs.url }}/agents/upgrade
+        url: ${{ inputs.base_url }}/agents/upgrade
         method: PUT
         params:
           agents_list: ${{ FN.join(steps.get_outdated_agents.result.data.data.affected_items[*].id, ",") }}
@@ -47,7 +47,7 @@ definition:
     - ref: upgrade_result
       action: core.http_request
       args:
-        url: ${{ inputs.url }}/agents/upgrade_result
+        url: ${{ inputs.base_url }}/agents/upgrade_result
         method: GET
         params:
           agents_list: ${{ FN.join(steps.upgrade_agents.result.data.data.affected_items[*].agent, ",") }}

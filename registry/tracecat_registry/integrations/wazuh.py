@@ -21,7 +21,7 @@ wazuh_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Generate API Token",
+    default_title="Get access token",
     description="Authenticate with the Wazuh API and retrieve a token.",
     display_group="Wazuh",
     doc_url="https://documentation.wazuh.com/current/user-manual/api/reference.html#tag/Security",
