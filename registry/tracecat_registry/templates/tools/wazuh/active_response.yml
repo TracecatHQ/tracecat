@@ -1,16 +1,16 @@
 type: action
 definition:
-  name: wazuh_active_response
+  name: active_response
   namespace: tools.wazuh
-  title: Wazuh Agents Active Response
-  description: Run an Active Response command on all agents or a list of them
+  title: Run Active Response command
+  description: Run an Active Response command on Wazuh agents.
   display_group: Wazuh
   doc_url: null
   author: null
   expects:
     command:
       type: str
-      description: Command running in the agent. If this value starts with !, then it refers to a script name instead of a command name
+      description: Command running in the agent. If this value starts with !, then it refers to a script name instead of a command name.
     verify_ssl:
       type: bool
       description: If False, disables SSL verification for internal networks.
@@ -22,20 +22,20 @@ definition:
       type: int
       description: Change the token base duration
       default: 900
-    url:
+    base_url:
       type: str
       description: URL for the Wazuh WUI API.
   steps:
     - ref: get_access_token
       action: tools.wazuh.get_access_token
       args:
-        url: ${{ inputs.url }}
+        url: ${{ inputs.base_url }}
         verify_ssl: ${{ inputs.verify_ssl  }}
         auth_token_exp_timeout: 900
     - ref: run_active_response
       action: core.http_request
       args:
-        url: ${{ inputs.url }}/active-response
+        url: ${{ inputs.base_url }}/active-response
         method: PUT
         params:
           agents_list: ${{ inputs.agents_list }}
