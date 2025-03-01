@@ -14,7 +14,7 @@ from tracecat.api.common import (
 from tracecat.executor.engine import setup_ray
 from tracecat.executor.router import router as executor_router
 from tracecat.logger import logger
-from tracecat.middleware import RequestLoggingMiddleware
+from tracecat.middleware import RateLimitMiddleware, RequestLoggingMiddleware
 from tracecat.types.exceptions import TracecatException
 
 
@@ -54,6 +54,26 @@ def create_app(**kwargs) -> FastAPI:
 
     # Middleware
     app.add_middleware(RequestLoggingMiddleware)
+
+    # Add rate limiting middleware if enabled
+    if config.TRACECAT__RATE_LIMIT_ENABLED:
+        logger.info(
+            "Adding rate limiting middleware",
+            rate=config.TRACECAT__RATE_LIMIT_RATE,
+            capacity=config.TRACECAT__RATE_LIMIT_CAPACITY,
+            window_size=config.TRACECAT__RATE_LIMIT_WINDOW_SIZE,
+            by_ip=config.TRACECAT__RATE_LIMIT_BY_IP,
+            by_endpoint=config.TRACECAT__RATE_LIMIT_BY_ENDPOINT,
+        )
+        app.add_middleware(
+            RateLimitMiddleware,
+            rate=config.TRACECAT__RATE_LIMIT_RATE,
+            capacity=config.TRACECAT__RATE_LIMIT_CAPACITY,
+            window_size=config.TRACECAT__RATE_LIMIT_WINDOW_SIZE,
+            by_ip=config.TRACECAT__RATE_LIMIT_BY_IP,
+            by_endpoint=config.TRACECAT__RATE_LIMIT_BY_ENDPOINT,
+        )
+
     app.add_middleware(
         CORSMiddleware,
         # XXX(security): We should be more restrictive here
@@ -67,6 +87,7 @@ def create_app(**kwargs) -> FastAPI:
         "Executor service started",
         env=config.TRACECAT__APP_ENV,
         origins=allow_origins,
+        rate_limiting=config.TRACECAT__RATE_LIMIT_ENABLED,
     )
 
     return app
