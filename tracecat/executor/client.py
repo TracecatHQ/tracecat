@@ -7,6 +7,7 @@ from typing import Any, NoReturn
 
 import httpx
 import orjson
+from fastapi import status
 
 from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
@@ -18,7 +19,11 @@ from tracecat.registry.actions.models import (
     RegistryActionValidateResponse,
 )
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import ExecutorClientError, RegistryError
+from tracecat.types.exceptions import (
+    ExecutorClientError,
+    RateLimitExceeded,
+    RegistryError,
+)
 
 
 class ExecutorHTTPClient(AuthenticatedServiceClient):
@@ -117,6 +122,8 @@ class ExecutorClient:
         self, e: httpx.HTTPStatusError, action_type: str
     ) -> NoReturn:
         self.logger.info("Handling HTTP status error", error=e)
+        if e.response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+            raise RateLimitExceeded.from_response(e.response)
         try:
             resp = e.response.json()
         except JSONDecodeError:
