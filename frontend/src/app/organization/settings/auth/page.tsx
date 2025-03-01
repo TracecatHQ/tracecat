@@ -12,7 +12,8 @@ export default function AuthSettingsPage() {
               Email authentication
             </h2>
             <p className="text-md text-muted-foreground">
-              View and manage your organization email authentication settings here.
+              View and manage your organization email authentication settings
+              here.
             </p>
           </div>
         </div>

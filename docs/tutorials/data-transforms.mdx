@@ -3,3 +3,211 @@ title: Data transforms
 description: Filter and manipulate data with transform actions and inline functions.
 icon: brackets-curly
 ---
+
+<Note>
+  If you're looking to transform data directly in the action inputs editor,
+  check out Tracecat [inline functions](/quickstart/expressions#fn-context).
+</Note>
+
+Data transforms allow you to filter, reshape, and manipulate data within your workflows.
+Tracecat supports the following transform actions:
+
+- `core.transform.reshape`: Organize data into a value or object.
+- `core.transform.filter`: Filter a list of items.
+- `core.transform.is_in`: Check if an item is in a list.
+- `core.transform.is_not_in`: Check if an item is not in a list.
+- `core.transform.deduplicate`: Deduplicate a list of JSON objects given a list of keys.
+- `core.transform.apply`: Apply a `python_lambda` function to a value.
+- `core.transform.map`: Apply a `python_lambda` function to each item in a list.
+
+## Reshape
+
+Reshape is a simple action that takes a single input `value` or object,
+evaluates any [expressions](/quickstart/expressions), and returns the result.
+It is also one of the most powerful transform actions in Tracecat.
+
+The `${{ ACTIONS.<reshape_action_name>.result }}` returns the evaluated `value` of the reshape action.
+
+<Tip>
+  Use the `core.transform.reshape` action to rename and restructure data from previous actions or the trigger into a value or object.
+  Transform data in the reshape using one of many [inline functions](/quickstart/expressions#fn-context).
+
+  Check out the [functions cheatsheet](/quickstart/functions) for a list of all the available functions.
+</Tip>
+
+![Reshape](/img/tutorials/data-transforms/reshape.png)
+
+**Examples**
+
+<CodeGroup>
+  ```php Basic usage
+  # Get one value from a previous action
+  value: ${{ ACTIONS.get_user.result.data.user.name }}
+
+  # Get multiple values from a previous action
+  value:
+    name: ${{ ACTIONS.get_user.result.data.user.name }}
+    email: ${{ ACTIONS.get_user.result.data.user.email }}
+
+  # Get data from the trigger
+  value: ${{ TRIGGER.data.user }}
+  ```
+
+  ```php With inline functions
+  # ACTIONS, TRIGGER, and FN are all available in the reshape action
+  value:
+    email: ${{ ACTIONS.get_user.result.data.user.name || "No email found" }}
+    ip_version: ${{ FN.check_ip_version(ACTIONS.get_user.result.data.user.ip) }}
+    iso_datetime: ${{ FN.to_isoformat(ACTIONS.get_user.result.data.user.created_at) }}
+  ```
+</CodeGroup>
+
+## Deduplicate
+
+Deduplicate a list of JSON objects given a list of keys.
+
+**Examples**
+
+<CodeGroup>
+  ```php Basic deduplication
+  # Deduplicate alerts by ID - keeps only the most recent alert with the same ID
+  value: [
+    {"id": 1, "name": "Suspicious Login", "status": "New"},
+    {"id": 2, "name": "Malware Detected", "status": "New"},
+    {"id": 1, "name": "Suspicious Login", "status": "Updated"},
+  ]
+  keys: ["id"]
+
+  # Result:
+  # [
+  #   {"id": 1, "name": "Suspicious Login", "status": "Updated"},
+  #   {"id": 2, "name": "Malware Detected", "status": "New"},
+  # ]
+  ```
+
+  ```php Nested field deduplication
+  # Deduplicate security events based on nested user ID
+  value: [
+    {"event": {"type": "login"}, "user": {"id": 1, "ip": "10.0.0.1"}},
+    {"event": {"type": "login"}, "user": {"id": 2, "ip": "10.0.0.2"}},
+    {"event": {"type": "access"}, "user": {"id": 1, "ip": "10.0.0.3"}},
+    {"event": {"type": "access"}, "user": {"id": 2, "ip": "10.0.0.4"}},
+  ]
+  keys: ["user.id"]
+
+  # Result:
+  # [
+  #   {"event": {"type": "access"}, "user": {"id": 1, "ip": "10.0.0.3"}},
+  #   {"event": {"type": "access"}, "user": {"id": 2, "ip": "10.0.0.4"}},
+  #   {"event": {"type": "login"}, "user": {"id": 1, "ip": "10.0.0.1"}},
+  #   {"event": {"type": "login"}, "user": {"id": 2, "ip": "10.0.0.2"}},
+  # ]
+  ```
+
+  ```php Multiple key deduplication
+  # Deduplicate network traffic events by source and destination
+  value: [
+    {
+      "meta": {"type": "network", "source": "10.0.0.1"},
+      "data": {"dest": "8.8.8.8", "bytes": 1024},
+    },
+    {
+      "meta": {"type": "network", "source": "10.0.0.2"},
+      "data": {"dest": "8.8.4.4", "bytes": 512},
+      },
+    {
+      "meta": {"type": "network", "source": "10.0.0.1"},
+      "data": {"dest": "8.8.8.8", "bytes": 2048},
+    },
+    {
+      "meta": {"type": "network", "source": "10.0.0.2"},
+      "data": {"dest": "8.8.8.8", "bytes": 2048},
+    },
+  ]
+  keys: ["meta.source", "data.dest"]
+
+  # Result:
+  # [
+  #   {
+  #     "meta": {"type": "network", "source": "10.0.0.1"},
+  #     "data": {"dest": "8.8.8.8", "bytes": 2048},
+  #   },
+  #   {
+  #     "meta": {"type": "network", "source": "10.0.0.2"},
+  #     "data": {"dest": "8.8.4.4", "bytes": 512},
+  #   }
+  # ]
+  ```
+</CodeGroup>
+
+## Lambda Transforms
+
+The following transforms accept an action input called `python_lambda`.
+`python_lambda` is a Python Lambda function given as a string.
+
+It allows you to use small snippets of Python code to transform data and define conditions.
+For security, we only support a limited set of core Python features.
+
+<Info>
+  Python lambda functions are small anonymous functions that are used to define simple functions that are passed to other functions.
+  You can learn more about them [here](https://realpython.com/python-lambda/).
+
+  ```python
+  lambda x: x["name"] == "John"
+  ```
+</Info>
+
+<Note>
+  It can be hard to escape special characters in YAML.
+  Werecommend using `python_lambda` with the `>-` and `>` YAML [block modifiers](/cheatsheets/yaml#block-modifiers)
+  to avoid these issues:
+
+  ```php
+  # ✅ Do this:
+  python_lambda: >-
+    lambda x: x["name"] == "John"
+
+  # ❌ This will fail:
+  python_lambda: "lambda x: x["name"] == "John""
+  ```
+</Note>
+
+### Filter
+
+Filter a list of items given a Python lambda function.
+This function should return a truthy or falsy value.
+
+**Examples**
+
+<CodeGroup>
+  ```php
+  value: [{"name": "John", "age": 30}, {"name": "Jane", "age": 25}]
+  python_lambda: "lambda x: x['age'] > 25"
+  ```
+</CodeGroup>
+
+### Apply
+
+<Warning>
+  This action is for simple oneline Python functions only.
+  If you want to use custom Python code in Tracecat,
+  we recommend syncing these functions into Tracecat as [Python UDF actions](/integrations/python-udfs).
+
+  Check out more in the [custom integrations tutorial](/tutorials/custom-integrations).
+</Warning>
+
+Apply a Python lambda function to a value.
+
+```php
+value: {"name": "John", "age": 30}
+python_lambda: "lambda x: x['name'] == 'John'"
+```
+
+### Map
+
+Apply a Python lambda function to each item in a list.
+
+```php
+value: [{"name": "John", "age": 30}, {"name": "Jane", "age": 25}]
+python_lambda: "lambda x: x['name']"
+```

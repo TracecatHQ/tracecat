@@ -80,15 +80,27 @@ function WorkbenchSidebarEventsList({
   const { execution, executionIsLoading, executionError } =
     useCompactWorkflowExecution(lastExecution?.id)
 
-  if (lastExecutionIsLoading || executionIsLoading) return <CenteredSpinner />
-  if (lastExecutionError || executionError)
+  // Show loading state if either query is loading
+  if (lastExecutionIsLoading || (lastExecution?.id && executionIsLoading)) {
+    return <CenteredSpinner />
+  }
+
+  // Only show error if we have a real error (not just missing execution)
+  if (lastExecutionError || (lastExecution?.id && executionError)) {
     return (
       <AlertNotification
         level="error"
-        message={`Error loading execution: ${lastExecutionError?.message || executionError?.message || "Error loading last execution"}`}
+        message={`Error loading execution: ${
+          lastExecutionError?.message ||
+          executionError?.message ||
+          "Error loading last execution"
+        }`}
       />
     )
-  if (!execution)
+  }
+
+  // Show empty state if we have no execution data
+  if (!lastExecution || !execution) {
     return (
       <EventsSidebarEmpty
         title="No workflow runs"
@@ -96,6 +108,7 @@ function WorkbenchSidebarEventsList({
         actionLabel="New workflow"
       />
     )
+  }
 
   const tabItems = [
     {

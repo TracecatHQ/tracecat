@@ -2,7 +2,9 @@
 
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/providers/auth"
-import { Input } from "@/components/ui/input"
+import { useForm } from "react-hook-form"
+import { z } from "zod"
+
 import {
   Form,
   FormControl,
@@ -10,13 +12,12 @@ import {
   FormItem,
   FormLabel,
 } from "@/components/ui/form"
-import { useForm } from "react-hook-form"
-import { z } from "zod"
+import { Input } from "@/components/ui/input"
 
 const profileSchema = z.object({
   email: z.string().email(),
   firstName: z.string(),
-  lastName: z.string()
+  lastName: z.string(),
 })
 
 type ProfileFormData = z.infer<typeof profileSchema>
@@ -26,10 +27,10 @@ export default function ProfileSettingsPage() {
   const router = useRouter()
   const form = useForm<ProfileFormData>({
     defaultValues: {
-      email: user?.email ?? '',
-      firstName: user?.first_name ?? '',
-      lastName: user?.last_name ?? '',
-    }
+      email: user?.email ?? "",
+      firstName: user?.first_name ?? "",
+      lastName: user?.last_name ?? "",
+    },
   })
 
   if (!user) {
@@ -56,7 +57,7 @@ export default function ProfileSettingsPage() {
                 control={form.control}
                 name="email"
                 render={({ field }) => (
-                  <FormItem className="flex flex-col max-w-md">
+                  <FormItem className="flex max-w-md flex-col">
                     <FormLabel>Email</FormLabel>
                     <FormControl>
                       <Input
@@ -70,7 +71,7 @@ export default function ProfileSettingsPage() {
                 )}
               />
 
-              <div className="grid grid-cols-2 gap-4 max-w-md">
+              <div className="grid max-w-md grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="firstName"

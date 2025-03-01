@@ -16,7 +16,7 @@ from tracecat_registry import registry
 )
 def reshape(
     value: Annotated[
-        Any,
+        Any | list[Any] | dict[str, Any],
         Doc("The value to reshape"),
     ],
 ) -> Any:
@@ -77,12 +77,12 @@ def is_in(
 
 
 @registry.register(
-    default_title="Is not in",
+    default_title="Not in",
     description="Filters items in a list based on whether they are not in a collection.",
     display_group="Data Transform",
     namespace="core.transform",
 )
-def is_not_in(
+def not_in(
     items: Annotated[
         list[Any],
         Doc("Items to filter."),

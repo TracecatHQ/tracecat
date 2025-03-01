@@ -15,7 +15,6 @@ from tracecat.expressions.functions import (
     capitalize,
     cast,
     check_ip_version,
-    contains,
     create_days,
     create_hours,
     create_minutes,
@@ -28,7 +27,6 @@ from tracecat.expressions.functions import (
     dict_lookup,
     dict_values,
     div,
-    does_not_contain,
     endswith,
     extract_text_from_html,
     flatten,
@@ -53,6 +51,7 @@ from tracecat.expressions.functions import (
     ipv6_is_public,
     is_empty,
     is_equal,
+    is_in,
     is_null,
     iter_product,
     less_than,
@@ -67,6 +66,7 @@ from tracecat.expressions.functions import (
     not_,
     not_empty,
     not_equal,
+    not_in,
     not_null,
     or_,
     parse_datetime,
@@ -397,15 +397,15 @@ def test_equality(func, a: Any, b: Any, expected: bool) -> None:
 @pytest.mark.parametrize(
     "func,a,b,expected",
     [
-        (contains, 2, [1, 2, 3], True),
-        (contains, "el", "hello", True),
-        (contains, 4, [1, 2, 3], False),
-        (does_not_contain, 4, [1, 2, 3], True),
-        (does_not_contain, "x", "hello", True),
-        (does_not_contain, 2, [1, 2, 3], False),
+        (is_in, 2, [1, 2, 3], True),
+        (is_in, "el", "hello", True),
+        (is_in, 4, [1, 2, 3], False),
+        (not_in, 4, [1, 2, 3], True),
+        (not_in, "x", "hello", True),
+        (not_in, 2, [1, 2, 3], False),
     ],
 )
-def test_contains(func, a: Any, b: Any, expected: bool) -> None:
+def test_is_in(func, a: Any, b: Any, expected: bool) -> None:
     assert func(a, b) == expected
 
 

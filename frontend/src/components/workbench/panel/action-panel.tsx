@@ -269,7 +269,15 @@ export function ActionPanel({
         setSaveState(SaveState.ERROR)
       }
     },
-    [workspaceId, registryAction, action, updateAction, methods, setSaveState, setActionValidationErrors]
+    [
+      workspaceId,
+      registryAction,
+      action,
+      updateAction,
+      methods,
+      setSaveState,
+      setActionValidationErrors,
+    ]
   )
 
   // If the form is dirty, set the save state to unsaved
@@ -711,8 +719,8 @@ export function ActionPanel({
                         </HoverCard>
 
                         <span className="text-xs text-muted-foreground">
-                          Define a conditional expression that determines if
-                          the action executes.
+                          Define a conditional expression that determines if the
+                          action executes.
                         </span>
                       </div>
                       <FormField
@@ -757,8 +765,8 @@ export function ActionPanel({
                         </HoverCard>
 
                         <span className="text-xs text-muted-foreground">
-                          Define one or more loop expressions for the action
-                          to iterate over.
+                          Define one or more loop expressions for the action to
+                          iterate over.
                         </span>
                       </div>
                       <FormField
@@ -804,8 +812,7 @@ export function ActionPanel({
                         </HoverCard>
 
                         <span className="text-xs text-muted-foreground">
-                          Define additional control flow options for the
-                          action.
+                          Define additional control flow options for the action.
                         </span>
                       </div>
                       <FormField

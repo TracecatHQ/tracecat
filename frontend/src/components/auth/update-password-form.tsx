@@ -78,7 +78,9 @@ export function UpdatePasswordForm() {
                 name="password"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-medium">New password</FormLabel>
+                    <FormLabel className="text-sm font-medium">
+                      New password
+                    </FormLabel>
                     <FormControl>
                       <Input
                         type={showPassword ? "text" : "password"}
@@ -97,7 +99,9 @@ export function UpdatePasswordForm() {
                 name="confirmPassword"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-sm font-medium">Confirm password</FormLabel>
+                    <FormLabel className="text-sm font-medium">
+                      Confirm password
+                    </FormLabel>
                     <FormControl>
                       <Input
                         type={showPassword ? "text" : "password"}

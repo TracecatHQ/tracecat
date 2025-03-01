@@ -1,0 +1,80 @@
+---
+title: YAML
+description: A cheatsheet for YAML basic syntax, block modifiers, and special characters.
+---
+
+Tracecat uses YAML to define action inputs and workflow configurations.
+This cheatsheet covers the basic YAML syntax, block modifiers to handle multi-line text, and special characters.
+
+## Basic Syntax
+
+```yaml
+# Key-value pairs
+key: value
+nested:
+  key: value
+
+# Lists
+items:
+  - item1
+  - item2
+  - item3
+
+# YAML also supports inline JSON and lists
+key: {"key": "value"}
+key: [item1, item2, item3]
+
+# Strings and numbers
+integer: 42
+float: 3.14
+string: "42"
+
+# Boolean values
+enabled: true
+disabled: false
+
+# Null value
+empty: null
+```
+
+## Special Characters
+
+YAML supports escaping characters using backslashes:
+
+```yaml
+key: "This is a \"string\" with a quote"
+```
+
+## Block Modifiers
+
+<Tip>
+  The best way to deal with multi-line configurations and
+  special characters in YAML is to use the block scalars `>-` and `>`.
+</Tip>
+
+```yaml
+# Literal Block Scalar (|): Preserves all newlines
+description: |
+  This is a multi-line description.
+  Each line break is preserved exactly as written.
+  Indentation is respected.
+
+# |- : Strip all trailing newlines
+notes: |-
+  This text will have
+  all trailing newlines removed.
+
+# Folded Block Scalar (>): Converts newlines to spaces
+description: >
+  This is a multi-line description.
+  Line breaks become spaces.
+
+  Blank lines start new paragraphs.
+
+# >- : Folded style with trailing newlines removed
+description: >-
+  This is a long description
+  that spans multiple lines
+  but will be rendered as a single line
+  with trailing newlines removed.
+```

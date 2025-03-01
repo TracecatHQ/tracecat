@@ -124,12 +124,12 @@ class ExecutorClient:
             resp = {}
         match resp:
             case {"detail": detail} if _looks_like_error_info(detail):
-                logger.info("Looks like error info")
+                logger.debug("Looks like error info")
                 detail = str(ExecutorActionErrorInfo(**detail))
             case {"detail": detail} if isinstance(detail, list) and all(
                 _looks_like_error_info(r) for r in detail
             ):
-                logger.info("Looks like list of error info", n_errors=len(detail))
+                logger.debug("Looks like list of error info", n_errors=len(detail))
                 length = len(detail)
                 body = []
                 if length > 1:
@@ -137,13 +137,13 @@ class ExecutorClient:
                 body.append(str(ExecutorActionErrorInfo(**detail[0])))
                 detail = "\n\n".join(body)
             case _:
-                logger.info("Looks like unknown error")
+                logger.debug("Looks like unknown error")
                 detail = e.response.text
         logger.error("Executor returned an error")
         if e.response.status_code / 100 == 5:
             logger.error("There was an error in the executor when calling action")
             raise ExecutorClientError(
-                f"There was an error in the executor when calling action {action_type!r} ({e.response.status_code}).\n\n{detail}"
+                f"There was an error in the executor when calling action {action_type!r}.\n\n{detail}"
             ) from e
         else:
             logger.error("Unexpected executor error")

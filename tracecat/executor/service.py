@@ -209,19 +209,21 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     args_secrets = set(extract_templated_secrets(task.args))
     optional_secrets = {s.name for s in action_secrets if s.optional}
     required_secrets = {s.name for s in action_secrets if not s.optional}
+    secrets_to_fetch = required_secrets | args_secrets | optional_secrets
 
     logger.info(
-        "Required secrets",
+        "Handling secrets",
         required_secrets=required_secrets,
         optional_secrets=optional_secrets,
         args_secrets=args_secrets,
+        secrets_to_fetch=secrets_to_fetch,
     )
 
     # Get all secrets in one call
     async with AuthSandbox(
-        secrets=list(required_secrets | args_secrets),
+        secrets=secrets_to_fetch,
         environment=get_runtime_env(),
-        optional_secrets=list(optional_secrets),
+        optional_secrets=optional_secrets,
     ) as sandbox:
         secrets = sandbox.secrets.copy()
 

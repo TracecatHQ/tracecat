@@ -29,10 +29,10 @@
             "group": "Tutorials",
             "pages": [
               "tutorials/workflow-triggers",
-              "tutorials/custom-integrations",
               "tutorials/child-workflows",
               "tutorials/explode-implode",
               "tutorials/data-transforms",
+              "tutorials/custom-integrations",
               "tutorials/alert-on-failure"
             ]
           },
@@ -58,17 +58,6 @@
               },
               "self-hosting/updating",
               "self-hosting/llms"
-            ]
-          },
-          {
-            "group": "Data Manipulation",
-            "pages": [
-              "data-types/json",
-              "data-types/arrays",
-              "data-types/datetimes",
-              "data-types/strings",
-              "data-types/booleans",
-              "data-types/cryptography"
             ]
           }
         ]
@@ -103,7 +92,9 @@
         "tab": "Cheatsheets",
         "pages": [
           "cheatsheets/functions",
-          "cheatsheets/integrations"
+          "cheatsheets/integrations",
+          "cheatsheets/yaml",
+          "cheatsheets/jsonpath"
         ]
       },
       {
