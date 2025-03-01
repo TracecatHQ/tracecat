@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 
 import aiofiles
 import paramiko
+from pydantic import SecretStr
+from slugify import slugify
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.contexts import ctx_role
@@ -181,51 +183,38 @@ async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
     return await asyncio.to_thread(add_ssh_key_to_agent_sync, key_data, env)
 
 
-@asynccontextmanager
-async def temp_key_file(key_content: str) -> AsyncIterator[str]:
-    """Create a temporary file containing an SSH key with secure permissions.
+async def get_ssh_command(git_url: GitUrl, role: Role, session: AsyncSession) -> str:
+    """Get an SSH command for the given Git URL and SSH key."""
+    role = role or ctx_role.get()
+    service = SecretsService(session=session, role=role)
+    ssh_key = await service.get_ssh_key()
+    ssh_cmd = await prepare_ssh_key_file(git_url=git_url, ssh_key=ssh_key)
+    return ssh_cmd
 
-    Args:
-        key_content: The SSH key content to write to the temporary file
 
-    Returns:
-        An SSH command string configured to use the temporary key file
+async def prepare_ssh_key_file(git_url: GitUrl, ssh_key: SecretStr) -> str:
+    """Prepare an SSH key file for use in an SSH command."""
+    key_dir = Path.home().joinpath(".tracecat")
+    key_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    key_path = key_dir / slugify(f"{git_url.host}_{git_url.org}_{git_url.repo}")
 
-    Raises:
-        OSError: If unable to create temp file or set permissions
-    """
-    async with aiofiles.tempfile.NamedTemporaryFile(mode="w", delete=True) as f:
-        # Write key content
-        await f.write(key_content)
+    # Write the key content to the file with proper permissions
+    async with aiofiles.open(key_path, mode="w", encoding="utf-8") as f:
+        await f.write(ssh_key.get_secret_value())
         await f.flush()
 
-        # Set strict permissions (important!)
-        os.chmod(f.name, 0o600)
+    # Set strict permissions after writing (important!)
+    os.chmod(key_path, 0o600)
 
-        # Use the key file in SSH command with more permissive host key checking
-        ssh_cmd = (
-            f"ssh -i {f.name} -o IdentitiesOnly=yes "
-            "-o StrictHostKeyChecking=accept-new "
-            f"-o UserKnownHostsFile={Path.home().joinpath('.ssh/known_hosts')!s}"
-        )
-        yield ssh_cmd
+    logger.debug("Created SSH key file", key_path=key_path)
 
-
-@asynccontextmanager
-async def opt_temp_key_file(
-    git_url: GitUrl | None,
-    session: AsyncSession,
-    role: Role | None = None,
-) -> AsyncIterator[str | None]:
-    """Context manager for optional SSH key file."""
-    if git_url is None:
-        yield None
-    else:
-        role = role or ctx_role.get()
-        service = SecretsService(session=session, role=role)
-        ssh_key = await service.get_ssh_key()
-        async with temp_key_file(key_content=ssh_key.get_secret_value()) as ssh_cmd:
-            yield ssh_cmd
+    # Use the key file in SSH command with more permissive host key checking
+    ssh_cmd = (
+        f"ssh -i {key_path!s} -o IdentitiesOnly=yes "
+        "-o StrictHostKeyChecking=accept-new "
+        f"-o UserKnownHostsFile={Path.home().joinpath('.ssh/known_hosts')!s}"
+    )
+    return ssh_cmd
 
 
 @asynccontextmanager
