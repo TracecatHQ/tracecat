@@ -1,0 +1,18 @@
+- id: single_cve
+  text: "Critical vulnerability CVE-2021-34527 needs immediate patching."
+  expected: ["CVE-2021-34527"]
+- id: multiple_cves
+  text: "Multiple CVEs detected: CVE-2021-44228, CVE-2022-22965, and CVE-2023-12345."
+  expected: ["CVE-2021-44228", "CVE-2022-22965", "CVE-2023-12345"]
+- id: no_cves
+  text: "No CVEs in this text."
+  expected: []
+- id: invalid_formats
+  text: "Some invalid formats: CVE-abcd-1234, CVE-2021, CVE-2021-ABCD."
+  expected: []
+- id: cve_in_json
+  text: "CVE in JSON data: {'cve_id': 'CVE-2021-44228', 'severity': 'critical'}"
+  expected: ["CVE-2021-44228"]
+- id: long_cve_id
+  text: "CVE with many digits: CVE-2021-1234567"
+  expected: ["CVE-2021-1234567"]

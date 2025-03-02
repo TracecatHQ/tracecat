@@ -1,0 +1,54 @@
+- id: single_domain
+  text: "Malicious domain detected: evil-domain.com in traffic logs."
+  expected: ["evil-domain.com"]
+- id: multiple_domains
+  text: "Multiple domains: example.com, sub.example.org, and test-site.co.uk."
+  expected: ["example.com", "sub.example.org", "test-site.co.uk"]
+- id: no_domains
+  text: "No domains in this text, only an IP 192.168.1.1."
+  expected: []
+- id: domain_in_url
+  text: "Some domain in URL: https://example.com/path and domain with text example.org."
+  expected: ["example.org"]
+- id: domain_in_json
+  text: "Domain in JSON: {'domain': 'malware.net', 'first_seen': '2023-01-01'}"
+  expected: ["malware.net"]
+- id: multi_level_subdomain
+  text: "Subdomain with many levels: sub.sub2.example.com"
+  expected: ["sub.sub2.example.com"]
+- id: domain_with_numeric_tld
+  text: "Domain with numeric TLD: example.123"
+  expected: []
+- id: domain_with_hyphens
+  text: "Domain with hyphens: this-is-a-valid-domain-name.com"
+  expected: ["this-is-a-valid-domain-name.com"]
+- id: very_long_subdomain
+  text: "Domain with very long subdomain: thisisaveryveryveryveryveryveryveryverylongsubdomain.example.com"
+  expected: ["thisisaveryveryveryveryveryveryveryverylongsubdomain.example.com"]
+- id: multiple_subdomains
+  text: "Multiple subdomains: a.b.c.d.e.f.g.example.com"
+  expected: ["a.b.c.d.e.f.g.example.com"]
+- id: tlds
+  text: "TLDs: example.app, malicious.xyz, test.tech"
+  expected: ["example.app", "malicious.xyz", "test.tech"]
+- id: domain_with_trailing_dot
+  text: "Domain with trailing dot (DNS root): example.com."
+  expected: ["example.com"]
+- id: typosquatting_domain
+  text: "Typosquatting domain: g00gle.com"
+  expected: ["g00gle.com"]
+- id: domain_in_security_alert
+  text: "Domain in security alert JSON: {'alert_type': 'dns_request', 'details': {'requested_domain': 'malware-delivery.net'}}"
+  expected: ["malware-delivery.net"]
+- id: domains_in_multiple_json_levels
+  text: "Domains in multiple JSON levels: {'data': {'threats': [{'domain': 'bad.com'}, {'domain': 'worse.net'}]}}"
+  expected: ["bad.com", "worse.net"]
+- id: domain_from_email
+  text: "Domain extraction from email address: user@malicious-domain.com"
+  expected: ["malicious-domain.com"]
+- id: punycode_domain
+  text: "Punycode domain: xn--80acd1bdbrs.xn--p1ai"
+  expected: ["xn--80acd1bdbrs.xn--p1ai"]
+- id: country_code_tlds
+  text: "Country-code TLD: suspicious.cn, malware.ru, exploit.kr"
+  expected: ["suspicious.cn", "malware.ru", "exploit.kr"]

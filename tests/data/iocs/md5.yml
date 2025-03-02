@@ -1,0 +1,36 @@
+- id: single_md5
+  text: "MD5 hash: d41d8cd98f00b204e9800998ecf8427e found in sample."
+  expected: ["d41d8cd98f00b204e9800998ecf8427e"]
+- id: multiple_md5s
+  text: "Multiple MD5s: e10adc3949ba59abbe56e057f20f883e, 5f4dcc3b5aa765d61d8327deb882cf99."
+  expected: ["e10adc3949ba59abbe56e057f20f883e", "5f4dcc3b5aa765d61d8327deb882cf99"]
+- id: no_md5s
+  text: "No MD5 hashes here."
+  expected: []
+- id: invalid_md5_length
+  text: "Invalid hash: d41d8cd98f00b204e9800998ecf842 (too short)"
+  expected: []
+- id: md5_in_json
+  text: "MD5 in JSON: {'md5': 'c4ca4238a0b923820dcc509a6f75849b', 'detected': true}"
+  expected: ["c4ca4238a0b923820dcc509a6f75849b"]
+- id: av_alert_md5
+  text: "Alert from AV: Malware detected! MD5: 1a79a4d60de6718e8e5b326e338ae533 - Trojan.Generic"
+  expected: ["1a79a4d60de6718e8e5b326e338ae533"]
+- id: virustotal_report_md5
+  text: "VirusTotal report: {'scans': {'file_hash': '81dc9bdb52d04dc20036dbd8313ed055', 'score': '32/70'}}"
+  expected: ["81dc9bdb52d04dc20036dbd8313ed055"]
+- id: invalid_md5_with_identifier
+  text: "Multiple hash formats: MD5(sample.exe) = d8cd98f00b204e9800998ecf8427e, SHA1 = 2fd4e1c67a2d28fced849ee1bb76e7391b93eb12"
+  expected: []
+- id: md5_in_file_scan
+  text: "MD5 in file scan: sample01.exe 44d88612fea8a8f36de82e1278abb02f SUSPICIOUS"
+  expected: ["44d88612fea8a8f36de82e1278abb02f"]
+- id: mixed_case_and_invalid_md5
+  text: "Mixed case MD5: fF9cD4H9jC9hF9tD4cC9eE9vR9gT8jU7 and valid ac3478d69a3c81fa62e60f5c3696165a"
+  expected: ["ac3478d69a3c81fa62e60f5c3696165a"]
+- id: md5_in_nested_json
+  text: "MD5 in nested alert JSON: {'results': {'files': [{'name': 'malware.exe', 'analysis': {'hash': {'md5': 'c9f0f895fb98ab9159f51fd0297e236d'}}}]}}"
+  expected: ["c9f0f895fb98ab9159f51fd0297e236d"]
+- id: md5_uppercase_in_report
+  text: "Sandbox report: extracted payload 8f10688DD41A3BB9E714FF5C718D3D6A, contacted C2 at 192.168.1.100"
+  expected: ["8f10688dd41a3bb9e714ff5c718d3d6a"]

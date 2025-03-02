@@ -1,0 +1,36 @@
+- id: single_sha1
+  text: "SHA1 hash: da39a3ee5e6b4b0d3255bfef95601890afd80709 in file."
+  expected: ["da39a3ee5e6b4b0d3255bfef95601890afd80709"]
+- id: multiple_sha1s
+  text: "Multiple SHA1s: 40bd001563085fc35165329ea1ff5c5ecbdbbeef, 5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8."
+  expected: ["40bd001563085fc35165329ea1ff5c5ecbdbbeef", "5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8"]
+- id: no_sha1s
+  text: "No SHA1 hashes here."
+  expected: []
+- id: invalid_sha1_length
+  text: "Invalid hash: 40bd001563085fc35165329ea1ff5c5ecbdbbe (too short)"
+  expected: []
+- id: sha1_in_json
+  text: "SHA1 in JSON: {'sha1': 'aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d', 'detected': true}"
+  expected: ["aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"]
+- id: ioc_report_sha1
+  text: "IOC Report: SHA1 hash 6367c48dd193d56ea7b0baad25b19455e529f5ee associated with Ransomware"
+  expected: ["6367c48dd193d56ea7b0baad25b19455e529f5ee"]
+- id: certificate_fingerprint
+  text: "Certificate fingerprint: SHA1: D6EA85D98E91C6F4C748CD977F134B3A3C0F0B14"
+  expected: ["D6EA85D98E91C6F4C748CD977F134B3A3C0F0B14"]
+- id: multiple_algorithm_hashes
+  text: "Multiple algorithms: MD5=827ccb0eea8a706c4c34a16891f84e7b SHA1=7c4a8d09ca3762af61e59520943dc26494f8941b"
+  expected: ["7c4a8d09ca3762af61e59520943dc26494f8941b"]
+- id: sha1_in_threat_intel
+  text: "SHA1 in threat intelligence feed: {'indicator': {'type': 'file', 'sha1': 'f1d2d2f924e986ac86fdf7b36c94bcdf32beec15'}}"
+  expected: ["f1d2d2f924e986ac86fdf7b36c94bcdf32beec15"]
+- id: sha1_with_prefix
+  text: "SHA1 with prefix notation: SHA1=2fd4e1c67a2d28fced849ee1bb76e7391b93eb12, Malicious"
+  expected: ["2fd4e1c67a2d28fced849ee1bb76e7391b93eb12"]
+- id: sha1_command_output
+  text: "Command output: $ sha1sum malware.bin\n356a192b7913b04c54574d18c28d46e6395428ab  malware.bin"
+  expected: ["356a192b7913b04c54574d18c28d46e6395428ab"]
+- id: sha1_in_dfir_report
+  text: "DFIR report: {'evidence': {'executables': [{'path': '/tmp/backdoor', 'sha1': 'da39a3ee5e6b4b0d3255bfef95601890afd80709', 'compiled': '2023-01-15'}]}}"
+  expected: ["da39a3ee5e6b4b0d3255bfef95601890afd80709"]

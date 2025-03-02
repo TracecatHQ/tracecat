@@ -1,0 +1,36 @@
+- id: single_ipv4
+  text: "IPv4 address 192.168.1.1 and some random text"
+  expected: ["192.168.1.1"]
+- id: multiple_ipv4
+  text: "IPv4 address 192.168.1.1 and another IPv4 address 10.0.0.1 in the mix"
+  expected: ["192.168.1.1", "10.0.0.1"]
+- id: no_ip_addresses
+  text: "No IP addresses here"
+  expected: []
+- id: invalid_ip_addresses
+  text: "Invalid IPv4 address 999.999.999.999 should not match. Another invalid 256.256.256.256 address"
+  expected: []
+- id: json_with_ip_addresses
+  text: '{"alert": {"context": {"ip_address": "192.168.1.1", "description": "Suspicious activity detected"}}, "event": {"source": {"ip_address": "10.0.0.1", "port": 8080}, "destination": {"ip_address": "172.16.0.1", "port": 443}}}'
+  expected: ["192.168.1.1", "10.0.0.1", "172.16.0.1"]
+- id: comma_separated_ip_addresses
+  text: "Multiple addresses: 192.168.1.1, 10.0.0.1. More addresses: 172.16.0.1, 192.168.0.1"
+  expected: ["192.168.1.1", "10.0.0.1", "172.16.0.1", "192.168.0.1"]
+- id: ip_addresses_with_ports
+  text: "Connection from 203.0.113.5:49123 to 198.51.100.12:443. Failed login attempt from 198.51.100.73:22 to internal server"
+  expected: ["203.0.113.5", "198.51.100.12", "198.51.100.73"]
+- id: firewall_logs
+  text: "Apr 15 13:45:29 firewall kernel: INBOUND TCP 8.8.8.8:51812 -> 10.0.0.5:22 dropped. Apr 15 13:48:53 firewall kernel: OUTBOUND UDP 10.0.0.7:53 -> 1.1.1.1:53 allowed"
+  expected: ["8.8.8.8", "10.0.0.5", "10.0.0.7", "1.1.1.1"]
+- id: email_headers
+  text: "Received: from mail-server (mail.example.com [192.0.2.1]) by smtp.gmail.com with ESMTPS. X-Forwarded-For: 203.0.113.195, 198.51.100.2, 192.0.2.45"
+  expected: ["192.0.2.1", "203.0.113.195", "198.51.100.2", "192.0.2.45"]
+- id: ip_addresses_in_urls
+  text: "Malicious URL detected: http://107.3.45.102/malware.exe. User visited suspicious site at https://103.244.36.182/login?user=admin"
+  expected: ["107.3.45.102", "103.244.36.182"]
+- id: ip_addresses_with_cidr
+  text: "Firewall rule added: DENY IN FROM 172.16.0.0/16 TO ANY. Allow traffic from trusted subnet 10.3.2.0/24 to dmz"
+  expected: ["172.16.0.0", "10.3.2.0"]
+- id: mixed_content_alerts
+  text: "Alert ID 5823: Brute force attack detected from 45.76.123.45 (50 attempts). Investigation found connections to known C2 servers: 98.76.54.32, 23.45.67.89"
+  expected: ["45.76.123.45", "98.76.54.32", "23.45.67.89"]
