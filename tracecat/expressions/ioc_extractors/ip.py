@@ -9,8 +9,19 @@ IPV4_REGEX = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
 # 1. Full format: 2001:0db8:85a3:0000:0000:8a2e:0370:7334
 # 2. Compressed format: 2001:db8::1
 # 3. Bracketed format: [2001:db8::1]
-# Including uppercase and lowercase hex digits
-IPV6_REGEX = r"(?:\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b)|(?:\b(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\b)|(?:\[(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\])|(?:\[(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\])"
+# 4. Includes uppercase and lowercase hex digits
+IPV6_REGEX = (
+    # Full format IPv6 without brackets
+    r"(?:\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b)"
+    # Compressed IPv6 format without brackets (with :: notation)
+    r"|(?:\b(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::"
+    r"(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\b)"
+    # Full format IPv6 with brackets
+    r"|(?:\[(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\])"
+    # Compressed IPv6 format with brackets (with :: notation)
+    r"|(?:\[(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::"
+    r"(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\])"
+)
 
 
 def is_ipv4(ip: str) -> bool:
@@ -36,7 +47,7 @@ def is_ip(ip: str) -> bool:
     return is_ipv4(ip) or is_ipv6(ip)
 
 
-def extract_ipv4_addresses(text: str) -> list[str]:
+def extract_ipv4(text: str) -> list[str]:
     """Extract unique IPv4 addresses from a string."""
     unique_ips = set()
     for ip in re.findall(IPV4_REGEX, text):
@@ -48,7 +59,7 @@ def extract_ipv4_addresses(text: str) -> list[str]:
     return list(unique_ips)
 
 
-def extract_ipv6_addresses(text: str) -> list[str]:
+def extract_ipv6(text: str) -> list[str]:
     """Extract unique IPv6 addresses from a string."""
 
     # This function preserves the original format of the IPv6 address
@@ -75,8 +86,8 @@ def extract_ipv6_addresses(text: str) -> list[str]:
     return list(unique_ips)
 
 
-def extract_ip_addresses(text: str) -> list[str]:
+def extract_ip(text: str) -> list[str]:
     """Extract unique IPv4 and IPv6 addresses from a string."""
-    ipv4_addrs = extract_ipv4_addresses(text)
-    ipv6_addrs = extract_ipv6_addresses(text)
+    ipv4_addrs = extract_ipv4(text)
+    ipv6_addrs = extract_ipv6(text)
     return ipv4_addrs + ipv6_addrs

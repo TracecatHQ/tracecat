@@ -16,16 +16,16 @@ class MacAddressModel(BaseModel):
         return ":".join(parts[i : i + 2].upper() for i in range(0, 12, 2))
 
 
-def is_mac_address(mac_address: str) -> bool:
+def is_mac(mac: str) -> bool:
     """Check if a string is a valid MAC address."""
     try:
-        MacAddressModel(mac_address=mac_address)  # type: ignore
+        MacAddressModel(mac_address=mac)  # type: ignore
         return True
     except ValidationError:
         return False
 
 
-def extract_mac_addresses(text: str) -> list[str]:
+def extract_mac(text: str) -> list[str]:
     """Extract MAC addresses from a string.
 
     Examples: 00:11:22:33:44:55, 00-11-22-33-44-55

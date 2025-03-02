@@ -5,13 +5,13 @@ from tracecat.expressions.ioc_extractors import (
     extract_cves,
     extract_domains,
     extract_emails,
-    extract_ipv4_addresses,
-    extract_ipv6_addresses,
-    extract_mac_addresses,
-    extract_md5_hashes,
-    extract_sha1_hashes,
-    extract_sha256_hashes,
-    extract_sha512_hashes,
+    extract_ipv4,
+    extract_ipv6,
+    extract_mac,
+    extract_md5,
+    extract_sha1,
+    extract_sha256,
+    extract_sha512,
     extract_urls,
     normalize_email,
 )
@@ -316,7 +316,7 @@ def test_extract_domains(text: str, expected: list[str]) -> None:
     ],
 )
 def test_extract_md5_hashes(text: str, expected: list[str]) -> None:
-    extracted = extract_md5_hashes(text)
+    extracted = extract_md5(text)
     assert sorted([h.lower() for h in extracted]) == sorted(
         [h.lower() for h in expected]
     )
@@ -393,7 +393,7 @@ def test_extract_md5_hashes(text: str, expected: list[str]) -> None:
     ],
 )
 def test_extract_sha1_hashes(text: str, expected: list[str]) -> None:
-    extracted = extract_sha1_hashes(text)
+    extracted = extract_sha1(text)
     assert sorted([h.lower() for h in extracted]) == sorted(
         [h.lower() for h in expected]
     )
@@ -478,7 +478,7 @@ def test_extract_sha1_hashes(text: str, expected: list[str]) -> None:
     ],
 )
 def test_extract_sha256_hashes(text: str, expected: list[str]) -> None:
-    extracted = extract_sha256_hashes(text)
+    extracted = extract_sha256(text)
     assert sorted(extracted) == sorted(expected)
 
 
@@ -579,7 +579,7 @@ def test_extract_sha256_hashes(text: str, expected: list[str]) -> None:
     ],
 )
 def test_extract_sha512_hashes(text: str, expected: list[str]) -> None:
-    extracted = extract_sha512_hashes(text)
+    extracted = extract_sha512(text)
     assert sorted(extracted) == sorted(expected)
 
 
@@ -616,7 +616,7 @@ def test_extract_sha512_hashes(text: str, expected: list[str]) -> None:
     ],
 )
 def test_extract_mac_addresses(text: str, expected: list[str]) -> None:
-    extracted = extract_mac_addresses(text)
+    extracted = extract_mac(text)
     assert sorted(extracted) == sorted(expected)
 
 
@@ -767,7 +767,7 @@ def test_extract_ipv4_addresses(text, expected):
     need to be extracted from different sources like log entries, alerts,
     JSON payloads, and structured data.
     """
-    assert sorted(extract_ipv4_addresses(text=text)) == sorted(expected)
+    assert sorted(extract_ipv4(text=text)) == sorted(expected)
 
 
 @pytest.mark.parametrize(
@@ -837,7 +837,7 @@ def test_extract_ipv4_addresses(text, expected):
     ],
 )
 def test_extract_ipv6_addresses(text, expected):
-    assert sorted(extract_ipv6_addresses(text=text)) == sorted(expected)
+    assert sorted(extract_ipv6(text=text)) == sorted(expected)
 
 
 @pytest.mark.parametrize(
@@ -1079,7 +1079,7 @@ def test_extract_ipv4_addresses_exception():
     Valid: 192.168.1.1, 10.0.0.1, 8.8.8.8
     Invalid: 256.256.256.256, 192.168.1, 192.168.1.1.1, 999.999.999.999
     """
-    result = extract_ipv4_addresses(mixed_input)
+    result = extract_ipv4(mixed_input)
     assert sorted(result) == ["10.0.0.1", "192.168.1.1", "8.8.8.8"]
 
 
@@ -1087,7 +1087,7 @@ def test_extract_ipv6_addresses_exception():
     """Test that extract_ipv6_addresses properly handles validation errors."""
     # Provide input with valid and invalid examples
     test_input = "Valid IPv6: 2001:db8::1 and 2001:0db8:85a3:0000:0000:8a2e:0370:7334\nInvalid: xyz"
-    result = extract_ipv6_addresses(test_input)
+    result = extract_ipv6(test_input)
     expected = ["2001:db8::1", "2001:0db8:85a3:0000:0000:8a2e:0370:7334"]
     assert sorted(result) == sorted(expected)
 
@@ -1098,7 +1098,7 @@ def test_extract_mac_addresses_exception():
     Valid: 00:11:22:33:44:55, AA-BB-CC-DD-EE-FF
     Invalid: 00:11:22:33:44, 00:11:22:33:44:55:66, GG:HH:II:JJ:KK:LL
     """
-    result = extract_mac_addresses(mixed_input)
+    result = extract_mac(mixed_input)
     assert sorted(result) == ["00:11:22:33:44:55", "AA:BB:CC:DD:EE:FF"]
 
 
