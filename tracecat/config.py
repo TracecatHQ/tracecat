@@ -31,6 +31,9 @@ TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
 
 The `httpx.Client` default is 5s, which doesn't work for long-running actions.
 """
+TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
+"""Maximum number of parallel requests to the worker service."""
+
 TRACECAT__DB_NAME = os.environ.get("TRACECAT__DB_NAME")
 TRACECAT__DB_USER = os.environ.get("TRACECAT__DB_USER")
 TRACECAT__DB_PASS = os.environ.get("TRACECAT__DB_PASS")
