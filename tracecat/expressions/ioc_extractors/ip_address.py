@@ -49,41 +49,30 @@ def extract_ipv4_addresses(text: str) -> list[str]:
 
 
 def extract_ipv6_addresses(text: str) -> list[str]:
-    """Extract unique IPv6 addresses from a string.
+    """Extract unique IPv6 addresses from a string."""
 
-    This function preserves the original format of the IPv6 address
-    while still validating it. It handles:
-    - Full format addresses (with all segments and leading zeros)
-    - Compressed addresses (with :: notation)
-    - Addresses in brackets
-    - Mixed case hex digits
-    """
-    result = []
-    seen = set()  # Track normalized versions to avoid duplicates
+    # This function preserves the original format of the IPv6 address
+    # while still validating it. It handles:
+    # - Full format addresses (with all segments and leading zeros)
+    # - Compressed addresses (with :: notation)
+    # - Addresses in brackets
+    # - Mixed case hex digits
 
-    # Find all potential IPv6 addresses
+    unique_ips = set()
+
     for match in re.finditer(IPV6_REGEX, text):
         ip_str = match.group(0)
 
-        # If the address is in brackets, remove them for validation
         if ip_str.startswith("[") and ip_str.endswith("]"):
             ip_str = ip_str[1:-1]
 
         try:
-            # Validate the IP but don't normalize it
-            ip_obj = ipaddress.IPv6Address(ip_str)
-            normalized = str(ip_obj).lower()
-
-            # If we've already seen this IP (in a different format), skip it
-            if normalized in seen:
-                continue
-
-            seen.add(normalized)
-            result.append(ip_str)
+            ipaddress.IPv6Address(ip_str)
+            unique_ips.add(ip_str)
         except AddressValueError:
             pass
 
-    return result
+    return list(unique_ips)
 
 
 def extract_ip_addresses(text: str) -> list[str]:

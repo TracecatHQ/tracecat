@@ -28,14 +28,13 @@ def extract_urls(text: str, http_only: bool = False) -> list[str]:
     regex_pattern = HTTP_URL_REGEX if http_only else URL_REGEX
     validator = AnyHttpUrl if http_only else AnyUrl
 
-    url_matches = set(re.findall(regex_pattern, text))
-    result = []
+    unique_urls = set()
 
-    for url in url_matches:
+    for url in re.findall(regex_pattern, text):
         try:
             validator(url=url)
-            result.append(url)
+            unique_urls.add(url)
         except ValidationError:
             pass
 
-    return result
+    return list(unique_urls)

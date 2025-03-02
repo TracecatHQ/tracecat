@@ -50,13 +50,9 @@ def extract_emails(text: str, normalize: bool = False) -> list[str]:
 
     for email in potential_emails:
         try:
-            # First validate the email with Pydantic
             validated_email = EmailModel(email=email).email
-
-            # Apply normalization if requested
             if normalize:
                 validated_email = normalize_email(validated_email)
-
             unique_emails.add(validated_email)
         except ValidationError:
             pass
