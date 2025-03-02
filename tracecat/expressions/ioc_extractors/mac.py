@@ -26,10 +26,7 @@ def is_mac(mac: str) -> bool:
 
 
 def extract_mac(text: str) -> list[str]:
-    """Extract MAC addresses from a string.
-
-    Examples: 00:11:22:33:44:55, 00-11-22-33-44-55
-    """
+    """Extract MAC addresses from a string."""
     unique_macs = set()
     for mac in re.findall(MAC_REGEX, text):
         try:

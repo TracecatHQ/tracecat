@@ -20,14 +20,12 @@ def is_email(email: str) -> bool:
 
 
 def normalize_email(email: str) -> str:
-    """Convert sub-addressed email to a normalized email address.
+    """Convert sub-addressed email to a normalized email address."""
+    # This function:
+    # 1. Converts the email to lowercase
+    # 2. Removes the subaddress part (everything after + in the local part)
 
-    This function:
-    1. Converts the email to lowercase
-    2. Removes the subaddress part (everything after + in the local part)
-
-    Example: User.Name+Newsletter@Example.COM -> user.name@example.com
-    """
+    # Example: User.Name+Newsletter@Example.COM -> user.name@example.com
     email = email.lower()
     local_part, domain = email.split("@")
     local_part = local_part.split("+")[0]
@@ -35,16 +33,7 @@ def normalize_email(email: str) -> str:
 
 
 def extract_emails(text: str, normalize: bool = False) -> list[str]:
-    """Extract unique emails from a string.
-
-    Args:
-        text: The string to extract emails from
-        normalize: Whether to normalize emails by removing subaddresses
-                  and converting to lowercase
-
-    Returns:
-        A list of unique, validated email addresses
-    """
+    """Extract unique emails from a string."""
     potential_emails = re.findall(EMAIL_REGEX, text)
     unique_emails = set()
 
