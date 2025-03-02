@@ -25,7 +25,7 @@ with workflow.unsafe.imports_passed_through():
     import tracecat_registry  # noqa
     from pydantic import TypeAdapter, ValidationError
 
-    from tracecat import identifiers
+    from tracecat import config, identifiers
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.action import (
@@ -621,10 +621,11 @@ class DSLWorkflow:
             for args in iter_for_each(task=task, context=self.context):
                 yield ExecuteChildWorkflowArgs(**args)
 
+        limit = config.TRACECAT__LOOP_MAX_BATCH_SIZE
         batch_size = {
             LoopStrategy.SEQUENTIAL: 1,
-            LoopStrategy.BATCH: int(task.args.get("batch_size") or 16),
-            LoopStrategy.PARALLEL: 16,
+            LoopStrategy.BATCH: min(int(task.args.get("batch_size", 16)), limit),
+            LoopStrategy.PARALLEL: limit,
         }[loop_strategy]
 
         action_result = []
