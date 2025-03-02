@@ -1,3 +1,19 @@
+"""Functions for extracting IPv4 and IPv6 addresses from a string.
+
+Supports extracting from regular IPv4 and IPv6 addresses,
+as well as the following defanged variants:
+
+IPv4:
+- 1[.]1[.]1[.]1, where "." is defanged as "[.]"
+- 1(.)1(.)1(.)1, where "." is defanged as "(.)"
+- 1\\.1\\.1\\.1, where "." is defanged as "\\." (single backslash)
+
+IPv6:
+- 2001[:]db8[:]:[:]1, where ":" is defanged as "[:]"
+- 2001(:)db8(:)(:)1, where ":" is defanged as "(:)"
+- 2001\\:db8\\:\\:1, where ":" is defanged as "\\:" (single backslash)
+"""
+
 import ipaddress
 import re
 from ipaddress import AddressValueError
