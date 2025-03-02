@@ -16,6 +16,8 @@ from tracecat.expressions.ioc_extractors import (
     normalize_email,
 )
 
+### IOC EXTRACTORS
+
 
 @pytest.mark.parametrize(
     "text,expected",
@@ -907,7 +909,7 @@ def test_extract_ipv6_addresses(text, expected):
         ),
         (
             "Data URL: data:text/html;base64,SGVsbG8gV29ybGQh and normal URL https://example.com",
-            ["https://example.com"],  # Data URLs are not expected to be extracted
+            ["https://example.com"],
         ),
         (
             "URL in email content: The attacker sent a message containing http://malware.example.net/download.php?id=123456",
@@ -915,15 +917,43 @@ def test_extract_ipv6_addresses(text, expected):
         ),
         (
             "URL with non-ASCII characters: https://例子.测试/path",
-            [],  # Non-ASCII domains might not be matched depending on regex implementation
+            ["https://例子.测试/path"],
         ),
         (
             "Common obfuscation trick: hxxps://evil.example[.]com/malware.exe",
-            [],  # Deliberately obfuscated URLs should not be matched as-is
+            [],
         ),
         (
             "Deep nested JSON: {'alert': {'data': {'indicators': {'urls': ['https://c2server.com/beacon', 'https://exfil.example.net/drop']}}}}",
             ["https://c2server.com/beacon", "https://exfil.example.net/drop"],
+        ),
+        (
+            "FTP server available at ftp://files.example.com/public/docs/",
+            ["ftp://files.example.com/public/docs"],
+        ),
+        (
+            "Secure FTP endpoints: sftp://secure.example.org:22/upload and ftps://files.example.net/secure/",
+            ["sftp://secure.example.org:22/upload", "ftps://files.example.net/secure"],
+        ),
+        (
+            "TCP service endpoint: tcp://streaming.example.com:1234 for real-time data",
+            ["tcp://streaming.example.com:1234"],
+        ),
+        (
+            "UDP service available at udp://game.example.org:5678 for multiplayer gaming",
+            ["udp://game.example.org:5678"],
+        ),
+        (
+            "Multiple protocol URLs: ftp://files.example.com, tcp://service.example.org:8000, and udp://broadcast.example.net:9000",
+            [
+                "ftp://files.example.com",
+                "tcp://service.example.org:8000",
+                "udp://broadcast.example.net:9000",
+            ],
+        ),
+        (
+            "JSON with various protocols: {'endpoints': {'ftp': 'ftp://storage.example.com:21', 'streaming': 'tcp://stream.example.org:1234'}}",
+            ["ftp://storage.example.com:21", "tcp://stream.example.org:1234"],
         ),
     ],
     ids=[
@@ -947,6 +977,12 @@ def test_extract_ipv6_addresses(text, expected):
         "url_with_non_ascii_characters",
         "obfuscated_url_not_matched",
         "urls_in_deeply_nested_json",
+        "ftp_url",
+        "secure_ftp_urls",
+        "tcp_url_with_port",
+        "udp_url_with_port",
+        "multiple_protocol_urls",
+        "json_with_various_protocols",
     ],
 )
 def test_extract_urls(text, expected):
@@ -967,11 +1003,16 @@ def test_extract_domains_exception():
 def test_extract_urls_exception():
     """Test that extract_urls properly handles validation errors."""
     mixed_input = """
-    Valid: https://example.com, http://sub.example.org/path
-    Invalid: http://.com, https://invalid, http://example.com:abc, ftp://example.com
+    Valid: https://example.com, http://sub.example.org/path, ftp://example.com, http://example.com
+    Invalid: http://.com, https://invalid, http://example.com:abc
     """
     result = extract_urls(mixed_input)
-    assert sorted(result) == ["http://sub.example.org/path", "https://example.com"]
+    assert sorted(result) == [
+        "ftp://example.com",
+        "http://example.com",
+        "http://sub.example.org/path",
+        "https://example.com",
+    ]
 
 
 def test_extract_ipv4_addresses_exception():
@@ -1011,3 +1052,6 @@ def test_extract_emails_exception():
     """
     result = extract_emails(mixed_input)
     assert sorted(result) == ["first.last@sub.domain.com", "user@example.com"]
+
+
+### DEFANGED IOC EXTRACTORS
