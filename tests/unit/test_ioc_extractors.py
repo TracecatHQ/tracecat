@@ -105,7 +105,7 @@ def test_extract_sha512(text: str, expected: list[str]) -> None:
 
 
 @pytest.mark.parametrize("text,expected", load_test_data("mac"))
-def test_extract_mac_addresses(text: str, expected: list[str]) -> None:
+def test_extract_mac(text: str, expected: list[str]) -> None:
     extracted = extract_mac(text)
     assert sorted([m.upper() for m in extracted]) == sorted(
         [m.upper() for m in expected]
@@ -119,12 +119,12 @@ def test_extract_emails(text, expected):
 
 
 @pytest.mark.parametrize("text,expected", load_test_data("ipv4"))
-def test_extract_ipv4_addresses(text, expected):
+def test_extract_ipv4(text, expected):
     assert sorted(extract_ipv4(text=text)) == sorted(expected)
 
 
 @pytest.mark.parametrize("text,expected", load_test_data("ipv6"))
-def test_extract_ipv6_addresses(text, expected):
+def test_extract_ipv6(text, expected):
     assert sorted(extract_ipv6(text=text)) == sorted(expected)
 
 
