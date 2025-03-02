@@ -13,6 +13,29 @@ IPV4_REGEX = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
 IPV6_REGEX = r"(?:\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b)|(?:\b(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\b)|(?:\[(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\])|(?:\[(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\])"
 
 
+def is_ipv4(ip: str) -> bool:
+    """Check if a string is a valid IPv4 address."""
+    try:
+        ipaddress.IPv4Address(ip)
+        return True
+    except AddressValueError:
+        return False
+
+
+def is_ipv6(ip: str) -> bool:
+    """Check if a string is a valid IPv6 address."""
+    try:
+        ipaddress.IPv6Address(ip)
+        return True
+    except AddressValueError:
+        return False
+
+
+def is_ip(ip: str) -> bool:
+    """Check if a string is a valid IP address (either IPv4 or IPv6)."""
+    return is_ipv4(ip) or is_ipv6(ip)
+
+
 def extract_ipv4_addresses(text: str) -> list[str]:
     """Extract unique IPv4 addresses from a string."""
     unique_ips = set()

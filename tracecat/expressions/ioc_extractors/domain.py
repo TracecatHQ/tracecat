@@ -12,12 +12,21 @@ class DomainModel(BaseModel):
     domain: DomainStr
 
 
+def is_domain(domain: str) -> bool:
+    """Check if a string is a valid domain name."""
+    try:
+        DomainModel(domain=domain)  # type: ignore
+        return True
+    except ValidationError:
+        return False
+
+
 def extract_domains(text: str) -> list[str]:
     """Extract domain names, e.g. example.com, from a string."""
     unique_domains = set()
     for domain in re.findall(DOMAIN_REGEX, text):
         try:
-            validated_domain = DomainModel(domain=domain).domain
+            validated_domain = DomainModel(domain=domain).domain  # type: ignore
             unique_domains.add(validated_domain)
         except ValidationError:
             pass

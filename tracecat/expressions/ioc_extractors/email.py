@@ -10,6 +10,15 @@ class EmailModel(BaseModel):
     email: EmailStr
 
 
+def is_email(email: str) -> bool:
+    """Check if a string is a valid email address."""
+    try:
+        EmailModel(email=email)
+        return True
+    except ValidationError:
+        return False
+
+
 def normalize_email(email: str) -> str:
     """Convert sub-addressed email to a normalized email address.
 

@@ -14,6 +14,15 @@ class UrlModel(BaseModel):
     url: AnyUrl
 
 
+def is_url(url: str) -> bool:
+    """Check if a string is a valid URL."""
+    try:
+        UrlModel(url=url)  # type: ignore
+        return True
+    except ValidationError:
+        return False
+
+
 def extract_urls(text: str, http_only: bool = False) -> list[str]:
     """Extract unique URLs from a string."""
     regex_pattern = HTTP_URL_REGEX if http_only else URL_REGEX
