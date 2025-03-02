@@ -990,6 +990,64 @@ def test_extract_urls(text, expected):
     assert sorted(extracted_urls) == sorted(expected)
 
 
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        (
+            "Mixed protocols: https://example.com, ftp://files.example.org, http://test.net",
+            ["https://example.com", "http://test.net"],
+        ),
+        (
+            "Only HTTP/HTTPS: http://example.com and https://secure.example.org/path?query=123",
+            ["http://example.com", "https://secure.example.org/path?query=123"],
+        ),
+        (
+            "Only non-HTTP protocols: ftp://files.example.com, sftp://secure.example.org:22, tcp://stream.example.net:1234",
+            [],
+        ),
+        (
+            "URL with credentials and port: https://user:pass@example.com:8443/admin and tcp://admin:secret@server.net:9000",
+            ["https://user:pass@example.com:8443/admin"],
+        ),
+        (
+            "URLs in JSON structure: {'web': 'https://api.example.com', 'file': 'ftp://download.example.org', 'backup': 'http://backup.example.net'}",
+            ["https://api.example.com", "http://backup.example.net"],
+        ),
+        (
+            "URLs with special characters: https://例子.测试/path and ftp://例子.测试/download",
+            ["https://例子.测试/path"],
+        ),
+        (
+            "No URLs at all",
+            [],
+        ),
+        (
+            "URL with query parameters: https://example.com/search?q=test&page=1 and udp://stream.example.com:5000",
+            ["https://example.com/search?q=test&page=1"],
+        ),
+        (
+            "URLs in HTML: <a href='https://example.com'>Link</a> and <a href='ftp://files.example.org'>Files</a>",
+            ["https://example.com"],
+        ),
+    ],
+    ids=[
+        "mixed_protocols",
+        "only_http_https",
+        "only_non_http",
+        "credentials_and_port",
+        "urls_in_json",
+        "urls_with_special_chars",
+        "no_urls",
+        "url_with_query_params",
+        "urls_in_html",
+    ],
+)
+def test_extract_urls_http_only(text, expected):
+    """Test that extract_urls with http_only=True only returns HTTP and HTTPS URLs."""
+    extracted_urls = extract_urls(text=text, http_only=True)
+    assert sorted(extracted_urls) == sorted(expected)
+
+
 def test_extract_domains_exception():
     """Test that extract_domains properly handles validation errors."""
     mixed_input = """
