@@ -1,16 +1,17 @@
-"""IoC extractors with validation using Pydantic.
+"""IoC extractors with validation (if supported by Pydantic).
 
 References:
 - https://docs.iocparser.com/
+- https://github.com/InQuest/iocextract/blob/master/iocextract.py
 """
 
 import ipaddress
 import re
+from ipaddress import AddressValueError
 
-from pydantic import BaseModel, EmailStr, FilePath, HttpUrl
+from pydantic import BaseModel, EmailStr, HttpUrl, ValidationError, field_validator
 from pydantic_extra_types.domain import DomainStr
 from pydantic_extra_types.mac_address import MacAddress
-from pydantic_extra_types.phone_numbers import PhoneNumber
 
 # ASN (Autonomous System Number)
 ASN_REGEX = r"\bAS\d+\b"
@@ -18,12 +19,13 @@ ASN_REGEX = r"\bAS\d+\b"
 
 def extract_asns(text: str) -> list[str]:
     """Extract Autonomous System Numbers, e.g. AS1234, from a string."""
-    return re.findall(ASN_REGEX, text)
+    # Use a set to ensure uniqueness
+    return list(set(re.findall(ASN_REGEX, text)))
 
 
 # DOMAIN
 # This regex aims to match domain names while avoiding matching URLs
-DOMAIN_REGEX = r"(?<![:/\w])(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,})(?![:/\w])"
+DOMAIN_REGEX = r"(?<![:/\w])(?:(?:xn--[a-zA-Z0-9]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:\.[a-zA-Z]{2,})*)(?![:/\w])"
 
 
 class DomainModel(BaseModel):
@@ -32,9 +34,14 @@ class DomainModel(BaseModel):
 
 def extract_domains(text: str) -> list[str]:
     """Extract domain names, e.g. example.com, from a string."""
-    return [
-        DomainModel(domain=domain).domain for domain in re.findall(DOMAIN_REGEX, text)
-    ]
+    unique_domains = set()
+    for domain in re.findall(DOMAIN_REGEX, text):
+        try:
+            validated_domain = DomainModel(domain=domain).domain
+            unique_domains.add(validated_domain)
+        except ValidationError:
+            pass
+    return list(unique_domains)
 
 
 # URL
@@ -48,24 +55,78 @@ class UrlModel(BaseModel):
 
 def extract_urls(text: str) -> list[str]:
     """Extract unique URLs from a string."""
-    return [
-        UrlModel(url=url).url.unicode_string() for url in re.findall(URL_REGEX, text)
-    ]
+    # Use a set to deduplicate URLs
+    url_matches = set(re.findall(URL_REGEX, text))
+    result = []
+    for url in url_matches:
+        try:
+            # Validate with pydantic but preserve original format
+            UrlModel(url=url)
+            result.append(url)
+        except ValidationError:
+            pass
+    return result
 
 
 # IP ADDRESS
 IPV4_REGEX = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
-IPV6_REGEX = r"\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b"
+
+# Comprehensive IPv6 regex that covers:
+# 1. Full format: 2001:0db8:85a3:0000:0000:8a2e:0370:7334
+# 2. Compressed format: 2001:db8::1
+# 3. Bracketed format: [2001:db8::1]
+# Including uppercase and lowercase hex digits
+IPV6_REGEX = r"(?:\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b)|(?:\b(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\b)|(?:\[(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\])|(?:\[(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\])"
 
 
 def extract_ipv4_addresses(text: str) -> list[str]:
     """Extract unique IPv4 addresses from a string."""
-    return [ip for ip in re.findall(IPV4_REGEX, text) if ipaddress.IPv4Address(ip)]
+    unique_ips = set()
+    for ip in re.findall(IPV4_REGEX, text):
+        try:
+            ipaddress.IPv4Address(ip)
+            unique_ips.add(ip)
+        except AddressValueError:
+            pass
+    return list(unique_ips)
 
 
 def extract_ipv6_addresses(text: str) -> list[str]:
-    """Extract unique IPv6 addresses from a string."""
-    return [ip for ip in re.findall(IPV6_REGEX, text) if ipaddress.IPv6Address(ip)]
+    """Extract unique IPv6 addresses from a string.
+
+    This function preserves the original format of the IPv6 address
+    while still validating it. It handles:
+    - Full format addresses (with all segments and leading zeros)
+    - Compressed addresses (with :: notation)
+    - Addresses in brackets
+    - Mixed case hex digits
+    """
+    result = []
+    seen = set()  # Track normalized versions to avoid duplicates
+
+    # Find all potential IPv6 addresses
+    for match in re.finditer(IPV6_REGEX, text):
+        ip_str = match.group(0)
+
+        # If the address is in brackets, remove them for validation
+        if ip_str.startswith("[") and ip_str.endswith("]"):
+            ip_str = ip_str[1:-1]
+
+        try:
+            # Validate the IP but don't normalize it
+            ip_obj = ipaddress.IPv6Address(ip_str)
+            normalized = str(ip_obj).lower()
+
+            # If we've already seen this IP (in a different format), skip it
+            if normalized in seen:
+                continue
+
+            seen.add(normalized)
+            result.append(ip_str)
+        except AddressValueError:
+            pass
+
+    return result
 
 
 def extract_ip_addresses(text: str) -> list[str]:
@@ -76,11 +137,16 @@ def extract_ip_addresses(text: str) -> list[str]:
 
 
 # MAC ADDRESS
-MAC_REGEX = r"\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b"
+MAC_REGEX = r"(?<![\d:A-Fa-f-])(?:[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}|[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5})(?![\d:A-Fa-f-])"
 
 
 class MacAddressModel(BaseModel):
     mac_address: MacAddress
+
+    @field_validator("mac_address")
+    def normalize_format(cls, v):
+        parts = str(v).replace(":", "").replace("-", "")
+        return ":".join(parts[i : i + 2].upper() for i in range(0, 12, 2))
 
 
 def extract_mac_addresses(text: str) -> list[str]:
@@ -88,10 +154,14 @@ def extract_mac_addresses(text: str) -> list[str]:
 
     Examples: 00:11:22:33:44:55, 00-11-22-33-44-55
     """
-    return [
-        MacAddressModel(mac_address=mac).mac_address
-        for mac in re.findall(MAC_REGEX, text)
-    ]
+    unique_macs = set()
+    for mac in re.findall(MAC_REGEX, text):
+        try:
+            validated_mac = MacAddressModel(mac_address=mac).mac_address
+            unique_macs.add(validated_mac)
+        except ValidationError:
+            pass
+    return list(unique_macs)
 
 
 # EMAIL
@@ -103,83 +173,79 @@ class EmailModel(BaseModel):
 
 
 def normalize_email(email: str) -> str:
-    """Convert sub-addressed email to a normalized email address."""
+    """Convert sub-addressed email to a normalized email address.
+
+    This function:
+    1. Converts the email to lowercase
+    2. Removes the subaddress part (everything after + in the local part)
+
+    Example: User.Name+Newsletter@Example.COM -> user.name@example.com
+    """
+    email = email.lower()
     local_part, domain = email.split("@")
     local_part = local_part.split("+")[0]
     return f"{local_part}@{domain}"
 
 
 def extract_emails(text: str, normalize: bool = False) -> list[str]:
-    """Extract unique emails from a string."""
-    # Find all potential email matches
+    """Extract unique emails from a string.
+
+    Args:
+        text: The string to extract emails from
+        normalize: Whether to normalize emails by removing subaddresses
+                  and converting to lowercase
+
+    Returns:
+        A list of unique, validated email addresses
+    """
     potential_emails = re.findall(EMAIL_REGEX, text)
-    validated_emails = {EmailModel(email=email).email for email in potential_emails}
-    if normalize:
-        validated_emails = {normalize_email(email) for email in validated_emails}
-    return list(validated_emails)
+    unique_emails = set()
+
+    for email in potential_emails:
+        try:
+            # First validate the email with Pydantic
+            validated_email = EmailModel(email=email).email
+
+            # Apply normalization if requested
+            if normalize:
+                validated_email = normalize_email(validated_email)
+
+            unique_emails.add(validated_email)
+        except ValidationError:
+            pass
+
+    return list(unique_emails)
 
 
 # HASH
 MD5_REGEX = r"\b[a-fA-F0-9]{32}\b"
 SHA1_REGEX = r"\b[a-fA-F0-9]{40}\b"
 SHA256_REGEX = r"\b[a-fA-F0-9]{64}\b"
+SHA512_REGEX = r"\b[a-fA-F0-9]{128}\b"
 
 
 def extract_md5_hashes(text: str) -> list[str]:
     """Extract MD5 hashes from a string."""
-    return re.findall(MD5_REGEX, text)
+    # MD5 doesn't need validation beyond the regex, but we still ensure uniqueness
+    return list(set(re.findall(MD5_REGEX, text)))
 
 
 def extract_sha1_hashes(text: str) -> list[str]:
     """Extract SHA1 hashes from a string."""
-    return re.findall(SHA1_REGEX, text)
+    # SHA1 doesn't need validation beyond the regex, but we still ensure uniqueness
+    return list(set(re.findall(SHA1_REGEX, text)))
 
 
 def extract_sha256_hashes(text: str) -> list[str]:
     """Extract SHA256 hashes from a string."""
-    return re.findall(SHA256_REGEX, text)
+    # SHA256 doesn't need validation beyond the regex, but we still ensure uniqueness
+    return list(set(re.findall(SHA256_REGEX, text)))
 
 
-# FILE PATH
-WINDOWS_PATH_REGEX = r'C:\\(?:[^\\/:*?"<>|\r\n]+\\)*[^\\/:*?"<>|\r\n]*'
-UNIX_PATH_REGEX = r"/(?:[^/\0<>:\"\\|?*\r\n]+/)*[^/\0<>:\"\\|?*\r\n]*"
-MACOS_PATH_REGEX = r"~/(?:[^/\0<>:\"\\|?*\r\n]+/)*[^/\0<>:\"\\|?*\r\n]*"
-
-
-class FilePathModel(BaseModel):
-    file_path: FilePath
-
-
-def extract_windows_file_paths(text: str) -> list[str]:
-    """Extract Windows file paths from a string."""
-    return [
-        FilePathModel(file_path=file_path).file_path.as_posix()
-        for file_path in re.findall(WINDOWS_PATH_REGEX, text)
-    ]
-
-
-def extract_unix_file_paths(text: str) -> list[str]:
-    """Extract Unix file paths from a string."""
-    return [
-        FilePathModel(file_path=file_path).file_path.as_posix()
-        for file_path in re.findall(UNIX_PATH_REGEX, text)
-    ]
-
-
-def extract_macos_file_paths(text: str) -> list[str]:
-    """Extract macOS file paths from a string."""
-    return [
-        FilePathModel(file_path=file_path).file_path.as_posix()
-        for file_path in re.findall(MACOS_PATH_REGEX, text)
-    ]
-
-
-def extract_file_paths(text: str) -> list[str]:
-    """Extract file paths from a string."""
-    windows_file_paths = extract_windows_file_paths(text)
-    unix_file_paths = extract_unix_file_paths(text)
-    macos_file_paths = extract_macos_file_paths(text)
-    return windows_file_paths + unix_file_paths + macos_file_paths
+def extract_sha512_hashes(text: str) -> list[str]:
+    """Extract SHA512 hashes from a string."""
+    # SHA512 doesn't need validation beyond the regex, but we still ensure uniqueness
+    return list(set(re.findall(SHA512_REGEX, text)))
 
 
 # CVE (Common Vulnerabilities and Exposures)
@@ -188,70 +254,5 @@ CVE_REGEX = r"CVE-\d{4}-\d{4,7}"
 
 def extract_cves(text: str) -> list[str]:
     """Extract CVE IDs, such as CVE-2021-34527, from a string."""
-    return re.findall(CVE_REGEX, text)
-
-
-# PHONE NUMBER
-PHONE_REGEX = (
-    r"(?:\+?\d{1,4}[-.\s]?)?(?:\(?\d{1,4}\)?[-.\s]?)?(?:\d{1,4}[-.\s]?){1,3}\d{1,4}"
-)
-
-
-class PhoneNumberModel(BaseModel):
-    phone_number: PhoneNumber
-
-
-def _clean_phone_number(phone: str) -> str:
-    """Clean a phone number for validation.
-
-    - Removes extension if present
-    - Strips whitespace and common separators
-    - Preserves existing country code if present
-    - For numbers without country code, tries to determine format:
-      - North American numbers (typically 10 digits)
-      - International numbers (based on length and patterns)
-
-    Returns a cleaned string suitable for PhoneNumber validation.
-    """
-
-    # Remove extension if present
-    if " ext" in phone.lower():
-        phone = phone.split(" ext")[0]
-
-    # Strip all special characters
-    cleaned = re.sub(r"[^0-9+]", "", phone)
-
-    # If it already has a plus sign, just keep it as is
-    if cleaned.startswith("+"):
-        return cleaned
-
-    # Handle North American numbers (10 digits)
-    if re.match(r"^1?\d{10}$", cleaned):
-        if cleaned.startswith("1") and len(cleaned) == 11:
-            return "+" + cleaned
-        else:
-            return "+1" + cleaned
-
-    # For other formats, try to make educated guesses based on length and patterns
-    # For example, many European numbers are 8-12 digits without country code
-    # UK mobile starts with 07, but internationally it's +447...
-    if cleaned.startswith("0") and len(cleaned) >= 10:
-        # This might be a European-style number with a leading 0
-        # Strip the leading 0 and add the country code
-        if len(cleaned) == 11 and cleaned.startswith("07"):  # UK mobile
-            return "+44" + cleaned[1:]
-        elif len(cleaned) == 10 and cleaned.startswith("06"):  # French mobile
-            return "+33" + cleaned[1:]
-        # Add more country-specific patterns as needed
-
-    # Default fallback - assume North American if we can't determine
-    return "+1" + cleaned
-
-
-def extract_phone_numbers(text: str) -> list[str]:
-    """Extract phone numbers from a string."""
-    return [
-        phone
-        for phone in re.findall(PHONE_REGEX, text)
-        if PhoneNumberModel(phone_number=phone)
-    ]
+    # CVEs don't need validation beyond the regex, but we still ensure uniqueness
+    return list(set(re.findall(CVE_REGEX, text)))

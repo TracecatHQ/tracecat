@@ -8,14 +8,11 @@ from tracecat.expressions.ioc_extractors import (
     extract_ipv4_addresses,
     extract_ipv6_addresses,
     extract_mac_addresses,
-    extract_macos_file_paths,
     extract_md5_hashes,
-    extract_phone_numbers,
     extract_sha1_hashes,
     extract_sha256_hashes,
-    extract_unix_file_paths,
+    extract_sha512_hashes,
     extract_urls,
-    extract_windows_file_paths,
     normalize_email,
 )
 
@@ -43,7 +40,6 @@ from tracecat.expressions.ioc_extractors import (
             "ASN in JSON data: {'asn': 'AS15169', 'org': 'Google LLC'}",
             ["AS15169"],
         ),
-        # New test cases for more complex ASN scenarios
         (
             "Threat report: Malicious traffic from AS4134 (China Telecom) detected targeting port 445",
             ["AS4134"],
@@ -87,7 +83,6 @@ from tracecat.expressions.ioc_extractors import (
         "no_asns",
         "invalid_formats",
         "asn_in_json",
-        # New test case ids
         "asn_with_organization",
         "multiple_asns_with_orgs",
         "bgp_routing_anomaly",
@@ -173,10 +168,10 @@ def test_extract_cves(text: str, expected: list[str]) -> None:
             "Subdomain with many levels: sub.sub2.example.com",
             ["sub.sub2.example.com"],
         ),
-        # New test cases for more complex domain scenarios
         (
+            # This should not match as valid domain
             "Domain with numeric TLD: example.123",
-            [],  # This should not match as valid domain
+            [],
         ),
         (
             "Domain with hyphens: this-is-a-valid-domain-name.com",
@@ -191,12 +186,12 @@ def test_extract_cves(text: str, expected: list[str]) -> None:
             ["a.b.c.d.e.f.g.example.com"],
         ),
         (
-            "New TLDs: example.app, malicious.xyz, test.tech",
+            "TLDs: example.app, malicious.xyz, test.tech",
             ["example.app", "malicious.xyz", "test.tech"],
         ),
         (
             "Domain with trailing dot (DNS root): example.com.",
-            [],  # Current implementation likely doesn't match this
+            ["example.com"],
         ),
         (
             "Typosquatting domain: g00gle.com",
@@ -230,12 +225,11 @@ def test_extract_cves(text: str, expected: list[str]) -> None:
         "domain_in_url",
         "domain_in_json",
         "multi_level_subdomain",
-        # New test case ids
         "domain_with_numeric_tld",
         "domain_with_hyphens",
         "very_long_subdomain",
         "multiple_subdomains",
-        "new_tlds",
+        "tlds",
         "domain_with_trailing_dot",
         "typosquatting_domain",
         "domain_in_security_alert",
@@ -273,7 +267,6 @@ def test_extract_domains(text: str, expected: list[str]) -> None:
             "MD5 in JSON: {'md5': 'c4ca4238a0b923820dcc509a6f75849b', 'detected': true}",
             ["c4ca4238a0b923820dcc509a6f75849b"],
         ),
-        # New test cases for more realistic SOAR MD5 scenarios
         (
             "Alert from AV: Malware detected! MD5: 1a79a4d60de6718e8e5b326e338ae533 - Trojan.Generic",
             ["1a79a4d60de6718e8e5b326e338ae533"],
@@ -311,7 +304,6 @@ def test_extract_domains(text: str, expected: list[str]) -> None:
         "no_md5s",
         "invalid_md5_length",
         "md5_in_json",
-        # New test case ids
         "av_alert_md5",
         "virustotal_report_md5",
         "invalid_md5_with_identifier",
@@ -354,7 +346,6 @@ def test_extract_md5_hashes(text: str, expected: list[str]) -> None:
             "SHA1 in JSON: {'sha1': 'aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d', 'detected': true}",
             ["aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"],
         ),
-        # New test cases for more realistic SOAR SHA1 scenarios
         (
             "IOC Report: SHA1 hash 6367c48dd193d56ea7b0baad25b19455e529f5ee associated with Ransomware",
             ["6367c48dd193d56ea7b0baad25b19455e529f5ee"],
@@ -390,7 +381,6 @@ def test_extract_md5_hashes(text: str, expected: list[str]) -> None:
         "no_sha1s",
         "invalid_sha1_length",
         "sha1_in_json",
-        # New test case ids
         "ioc_report_sha1",
         "certificate_fingerprint",
         "multiple_algorithm_hashes",
@@ -433,7 +423,6 @@ def test_extract_sha1_hashes(text: str, expected: list[str]) -> None:
             "SHA256: {'hash': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}",
             ["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"],
         ),
-        # New test cases for more realistic SOAR SHA256 scenarios
         (
             "Threat hunting results: SHA256 hash cf80cd8aed482d5d1527d7dc72fceff84e6326592848447d2dc0b0e87dfc9a90 flagged malicious",
             ["cf80cd8aed482d5d1527d7dc72fceff84e6326592848447d2dc0b0e87dfc9a90"],
@@ -476,7 +465,6 @@ def test_extract_sha1_hashes(text: str, expected: list[str]) -> None:
         "no_sha256s",
         "invalid_sha256_length",
         "sha256_in_json",
-        # New test case ids
         "threat_hunting_sha256",
         "certificate_sha256_fingerprint",
         "defender_alert_sha256",
@@ -496,19 +484,120 @@ def test_extract_sha256_hashes(text: str, expected: list[str]) -> None:
     "text,expected",
     [
         (
+            "SHA512: cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e in malware.",
+            [
+                "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
+            ],
+        ),
+        (
+            "Multiple: b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb980b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86, ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f.",
+            [
+                "b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb980b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86",
+                "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+            ],
+        ),
+        (
+            "No SHA512 hashes here.",
+            [],
+        ),
+        (
+            "Invalid: cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927d (too short)",
+            [],
+        ),
+        (
+            "SHA512: {'hash': 'cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e'}",
+            [
+                "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
+            ],
+        ),
+        (
+            "Threat hunting results: SHA512 hash 204a8fc6dda82f0a0ced7eb905fd23c71d38b40262358d8d61f6b7177dbc4217c3dca86f72cfb424ea6c1775ebe4c40fd339265cc284278c08d8c7c29ab9a119 flagged malicious",
+            [
+                "204a8fc6dda82f0a0ced7eb905fd23c71d38b40262358d8d61f6b7177dbc4217c3dca86f72cfb424ea6c1775ebe4c40fd339265cc284278c08d8c7c29ab9a119"
+            ],
+        ),
+        (
+            "Code signing certificate: SHA512 Fingerprint=3C9909AFEC25354D551DAE21590BB26E38D53F2173B8D3DC3EEE4C047E7AB1C1EB8B85103E3BE7BA613B31BB5C9C36214DC9F14A42FD7A2FDB84856BCA5C44C2",
+            [
+                "3C9909AFEC25354D551DAE21590BB26E38D53F2173B8D3DC3EEE4C047E7AB1C1EB8B85103E3BE7BA613B31BB5C9C36214DC9F14A42FD7A2FDB84856BCA5C44C2"
+            ],
+        ),
+        (
+            "Windows Defender alert: SHA512: 87AA7CDEA5EF619D4FF0B4241A1D6CB02379F4E7D07789B442D8D80EF6166F1C2B474C8358CFB120FB03D18C744DCCBF0191B3E6C386D275904721916B6209E0",
+            [
+                "87AA7CDEA5EF619D4FF0B4241A1D6CB02379F4E7D07789B442D8D80EF6166F1C2B474C8358CFB120FB03D18C744DCCBF0191B3E6C386D275904721916B6209E0"
+            ],
+        ),
+        (
+            "Multiple hashes in sandbox report: {'results': {'sample': {'md5': 'c4ca4238a0b923820dcc509a6f75849b', 'sha1': '356a192b7913b04c54574d18c28d46e6395428ab', 'sha512': 'b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb980b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86'}}}",
+            [
+                "b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb980b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86"
+            ],
+        ),
+        (
+            "Command output: $ sha512sum implant.exe\ncf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e  implant.exe",
+            [
+                "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
+            ],
+        ),
+        (
+            "Incident response: found malware dropper with SHA512=B109F3BBBC244EB82441917ED06D618B9008DD09B3BEFD1B5E07394C706A8BB980B1D7785E5976EC049B46DF5F1326AF5A2EA6D103FD07C95385FFAB0CACBC86 on host",
+            [
+                "B109F3BBBC244EB82441917ED06D618B9008DD09B3BEFD1B5E07394C706A8BB980B1D7785E5976EC049B46DF5F1326AF5A2EA6D103FD07C95385FFAB0CACBC86"
+            ],
+        ),
+        (
+            "YARA match: rule Ransomware {strings: $a = 'ENCRYPTED' condition: $a} matched file with SHA512 hash DDAF35A193617ABACC417349AE20413112E6FA4E89A97EA20A9EEEE64B55D39A2192992A274FC1A836BA3C23A3FEEBBD454D4423643CE80E2A9AC94FA54CA49F",
+            [
+                "DDAF35A193617ABACC417349AE20413112E6FA4E89A97EA20A9EEEE64B55D39A2192992A274FC1A836BA3C23A3FEEBBD454D4423643CE80E2A9AC94FA54CA49F"
+            ],
+        ),
+        (
+            "Threat intel report mentions a multi-stage attack using files 204a8fc6dda82f0a0ced7eb905fd23c71d38b40262358d8d61f6b7177dbc4217c3dca86f72cfb424ea6c1775ebe4c40fd339265cc284278c08d8c7c29ab9a119 and 87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e7d07789b442d8d80ef6166f1c2b474c8358cfb120fb03d18c744dccbf0191b3e6c386d275904721916b6209e0 as payloads",
+            [
+                "204a8fc6dda82f0a0ced7eb905fd23c71d38b40262358d8d61f6b7177dbc4217c3dca86f72cfb424ea6c1775ebe4c40fd339265cc284278c08d8c7c29ab9a119",
+                "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e7d07789b442d8d80ef6166f1c2b474c8358cfb120fb03d18c744dccbf0191b3e6c386d275904721916b6209e0",
+            ],
+        ),
+    ],
+    ids=[
+        "single_hash",
+        "multiple_hashes",
+        "no_hashes",
+        "invalid_hash",
+        "hash_in_json",
+        "threat_hunting",
+        "certificate_fingerprint",
+        "defender_alert",
+        "sandbox_report",
+        "command_output",
+        "incident_response",
+        "yara_match",
+        "threat_intel",
+    ],
+)
+def test_extract_sha512_hashes(text: str, expected: list[str]) -> None:
+    extracted = extract_sha512_hashes(text)
+    assert sorted(extracted) == sorted(expected)
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        (
             "MAC address: 00:11:22:33:44:55 detected on network.",
             ["00:11:22:33:44:55"],
         ),
         (
             "Multiple formats: 00:11:22:33:44:55, AA-BB-CC-DD-EE-FF.",
-            ["00:11:22:33:44:55", "AA-BB-CC-DD-EE-FF"],
+            ["00:11:22:33:44:55", "AA:BB:CC:DD:EE:FF"],
         ),
         (
             "No MAC addresses here.",
             [],
         ),
         (
-            "Invalid: 00:11:22:33:44, 00:11:22:33:44:55:66 (wrong format)",
+            "Invalid: 00:11:22:33:44, 00:11:22:33:44:55:66",
             [],
         ),
         (
@@ -530,258 +619,8 @@ def test_extract_mac_addresses(text: str, expected: list[str]) -> None:
 
 
 @pytest.mark.parametrize(
-    "text,expected",
+    "text,expected,normalize",
     [
-        (
-            "Windows path: C:\\Users\\admin\\Documents\\report.docx",
-            ["C:\\Users\\admin\\Documents\\report.docx"],
-        ),
-        (
-            "Multiple paths: C:\\Program Files\\App\\data.txt, C:\\Windows\\System32\\drivers",
-            ["C:\\Program Files\\App\\data.txt", "C:\\Windows\\System32\\drivers"],
-        ),
-        (
-            "No Windows paths here.",
-            [],
-        ),
-        (
-            "Invalid paths: C:Users\\admin, C:\\Program Files\\App\\*.txt",
-            [],
-        ),
-        (
-            "Path in JSON: {'file_path': 'C:\\\\Users\\\\admin\\\\log.txt', 'size': '2MB'}",
-            ["C:\\Users\\admin\\log.txt"],
-        ),
-        # New test cases for more complex Windows path scenarios
-        (
-            "Path with spaces: C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\Windows Live",
-            ["C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\Windows Live"],
-        ),
-        (
-            "Malware paths in security alert: Found suspicious file at C:\\Users\\victim\\AppData\\Local\\Temp\\mal.exe",
-            ["C:\\Users\\victim\\AppData\\Local\\Temp\\mal.exe"],
-        ),
-        (
-            "Long path: C:\\Users\\admin\\Documents\\Very Long Path That Continues\\For Several Directories\\Deep\\file.bin",
-            [
-                "C:\\Users\\admin\\Documents\\Very Long Path That Continues\\For Several Directories\\Deep\\file.bin"
-            ],
-        ),
-        (
-            "System paths commonly targeted: C:\\Windows\\System32\\svchost.exe was modified; C:\\Windows\\explorer.exe compromised",
-            ["C:\\Windows\\System32\\svchost.exe", "C:\\Windows\\explorer.exe"],
-        ),
-        (
-            "Registry path (currently not matched): HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows and C:\\Windows\\regedit.exe",
-            ["C:\\Windows\\regedit.exe"],
-        ),
-        (
-            "Environment variable placeholder (not expanded): %APPDATA%\\Malware.exe and valid C:\\Windows\\notepad.exe",
-            ["C:\\Windows\\notepad.exe"],
-        ),
-        (
-            "Network UNC path (not matched by current regex): \\\\server\\share\\folder\\file.txt and C:\\local\\path.txt",
-            ["C:\\local\\path.txt"],
-        ),
-        (
-            "DFIR forensic output: {'evidence': [{'file': 'C:\\\\Users\\\\admin\\\\Desktop\\\\secret.xlsx', 'hash': 'aabbcc'}, {'file': 'C:\\\\ProgramData\\\\backdoor.dll'}]}",
-            ["C:\\Users\\admin\\Desktop\\secret.xlsx", "C:\\ProgramData\\backdoor.dll"],
-        ),
-    ],
-    ids=[
-        "single_windows_path",
-        "multiple_windows_paths",
-        "no_windows_paths",
-        "invalid_windows_paths",
-        "windows_path_in_json",
-        # New test case ids
-        "windows_path_with_spaces",
-        "malware_path_in_security_alert",
-        "long_windows_path",
-        "system_paths",
-        "registry_and_windows_path",
-        "environment_variable_not_matched",
-        "unc_not_matched_local_matched",
-        "dfir_forensic_output",
-    ],
-)
-def test_extract_windows_file_paths(text: str, expected: list[str]) -> None:
-    extracted = extract_windows_file_paths(text)
-    assert sorted(extracted) == sorted(expected)
-
-
-@pytest.mark.parametrize(
-    "text,expected",
-    [
-        (
-            "Unix path: /home/user/documents/report.pdf",
-            ["/home/user/documents/report.pdf"],
-        ),
-        (
-            "Multiple paths: /etc/config.conf, /var/log/syslog",
-            ["/etc/config.conf", "/var/log/syslog"],
-        ),
-        (
-            "No Unix paths here.",
-            [],
-        ),
-        (
-            "Invalid paths: /home/user/*.txt, /etc/conf/",
-            [],
-        ),
-        (
-            "Path in JSON: {'file_path': '/var/www/html/index.html', 'owner': 'www-data'}",
-            ["/var/www/html/index.html"],
-        ),
-        # New test cases for more complex Unix path scenarios
-        (
-            "Path with spaces: /home/user/My Documents/Important File.pdf",
-            ["/home/user/My Documents/Important File.pdf"],
-        ),
-        (
-            "Linux malware paths: /tmp/.hidden_malware, /var/tmp/suspicious_file.bin",
-            ["/tmp/.hidden_malware", "/var/tmp/suspicious_file.bin"],
-        ),
-        (
-            "System log paths: /var/log/auth.log showed unauthorized access attempts; /var/log/syslog contains errors",
-            ["/var/log/auth.log", "/var/log/syslog"],
-        ),
-        (
-            "Hidden dot files: /home/user/.ssh/id_rsa was accessed; /home/user/.bash_history was modified",
-            ["/home/user/.ssh/id_rsa", "/home/user/.bash_history"],
-        ),
-        (
-            "Web server paths: /var/www/html/uploads/webshell.php found; /etc/apache2/sites-available/default-ssl.conf modified",
-            [
-                "/var/www/html/uploads/webshell.php",
-                "/etc/apache2/sites-available/default-ssl.conf",
-            ],
-        ),
-        (
-            "Shell script execution: bash /usr/local/bin/suspicious_script.sh with root privileges",
-            ["/usr/local/bin/suspicious_script.sh"],
-        ),
-        (
-            "Security scan JSON: {'findings': [{'malicious_file': '/opt/backdoor/persistence.sh'}, {'config': '/etc/cron.d/malicious_cron'}]}",
-            ["/opt/backdoor/persistence.sh", "/etc/cron.d/malicious_cron"],
-        ),
-        (
-            "Paths with non-ASCII: /home/user/документы/файл.txt and /var/log/apache2/access.log",
-            ["/home/user/документы/файл.txt", "/var/log/apache2/access.log"],
-        ),
-    ],
-    ids=[
-        "single_unix_path",
-        "multiple_unix_paths",
-        "no_unix_paths",
-        "invalid_unix_paths",
-        "unix_path_in_json",
-        # New test case ids
-        "unix_path_with_spaces",
-        "linux_malware_paths",
-        "system_log_paths",
-        "hidden_dot_files",
-        "web_server_paths",
-        "shell_script_execution",
-        "security_scan_json",
-        "paths_with_non_ascii",
-    ],
-)
-def test_extract_unix_file_paths(text: str, expected: list[str]) -> None:
-    extracted = extract_unix_file_paths(text)
-    assert sorted(extracted) == sorted(expected)
-
-
-@pytest.mark.parametrize(
-    "text,expected",
-    [
-        (
-            "macOS path: ~/Documents/report.pages",
-            ["~/Documents/report.pages"],
-        ),
-        (
-            "Multiple paths: ~/Downloads/file.zip, ~/Library/Application Support/App",
-            ["~/Downloads/file.zip", "~/Library/Application Support/App"],
-        ),
-        (
-            "No macOS paths here.",
-            [],
-        ),
-        (
-            "Invalid paths: ~Documents/file.txt, ~/Library/*/Cache",
-            [],
-        ),
-        (
-            "Path in JSON: {'file_path': '~/Pictures/vacation.jpg', 'size': '5MB'}",
-            ["~/Pictures/vacation.jpg"],
-        ),
-        # New test cases for more complex macOS path scenarios
-        (
-            "Path with spaces: ~/Desktop/Important Document.pdf",
-            ["~/Desktop/Important Document.pdf"],
-        ),
-        (
-            "macOS malware locations: ~/Library/LaunchAgents/com.malware.plist, ~/Library/Application Support/com.malicious.app/",
-            [
-                "~/Library/LaunchAgents/com.malware.plist",
-                "~/Library/Application Support/com.malicious.app/",
-            ],
-        ),
-        (
-            "Application paths: ~/Applications/suspicious.app/Contents/MacOS/executable",
-            ["~/Applications/suspicious.app/Contents/MacOS/executable"],
-        ),
-        (
-            "Hidden files: ~/.bash_profile was modified; ~/.ssh/known_hosts was accessed",
-            ["~/.bash_profile", "~/.ssh/known_hosts"],
-        ),
-        (
-            "Security report: Malware persisting in ~/Library/StartupItems/backdoor.app and ~/Library/Preferences/malicious.plist",
-            [
-                "~/Library/StartupItems/backdoor.app",
-                "~/Library/Preferences/malicious.plist",
-            ],
-        ),
-        (
-            "Browser data: Chrome extensions at ~/Library/Application Support/Google/Chrome/Default/Extensions/maliciousid/",
-            [
-                "~/Library/Application Support/Google/Chrome/Default/Extensions/maliciousid/"
-            ],
-        ),
-        (
-            "Incident response JSON: {'artifacts': [{'file': '~/Library/Caches/malware.bin'}, {'config': '~/.config/autostart.sh'}]}",
-            ["~/Library/Caches/malware.bin", "~/.config/autostart.sh"],
-        ),
-    ],
-    ids=[
-        "single_macos_path",
-        "multiple_macos_paths",
-        "no_macos_paths",
-        "invalid_macos_paths",
-        "macos_path_in_json",
-        # New test case ids
-        "macos_path_with_spaces",
-        "macos_malware_locations",
-        "application_paths",
-        "hidden_files",
-        "security_report_paths",
-        "browser_data_paths",
-        "incident_response_json",
-    ],
-)
-def test_extract_macos_file_paths(text: str, expected: list[str]) -> None:
-    extracted = extract_macos_file_paths(text)
-    assert sorted(extracted) == sorted(expected)
-
-
-@pytest.mark.parametrize(
-    "text, expected_emails, normalize",
-    [
-        (
-            "Contact us at support@example.com or sales@example.org.",
-            ["support@example.com", "sales@example.org"],
-            False,
-        ),
         (
             "Contact us at support@example.com or sales@example.org.",
             ["support@example.com", "sales@example.org"],
@@ -815,7 +654,6 @@ def test_extract_macos_file_paths(text: str, expected: list[str]) -> None:
     ],
     ids=[
         "single_email",
-        "multiple_emails",
         "invalid_and_valid_email",
         "subaddressed_email",
         "normalized_subaddressed_emails",
@@ -823,13 +661,13 @@ def test_extract_macos_file_paths(text: str, expected: list[str]) -> None:
         "json_with_normalized_emails",
     ],
 )
-def test_extract_emails(text, expected_emails, normalize):
+def test_extract_emails(text, expected, normalize):
     extracted_emails = extract_emails(text=text, normalize=normalize)
-    assert sorted(extracted_emails) == sorted(expected_emails)
+    assert sorted(extracted_emails) == sorted(expected)
 
 
 @pytest.mark.parametrize(
-    "email,expected_normalized_email",
+    "email,expected",
     [
         ("user+info@example.com", "user@example.com"),
         ("user+info@sub.example.com", "user@sub.example.com"),
@@ -843,12 +681,12 @@ def test_extract_emails(text, expected_emails, normalize):
         ("user-name+marketing@example.org", "user-name@example.org"),
     ],
 )
-def test_normalize_email(email, expected_normalized_email):
-    assert normalize_email(email) == expected_normalized_email
+def test_normalize_email(email, expected):
+    assert normalize_email(email) == expected
 
 
 @pytest.mark.parametrize(
-    "text,expected_ip_addresses",
+    "text,expected",
     [
         # Basic single IPv4 address in text
         ("IPv4 address 192.168.1.1 and some random text", ["192.168.1.1"]),
@@ -920,18 +758,18 @@ def test_normalize_email(email, expected_normalized_email):
         "mixed_content_alerts",
     ],
 )
-def test_extract_ipv4_addresses(text, expected_ip_addresses):
+def test_extract_ipv4_addresses(text, expected):
     """Test the extraction of IPv4 addresses from various text formats.
 
     This test covers common scenarios in SOAR platforms where IPv4 addresses
     need to be extracted from different sources like log entries, alerts,
     JSON payloads, and structured data.
     """
-    assert sorted(extract_ipv4_addresses(text=text)) == sorted(expected_ip_addresses)
+    assert sorted(extract_ipv4_addresses(text=text)) == sorted(expected)
 
 
 @pytest.mark.parametrize(
-    "text,expected_ipv6_addresses",
+    "text,expected",
     [
         # Basic IPv6 address in full form
         (
@@ -996,12 +834,12 @@ def test_extract_ipv4_addresses(text, expected_ip_addresses):
         "no_ipv6",
     ],
 )
-def test_extract_ipv6_addresses(text, expected_ipv6_addresses):
-    assert sorted(extract_ipv6_addresses(text=text)) == sorted(expected_ipv6_addresses)
+def test_extract_ipv6_addresses(text, expected):
+    assert sorted(extract_ipv6_addresses(text=text)) == sorted(expected)
 
 
 @pytest.mark.parametrize(
-    "text,expected_urls",
+    "text,expected",
     [
         (
             "Visit our website at https://example.com for more info.",
@@ -1014,10 +852,6 @@ def test_extract_ipv6_addresses(text, expected_ipv6_addresses):
         (
             "<p>Click on this link: <a href='https://www.exemple.com/SUB' target='_blank'>https://www.exemple.com/SUB</a></p>",
             ["https://www.exemple.com/SUB"],
-        ),
-        (
-            "Visit our website at https://example.com for more info.",
-            ["https://example.com"],
         ),
         (
             "Check out https://example.com/path and http://example.org/another-path for details.",
@@ -1043,7 +877,6 @@ def test_extract_ipv6_addresses(text, expected_ipv6_addresses):
             "Text with no URLs should return an empty list.",
             [],
         ),
-        # New test cases for more complex URL scenarios
         (
             "Check out this search result: https://example.com/search?q=malware&source=web&safe=on",
             ["https://example.com/search?q=malware&source=web&safe=on"],
@@ -1097,13 +930,11 @@ def test_extract_ipv6_addresses(text, expected_ipv6_addresses):
         "single_url_string",
         "single_url_with_encoded_path",
         "single_url_in_html",
-        "single_url_in_list",
         "two_urls_in_list",
         "filter_invalid_url",
         "multiple_urls_in_text",
         "urls_in_json_string",
         "empty_result",
-        # New test case ids
         "url_with_query_parameters",
         "url_with_fragment",
         "url_with_percent_encoding",
@@ -1118,93 +949,65 @@ def test_extract_ipv6_addresses(text, expected_ipv6_addresses):
         "urls_in_deeply_nested_json",
     ],
 )
-def test_extract_urls(text, expected_urls):
+def test_extract_urls(text, expected):
     extracted_urls = extract_urls(text=text)
-    assert sorted(extracted_urls) == sorted(expected_urls)
+    assert sorted(extracted_urls) == sorted(expected)
 
 
-@pytest.mark.parametrize(
-    "text,expected",
-    [
-        (
-            "Contact our support at +1 (555) 123-4567 for assistance.",
-            ["+1 (555) 123-4567"],
-        ),
-        (
-            "Multiple numbers: +1-555-123-4567, 555.123.4567, and (555) 987-6543.",
-            ["+1-555-123-4567", "555.123.4567", "(555) 987-6543"],
-        ),
-        (
-            "No phone numbers in this text.",
-            [],
-        ),
-        (
-            "Invalid formats: 12345, +ABC-123-4567",
-            [],
-        ),
-        (
-            "Phone in JSON: {'phone': '+1 555 123 4567', 'type': 'work'}",
-            ["+1 555 123 4567"],
-        ),
-        (
-            "International format: +44 20 1234 5678",
-            ["+44 20 1234 5678"],
-        ),
-        (
-            "Phishing alert: SMS from +1 (800) 555-0123 contains suspicious link",
-            ["+1 (800) 555-0123"],
-        ),
-        (
-            "Vishing campaign targeting employees using caller ID +44 7911 123456",
-            ["+44 7911 123456"],
-        ),
-        (
-            "Multiple international formats: +33 1 23 45 67 89 (France), +49 30 12345678 (Germany), +81 3-1234-5678 (Japan)",
-            ["+33 1 23 45 67 89", "+49 30 12345678", "+81 3-1234-5678"],
-        ),
-        (
-            "Phone number with extension: +1 (555) 123-4567 ext. 890",
-            ["+1 (555) 123-4567"],
-        ),
-        (
-            "Unusual separators: +1.555.123.4567 and +1/555/123/4567",
-            ["+1.555.123.4567", "+1/555/123/4567"],
-        ),
-        (
-            "Security incident report: {'victim': {'contact': '(888) 555-0123'}, 'attacker': {'suspected_number': '+7 495 123-4567'}}",
-            ["(888) 555-0123", "+7 495 123-4567"],
-        ),
-        (
-            "Phone numbers in different formats mixed with text: Call 555-123-4567 or text to +1-800-555-0199 for support",
-            ["555-123-4567", "+1-800-555-0199"],
-        ),
-        (
-            "Threat intel report links the following numbers to the campaign: +86 10 8765 4321, +234 701 234 5678, +971 4 123 4567",
-            ["+86 10 8765 4321", "+234 701 234 5678", "+971 4 123 4567"],
-        ),
-        (
-            "OSINT data shows scam operations running from call centers at 1-800-123-4567 and +91 98765 43210",
-            ["1-800-123-4567", "+91 98765 43210"],
-        ),
-    ],
-    ids=[
-        "single_phone",
-        "multiple_phones",
-        "no_phones",
-        "invalid_formats",
-        "phone_in_json",
-        "international_format",
-        "phishing_sms_number",
-        "vishing_campaign_number",
-        "multiple_international_formats",
-        "phone_with_extension",
-        "unusual_separators",
-        "security_incident_json",
-        "mixed_format_phones",
-        "threat_intel_international_numbers",
-        "scam_call_center_numbers",
-    ],
-)
-def test_extract_phone_numbers(text: str, expected: list[str]) -> None:
-    extracted = extract_phone_numbers(text)
-    assert sorted(extracted) == sorted(expected)
+def test_extract_domains_exception():
+    """Test that extract_domains properly handles validation errors."""
+    mixed_input = """
+    Valid: example.com, sub.example.org
+    Invalid: not_a_domain, .invalid, example..com, -example.com
+    """
+    result = extract_domains(mixed_input)
+    assert sorted(result) == ["example.com", "sub.example.org"]
+
+
+def test_extract_urls_exception():
+    """Test that extract_urls properly handles validation errors."""
+    mixed_input = """
+    Valid: https://example.com, http://sub.example.org/path
+    Invalid: http://.com, https://invalid, http://example.com:abc, ftp://example.com
+    """
+    result = extract_urls(mixed_input)
+    assert sorted(result) == ["http://sub.example.org/path", "https://example.com"]
+
+
+def test_extract_ipv4_addresses_exception():
+    """Test that extract_ipv4_addresses properly handles validation errors."""
+    mixed_input = """
+    Valid: 192.168.1.1, 10.0.0.1, 8.8.8.8
+    Invalid: 256.256.256.256, 192.168.1, 192.168.1.1.1, 999.999.999.999
+    """
+    result = extract_ipv4_addresses(mixed_input)
+    assert sorted(result) == ["10.0.0.1", "192.168.1.1", "8.8.8.8"]
+
+
+def test_extract_ipv6_addresses_exception():
+    """Test that extract_ipv6_addresses properly handles validation errors."""
+    # Provide input with valid and invalid examples
+    test_input = "Valid IPv6: 2001:db8::1 and 2001:0db8:85a3:0000:0000:8a2e:0370:7334\nInvalid: xyz"
+    result = extract_ipv6_addresses(test_input)
+    expected = ["2001:db8::1", "2001:0db8:85a3:0000:0000:8a2e:0370:7334"]
+    assert sorted(result) == sorted(expected)
+
+
+def test_extract_mac_addresses_exception():
+    """Test that extract_mac_addresses properly handles validation errors."""
+    mixed_input = """
+    Valid: 00:11:22:33:44:55, AA-BB-CC-DD-EE-FF
+    Invalid: 00:11:22:33:44, 00:11:22:33:44:55:66, GG:HH:II:JJ:KK:LL
+    """
+    result = extract_mac_addresses(mixed_input)
+    assert sorted(result) == ["00:11:22:33:44:55", "AA:BB:CC:DD:EE:FF"]
+
+
+def test_extract_emails_exception():
+    """Test that extract_emails properly handles validation errors."""
+    mixed_input = """
+    Valid: user@example.com, first.last@sub.domain.com
+    Invalid: user@, @example.com, user@domain, plaintext
+    """
+    result = extract_emails(mixed_input)
+    assert sorted(result) == ["first.last@sub.domain.com", "user@example.com"]
