@@ -167,8 +167,8 @@ def test_extract_urls_exception():
     ]
 
 
-def test_extract_ipv4_addresses_exception():
-    """Test that extract_ipv4_addresses ignores invalid IPv4 addresses."""
+def test_extract_ipv4_exception():
+    """Test that extract_ipv4 ignores invalid IPv4 addresses."""
     mixed_input = """
     Valid: 192.168.1.1, 10.0.0.1, 8.8.8.8
     Invalid: 256.256.256.256, 192.168.1, 192.168.1.1.1, 999.999.999.999
@@ -177,16 +177,16 @@ def test_extract_ipv4_addresses_exception():
     assert sorted(result) == ["10.0.0.1", "192.168.1.1", "8.8.8.8"]
 
 
-def test_extract_ipv6_addresses_exception():
-    """Test that extract_ipv6_addresses ignores invalid IPv6 addresses."""
+def test_extract_ipv6_exception():
+    """Test that extract_ipv6 ignores invalid IPv6 addresses."""
     test_input = "Valid IPv6: 2001:db8::1 and 2001:0db8:85a3:0000:0000:8a2e:0370:7334\nInvalid: xyz"
     result = extract_ipv6(test_input)
     expected = ["2001:db8::1", "2001:0db8:85a3:0000:0000:8a2e:0370:7334"]
     assert sorted(result) == sorted(expected)
 
 
-def test_extract_mac_addresses_exception():
-    """Test that extract_mac_addresses ignores invalid MAC addresses."""
+def test_extract_mac_exception():
+    """Test that extract_mac ignores invalid MAC addresses."""
     mixed_input = """
     Valid: 00:11:22:33:44:55, AA-BB-CC-DD-EE-FF
     Invalid: 00:11:22:33:44, 00:11:22:33:44:55:66, GG:HH:II:JJ:KK:LL
