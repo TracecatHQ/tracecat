@@ -1,4 +1,5 @@
 import asyncio
+import math
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -52,7 +53,9 @@ class TestTokenBucket:
         result = await bucket.consume(tokens=1.0)
         assert result is True
         # Should have refilled 10 tokens (rate=10.0 * 1.0 seconds) and then consumed 1
-        assert 13.0 <= bucket.tokens <= 14.0  # Allow for small timing differences
+        # Using math.isclose to allow for minor floating point imprecision
+
+        assert math.isclose(bucket.tokens, 14.0, rel_tol=1e-5)
 
     @pytest.mark.anyio
     async def test_refill_max_capacity(self):
