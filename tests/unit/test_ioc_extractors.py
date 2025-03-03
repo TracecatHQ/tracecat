@@ -213,3 +213,8 @@ def test_extract_defanged_ipv4(text, expected):
 @pytest.mark.parametrize("text,expected", load_test_data("defanged/ipv6"))
 def test_extract_defanged_ipv6(text, expected):
     assert sorted(extract_ipv6(text=text, include_defanged=True)) == sorted(expected)
+
+
+@pytest.mark.parametrize("text,expected", load_test_data("defanged/url"))
+def test_extract_defanged_urls(text, expected):
+    assert sorted(extract_urls(text=text, include_defanged=True)) == sorted(expected)

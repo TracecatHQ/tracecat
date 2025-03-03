@@ -1,0 +1,36 @@
+- id: defanged_url_with_bracket_dots
+  text: "Malicious site at https://example[.]com/malware and http://bad[.]example[.]com:443"
+  expected: ["https://example.com/malware", "http://bad.example.com:443"]
+- id: defanged_url_with_paren_dots
+  text: "C2 server at https://command(.)and(.)control(.)com and http://malware(.)site(.)net"
+  expected: ["https://command.and.control.com", "http://malware.site.net"]
+- id: defanged_url_with_dot_words
+  text: "Evidence found at https://evil[dot]com and http://phishing[dot]example[dot]com/form"
+  expected: ["https://evil.com", "http://phishing.example.com/form"]
+- id: defanged_url_with_space_dots
+  text: "Check this suspicious link https://malware dot com and http://bad dot example dot com"
+  expected: ["https://malware.com", "http://bad.example.com"]
+- id: defanged_url_protocol_substitution
+  text: "Malware hosted at hxxps://malware.example.com and hxxp://badsite.net/malware.exe"
+  expected: ["https://malware.example.com", "http://badsite.net/malware.exe"]
+- id: defanged_url_protocol_x_substitution
+  text: "Attack from xxps://evil.example.com and xxxp://malware.download.com/payload"
+  expected: ["https://evil.example.com", "http://malware.download.com/payload"]
+- id: defanged_url_protocol_brackets
+  text: "C2 servers at http[:]//command.control.net and https[:]//exfil.example.com"
+  expected: ["http://command.control.net", "https://exfil.example.com"]
+- id: defanged_url_protocol_parens
+  text: "Data sent to http(:)//data-exfil.example.com and https(:)//c2.botnet.net"
+  expected: ["http://data-exfil.example.com", "https://c2.botnet.net"]
+- id: defanged_url_slash_brackets
+  text: "Connections to http:[/][/]malware.example.net and https:[/][/]c2.botnet.com/backdoor"
+  expected: ["http://malware.example.net", "https://c2.botnet.com/backdoor"]
+- id: defanged_url_slash_parens
+  text: "Domains http:(/)(/)malicious.example.com and https:(/)(/)exfil.site.net"
+  expected: ["http://malicious.example.com", "https://exfil.site.net"]
+- id: defanged_url_mixed_formats
+  text: "Various URLs: https[:]//bad[.]com, hxxp://evil(.)net, http:[/][/]malicious.site.com"
+  expected: ["https://bad.com", "http://evil.net", "http://malicious.site.com"]
+- id: defanged_url_with_paths_and_params
+  text: "Suspicious URL: hxxps://evil[.]example[.]com/malware?id=12345 and http[:]//bad(.)site(.)net/payload.exe"
+  expected: ["https://evil.example.com/malware?id=12345", "http://bad.site.net/payload.exe"]
