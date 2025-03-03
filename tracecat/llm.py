@@ -8,8 +8,10 @@ from typing import Any, Literal
 
 import ollama
 import orjson
-from openai import AsyncOpenAI
-from openai.types.chat.chat_completion import ChatCompletion, Choice
+from openai import AsyncOpenAI, AsyncStream
+from openai.types.chat.chat_completion import Choice
+from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
@@ -40,7 +42,7 @@ OLLAMA_MODELS = {model.value for model in OllamaModel}
 OPENAI_MODELS = {model.value for model in OpenAIModel}
 
 
-async def async_openai_call(  # type: ignore
+async def async_openai_call(
     *,
     prompt: str,
     model: OpenAIModel,
@@ -50,7 +52,7 @@ async def async_openai_call(  # type: ignore
     stream: bool = False,
     parse_json: bool = True,
     **kwargs,
-):
+) -> AsyncStream[ChatCompletionChunk] | str | dict[str, Any]:
     """Call the OpenAI API with the given prompt and return the response.
 
     Returns
@@ -77,33 +79,40 @@ async def async_openai_call(  # type: ignore
     if response_format == "json_object":
         system_context += " Please only output valid JSON."
 
-    messages = [
+    messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_context},
         {"role": "user", "content": prompt},
     ]
 
-    logger.info("🧠 Calling OpenAI API with {} model...", model)
-    response: ChatCompletion = await client.chat.completions.create(  # type: ignore[call-overload]
-        model=model,
-        response_format={"type": response_format},
-        messages=messages,
-        temperature=temperature,
-        stream=stream,
-        **kwargs,
-    )
-    # TODO: Should track these metrics
-    logger.info("🧠 Usage", usage=response.usage)
+    logger.info(f"🧠 Calling OpenAI API with {model} model...")
     if stream:
+        response = await client.chat.completions.create(
+            model=model,
+            response_format={"type": response_format},
+            messages=messages,
+            temperature=temperature,
+            stream=True,
+            **kwargs,
+        )
         return response
-
-    return parse_choice(response.choices[0])
+    else:
+        response = await client.chat.completions.create(
+            model=model,
+            response_format={"type": response_format},
+            messages=messages,
+            temperature=temperature,
+            stream=False,
+            **kwargs,
+        )
+        logger.info("🧠 Usage", usage=response.usage)
+        return parse_choice(response.choices[0])
 
 
 def _get_ollama_client() -> ollama.AsyncClient:
     return ollama.AsyncClient(host=config.OLLAMA__API_URL)
 
 
-async def async_ollama_call(*, prompt: str, model: OllamaModel) -> dict[str, Any]:
+async def async_ollama_call(*, prompt: str, model: OllamaModel) -> Mapping[str, Any]:
     client = _get_ollama_client()
     try:
         response = await client.chat(
@@ -127,12 +136,17 @@ async def route_llm_call(
     **kwargs,
 ):
     kwargs.update(additional_config or {})
-    if model in OLLAMA_MODELS:
-        return await async_ollama_call(prompt=prompt, model=model, **kwargs)
-    elif model in OPENAI_MODELS:
+
+    if model in OllamaModel:
+        return await async_ollama_call(
+            prompt=prompt,
+            model=OllamaModel(model),
+            **kwargs,
+        )
+    elif model in OpenAIModel:
         return await async_openai_call(
             prompt=prompt,
-            model=model,
+            model=OpenAIModel(model),
             system_context=system_context,
             **kwargs,
         )
