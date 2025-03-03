@@ -213,7 +213,7 @@ IPV6_PATTERNS = {
 
 @lru_cache(maxsize=1024)
 def is_ipv4(ip: str) -> bool:
-    """Check if a string is a valid IPv4 address. Results are cached for performance."""
+    """Check if a string is a valid IPv4 address."""
     try:
         ipaddress.IPv4Address(ip)
         return True
@@ -223,7 +223,7 @@ def is_ipv4(ip: str) -> bool:
 
 @lru_cache(maxsize=1024)
 def is_ipv6(ip: str) -> bool:
-    """Check if a string is a valid IPv6 address. Results are cached for performance."""
+    """Check if a string is a valid IPv6 address."""
     try:
         ipaddress.IPv6Address(ip)
         return True
@@ -237,7 +237,7 @@ def is_ip(ip: str) -> bool:
 
 
 def extract_ipv4(text: str, include_defanged: bool = False) -> list[str]:
-    """Extract unique IPv4 addresses from a string. Includes defanged variants as an option."""
+    """Extract unique IPv4 addresses from a string."""
 
     def _validate_ipv4(ip_string: str) -> str | None:
         """Validate an IPv4 address and return it if valid, None otherwise."""
@@ -324,7 +324,6 @@ def extract_ipv6(text: str, include_defanged: bool = False) -> list[str]:
         if not pattern:
             return
 
-        # Handle different patterns with appropriate transformations
         if pattern_type == DefangPattern.IPV6_BRACKET:
             # For pattern like [x:x:x:x:x:x:x:x]
             for match in pattern.finditer(text):
@@ -377,8 +376,19 @@ def extract_ipv6(text: str, include_defanged: bool = False) -> list[str]:
                     pass
 
     # We'll also need to handle specific cases like compressed notation
-    def _process_ipv6_special_cases() -> Iterator[str]:
-        """Process special cases that don't fit the standard pattern processing."""
+    def _process_ipv6_compressed_notation() -> Iterator[str]:
+        """Process IPv6 addresses with compressed notation (using double colons).
+
+        This function handles various defanged formats of IPv6 addresses that use compression
+        with double colons (::). These include formats like:
+        - 2001[:]db8[:][:]2000[:] (bracket-colon with compression)
+        - 2001(:)db8(:)(:)2000(:) (parentheses-colon with compression)
+        - 2001\\:db8\\:\\:2000\\: (escaped-colon with compression)
+        - 2001 colon db8 colon colon 2000 colon (space-colon with compression)
+
+        Returns:
+            Iterator[str]: An iterator of validated IPv6 addresses found in the text.
+        """
 
         # Handle compressed notations with double colons
         patterns = [
@@ -388,19 +398,22 @@ def extract_ipv6(text: str, include_defanged: bool = False) -> list[str]:
             (REGEX_IPV6_SPACE_COLON_COMPRESSED, " colon ", ":"),
         ]
 
-        for pattern, search, _ in patterns:
+        for pattern, search, replace in patterns:
             for match in pattern.finditer(text):
                 try:
                     # Create a normalized string with proper :: compression
                     match_text = match.group(0)
+
+                    # Handle the space-separated case differently
                     if search == " colon ":
                         ip = match_text.replace(" colon colon ", "::").replace(
-                            " colon ", ":"
+                            search, replace
                         )
                     else:
+                        # For other patterns, replace the double pattern with :: and single pattern with :
                         double_search = search + search
                         ip = match_text.replace(double_search, "::").replace(
-                            search, ":"
+                            search, replace
                         )
 
                     validated = _validate_ipv6(ip)
@@ -412,6 +425,7 @@ def extract_ipv6(text: str, include_defanged: bool = False) -> list[str]:
         # Handle specific word pattern like "2001 colon db8 colon colon 1"
         for match in REGEX_IPV6_WORD_PATTERN.finditer(text):
             try:
+                # Construct an IPv6 with compression (::) from the specific pattern
                 ip_str = f"{match.group(1)}:{match.group(2)}::{match.group(3)}"
                 validated = _validate_ipv6(ip_str)
                 if validated:
@@ -429,16 +443,14 @@ def extract_ipv6(text: str, include_defanged: bool = False) -> list[str]:
             _process_ipv6_defang_pattern(pattern_type) for pattern_type in IPV6_PATTERNS
         ]
         ip_generators.extend(defang_generators)
-
-        # Add special cases generator
-        ip_generators.append(_process_ipv6_special_cases())
+        ip_generators.append(_process_ipv6_compressed_notation())
 
     # Combine all generators and deduplicate
     return list(set(itertools.chain.from_iterable(ip_generators)))
 
 
 def extract_ip(text: str, include_defanged: bool = False) -> list[str]:
-    """Extract unique IPv4 and IPv6 addresses from a string. Includes defanged variants as an option."""
+    """Extract unique IPv4 and IPv6 addresses from a string."""
     ipv4_addrs = extract_ipv4(text, include_defanged)
     ipv6_addrs = extract_ipv6(text, include_defanged)
     return ipv4_addrs + ipv6_addrs
