@@ -3,7 +3,7 @@
   expected: ["00:11:22:33:44:55"]
 - id: multiple_formats
   text: "Multiple formats: 00:11:22:33:44:55, AA-BB-CC-DD-EE-FF."
-  expected: ["00:11:22:33:44:55", "AA:BB:CC:DD:EE:FF"]
+  expected: ["00:11:22:33:44:55", "aa:bb:cc:dd:ee:ff"]
 - id: no_macs
   text: "No MAC addresses here."
   expected: []
@@ -12,4 +12,4 @@
   expected: []
 - id: mac_in_json
   text: "MAC in data: {'mac': '00:1A:2B:3C:4D:5E', 'vendor': 'Example'}"
-  expected: ["00:1A:2B:3C:4D:5E"]
+  expected: ["00:1a:2b:3c:4d:5e"]

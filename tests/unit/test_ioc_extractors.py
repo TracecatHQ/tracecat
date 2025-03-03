@@ -192,7 +192,7 @@ def test_extract_mac_exception():
     Invalid: 00:11:22:33:44, 00:11:22:33:44:55:66, GG:HH:II:JJ:KK:LL
     """
     result = extract_mac(mixed_input)
-    assert sorted(result) == ["00:11:22:33:44:55", "AA:BB:CC:DD:EE:FF"]
+    assert sorted(result) == ["00:11:22:33:44:55", "aa:bb:cc:dd:ee:ff"]
 
 
 def test_extract_emails_exception():

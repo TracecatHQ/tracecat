@@ -18,7 +18,7 @@ Defanged variants:
 import functools
 import re
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ValidationError
+from pydantic import AnyHttpUrl, AnyUrl, TypeAdapter, ValidationError
 
 # URL regexes
 # Match only HTTP and HTTPS URLs
@@ -28,18 +28,16 @@ HTTP_URL_REGEX = r"(?:https?):\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=\u00A0-\uFFFF]{
 URL_REGEX = r"(?:https?|tcp|udp|ftp|sftp|ftps):\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=\u00A0-\uFFFF]{1,256}(?:\.[a-zA-Z0-9()\u00A0-\uFFFF]{1,63})+(?::\d{1,5})?(?:\/[-a-zA-Z0-9()@:%_\+.~#?&\/=\u00A0-\uFFFF]*)?(?<![?&=/#.])"
 
 
-class UrlModel(BaseModel):
-    url: AnyUrl
+# URL type adapters
 
-
-class HttpUrlModel(BaseModel):
-    url: AnyHttpUrl
+UrlTypeAdapter = TypeAdapter(AnyUrl)
+HttpUrlTypeAdapter = TypeAdapter(AnyHttpUrl)
 
 
 def is_url(url: str) -> bool:
     """Check if a string is a valid URL."""
     try:
-        UrlModel(url=url)  # type: ignore
+        UrlTypeAdapter.validate_python(url)
         return True
     except ValidationError:
         return False
@@ -48,7 +46,7 @@ def is_url(url: str) -> bool:
 def is_http_url(url: str) -> bool:
     """Check if a string is a valid HTTP/HTTPS URL."""
     try:
-        HttpUrlModel(url=url)  # type: ignore
+        HttpUrlTypeAdapter.validate_python(url)
         return True
     except ValidationError:
         return False
@@ -59,11 +57,11 @@ def extract_urls(
 ) -> list[str]:
     """Extract URLs from text, optionally including defanged ones."""
 
-    regex_pattern = HTTP_URL_REGEX if http_only else URL_REGEX
-    validate_url = is_http_url if http_only else is_url
+    _regex_pattern = HTTP_URL_REGEX if http_only else URL_REGEX
+    _is_url = is_http_url if http_only else is_url
 
     # Extract all potential URLs
-    matched_urls = re.findall(regex_pattern, text)
+    matched_urls = re.findall(_regex_pattern, text)
 
     if include_defanged:
         # Normalize the text
@@ -98,8 +96,8 @@ def extract_urls(
             replacements.items(),
             text,
         )
-        matched_normalized_urls = re.findall(regex_pattern, normalized_text)
+        matched_normalized_urls = re.findall(_regex_pattern, normalized_text)
         matched_urls.extend(matched_normalized_urls)
 
-    unique_urls = list({url for url in matched_urls if validate_url(url)})
+    unique_urls = list({url for url in matched_urls if _is_url(url)})
     return unique_urls

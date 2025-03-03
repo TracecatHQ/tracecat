@@ -9,7 +9,7 @@ Defanged variants:
 import functools
 import re
 
-from pydantic import BaseModel, ValidationError
+from pydantic import TypeAdapter, ValidationError
 from pydantic_extra_types.domain import DomainStr
 
 # DOMAIN
@@ -52,30 +52,20 @@ DOMAIN_REGEX = re.compile(
     re.VERBOSE,
 )
 
-
-class DomainModel(BaseModel):
-    domain: DomainStr
+DomainTypeAdapter = TypeAdapter(DomainStr)
 
 
 def is_domain(domain: str) -> bool:
     """Check if a string is a valid domain name."""
     try:
-        DomainModel(domain=domain)  # type: ignore
+        DomainTypeAdapter.validate_python(domain)
         return True
     except ValidationError:
         return False
 
 
 def extract_domains(text: str, include_defanged: bool = False) -> list[str]:
-    """Extract domain names, e.g. example.com, from a string.
-
-    Args:
-        text: The text to extract domains from.
-        include_defanged: Whether to include defanged domains.
-
-    Returns:
-        A list of extracted domain names.
-    """
+    """Extract domain names from a string."""
     matched_domains = re.findall(DOMAIN_REGEX, text)
     if include_defanged:
         # Normalize the text to handle defanged domains
