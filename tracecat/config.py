@@ -196,16 +196,16 @@ TRACECAT__RATE_LIMIT_ENABLED = (
 )
 """Whether rate limiting is enabled for the executor service."""
 
-TRACECAT__RATE_LIMIT_RATE = float(os.environ.get("TRACECAT__RATE_LIMIT_RATE", "10.0"))
+TRACECAT__RATE_LIMIT_RATE = float(os.environ.get("TRACECAT__RATE_LIMIT_RATE", 20.0))
 """The rate at which tokens are added to the bucket (tokens per second)."""
 
 TRACECAT__RATE_LIMIT_CAPACITY = float(
-    os.environ.get("TRACECAT__RATE_LIMIT_CAPACITY", "20.0")
+    os.environ.get("TRACECAT__RATE_LIMIT_CAPACITY", 40.0)
 )
 """The maximum number of tokens the bucket can hold."""
 
 TRACECAT__RATE_LIMIT_WINDOW_SIZE = int(
-    os.environ.get("TRACECAT__RATE_LIMIT_WINDOW_SIZE", "60")
+    os.environ.get("TRACECAT__RATE_LIMIT_WINDOW_SIZE", 60)
 )
 """The time window in seconds for rate limiting."""
 
