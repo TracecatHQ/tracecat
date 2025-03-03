@@ -14,7 +14,43 @@ from pydantic_extra_types.domain import DomainStr
 
 # DOMAIN
 # This regex aims to match domains (even within URLs)
-DOMAIN_REGEX = r"(?<![:/\w])(?:(?:xn--[a-zA-Z0-9]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:\.[a-zA-Z]{2,})*)(?![:/\w])"
+DOMAIN_REGEX = re.compile(
+    r"""
+    # Negative lookbehind - don't match if preceded by :, /, or word char
+    (?<![:/\w])
+    # Domain part - match at least one label + dot followed by TLD
+    (?>                                  # Atomic group to prevent backtracking
+        (?>                              # Atomic group for the repeating label + dot sequence
+            (?:
+                xn--[a-zA-Z0-9]+         # Punycode (IDN) label
+                |                        # OR
+                [a-zA-Z0-9]              # Regular domain label
+                (?>[a-zA-Z0-9-]{0,61}    # Up to 61 alphanumeric or hyphen chars
+                [a-zA-Z0-9])?            # Ending with alphanumeric (optional group)
+            )
+            \.                           # Followed by a dot
+        )+                               # One or more label + dot sequences
+
+        # TLD part - handle both regular and punycode TLDs
+        (?:
+            xn--[a-zA-Z0-9-]+            # Punycode TLD
+            |                            # OR
+            [a-zA-Z]{2,}                 # Regular TLD (at least 2 alpha chars)
+        )
+        # Optional additional TLDs (e.g., .co.uk)
+        (?:\.
+            (?:
+                xn--[a-zA-Z0-9-]+        # Punycode TLD
+                |                        # OR
+                [a-zA-Z]{2,}             # Regular TLD
+            )
+        )*                               # Zero or more additional TLD components
+    )
+    # Negative lookahead - don't match if followed by :, /, or word char
+    (?![:/\w])
+""",
+    re.VERBOSE,
+)
 
 
 class DomainModel(BaseModel):
