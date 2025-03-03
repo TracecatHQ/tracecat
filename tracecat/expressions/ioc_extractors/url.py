@@ -1,10 +1,11 @@
 """Functions for extracting URLs from a string.
 
-Supports extracting from: `http`, `https`, `tcp`, `udp`, `ftp`, `sftp`, `ftps` protocols
-and defanged versions of the above URLs.
+Supported protocols:
+- `http`, `https`
+- `tcp`, `udp`
+- `ftp`, `sftp`, `ftps`
 
-
-Defang variations:
+Defanged variants:
 - Square brackets: replace `.` with `[.]` (e.g. https://example[.].com)
 - Parentheses: replace `.` with `(.)` (e.g. https://example(.).com)
 - Escaped dot: replace `.` with `\\.`  (e.g. https://example\\.com)

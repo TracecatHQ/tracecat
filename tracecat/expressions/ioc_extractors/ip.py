@@ -1,9 +1,14 @@
 """Functions for extracting IPv4 and IPv6 addresses from a string.
 
-Supports extracting from regular IPv4 and IPv6 addresses,
-as well as the following defanged variants:
+IPv6 (fanged) variants:
+- Regular IPv6 addresses: 2001:db8::1
+- Full IPv6 addresses: 2001:0db8:85a3:0000:0000:8a2e:0370:7334
+- IPv6 with embedded IPv4: ::ffff:192.168.1.1
+- Bracketed IPv6 addresses: 2001:db8::1
+- IPv6 with ports: 2001:db8::1:8080
+- IPv6 in URLs: https://2001:db8::bad:1/malware.exe
 
-IPv4:
+IPv4 defanged variants:
 - Full brackets: [1.1.1.1]
 - Brackets-dot: 1[.]1[.]1[.]1
 - Parentheses-dot: 1(.)1(.)1(.)1
@@ -11,7 +16,7 @@ IPv4:
 - Text-bracket-dot: 1[dot]1[dot]1[dot]1
 - Space-dot-space: 1 dot 1 dot 1 dot 1
 
-IPv6:
+IPv6 defanged variants:
 - Full brackets: [2001:db8::1]
 - Brackets-colon: 2001[:]db8[:]85a3[:]8d3[:]1319[:]8a2e[:]370[:]7348
 - Parentheses-colon: 2001(:)db8(:)85a3(:)8d3(:)1319(:)8a2e(:)370(:)7348
@@ -35,21 +40,22 @@ IPV4_REGEX = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
 # 2. Compressed format: 2001:db8::1
 # 3. Bracketed format: [2001:db8::1]
 # 4. Includes uppercase and lowercase hex digits
+# 5. IPv6 with embedded IPv4 (::ffff:192.168.1.1)
+# 6. IPv6 with ports like [2001:db8::1]:8080
 IPV6_REGEX = (
-    # Full format IPv6 without brackets
+    # Standard IPv6 formats (full and compressed)
     r"(?:\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b)"
-    # Compressed IPv6 format without brackets (with :: notation)
-    r"|(?:\b(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::"
-    r"(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\b)"
-    # Full format IPv6 with brackets
-    r"|(?:\[(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\])"
-    # Compressed IPv6 format with brackets (with :: notation)
-    r"|(?:\[(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::"
-    r"(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\])"
+    r"|(?:\b(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\b)"
+    # IPv6 with embedded IPv4
+    r"|(?:\b(?:[0-9A-Fa-f]{1,4}:){6}(?:\d{1,3}\.){3}\d{1,3}\b)"
+    r"|(?:\b(?:[0-9A-Fa-f]{1,4}:){0,5}:(?:\d{1,3}\.){3}\d{1,3}\b)"
+    # IPv6 in brackets (potentially with port)
+    r"|(?<=\[)(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}(?=\](?::\d+)?)"
+    r"|(?<=\[)(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?(?=\](?::\d+)?)"
+    # IPv6 with embedded IPv4 in brackets
+    r"|(?<=\[)(?:[0-9A-Fa-f]{1,4}:){6}(?:\d{1,3}\.){3}\d{1,3}(?=\](?::\d+)?)"
+    r"|(?<=\[)(?:[0-9A-Fa-f]{1,4}:){0,5}:(?:\d{1,3}\.){3}\d{1,3}(?=\](?::\d+)?)"
 )
-
-# Pattern to extract the IPv6 address from brackets
-IPV6_EXTRACT_PATTERN = re.compile(r"\[([0-9A-Fa-f:]+)\]")
 
 
 # Define IP types enum
@@ -115,82 +121,47 @@ def extract_ipv4(text: str, include_defanged: bool = False) -> list[str]:
 def extract_ipv6(text: str, include_defanged: bool = False) -> list[str]:
     """Extract unique IPv6 addresses from a string. Includes defanged variants as an option."""
 
-    # Normalize text to handle bracketed IPv6 with ports and in URLs
-    # Copy the text first to avoid modifying the original
-    normalized_text = text
-
-    # Extract IPv6 addresses from [IPv6]:port format
-    port_pattern = re.compile(r"\[([0-9A-Fa-f:]+)\]:[0-9]{1,5}")
-    for match in port_pattern.finditer(normalized_text):
-        # Add the IPv6 part without brackets and port to our text
-        ipv6_addr = match.group(1)
-        normalized_text += f" {ipv6_addr} "
-
-    # Extract IPv6 addresses from URL format https://[IPv6]/path
-    url_pattern = re.compile(r"https?://\[([0-9A-Fa-f:]+)\]")
-    for match in url_pattern.finditer(normalized_text):
-        # Add the IPv6 part without URL parts to our text
-        ipv6_addr = match.group(1)
-        normalized_text += f" {ipv6_addr} "
-
-    # Extract IPv6 addresses from bracketed format [IPv6]
-    bracketed_pattern = re.compile(r"\[([0-9A-Fa-f:]+)\]")
-    for match in bracketed_pattern.finditer(normalized_text):
-        # Add the IPv6 part without brackets to our text
-        ipv6_addr = match.group(1)
-        normalized_text += f" {ipv6_addr} "
-
-    # Now find IPv6 addresses in the normalized text
-    matched_ips = re.findall(IPV6_REGEX, normalized_text)
-
+    matched_ips = re.findall(IPV6_REGEX, text)
     if include_defanged:
         # Normalize the text for defanged variants
         replacements = {
             "[:]": ":",
             "(:)": ":",
             "\\:": ":",
+            "(colon)": ":",
             "[colon]": ":",
+            " colon colon ": "::",
             " colon ": ":",
+            "(dot)": ".",
+            "[dot]": ".",
+            " dot ": ".",
+            " period ": ".",
+            "[::]": "::",
+            "(::)": "::",
+            "\\::": "::",
+            "\\[": "[",
+            "\\]": "]",
+            # Handle URLs with IPv6
+            "https://[": "[",
+            "http://[": "[",
+            "ftp://[": "[",
+            # Handle ports
+            "]:[0-9]+": "]",
+            "] port [0-9]+": "]",
         }
-        defanged_text = functools.reduce(
+        normalized_text = functools.reduce(
             lambda substring, replacement: substring.replace(
                 replacement[0], replacement[1]
             ),
             replacements.items(),
             text,
         )
-
-        # Apply the same port, URL, and bracket normalization to defanged text
-        for match in port_pattern.finditer(defanged_text):
-            ipv6_addr = match.group(1)
-            defanged_text += f" {ipv6_addr} "
-
-        for match in url_pattern.finditer(defanged_text):
-            ipv6_addr = match.group(1)
-            defanged_text += f" {ipv6_addr} "
-
-        for match in bracketed_pattern.finditer(defanged_text):
-            ipv6_addr = match.group(1)
-            defanged_text += f" {ipv6_addr} "
-
         # Find IPv6 addresses in the defanged normalized text
-        defanged_matches = re.findall(IPV6_REGEX, defanged_text)
-        matched_ips.extend(defanged_matches)
-
-        # Special case for "2001 colon db8 colon colon 1" format
-        if "2001 colon db8 colon colon 1" in text:
-            matched_ips.append("2001:db8::1")
-
-    # Clean up results - remove brackets if present and filter for valid IPv6 addresses
-    cleaned_ips = []
-    for ip in matched_ips:
-        if ip.startswith("[") and ip.endswith("]"):
-            # Remove brackets
-            ip = ip[1:-1]
-        cleaned_ips.append(ip)
+        matched_normalized_ips = re.findall(IPV6_REGEX, normalized_text)
+        matched_ips.extend(matched_normalized_ips)
 
     # Filter to only valid IPv6 addresses and remove duplicates
-    unique_ips = list({ip for ip in cleaned_ips if is_ipv6(ip)})
+    unique_ips = list({ip for ip in matched_ips if is_ipv6(ip)})
     return unique_ips
 
 
