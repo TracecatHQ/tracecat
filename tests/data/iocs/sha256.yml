@@ -1,0 +1,39 @@
+- id: single_sha256
+  text: "SHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 in malware."
+  expected: ["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]
+- id: multiple_sha256s
+  text: "Multiple: 8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92, 5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8."
+  expected: ["8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92", "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"]
+- id: no_sha256s
+  text: "No SHA256 hashes here."
+  expected: []
+- id: invalid_sha256_length
+  text: "Invalid: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8 (too short)"
+  expected: []
+- id: sha256_in_json
+  text: "SHA256: {'hash': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}"
+  expected: ["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]
+- id: threat_hunting_sha256
+  text: "Threat hunting results: SHA256 hash cf80cd8aed482d5d1527d7dc72fceff84e6326592848447d2dc0b0e87dfc9a90 flagged malicious"
+  expected: ["cf80cd8aed482d5d1527d7dc72fceff84e6326592848447d2dc0b0e87dfc9a90"]
+- id: certificate_sha256_fingerprint
+  text: "Code signing certificate: SHA256 Fingerprint=86D88A5AE39C89B270DA72C0C955CC49BD46E5CF16B4331CAAFF9E5B4748ECAF"
+  expected: ["86D88A5AE39C89B270DA72C0C955CC49BD46E5CF16B4331CAAFF9E5B4748ECAF"]
+- id: defender_alert_sha256
+  text: "Windows Defender alert: SHA256: C6FB8EE5EB18C7F0AD3E8F394C8A32BFF06D9013FEBE41D0E8BDB5E259BF5B4E"
+  expected: ["C6FB8EE5EB18C7F0AD3E8F394C8A32BFF06D9013FEBE41D0E8BDB5E259BF5B4E"]
+- id: multiple_hash_algorithms
+  text: "Multiple hashes in sandbox report: {'results': {'sample': {'md5': 'c4ca4238a0b923820dcc509a6f75849b', 'sha1': '356a192b7913b04c54574d18c28d46e6395428ab', 'sha256': 'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9'}}}"
+  expected: ["b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"]
+- id: sha256_command_output
+  text: "Command output: $ sha256sum implant.exe\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  implant.exe"
+  expected: ["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]
+- id: sha256_with_prefix
+  text: "Incident response: found malware dropper with SHA256=9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08 on host"
+  expected: ["9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08"]
+- id: sha256_in_yara_match
+  text: "YARA match: rule Ransomware {strings: $a = 'ENCRYPTED' condition: $a} matched file with SHA256 hash 4B227777D4DD1FC61C6F884F48641D02B4D121D3FD328CB08B5531FCACDABF8A"
+  expected: ["4B227777D4DD1FC61C6F884F48641D02B4D121D3FD328CB08B5531FCACDABF8A"]
+- id: sha256_in_threat_intel_text
+  text: "Threat intel report mentions a multi-stage attack using files ab5df625bc76c4157d8f8899e50b6b1f36b9a186d5c9cf8f3ce21162feae5712 and ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d as payloads"
+  expected: ["ab5df625bc76c4157d8f8899e50b6b1f36b9a186d5c9cf8f3ce21162feae5712", "ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d"]

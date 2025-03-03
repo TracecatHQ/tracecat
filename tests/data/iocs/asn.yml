@@ -1,0 +1,42 @@
+- id: single_asn
+  text: "Detected suspicious traffic from AS12345 to our network."
+  expected: ["AS12345"]
+- id: multiple_asns
+  text: "Multiple ASNs detected: AS1234, AS4321, and AS56789."
+  expected: ["AS1234", "AS4321", "AS56789"]
+- id: no_asns
+  text: "No ASNs in this text."
+  expected: []
+- id: invalid_formats
+  text: "Some invalid formats: 12345AS, ASabcde"
+  expected: []
+- id: asn_in_json
+  text: "ASN in JSON data: {'asn': 'AS15169', 'org': 'Google LLC'}"
+  expected: ["AS15169"]
+- id: asn_with_organization
+  text: "Threat report: Malicious traffic from AS4134 (China Telecom) detected targeting port 445"
+  expected: ["AS4134"]
+- id: multiple_asns_with_orgs
+  text: "Network analysis showed connections to AS16509 (Amazon), AS8075 (Microsoft), and AS15169 (Google)"
+  expected: ["AS16509", "AS8075", "AS15169"]
+- id: bgp_routing_anomaly
+  text: "BGP routing anomaly detected when AS13335 (Cloudflare) announced prefixes belonging to AS7018 (AT&T)"
+  expected: ["AS13335", "AS7018"]
+- id: blocklist_entry
+  text: "Blocklist update: Added AS199524 and AS14618 due to repeated abuse"
+  expected: ["AS199524", "AS14618"]
+- id: asn_without_prefix
+  text: "Large-scale scanning from the following sources: ASN 45090, AS4837, AS17621"
+  expected: ["AS4837", "AS17621"]
+- id: asns_in_structured_security_advisory
+  text: "Security advisory: {'affected_asns': ['AS3356', 'AS6939', 'AS174'], 'vulnerability': 'BGP hijacking'}"
+  expected: ["AS3356", "AS6939", "AS174"]
+- id: asn_in_scanning_report
+  text: "Historical scanning report: Host 192.168.1.1 (AS9121) scanned 1433/TCP across multiple targets"
+  expected: ["AS9121"]
+- id: asn_in_ip_enrichment
+  text: "IP: 104.18.11.208, ASN: AS13335, Organization: Cloudflare, Inc."
+  expected: ["AS13335"]
+- id: data_exfiltration_to_asns
+  text: "Deep packet inspection found data exfiltration to command servers in AS4812 (China Telecom) and AS4134"
+  expected: ["AS4812", "AS4134"]

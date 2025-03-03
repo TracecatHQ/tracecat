@@ -8,7 +8,7 @@ from json import JSONDecodeError
 from typing import Annotated, Any, Literal, TypedDict
 
 import httpx
-from pydantic import UrlConstraints
+from pydantic import HttpUrl
 from tenacity import (
     retry,
     retry_if_result,
@@ -53,7 +53,7 @@ Note: `SSL_CLIENT_CERT` and `SSL_CLIENT_KEY` are text fields that contain the ce
 Url = Annotated[
     str,
     Doc("The destination of the HTTP request"),
-    UrlConstraints(),
+    HttpUrl,
 ]
 Method = Annotated[
     RequestMethods,

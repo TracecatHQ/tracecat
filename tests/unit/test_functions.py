@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import orjson
 import pytest
@@ -538,7 +538,9 @@ def test_date_component_getters(func, dt: datetime, expected: int) -> None:
         (datetime(2024, 12, 1), "short", "Dec"),
     ],
 )
-def test_get_month(dt: datetime, format: str, expected: int | str) -> None:
+def test_get_month(
+    dt: datetime, format: Literal["number", "full", "short"], expected: int | str
+) -> None:
     assert get_month(dt, format) == expected
 
 

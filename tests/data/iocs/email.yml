@@ -1,0 +1,18 @@
+- id: single_email
+  text: "Contact us at support@example.com or sales@example.org."
+  expected: ["support@example.com", "sales@example.org"]
+- id: invalid_and_valid_email
+  text: "Invalid email test@.com and correct email info@example.net"
+  expected: ["info@example.net"]
+- id: subaddressed_email
+  text: "Email with subaddress john.doe+newsletter@example.com"
+  expected: ["john.doe+newsletter@example.com"]
+- id: normalized_subaddressed_emails
+  text: "Email with subaddress john.doe+newsletter@example.com Another email jane.smith+promo@example.com"
+  expected: ["john.doe+newsletter@example.com", "jane.smith+promo@example.com"]
+- id: json_with_emails
+  text: '{"email": "user@example.com", "more_info": {"contact": "admin@sub.example.com"}}'
+  expected: ["user@example.com", "admin@sub.example.com"]
+- id: json_with_normalized_emails
+  text: '{"email": "user+info@example.com", "more_info": {"contact": "admin+test@sub.example.com"}}'
+  expected: ["user+info@example.com", "admin+test@sub.example.com"]

@@ -1,0 +1,78 @@
+- id: single_url_string
+  text: "Visit our website at https://example.com for more info."
+  expected: ["https://example.com"]
+- id: single_url_with_encoded_path
+  text: "This url was secured: https://secure.url/nX-BpUKr17mePOHRS5_IUlHEPW//https%3A%2F%2Fmyurl.com"
+  expected: ["https://secure.url/nX-BpUKr17mePOHRS5_IUlHEPW//https%3A%2F%2Fmyurl.com"]
+- id: single_url_in_html
+  text: "<p>Click on this link: <a href='https://www.exemple.com/SUB' target='_blank'>https://www.exemple.com/SUB</a></p>"
+  expected: ["https://www.exemple.com/SUB"]
+- id: two_urls_in_list
+  text: "Check out https://example.com/path and http://example.org/another-path for details."
+  expected: ["https://example.com/path", "http://example.org/another-path"]
+- id: filter_invalid_url
+  text: "Invalid URL test http://.com and correct URL https://example.net/path"
+  expected: ["https://example.net/path"]
+- id: multiple_urls_in_text
+  text: "Multiple URLs: https://example.com/path1, http://example.org/path2, and https://sub.example.net/path3."
+  expected: ["https://example.com/path1", "http://example.org/path2", "https://sub.example.net/path3"]
+- id: urls_in_json_string
+  text: '{"url": "https://example.com/path", "more_info": {"link": "http://sub.example.com/another-path"}}'
+  expected: ["https://example.com/path", "http://sub.example.com/another-path"]
+- id: empty_result
+  text: "Text with no URLs should return an empty list."
+  expected: []
+- id: url_with_query_parameters
+  text: "Check out this search result: https://example.com/search?q=malware&source=web&safe=on"
+  expected: ["https://example.com/search?q=malware&source=web&safe=on"]
+- id: url_with_fragment
+  text: "URL with fragment identifier: https://example.com/article#section-2"
+  expected: ["https://example.com/article#section-2"]
+- id: url_with_percent_encoding
+  text: "URL with special characters: https://example.com/path/with/special/%20characters%21"
+  expected: ["https://example.com/path/with/special/%20characters%21"]
+- id: url_with_credentials
+  text: "URL with credentials: https://user:password@example.com/admin"
+  expected: ["https://user:password@example.com/admin"]
+- id: url_with_port
+  text: "URL with port number: http://example.com:8080/api/v1"
+  expected: ["http://example.com:8080/api/v1"]
+- id: phishing_lookalike_domain
+  text: "Phishing URL that uses lookalike domain: http://examp1e.com/login (note the '1' instead of 'l')"
+  expected: ["http://examp1e.com/login"]
+- id: urls_in_json_array
+  text: "Multiple URLs in JSON array: {'urls': ['https://malicious.com/payload', 'http://benign.org/file']}"
+  expected: ["https://malicious.com/payload", "http://benign.org/file"]
+- id: data_url_not_matched
+  text: "Data URL: data:text/html;base64,SGVsbG8gV29ybGQh and normal URL https://example.com"
+  expected: ["https://example.com"]
+- id: url_in_email_content
+  text: "URL in email content: The attacker sent a message containing http://malware.example.net/download.php?id=123456"
+  expected: ["http://malware.example.net/download.php?id=123456"]
+- id: url_with_non_ascii_characters
+  text: "URL with non-ASCII characters: https://例子.测试/path"
+  expected: ["https://例子.测试/path"]
+- id: obfuscated_url_not_matched
+  text: "Common obfuscation trick: hxxps://evil.example[.]com/malware.exe"
+  expected: []
+- id: urls_in_deeply_nested_json
+  text: "Deep nested JSON: {'alert': {'data': {'indicators': {'urls': ['https://c2server.com/beacon', 'https://exfil.example.net/drop']}}}}"
+  expected: ["https://c2server.com/beacon", "https://exfil.example.net/drop"]
+- id: ftp_url
+  text: "FTP server available at ftp://files.example.com/public/docs/"
+  expected: ["ftp://files.example.com/public/docs"]
+- id: secure_ftp_urls
+  text: "Secure FTP endpoints: sftp://secure.example.org:22/upload and ftps://files.example.net/secure/"
+  expected: ["sftp://secure.example.org:22/upload", "ftps://files.example.net/secure"]
+- id: tcp_url_with_port
+  text: "TCP service endpoint: tcp://streaming.example.com:1234 for real-time data"
+  expected: ["tcp://streaming.example.com:1234"]
+- id: udp_url_with_port
+  text: "UDP service available at udp://game.example.org:5678 for multiplayer gaming"
+  expected: ["udp://game.example.org:5678"]
+- id: multiple_protocol_urls
+  text: "Multiple protocol URLs: ftp://files.example.com, tcp://service.example.org:8000, and udp://broadcast.example.net:9000"
+  expected: ["ftp://files.example.com", "tcp://service.example.org:8000", "udp://broadcast.example.net:9000"]
+- id: json_with_various_protocols
+  text: "JSON with various protocols: {'endpoints': {'ftp': 'ftp://storage.example.com:21', 'streaming': 'tcp://stream.example.org:1234'}}"
+  expected: ["ftp://storage.example.com:21", "tcp://stream.example.org:1234"]

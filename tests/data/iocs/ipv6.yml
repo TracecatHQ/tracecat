@@ -1,0 +1,30 @@
+- id: full_ipv6
+  text: "IPv6 address 2001:0db8:85a3:0000:0000:8a2e:0370:7334 and some random text"
+  expected: ["2001:0db8:85a3:0000:0000:8a2e:0370:7334"]
+- id: compressed_ipv6
+  text: "Connection from 2001:db8::1 detected"
+  expected: ["2001:db8::1"]
+- id: multiple_ipv6
+  text: "Failed login attempts from 2001:db8::ff00:42:8329 and fe80::1ff:fe23:4567:890a"
+  expected: ["2001:db8::ff00:42:8329", "fe80::1ff:fe23:4567:890a"]
+- id: json_alerts
+  text: '{"alert": {"src_ip": "2001:db8:85a3::8a2e:370:7334", "dst_ip": "2001:db8:3333:4444:5555:6666:7777:8888"}, "event": {"source": {"ip": "2620:0:2d0:200::7"}, "destination": {"ip": "2001:0:3238:DFE1:63::FEFB"}}}'
+  expected: ["2001:db8:85a3::8a2e:370:7334", "2001:db8:3333:4444:5555:6666:7777:8888", "2620:0:2d0:200::7", "2001:0:3238:DFE1:63::FEFB"]
+- id: ipv6_with_ports
+  text: "Suspicious connection detected from [2001:db8::1]:8080 to [2001:db8:1::ab9:C0A8:102]:443"
+  expected: ["2001:db8::1", "2001:db8:1::ab9:C0A8:102"]
+- id: firewall_logs
+  text: "Apr 15 13:45:29 firewall kernel: INBOUND TCP [2001:db8:1::1]:51812 -> [2001:db8:2::2]:22 dropped"
+  expected: ["2001:db8:1::1", "2001:db8:2::2"]
+- id: ipv6_in_url
+  text: "Malicious content detected at https://[2001:db8::bad:1]/malware.exe"
+  expected: ["2001:db8::bad:1"]
+- id: ipv6_address_types
+  text: "Link-local: fe80::1, Unique local: fd00::1, Global unicast: 2001:db8::1, Multicast: ff02::1"
+  expected: ["fe80::1", "fd00::1", "2001:db8::1", "ff02::1"]
+- id: ipv6_tunneling
+  text: "Teredo tunneling detected from 2001:0:5ef5:79fb:0:59a:a95e:3a46 to the internet"
+  expected: ["2001:0:5ef5:79fb:0:59a:a95e:3a46"]
+- id: no_ipv6
+  text: "No IPv6 addresses in this text, only IPv4 like 192.168.1.1"
+  expected: []

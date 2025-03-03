@@ -1,0 +1,21 @@
+- id: defanged_ipv6_with_brackets
+  text: "IPv6 addresses [2001:db8:85a3:8d3:1319:8a2e:370:7348] and [fe80::1ff:fe23:4567:890a]"
+  expected: ["2001:db8:85a3:8d3:1319:8a2e:370:7348", "fe80::1ff:fe23:4567:890a"]
+- id: defanged_ipv6_with_colons
+  text: "IPv6 addresses 2001[:]db8[:]85a3[:]8d3[:]1319[:]8a2e[:]370[:]7348 and fe80[:][:]1ff[:]fe23[:]4567[:]890a"
+  expected: ["2001:db8:85a3:8d3:1319:8a2e:370:7348", "fe80::1ff:fe23:4567:890a"]
+- id: defanged_ipv6_with_parens
+  text: "Malicious IPv6 addresses 2001(:)db8(:)85a3(:)8d3(:)1319(:)8a2e(:)370(:)7348 and fe80(:)(:)1ff(:)fe23(:)4567(:)890a"
+  expected: ["2001:db8:85a3:8d3:1319:8a2e:370:7348", "fe80::1ff:fe23:4567:890a"]
+- id: defanged_ipv6_escaped_colons
+  text: "IPv6 addresses found: 2001\\:db8\\:85a3\\:8d3\\:1319\\:8a2e\\:370\\:7348 and fe80\\:\\:1ff\\:fe23\\:4567\\:890a"
+  expected: ["2001:db8:85a3:8d3:1319:8a2e:370:7348", "fe80::1ff:fe23:4567:890a"]
+- id: defanged_ipv6_mixed_formats
+  text: "Various formats: 2001[:]db8[:]85a3[:]8d3[:]1319[:]8a2e[:]370[:]7348, fe80(:)(:)1ff(:)fe23(:)4567(:)890a, and [2001:db8::1]"
+  expected: ["2001:db8:85a3:8d3:1319:8a2e:370:7348", "fe80::1ff:fe23:4567:890a", "2001:db8::1"]
+- id: ipv6_with_full_brackets
+  text: "IPv6 addresses with full brackets: [2001:db8:85a3:8d3:1319:8a2e:370:7348] and the compressed format [2001:db8::1]"
+  expected: ["2001:db8:85a3:8d3:1319:8a2e:370:7348", "2001:db8::1"]
+- id: mixed_defanging_styles
+  text: "Mixed IPv6 defanging: 2001[colon]db8[colon]0[colon]0[colon]0[colon]0[colon]0[colon]1 and 2001 colon db8 colon colon 1"
+  expected: ["2001:db8:0:0:0:0:0:1", "2001:db8::1"]
