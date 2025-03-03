@@ -1,0 +1,27 @@
+- id: square_brackets
+  text: "Malicious domain detected: evil-domain[.]com in traffic logs."
+  expected: ["evil-domain.com"]
+- id: multiple_square_brackets
+  text: "Multiple domains with square brackets: example[.]com, sub[.]example[.]org, and test-site[.]co[.]uk."
+  expected: ["example.com", "sub.example.org", "test-site.co.uk"]
+- id: parentheses
+  text: "Domain with parentheses: malware(.)delivery(.)net was detected."
+  expected: ["malware.delivery.net"]
+- id: escaped_dot
+  text: "Domain with escaped dot: phishing\\.site\\.org was reported."
+  expected: ["phishing.site.org"]
+- id: mixed_defanging
+  text: "Mixed defanging techniques: bad[.]domain\\.com and evil(.)site(.)net"
+  expected: ["bad.domain.com", "evil.site.net"]
+- id: domain_in_defanged_url
+  text: "Defanged URL: hxxps://malicious[.]example[.]org/path"
+  expected: []
+- id: defanged_domain_in_json
+  text: "Domain in JSON: {'domain': 'malware[.]net', 'first_seen': '2023-01-01'}"
+  expected: ["malware.net"]
+- id: defanged_domain_from_email
+  text: "Domain extraction from defanged email address: user@malicious-domain[.]com"
+  expected: ["malicious-domain.com"]
+- id: defanged_subdomain
+  text: "Defanged subdomain: sub[.]domain[.]example[.]com"
+  expected: ["sub.domain.example.com"]
