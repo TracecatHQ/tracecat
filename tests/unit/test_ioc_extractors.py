@@ -203,3 +203,13 @@ def test_extract_emails_exception():
     """
     result = extract_emails(mixed_input)
     assert sorted(result) == ["first.last@sub.domain.com", "user@example.com"]
+
+
+@pytest.mark.parametrize("text,expected", load_test_data("defanged/ipv4"))
+def test_extract_defanged_ipv4(text, expected):
+    assert sorted(extract_ipv4(text=text, include_defanged=True)) == sorted(expected)
+
+
+@pytest.mark.parametrize("text,expected", load_test_data("defanged/ipv6"))
+def test_extract_defanged_ipv6(text, expected):
+    assert sorted(extract_ipv6(text=text, include_defanged=True)) == sorted(expected)

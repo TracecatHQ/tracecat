@@ -1,0 +1,21 @@
+- id: defanged_ipv4_with_brackets
+  text: "Suspicious traffic from [192.168.1.1] and [10.0.0.1]"
+  expected: ["192.168.1.1", "10.0.0.1"]
+- id: defanged_ipv4_with_dots
+  text: "IP addresses 192[.]168[.]1[.]1 and 10[.]0[.]0[.]1 were seen in the attack"
+  expected: ["192.168.1.1", "10.0.0.1"]
+- id: defanged_ipv4_with_parens
+  text: "Attackers used 192(.)168(.)1(.)1 and 10(.)0(.)0(.)1"
+  expected: ["192.168.1.1", "10.0.0.1"]
+- id: defanged_ipv4_escaped_dots
+  text: "The command connected to 192\\.168\\.1\\.1 and 10\\.0\\.0\\.1"
+  expected: ["192.168.1.1", "10.0.0.1"]
+- id: defanged_ipv4_mixed_formats
+  text: "Various formats: 192[.]168[.]1[.]1, 10(.)0(.)0(.)1, 172\\.16\\.0\\.1, [127.0.0.1]"
+  expected: ["192.168.1.1", "10.0.0.1", "172.16.0.1", "127.0.0.1"]
+- id: defanged_ipv4_with_text
+  text: "IP addresses hxxp://192[.]168[.]1[.]1/malware.exe and connection to 10(.)0(.)0(.)1:443"
+  expected: ["192.168.1.1", "10.0.0.1"]
+- id: different_defang_styles
+  text: "Interesting IPs found: 192[dot]168[dot]1[dot]1 and 10 dot 0 dot 0 dot 1"
+  expected: ["192.168.1.1", "10.0.0.1"]
