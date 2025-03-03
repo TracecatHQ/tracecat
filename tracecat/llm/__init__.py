@@ -1,6 +1,7 @@
 from .ollama import (
     OllamaModel,
     async_ollama_call,
+    is_local_model,
     list_local_model_names,
     list_local_models,
 )
@@ -16,4 +17,5 @@ __all__ = [
     "async_openai_call",
     "list_local_model_names",
     "list_local_models",
+    "is_local_model",
 ]
