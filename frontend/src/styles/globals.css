@@ -57,6 +57,11 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  html,
+  body {
+    overscroll-behavior-x: none; /* Prevents back/forward swipe navigation */
+  }
 }
 
 @layer utilities {
