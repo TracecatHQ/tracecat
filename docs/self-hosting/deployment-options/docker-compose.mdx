@@ -4,14 +4,10 @@ description: Deploy Tracecat using a Docker Compose template.
 icon: docker
 ---
 
-<Note>
-  This deployment has been tested on macOS with Docker Desktop, Ubuntu (22.04 LTS and 24.04 LTS) and RHEL with Docker Compose.
-  For help with other operating systems, please find us on [Discord](https://discord.gg/n3GF4qxFU8) for support.
+import DeploymentNote from '/snippets/deployment-note.mdx';
+import PublicUrlNote from '/snippets/public-url-note.mdx';
 
-It you have SELinux installed, you'll also need to add the `:z` suffix to the Caddy volume mount:
-`./Caddyfile:/etc/caddy/Caddyfile:z` in the Docker Compose file.
-
-</Note>
+<DeploymentNote />
 
 ## Prerequisites
 
@@ -33,16 +29,7 @@ docker compose
 
 ## Download Configuration Files
 
-<Note>
-  If you're deploying Tracecat into an external instance (e.g. AWS EC2, GCP Compute Engine, Azure VM),
-  please note that you'll have to set `PUBLIC_APP_URL` and `PUBLIC_API_URL` in the `.env` file to the IP address or host you are accessing Tracecat from.
-
-For example, if you are port forwarding Tracecat from `http://localhost` (port 80) inside AWS EC2 to `http://localhost:8080` on your local machine,
-you must set `PUBLIC_APP_URL` to `http://localhost:8080` and `PUBLIC_API_URL` to `http://localhost:8080/api/`.
-
-You can set these options when running the `env.sh` configuration script.
-
-</Note>
+<PublicUrlNote />
 
 Tracecat requires a set of environment variables and credentials stored in `.env` file to run.
 We created a helpful shell script to generate the `.env` file.

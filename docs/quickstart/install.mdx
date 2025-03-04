@@ -3,6 +3,9 @@ title: Installation
 icon: download
 ---
 
+import DeploymentNote from '/snippets/deployment-note.mdx';
+import PublicUrlNote from '/snippets/public-url-note.mdx';
+
 <Info>
   The following is a quickstart guide.
   Need more help? Check out Tracecat's full [self-hosting guide](/self-hosting/overview).
@@ -15,6 +18,8 @@ Tracecat supports three deployment options:
 - Kubernetes via Helm (coming soon)
 
 ### Docker Compose
+
+<DeploymentNote />
 
 Deploy a local Tracecat stack using Docker Compose. View step-by-step instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/docker-compose).
 
@@ -29,7 +34,10 @@ git clone https://github.com/TracecatHQ/tracecat.git
 docker compose up -d
 ```
 
-Read the generated `.env` file to better understand Tracecat's configurations. View the `.env.example` file [here](https://github.com/TracecatHQ/tracecat/blob/0.27.3/.env.example).
+<PublicUrlNote />
+
+Check out the generated `.env` file to better understand Tracecat's configurations.
+You can also view the template `.env.example` file [here](https://github.com/TracecatHQ/tracecat/blob/0.27.3/.env.example).
 
 ### AWS Fargate
 

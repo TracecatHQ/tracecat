@@ -1,0 +1,7 @@
+<Note>
+  This deployment has been tested on Ubuntu (22.04 LTS and 24.04 LTS), macOS / RHEL with Docker Desktop, and Windows Linux Subsystem (WSL).
+  For help with other operating systems, please find us on [Discord](https://discord.gg/n3GF4qxFU8) for support.
+
+  It you have SELinux installed, you'll also need to add the `:z` suffix to the Caddy volume mount:
+  `./Caddyfile:/etc/caddy/Caddyfile:z` in the Docker Compose file.
+</Note>
