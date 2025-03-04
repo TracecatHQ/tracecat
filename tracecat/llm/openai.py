@@ -1,45 +1,54 @@
-"""Core LLM functionality."""
+"""OpenAI LLM client.
 
-from __future__ import annotations
+Docs: https://platform.openai.com/docs/guides/text-generation
+"""
 
 from enum import StrEnum
-from typing import Literal
 
 from openai import AsyncOpenAI, AsyncStream
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 
 from tracecat.logger import logger
 
 
 class OpenAIModel(StrEnum):
+    # Support the same models as Cursor:
+    # https://docs.cursor.com/settings/models
+    CHATGPT_4O = "chatgpt-4o-latest"
     GPT4O = "gpt-4o"
-    GPT4_TURBO = "gpt-4-turbo"
-    GPT4_TURBO_PREVIEW = "gpt-4-turbo-preview"
-    GPT4_0125_PREVIEW = "gpt-4-0125-preview"
-    GPT4_VISION_PREVIEW = "gpt-4-vision-preview"
-    GPT35_TURBO_0125 = "gpt-3.5-turbo-0125"
+    GPT4O_MINI = "gpt-4o-mini"
+    O1 = "o1"
+    O1_MINI = "o1-mini"
+    O3_MINI = "o3-mini"
+
+
+DEFAULT_MODEL = OpenAIModel.CHATGPT_4O
 
 
 async def async_openai_call(
     *,
     prompt: str,
-    model: OpenAIModel,
+    system_prompt: str | None = None,
+    model: OpenAIModel = DEFAULT_MODEL,
     api_key: str,
-    temperature: float = 0.2,
-    response_format: Literal["json_object", "text"] = "text",
-    stream: bool = False,
-    **kwargs,
 ) -> AsyncStream[ChatCompletionChunk] | ChatCompletion:
     """Call the OpenAI API with the given prompt and return the response."""
     client = AsyncOpenAI(api_key=api_key)
     logger.info("🧠 Calling LLM chat", provider="openai", model=model, prompt=prompt)
+    if system_prompt:
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "developer", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+    else:
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "user", "content": prompt}
+        ]
+
     response = await client.chat.completions.create(
         model=model,
-        response_format={"type": response_format},
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temperature,
-        stream=stream,
-        **kwargs,
+        messages=messages,
     )
     return response
