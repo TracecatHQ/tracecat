@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from enum import StrEnum
 from typing import Any
 
 import ollama
+from ollama import ChatResponse
 
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
@@ -57,7 +58,14 @@ async def is_local_model(model: str) -> bool:
     return model in await list_local_model_names()
 
 
-async def async_ollama_call(*, prompt: str, model: OllamaModel) -> Mapping[str, Any]:
+async def async_ollama_call(
+    prompt: str,
+    *,
+    model: OllamaModel,
+    system_prompt: str | None = None,
+    memory: list[dict[str, Any]] | None = None,
+    stream: bool = False,
+) -> AsyncIterator[ChatResponse] | ChatResponse:
     client = _get_ollama_client()
 
     if not await is_local_model(model):
@@ -68,13 +76,29 @@ async def async_ollama_call(*, prompt: str, model: OllamaModel) -> Mapping[str, 
         )
         raise ValueError(f"Local LLM model {model!r} not found")
 
+    if system_prompt:
+        messages = [{"role": "system", "content": system_prompt}]
+    elif memory:
+        messages = memory
+    else:
+        messages = [{"role": "user", "content": prompt}]
+
     logger.info(
         "🧠 Calling LLM chat",
         provider="ollama",
         model=model,
         prompt=prompt,
     )
-    response = await client.chat(
-        model=model, messages=[{"role": "user", "content": prompt}]
-    )
+    if stream:
+        response = await client.chat(
+            model=model,
+            messages=messages,
+            stream=stream,
+        )
+    else:
+        response = await client.chat(
+            model=model,
+            messages=messages,
+            stream=stream,
+        )
     return response
