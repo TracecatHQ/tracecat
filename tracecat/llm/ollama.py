@@ -14,8 +14,14 @@ from tracecat.logger import logger
 
 
 class OllamaModel(StrEnum):
+    # Smol models
     LLAMA32 = "llama3.2"
     LLAMA32_1B = "llama3.2:1b"
+    MISTRAL_SMALL = "mistral-small:24b"
+    MIXTRAL = "mixtral"
+    # Large models
+    LLAMA33 = "llama3.3:70b"
+    MISTRAL_LARGE = "mistral-large:7b"
 
 
 ModelType = OllamaModel
