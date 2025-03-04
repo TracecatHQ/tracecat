@@ -2937,7 +2937,7 @@ async def test_workflow_insert_table_row_success(
 
     # Verify the row was actually inserted
     async with TablesService.with_session(role=test_admin_role) as service:
-        rows = await service.lookup_row(table_name, columns=["number"], values=[42])
+        rows = await service.lookup_rows(table_name, columns=["number"], values=[42])
     assert len(rows) == 1
     assert rows[0]["number"] == 42
 

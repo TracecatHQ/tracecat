@@ -256,7 +256,7 @@ class TestTableRows:
         )
 
         # Lookup rows where name is 'Bob' and age is 40
-        results = await tables_service.lookup_row(
+        results = await tables_service.lookup_rows(
             table_name=table.name, columns=["name", "age"], values=["Bob", 40]
         )
 
@@ -367,6 +367,46 @@ class TestTableRows:
         # Verify no rows were inserted
         all_rows = await tables_service.list_rows(table)
         assert len(all_rows) == 0
+
+    async def test_lookup_row_multiple(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Test lookup_row returns multiple rows when more than one matching row exists."""
+        # Insert two rows with the same data for lookup
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Charlie", "age": 50})
+        )
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Charlie", "age": 60})
+        )
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Charlie", "age": 70})
+        )
+
+        # Lookup rows where name is 'Charlie' and age is 50
+        results = await tables_service.lookup_rows(
+            table_name=table.name, columns=["name"], values=["Charlie"]
+        )
+
+        # Assert that we get more than one result
+        assert len(results) == 3, "Expected multiple rows to be returned by lookup_row"
+        assert results[0]["name"] == "Charlie"
+        assert results[0]["age"] == 50
+        assert results[1]["name"] == "Charlie"
+        assert results[1]["age"] == 60
+        assert results[2]["name"] == "Charlie"
+        assert results[2]["age"] == 70
+
+        # Now limit the results to 2
+        results = await tables_service.lookup_rows(
+            table_name=table.name, columns=["name"], values=["Charlie"], limit=2
+        )
+        assert len(results) == 2
+        assert results[0]["name"] == "Charlie"
+        assert results[0]["age"] == 50
+
+        assert results[1]["name"] == "Charlie"
+        assert results[1]["age"] == 60
 
 
 @pytest.mark.anyio
