@@ -25,7 +25,7 @@ with workflow.unsafe.imports_passed_through():
     import tracecat_registry  # noqa
     from pydantic import TypeAdapter, ValidationError
 
-    from tracecat import config, identifiers
+    from tracecat import identifiers
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.action import (
