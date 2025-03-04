@@ -52,14 +52,14 @@ async def execute(
     loop_strategy: Annotated[
         Literal["parallel", "batch", "sequential"],
         Doc("The execution strategy to use for the child workflow."),
-    ] = "parallel",
+    ] = "batch",
     batch_size: Annotated[
         int,
         Doc("The number of child workflows to execute in parallel."),
-    ] = 16,
+    ] = 32,
     fail_strategy: Annotated[
         Literal["isolated", "all"],
         Doc("Fail strategy to use when a child workflow fails."),
     ] = "isolated",
 ) -> Any:
-    raise ActionIsInterfaceError
+    raise ActionIsInterfaceError()

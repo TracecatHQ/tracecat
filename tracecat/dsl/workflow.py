@@ -604,9 +604,7 @@ class DSLWorkflow:
         task: ActionStatement,
         child_run_args: DSLRunArgs,
     ) -> list[Any]:
-        loop_strategy = LoopStrategy(
-            task.args.get("loop_strategy", LoopStrategy.PARALLEL)
-        )
+        loop_strategy = LoopStrategy(task.args.get("loop_strategy", LoopStrategy.BATCH))
         fail_strategy = FailStrategy(
             task.args.get("fail_strategy", FailStrategy.ISOLATED)
         )
@@ -621,23 +619,31 @@ class DSLWorkflow:
             for args in iter_for_each(task=task, context=self.context):
                 yield ExecuteChildWorkflowArgs(**args)
 
-        limit = config.TRACECAT__LOOP_MAX_BATCH_SIZE
-        batch_size = {
-            LoopStrategy.SEQUENTIAL: 1,
-            LoopStrategy.BATCH: min(int(task.args.get("batch_size", 16)), limit),
-            LoopStrategy.PARALLEL: limit,
-        }[loop_strategy]
+        it = iterator()
 
-        action_result = []
-        for batch in itertools.batched(iterator(), batch_size):
-            batch_result = await self._execute_child_workflow_batch(
-                batch=batch,
+        if loop_strategy == LoopStrategy.PARALLEL:
+            return await self._execute_child_workflow_batch(
+                batch=it,
                 task=task,
                 base_run_args=child_run_args,
                 fail_strategy=fail_strategy,
             )
-            action_result.extend(batch_result)
-        return action_result
+        else:
+            batch_size = {
+                LoopStrategy.SEQUENTIAL: 1,
+                LoopStrategy.BATCH: int(task.args.get("batch_size", 32)),
+            }[loop_strategy]
+
+            action_result = []
+            for batch in itertools.batched(it, batch_size):
+                batch_result = await self._execute_child_workflow_batch(
+                    batch=batch,
+                    task=task,
+                    base_run_args=child_run_args,
+                    fail_strategy=fail_strategy,
+                )
+                action_result.extend(batch_result)
+            return action_result
 
     async def _execute_child_workflow_batch(
         self,
