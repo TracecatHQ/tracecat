@@ -116,7 +116,7 @@ class DSLActivities:
             async for attempt_manager in AsyncRetrying(
                 retry=retry_if_exception_type(RateLimitExceeded),
                 stop=stop_after_attempt(20),
-                wait=wait_exponential(min=4, max=15),
+                wait=wait_exponential(min=4, max=300),
             ):
                 with attempt_manager:
                     act_logger.info(
