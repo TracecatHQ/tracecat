@@ -250,7 +250,7 @@ class ExecuteChildWorkflowArgs(BaseModel):
     environment: str | None = None
     version: int | None = None
     loop_strategy: LoopStrategy = LoopStrategy.BATCH
-    batch_size: int = 16
+    batch_size: int = 32
     fail_strategy: FailStrategy = FailStrategy.ISOLATED
     timeout: float | None = None
 
