@@ -167,8 +167,6 @@ async def test_workflow_retry_until_condition(
         assert result["ACTIONS"]["retry_action"]["result"]["status"] == "success"
 
 
-# TODO: Fix this test
-@pytest.mark.skip(reason="This test is broken atm.")
 @pytest.mark.anyio
 async def test_workflow_can_reschedule_at_tomorrow_9am(
     env: WorkflowEnvironment,
@@ -271,8 +269,6 @@ async def test_workflow_can_reschedule_at_tomorrow_9am(
         assert num_activity_executions == 3
 
 
-# TODO: Fix this test
-@pytest.mark.skip(reason="This test is broken atm.")
 @pytest.mark.anyio
 async def test_workflow_waits_until_tomorrow_9am(
     env: WorkflowEnvironment,
