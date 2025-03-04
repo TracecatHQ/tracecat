@@ -6,7 +6,7 @@ services:
     networks:
       - core
     ports:
-      - 80:80
+      - ${PUBLIC_APP_PORT}:80
     environment:
       - BASE_DOMAIN=${BASE_DOMAIN}
       - ADDRESS=${ADDRESS}
