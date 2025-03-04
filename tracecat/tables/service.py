@@ -526,13 +526,14 @@ class TablesService(BaseService):
         wait=wait_exponential(multiplier=0.1, min=0.2, max=2),
         reraise=True,
     )
-    async def lookup_row(
+    async def lookup_rows(
         self,
         table_name: str,
         *,
         columns: Sequence[str],
         values: Sequence[Any],
-    ) -> Sequence[Mapping[str, Any]]:
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Lookup a value in a table with automatic retry on database errors."""
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
@@ -549,6 +550,8 @@ class TablesService(BaseService):
                 )
             )
         )
+        if limit is not None:
+            stmt = stmt.limit(limit)
         async with self.session.begin() as txn:
             conn = await txn.session.connection()
             try:
