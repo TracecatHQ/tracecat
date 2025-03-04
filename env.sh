@@ -108,7 +108,7 @@ done
 # Prompt user for new IP address and strip http:// or https://
 
 while true; do
-    read -p "IP address or domain to access UI / API from (default: localhost): " new_ip
+    read -p "Set \`PUBLIC_APP_URL\` environment variable to (default: localhost): " new_ip
     new_ip=$(sed -E 's/^\s*.*:\/\///g' <<< $new_ip)
     new_ip=${new_ip:-localhost}
 

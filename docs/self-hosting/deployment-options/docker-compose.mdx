@@ -47,18 +47,21 @@ curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.27.
 chmod +x env.sh && ./env.sh
 ```
 
-You should see the following instructions after executing `env.sh`.
+After running `env.sh`, you'll be prompted to input the following:
 
-You'll be prompted to input the following:
-- Use production mode? - `y` (use `yes` unless you are a Tracecat developer)
-- IP address or domain to access UI / API from - `localhost`
-- Require PostgreSQL SSL mode? - `n`
+- Use production mode? - defaults to `y` (use `y` unless you are a Tracecat developer)
+- Set `PUBLIC_APP_URL` to - defaults to `localhost`
+- Require PostgreSQL SSL mode? - defaults to `n`
 
 <Info>
-  When installing Tracecat on a local workstation, use `localhost` as the IP address.
-  For installations on a remote server or any external/cloud VM, be sure to use the server's external IP address.
+  When installing Tracecat on a local workstation, use `localhost` or `127.0.0.1` as the IP address.
   Avoid using `0.0.0.0`, as the frontend will attempt to call `0.0.0.0/api/` to access the backend API, causing connection issues.
 </Info>
+
+<Tip>
+  If you want to expose Tracecat on a custom port, you can set `PUBLIC_APP_PORT` in the `.env` file.
+  For example, to expose Tracecat UI at `http://localhost:8082`, set `PUBLIC_APP_PORT=8082` in the `.env` file.
+</Tip>
 
 <Note>
   Setting production mode to `n` changes where Tracecat's remote repository is installed.
@@ -67,13 +70,6 @@ You'll be prompted to input the following:
   By default, Tracecat will install the remote repository to the user's home directory at `~/.local/lib/python3.12/site-packages/`.
   Setting production mode to `y` will install the remote repository to the `PYTHONUSERBASE` directory specified in enviroment variables.
 </Note>
-
-<Tip>
-  If you want to expose Tracecat on a custom port, you can set `PUBLIC_APP_PORT` in the `.env` file.
-  For example, to expose Tracecat UI at `http://localhost:8082`, set `PUBLIC_APP_PORT=8082` in the `.env` file.
-</Tip>
-
-![env.sh](/img/self-hosting/env-script.png)
 
 ## Download Caddyfile
 
