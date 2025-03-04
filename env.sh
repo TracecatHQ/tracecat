@@ -108,14 +108,14 @@ done
 # Prompt user for new IP address and strip http:// or https://
 
 while true; do
-    read -p "Enter the IP address or domain the server should listen on (default: localhost): " new_ip
+    read -p "IP address or domain to access UI / API from (default: localhost): " new_ip
     new_ip=$(sed -E 's/^\s*.*:\/\///g' <<< $new_ip)
     new_ip=${new_ip:-localhost}
 
     if [ "$new_ip" != "0.0.0.0" ]; then
         break
     fi
-    echo -e "${RED}Cannot use 0.0.0.0 as address. You need to enter external IP address / domain name of your server (or use localhost)\nSee https://docs.tracecat.com/self-hosting/deployment-options/docker-compose#download-configuration-files ${NC}"
+    echo -e "${RED}Cannot use 0.0.0.0 as address.\nSee https://docs.tracecat.com/self-hosting/deployment-options/docker-compose#download-configuration-files ${NC}"
 done
 
 
