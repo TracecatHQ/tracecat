@@ -1,0 +1,57 @@
+type: action
+definition:
+  name: update_agents
+  namespace: tools.wazuh
+  title: Update agents
+  description: Identifies outdated Wazuh agents and updates them.
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.agent_controller.put_upgrade_agents
+  author: bouddha-fr
+  expects:
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+    auth_token_exp_timeout:
+      type: int
+      description: Change the token base duration
+      default: 900
+    base_url:
+      type: str
+      description: URL for the Wazuh WUI API.
+  steps:
+    - ref: get_access_token
+      action: tools.wazuh.get_access_token
+      args:
+        url: ${{ inputs.base_url }}
+        verify_ssl: ${{ inputs.verify_ssl  }}
+        auth_token_exp_timeout: 900
+    - ref: get_outdated_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/agents/outdated
+        method: GET
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result }}
+        verify_ssl: ${{ inputs.verify_ssl  }}
+    - ref: upgrade_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/agents/upgrade
+        method: PUT
+        params:
+          agents_list: ${{ FN.join(steps.get_outdated_agents.result.data.data.affected_items[*].id, ",") }}
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result }}
+        verify_ssl: ${{ inputs.verify_ssl  }}
+    - ref: upgrade_result
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/agents/upgrade_result
+        method: GET
+        params:
+          agents_list: ${{ FN.join(steps.upgrade_agents.result.data.data.affected_items[*].agent, ",") }}
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result }}
+        verify_ssl: ${{ inputs.verify_ssl  }}
+  returns: ${{ steps.upgrade_result.result }}
