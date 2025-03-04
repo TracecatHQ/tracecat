@@ -1,6 +1,6 @@
 type: action
 definition:
-  name: update_agent
+  name: update_agents
   namespace: tools.wazuh
   title: Update agents
   description: Identifies outdated Wazuh agents and updates them.
