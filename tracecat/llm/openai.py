@@ -31,7 +31,9 @@ async def async_openai_call(
     *,
     prompt: str,
     system_prompt: str | None = None,
+    memory: list[ChatCompletionMessageParam] | None = None,
     model: OpenAIModel = DEFAULT_MODEL,
+    stream: bool = False,
     api_key: str,
 ) -> AsyncStream[ChatCompletionChunk] | ChatCompletion:
     """Call the OpenAI API with the given prompt and return the response."""
@@ -42,6 +44,11 @@ async def async_openai_call(
             {"role": "developer", "content": system_prompt},
             {"role": "user", "content": prompt},
         ]
+    elif memory:
+        messages: list[ChatCompletionMessageParam] = [
+            *memory,
+            {"role": "user", "content": prompt},
+        ]
     else:
         messages: list[ChatCompletionMessageParam] = [
             {"role": "user", "content": prompt}
@@ -50,5 +57,6 @@ async def async_openai_call(
     response = await client.chat.completions.create(
         model=model,
         messages=messages,
+        stream=stream,
     )
     return response
