@@ -28,8 +28,8 @@ DEFAULT_MODEL = OpenAIModel.CHATGPT_4O
 
 
 async def async_openai_call(
-    *,
     prompt: str,
+    *,
     system_prompt: str | None = None,
     memory: list[ChatCompletionMessageParam] | None = None,
     model: OpenAIModel = DEFAULT_MODEL,
