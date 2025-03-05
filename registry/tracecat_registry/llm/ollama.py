@@ -25,7 +25,7 @@ ollama_secret = RegistrySecret(
     namespace="llm.ollama",
     secrets=[ollama_secret],
 )
-def call(
+async def call(
     prompt: Annotated[str, Doc("Prompt to send to the LLM")],
     model: Annotated[str, Doc("Model to use")],
     memory: Annotated[
