@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Any
 
 import ollama
+from async_lru import alru_cache
 from ollama import ChatResponse
 from pydantic import BaseModel
 
@@ -53,16 +54,6 @@ async def preload_ollama_models(models: list[str]) -> list[dict[str, Any]]:
     return responses
 
 
-async def check_model_valid(model: str, api_url: str | None = None) -> bool:
-    """Check if a model is valid."""
-    client = _get_ollama_client(api_url)
-    try:
-        await client.pull(model)
-    except Exception:
-        return False
-    return True
-
-
 async def list_local_models(api_url: str | None = None) -> list[dict[str, Any]]:
     """List all models available locally."""
     client = _get_ollama_client(api_url)
@@ -76,6 +67,7 @@ async def list_local_model_names(api_url: str | None = None) -> list[str | None]
     return [model["model"] for model in models]
 
 
+@alru_cache(ttl=3600)
 async def is_local_model(model: str, api_url: str | None = None) -> bool:
     """Check if a model is available locally."""
     return model in await list_local_model_names(api_url)
@@ -100,18 +92,12 @@ async def async_ollama_call(
         )
         raise ValueError(f"Local LLM model {model!r} not found")
 
+    messages = []
     if system_prompt:
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ]
-    elif memory:
-        messages = [
-            *memory,
-            {"role": "user", "content": prompt},
-        ]
-    else:
-        messages = [{"role": "user", "content": prompt}]
+        messages.append({"role": "system", "content": system_prompt})
+    if memory:
+        messages.extend(memory)
+    messages.append({"role": "user", "content": prompt})
 
     logger.debug(
         "🧠 Calling LLM chat completion",
@@ -120,10 +106,8 @@ async def async_ollama_call(
         prompt=prompt,
     )
 
-    kwargs = {
-        "model": model,
-        "messages": messages,
-        "format": format.model_json_schema() if format else None,
-    }
+    kwargs = {"model": model, "messages": messages}
+    if format:
+        kwargs["format"] = format.model_json_schema()
     response = await client.chat(**kwargs)
     return response
