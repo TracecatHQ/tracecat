@@ -69,7 +69,14 @@ async def test_user_prompt(call_llm_params: tuple[str, Callable]):
         **load_api_kwargs(provider),
     }
     response = await call_llm(**kwargs)
-    assert "paris" in response.lower()
+
+    match response:
+        case ChatCompletion():
+            assert "paris" in response.choices[0].message.content.lower()  # type: ignore
+        case ChatResponse():
+            assert "paris" in response.message.content.lower()  # type: ignore
+        case _:
+            pytest.fail(f"Unexpected response type: {type(response)}")
 
 
 @pytest.mark.anyio
