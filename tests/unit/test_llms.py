@@ -5,7 +5,6 @@ To defend against changes in API given the rapid rate of change in LLM providers
 
 import os
 from collections.abc import Callable
-from enum import Enum
 from typing import Any
 
 import pytest
@@ -17,11 +16,6 @@ from tracecat.llm import (
 )
 from tracecat.llm.ollama import ChatResponse
 from tracecat.llm.openai import DEFAULT_OPENAI_MODEL, ParsedChatCompletion
-
-
-class ExpectedChatResponseType(Enum):
-    OPENAI = ParsedChatCompletion
-    OLLAMA = ChatResponse
 
 
 def load_api_kwargs(provider: str) -> dict[str, Any]:
@@ -75,7 +69,7 @@ async def test_user_prompt(call_llm_params: tuple[str, Callable]):
         **load_api_kwargs(provider),
     }
     response = await call_llm(**kwargs)
-    assert response is not None
+    assert "paris" in response.lower()
 
 
 @pytest.mark.anyio
@@ -123,11 +117,12 @@ async def test_memory(call_llm_params: tuple[str, Callable]):
 
     # TODO: Create a simple router for content extraction
     # Corner case dealing with len(response.choices) > 0 for OpenAI
-    expected_response_type = ExpectedChatResponseType[provider.upper()]
-    match expected_response_type:
-        case ExpectedChatResponseType.OPENAI:
+    match response:
+        # OpenAI
+        case ParsedChatCompletion():
             response_content = response.choices[0].message.content
-        case ExpectedChatResponseType.OLLAMA:
+        # Ollama
+        case ChatResponse():
             response_content = response.message.content
 
     # TODO: Replace with LLM-as-a-judge core action
