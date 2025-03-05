@@ -8,6 +8,7 @@ import {
   Mail,
   RefreshCcw,
   Send,
+  Shield,
   ShieldAlert,
   Sparkles,
   Table,
@@ -229,6 +230,11 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "core.http_poll": ({ className, ...rest }) => (
       <div className={cn("bg-emerald-100", basicIconsCommon, className)}>
         <RefreshCcw {...rest} />
+      </div>
+    ),
+    "core.require": ({ className, ...rest }) => (
+      <div className={cn("bg-rose-200/70", basicIconsCommon, className)}>
+        <Shield {...rest} />
       </div>
     ),
     "core.transform": ({ className, ...rest }) => (
