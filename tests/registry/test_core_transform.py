@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from tracecat_registry.base.core.transform import (
+from tracecat_registry.core.transform import (
     apply,
     deduplicate,
     filter,
