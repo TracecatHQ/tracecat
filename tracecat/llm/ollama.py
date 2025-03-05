@@ -1,74 +1,98 @@
-"""Core LLM functionality."""
+"""Ollama LLM client.
 
-from __future__ import annotations
+Docs: https://github.com/ollama/ollama/blob/main/docs/api.md
+"""
 
-from collections.abc import AsyncIterator, Mapping
 from enum import StrEnum
 from typing import Any
 
 import ollama
 from ollama import ChatResponse
+from pydantic import BaseModel
 
 from tracecat import config
-from tracecat.concurrency import GatheringTaskGroup
 from tracecat.logger import logger
 
 
+# NOTE: We specify the params size tag otherwise
+# it defaults to the ambigious "latest" tag
+# https://ollama.com/search
 class OllamaModel(StrEnum):
-    # Smol models
-    LLAMA32 = "llama3.2"
+    # Smol models (<15GB)
+    LLAMA32 = "llama3.2:3b"
     LLAMA32_1B = "llama3.2:1b"
     MISTRAL_SMALL = "mistral-small:24b"
-    MIXTRAL = "mixtral"
     # Large models
     LLAMA33 = "llama3.3:70b"
-    MISTRAL_LARGE = "mistral-large:7b"
+    MISTRAL_LARGE = "mistral-large:123b"
+    MIXTRAL = "mixtral:8x7b"
+    MIXTRAL_22B = "mixtral:8x22b"
 
 
-ModelType = OllamaModel
+DEFAULT_OLLAMA_MODEL = OllamaModel.LLAMA32_1B
 
 
-def _get_ollama_client() -> ollama.AsyncClient:
-    return ollama.AsyncClient(host=config.OLLAMA__API_URL)
+def _get_ollama_client(api_url: str | None = None) -> ollama.AsyncClient:
+    return ollama.AsyncClient(host=api_url or config.OLLAMA__API_URL)
 
 
-async def preload_ollama_models(models: list[str]) -> list[Mapping[str, Any]]:
+async def preload_ollama_models(models: list[str]) -> list[dict[str, Any]]:
     client = _get_ollama_client()
-    async with GatheringTaskGroup() as tg:
-        for model in models:
-            tg.create_task(client.pull(model))
-    return tg.results()
+    responses = []
+    # Download iteratively to avoid overwhelming
+    # the Ollama client and server
+    for model in models:
+        try:
+            await client.pull(model)
+        except Exception as e:
+            logger.warning(
+                "Failed to pull model",
+                model=model,
+                error=e,
+            )
+    return responses
 
 
-async def list_local_models() -> list[dict[str, Any]]:
+async def check_model_valid(model: str, api_url: str | None = None) -> bool:
+    """Check if a model is valid."""
+    client = _get_ollama_client(api_url)
+    try:
+        await client.pull(model)
+    except Exception:
+        return False
+    return True
+
+
+async def list_local_models(api_url: str | None = None) -> list[dict[str, Any]]:
     """List all models available locally."""
-    client = _get_ollama_client()
+    client = _get_ollama_client(api_url)
     models = await client.list()
-    return models["models"]
+    return [model.model_dump() for model in models.models]
 
 
-async def list_local_model_names() -> list[str]:
+async def list_local_model_names(api_url: str | None = None) -> list[str | None]:
     """List all model names available locally."""
-    models = await list_local_models()
-    return [model["name"] for model in models]
+    models = await list_local_models(api_url)
+    return [model["model"] for model in models]
 
 
-async def is_local_model(model: str) -> bool:
+async def is_local_model(model: str, api_url: str | None = None) -> bool:
     """Check if a model is available locally."""
-    return model in await list_local_model_names()
+    return model in await list_local_model_names(api_url)
 
 
 async def async_ollama_call(
     prompt: str,
     *,
-    model: OllamaModel,
-    system_prompt: str | None = None,
+    model: OllamaModel = DEFAULT_OLLAMA_MODEL,
     memory: list[dict[str, Any]] | None = None,
-    stream: bool = False,
-) -> AsyncIterator[ChatResponse] | ChatResponse:
-    client = _get_ollama_client()
+    system_prompt: str | None = None,
+    format: BaseModel | None = None,
+    api_url: str | None = None,
+) -> ChatResponse:
+    client = _get_ollama_client(api_url)
 
-    if not await is_local_model(model):
+    if not await is_local_model(model, api_url):
         logger.warning(
             "Local LLM model not found",
             provider="ollama",
@@ -77,28 +101,29 @@ async def async_ollama_call(
         raise ValueError(f"Local LLM model {model!r} not found")
 
     if system_prompt:
-        messages = [{"role": "system", "content": system_prompt}]
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
     elif memory:
-        messages = memory
+        messages = [
+            *memory,
+            {"role": "user", "content": prompt},
+        ]
     else:
         messages = [{"role": "user", "content": prompt}]
 
-    logger.info(
-        "🧠 Calling LLM chat",
+    logger.debug(
+        "🧠 Calling LLM chat completion",
         provider="ollama",
         model=model,
         prompt=prompt,
     )
-    if stream:
-        response = await client.chat(
-            model=model,
-            messages=messages,
-            stream=stream,
-        )
-    else:
-        response = await client.chat(
-            model=model,
-            messages=messages,
-            stream=stream,
-        )
+
+    kwargs = {
+        "model": model,
+        "messages": messages,
+        "format": format.model_json_schema() if format else None,
+    }
+    response = await client.chat(**kwargs)
     return response
