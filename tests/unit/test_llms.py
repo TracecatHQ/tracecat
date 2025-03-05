@@ -106,13 +106,13 @@ async def test_memory(call_llm_params: tuple[str, Callable]):
     """Test conversation memory functionality."""
 
     memory = [
-        {"role": "user", "content": "Hello"},
-        {"role": "assistant", "content": "Hello! How can I help you today?"},
+        {"role": "user", "content": "My favorite color is purple and I have 3 cats."},
+        {
+            "role": "assistant",
+            "content": "Thanks for sharing! I'll remember that your favorite color is purple and you have 3 cats.",
+        },
     ]
-    prompt = (
-        "What was my first message (as the user) to you (the assistant)? "
-        'Hint: Was my first message to you "Hello"?'
-    )
+    prompt = "What is my favorite color and how many cats do I have? Please respond with only that information."
     provider, call_llm = call_llm_params
     kwargs = {
         "prompt": prompt,
