@@ -4,6 +4,7 @@ from .ollama import (
     is_local_model,
     list_local_model_names,
     list_local_models,
+    preload_ollama_models,
 )
 from .openai import (
     OpenAIModel,
@@ -18,4 +19,5 @@ __all__ = [
     "list_local_model_names",
     "list_local_models",
     "is_local_model",
+    "preload_ollama_models",
 ]
