@@ -18,18 +18,18 @@ from tracecat.logger import logger
 # Support the same models as Cursor:
 # https://docs.cursor.com/settings/models
 class OpenAIModel(StrEnum):
-    # Default ChatGPT model. Does not support structured output.
     CHATGPT_4O = "chatgpt-4o-latest"
-    # https://platform.openai.com/docs/models/gpt-4o
+    """Default ChatGPT model. Does not support structured output."""
     GPT4O = "gpt-4o"
-    # https://platform.openai.com/docs/models/gpt-4o-mini
+    """https://platform.openai.com/docs/models/gpt-4o. Supports structured output."""
     GPT4O_MINI = "gpt-4o-mini"
-    # https://platform.openai.com/docs/models/o1
+    """https://platform.openai.com/docs/models/gpt-4o-mini. Supports structured output."""
     O1 = "o1"
-    # https://platform.openai.com/docs/models/o1-mini
+    """https://platform.openai.com/docs/models/o1. Does not support structured output."""
     O1_MINI = "o1-mini"
-    # https://platform.openai.com/docs/models/o3-mini
+    """https://platform.openai.com/docs/models/o1-mini. Does not support structured output."""
     O3_MINI = "o3-mini"
+    """https://platform.openai.com/docs/models/o3-mini. Does not support structured output."""
 
 
 # Must support structured outputs
@@ -77,20 +77,15 @@ async def async_openai_call(
     logger.debug(
         "🧠 Calling LLM chat completion", provider="openai", model=model, prompt=prompt
     )
+
+    messages: list[ChatCompletionMessageParam] = []
+
     if system_prompt:
-        messages: list[ChatCompletionMessageParam] = [
-            {"role": "developer", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ]
+        messages.append({"role": "developer", "content": system_prompt})
     elif memory:
-        messages: list[ChatCompletionMessageParam] = [
-            *memory,
-            {"role": "user", "content": prompt},
-        ]
-    else:
-        messages: list[ChatCompletionMessageParam] = [
-            {"role": "user", "content": prompt}
-        ]
+        messages.extend(memory)
+
+    messages.append({"role": "user", "content": prompt})
 
     kwargs = {
         "model": model,
