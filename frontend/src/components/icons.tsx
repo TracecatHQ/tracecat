@@ -6,6 +6,7 @@ import {
   Cpu,
   Globe,
   Mail,
+  RefreshCcw,
   Send,
   ShieldAlert,
   Sparkles,
@@ -222,6 +223,12 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "core.http_request": ({ className, ...rest }) => (
       <div className={cn("bg-emerald-100", basicIconsCommon, className)}>
         <Globe {...rest} />
+      </div>
+    ),
+
+    "core.http_poll": ({ className, ...rest }) => (
+      <div className={cn("bg-emerald-100", basicIconsCommon, className)}>
+        <RefreshCcw {...rest} />
       </div>
     ),
     "core.transform": ({ className, ...rest }) => (
