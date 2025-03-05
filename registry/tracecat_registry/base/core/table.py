@@ -9,8 +9,8 @@ from tracecat_registry import registry
 
 
 @registry.register(
-    default_title="Lookup Table",
-    description="Get a row from a table corresponding to the given column and value.",
+    default_title="Lookup one record",
+    description="Get a single record from a table corresponding to the given column and value.",
     display_group="Tables",
     namespace="core.table",
 )
@@ -40,12 +40,12 @@ async def lookup(
 
 
 @registry.register(
-    default_title="Lookup Table",
-    description="Get multiple rows from a table corresponding to the given column and values.",
+    default_title="Lookup multiple records",
+    description="Get multiple records from a table corresponding to the given column and values.",
     display_group="Tables",
     namespace="core.table",
 )
-async def lookup_multiple(
+async def lookup_many(
     table: Annotated[
         str,
         Doc("The table to lookup the value in."),
@@ -74,8 +74,8 @@ async def lookup_multiple(
 
 
 @registry.register(
-    default_title="Insert Row",
-    description="Insert a row into a table.",
+    default_title="Insert record",
+    description="Insert a record into a table.",
     display_group="Tables",
     namespace="core.table",
 )
