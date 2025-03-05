@@ -7,6 +7,12 @@ import dateparser
 from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
@@ -15,7 +21,11 @@ from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import ExecutorClientError, RegistryError
+from tracecat.types.exceptions import (
+    ExecutorClientError,
+    RateLimitExceeded,
+    RegistryError,
+)
 from tracecat.validation.service import validate_registry_action_args
 
 
@@ -95,16 +105,26 @@ class DSLActivities:
         ctx_logger.set(act_logger)
 
         act_info = activity.info()
-        attempt = act_info.attempt
+        act_attempt = act_info.attempt
         act_logger.info(
             "Run action activity",
             task=task,
-            attempt=attempt,
+            attempt=act_attempt,
             retry_policy=task.retry_policy,
         )
         try:
-            client = ExecutorClient(role=role)
-            return await client.run_action_memory_backend(input)
+            async for attempt_manager in AsyncRetrying(
+                retry=retry_if_exception_type(RateLimitExceeded),
+                stop=stop_after_attempt(20),
+                wait=wait_exponential(min=4, max=300),
+            ):
+                with attempt_manager:
+                    act_logger.info(
+                        "Tenacity retrying",
+                        attempt_number=attempt_manager.retry_state.attempt_number,
+                    )
+                    client = ExecutorClient(role=role)
+                    return await client.run_action_memory_backend(input)
         except ExecutorClientError as e:
             # We only expect ExecutorClientError to be raised from the executor client
             kind = e.__class__.__name__
@@ -116,7 +136,7 @@ class DSLActivities:
                 ref=task.ref,
                 message=msg,
                 type=kind,
-                attempt=attempt,
+                attempt=act_attempt,
             )
             err_msg = err_info.format("run_action")
             raise ApplicationError(err_msg, err_info, type=kind) from e
@@ -127,7 +147,7 @@ class DSLActivities:
                 ref=task.ref,
                 message=str(e),
                 type=e.type or e.__class__.__name__,
-                attempt=attempt,
+                attempt=act_attempt,
             )
             err_msg = err_info.format("run_action")
             raise ApplicationError(
@@ -143,7 +163,7 @@ class DSLActivities:
                 ref=task.ref,
                 message=raw_msg,
                 type=kind,
-                attempt=attempt,
+                attempt=act_attempt,
             )
             err_msg = err_info.format("run_action")
             raise ApplicationError(
