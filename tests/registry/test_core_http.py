@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 from tenacity import RetryError
-from tracecat_registry.base.core.http import (
+from tracecat_registry.core.http import (
     http_poll,
     http_request,
     httpx_to_response,
