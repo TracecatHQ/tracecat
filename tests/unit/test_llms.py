@@ -11,8 +11,6 @@ import pytest
 from pydantic import BaseModel
 
 from tracecat.llm import (
-    OllamaModel,
-    OpenAIModel,
     async_ollama_call,
     async_openai_call,
 )
@@ -39,40 +37,51 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
     return kwargs
 
 
-@pytest.mark.parametrize(
-    "call_llm,prompt_kwarg",
-    [
-        (async_ollama_call, "prompt"),
-        (async_openai_call, "prompt"),
+@pytest.fixture(
+    scope="session",
+    params=[
+        pytest.param(
+            ("ollama", async_ollama_call),
+            marks=[
+                pytest.mark.skipif(
+                    os.getenv("GITHUB_ACTIONS") is not None,
+                    reason="Skip Ollama tests in GitHub Actions CI",
+                ),
+                pytest.mark.slow,
+            ],
+        ),
+        pytest.param(("openai", async_openai_call)),
     ],
     ids=["ollama", "openai"],
 )
+def call_llm_params(request: pytest.FixtureRequest) -> tuple[str, Callable]:
+    return request.param
+
+
 @pytest.mark.anyio
-async def test_user_prompt(call_llm: Callable, prompt_kwarg: str):
+async def test_user_prompt(call_llm_params: tuple[str, Callable]):
+    provider, call_llm = call_llm_params
     prompt = "What is the capital of France?"
-    kwargs = {prompt_kwarg: prompt}
+    kwargs = {"prompt": prompt}
+    kwargs = {
+        **kwargs,
+        **load_api_kwargs(provider),
+    }
     response = await call_llm(**kwargs)
     assert response is not None
 
 
-@pytest.mark.parametrize(
-    "provider,call_llm,model",
-    [
-        ("ollama", async_ollama_call, OllamaModel.LLAMA32),
-        ("openai", async_openai_call, OpenAIModel.GPT4O),
-    ],
-)
 @pytest.mark.anyio
-async def test_system_prompt(provider: str, call_llm: Callable, model: str):
+async def test_system_prompt(call_llm_params: tuple[str, Callable]):
     """Test system prompt functionality."""
     prompt = "What is an LLM?"
     system_prompt = (
         "You are a helpful AI assistant that explains technical concepts clearly."
     )
+    provider, call_llm = call_llm_params
     kwargs = {
         "prompt": prompt,
         "system_prompt": system_prompt,
-        "model": model,
         **load_api_kwargs(provider),
     }
     response = await call_llm(**kwargs)
@@ -85,15 +94,8 @@ class BooleanResponse(BaseModel):
     answer: bool
 
 
-@pytest.mark.parametrize(
-    "provider,call_llm,model",
-    [
-        ("ollama", async_ollama_call, OllamaModel.LLAMA32),
-        ("openai", async_openai_call, OpenAIModel.GPT4O),
-    ],
-)
 @pytest.mark.anyio
-async def test_memory(provider: str, call_llm: Callable, model: str):
+async def test_memory(call_llm_params: tuple[str, Callable]):
     """Test conversation memory functionality."""
 
     memory = [
@@ -101,10 +103,10 @@ async def test_memory(provider: str, call_llm: Callable, model: str):
         {"role": "assistant", "content": "Hello! How can I help you today?"},
     ]
     prompt = "What was my first message to you?"
+    provider, call_llm = call_llm_params
     kwargs = {
         "prompt": prompt,
         "memory": memory,
-        "model": model,
         **load_api_kwargs(provider),
     }
     response = await call_llm(**kwargs)
@@ -130,7 +132,7 @@ async def test_memory(provider: str, call_llm: Callable, model: str):
         "prompt": judge_prompt,
         "model": DEFAULT_OPENAI_MODEL,
         "response_format": BooleanResponse,
-        **load_api_kwargs(provider),
+        **load_api_kwargs("openai"),
     }
     judge_response = await async_openai_call(**verification_kwargs)
     judge_message = judge_response.choices[0].message
