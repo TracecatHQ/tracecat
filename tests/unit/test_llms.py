@@ -15,7 +15,7 @@ from tracecat.llm import (
     async_openai_call,
 )
 from tracecat.llm.ollama import ChatResponse
-from tracecat.llm.openai import DEFAULT_OPENAI_MODEL, ParsedChatCompletion
+from tracecat.llm.openai import DEFAULT_OPENAI_MODEL, ChatCompletion
 
 
 def load_api_kwargs(provider: str) -> dict[str, Any]:
@@ -119,11 +119,13 @@ async def test_memory(call_llm_params: tuple[str, Callable]):
     # Corner case dealing with len(response.choices) > 0 for OpenAI
     match response:
         # OpenAI
-        case ParsedChatCompletion():
+        case ChatCompletion():
             response_content = response.choices[0].message.content
         # Ollama
         case ChatResponse():
             response_content = response.message.content
+        case _:
+            pytest.fail(f"Unexpected response type: {type(response)}")
 
     # TODO: Replace with LLM-as-a-judge core action
     # Use default OpenAI model as a judge to verify if response is accurate
