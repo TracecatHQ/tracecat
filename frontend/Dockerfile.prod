@@ -67,8 +67,7 @@ USER nextjs
 # Expose the application port
 EXPOSE 3000
 ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
 
 # https://nextjs.org/docs/pages/api-reference/next-config-js/output#how-it-works
-# NOTE: https://github.com/aws/containers-roadmap/issues/1325
-CMD [ "node", "server.js" ]
+# NOTE: Fargate overrides HOSTNAME https://github.com/aws/containers-roadmap/issues/1325
+CMD ["sh", "-c", "HOSTNAME=0.0.0.0 node server.js"]
