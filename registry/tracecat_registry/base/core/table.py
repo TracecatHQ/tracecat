@@ -40,7 +40,7 @@ async def lookup(
 
 
 @registry.register(
-    default_title="Lookup multiple records",
+    default_title="Lookup many records",
     description="Get multiple records from a table corresponding to the given column and values.",
     display_group="Tables",
     namespace="core.table",
