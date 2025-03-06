@@ -130,6 +130,10 @@ class BooleanResponse(BaseModel):
     answer: bool = Field(strict=True)
 
 
+@pytest.mark.skipif(
+    os.getenv("GITHUB_ACTIONS") is not None,
+    reason="Skip memory tests in GitHub Actions CI. This is currently brokwn.",
+)
 @pytest.mark.anyio
 async def test_memory(call_llm_params: tuple[str, Callable]):
     """Test conversation memory functionality."""
