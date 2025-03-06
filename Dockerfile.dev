@@ -4,12 +4,22 @@ FROM ghcr.io/astral-sh/uv:0.4.20-python3.12-bookworm-slim
 ENV UV_SYSTEM_PYTHON=1
 ENV HOST=0.0.0.0
 ENV PORT=8000
+ENV TRACECAT_ENVIRONMENT=development
 
 # Expose the application port
 EXPOSE $PORT
 
-# Install xmlsec1
-RUN apt-get update && apt-get install -y xmlsec1
+# Install packages
+COPY scripts/install-packages.sh .
+RUN chmod +x install-packages.sh && \
+    ./install-packages.sh && \
+    rm install-packages.sh
+
+# Set up Podman
+COPY scripts/setup-podman.sh .
+RUN chmod +x setup-podman.sh && \
+    ./setup-podman.sh && \
+    rm setup-podman.sh
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -29,9 +39,6 @@ RUN chmod +x /app/entrypoint.sh
 # Install package and registry in editable mode
 RUN uv pip install -e .
 RUN uv pip install -e ./registry
-
-# Install git
-RUN apt-get update && apt-get install -y git
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 

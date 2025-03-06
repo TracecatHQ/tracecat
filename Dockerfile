@@ -8,12 +8,7 @@ ENV PORT=8000
 # Expose the application port
 EXPOSE $PORT
 
-# Install necessary packages
-RUN apt-get update && \
-    apt-get install -y acl git xmlsec1 && \
-    rm -rf /var/lib/apt/lists/*
-
-# Copy and run the script to install additional packages
+# Install required apt packages
 COPY scripts/install-packages.sh .
 RUN chmod +x install-packages.sh && \
     ./install-packages.sh && \
@@ -23,6 +18,12 @@ COPY scripts/auto-update.sh ./auto-update.sh
 RUN chmod +x auto-update.sh && \
     ./auto-update.sh && \
     rm auto-update.sh
+
+# Set up Podman
+COPY scripts/setup-podman.sh .
+RUN chmod +x setup-podman.sh && \
+    ./setup-podman.sh && \
+    rm setup-podman.sh
 
 # Create the apiuser with a specific UID/GID
 RUN groupadd -g 1001 apiuser && \
@@ -59,7 +60,9 @@ RUN uv pip install .
 RUN uv pip install ./registry
 
 # Ensure apiuser has write permissions to necessary directories
-RUN chown -R apiuser:apiuser /tmp /home/apiuser
+RUN chown -R apiuser:apiuser /tmp /home/apiuser && \
+    # Give apiuser access to podman socket directory
+    chown root:apiuser /run/podman
 
 # Change to the non-root user
 USER apiuser
