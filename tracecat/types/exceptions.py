@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import httpx
 from pydantic_core import ValidationError
 
 if TYPE_CHECKING:
@@ -126,3 +127,51 @@ class TracecatSettingsError(TracecatException):
 
 class TracecatImportError(TracecatException):
     """Exception raised when an import error occurs."""
+
+
+class RateLimitExceeded(ExecutorClientError):
+    """Exception raised when a request is rejected due to rate limiting."""
+
+    def __init__(
+        self,
+        message: str = "Rate limit exceeded. Please try again later.",
+        detail: Any = None,
+        retry_after: int | None = None,
+    ):
+        """
+        Initialize a rate limit exceeded error.
+
+        Args:
+            message: The error message
+            detail: Additional error details
+            retry_after: Suggested time in seconds to wait before retrying (if provided by the server)
+        """
+        super().__init__(message, detail)
+        self.retry_after = retry_after
+
+    @classmethod
+    def from_response(
+        cls, response: httpx.Response, detail: Any = None
+    ) -> RateLimitExceeded:
+        """
+        Create a RateLimitExceededError from an HTTP response.
+
+        Args:
+            response: The HTTP response object
+            detail: Additional error details
+
+        Returns:
+            A RateLimitExceededError instance
+        """
+        retry_after = None
+        if "Retry-After" in response.headers:
+            try:
+                retry_after = int(response.headers["Retry-After"])
+            except (ValueError, TypeError):
+                pass
+
+        message = "Rate limit exceeded. Please try again later."
+        if retry_after:
+            message += f" Server suggests waiting {retry_after} seconds."
+
+        return cls(message, detail, retry_after)

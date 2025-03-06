@@ -31,6 +31,9 @@ TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
 
 The `httpx.Client` default is 5s, which doesn't work for long-running actions.
 """
+TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
+"""Maximum number of parallel requests to the worker service."""
+
 TRACECAT__DB_NAME = os.environ.get("TRACECAT__DB_NAME")
 TRACECAT__DB_USER = os.environ.get("TRACECAT__DB_USER")
 TRACECAT__DB_PASS = os.environ.get("TRACECAT__DB_PASS")
@@ -186,3 +189,32 @@ TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
 ).lower() in ("1", "true")
 TRACECAT__LOCAL_REPOSITORY_PATH = os.getenv("TRACECAT__LOCAL_REPOSITORY_PATH")
 TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH = "/app/local_registry"
+
+# === Rate Limiting === #
+TRACECAT__RATE_LIMIT_ENABLED = (
+    os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"
+)
+"""Whether rate limiting is enabled for the executor service."""
+
+TRACECAT__RATE_LIMIT_RATE = float(os.environ.get("TRACECAT__RATE_LIMIT_RATE", 40.0))
+"""The rate at which tokens are added to the bucket (tokens per second)."""
+
+TRACECAT__RATE_LIMIT_CAPACITY = float(
+    os.environ.get("TRACECAT__RATE_LIMIT_CAPACITY", 80.0)
+)
+"""The maximum number of tokens the bucket can hold."""
+
+TRACECAT__RATE_LIMIT_WINDOW_SIZE = int(
+    os.environ.get("TRACECAT__RATE_LIMIT_WINDOW_SIZE", 60)
+)
+"""The time window in seconds for rate limiting."""
+
+TRACECAT__RATE_LIMIT_BY_IP = (
+    os.environ.get("TRACECAT__RATE_LIMIT_BY_IP", "true").lower() == "true"
+)
+"""Whether to rate limit by client IP."""
+
+TRACECAT__RATE_LIMIT_BY_ENDPOINT = (
+    os.environ.get("TRACECAT__RATE_LIMIT_BY_ENDPOINT", "true").lower() == "true"
+)
+"""Whether to rate limit by endpoint."""
