@@ -7,6 +7,7 @@ import os
 from collections.abc import Callable
 from typing import Any
 
+import httpx
 import pytest
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,24 @@ from tracecat.llm import (
 )
 from tracecat.llm.ollama import ChatResponse
 from tracecat.llm.openai import DEFAULT_OPENAI_MODEL, ChatCompletion
+from tracecat.logger import logger
+
+OLLAMA_URL = "http://localhost:11434"
+
+
+def is_ollama_available() -> bool:
+    """Check if Ollama is available by making a request to its version endpoint.
+
+    Returns:
+        bool: True if Ollama is available and responding, False otherwise
+    """
+    try:
+        with httpx.Client() as client:
+            response = client.get(f"{OLLAMA_URL}/api/version")
+            return response.status_code == 200
+    except httpx.RequestError:
+        logger.warning("Ollama is not available")
+        return False
 
 
 def load_api_kwargs(provider: str) -> dict[str, Any]:
@@ -30,7 +49,7 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
             case "ollama":
                 # Requires docker-compose.dev.yml stack
                 # with ollama service exposed on port 11434
-                kwargs = {"api_url": "http://localhost:11434"}
+                kwargs = {"api_url": OLLAMA_URL}
             case _:
                 return {}
     except KeyError:
@@ -45,13 +64,22 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
             ("ollama", async_ollama_call),
             marks=[
                 pytest.mark.skipif(
-                    os.getenv("GITHUB_ACTIONS") is not None,
-                    reason="Skip Ollama tests in GitHub Actions CI",
+                    os.getenv("GITHUB_ACTIONS") is not None
+                    or not is_ollama_available(),
+                    reason="Skip Ollama tests in GitHub Actions CI or when Ollama is not available",
                 ),
                 pytest.mark.slow,
             ],
         ),
-        pytest.param(("openai", async_openai_call)),
+        pytest.param(
+            ("openai", async_openai_call),
+            marks=[
+                pytest.mark.skipif(
+                    os.getenv("OPENAI_API_KEY") is None,
+                    reason="Skip OpenAI tests when API key is not available",
+                ),
+            ],
+        ),
     ],
     ids=["ollama", "openai"],
 )
