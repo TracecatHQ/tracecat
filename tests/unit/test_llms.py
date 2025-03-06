@@ -58,7 +58,7 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
 
 
 @pytest.fixture(
-    scope="session",
+    scope="function",
     params=[
         pytest.param(
             ("ollama", async_ollama_call),
