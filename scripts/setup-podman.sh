@@ -1,26 +1,31 @@
 #!/bin/bash
 set -euo pipefail
 
-# Install Podman and dependencies
+# Install minimal Podman dependencies
 apt-get update
 apt-get install -y \
   podman \
   crun \
-  fuse-overlayfs \
-  slirp4netns \
   uidmap
 
-# Configure Podman environment
+# Configure Podman environment with secure defaults
 mkdir -p /etc/containers
 cat > /etc/containers/containers.conf << EOF
 [containers]
+# No default capabilities
 default_capabilities = []
 default_sysctls = []
+# Secure volume mounts by default
+default_mount_options = ["nodev", "nosuid", "noexec"]
+# Prevent privilege escalation
+no_new_privileges = true
 
 [engine]
 runtime = "crun"
 userns_mode = "auto"
 cgroup_manager = "cgroupfs"
+# Enable automatic volume cleanup
+volume_cleanup = "true"
 
 [engine.runtimes]
 crun = [
@@ -33,23 +38,49 @@ mkdir -p /etc/subuid /etc/subgid
 echo "apiuser:100000:65536" >> /etc/subuid
 echo "apiuser:100000:65536" >> /etc/subgid
 
-# Create storage configuration
+# Minimal storage configuration - only for named volumes
 mkdir -p /etc/containers
 cat > /etc/containers/storage.conf << EOF
 [storage]
-driver = "overlay"
+# Only need runtime and volume storage
 runroot = "/run/containers/storage"
 graphroot = "/var/lib/containers/storage"
 [storage.options]
+# Block additional image stores
 additionalimagestores = []
-[storage.options.overlay]
-mount_program = "/usr/bin/fuse-overlayfs"
-mountopt = "nodev,fsync=0"
 EOF
 
-# Create podman socket directory with proper permissions
+# Strict seccomp policy
+cat > /etc/containers/seccomp.json << EOF
+{
+    "defaultAction": "SCMP_ACT_ERRNO",
+    "architectures": [
+        "SCMP_ARCH_X86_64"
+    ],
+    "syscalls": [
+        {
+            "names": [
+                "read",
+                "write",
+                "open",
+                "close",
+                "exit",
+                "exit_group"
+            ],
+            "action": "SCMP_ACT_ALLOW"
+        }
+    ]
+}
+EOF
+
+# Create podman socket with minimal permissions
 mkdir -p /run/podman
 chmod 750 /run/podman
+
+# Create volume directory with secure permissions
+mkdir -p /var/lib/containers/storage/volumes
+chown root:apiuser /var/lib/containers/storage/volumes
+chmod 770 /var/lib/containers/storage/volumes
 
 # Cleanup
 rm -rf /var/lib/apt/lists/*

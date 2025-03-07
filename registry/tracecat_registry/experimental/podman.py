@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 import podman
 from loguru import logger
+from typing import Iterator
 from pydantic import BaseModel, Field
 from tracecat.config import (
     TRACECAT__PODMAN_BINARY_PATH,
@@ -12,9 +13,12 @@ from tracecat.config import (
     TRACECAT__PODMAN_URI,
 )
 
-# Constants
+# Hardcoded secure defaults
 SECURE_NETWORK = "none"
 DEFAULT_SECURITY_OPTS = ["no-new-privileges:true", "seccomp=default"]
+# Duplicate of setup-podman.sh settings for defense in depth - ensures volume security
+# even if system configs are modified or podman-py bypasses system defaults
+SECURE_MOUNT_OPTIONS = ["nodev", "nosuid", "noexec"]
 
 
 class PodmanResult(BaseModel):
@@ -119,11 +123,23 @@ def validate_podman_installation(podman_bin: str) -> str:
     return result.stdout.strip()
 
 
+def _process_container_logs(logs: bytes | Iterator[bytes] | str) -> str:
+    if isinstance(logs, bytes):
+        logs_str = logs.decode("utf-8")
+    elif isinstance(logs, Iterator):
+        logs_bytes = b"".join(chunk for chunk in logs if isinstance(chunk, bytes))
+        logs_str = logs_bytes.decode("utf-8")
+    else:
+        logs_str = str(logs)
+    return logs_str
+
+
 def run_podman_container(
     image: str,
     command: str | list[str] | None = None,
     env_vars: dict[str, str] | None = None,
-    volumes: dict[str, dict[str, str] | str] | None = None,
+    volume_name: str | None = None,  # Single named volume
+    volume_path: str | None = None,  # Where to mount it
     network: str = SECURE_NETWORK,
     security_opts: list[str] | None = None,
     cap_drop: list[str] | None = None,
@@ -143,9 +159,10 @@ def run_podman_container(
         The command to run in the container.
     env_vars : dict of str to str, optional
         Environment variables to set in the container.
-    volumes : dict of str to dict, optional
-        Volume mappings for the container. Keys are host paths, values are dicts
-        with 'bind' (container path) and 'mode' ('ro' or 'rw') keys.
+    volume_name : str, optional
+        Name of the volume to mount.
+    volume_path : str, optional
+        Path on the host to mount the volume.
     network : str, default 'none'
         Network mode for the container. Defaults to isolated.
     security_opts : list of str, optional
@@ -198,7 +215,6 @@ def run_podman_container(
         "logs": [],
         "podman_version": None,
         "container_info": None,
-        "volumes": [],
     }
 
     try:
@@ -224,13 +240,21 @@ def run_podman_container(
             ),
         )
 
-        # Set defaults more concisely
+        # Security options
         security_opts = (
             DEFAULT_SECURITY_OPTS if security_opts is None else security_opts
         )
         cap_drop = ["ALL"]  # Hardcode to ALL to ensure no extra capabilities
         cap_add = cap_add or []
         env_vars = env_vars or {}
+
+        volume_mounts = {}
+        if volume_name and volume_path:
+            volume_mounts[volume_name] = {
+                "bind": volume_path,
+                "mode": "rw",  # Required for terraform state
+                "options": SECURE_MOUNT_OPTIONS,  # Defense in depth with setup-podman.sh
+            }
 
         # Connect to the Podman API using a context manager
         with podman.PodmanClient(base_url=TRACECAT__PODMAN_URI) as client:
@@ -241,21 +265,6 @@ def run_podman_container(
                 logger.info("Pulling image", image=image)
                 client.images.pull(image)
 
-            # Prepare volume binds for podman-py
-            volume_binds = {}
-            if volumes:
-                for host_path, container_config in volumes.items():
-                    if isinstance(container_config, dict):
-                        container_path = container_config.get("bind")
-                        mode = container_config.get("mode", "rw")
-                        volume_binds[host_path] = {"bind": container_path, "mode": mode}
-                    else:
-                        # If it's just a string, assume it's the container path with read-write mode
-                        volume_binds[host_path] = {
-                            "bind": container_config,
-                            "mode": "rw",
-                        }
-
             # Create and run the container
             container = client.containers.create(
                 image=image,
@@ -265,32 +274,21 @@ def run_podman_container(
                 security_opt=security_opts,
                 cap_drop=cap_drop,
                 cap_add=cap_add,
-                volumes=volume_binds,
+                volumes=volume_mounts,
                 remove=True,
                 detach=False,
                 user="1000:1000",  # Force non-root UID:GID inside container
+                read_only=True,  # Root filesystem is still read-only
             )
-
-            container_id = container.id
 
             # Start the container and get logs
             container.start()
             logs = container.logs(stdout=True, stderr=True, stream=False, follow=True)
-
-            # Convert logs bytes to string (handle both bytes and generator cases)
-            if isinstance(logs, bytes):
-                logs_str = logs.decode("utf-8")
-            elif hasattr(logs, "__iter__"):  # It's an iterator/generator
-                # Consume the generator and join the bytes objects, filtering out non-bytes chunks
-                logs_bytes = b"".join(
-                    chunk for chunk in logs if isinstance(chunk, bytes)
-                )
-                logs_str = logs_bytes.decode("utf-8")
-            else:
-                logs_str = str(logs)
+            logs_str = _process_container_logs(logs)
 
             status = "unknown"
             exit_code = 1
+            container_id = container.id
 
             if container_id is None:
                 logger.error("Container ID is None, cannot inspect container")
