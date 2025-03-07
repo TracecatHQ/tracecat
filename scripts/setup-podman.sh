@@ -12,8 +12,40 @@ apt-get install -y \
 
 # Configure Podman environment
 mkdir -p /etc/containers
-echo '[engine]' > /etc/containers/containers.conf
-echo 'runtime = "crun"' >> /etc/containers/containers.conf
+cat > /etc/containers/containers.conf << EOF
+[containers]
+default_capabilities = []
+default_sysctls = []
+
+[engine]
+runtime = "crun"
+userns_mode = "auto"
+cgroup_manager = "cgroupfs"
+
+[engine.runtimes]
+crun = [
+  "/usr/bin/crun",
+]
+EOF
+
+# Set up user namespace remapping
+mkdir -p /etc/subuid /etc/subgid
+echo "apiuser:100000:65536" >> /etc/subuid
+echo "apiuser:100000:65536" >> /etc/subgid
+
+# Create storage configuration
+mkdir -p /etc/containers
+cat > /etc/containers/storage.conf << EOF
+[storage]
+driver = "overlay"
+runroot = "/run/containers/storage"
+graphroot = "/var/lib/containers/storage"
+[storage.options]
+additionalimagestores = []
+[storage.options.overlay]
+mount_program = "/usr/bin/fuse-overlayfs"
+mountopt = "nodev,fsync=0"
+EOF
 
 # Create podman socket directory with proper permissions
 mkdir -p /run/podman

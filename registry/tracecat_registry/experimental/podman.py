@@ -15,7 +15,6 @@ from tracecat.config import (
 # Constants
 SECURE_NETWORK = "none"
 DEFAULT_SECURITY_OPTS = ["no-new-privileges:true", "seccomp=default"]
-DEFAULT_CAP_DROP = ["ALL"]
 
 
 class PodmanResult(BaseModel):
@@ -69,19 +68,25 @@ def is_trusted_image(image: str) -> bool:
     bool
         True if the image is trusted, False otherwise.
     """
-    # If list is empty or contains just an empty string, all images are trusted (for testing)
-    if not TRACECAT__TRUSTED_DOCKER_IMAGES or TRACECAT__TRUSTED_DOCKER_IMAGES == [""]:
-        return True
+    if not TRACECAT__TRUSTED_DOCKER_IMAGES:
+        logger.warning("No trusted images defined, rejecting all images")
+        return False
+
     return image in TRACECAT__TRUSTED_DOCKER_IMAGES
 
 
-def validate_podman_installation(podman_bin: str):
+def validate_podman_installation(podman_bin: str) -> str:
     """Check if Podman is installed and working.
 
     Parameters
     ----------
     podman_bin : str
         Path to the podman binary.
+
+    Returns
+    -------
+    str
+        Version of Podman.
 
     Raises
     ------
@@ -110,6 +115,8 @@ def validate_podman_installation(podman_bin: str):
     except Exception as e:
         logger.error("Failed to run podman", error=e)
         raise
+
+    return result.stdout.strip()
 
 
 def run_podman_container(
@@ -185,22 +192,18 @@ def run_podman_container(
     Hello from env
     """
 
-    # Initialize runtime info collection
+    # Runtime info collection
+    # Track volumes to use in future containers if needed
     runtime_info = {
         "logs": [],
         "podman_version": None,
         "container_info": None,
+        "volumes": [],
     }
 
     try:
-        # Validate podman
-        result = subprocess.run(
-            [TRACECAT__PODMAN_BINARY_PATH, "version"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        runtime_info["podman_version"] = result.stdout.strip()
+        version = validate_podman_installation(TRACECAT__PODMAN_BINARY_PATH)
+        runtime_info["podman_version"] = version
         runtime_info["logs"].append("Podman version validated")
 
         # Check trusted images
@@ -225,7 +228,7 @@ def run_podman_container(
         security_opts = (
             DEFAULT_SECURITY_OPTS if security_opts is None else security_opts
         )
-        cap_drop = DEFAULT_CAP_DROP if cap_drop is None else cap_drop
+        cap_drop = ["ALL"]  # Hardcode to ALL to ensure no extra capabilities
         cap_add = cap_add or []
         env_vars = env_vars or {}
 
@@ -265,6 +268,7 @@ def run_podman_container(
                 volumes=volume_binds,
                 remove=True,
                 detach=False,
+                user="1000:1000",  # Force non-root UID:GID inside container
             )
 
             container_id = container.id
