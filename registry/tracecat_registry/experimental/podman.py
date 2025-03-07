@@ -8,19 +8,12 @@ import os
 import subprocess
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Union
 import podman
 from loguru import logger
-
-# Load environment variables
-TRACECAT__PODMAN_BINARY_PATH = os.environ.get(
-    "TRACECAT__PODMAN_BINARY_PATH", "/usr/bin/podman"
-)
-TRACECAT__TRUSTED_DOCKER_IMAGES = os.environ.get(
-    "TRACECAT__TRUSTED_DOCKER_IMAGES", ""
-).split(",")
-TRACECAT__PODMAN_URI = os.environ.get(
-    "TRACECAT__PODMAN_URI", "unix:///run/podman/podman.sock"
+from tracecat.config import (
+    TRACECAT__PODMAN_BINARY_PATH,
+    TRACECAT__TRUSTED_DOCKER_IMAGES,
+    TRACECAT__PODMAN_URI,
 )
 
 # Constants
@@ -49,9 +42,9 @@ class PodmanResult:
 
     output: str
     exit_code: int
-    container_id: Optional[str] = None
-    command: List[str] = field(default_factory=list)
-    status: Optional[str] = None
+    container_id: str | None = None
+    command: list[str] = field(default_factory=list)
+    status: str | None = None
 
     @property
     def success(self) -> bool:
@@ -78,11 +71,10 @@ def is_trusted_image(image: str) -> bool:
     bool
         True if the image is trusted, False otherwise.
     """
-    return (
-        image in TRACECAT__TRUSTED_DOCKER_IMAGES
-        or len(TRACECAT__TRUSTED_DOCKER_IMAGES) == 1
-        and TRACECAT__TRUSTED_DOCKER_IMAGES[0] == ""
-    )
+    # If list is empty or contains just an empty string, all images are trusted (for testing)
+    if not TRACECAT__TRUSTED_DOCKER_IMAGES or TRACECAT__TRUSTED_DOCKER_IMAGES == [""]:
+        return True
+    return image in TRACECAT__TRUSTED_DOCKER_IMAGES
 
 
 def validate_podman_installation(podman_bin: str):
@@ -124,13 +116,13 @@ def validate_podman_installation(podman_bin: str):
 
 def run_podman_container(
     image: str,
-    command: Union[str, List[str], None] = None,
-    env_vars: Optional[Dict[str, str]] = None,
-    volumes: Optional[Dict[str, Union[Dict[str, str], str]]] = None,
+    command: str | list[str] | None = None,
+    env_vars: dict[str, str] | None = None,
+    volumes: dict[str, dict[str, str] | str] | None = None,
     network: str = SECURE_NETWORK,
-    security_opts: Optional[List[str]] = None,
-    cap_drop: Optional[List[str]] = None,
-    cap_add: Optional[List[str]] = None,
+    security_opts: list[str] | None = None,
+    cap_drop: list[str] | None = None,
+    cap_add: list[str] | None = None,
     pull_policy: str = "missing",
 ) -> PodmanResult:
     """Run a container securely with Podman using functional approach.
@@ -162,7 +154,7 @@ def run_podman_container(
     Returns
     -------
     PodmanResult
-        Object containing output, exit code, container ID, and command.
+        Object containing stdout, stderr, return code, and container ID.
 
     Raises
     ------
@@ -196,122 +188,124 @@ def run_podman_container(
 
     # Prevent building images - only allow running trusted pre-built images
     if image.startswith("build") or "dockerfile" in image.lower():
-        logger.warning("Building images attempted", image=image)
+        logger.warning("Attempted to build image with Podman", image=image)
         raise ValueError(
-            "Building images is not allowed for security reasons. "
+            "Building images with Podman is not allowed for security reasons. "
             "Only pre-built trusted images can be used."
         )
 
-    # Verify image is trusted
-    if is_trusted_image(image):
-        logger.info(
-            "Checked Docker image against trusted images",
+    # Check if image is trusted
+    if not is_trusted_image(image):
+        logger.error(
+            "Image not in trusted images list",
             image=image,
-            trusted_images=TRACECAT__TRUSTED_DOCKER_IMAGES,
+            trusted_images=os.environ.get("TRACECAT__TRUSTED_DOCKER_IMAGES", "").split(
+                ","
+            ),
         )
-    else:
-        logger.warning(
-            "Image is not in the trusted images list",
-            image=image,
-            trusted_images=TRACECAT__TRUSTED_DOCKER_IMAGES,
+        return PodmanResult(
+            output="Error: Image not in trusted list",
+            exit_code=1,
+            container_id=None,
+            command=command
+            if isinstance(command, list)
+            else [command]
+            if command
+            else [],
+            status="failed",
         )
-        raise ValueError(f"Image '{image}' is not in the trusted images list.")
 
-    # Set defaults
-    if security_opts is None:
-        security_opts = DEFAULT_SECURITY_OPTS
+    logger.info(
+        "Checked Docker image against trusted images",
+        image=image,
+        trusted_images=os.environ.get("TRACECAT__TRUSTED_DOCKER_IMAGES", "").split(","),
+    )
 
-    if cap_drop is None:
-        cap_drop = DEFAULT_CAP_DROP
-
-    if cap_add is None:
-        cap_add = []
+    # Set defaults more concisely
+    security_opts = security_opts or DEFAULT_SECURITY_OPTS
+    cap_drop = cap_drop or DEFAULT_CAP_DROP
+    cap_add = cap_add or []
+    env_vars = env_vars or {}
 
     # Convert command to list if it's a string
     if isinstance(command, str):
         command = [command]
 
-    # Prepare environment variables
-    container_env = {}
-    if env_vars:
-        container_env.update(env_vars)
-
-    # Connect to the Podman API
+    # Connect to the Podman API using a context manager
     try:
-        # Create a client instance
-        client = podman.PodmanClient(base_url=TRACECAT__PODMAN_URI)
+        with podman.PodmanClient(base_url=TRACECAT__PODMAN_URI) as client:
+            # Pull the image if needed
+            if pull_policy == "always" or (
+                pull_policy == "missing" and not client.images.exists(image)
+            ):
+                logger.info("Pulling image", image=image)
+                client.images.pull(image)
 
-        # Pull the image if needed
-        if pull_policy == "always" or (
-            pull_policy == "missing" and not client.images.exists(image)
-        ):
-            logger.info("Pulling image", image=image)
-            client.images.pull(image)
+            # Prepare volume binds for podman-py
+            volume_binds = {}
+            if volumes:
+                for host_path, container_config in volumes.items():
+                    if isinstance(container_config, dict):
+                        container_path = container_config.get("bind")
+                        mode = container_config.get("mode", "rw")
+                        volume_binds[host_path] = {"bind": container_path, "mode": mode}
+                    else:
+                        # If it's just a string, assume it's the container path with read-write mode
+                        volume_binds[host_path] = {
+                            "bind": container_config,
+                            "mode": "rw",
+                        }
 
-        # Prepare volume binds for podman-py
-        volume_binds = {}
-        if volumes:
-            for host_path, container_config in volumes.items():
-                if isinstance(container_config, dict):
-                    container_path = container_config.get("bind")
-                    mode = container_config.get("mode", "rw")
-                    volume_binds[host_path] = {"bind": container_path, "mode": mode}
-                else:
-                    # If it's just a string, assume it's the container path with read-write mode
-                    volume_binds[host_path] = {"bind": container_config, "mode": "rw"}
+            # Create and run the container
+            container = client.containers.create(
+                image=image,
+                command=command,
+                environment=env_vars,
+                network_mode=network,
+                security_opt=security_opts,
+                cap_drop=cap_drop,
+                cap_add=cap_add,
+                volumes=volume_binds,
+                remove=True,
+                detach=False,
+            )
 
-        # Create and run the container
-        container = client.containers.create(
-            image=image,
-            command=command,
-            environment=container_env,
-            network_mode=network,
-            security_opt=security_opts,
-            cap_drop=cap_drop,
-            cap_add=cap_add,
-            volumes=volume_binds,
-            remove=True,
-            detach=False,
-        )
+            container_id = container.id
 
-        container_id = container.id
+            # Start the container and get logs
+            container.start()
+            logs = container.logs(stdout=True, stderr=True, stream=False, follow=True)
 
-        # Start the container and get logs
-        container.start()
-        logs = container.logs(stdout=True, stderr=True, stream=False, follow=True)
+            # Convert logs bytes to string
+            logs_str = logs.decode("utf-8") if isinstance(logs, bytes) else ""
 
-        # Convert logs bytes to string
-        logs_str = logs.decode("utf-8") if isinstance(logs, bytes) else ""
-
-        # Inspect the container to get the exit code
-        # Fix linter error: ensure container_id is not None before using it
-        if container_id is None:
-            logger.error("Container ID is None, cannot inspect container")
+            # Get container status and exit code
+            status = "unknown"
             exit_code = 1
-        else:
-            container_info = client.containers.get(container_id).inspect()
-            exit_code = container_info.get("State", {}).get("ExitCode", 0)
 
-        # Build the executed command for reference
-        executed_cmd = ["podman", "run", "--network", network, f"--image={image}"]
-        if command:
-            executed_cmd.extend(command)
+            # Fix linter error: ensure container_id is not None before using it
+            if container_id is None:
+                logger.error("Container ID is None, cannot inspect container")
+                exit_code = 1
+                status = "error"
+            else:
+                container_info = client.containers.get(container_id).inspect()
+                exit_code = container_info.get("State", {}).get("ExitCode", 0)
+                status = container_info.get("State", {}).get("Status", "unknown")
 
-        return PodmanResult(
-            output=logs_str,
-            exit_code=exit_code,
-            container_id=container_id,
-            command=executed_cmd,
-        )
+            # Build the executed command for reference
+            executed_cmd = ["podman", "run", "--network", network, f"--image={image}"]
+            if command:
+                executed_cmd.extend(command)
+
+            return PodmanResult(
+                output=logs_str,
+                exit_code=exit_code,
+                container_id=container_id,
+                command=executed_cmd,
+                status=status,
+            )
 
     except Exception as e:
-        logger.error(
-            "Error running Podman container", error=str(e), image=image, command=command
-        )
-        return PodmanResult(
-            output="", exit_code=1, command=["podman", "run", image] + (command or [])
-        )
-    finally:
-        # Ensure client is closed
-        if "client" in locals():
-            client.close()
+        logger.exception("Error running Podman container", image=image, command=command)
+        raise RuntimeError(f"Error running Podman container. Got error: {e}") from e
