@@ -218,3 +218,15 @@ TRACECAT__RATE_LIMIT_BY_ENDPOINT = (
     os.environ.get("TRACECAT__RATE_LIMIT_BY_ENDPOINT", "true").lower() == "true"
 )
 """Whether to rate limit by endpoint."""
+
+# === Podman config === #
+TRACECAT__PODMAN_BINARY_PATH = os.environ.get(
+    "TRACECAT__PODMAN_BINARY_PATH", "/usr/bin/podman"
+)
+TRACECAT__TRUSTED_DOCKER_IMAGES = (
+    (images := os.environ.get("TRACECAT__TRUSTED_DOCKER_IMAGES", ""))
+    and images.split(",")
+) or []
+TRACECAT__PODMAN_URI = os.environ.get(
+    "TRACECAT__PODMAN_URI", "unix:///run/podman/podman.sock"
+)
