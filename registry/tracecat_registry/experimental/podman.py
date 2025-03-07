@@ -3,9 +3,9 @@
 import os
 import subprocess
 from pathlib import Path
-from dataclasses import dataclass, field
 import podman
 from loguru import logger
+from pydantic import BaseModel, Field
 from tracecat.config import (
     TRACECAT__PODMAN_BINARY_PATH,
     TRACECAT__TRUSTED_DOCKER_IMAGES,
@@ -18,8 +18,7 @@ DEFAULT_SECURITY_OPTS = ["no-new-privileges:true", "seccomp=default"]
 DEFAULT_CAP_DROP = ["ALL"]
 
 
-@dataclass
-class PodmanResult:
+class PodmanResult(BaseModel):
     """Result from running a container with Podman.
 
     Parameters
@@ -41,9 +40,9 @@ class PodmanResult:
     output: str
     exit_code: int
     container_id: str | None = None
-    command: list[str] = field(default_factory=list)
+    command: list[str] = Field(default_factory=list)
     status: str | None = None
-    runtime_info: dict = field(default_factory=dict)
+    runtime_info: dict = Field(default_factory=dict)
 
     @property
     def success(self) -> bool:
