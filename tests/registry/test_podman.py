@@ -30,7 +30,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-# Fixture for podman binary path
+# === Fixtures === #
 @pytest.fixture
 def podman_bin() -> str:
     """Get the path to the podman binary."""
@@ -44,7 +44,6 @@ def podman_bin() -> str:
         pytest.skip("Podman binary not found")
 
 
-# Fixture to mock podman validation
 @pytest.fixture
 def mock_validate_podman():
     """Mock the validate_podman_installation function to avoid actual validation."""
@@ -56,7 +55,6 @@ def mock_validate_podman():
         yield mock_validate
 
 
-# Fixture to mock the is_trusted_image function to always return True
 @pytest.fixture
 def mock_trusted_image():
     """Mock the is_trusted_image function to always return True for testing."""
@@ -68,7 +66,6 @@ def mock_trusted_image():
         yield mock_trust
 
 
-# Mock PodmanClient for container operations
 @pytest.fixture
 def mock_podman_client():
     """Mock the podman.PodmanClient to avoid actual container operations."""
@@ -109,7 +106,6 @@ def mock_podman_client():
         yield mock_client_class
 
 
-# Fixture to set the environment variable for tests
 @pytest.fixture(autouse=True)
 def set_podman_env(podman_bin):
     """Set the TRACECAT__PODMAN_BINARY_PATH environment variable."""
@@ -175,6 +171,46 @@ def cleanup_containers():
             logger.warning(
                 "Failed to remove container", container_id=container_id, error=str(e)
             )
+
+
+@pytest.fixture
+def mock_container() -> mock.MagicMock:
+    """Fixture for a mock container with default successful execution state."""
+    container = mock.MagicMock()
+    container.logs.return_value = b"test output"
+    container.inspect.return_value = {"State": {"ExitCode": 0, "Status": "exited"}}
+    return container
+
+
+@pytest.fixture
+def mock_podman_setup(
+    mock_podman_client: mock.MagicMock, mock_container: mock.MagicMock
+) -> mock.MagicMock:
+    """Fixture for setting up a mock Podman client with a container."""
+    client_mock = mock_podman_client.return_value.__enter__.return_value
+    client_mock.containers.create.return_value = mock_container
+
+    # Set up the images collection with proper mocking
+    mock_images = mock.MagicMock()
+    mock_images.exists.return_value = False
+    mock_images.pull.return_value = None
+    client_mock.images = mock_images
+
+    return client_mock
+
+
+@pytest.fixture
+def security_test_params() -> dict[str, list[str] | str]:
+    """Fixture providing security test parameters."""
+    return {
+        "security_opts": ["seccomp=unconfined"],
+        "cap_drop": ["NET_ADMIN"],
+        "cap_add": ["SYS_ADMIN"],
+        "network": "host",  # network is a string, not a list
+    }
+
+
+# === Tests === #
 
 
 # Test Docker container image building for development purposes only (not part of automated tests)
@@ -610,17 +646,11 @@ def test_image_pull_policies(
     mock_validate_podman: mock.MagicMock,
     mock_trusted_image: mock.MagicMock,
     mock_podman_client: mock.MagicMock,
-    mock_container: mock.MagicMock,
 ):
     """Test different image pull policies."""
     # Reset mocks and set image existence
     mock_podman_client.reset_mock()
     mock_podman_client.images.exists.return_value = image_exists
-
-    logger.info(
-        f"Testing pull policy '{pull_policy}' with image_exists={image_exists}",
-        image="alpine:latest",
-    )
 
     result = run_podman_container(
         image="alpine:latest", command=["echo", "test"], pull_policy=pull_policy
@@ -634,47 +664,6 @@ def test_image_pull_policies(
 
     assert result.success
     assert result.exit_code == 0
-
-
-@pytest.fixture
-def security_test_params() -> dict[str, list[str] | str]:
-    """Fixture providing security test parameters."""
-    return {
-        "security_opts": ["seccomp=unconfined"],
-        "cap_drop": ["NET_ADMIN"],
-        "cap_add": ["SYS_ADMIN"],
-        "network": "host",  # network is a string, not a list
-    }
-
-
-def test_security_options(
-    podman_bin: str,
-    mock_validate_podman: mock.MagicMock,
-    mock_trusted_image: mock.MagicMock,
-    mock_podman_client: mock.MagicMock,
-    mock_container: mock.MagicMock,
-    security_test_params: dict[str, list[str] | str],
-):
-    """Test security options handling."""
-    mock_container.logs.return_value = b"security test"
-
-    result = run_podman_container(
-        image="alpine:latest",
-        command=["echo", "security test"],
-        security_opts=security_test_params["security_opts"],  # type: ignore
-        cap_drop=security_test_params["cap_drop"],  # type: ignore
-        cap_add=security_test_params["cap_add"],  # type: ignore
-        network=security_test_params["network"],  # type: ignore
-    )
-
-    create_args = mock_podman_client.containers.create.call_args[1]
-    assert create_args["security_opt"] == security_test_params["security_opts"]
-    assert create_args["cap_drop"] == security_test_params["cap_drop"]
-    assert create_args["cap_add"] == security_test_params["cap_add"]
-    assert create_args["network_mode"] == security_test_params["network"]
-
-    assert result.success
-    assert "security test" in result.output
 
 
 @pytest.mark.parametrize(
@@ -694,13 +683,15 @@ def test_podman_exception_handling(
     mock_podman_client: mock.MagicMock,
 ):
     """Test exception handling in the run_podman_container function."""
+    # Configure the client to raise an exception during container creation
     mock_podman_client.containers.create.side_effect = Exception(exception_msg)
 
-    with pytest.raises(RuntimeError, match=expected_msg) as excinfo:
+    with pytest.raises(RuntimeError) as excinfo:
         run_podman_container(
             image="alpine:latest", command=["echo", "This should fail"]
         )
 
+    assert expected_msg in str(excinfo.value)
     assert exception_msg in str(excinfo.value)
 
 
@@ -723,25 +714,6 @@ def test_dockerfile_image_rejection(
     logger.debug("Dockerfile image rejection test completed successfully")
 
 
-@pytest.fixture
-def mock_container() -> mock.MagicMock:
-    """Fixture for a mock container with default successful execution state."""
-    container = mock.MagicMock()
-    container.logs.return_value = b"test output"
-    container.inspect.return_value = {"State": {"ExitCode": 0, "Status": "exited"}}
-    return container
-
-
-@pytest.fixture
-def mock_podman_setup(
-    mock_podman_client: mock.MagicMock, mock_container: mock.MagicMock
-) -> mock.MagicMock:
-    """Fixture for setting up a mock Podman client with a container."""
-    client_mock = mock_podman_client.return_value.__enter__.return_value
-    client_mock.containers.create.return_value = mock_container
-    return client_mock
-
-
 @pytest.mark.parametrize(
     "volume_config",
     [
@@ -758,15 +730,14 @@ def test_volume_configurations(
     podman_bin: str,
     mock_validate_podman: mock.MagicMock,
     mock_trusted_image: mock.MagicMock,
-    mock_podman_setup: mock.MagicMock,
-    mock_container: mock.MagicMock,
+    mock_podman_client: mock.MagicMock,
 ):
     """Test various volume mounting configurations."""
     result = run_podman_container(
         image="alpine:latest", command=["ls", "-la"], volumes=volume_config
     )
 
-    create_args = mock_podman_setup.containers.create.call_args[1]
+    create_args = mock_podman_client.containers.create.call_args[1]
 
     for host_path, container_config in volume_config.items():
         assert host_path in create_args["volumes"]

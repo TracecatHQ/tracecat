@@ -1,8 +1,4 @@
-"""Secure, functional implementation for running containers inside containers using Podman.
-
-This module provides a hardened, functional approach to running containers
-with secure defaults to minimize attack surface.
-"""
+"""Run containers inside containers using Podman."""
 
 import os
 import subprocess
