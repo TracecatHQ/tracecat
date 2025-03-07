@@ -123,6 +123,7 @@ def run_podman_container(
     cap_drop: list[str] | None = None,
     cap_add: list[str] | None = None,
     pull_policy: str = "missing",
+    raise_on_error: bool = False,
 ) -> PodmanResult:
     """Run a container securely with Podman using functional approach.
 
@@ -149,6 +150,9 @@ def run_podman_container(
         Linux capabilities to add. Empty by default for maximum security.
     pull_policy : {'always', 'never', 'missing'}, default 'missing'
         When to pull the image.
+    raise_on_error : bool, default False
+        If True, raises RuntimeError on container errors.
+        If False, returns PodmanResult with error information.
 
     Returns
     -------
@@ -304,6 +308,33 @@ def run_podman_container(
                 runtime_info["container_info"] = container.inspect()
                 runtime_info["logs"].append(f"Container {container_id} executed")
 
+            if raise_on_error and exit_code != 0:
+                error_context = {
+                    "status": status,
+                    "exit_code": exit_code,
+                    "container_id": container_id,
+                    "last_log_lines": logs_str.strip()[-500:]
+                    if logs_str
+                    else "No logs available",
+                }
+
+                # Log full debug information
+                logger.error(
+                    "Container execution failed",
+                    **error_context,
+                    runtime_info=runtime_info,
+                )
+
+                # Raise with enough context to debug but without exposing internals
+                error_msg = (
+                    f"Container execution failed:\n"
+                    f"Status: {status}\n"
+                    f"Exit code: {exit_code}\n"
+                    f"Container ID: {container_id}\n"
+                    f"Last logs:\n{error_context['last_log_lines']}"
+                )
+                raise RuntimeError(error_msg)
+
             return PodmanResult(
                 output=logs_str,
                 exit_code=exit_code,
@@ -315,4 +346,15 @@ def run_podman_container(
 
     except Exception as e:
         runtime_info["logs"].append(f"Error: {str(e)}")
-        raise RuntimeError(f"Error running Podman container. Got error: {e}") from e
+        if raise_on_error:
+            logger.error(
+                "Container execution failed", error=str(e), runtime_info=runtime_info
+            )
+            raise RuntimeError(f"Error running Podman container: {str(e)}") from e
+
+        return PodmanResult(
+            output=f"Error running Podman container: {str(e)}",
+            exit_code=1,
+            status="error",
+            runtime_info=runtime_info,
+        )

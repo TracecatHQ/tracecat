@@ -495,34 +495,100 @@ def test_untrusted_image_handling(podman_bin, mock_validate_podman, mock_podman_
         client_mock.containers.create.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "exception_msg,expected_msg",
-    [
-        ("Simulated Podman API error", "Error running Podman container"),
-        ("Connection refused", "Error running Podman container"),
-        ("Permission denied", "Error running Podman container"),
-    ],
-)
 def test_podman_exception_handling(
-    exception_msg: str,
-    expected_msg: str,
-    podman_bin: str,
-    mock_validate_podman: mock.MagicMock,
-    mock_trusted_image: mock.MagicMock,
-    mock_podman_client: mock.MagicMock,
+    podman_bin,
+    mock_validate_podman,
+    mock_trusted_image,
+    mock_podman_client,
 ):
     """Test exception handling in the run_podman_container function."""
     # Configure the client to raise an exception during container creation
     client_mock = mock_podman_client.return_value.__enter__.return_value
-    client_mock.containers.create.side_effect = Exception(exception_msg)
+    client_mock.containers.create.side_effect = Exception("Simulated Podman API error")
 
-    with pytest.raises(RuntimeError) as excinfo:
-        run_podman_container(
-            image="alpine:latest", command=["echo", "This should fail"]
+    # Test with raise_on_error=False (default)
+    result = run_podman_container(
+        image="alpine:latest", command=["failing-command"], raise_on_error=False
+    )
+    assert not result.success
+    assert result.status == "error"
+    assert "Simulated Podman API error" in result.output
+
+    # Reset mock for second test
+    client_mock.containers.create.reset_mock()
+    client_mock.containers.create.side_effect = Exception("Simulated Podman API error")
+
+    # Test with raise_on_error=True - should raise the error
+    with pytest.raises(RuntimeError) as exc_info:
+        _ = run_podman_container(
+            image="alpine:latest",
+            command=["failing-command"],
+            raise_on_error=True,  # Explicitly set to True
+        )
+    assert "Simulated Podman API error" in str(exc_info.value)
+
+
+def test_container_error_with_raise_on_error(
+    mock_podman_setup,
+    mock_validate_podman,
+    mock_trusted_image,
+):
+    """Test container failure with raise_on_error=True."""
+    # Setup container to fail
+    mock_container = mock_podman_setup.containers.create.return_value
+    mock_container.id = "test-container-123"
+    mock_container.logs.return_value = b"Error: command not found\nStack trace..."
+
+    # Set up the container state that will be returned by inspect
+    container_state = {"State": {"ExitCode": 127, "Status": "error"}}
+    mock_container.inspect.return_value = container_state
+
+    # Ensure get() returns same container with same state
+    mock_podman_setup.containers.get.return_value = mock_container
+
+    # Should raise RuntimeError due to non-zero exit code
+    with pytest.raises(RuntimeError) as exc_info:
+        _ = run_podman_container(
+            image="alpine:latest",
+            command=["nonexistent-cmd"],
+            raise_on_error=True,  # Explicitly set to True
         )
 
-    assert expected_msg in str(excinfo.value)
-    assert exception_msg in str(excinfo.value)
+    error_msg = str(exc_info.value)
+    assert "Status: error" in error_msg
+    assert "Exit code: 127" in error_msg
+    assert "test-container-123" in error_msg
+    assert "command not found" in error_msg
+
+
+def test_container_error_without_raise_on_error(
+    mock_podman_setup,
+    mock_validate_podman,
+    mock_trusted_image,
+):
+    """Test container failure with raise_on_error=False."""
+    # Setup container to fail
+    mock_container = mock_podman_setup.containers.create.return_value
+    mock_container.id = "test-container-123"
+    mock_container.logs.return_value = b"Error: command not found"
+
+    # Set up the container state that will be returned by inspect
+    container_state = {"State": {"ExitCode": 1, "Status": "error"}}
+    mock_container.inspect.return_value = container_state
+
+    # Ensure get() returns same container with same state
+    mock_podman_setup.containers.get.return_value = mock_container
+
+    result = run_podman_container(
+        image="alpine:latest",
+        command=["fail"],
+        raise_on_error=False,  # Explicitly set to False
+    )
+
+    assert not result.success
+    assert result.exit_code == 1
+    assert result.status == "error"
+    assert "command not found" in result.output
 
 
 @pytest.mark.integration
