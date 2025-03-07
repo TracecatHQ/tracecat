@@ -123,5 +123,5 @@ markers = [
     "slow: marks tests as slow",
     "dbtest: marks tests that make database calls",
     "disable_fixture: marks tests that disable fixtures",
-    "integration: marks tests that require a live Tracecat stack and env vars.",
+    "integration: marks tests that perform live network calls and container operations",
 ]
