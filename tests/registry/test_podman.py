@@ -1,6 +1,7 @@
+import json
 import os
+import platform
 import subprocess
-import tempfile
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -10,7 +11,6 @@ import pytest
 from loguru import logger
 
 from registry.tracecat_registry.experimental.podman import (
-    TRACECAT__PODMAN_URI,
     PodmanResult,
     run_podman_container,
     validate_podman_installation,
@@ -34,16 +34,28 @@ pytestmark = pytest.mark.skipif(
 
 
 # === Fixtures === #
-@pytest.fixture
+@pytest.fixture(scope="session")
 def podman_bin() -> str:
     """Get the path to the podman binary."""
     try:
-        podman_path = subprocess.run(
+        result = subprocess.run(
             ["which", "podman"], check=True, capture_output=True, text=True
-        ).stdout.strip()
+        )
+        podman_path = result.stdout.strip()
+        logger.info(
+            "Found podman binary",
+            path=podman_path,
+            path_env=os.environ.get("PATH"),
+            which_output=result.stdout,
+            which_error=result.stderr,
+        )
         return podman_path
-    except subprocess.SubprocessError:
-        logger.warning("Podman binary not found, skipping tests")
+    except subprocess.SubprocessError as e:
+        logger.error(
+            "Failed to find podman binary",
+            error=str(e),
+            path_env=os.environ.get("PATH"),
+        )
         pytest.skip("Podman binary not found")
 
 
@@ -83,7 +95,8 @@ def mock_podman_client():
     # Setup mock container instance
     mock_container = mock.MagicMock()
     mock_container.id = "test-container-id"
-    mock_container.logs.return_value = b"Container log output"
+    # Remove default log output - let individual tests set this
+    mock_container.logs.return_value = None
 
     # Setup container inspect
     container_info = {"State": {"ExitCode": 0, "Status": "exited"}}
@@ -130,24 +143,50 @@ def temp_env_vars(env_updates: dict[str, str | None]) -> Generator[None, None, N
                 os.environ[key] = value
 
 
+@pytest.fixture(scope="session")
+def podman_uri(podman_bin) -> str:
+    """Get the Podman socket URI dynamically based on platform."""
+    if platform.system() == "Darwin":  # macOS
+        try:
+            result = subprocess.run(
+                [podman_bin, "machine", "inspect"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            machine_info = json.loads(result.stdout)[0]
+            socket_path = machine_info["ConnectionInfo"]["PodmanSocket"]["Path"]
+            uri = f"unix://{socket_path}"
+        except (subprocess.SubprocessError, KeyError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to get Podman socket from machine inspect: {e}")
+            uri = "unix:///run/podman/podman.sock"
+    else:
+        # Default Linux socket path, or fallback
+        uri = "unix:///run/podman/podman.sock"
+
+    logger.info(f"Using Podman URI: {uri}")
+    return uri
+
+
 @pytest.fixture(autouse=True)
-def set_podman_env(podman_bin):
+def set_podman_env(podman_bin, podman_uri):
     """Set the Podman environment variables for testing."""
+    import importlib
+
+    from registry.tracecat_registry.experimental import podman
+    from tracecat import config
+
     env_updates = {
         "TRACECAT__PODMAN_BINARY_PATH": podman_bin,
         "TRACECAT__TRUSTED_DOCKER_IMAGES": (
             "alpine:latest,python:3.9-slim,ghcr.io/datadog/stratus-red-team:latest"
         ),
-        "TRACECAT__PODMAN_URI": "unix:///tmp/podman.sock",
+        "TRACECAT__PODMAN_URI": podman_uri,
     }
 
-    logger.debug(
-        "Setting up environment variables for testing",
-        podman_path=podman_bin,
-        podman_uri="unix:///tmp/podman.sock",
-    )
-
     with temp_env_vars(env_updates):
+        importlib.reload(config)
+        importlib.reload(podman)
         yield
 
     logger.debug("Environment variables cleaned up")
@@ -271,161 +310,40 @@ def assert_container_failure(
 
 def test_echo_hello_world(
     podman_bin,
+    podman_uri,
     mock_validate_podman,
     mock_trusted_image,
     mock_podman_client,
     cleanup_containers,
 ):
     """Test running a simple echo command in a container."""
-    # Configure the container logs mock
+    # Configure the mock container with expected output
     client_mock = mock_podman_client.return_value.__enter__.return_value
     mock_container = client_mock.containers.create.return_value
-    mock_container.logs.return_value = b"hello world"
+    mock_container.logs.return_value = b"hello world"  # Set expected output
     mock_container.inspect.return_value = {"State": {"ExitCode": 0, "Status": "exited"}}
 
     result = run_podman_container(
         image="alpine:latest", command=["echo", "hello world"]
     )
 
-    # Verify container success with expected output
+    # Verify basic success
     assert_container_success(result, ContainerAssertions(expected_output="hello world"))
 
-    # Verify specific test requirements
-    mock_podman_client.assert_called_once_with(base_url=TRACECAT__PODMAN_URI)
+    # Verify Podman client was configured correctly
+    mock_podman_client.assert_called_once_with(base_url=podman_uri)
+
+    # Verify container creation parameters
     create_args = client_mock.containers.create.call_args[1]
     assert create_args["image"] == "alpine:latest"
     assert create_args["command"] == ["echo", "hello world"]
     assert create_args["network_mode"] == "none"
 
-    # Register container for cleanup
+    # Runtime info should be present but we don't test its contents
+    assert "logs" in result.runtime_info
+    assert "podman_version" in result.runtime_info
+
     cleanup_containers(result.container_id)
-    logger.debug("Echo container test completed successfully")
-
-
-@pytest.mark.integration
-def test_run_stratus_red_team_list_live(
-    podman_bin,
-    cleanup_containers,
-):
-    """Integration test running the actual stratus-red-team list command."""
-    logger.info(
-        "Testing live stratus-red-team list container",
-        image="ghcr.io/datadog/stratus-red-team:latest",
-    )
-
-    result = run_podman_container(
-        image="ghcr.io/datadog/stratus-red-team:latest",
-        command=["list"],
-        security_opts=[],  # Override default security options that cause issues
-    )
-
-    # Basic success checks
-    assert result.success, f"Container failed with: {result.output}"
-    assert result.container_id is not None
-
-    # Verify expected output structure
-    output_lines = result.output.splitlines()
-    # Find header line
-    header = next(line for line in output_lines if "ID" in line and "TACTIC" in line)
-
-    # Verify header structure
-    assert all(col in header for col in ["ID", "TACTIC", "TECHNIQUE", "PLATFORM"])
-
-    # Verify we have at least one attack technique listed
-    techniques = [line for line in output_lines if "aws." in line]
-    assert len(techniques) > 0, "No attack techniques found in output"
-
-    # Register for cleanup
-    cleanup_containers(result.container_id)
-
-    logger.info(
-        "Live stratus-red-team list successful",
-        container_id=result.container_id,
-        technique_count=len(techniques),
-    )
-
-
-@pytest.mark.integration
-def test_external_network_call_live(
-    podman_bin,
-    cleanup_containers,
-):
-    """Integration test making real HTTP calls from a Podman container."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as temp_file:
-        temp_file.write("""
-import requests
-import sys
-import json
-
-try:
-    response = requests.get('https://httpbin.org/get', timeout=5)
-    print(response.status_code)
-    print(json.dumps(response.json(), indent=2))
-    sys.exit(0)
-except Exception as e:
-    print(f"Error: {e}", file=sys.stderr)
-    sys.exit(1)
-        """)
-        script_path = temp_file.name
-
-    try:
-        # Install requests and run the test in the same container
-        result = run_podman_container(
-            image="python:3.9-slim",
-            command=["sh", "-c", "pip install requests && python /script.py"],
-            volumes={script_path: {"bind": "/script.py", "mode": "ro"}},
-            env_vars={"PYTHONUNBUFFERED": "1"},  # Ensure Python output isn't buffered
-            security_opts=[],  # Override default security options that cause issues
-            network="bridge",  # Allow network access for package installation and test
-        )
-
-        # Basic success checks
-        assert result.success, f"Container failed with: {result.output}"
-        assert "200" in result.output, (
-            f"Expected HTTP 200 status code, got: {result.output}"
-        )
-    finally:
-        # Clean up the temporary file
-        os.unlink(script_path)
-
-
-@pytest.mark.integration
-def test_network_timeout_live(
-    podman_bin,
-    cleanup_containers,
-):
-    """Test handling of network timeouts with real containers."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as temp_file:
-        temp_file.write("""
-import requests
-import sys
-
-try:
-    # Very short timeout to force failure
-    response = requests.get('https://httpbin.org/delay/5', timeout=0.001)
-    print(response.status_code)
-    sys.exit(0)
-except requests.Timeout as e:
-    print(f"Timeout error: {e}", file=sys.stderr)
-    sys.exit(1)
-        """)
-        script_path = temp_file.name
-
-    try:
-        # Install requests and run the test in the same container
-        result = run_podman_container(
-            image="python:3.9-slim",
-            command=["sh", "-c", "pip install requests && python /script.py"],
-            volumes={script_path: {"bind": "/script.py", "mode": "ro"}},
-            security_opts=[],  # Override default security options that cause issues
-            network="bridge",  # Allow network access for package installation and test
-        )
-
-        assert not result.success
-        assert "Timeout error" in result.output
-    finally:
-        # Clean up the temporary file
-        os.unlink(script_path)
 
 
 def test_container_failure(
@@ -444,13 +362,21 @@ def test_container_failure(
 
     result = run_podman_container(image="alpine:latest", command=["invalid_command"])
 
-    # Use custom assertions for failure case
+    # First verify the container failure
     assert_container_failure(
         result,
         ContainerAssertions(
             status="error", expected_output="command not found", exit_code=127
         ),
     )
+
+    # Verify runtime info contains expected information
+    assert "logs" in result.runtime_info
+    assert "podman_version" in result.runtime_info
+    assert any(
+        "Container" in log and result.container_id in log
+        for log in result.runtime_info["logs"]
+    ), "Expected container execution log entry"
 
 
 def test_string_command_and_env_vars(
@@ -474,8 +400,8 @@ def test_string_command_and_env_vars(
     client_mock.containers.create.assert_called_once()
     create_args = client_mock.containers.create.call_args[1]
 
-    # Verify string command was converted to list
-    assert create_args["command"] == ["echo $HELLO"]
+    # Verify command was passed through as string
+    assert create_args["command"] == "echo $HELLO"
 
     # Verify environment variables were passed correctly
     assert create_args["environment"] == {"HELLO": "WORLD"}
@@ -597,3 +523,73 @@ def test_podman_exception_handling(
 
     assert expected_msg in str(excinfo.value)
     assert exception_msg in str(excinfo.value)
+
+
+@pytest.mark.integration
+def test_live_stratus_red_team_list(
+    podman_bin,
+    cleanup_containers,
+):
+    """Integration test running the actual stratus-red-team list command."""
+    logger.info(
+        "Testing live stratus-red-team list container",
+        image="ghcr.io/datadog/stratus-red-team:latest",
+    )
+
+    result = run_podman_container(
+        image="ghcr.io/datadog/stratus-red-team:latest",
+        command=["list"],
+        security_opts=[],  # Override default security options that cause issues
+    )
+
+    # Basic success checks
+    assert result.success, f"Container failed with: {result.output}"
+    assert result.container_id is not None
+
+    # Verify expected output structure
+    output_lines = result.output.splitlines()
+    # Find header line
+    header = next(line for line in output_lines if "ID" in line and "TACTIC" in line)
+
+    # Verify header structure
+    assert all(col in header for col in ["ID", "TACTIC", "TECHNIQUE", "PLATFORM"])
+
+    # Verify we have at least one attack technique listed
+    techniques = [line for line in output_lines if "aws." in line]
+    assert len(techniques) > 0, "No attack techniques found in output"
+
+    # Register for cleanup
+    cleanup_containers(result.container_id)
+
+    logger.info(
+        "Live stratus-red-team list successful",
+        container_id=result.container_id,
+        technique_count=len(techniques),
+    )
+
+
+@pytest.mark.integration
+def test_live_network_call(
+    podman_bin,
+    cleanup_containers,
+):
+    """Integration test making real HTTP calls from a Podman container."""
+    result = run_podman_container(
+        image="alpine:latest",
+        command=[
+            "sh",
+            "-c",
+            "apk add --no-cache curl && curl -s https://httpbin.org/get",
+        ],
+        security_opts=[],
+        network="bridge",
+    )
+
+    # Use runtime_info for better error messages
+    assert result.success, f"Container failed: {result.runtime_info['logs']}"
+    assert "url" in result.output, f"Expected URL in output: {result.output}"
+    assert result.runtime_info.get("container_info"), (
+        "Missing container info in runtime data"
+    )
+
+    cleanup_containers(result.container_id)

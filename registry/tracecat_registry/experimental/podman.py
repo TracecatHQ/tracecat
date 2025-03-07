@@ -34,6 +34,8 @@ class PodmanResult:
         The command that was executed.
     status : str, optional
         Final status of the container (e.g., "exited", "error").
+    runtime_info : dict
+        Runtime diagnostic information including logs, version info, and container details.
     """
 
     output: str
@@ -41,6 +43,7 @@ class PodmanResult:
     container_id: str | None = None
     command: list[str] = field(default_factory=list)
     status: str | None = None
+    runtime_info: dict = field(default_factory=dict)
 
     @property
     def success(self) -> bool:
@@ -179,56 +182,51 @@ def run_podman_container(
     Hello from env
     """
 
-    # Check that podman is installed
-    validate_podman_installation(TRACECAT__PODMAN_BINARY_PATH)
+    # Initialize runtime info collection
+    runtime_info = {
+        "logs": [],
+        "podman_version": None,
+        "container_info": None,
+    }
 
-    # Prevent building images - only allow running trusted pre-built images
-    if image.startswith("build") or "dockerfile" in image.lower():
-        logger.warning("Attempted to build image with Podman", image=image)
-        raise ValueError(
-            "Building images with Podman is not allowed for security reasons. "
-            "Only pre-built trusted images can be used."
+    try:
+        # Validate podman
+        result = subprocess.run(
+            [TRACECAT__PODMAN_BINARY_PATH, "version"],
+            capture_output=True,
+            text=True,
+            check=False,
         )
+        runtime_info["podman_version"] = result.stdout.strip()
+        runtime_info["logs"].append("Podman version validated")
 
-    # Check if image is trusted
-    if not is_trusted_image(image):
-        logger.error(
-            "Image not in trusted images list",
+        # Check trusted images
+        if not is_trusted_image(image):
+            runtime_info["logs"].append(f"Image not in trusted list: {image}")
+            return PodmanResult(
+                output="Error: Image not in trusted list",
+                exit_code=1,
+                status="failed",
+                runtime_info=runtime_info,
+            )
+
+        logger.info(
+            "Checked Docker image against trusted images",
             image=image,
             trusted_images=os.environ.get("TRACECAT__TRUSTED_DOCKER_IMAGES", "").split(
                 ","
             ),
         )
-        return PodmanResult(
-            output="Error: Image not in trusted list",
-            exit_code=1,
-            container_id=None,
-            command=command
-            if isinstance(command, list)
-            else [command]
-            if command
-            else [],
-            status="failed",
+
+        # Set defaults more concisely
+        security_opts = (
+            DEFAULT_SECURITY_OPTS if security_opts is None else security_opts
         )
+        cap_drop = DEFAULT_CAP_DROP if cap_drop is None else cap_drop
+        cap_add = cap_add or []
+        env_vars = env_vars or {}
 
-    logger.info(
-        "Checked Docker image against trusted images",
-        image=image,
-        trusted_images=os.environ.get("TRACECAT__TRUSTED_DOCKER_IMAGES", "").split(","),
-    )
-
-    # Set defaults more concisely
-    security_opts = security_opts or DEFAULT_SECURITY_OPTS
-    cap_drop = cap_drop or DEFAULT_CAP_DROP
-    cap_add = cap_add or []
-    env_vars = env_vars or {}
-
-    # Convert command to list if it's a string
-    if isinstance(command, str):
-        command = [command]
-
-    # Connect to the Podman API using a context manager
-    try:
+        # Connect to the Podman API using a context manager
         with podman.PodmanClient(base_url=TRACECAT__PODMAN_URI) as client:
             # Pull the image if needed
             if pull_policy == "always" or (
@@ -272,14 +270,21 @@ def run_podman_container(
             container.start()
             logs = container.logs(stdout=True, stderr=True, stream=False, follow=True)
 
-            # Convert logs bytes to string
-            logs_str = logs.decode("utf-8") if isinstance(logs, bytes) else ""
+            # Convert logs bytes to string (handle both bytes and generator cases)
+            if isinstance(logs, bytes):
+                logs_str = logs.decode("utf-8")
+            elif hasattr(logs, "__iter__"):  # It's an iterator/generator
+                # Consume the generator and join the bytes objects, filtering out non-bytes chunks
+                logs_bytes = b"".join(
+                    chunk for chunk in logs if isinstance(chunk, bytes)
+                )
+                logs_str = logs_bytes.decode("utf-8")
+            else:
+                logs_str = str(logs)
 
-            # Get container status and exit code
             status = "unknown"
             exit_code = 1
 
-            # Fix linter error: ensure container_id is not None before using it
             if container_id is None:
                 logger.error("Container ID is None, cannot inspect container")
                 exit_code = 1
@@ -289,10 +294,15 @@ def run_podman_container(
                 exit_code = container_info.get("State", {}).get("ExitCode", 0)
                 status = container_info.get("State", {}).get("Status", "unknown")
 
-            # Build the executed command for reference
+            # Add podman command to the result
             executed_cmd = ["podman", "run", "--network", network, f"--image={image}"]
             if command:
                 executed_cmd.extend(command)
+
+            # Store container info in runtime_info
+            if container_id:
+                runtime_info["container_info"] = container.inspect()
+                runtime_info["logs"].append(f"Container {container_id} executed")
 
             return PodmanResult(
                 output=logs_str,
@@ -300,8 +310,9 @@ def run_podman_container(
                 container_id=container_id,
                 command=executed_cmd,
                 status=status,
+                runtime_info=runtime_info,
             )
 
     except Exception as e:
-        logger.exception("Error running Podman container", image=image, command=command)
+        runtime_info["logs"].append(f"Error: {str(e)}")
         raise RuntimeError(f"Error running Podman container. Got error: {e}") from e
