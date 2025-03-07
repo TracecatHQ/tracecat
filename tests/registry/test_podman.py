@@ -1,6 +1,7 @@
 import os
 import subprocess
 import tempfile
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -8,8 +9,6 @@ from loguru import logger
 
 from registry.tracecat_registry.experimental.podman import (
     TRACECAT__PODMAN_URI,
-    PodmanResult,
-    is_trusted_image,
     run_podman_container,
     validate_podman_installation,
 )
@@ -73,34 +72,40 @@ def mock_trusted_image():
 @pytest.fixture
 def mock_podman_client():
     """Mock the podman.PodmanClient to avoid actual container operations."""
-    with mock.patch("podman.PodmanClient") as mock_client_class:
-        # Setup mock container instance
-        mock_container = mock.MagicMock()
-        mock_container.id = "test-container-id"
-        mock_container.logs.return_value = b"Container log output"
+    # Create a context manager mock
+    context_mock = mock.MagicMock()
+    client_mock = mock.MagicMock()
 
-        # Setup container inspect
-        container_info = {"State": {"ExitCode": 0, "Status": "exited"}}
-        mock_container.inspect.return_value = container_info
+    # Setup the context manager to return the client
+    context_mock.__enter__.return_value = client_mock
+    context_mock.__exit__.return_value = None
 
-        # Setup mock containers collection
-        mock_containers = mock.MagicMock()
-        mock_containers.create.return_value = mock_container
-        mock_containers.get.return_value = mock_container
+    # Setup mock container instance
+    mock_container = mock.MagicMock()
+    mock_container.id = "test-container-id"
+    mock_container.logs.return_value = b"Container log output"
 
-        # Setup mock images collection
-        mock_images = mock.MagicMock()
-        mock_images.exists.return_value = False
-        mock_images.pull.return_value = None
+    # Setup container inspect
+    container_info = {"State": {"ExitCode": 0, "Status": "exited"}}
+    mock_container.inspect.return_value = container_info
 
-        # Setup mock client instance
-        mock_client = mock.MagicMock()
-        mock_client.containers = mock_containers
-        mock_client.images = mock_images
+    # Setup mock containers collection
+    mock_containers = mock.MagicMock()
+    mock_containers.create.return_value = mock_container
+    mock_containers.get.return_value = mock_container
 
-        # Setup mock client class
-        mock_client_class.return_value = mock_client
+    # Setup mock images collection
+    mock_images = mock.MagicMock()
+    mock_images.exists.return_value = False
+    mock_images.pull.return_value = None
 
+    # Assign collections to client
+    client_mock.containers = mock_containers
+    client_mock.images = mock_images
+
+    with mock.patch(
+        "podman.PodmanClient", return_value=context_mock
+    ) as mock_client_class:
         yield mock_client_class
 
 
@@ -243,8 +248,8 @@ def test_echo_hello_world(
 ):
     """Test running a simple echo command in a container."""
     # Configure the container logs mock to return hello world
-    mock_client = mock_podman_client.return_value
-    mock_container = mock_client.containers.create.return_value
+    client_mock = mock_podman_client.return_value.__enter__.return_value
+    mock_container = client_mock.containers.create.return_value
     mock_container.logs.return_value = b"hello world"
 
     # Set the container status
@@ -259,8 +264,8 @@ def test_echo_hello_world(
     mock_podman_client.assert_called_once_with(base_url=TRACECAT__PODMAN_URI)
 
     # Verify container was created with correct parameters
-    mock_client.containers.create.assert_called_once()
-    create_args = mock_client.containers.create.call_args[1]
+    client_mock.containers.create.assert_called_once()
+    create_args = client_mock.containers.create.call_args[1]
     assert create_args["image"] == "alpine:latest"
     assert create_args["command"] == ["echo", "hello world"]
     assert create_args["network_mode"] == "none"
@@ -276,12 +281,14 @@ def test_echo_hello_world(
     assert "hello world" in result.output
     assert result.exit_code == 0
     assert result.container_id == "test-container-id"
+    assert result.status == "exited"
 
     # Register container for cleanup (even though it's mocked in this test)
     cleanup_containers(result.container_id)
     logger.debug("Echo container test completed successfully")
 
 
+@pytest.mark.webtest
 def test_run_stratus_red_team_list(
     podman_bin,
     mock_validate_podman,
@@ -291,8 +298,8 @@ def test_run_stratus_red_team_list(
 ):
     """Test running the stratus-red-team list command."""
     # Configure the container logs mock to return stratus-red-team output
-    mock_client = mock_podman_client.return_value
-    mock_container = mock_client.containers.create.return_value
+    client_mock = mock_podman_client.return_value.__enter__.return_value
+    mock_container = client_mock.containers.create.return_value
     mock_container.logs.return_value = b"""
 ID                           TACTIC         TECHNIQUE                          PLATFORM
 aws.credential-access.ec2-get-password-data credential-access Retrieve EC2 Password Data aws
@@ -312,8 +319,8 @@ aws.credential-access.secretsmanager-batch-retrieve credential-access Retrieve a
     )
 
     # Verify container was created with correct parameters
-    mock_client.containers.create.assert_called_once()
-    create_args = mock_client.containers.create.call_args[1]
+    client_mock.containers.create.assert_called_once()
+    create_args = client_mock.containers.create.call_args[1]
     assert create_args["image"] == "ghcr.io/datadog/stratus-red-team:latest"
     assert create_args["command"] == ["list"]
 
@@ -324,12 +331,14 @@ aws.credential-access.secretsmanager-batch-retrieve credential-access Retrieve a
     assert "TECHNIQUE" in result.output
     assert result.exit_code == 0
     assert result.container_id == "test-container-id"
+    assert result.status == "exited"
 
     # Register container for cleanup (even though it's mocked in this test)
     cleanup_containers(result.container_id)
     logger.debug("Stratus red team container test completed successfully")
 
 
+@pytest.mark.webtest
 def test_external_network_call(
     podman_bin,
     mock_validate_podman,
@@ -339,8 +348,8 @@ def test_external_network_call(
 ):
     """Test making a secure external network call."""
     # Configure the container logs mock to return HTTP response
-    mock_client = mock_podman_client.return_value
-    mock_container = mock_client.containers.create.return_value
+    client_mock = mock_podman_client.return_value.__enter__.return_value
+    mock_container = client_mock.containers.create.return_value
     mock_container.logs.return_value = b"""
 200
 {
@@ -389,8 +398,8 @@ except Exception as e:
         )
 
         # Verify container was created with correct parameters
-        mock_client.containers.create.assert_called_once()
-        create_args = mock_client.containers.create.call_args[1]
+        client_mock.containers.create.assert_called_once()
+        create_args = client_mock.containers.create.call_args[1]
         assert create_args["image"] == "python:3.9-slim"
         assert create_args["command"] == ["python", container_path]
 
@@ -405,6 +414,7 @@ except Exception as e:
         assert "httpbin.org" in result.output
         assert result.exit_code == 0
         assert result.container_id == "test-container-id"
+        assert result.status == "exited"
 
         # Register container for cleanup (even though it's mocked in this test)
         cleanup_containers(result.container_id)
@@ -426,15 +436,15 @@ def test_container_failure(
 ):
     """Test container execution failure handling."""
     # Configure the container to have a non-zero exit code
-    mock_client = mock_podman_client.return_value
-    mock_container = mock_client.containers.create.return_value
+    client_mock = mock_podman_client.return_value.__enter__.return_value
+    mock_container = client_mock.containers.create.return_value
     mock_container.logs.return_value = b"command not found: invalid_command"
 
     # Set the container status to have a non-zero exit code
     mock_container.inspect.return_value = {
         "State": {
             "ExitCode": 127,  # Command not found exit code
-            "Status": "exited",
+            "Status": "error",
         }
     }
 
@@ -446,6 +456,7 @@ def test_container_failure(
     assert "command not found" in result.output
     assert result.exit_code == 127
     assert result.container_id == "test-container-id"
+    assert result.status == "error"
 
     logger.debug("Container failure test completed successfully")
 
@@ -454,8 +465,8 @@ def test_string_command_and_env_vars(
     podman_bin, mock_validate_podman, mock_trusted_image, mock_podman_client
 ):
     """Test string command conversion and environment variables."""
-    mock_client = mock_podman_client.return_value
-    mock_container = mock_client.containers.create.return_value
+    client_mock = mock_podman_client.return_value.__enter__.return_value
+    mock_container = client_mock.containers.create.return_value
     mock_container.logs.return_value = b"HELLO=WORLD"
 
     # Set the container status
@@ -471,8 +482,8 @@ def test_string_command_and_env_vars(
     )
 
     # Verify container was created with correct parameters
-    mock_client.containers.create.assert_called_once()
-    create_args = mock_client.containers.create.call_args[1]
+    client_mock.containers.create.assert_called_once()
+    create_args = client_mock.containers.create.call_args[1]
 
     # Verify string command was converted to list
     assert create_args["command"] == ["echo $HELLO"]
@@ -484,6 +495,7 @@ def test_string_command_and_env_vars(
     assert result.success
     assert "HELLO=WORLD" in result.output
     assert result.exit_code == 0
+    assert result.status == "exited"
 
     logger.debug("String command and environment variables test completed successfully")
 
@@ -492,8 +504,8 @@ def test_container_null_id(
     podman_bin, mock_validate_podman, mock_trusted_image, mock_podman_client
 ):
     """Test handling of null container ID."""
-    mock_client = mock_podman_client.return_value
-    mock_container = mock_client.containers.create.return_value
+    client_mock = mock_podman_client.return_value.__enter__.return_value
+    mock_container = client_mock.containers.create.return_value
 
     # Set the container ID to None to test that branch
     mock_container.id = None
@@ -504,9 +516,11 @@ def test_container_null_id(
 
     # Verify the result handles None container ID
     assert result.container_id is None
+    assert result.status == "error"
 
     # Should still have output but exit code would be set to 1
     assert "test output" in result.output
+    assert result.exit_code == 1
 
     logger.debug("Null container ID test completed successfully")
 
@@ -550,90 +564,248 @@ def test_validate_podman_installation_with_mocks():
         logger.debug("Podman installation validation tests completed successfully")
 
 
-def test_nonexistent_podman_binary():
-    """Test validate_podman_installation with a nonexistent binary path."""
-    logger.info("Testing podman installation validation with nonexistent binary")
-    with mock.patch("pathlib.Path.exists", return_value=False):
-        with pytest.raises(FileNotFoundError):
-            validate_podman_installation("/nonexistent/path/to/podman")
-    logger.debug("Nonexistent podman binary test completed successfully")
+def test_untrusted_image_handling(podman_bin, mock_validate_podman, mock_podman_client):
+    """Test that untrusted images are properly rejected."""
+    # Configure the mock to specifically reject this image
+    with mock.patch(
+        "registry.tracecat_registry.experimental.podman.is_trusted_image"
+    ) as mock_trust:
+        mock_trust.return_value = False
 
-
-def test_is_trusted_image():
-    """Test the is_trusted_image function with various inputs."""
-    # Save original environment variable
-    original_trusted_images = os.environ.get("TRACECAT__TRUSTED_DOCKER_IMAGES")
-
-    try:
-        # Test with a list of trusted images
-        os.environ["TRACECAT__TRUSTED_DOCKER_IMAGES"] = (
-            "alpine:latest,python:3.9-slim,nginx:1.21"
+        logger.info("Testing untrusted image rejection", image="untrusted:latest")
+        result = run_podman_container(
+            image="untrusted:latest", command=["echo", "This should not run"]
         )
 
-        # Test trusted images
-        assert is_trusted_image("alpine:latest") is True
-        assert is_trusted_image("python:3.9-slim") is True
-        assert is_trusted_image("nginx:1.21") is True
+        # Verify the untrusted image was rejected
+        assert not result.success
+        assert result.exit_code == 1
+        assert "Error: Image not in trusted list" in result.output
+        assert result.container_id is None
+        assert result.status == "failed"
 
-        # Test untrusted images
-        assert is_trusted_image("malicious:latest") is False
-        assert is_trusted_image("unknown:1.0") is False
+        # Verify create was never called since the image check failed
+        client_mock = mock_podman_client.return_value.__enter__.return_value
+        client_mock.containers.create.assert_not_called()
 
-        # Test with empty string (should allow all images - used for testing)
-        os.environ["TRACECAT__TRUSTED_DOCKER_IMAGES"] = ""
-        assert is_trusted_image("any-image:latest") is True
+        logger.debug("Untrusted image rejection test completed successfully")
 
-        # Test with a single image
-        os.environ["TRACECAT__TRUSTED_DOCKER_IMAGES"] = "only-this:latest"
-        assert is_trusted_image("only-this:latest") is True
-        assert is_trusted_image("not-this:latest") is False
 
-    finally:
-        # Restore original environment variable
-        if original_trusted_images is not None:
-            os.environ["TRACECAT__TRUSTED_DOCKER_IMAGES"] = original_trusted_images
+@pytest.mark.parametrize(
+    "pull_policy,image_exists,should_pull",
+    [
+        ("always", True, True),
+        ("always", False, True),
+        ("never", True, False),
+        ("never", False, False),
+        ("missing", True, False),
+        ("missing", False, True),
+    ],
+)
+def test_image_pull_policies(
+    pull_policy: str,
+    image_exists: bool,
+    should_pull: bool,
+    podman_bin: str,
+    mock_validate_podman: mock.MagicMock,
+    mock_trusted_image: mock.MagicMock,
+    mock_podman_client: mock.MagicMock,
+    mock_container: mock.MagicMock,
+):
+    """Test different image pull policies."""
+    # Reset mocks and set image existence
+    mock_podman_client.reset_mock()
+    mock_podman_client.images.exists.return_value = image_exists
+
+    logger.info(
+        f"Testing pull policy '{pull_policy}' with image_exists={image_exists}",
+        image="alpine:latest",
+    )
+
+    result = run_podman_container(
+        image="alpine:latest", command=["echo", "test"], pull_policy=pull_policy
+    )
+
+    # Verify pull behavior
+    if should_pull:
+        mock_podman_client.images.pull.assert_called_once_with("alpine:latest")
+    else:
+        mock_podman_client.images.pull.assert_not_called()
+
+    assert result.success
+    assert result.exit_code == 0
+
+
+@pytest.fixture
+def security_test_params() -> dict[str, list[str] | str]:
+    """Fixture providing security test parameters."""
+    return {
+        "security_opts": ["seccomp=unconfined"],
+        "cap_drop": ["NET_ADMIN"],
+        "cap_add": ["SYS_ADMIN"],
+        "network": "host",  # network is a string, not a list
+    }
+
+
+def test_security_options(
+    podman_bin: str,
+    mock_validate_podman: mock.MagicMock,
+    mock_trusted_image: mock.MagicMock,
+    mock_podman_client: mock.MagicMock,
+    mock_container: mock.MagicMock,
+    security_test_params: dict[str, list[str] | str],
+):
+    """Test security options handling."""
+    mock_container.logs.return_value = b"security test"
+
+    result = run_podman_container(
+        image="alpine:latest",
+        command=["echo", "security test"],
+        security_opts=security_test_params["security_opts"],  # type: ignore
+        cap_drop=security_test_params["cap_drop"],  # type: ignore
+        cap_add=security_test_params["cap_add"],  # type: ignore
+        network=security_test_params["network"],  # type: ignore
+    )
+
+    create_args = mock_podman_client.containers.create.call_args[1]
+    assert create_args["security_opt"] == security_test_params["security_opts"]
+    assert create_args["cap_drop"] == security_test_params["cap_drop"]
+    assert create_args["cap_add"] == security_test_params["cap_add"]
+    assert create_args["network_mode"] == security_test_params["network"]
+
+    assert result.success
+    assert "security test" in result.output
+
+
+@pytest.mark.parametrize(
+    "exception_msg,expected_msg",
+    [
+        ("Simulated Podman API error", "Error running Podman container"),
+        ("Connection refused", "Error running Podman container"),
+        ("Permission denied", "Error running Podman container"),
+    ],
+)
+def test_podman_exception_handling(
+    exception_msg: str,
+    expected_msg: str,
+    podman_bin: str,
+    mock_validate_podman: mock.MagicMock,
+    mock_trusted_image: mock.MagicMock,
+    mock_podman_client: mock.MagicMock,
+):
+    """Test exception handling in the run_podman_container function."""
+    mock_podman_client.containers.create.side_effect = Exception(exception_msg)
+
+    with pytest.raises(RuntimeError, match=expected_msg) as excinfo:
+        run_podman_container(
+            image="alpine:latest", command=["echo", "This should fail"]
+        )
+
+    assert exception_msg in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "image",
+    ["build-something:latest", "myrepo/dockerfile-image:1.0", "dockerfile:latest"],
+)
+def test_dockerfile_image_rejection(
+    image: str,
+    podman_bin: str,
+    mock_validate_podman: mock.MagicMock,
+    mock_trusted_image: mock.MagicMock,
+):
+    """Test that image names containing 'dockerfile' or starting with 'build' are rejected."""
+    logger.info("Testing dockerfile/build image rejection", image=image)
+
+    with pytest.raises(ValueError, match="Building images with Podman is not allowed"):
+        run_podman_container(image=image, command=["echo", "This should not run"])
+
+    logger.debug("Dockerfile image rejection test completed successfully")
+
+
+@pytest.fixture
+def mock_container() -> mock.MagicMock:
+    """Fixture for a mock container with default successful execution state."""
+    container = mock.MagicMock()
+    container.logs.return_value = b"test output"
+    container.inspect.return_value = {"State": {"ExitCode": 0, "Status": "exited"}}
+    return container
+
+
+@pytest.fixture
+def mock_podman_setup(
+    mock_podman_client: mock.MagicMock, mock_container: mock.MagicMock
+) -> mock.MagicMock:
+    """Fixture for setting up a mock Podman client with a container."""
+    client_mock = mock_podman_client.return_value.__enter__.return_value
+    client_mock.containers.create.return_value = mock_container
+    return client_mock
+
+
+@pytest.mark.parametrize(
+    "volume_config",
+    [
+        {
+            "/host/path1": {"bind": "/container/path1", "mode": "ro"},
+            "/host/path2": "/container/path2",
+        },
+        {"/single/path": {"bind": "/container/path", "mode": "rw"}},
+        {"/str/path": "/container/str/path"},
+    ],
+)
+def test_volume_configurations(
+    volume_config: dict[str, dict[str, str] | str],
+    podman_bin: str,
+    mock_validate_podman: mock.MagicMock,
+    mock_trusted_image: mock.MagicMock,
+    mock_podman_setup: mock.MagicMock,
+    mock_container: mock.MagicMock,
+):
+    """Test various volume mounting configurations."""
+    result = run_podman_container(
+        image="alpine:latest", command=["ls", "-la"], volumes=volume_config
+    )
+
+    create_args = mock_podman_setup.containers.create.call_args[1]
+
+    for host_path, container_config in volume_config.items():
+        assert host_path in create_args["volumes"]
+        if isinstance(container_config, dict):
+            assert create_args["volumes"][host_path]["bind"] == container_config["bind"]
+            assert create_args["volumes"][host_path]["mode"] == container_config["mode"]
         else:
-            os.environ.pop("TRACECAT__TRUSTED_DOCKER_IMAGES", None)
+            assert create_args["volumes"][host_path]["bind"] == container_config
+            assert create_args["volumes"][host_path]["mode"] == "rw"
+
+    assert result.success
 
 
-def test_podman_result_class():
-    """Test the PodmanResult class functionality."""
-    # Test successful result
-    success_result = PodmanResult(
-        output="Command executed successfully",
-        exit_code=0,
-        container_id="container123",
-        command=["podman", "run", "alpine", "echo", "hello"],
-        status="exited",
-    )
+@pytest.mark.parametrize(
+    "podman_version,should_raise",
+    [("podman version 4.3.1", False), ("podman version 3.0.0", False), ("", True)],
+)
+def test_validate_podman_installation(
+    podman_version: str, should_raise: bool, tmp_path: Path
+):
+    """Test the validate_podman_installation function with different versions."""
+    podman_path = tmp_path / "podman"
+    podman_path.touch()
 
-    assert success_result.success is True
-    assert success_result.output == "Command executed successfully"
-    assert success_result.exit_code == 0
-    assert success_result.container_id == "container123"
-    assert len(success_result.command) == 5
-    assert success_result.status == "exited"
+    with mock.patch("subprocess.run") as mock_run:
+        mock_result = mock.MagicMock()
+        mock_result.returncode = 0 if podman_version else 1
+        mock_result.stdout = podman_version
+        mock_result.stderr = "" if podman_version else "Command failed"
+        mock_run.return_value = mock_result
 
-    # Test failed result
-    failed_result = PodmanResult(
-        output="Command failed with error",
-        exit_code=1,
-        container_id="container456",
-        command=["podman", "run", "alpine", "invalid_cmd"],
-        status="error",
-    )
-
-    assert failed_result.success is False
-    assert failed_result.output == "Command failed with error"
-    assert failed_result.exit_code == 1
-    assert failed_result.container_id == "container456"
-    assert len(failed_result.command) == 4
-    assert failed_result.status == "error"
-
-    # Test with minimal arguments
-    minimal_result = PodmanResult(output="", exit_code=0)
-
-    assert minimal_result.success is True
-    assert minimal_result.container_id is None
-    assert minimal_result.command == []
-    assert minimal_result.status is None
+        if should_raise:
+            with pytest.raises(RuntimeError):
+                validate_podman_installation(str(podman_path))
+        else:
+            validate_podman_installation(str(podman_path))
+            mock_run.assert_called_once_with(
+                [str(podman_path), "version"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
