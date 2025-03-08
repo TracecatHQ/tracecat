@@ -50,51 +50,14 @@ graphroot = "/var/lib/containers/storage"
 additionalimagestores = []
 EOF
 
-# Strict seccomp policy with minimal network syscalls
-cat > /etc/containers/seccomp.json << EOF
-{
-    "defaultAction": "SCMP_ACT_ERRNO",
-    "architectures": [
-        "SCMP_ARCH_X86_64"
-    ],
-    "syscalls": [
-        {
-            "names": [
-                # Base file operations
-                "read",
-                "write",
-                "open",
-                "close",
-                "exit",
-                "exit_group",
-
-                # Network syscalls for HTTPS/API calls
-                "socket",
-                "connect",
-                "getpeername",
-                "getsockname",
-                "setsockopt",
-
-                # DNS resolution
-                "recvfrom",
-                "sendto",
-
-                # Required by Go/Python runtimes
-                "futex",
-                "epoll_ctl",
-                "epoll_wait",
-                "poll",
-                "fcntl"
-            ],
-            "action": "SCMP_ACT_ALLOW"
-        }
-    ]
-}
-EOF
-
 # Create podman socket with minimal permissions
 mkdir -p /run/podman
 chmod 750 /run/podman
+
+# Copy seccomp profile
+mkdir -p /etc/containers
+cp /app/config/seccomp.json /etc/containers/seccomp.json
+chmod 644 /etc/containers/seccomp.json
 
 # Create volume directory with secure permissions
 mkdir -p /var/lib/containers/storage/volumes
