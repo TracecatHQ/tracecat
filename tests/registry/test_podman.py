@@ -596,7 +596,7 @@ def test_live_stratus_red_team_list(
     result = run_podman_container(
         image="ghcr.io/datadog/stratus-red-team:latest",
         command=["list"],
-        network="bridge",  # Need network access for stratus-red-team
+        network=podman.PodmanNetwork.BRIDGE,  # Need network access for stratus-red-team
     )
 
     # Basic success checks
@@ -638,7 +638,7 @@ def test_live_network_call(
             "-c",
             "import urllib.request, json; response = urllib.request.urlopen('https://httpbin.org/get'); print(response.read().decode())",
         ],
-        network="bridge",  # Need network access for HTTP calls
+        network=podman.PodmanNetwork.BRIDGE,  # Need network access for HTTP calls
     )
 
     # Use runtime_info for better error messages
