@@ -1,17 +1,19 @@
 """Run containers inside containers using Podman."""
 
 import subprocess
+from collections.abc import Iterator
+from enum import StrEnum, auto
 from pathlib import Path
-import podman
+
 from loguru import logger
-from typing import Iterator
 from pydantic import BaseModel, Field
+
+import podman
 from tracecat.config import (
     TRACECAT__PODMAN_BINARY_PATH,
-    TRACECAT__TRUSTED_DOCKER_IMAGES,
     TRACECAT__PODMAN_URI,
+    TRACECAT__TRUSTED_DOCKER_IMAGES,
 )
-from enum import StrEnum, auto
 
 # Constants - keep hardcoded secure defaults
 SECURE_NETWORK = "none"
