@@ -179,7 +179,7 @@ def set_podman_env(podman_bin, podman_uri):
     env_updates = {
         "TRACECAT__PODMAN_BINARY_PATH": podman_bin,
         "TRACECAT__TRUSTED_DOCKER_IMAGES": (
-            "alpine:latest,python:3.9-slim,ghcr.io/datadog/stratus-red-team:latest"
+            "alpine:latest,python:3.9-slim,ghcr.io/datadog/stratus-red-team:latest,curlimages/curl:latest"
         ),
         "TRACECAT__PODMAN_URI": podman_uri,
     }
@@ -605,7 +605,7 @@ def test_live_stratus_red_team_list(
     result = run_podman_container(
         image="ghcr.io/datadog/stratus-red-team:latest",
         command=["list"],
-        security_opts=[],  # Override default security options that cause issues
+        network="bridge",  # Need network access for stratus-red-team
     )
 
     # Basic success checks
@@ -641,14 +641,13 @@ def test_live_network_call(
 ):
     """Integration test making real HTTP calls from a Podman container."""
     result = run_podman_container(
-        image="alpine:latest",
+        image="python:3.9-slim",
         command=[
-            "sh",
+            "python",
             "-c",
-            "apk add --no-cache curl && curl -s https://httpbin.org/get",
+            "import urllib.request, json; response = urllib.request.urlopen('https://httpbin.org/get'); print(response.read().decode())",
         ],
-        security_opts=[],
-        network="bridge",
+        network="bridge",  # Need network access for HTTP calls
     )
 
     # Use runtime_info for better error messages
