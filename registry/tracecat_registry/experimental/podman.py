@@ -11,6 +11,7 @@ from tracecat.config import (
     TRACECAT__TRUSTED_DOCKER_IMAGES,
     TRACECAT__PODMAN_URI,
 )
+from enum import StrEnum, auto
 
 # Constants - keep hardcoded secure defaults
 SECURE_NETWORK = "none"
@@ -53,6 +54,21 @@ class PodmanResult(BaseModel):
             True if the exit code was 0, False otherwise.
         """
         return self.exit_code == 0
+
+
+class PodmanNetwork(StrEnum):
+    """Network modes for Podman containers with strict isolation."""
+
+    NONE = auto()  # Most secure, no network
+    BRIDGE = auto()  # Default podman network, required for external services
+
+
+class PullPolicy(StrEnum):
+    """Image pull policies with secure defaults."""
+
+    NEVER = auto()  # Most secure, requires pre-pulled images
+    MISSING = auto()  # Pull only if image missing
+    ALWAYS = auto()  # Always pull
 
 
 def is_trusted_image(image: str) -> bool:
@@ -135,8 +151,8 @@ def run_podman_container(
     env_vars: dict[str, str] | None = None,
     volume_name: str | None = None,  # Single named volume
     volume_path: str | None = None,  # Where to mount it
-    network: str = SECURE_NETWORK,
-    pull_policy: str = "missing",
+    network: PodmanNetwork = PodmanNetwork.NONE,
+    pull_policy: PullPolicy = PullPolicy.MISSING,
     raise_on_error: bool = False,
 ) -> PodmanResult:
     """Run a container securely with Podman using functional approach.
@@ -155,9 +171,9 @@ def run_podman_container(
         Name of the volume to mount.
     volume_path : str, optional
         Path on the host to mount the volume.
-    network : str, default 'none'
+    network : PodmanNetwork, default PodmanNetwork.NONE
         Network mode for the container. Defaults to isolated.
-    pull_policy : {'always', 'never', 'missing'}, default 'missing'
+    pull_policy : PullPolicy, default PullPolicy.MISSING
         When to pull the image.
     raise_on_error : bool, default False
         If True, raises RuntimeError on container errors.
@@ -180,7 +196,7 @@ def run_podman_container(
     >>> result = run_podman_container(
     ...     "alpine:latest",
     ...     ["echo", "Hello, World!"],
-    ...     network="none"
+    ...     network=PodmanNetwork.NONE
     ... )
     >>> print(result.output)
     Hello, World!
@@ -238,8 +254,8 @@ def run_podman_container(
         # Connect to the Podman API using a context manager
         with podman.PodmanClient(base_url=TRACECAT__PODMAN_URI) as client:
             # Pull the image if needed
-            if pull_policy == "always" or (
-                pull_policy == "missing" and not client.images.exists(image)
+            if pull_policy == PullPolicy.ALWAYS or (
+                pull_policy == PullPolicy.MISSING and not client.images.exists(image)
             ):
                 logger.info("Pulling image", image=image)
                 client.images.pull(image)
