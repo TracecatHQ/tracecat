@@ -13,11 +13,8 @@ from tracecat.config import (
     TRACECAT__PODMAN_URI,
 )
 
-# Hardcoded secure defaults
+# Constants - keep hardcoded secure defaults
 SECURE_NETWORK = "none"
-DEFAULT_SECURITY_OPTS = ["no-new-privileges:true", "seccomp=default"]
-# Duplicate of setup-podman.sh settings for defense in depth - ensures volume security
-# even if system configs are modified or podman-py bypasses system defaults
 SECURE_MOUNT_OPTIONS = ["nodev", "nosuid", "noexec"]
 
 
@@ -141,7 +138,6 @@ def run_podman_container(
     volume_name: str | None = None,  # Single named volume
     volume_path: str | None = None,  # Where to mount it
     network: str = SECURE_NETWORK,
-    security_opts: list[str] | None = None,
     cap_drop: list[str] | None = None,
     cap_add: list[str] | None = None,
     pull_policy: str = "missing",
@@ -165,8 +161,6 @@ def run_podman_container(
         Path on the host to mount the volume.
     network : str, default 'none'
         Network mode for the container. Defaults to isolated.
-    security_opts : list of str, optional
-        Security options for the container. Defaults to ["no-new-privileges:true", "seccomp=default"].
     cap_drop : list of str, optional
         Linux capabilities to drop. Defaults to ["ALL"].
     cap_add : list of str, optional
@@ -240,10 +234,7 @@ def run_podman_container(
             ),
         )
 
-        # Security options
-        security_opts = (
-            DEFAULT_SECURITY_OPTS if security_opts is None else security_opts
-        )
+        # Security options are now hardcoded
         cap_drop = ["ALL"]  # Hardcode to ALL to ensure no extra capabilities
         cap_add = cap_add or []
         env_vars = env_vars or {}
@@ -271,7 +262,6 @@ def run_podman_container(
                 command=command,
                 environment=env_vars,
                 network_mode=network,
-                security_opt=security_opts,
                 cap_drop=cap_drop,
                 cap_add=cap_add,
                 volumes=volume_mounts,
