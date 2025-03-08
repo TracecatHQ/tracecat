@@ -243,17 +243,6 @@ def mock_podman_setup(
     return client_mock
 
 
-@pytest.fixture
-def security_test_params() -> dict[str, list[str] | str]:
-    """Fixture providing security test parameters."""
-    return {
-        "security_opts": ["seccomp=unconfined"],
-        "cap_drop": ["NET_ADMIN"],
-        "cap_add": ["SYS_ADMIN"],
-        "network": "host",  # network is a string, not a list
-    }
-
-
 # === Tests === #
 
 

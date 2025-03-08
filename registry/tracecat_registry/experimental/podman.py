@@ -138,8 +138,6 @@ def run_podman_container(
     volume_name: str | None = None,  # Single named volume
     volume_path: str | None = None,  # Where to mount it
     network: str = SECURE_NETWORK,
-    cap_drop: list[str] | None = None,
-    cap_add: list[str] | None = None,
     pull_policy: str = "missing",
     raise_on_error: bool = False,
 ) -> PodmanResult:
@@ -161,10 +159,6 @@ def run_podman_container(
         Path on the host to mount the volume.
     network : str, default 'none'
         Network mode for the container. Defaults to isolated.
-    cap_drop : list of str, optional
-        Linux capabilities to drop. Defaults to ["ALL"].
-    cap_add : list of str, optional
-        Linux capabilities to add. Empty by default for maximum security.
     pull_policy : {'always', 'never', 'missing'}, default 'missing'
         When to pull the image.
     raise_on_error : bool, default False
@@ -235,8 +229,6 @@ def run_podman_container(
         )
 
         # Security options are now hardcoded
-        cap_drop = ["ALL"]  # Hardcode to ALL to ensure no extra capabilities
-        cap_add = cap_add or []
         env_vars = env_vars or {}
 
         volume_mounts = {}
@@ -262,8 +254,6 @@ def run_podman_container(
                 command=command,
                 environment=env_vars,
                 network_mode=network,
-                cap_drop=cap_drop,
-                cap_add=cap_add,
                 volumes=volume_mounts,
                 remove=True,
                 detach=False,
