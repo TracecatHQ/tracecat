@@ -8,61 +8,35 @@ apt-get install -y \
   crun \
   uidmap
 
-# Configure Podman environment with secure defaults
+# Create necessary directories with proper permissions
 mkdir -p /etc/containers
-cat > /etc/containers/containers.conf << EOF
-[containers]
-# No default capabilities
-default_capabilities = []
-default_sysctls = []
-# Secure volume mounts by default
-default_mount_options = ["nodev", "nosuid", "noexec"]
-# Prevent privilege escalation
-no_new_privileges = true
-
-[engine]
-runtime = "crun"
-userns_mode = "auto"
-cgroup_manager = "cgroupfs"
-# Enable automatic volume cleanup
-volume_cleanup = "true"
-
-[engine.runtimes]
-crun = [
-  "/usr/bin/crun",
-]
-EOF
-
-# Set up user namespace remapping
 mkdir -p /etc/subuid /etc/subgid
+mkdir -p /run/podman
+mkdir -p /run/containers/storage
+mkdir -p /var/lib/containers/storage
+mkdir -p /var/lib/containers/storage/volumes
+
+# Copy configuration files
+cp /app/config/podman/containers.conf /etc/containers/containers.conf
+cp /app/config/podman/storage.conf /etc/containers/storage.conf
+cp /app/config/podman/seccomp.json /etc/containers/seccomp.json
+
+# === Setup rootless podman === #
+
+# 1. Remap user namespaces
 echo "apiuser:100000:65536" >> /etc/subuid
 echo "apiuser:100000:65536" >> /etc/subgid
 
-# Minimal storage configuration - only for named volumes
-mkdir -p /etc/containers
-cat > /etc/containers/storage.conf << EOF
-[storage]
-# Only need runtime and volume storage
-runroot = "/run/containers/storage"
-graphroot = "/var/lib/containers/storage"
-[storage.options]
-# Block additional image stores
-additionalimagestores = []
-EOF
-
-# Create podman socket with minimal permissions
-mkdir -p /run/podman
+# 2. Set secure permissions for all required directories
 chmod 750 /run/podman
-
-# Copy seccomp profile
-mkdir -p /etc/containers
-cp /app/config/seccomp.json /etc/containers/seccomp.json
 chmod 644 /etc/containers/seccomp.json
+chmod -R 770 /var/lib/containers/storage
+chmod -R 770 /run/containers/storage
 
-# Create volume directory with secure permissions
-mkdir -p /var/lib/containers/storage/volumes
-chown root:apiuser /var/lib/containers/storage/volumes
-chmod 770 /var/lib/containers/storage/volumes
+# 3. Set ownership for storage directories
+chown -R root:apiuser /var/lib/containers/storage
+chown -R root:apiuser /run/containers/storage
+chown root:apiuser /run/podman
 
 # Cleanup
 rm -rf /var/lib/apt/lists/*

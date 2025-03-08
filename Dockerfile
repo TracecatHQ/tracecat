@@ -21,6 +21,7 @@ RUN chmod +x auto-update.sh && \
 
 # Set up Podman
 COPY scripts/setup-podman.sh .
+COPY config/podman /app/config/podman
 RUN chmod +x setup-podman.sh && \
     ./setup-podman.sh && \
     rm setup-podman.sh
