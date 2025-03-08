@@ -66,9 +66,7 @@ def podman_bin() -> str:
 @pytest.fixture
 def mock_validate_podman():
     """Mock the get_podman_version function to avoid actual validation."""
-    with mock.patch(
-        "registry.tracecat_registry.experimental.podman.get_podman_version"
-    ) as mock_validate:
+    with mock.patch("tracecat.sandbox.podman.get_podman_version") as mock_validate:
         # Make the validation function do nothing
         mock_validate.return_value = None
         yield mock_validate
@@ -77,9 +75,7 @@ def mock_validate_podman():
 @pytest.fixture
 def mock_trusted_image():
     """Mock the is_trusted_image function to always return True for testing."""
-    with mock.patch(
-        "registry.tracecat_registry.experimental.podman.is_trusted_image"
-    ) as mock_trust:
+    with mock.patch("tracecat.sandbox.podman.is_trusted_image") as mock_trust:
         # Always consider images trusted for testing
         mock_trust.return_value = True
         yield mock_trust
@@ -465,9 +461,7 @@ def test_validate_podman_installation_with_mocks():
 def test_untrusted_image_handling(podman_bin, mock_validate_podman, mock_podman_client):
     """Test that untrusted images are properly rejected."""
     # Configure the mock to specifically reject this image
-    with mock.patch(
-        "registry.tracecat_registry.experimental.podman.is_trusted_image"
-    ) as mock_trust:
+    with mock.patch("tracecat.sandbox.podman.is_trusted_image") as mock_trust:
         mock_trust.return_value = False
 
         result = run_podman_container(
