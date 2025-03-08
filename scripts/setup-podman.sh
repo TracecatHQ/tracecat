@@ -50,7 +50,7 @@ graphroot = "/var/lib/containers/storage"
 additionalimagestores = []
 EOF
 
-# Strict seccomp policy
+# Strict seccomp policy with minimal network syscalls
 cat > /etc/containers/seccomp.json << EOF
 {
     "defaultAction": "SCMP_ACT_ERRNO",
@@ -60,12 +60,31 @@ cat > /etc/containers/seccomp.json << EOF
     "syscalls": [
         {
             "names": [
+                # Base file operations
                 "read",
                 "write",
                 "open",
                 "close",
                 "exit",
-                "exit_group"
+                "exit_group",
+
+                # Network syscalls for HTTPS/API calls
+                "socket",
+                "connect",
+                "getpeername",
+                "getsockname",
+                "setsockopt",
+
+                # DNS resolution
+                "recvfrom",
+                "sendto",
+
+                # Required by Go/Python runtimes
+                "futex",
+                "epoll_ctl",
+                "epoll_wait",
+                "poll",
+                "fcntl"
             ],
             "action": "SCMP_ACT_ALLOW"
         }
