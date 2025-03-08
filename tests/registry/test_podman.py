@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import platform
@@ -5,16 +6,19 @@ import subprocess
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from unittest import mock
 
 import pytest
 from loguru import logger
 
+from registry.tracecat_registry.experimental import podman
 from registry.tracecat_registry.experimental.podman import (
     PodmanResult,
+    get_podman_version,
     run_podman_container,
-    validate_podman_installation,
 )
+from tracecat import config
 
 
 # Check if podman is installed on the host system
@@ -61,9 +65,9 @@ def podman_bin() -> str:
 
 @pytest.fixture
 def mock_validate_podman():
-    """Mock the validate_podman_installation function to avoid actual validation."""
+    """Mock the get_podman_version function to avoid actual validation."""
     with mock.patch(
-        "registry.tracecat_registry.experimental.podman.validate_podman_installation"
+        "registry.tracecat_registry.experimental.podman.get_podman_version"
     ) as mock_validate:
         # Make the validation function do nothing
         mock_validate.return_value = None
@@ -171,10 +175,7 @@ def podman_uri(podman_bin) -> str:
 @pytest.fixture(autouse=True)
 def set_podman_env(podman_bin, podman_uri):
     """Set the Podman environment variables for testing."""
-    import importlib
-
-    from registry.tracecat_registry.experimental import podman
-    from tracecat import config
+    seccomp_path = Path("config/seccomp.json").resolve()
 
     env_updates = {
         "TRACECAT__PODMAN_BINARY_PATH": podman_bin,
@@ -182,6 +183,7 @@ def set_podman_env(podman_bin, podman_uri):
             "alpine:latest,python:3.9-slim,ghcr.io/datadog/stratus-red-team:latest,curlimages/curl:latest"
         ),
         "TRACECAT__PODMAN_URI": podman_uri,
+        "TRACECAT__PODMAN_SECCOMP_PROFILE": str(seccomp_path),
     }
 
     with temp_env_vars(env_updates):
@@ -425,7 +427,7 @@ def test_container_null_id(
 
 
 def test_validate_podman_installation_with_mocks():
-    """Test the validate_podman_installation function using mocks."""
+    """Test the get_podman_version function using mocks."""
     with (
         mock.patch("subprocess.run") as mock_run,
         mock.patch("pathlib.Path.exists", return_value=True),
@@ -438,7 +440,7 @@ def test_validate_podman_installation_with_mocks():
         mock_run.return_value = mock_result
 
         # Should not raise any exceptions
-        validate_podman_installation("/path/to/podman")
+        get_podman_version("/path/to/podman")
 
         # Verify the right command was called
         mock_run.assert_called_once_with(
@@ -454,7 +456,7 @@ def test_validate_podman_installation_with_mocks():
 
         # Should raise RuntimeError
         with pytest.raises(RuntimeError):
-            validate_podman_installation("/path/to/podman")
+            get_podman_version("/path/to/podman")
 
         # Verify the command was called
         mock_run.assert_called_once()

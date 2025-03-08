@@ -1,6 +1,5 @@
 """Run containers inside containers using Podman."""
 
-import os
 import subprocess
 from pathlib import Path
 import podman
@@ -76,8 +75,8 @@ def is_trusted_image(image: str) -> bool:
     return image in TRACECAT__TRUSTED_DOCKER_IMAGES
 
 
-def validate_podman_installation(podman_bin: str) -> str:
-    """Check if Podman is installed and working.
+def get_podman_version(podman_bin: str) -> str:
+    """Get Podman version and verify installation.
 
     Parameters
     ----------
@@ -87,7 +86,7 @@ def validate_podman_installation(podman_bin: str) -> str:
     Returns
     -------
     str
-        Version of Podman.
+        Version string of Podman installation.
 
     Raises
     ------
@@ -96,7 +95,6 @@ def validate_podman_installation(podman_bin: str) -> str:
     RuntimeError
         If the podman version check fails.
     """
-
     if not Path(podman_bin).exists():
         logger.error("Podman binary not found", path=podman_bin)
         raise FileNotFoundError(f"Podman binary not found at {podman_bin}.")
@@ -112,12 +110,12 @@ def validate_podman_installation(podman_bin: str) -> str:
             logger.error("Podman version check failed", stderr=result.stderr)
             raise RuntimeError(f"Podman version check failed: {result.stderr}")
 
-        logger.debug("Podman version", version=result.stdout.strip())
+        version = result.stdout.strip()
+        logger.debug("Podman version", version=version)
+        return version
     except Exception as e:
         logger.error("Failed to run podman", error=e)
         raise
-
-    return result.stdout.strip()
 
 
 def _process_container_logs(logs: bytes | Iterator[bytes] | str) -> str:
@@ -206,7 +204,7 @@ def run_podman_container(
     }
 
     try:
-        version = validate_podman_installation(TRACECAT__PODMAN_BINARY_PATH)
+        version = get_podman_version(TRACECAT__PODMAN_BINARY_PATH)
         runtime_info["podman_version"] = version
         runtime_info["logs"].append("Podman version validated")
 
@@ -223,9 +221,7 @@ def run_podman_container(
         logger.info(
             "Checked Docker image against trusted images",
             image=image,
-            trusted_images=os.environ.get("TRACECAT__TRUSTED_DOCKER_IMAGES", "").split(
-                ","
-            ),
+            trusted_images=TRACECAT__TRUSTED_DOCKER_IMAGES,
         )
 
         # Security options are now hardcoded
@@ -257,8 +253,8 @@ def run_podman_container(
                 volumes=volume_mounts,
                 remove=True,
                 detach=False,
-                user="1000:1000",  # Force non-root UID:GID inside container
-                read_only=True,  # Root filesystem is still read-only
+                user="1000:1000",
+                read_only=True,
             )
 
             # Start the container and get logs
