@@ -240,9 +240,6 @@ def run_podman_container(
             trusted_images=TRACECAT__TRUSTED_DOCKER_IMAGES,
         )
 
-        # Security options are now hardcoded
-        env_vars = env_vars or {}
-
         volume_mounts = {}
         if volume_name and volume_path:
             volume_mounts[volume_name] = {
@@ -264,7 +261,7 @@ def run_podman_container(
             container = client.containers.create(
                 image=image,
                 command=command,
-                environment=env_vars,
+                environment=env_vars or {},
                 network_mode=network,
                 volumes=volume_mounts,
                 remove=True,
