@@ -1,16 +1,13 @@
 """Run containers inside containers using Podman."""
 
-import subprocess
 from collections.abc import Iterator
 from enum import StrEnum, auto
-from pathlib import Path
 
 from loguru import logger
 from pydantic import BaseModel, Field
 
 import podman
 from tracecat.config import (
-    TRACECAT__PODMAN_BINARY_PATH,
     TRACECAT__PODMAN_URI,
     TRACECAT__TRUSTED_DOCKER_IMAGES,
 )
@@ -93,13 +90,8 @@ def is_trusted_image(image: str) -> bool:
     return image in TRACECAT__TRUSTED_DOCKER_IMAGES
 
 
-def get_podman_version(podman_bin: str) -> str:
-    """Get Podman version and verify installation.
-
-    Parameters
-    ----------
-    podman_bin : str
-        Path to the podman binary.
+def get_podman_version() -> str:
+    """Get Podman version from the remote podman service.
 
     Returns
     -------
@@ -108,32 +100,18 @@ def get_podman_version(podman_bin: str) -> str:
 
     Raises
     ------
-    FileNotFoundError
-        If the podman binary is not found.
     RuntimeError
         If the podman version check fails.
     """
-    if not Path(podman_bin).exists():
-        logger.error("Podman binary not found", path=podman_bin)
-        raise FileNotFoundError(f"Podman binary not found at {podman_bin}.")
-
     try:
-        result = subprocess.run(
-            [podman_bin, "version"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            logger.error("Podman version check failed", stderr=result.stderr)
-            raise RuntimeError(f"Podman version check failed: {result.stderr}")
-
-        version = result.stdout.strip()
-        logger.debug("Podman version", version=version)
-        return version
+        with podman.PodmanClient(base_url=TRACECAT__PODMAN_URI) as client:
+            version_info = client.version()
+            version = f"Version: {version_info['Version']}, API Version: {version_info['ApiVersion']}"
+            logger.debug("Podman version", version=version)
+            return version
     except Exception as e:
-        logger.error("Failed to run podman", error=e)
-        raise
+        logger.error("Failed to get podman version", error=e)
+        raise RuntimeError(f"Failed to get podman version: {e}") from e
 
 
 def _process_container_logs(logs: bytes | Iterator[bytes] | str) -> str:
@@ -190,8 +168,8 @@ def run_podman_container(
     ------
     ValueError
         If the image is not in the trusted images list.
-    FileNotFoundError
-        If podman binary is not found.
+    RuntimeError
+        If podman service is not available.
 
     Examples
     --------
@@ -222,7 +200,7 @@ def run_podman_container(
     }
 
     try:
-        version = get_podman_version(TRACECAT__PODMAN_BINARY_PATH)
+        version = get_podman_version()
         runtime_info["podman_version"] = version
         runtime_info["logs"].append("Podman version validated")
 
@@ -250,102 +228,127 @@ def run_podman_container(
                 "options": SECURE_MOUNT_OPTIONS,  # Defense in depth with setup-podman.sh
             }
 
-        # Connect to the Podman API using a context manager
+        # Connect to the podman service
         with podman.PodmanClient(base_url=TRACECAT__PODMAN_URI) as client:
-            # Pull the image if needed
+            # Pull image if needed
             if pull_policy == PullPolicy.ALWAYS or (
                 pull_policy == PullPolicy.MISSING and not client.images.exists(image)
             ):
                 logger.info("Pulling image", image=image)
-                client.images.pull(image)
+                try:
+                    client.images.pull(image)
+                    runtime_info["logs"].append(f"Pulled image: {image}")
+                except Exception as e:
+                    logger.error("Failed to pull image", image=image, error=e)
+                    runtime_info["logs"].append(f"Failed to pull image: {image}")
+                    return PodmanResult(
+                        output=f"Error: Failed to pull image: {e}",
+                        exit_code=1,
+                        status="failed",
+                        runtime_info=runtime_info,
+                    )
 
-            # Create and run the container
-            container = client.containers.create(
-                image=image,
-                command=command,
-                environment=env_vars or {},
-                network_mode=network,
-                volumes=volume_mounts,
-                remove=True,
-                detach=False,
-                user="1000:1000",
-                read_only=True,
-            )
+            # Prepare container configuration
+            container_config = {
+                "image": image,
+                "command": command,
+                "environment": env_vars or {},
+                "network_mode": network.value.lower(),
+                "remove": True,  # Auto-remove container after execution
+                "detach": True,  # Run in background
+                "volumes": volume_mounts,
+            }
 
-            # Start the container and get logs
-            container.start()
-            logs = container.logs(stdout=True, stderr=True, stream=False, follow=True)
-            logs_str = _process_container_logs(logs)
-
-            status = "unknown"
-            exit_code = 1
+            # Create and start container
+            logger.info("Creating container", image=image, command=command)
+            container = client.containers.create(**container_config)
             container_id = container.id
+            runtime_info["container_info"] = {"id": container_id}
 
-            if container_id is None:
-                logger.error("Container ID is None, cannot inspect container")
-                exit_code = 1
-                status = "error"
-            else:
-                container_info = client.containers.get(container_id).inspect()
-                exit_code = container_info.get("State", {}).get("ExitCode", 0)
-                status = container_info.get("State", {}).get("Status", "unknown")
+            try:
+                container.start()
+                logs = container.logs(stream=True, follow=True)
+                output = _process_container_logs(logs)
 
-            # Add podman command to the result
-            executed_cmd = ["podman", "run", "--network", network, f"--image={image}"]
-            if command:
-                executed_cmd.extend(command)
+                # Wait for container to finish
+                result = container.wait()
+                exit_code = (
+                    result["StatusCode"]
+                    if isinstance(result, dict) and "StatusCode" in result
+                    else -1
+                )
+                status = "exited"
 
-            # Store container info in runtime_info
-            if container_id:
-                runtime_info["container_info"] = container.inspect()
-                runtime_info["logs"].append(f"Container {container_id} executed")
+                # Get final container info
+                try:
+                    if container_id:
+                        container_info = client.containers.get(container_id).attrs
+                        runtime_info["container_info"] = container_info
+                except Exception as e:
+                    logger.warning(
+                        "Failed to get container info after execution", error=e
+                    )
 
-            if raise_on_error and exit_code != 0:
-                error_context = {
-                    "status": status,
-                    "exit_code": exit_code,
-                    "container_id": container_id,
-                    "last_log_lines": logs_str.strip()[-500:]
-                    if logs_str
-                    else "No logs available",
-                }
-
-                # Log full debug information
-                logger.error(
-                    "Container execution failed",
-                    **error_context,
+                # Return result
+                result = PodmanResult(
+                    output=output,
+                    exit_code=exit_code,
+                    container_id=container_id,
+                    command=command
+                    if isinstance(command, list)
+                    else [command]
+                    if command
+                    else [],
+                    status=status,
                     runtime_info=runtime_info,
                 )
 
-                # Raise with enough context to debug but without exposing internals
-                error_msg = (
-                    f"Container execution failed:\n"
-                    f"Status: {status}\n"
-                    f"Exit code: {exit_code}\n"
-                    f"Container ID: {container_id}\n"
-                    f"Last logs:\n{error_context['last_log_lines']}"
-                )
-                raise RuntimeError(error_msg)
+                if exit_code != 0 and raise_on_error:
+                    raise RuntimeError(
+                        f"Container exited with non-zero code: {exit_code}. Output: {output}"
+                    )
 
-            return PodmanResult(
-                output=logs_str,
-                exit_code=exit_code,
-                container_id=container_id,
-                command=executed_cmd,
-                status=status,
-                runtime_info=runtime_info,
-            )
+                return result
+
+            except Exception as e:
+                logger.error("Error running container", error=e)
+                # Try to get logs if possible
+                try:
+                    logs = container.logs()
+                    output = _process_container_logs(logs)
+                except Exception as log_e:
+                    logger.warning("Failed to get container logs", error=log_e)
+                    output = f"Error: {e}. Failed to get logs: {log_e}"
+
+                # Try to remove the container
+                try:
+                    container.remove(force=True)
+                except Exception as rm_e:
+                    logger.warning("Failed to remove container", error=rm_e)
+
+                result = PodmanResult(
+                    output=output,
+                    exit_code=1,
+                    container_id=container_id,
+                    command=command
+                    if isinstance(command, list)
+                    else [command]
+                    if command
+                    else [],
+                    status="error",
+                    runtime_info=runtime_info,
+                )
+                return result
 
     except Exception as e:
-        runtime_info["logs"].append(f"Error: {str(e)}")
+        logger.error("Failed to run podman container", error=e)
+        runtime_info["logs"].append(f"Failed to run container: {e}")
+
         if raise_on_error:
-            logger.error(
-                "Container execution failed", error=str(e), runtime_info=runtime_info
-            )
-            raise RuntimeError(f"Error running Podman container: {str(e)}") from e
+            raise RuntimeError(f"Error running container: {e}") from e
 
         return PodmanResult(
-            output=f"Error running Podman container: {str(e)}",
+            output=f"Error: {e}",
             exit_code=1,
             status="error",
             runtime_info=runtime_info,

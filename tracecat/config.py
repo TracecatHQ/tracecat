@@ -219,14 +219,19 @@ TRACECAT__RATE_LIMIT_BY_ENDPOINT = (
 )
 """Whether to rate limit by endpoint."""
 
-# === Podman config === #
-TRACECAT__PODMAN_BINARY_PATH = os.environ.get(
-    "TRACECAT__PODMAN_BINARY_PATH", "/usr/bin/podman"
+# === Podman Config === #
+PODMAN_API_VERSION = os.environ.get("PODMAN_API_VERSION", "v1.40")
+"""API version for the podman service."""
+
+TRACECAT__PODMAN_URI = os.environ.get(
+    "TRACECAT__PODMAN_URI", "tcp://container-runner:8080"
 )
+"""URI for the podman API.
+For TCP connections, use format: tcp://hostname:port
+For Unix sockets, use format: unix:///path/to/socket
+"""
+
 TRACECAT__TRUSTED_DOCKER_IMAGES = (
     (images := os.environ.get("TRACECAT__TRUSTED_DOCKER_IMAGES", ""))
     and images.split(",")
 ) or []
-TRACECAT__PODMAN_URI = os.environ.get(
-    "TRACECAT__PODMAN_URI", "unix:///run/podman/podman.sock"
-)
