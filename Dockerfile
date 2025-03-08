@@ -19,13 +19,6 @@ RUN chmod +x auto-update.sh && \
     ./auto-update.sh && \
     rm auto-update.sh
 
-# Set up Podman
-COPY scripts/setup-podman.sh .
-COPY config/podman /app/config/podman
-RUN chmod +x setup-podman.sh && \
-    ./setup-podman.sh && \
-    rm setup-podman.sh
-
 # Create the apiuser with a specific UID/GID
 RUN groupadd -g 1001 apiuser && \
     useradd -m -u 1001 -g apiuser apiuser
@@ -61,9 +54,7 @@ RUN uv pip install .
 RUN uv pip install ./registry
 
 # Ensure apiuser has write permissions to necessary directories
-RUN chown -R apiuser:apiuser /tmp /home/apiuser && \
-    # Give apiuser access to podman socket directory
-    chown root:apiuser /run/podman
+RUN chown -R apiuser:apiuser /tmp /home/apiuser
 
 # Change to the non-root user
 USER apiuser

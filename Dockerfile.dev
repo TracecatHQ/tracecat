@@ -15,13 +15,6 @@ RUN chmod +x install-packages.sh && \
     ./install-packages.sh && \
     rm install-packages.sh
 
-# Set up Podman
-COPY scripts/setup-podman.sh .
-COPY config/podman /app/config/podman
-RUN chmod +x setup-podman.sh && \
-    ./setup-podman.sh && \
-    rm setup-podman.sh
-
 # Set the working directory inside the container
 WORKDIR /app
 
