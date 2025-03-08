@@ -489,7 +489,7 @@ export type RegistryActionCreate = {
    */
   secrets?: Array<RegistrySecret> | null
   interface: RegistryActionInterface
-  implementation?: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl
+  implementation: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl
   /**
    * The default title of the action
    */
@@ -565,7 +565,7 @@ export type RegistryActionRead = {
    */
   secrets?: Array<RegistrySecret> | null
   interface: RegistryActionInterface
-  implementation?: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl
+  implementation: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl
   /**
    * The default title of the action
    */
@@ -1085,7 +1085,7 @@ export type SpecialUserID = "current"
 /**
  * Supported SQL types.
  */
-export type SqlType_Output =
+export type SqlType =
   | "TEXT"
   | "VARCHAR"
   | "INTEGER"
@@ -1108,7 +1108,7 @@ export type TableColumnCreate = {
   /**
    * The SQL type of the column
    */
-  type: tracecat__tables__enums__SqlType__1
+  type: SqlType
   nullable?: boolean
   default?: unknown | null
 }
@@ -1119,7 +1119,7 @@ export type TableColumnCreate = {
 export type TableColumnRead = {
   id: string
   name: string
-  type: SqlType_Output
+  type: SqlType
   nullable?: boolean
   default?: unknown | null
 }
@@ -1135,7 +1135,7 @@ export type TableColumnUpdate = {
   /**
    * The SQL type of the column
    */
-  type?: tracecat__tables__enums__SqlType__1 | null
+  type?: SqlType | null
   /**
    * Whether the column can be null
    */
@@ -1799,24 +1799,6 @@ export type login = {
   client_id?: string | null
   client_secret?: string | null
 }
-
-/**
- * Supported SQL types.
- */
-export type tracecat__tables__enums__SqlType__1 =
-  | "TEXT"
-  | "VARCHAR"
-  | "INTEGER"
-  | "BIGINT"
-  | "DECIMAL"
-  | "BOOLEAN"
-  | "TIMESTAMP"
-  | "TIMESTAMPTZ"
-  | "JSONB"
-  | "UUID"
-
-export type tracecat__tables__enums__SqlType__2 =
-  tracecat__tables__enums__SqlType__1
 
 export type PublicIncomingWebhookData = {
   contentType?: string | null
