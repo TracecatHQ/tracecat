@@ -144,10 +144,7 @@ services:
       - container-runner
 
   container-runner:
-    build:
-      context: .
-      dockerfile: podman/Dockerfile
-    image: ghcr.io/tracecathq/container-runner:${PODMAN_IMAGE_TAG:-v5.4.0}
+    image: ghcr.io/tracecathq/container-runner:latest
     container_name: container-runner
     restart: unless-stopped
     privileged: true
@@ -156,9 +153,6 @@ services:
     volumes:
       - ./podman:/etc/containers:ro
       - podman-storage:/var/lib/containers
-    environment:
-      - LOG_LEVEL=${LOG_LEVEL}
-      - PODMAN_API_VERSION=${PODMAN_API_VERSION:-v1.40}
 
   ui:
     image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.27.3}

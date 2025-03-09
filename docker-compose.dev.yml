@@ -151,6 +151,20 @@ services:
         "--reload",
       ]
 
+  container-runner:
+    build:
+      context: ./podman
+      dockerfile: podman/Dockerfile
+    container_name: container-runner
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - 8081:8080
+    volumes:
+      - ./podman:/etc/containers:ro
+      - podman-storage-dev:/var/lib/containers
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+
   ui:
     build:
       context: ./frontend

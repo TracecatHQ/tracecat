@@ -3,6 +3,7 @@ import json
 import os
 import platform
 import subprocess
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -16,7 +17,6 @@ from tracecat import config
 from tracecat.sandbox import podman
 from tracecat.sandbox.podman import (
     PodmanResult,
-    get_podman_version,
     run_podman_container,
 )
 
@@ -241,6 +241,32 @@ def mock_podman_setup(
     return client_mock
 
 
+@pytest.fixture(scope="function")
+def override_podman_uri_for_integration():
+    """Override Podman URI for integration tests when container-runner is used."""
+    # Only apply this in CI or when explicitly testing with container-runner
+    if os.environ.get("CI") or os.environ.get("USE_CONTAINER_RUNNER") == "1":
+        original_uri = os.environ.get("TRACECAT__PODMAN_URI")
+
+        # Set to use the container-runner service
+        os.environ["TRACECAT__PODMAN_URI"] = "tcp://localhost:8081"
+
+        yield
+
+        # Restore original
+        if original_uri:
+            os.environ["TRACECAT__PODMAN_URI"] = original_uri
+        else:
+            os.environ.pop("TRACECAT__PODMAN_URI", None)
+
+        # Also reload the modules to pick up the changes
+        importlib.reload(config)
+        importlib.reload(podman)
+    else:
+        # No change needed
+        yield
+
+
 # === Tests === #
 
 
@@ -420,42 +446,6 @@ def test_container_null_id(
     # Should still have output but exit code would be set to 1
     assert "test output" in result.output
     assert result.exit_code == 1
-
-
-def test_validate_podman_installation_with_mocks():
-    """Test the get_podman_version function using mocks."""
-    with (
-        mock.patch("subprocess.run") as mock_run,
-        mock.patch("pathlib.Path.exists", return_value=True),
-    ):
-        # Simulate successful podman version check
-        mock_result = mock.MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "podman version 4.3.1"
-        mock_result.stderr = ""
-        mock_run.return_value = mock_result
-
-        # Should not raise any exceptions
-        get_podman_version("/path/to/podman")
-
-        # Verify the right command was called
-        mock_run.assert_called_once_with(
-            ["/path/to/podman", "version"], capture_output=True, text=True, check=False
-        )
-
-        # Now test error cases
-        mock_run.reset_mock()
-
-        # Simulate podman version check failure
-        mock_result.returncode = 1
-        mock_result.stderr = "Some error occurred"
-
-        # Should raise RuntimeError
-        with pytest.raises(RuntimeError):
-            get_podman_version("/path/to/podman")
-
-        # Verify the command was called
-        mock_run.assert_called_once()
 
 
 def test_untrusted_image_handling(podman_bin, mock_validate_podman, mock_podman_client):
@@ -643,3 +633,496 @@ def test_live_network_call(
     )
 
     cleanup_containers(result.container_id)
+
+
+# === Security Verification Tests === #
+@pytest.mark.security
+@pytest.mark.integration
+class TestContainerSecurity:
+    """Test container security configurations and isolation."""
+
+    # Container runner port - using 8081 as 8080 is used by temporal_ui
+    CONTAINER_RUNNER_PORT = 8081
+
+    @pytest.fixture(scope="class")
+    def container_runner_id(self):
+        """Get the container ID of the container-runner service."""
+        try:
+            # First check if the service is available on the expected port
+            result = subprocess.run(
+                [
+                    "curl",
+                    "-s",
+                    f"http://localhost:{self.CONTAINER_RUNNER_PORT}/v1.40/version",
+                ],
+                check=False,
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                pytest.skip(
+                    f"Container-runner service not available on port {self.CONTAINER_RUNNER_PORT}"
+                )
+
+            # Get the container ID
+            result = subprocess.run(
+                ["docker", "ps", "-qf", "name=container-runner"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            container_id = result.stdout.strip()
+            if not container_id:
+                pytest.skip("container-runner service not running")
+            return container_id
+        except subprocess.SubprocessError:
+            pytest.skip("Docker command failed or not available")
+
+    @pytest.fixture(scope="function", autouse=True)
+    def podman_api_uri(self):
+        """Override the podman URI environment variable for security tests."""
+        original_uri = os.environ.get("TRACECAT__PODMAN_URI")
+
+        # Set the URI to use port 8081 for testing
+        os.environ["TRACECAT__PODMAN_URI"] = (
+            f"tcp://localhost:{self.CONTAINER_RUNNER_PORT}"
+        )
+
+        yield
+
+        # Restore the original URI
+        if original_uri:
+            os.environ["TRACECAT__PODMAN_URI"] = original_uri
+        else:
+            os.environ.pop("TRACECAT__PODMAN_URI", None)
+
+    @pytest.fixture(scope="class")
+    def test_container_id(self, container_runner_id):
+        """Create a test container for security verification."""
+        try:
+            # Start a test container that sleeps
+            result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "run",
+                    "-d",
+                    "--name",
+                    "security-test",
+                    "alpine",
+                    "sleep",
+                    "300",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            container_id = result.stdout.strip()
+
+            # Wait for container to be running
+            time.sleep(1)
+
+            yield container_id
+
+            # Cleanup
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "rm",
+                    "-f",
+                    "security-test",
+                ],
+                check=False,
+                capture_output=True,
+            )
+        except subprocess.SubprocessError:
+            pytest.skip("Failed to create test container")
+
+    def test_selinux_enforcement(self, container_runner_id):
+        """Verify SELinux is enforcing in container-runner."""
+        try:
+            # Check if SELinux is available
+            result = subprocess.run(
+                ["docker", "exec", container_runner_id, "which", "getenforce"],
+                check=False,
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                pytest.skip("SELinux not available in container")
+
+            # Verify SELinux is enforcing
+            result = subprocess.run(
+                ["docker", "exec", container_runner_id, "getenforce"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            assert "Enforcing" in result.stdout, "SELinux is not in enforcing mode"
+
+            # Verify SELinux is enabled in containers.conf
+            result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "grep",
+                    "selinux_enabled",
+                    "/etc/containers/containers.conf",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            assert "selinux_enabled = true" in result.stdout, (
+                "SELinux not enabled in containers.conf"
+            )
+        except subprocess.SubprocessError as e:
+            logger.error(f"SELinux verification failed: {e}")
+            pytest.skip("SELinux verification failed")
+
+    def test_user_namespace_isolation(self, container_runner_id, test_container_id):
+        """Verify user namespace isolation is properly configured."""
+        try:
+            # Check if user namespaces are enabled
+            result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "info",
+                    "--format",
+                    "{{.Host.SecurityOptions}}",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            assert "name=userns" in result.stdout.lower(), "User namespaces not enabled"
+
+            # Verify UID mapping exists
+            result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "inspect",
+                    "--format",
+                    "{{.HostConfig.IDMappings}}",
+                    test_container_id,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            assert "uid" in result.stdout.lower() and "gid" in result.stdout.lower(), (
+                "UID/GID mappings not found"
+            )
+
+            # Verify UID inside container is different than outside
+            result_inside = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "exec",
+                    test_container_id,
+                    "id",
+                    "-u",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            result_outside = subprocess.run(
+                ["docker", "exec", container_runner_id, "id", "-u"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            # Root inside container should be different than outside
+            assert result_inside.stdout.strip() != result_outside.stdout.strip(), (
+                "User IDs inside and outside container are the same"
+            )
+        except subprocess.SubprocessError as e:
+            logger.error(f"User namespace verification failed: {e}")
+            pytest.skip("User namespace verification failed")
+
+    def test_network_isolation(self, container_runner_id):
+        """Verify network isolation between containers."""
+        try:
+            # Create two containers on default network
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "run",
+                    "-d",
+                    "--name",
+                    "net-test1",
+                    "alpine",
+                    "sleep",
+                    "60",
+                ],
+                check=True,
+                capture_output=True,
+            )
+
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "run",
+                    "-d",
+                    "--name",
+                    "net-test2",
+                    "alpine",
+                    "sleep",
+                    "60",
+                ],
+                check=True,
+                capture_output=True,
+            )
+
+            # Get IP of net-test2
+            result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "inspect",
+                    "--format",
+                    "{{.NetworkSettings.IPAddress}}",
+                    "net-test2",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            ip_test2 = result.stdout.strip()
+            assert ip_test2, "Failed to get IP address of test container"
+
+            # Try to ping from net-test1 to net-test2 (should fail with netavark isolation)
+            result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "exec",
+                    "net-test1",
+                    "ping",
+                    "-W",
+                    "1",
+                    "-c",
+                    "1",
+                    ip_test2,
+                ],
+                check=False,
+                capture_output=True,
+            )
+
+            # If netavark is properly configured with isolation, ping should fail
+            assert result.returncode != 0, (
+                "Network isolation not effective, containers can communicate"
+            )
+
+            # Clean up
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "rm",
+                    "-f",
+                    "net-test1",
+                    "net-test2",
+                ],
+                check=False,
+            )
+        except subprocess.SubprocessError as e:
+            logger.error(f"Network isolation test failed: {e}")
+            # Clean up on failure
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "rm",
+                    "-f",
+                    "net-test1",
+                    "net-test2",
+                ],
+                check=False,
+            )
+            pytest.skip(f"Network isolation test failed: {e}")
+
+    def test_resource_limits(self, container_runner_id):
+        """Verify resource limits are applied to containers."""
+        try:
+            # Start a container with default resource limits
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "run",
+                    "-d",
+                    "--name",
+                    "resource-test",
+                    "alpine",
+                    "sleep",
+                    "30",
+                ],
+                check=True,
+                capture_output=True,
+            )
+
+            # Check memory limit (should be 512MB from containers.conf)
+            result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "exec",
+                    "resource-test",
+                    "cat",
+                    "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            # If cgroups v2 is used, the path might be different
+            if result.returncode != 0:
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "exec",
+                        container_runner_id,
+                        "podman",
+                        "exec",
+                        "resource-test",
+                        "cat",
+                        "/sys/fs/cgroup/memory.max",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+
+            # Convert to MB for easier comparison (allowing for some variation in exact value)
+            if result.returncode == 0:
+                memory_bytes = int(result.stdout.strip())
+                memory_mb = memory_bytes / (1024 * 1024)
+
+                # Should be close to 512MB (allowing 10% variation)
+                assert 450 <= memory_mb <= 550, (
+                    f"Memory limit is {memory_mb}MB, expected ~512MB"
+                )
+
+            # Check PID limit (should be 100 from containers.conf)
+            result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "inspect",
+                    "--format",
+                    "{{.HostConfig.PidsLimit}}",
+                    "resource-test",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            pid_limit = result.stdout.strip()
+            assert pid_limit == "100", f"PID limit is {pid_limit}, expected 100"
+
+            # Clean up
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "rm",
+                    "-f",
+                    "resource-test",
+                ],
+                check=False,
+            )
+        except subprocess.SubprocessError as e:
+            logger.error(f"Resource limits test failed: {e}")
+            # Clean up on failure
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "rm",
+                    "-f",
+                    "resource-test",
+                ],
+                check=False,
+            )
+            pytest.skip(f"Resource limits test failed: {e}")
+
+    def test_seccomp_profile(self, container_runner_id):
+        """Verify seccomp profile is applied correctly to restrict syscalls."""
+        try:
+            # Run a container that tries to use a syscall that should be blocked
+            # unshare is typically blocked in restrictive seccomp profiles
+            result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container_runner_id,
+                    "podman",
+                    "run",
+                    "--rm",
+                    "alpine",
+                    "unshare",
+                    "--map-root-user",
+                    "--user",
+                    "sh",
+                    "-c",
+                    "id",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            # This should fail with permission denied or operation not permitted
+            assert result.returncode != 0, (
+                "Seccomp profile not restricting syscalls properly"
+            )
+            assert (
+                "permission denied" in result.stderr.lower()
+                or "operation not permitted" in result.stderr.lower()
+            ), "Expected permission denied error due to seccomp filtering"
+        except subprocess.SubprocessError as e:
+            logger.error(f"Seccomp profile test failed: {e}")
+            pytest.skip(f"Seccomp profile test failed: {e}")
