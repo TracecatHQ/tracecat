@@ -1,26 +1,29 @@
-# Container Runner Service: Security Architecture
+# Container Runner Service
 
-This document outlines the comprehensive security architecture of the container-runner service, which provides isolated container execution capabilities via a sandboxed Podman API.
+This service provides isolated container execution capabilities via a hardened Podman deployment.
+The goal is to be able to run pre-built containers within Podman isolated from the container runner's host.
 
 ## Architecture Overview
 
-The container-runner implements a multi-layered isolation model following defense-in-depth principles:
+- Process isolation: via user namespaces + SELinux MAC + seccomp filters
+  - Threats: container escape, privilege escalation, process manipulation
+  - Mitigations: UID remapping (100000-165536), SELinux enforcement, syscall filtering
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│ Docker Container (Host)                                      │
-│ ┌────────────────────────────────────────────────────────┐   │
-│ │ Podman Service Container                               │   │
-│ │                                                        │   │
-│ │ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐    │   │
-│ │ │ Container 1  │ │ Container 2  │ │ Container N  │    │   │
-│ │ │ (isolated)   │ │ (isolated)   │ │ (isolated)   │    │   │
-│ │ └──────────────┘ └──────────────┘ └──────────────┘    │   │
-│ │                                                        │   │
-│ │ SELinux + User Namespace + Network + Resource Controls │   │
-│ └────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────┘
-```
+- Filesystem isolation: via mount namespaces + SELinux labeling + overlay isolation
+  - Threats: host filesystem access, volume tampering, sensitive file access, data persistence
+  - Mitigations: confined storage paths, SELinux contexts, nodev/nosuid/noexec mounts, fuse-overlayfs
+
+- Network policies: via netavark + network namespaces + DNS isolation
+  - Threats: container-to-container attacks, network sniffing, DNS poisoning, API exposure
+  - Mitigations: isolated subnets (10.89.0.0/16), container network isolation, trusted DNS (Cloudflare, Google), localhost-bound API
+
+- Resource limits: via cgroups + process restrictions
+  - Threats: DoS attacks, resource exhaustion, fork bombs, memory leaks
+  - Mitigations: 512MB memory limit, 20% CPU quota, 100 process limit, swap limit
+
+- Capability restrictions: via Linux capabilities + no-new-privileges
+  - Threats: privilege escalation, system manipulation, kernel module loading, sysctl changes
+  - Mitigations: empty capability set, no privilege escalation, no sysctl modifications, seccomp defaults
 
 ## Isolation Domains
 
@@ -55,16 +58,26 @@ Host UID Space        Container UID Space
 #### SELinux Mandatory Access Control
 
 * **Implementation**: Type enforcement with Multi-Category Security (MCS)
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│ SELinux Security Model                                  │
+│                                                         │
+│  ┌─────────────────┐      ┌──────────────────┐         │
+│  │ Type Enforcement│      │ MCS Categories    │         │
+│  │                 │      │                   │         │
+│  │ container_t     │──────│ s0:c1,c2         │         │
+│  │ container_file_t│      │ (unique per      │         │
+│  │                 │      │  container)       │         │
+│  └─────────────────┘      └──────────────────┘         │
+└─────────────────────────────────────────────────────────┘
+```
+
 * **Technical details**:
   * Process type: `container_t`
   * File type: `container_file_t`
   * MCS categories: `s0:c1,c2` (unique per container)
   * SELinux contexts: `system_u:system_r:container_t:s0:c1,c2`
-* **Attack vectors blocked**:
-  * Process context transitions controlled by SELinux policy
-  * Even container root cannot access files with different types
-  * Container processes isolated from each other via MCS categories
-  * Cannot modify SELinux contexts even with privileged access
 
 #### SELinux Security Model Deep Dive
 
@@ -129,9 +142,29 @@ This multi-layered approach ensures:
 * **Implementation**: Controlled mount namespaces with SELinux labeling
 * **Technical details**:
   * Storage confined to `/var/lib/containers/storage` and `/run/containers/storage`
-  * Overlay filesystem with SELinux awareness via fuse-overlayfs
-  * Mount options: `nodev,nosuid,noexec`
+  * Mount options for security:
+    ```text
+    nodev:   Prevents device file creation
+    │   ┌─── nosuid:  Ignores SUID/SGID bits
+    │   │    ┌── noexec:  Prevents executable files
+    ↓   ↓    ↓
+    /container/volume
+    ├── device-file  ╳ (blocked by nodev)
+    ├── setuid-file  ╳ (blocked by nosuid)
+    └── script.sh    ╳ (blocked by noexec)
+    ```
+  * Overlay filesystem with SELinux awareness:
+    ```text
+    Container View    │    Actual Storage
+                     │
+    /container/file ──┼──► Overlay Layer (Read-Write)
+                     │         │
+                     │    Image Layer (Read-Only)
+                     │         │
+                     │    Host Filesystem
+    ```
   * SELinux mount context: `system_u:object_r:container_file_t:s0`
+
 * **Security boundaries**:
   * Double isolation via filesystem namespaces and SELinux types
   * Host filesystem invisible to container processes
@@ -157,16 +190,26 @@ This multi-layered approach ensures:
 #### Netavark Containment
 
 * **Implementation**: Custom isolated bridge networks
+
+```text
+┌─────────────────┐   ╳   ┌─────────────────┐
+│   Container A   │ ──╳── │   Container B   │
+│  10.89.0.2/24  │   ╳   │  10.89.1.2/24  │
+└─────────────────┘   ╳   └─────────────────┘
+        │                         │
+        └─────────┐     ┌────────┘
+                  ▼     ▼
+            Isolated Networks
+                  │
+                  ▼
+          External Network
+```
+
 * **Technical details**:
   * Network backend: Netavark (native Podman implementation)
   * Custom subnet allocation: `10.89.0.0/16` and `10.90.0.0/15`
   * Network isolation parameter: `isolate = true`
   * DNS servers: `1.1.1.1`, `8.8.8.8` (trusted upstreams)
-* **Security properties**:
-  * Container-to-container traffic blocked between different networks
-  * Predictable address allocation in non-standard ranges
-  * Independent DNS resolution preventing poisoning attacks
-  * No direct access to host network namespace
 
 #### API Endpoint Security
 
@@ -175,6 +218,13 @@ This multi-layered approach ensures:
   * Podman API service listens on `127.0.0.1:8080`
   * TCP encapsulation for API calls
   * Accessed via Docker network from specific containers only
+
+```text
+External Network        Docker Network          Container Network
+     ╳                      ↓                        ↓
+Can't access ──► localhost:8080 ──► Podman API ──► Containers
+```
+
 * **Attack surface reduction**:
   * API only accessible within Docker network
   * No external exposure of Podman API
@@ -185,16 +235,23 @@ This multi-layered approach ensures:
 #### cgroups Containment
 
 * **Implementation**: Strict resource quotas via cgroups
+
+```text
+┌──────── Container Resources ────────┐
+│                                    │
+│  ┌─────────┐  ┌─────┐  ┌───────┐  │
+│  │ Memory  │  │ CPU │  │ PIDs  │  │
+│  │ 512MB   │  │ 20% │  │ 100   │  │
+│  └─────────┘  └─────┘  └───────┘  │
+│                                    │
+└────────────────────────────────────┘
+```
+
 * **Technical details**:
   * Memory limit: 512MB with equivalent swap limit
-  * CPU quota: 50% of available CPU (50000/100000)
+  * CPU quota: 20% of available CPU (20000/100000)
   * Process limit: 100 processes per container
   * cgroups manager: cgroupfs
-* **Security impact**:
-  * Prevents resource starvation attacks
-  * Limits impact of fork bombs
-  * Prevents memory-based DoS attacks
-  * Ensures fair resource allocation
 
 #### Capability Restrictions
 
@@ -211,6 +268,18 @@ This multi-layered approach ensures:
 ## Defense in Depth Strategy
 
 The security architecture implements overlapping protection mechanisms to ensure that compromise of one layer doesn't lead to full system compromise:
+
+```text
+    ┌─ External Network
+    │  ┌─ Network Namespace
+    │  │  ┌─ User Namespace
+    │  │  │  ┌─ SELinux
+    │  │  │  │  ┌─ Seccomp
+    ▼  ▼  ▼  ▼  ▼
+┌──────────────────┐
+│    Container     │
+└──────────────────┘
+```
 
 | Attack Vector | Primary Defense | Secondary Defense | Tertiary Defense |
 |---------------|----------------|-------------------|------------------|
