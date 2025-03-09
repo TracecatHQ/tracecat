@@ -3965,48 +3965,6 @@ export const $UpdateWorkspaceParams = {
   title: "UpdateWorkspaceParams",
 } as const
 
-export const $UpsertWebhookParams = {
-  properties: {
-    status: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["online", "offline"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Status",
-    },
-    entrypoint_ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Entrypoint Ref",
-    },
-    method: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["GET", "POST"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Method",
-    },
-  },
-  type: "object",
-  title: "UpsertWebhookParams",
-} as const
-
 export const $UserCreate = {
   properties: {
     email: {
@@ -4290,7 +4248,38 @@ export const $ValidationError = {
   title: "ValidationError",
 } as const
 
-export const $WebhookResponse = {
+export const $WebhookCreate = {
+  properties: {
+    status: {
+      $ref: "#/components/schemas/WebhookStatus",
+      default: "offline",
+    },
+    method: {
+      $ref: "#/components/schemas/WebhookMethod",
+      default: "POST",
+    },
+    entrypoint_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entrypoint Ref",
+    },
+  },
+  type: "object",
+  title: "WebhookCreate",
+} as const
+
+export const $WebhookMethod = {
+  type: "string",
+  enum: ["GET", "POST"],
+} as const
+
+export const $WebhookRead = {
   properties: {
     created_at: {
       type: "string",
@@ -4316,9 +4305,7 @@ export const $WebhookResponse = {
       title: "Secret",
     },
     status: {
-      type: "string",
-      enum: ["online", "offline"],
-      title: "Status",
+      $ref: "#/components/schemas/WebhookStatus",
     },
     entrypoint_ref: {
       anyOf: [
@@ -4336,9 +4323,7 @@ export const $WebhookResponse = {
       title: "Filters",
     },
     method: {
-      type: "string",
-      enum: ["GET", "POST"],
-      title: "Method",
+      $ref: "#/components/schemas/WebhookMethod",
     },
     workflow_id: {
       type: "string",
@@ -4360,7 +4345,50 @@ export const $WebhookResponse = {
     "workflow_id",
     "url",
   ],
-  title: "WebhookResponse",
+  title: "WebhookRead",
+} as const
+
+export const $WebhookStatus = {
+  type: "string",
+  enum: ["online", "offline"],
+} as const
+
+export const $WebhookUpdate = {
+  properties: {
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WebhookStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    method: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WebhookMethod",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    entrypoint_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entrypoint Ref",
+    },
+  },
+  type: "object",
+  title: "WebhookUpdate",
 } as const
 
 export const $WorkflowCommitResponse = {
@@ -5151,7 +5179,7 @@ export const $WorkflowRead = {
       title: "Version",
     },
     webhook: {
-      $ref: "#/components/schemas/WebhookResponse",
+      $ref: "#/components/schemas/WebhookRead",
     },
     schedules: {
       items: {

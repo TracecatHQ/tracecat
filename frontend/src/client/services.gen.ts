@@ -828,7 +828,7 @@ export const triggersCreateWebhook = (
  * @param data The data for the request.
  * @param data.workflowId
  * @param data.workspaceId
- * @returns WebhookResponse Successful Response
+ * @returns WebhookRead Successful Response
  * @throws ApiError
  */
 export const triggersGetWebhook = (
