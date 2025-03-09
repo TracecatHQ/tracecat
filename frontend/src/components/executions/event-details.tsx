@@ -22,6 +22,9 @@ import {
 import {
   ERROR_EVENT_TYPES,
   getRelativeTime,
+  isDSLRunArgs,
+  isRunActionInput,
+  isSignalHandlerInput,
   parseEventType,
   parseExecutionId,
 } from "@/lib/event-history"
@@ -47,6 +50,8 @@ export function WorkflowExecutionEventDetailView({
 }: {
   event: WorkflowExecutionEvent
 }) {
+  const { event_group, result, failure } = event
+  const action_input = event_group?.action_input
   return (
     <div className="size-full overflow-auto">
       {/* Metadata */}
@@ -71,7 +76,7 @@ export function WorkflowExecutionEventDetailView({
         </AccordionItem>
 
         {/* Urgent */}
-        {event.failure && (
+        {failure && (
           <AccordionItem value="failure">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-end">
@@ -84,13 +89,14 @@ export function WorkflowExecutionEventDetailView({
             </AccordionTrigger>
             <AccordionContent>
               <div className="my-4 flex flex-col space-y-8 px-4">
-                <CodeBlock title="Message">{event.failure.message}</CodeBlock>
+                <CodeBlock title="Message">{failure.message}</CodeBlock>
               </div>
             </AccordionContent>
           </AccordionItem>
         )}
+
         {/* Action details */}
-        {(event?.result as Record<string, unknown>) && (
+        {(result as Record<string, unknown>) && (
           <AccordionItem value="result">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-end">
@@ -99,44 +105,55 @@ export function WorkflowExecutionEventDetailView({
             </AccordionTrigger>
             <AccordionContent>
               <div className="my-4 flex flex-col space-y-8 px-4">
-                <JsonViewWithControls
-                  src={(event.result as Record<string, unknown>) ?? {}}
-                />
+                <JsonViewWithControls src={result} />
               </div>
             </AccordionContent>
           </AccordionItem>
         )}
 
-        {isDSLRunArgs(event.event_group?.action_input) && (
+        {isDSLRunArgs(action_input) && (
           <AccordionItem value="result">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-end">
-                <span>Input</span>
+                <span>Child Workflow Input</span>
               </div>
             </AccordionTrigger>
             <AccordionContent>
               <div className="my-4 flex flex-col space-y-8 px-4">
-                <JsonViewWithControls src={event?.event_group?.action_input} />
+                <JsonViewWithControls src={action_input} />
               </div>
             </AccordionContent>
           </AccordionItem>
         )}
 
-        {isRunActionInput_Output(event.event_group?.action_input) && (
-          <>
-            <AccordionItem value="result">
-              <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
-                <div className="flex items-end">
-                  <span>Input</span>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <div className="my-4 flex flex-col space-y-8 px-4">
-                  <JsonViewWithControls src={event.event_group?.action_input} />
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </>
+        {isRunActionInput(action_input) && (
+          <AccordionItem value="result">
+            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+              <div className="flex items-end">
+                <span>Action Input</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="my-4 flex flex-col space-y-8 px-4">
+                <JsonViewWithControls src={action_input} />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        )}
+
+        {isSignalHandlerInput(action_input) && (
+          <AccordionItem value="result">
+            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+              <div className="flex items-end">
+                <span>Received Input</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="my-4 flex flex-col space-y-8 px-4">
+                <JsonViewWithControls src={action_input} />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
         )}
       </Accordion>
     </div>
@@ -363,7 +380,7 @@ export function EventGeneralInfo({ event }: { event: WorkflowExecutionEvent }) {
           <DescriptorBadge className="font-mono" text={join_strategy} />
         </div>
       )}
-      {isRunActionInput_Output(action_input) && (
+      {isRunActionInput(action_input) && (
         <ActionEventGeneralInfo input={action_input} />
       )}
       {isDSLRunArgs(action_input) && (
@@ -455,28 +472,6 @@ function ActionEventGeneralInfo({
         )}
       </div>
     </div>
-  )
-}
-
-function isRunActionInput_Output(
-  actionInput: unknown
-): actionInput is RunActionInput {
-  return (
-    typeof actionInput === "object" &&
-    actionInput !== null &&
-    "task" in actionInput &&
-    typeof (actionInput as RunActionInput).task === "object"
-  )
-}
-
-function isDSLRunArgs(actionInput: unknown): actionInput is DSLRunArgs {
-  // Define the conditions to check for DSLRunArgs
-  return (
-    typeof actionInput === "object" &&
-    actionInput !== null &&
-    // Check specific properties of DSLRunArgs
-    typeof (actionInput as DSLRunArgs).dsl === "object" &&
-    (actionInput as DSLRunArgs).wf_id !== undefined
   )
 }
 
