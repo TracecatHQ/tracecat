@@ -102,7 +102,6 @@ services:
     networks:
       - core-db
       - temporal
-      - container-runner
     # ports:
     #   - 8265:8265
     environment:
@@ -125,8 +124,6 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
-      # Podman configuration
-      TRACECAT__PODMAN_URI: tcp://container-runner:8080
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:
@@ -140,20 +137,6 @@ services:
         "--port",
         "8000",
       ]
-    depends_on:
-      - container-runner
-
-  container-runner:
-    image: ghcr.io/tracecathq/container-runner:latest
-    container_name: container-runner
-    restart: unless-stopped
-    privileged: true
-    networks:
-      - container-runner
-    volumes:
-      - ./podman:/etc/containers:ro
-      - podman-storage:/var/lib/containers
-
   ui:
     image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.27.3}
     container_name: ui
@@ -250,4 +233,3 @@ networks:
   temporal:
   temporal-db:
     internal: true
-  container-runner:
