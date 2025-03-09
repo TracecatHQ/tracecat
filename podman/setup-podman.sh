@@ -37,3 +37,9 @@ chmod -R 770 /run/containers/storage
 chown -R root:apiuser /var/lib/containers/storage
 chown -R root:apiuser /run/containers/storage
 chown root:apiuser /run/podman
+
+# 5. Restore SELinux contexts
+restorecon -R /var/lib/containers/storage
+restorecon -R /run/containers/storage
+restorecon -R /etc/containers
+restorecon -R /run/podman
