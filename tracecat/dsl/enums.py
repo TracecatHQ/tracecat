@@ -3,6 +3,7 @@ from enum import StrEnum, auto
 
 class CoreActions(StrEnum):
     CHILD_WORKFLOW_EXECUTE = "core.workflow.execute"
+    WAIT_RESPONSE = "core.wait.response"
     TABLE_LOOKUP = "core.table.lookup"
     TABLE_INSERT_ROW = "core.table.insert_row"
 
