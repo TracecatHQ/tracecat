@@ -1079,6 +1079,12 @@ export const $EventGroup = {
         {
           $ref: "#/components/schemas/GetWorkflowDefinitionActivityInputs",
         },
+        {
+          $ref: "#/components/schemas/SignalHandlerResult",
+        },
+        {
+          $ref: "#/components/schemas/SignalHandlerInput",
+        },
       ],
       title: "Action Input",
     },
@@ -3329,6 +3335,51 @@ export const $SessionRead = {
   title: "SessionRead",
 } as const
 
+export const $SignalHandlerInput = {
+  properties: {
+    signal_id: {
+      type: "string",
+      title: "Signal Id",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    data: {
+      type: "object",
+      title: "Data",
+    },
+  },
+  type: "object",
+  required: ["signal_id", "ref", "data"],
+  title: "SignalHandlerInput",
+  description:
+    "Input for the workflow signal handler. This is used on the client side.",
+} as const
+
+export const $SignalHandlerResult = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    detail: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "SignalHandlerResult",
+  description:
+    "Output for the workflow signal handler. This is used on the client side.",
+} as const
+
 export const $SpecialUserID = {
   type: "string",
   enum: ["current"],
@@ -4520,6 +4571,10 @@ export const $WorkflowEventType = {
     "CHILD_WORKFLOW_EXECUTION_TERMINATED",
     "START_CHILD_WORKFLOW_EXECUTION_INITIATED",
     "CHILD_WORKFLOW_EXECUTION_TIMED_OUT",
+    "WORKFLOW_EXECUTION_SIGNALED",
+    "WORKFLOW_EXECUTION_UPDATE_ACCEPTED",
+    "WORKFLOW_EXECUTION_UPDATE_REJECTED",
+    "WORKFLOW_EXECUTION_UPDATE_COMPLETED",
   ],
   title: "WorkflowEventType",
   description: "The event types we care about.",
