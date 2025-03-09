@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-from enum import StrEnum
+from dataclasses import dataclass
 from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field, field_validator
 
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
-from tracecat.dsl.enums import CoreActions, JoinStrategy
+from tracecat.dsl.enums import JoinStrategy
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
@@ -225,52 +224,3 @@ class DSLExecutionError(TypedDict, total=False):
 class TaskExceptionInfo:
     exception: Exception
     details: ActionErrorInfo | None = None
-
-
-class SignalHandlerInput(BaseModel):
-    """Input for the workflow signal handler. This is used on the client side."""
-
-    signal_id: str
-    """The signal ID."""
-
-    ref: str
-    """The action reference of the signal sender."""
-
-    data: dict[str, Any]
-    """Data passed to the signal handler."""
-
-
-class SignalHandlerResult(BaseModel):
-    """Output for the workflow signal handler. This is used on the client side."""
-
-    message: str
-    """The message of the signal handler."""
-
-    detail: Any | None = None
-    """The detail of the signal handler."""
-
-
-class SignalStatus(StrEnum):
-    IDLE = "idle"
-    PENDING = "pending"
-    COMPLETED = "completed"
-
-
-@dataclass
-class SignalState:
-    """A signal state."""
-
-    ref: str
-    """The action reference of the signal receiver."""
-
-    type: Literal[CoreActions.WAIT_RESPONSE] = CoreActions.WAIT_RESPONSE
-    """The signal type. Response, approval, etc."""
-
-    status: SignalStatus = SignalStatus.IDLE
-    """The status of the signal."""
-
-    data: dict[str, Any] = field(default_factory=dict)
-    """The data passed to the signal handler."""
-
-    def is_activated(self) -> bool:
-        return self.status == SignalStatus.COMPLETED

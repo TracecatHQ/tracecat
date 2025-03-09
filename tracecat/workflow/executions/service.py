@@ -27,9 +27,10 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
-from tracecat.dsl.models import SignalHandlerInput, TriggerInputs
+from tracecat.dsl.models import TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.ee.interactions.models import SignalHandlerInput
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
     ExecutionUUID,

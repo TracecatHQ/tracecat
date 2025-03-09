@@ -276,19 +276,6 @@ class ExecuteChildWorkflowArgs(BaseModel):
         return WorkflowUUID.new(v)
 
 
-class WaitResponseArgs(BaseModel):
-    """The arguments for the `core.wait.response` action."""
-
-    ref: str
-    """The reference to the action that will receive the response."""
-
-    channel: str | None = None
-    """The communication channel to await the response on."""
-
-    timeout: float | None = None
-    """The timeout for the response."""
-
-
 class ChildWorkflowMemo(BaseModel):
     action_ref: str = Field(
         ..., description="The action ref that initiated the child workflow."
