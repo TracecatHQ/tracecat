@@ -66,6 +66,62 @@ Host UID Space        Container UID Space
   * Container processes isolated from each other via MCS categories
   * Cannot modify SELinux contexts even with privileged access
 
+#### SELinux Security Model Deep Dive
+
+The container-runner service implements a comprehensive SELinux security model with three core protection layers:
+
+```ascii
+┌─────────────────────────────────────────────────────────┐
+│ SELinux Security Model                                  │
+│                                                         │
+│  ┌─────────────────┐      ┌──────────────────┐         │
+│  │ Type Enforcement│      │ MCS Categories    │         │
+│  │                 │      │                   │         │
+│  │ container_t     │──────│ s0:c1,c2         │         │
+│  │ container_file_t│      │ (unique per      │         │
+│  │                 │      │  container)       │         │
+│  └─────────────────┘      └──────────────────┘         │
+│                                                         │
+│  ┌──────────────────────────────────────────┐          │
+│  │           Access Controls                 │          │
+│  │                                          │          │
+│  │ - Process boundaries                     │          │
+│  │ - File access                           │          │
+│  │ - Network isolation                      │          │
+│  └──────────────────────────────────────────┘          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**1. Type Enforcement (TE)**
+- Defines what processes can do and what files they can access
+- Container processes run as `container_t`
+- Container files are labeled as `container_file_t`
+- Prevents containers from accessing host system resources
+
+**2. Multi-Category Security (MCS)**
+```ascii
+Container A                     Container B
+┌──────────────┐               ┌──────────────┐
+│ s0:c1,c2     │   ≠   Access │ s0:c3,c4     │
+│ (Category 1) │ ◄─╳──────────│ (Category 2) │
+└──────────────┘               └──────────────┘
+```
+- Each container gets unique security categories
+- Prevents containers from accessing each other's resources
+- Automatic isolation between workloads
+
+**3. Access Controls**
+- **Process**: Prevents privilege escalation and controls process transitions
+- **Filesystem**: Automatically labels mounted volumes and enforces access rules
+- **Network**: Labels and controls network traffic between containers
+
+This multi-layered approach ensures:
+- Containers cannot break out of their assigned boundaries
+- Host system resources are protected
+- Containers are isolated from each other
+- Mounted volumes maintain proper security context
+- Network traffic is controlled and isolated
+
 ### 2. Filesystem Isolation
 
 #### Storage Containment
