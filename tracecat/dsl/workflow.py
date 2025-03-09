@@ -37,6 +37,7 @@ with workflow.unsafe.imports_passed_through():
         DSLInput,
         DSLRunArgs,
         ExecuteChildWorkflowArgs,
+        WaitResponseArgs,
         dsl_execution_error_from_exception,
     )
     from tracecat.dsl.enums import CoreActions, FailStrategy, LoopStrategy
@@ -50,6 +51,10 @@ with workflow.unsafe.imports_passed_through():
         ExecutionContext,
         RunActionInput,
         RunContext,
+        SignalHandlerInput,
+        SignalHandlerResult,
+        SignalState,
+        SignalStatus,
         TriggerInputs,
     )
     from tracecat.dsl.scheduler import DSLScheduler
@@ -125,17 +130,19 @@ retry_policies = {
 class DSLWorkflow:
     """Manage only the state and execution of the DSL workflow."""
 
-    @workflow.run
-    async def run(self, args: DSLRunArgs) -> Any:
+    @workflow.init
+    def __init__(self, args: DSLRunArgs) -> None:
         self.role = args.role
         self.start_to_close_timeout = args.timeout
         wf_info = workflow.info()
-        wf_exec_id = wf_info.workflow_id
-        wf_run_id = wf_info.run_id
+        # Tracecat wf exec id == Temporal wf exec id
+        self.wf_exec_id = wf_info.workflow_id
+        # Tracecat wf run id == Temporal wf run id
+        self.wf_run_id = wf_info.run_id
         self.logger = logger.bind(
             wf_id=args.wf_id,
-            wf_exec_id=wf_exec_id,
-            wf_run_id=wf_run_id,
+            wf_exec_id=self.wf_exec_id,
+            wf_run_id=self.wf_run_id,
             role=self.role,
             service="dsl-workflow-runner",
         )
@@ -157,8 +164,38 @@ class DSLWorkflow:
         except Exception as e:
             self.logger.error("Failed to show workflow info", error=e)
 
-        # Set DSL
+        self.signal_states: dict[str, SignalState] = {}
 
+    @workflow.update
+    def signal_receiver(self, input: SignalHandlerInput) -> SignalHandlerResult:
+        """Handle signals from the workflow and return a result."""
+        self.logger.info("Received signal", input=input)
+        if input.signal_id not in self.signal_states:
+            self.logger.warning(
+                "Received signal for unknown action", signal_id=input.signal_id
+            )
+            raise ApplicationError(
+                "Received signal for unknown action", non_retryable=True
+            )
+        self.signal_states[input.signal_id].data = input.data
+        self.signal_states[input.signal_id].status = SignalStatus.COMPLETED
+        return SignalHandlerResult(
+            message="success",
+            detail=input.data,
+        )
+
+    @signal_receiver.validator
+    def validate_signal_receiver(self, input: SignalHandlerInput) -> None:
+        # Match the signal id and action ref
+        if input.signal_id not in self.signal_states:
+            raise ValueError("Workflow signal receiver cannot find signal state")
+        state = self.signal_states[input.signal_id]
+        if state.ref != input.ref:
+            raise ValueError("Workflow signal receiver received invalid signal")
+
+    @workflow.run
+    async def run(self, args: DSLRunArgs) -> Any:
+        # Set DSL
         if args.dsl:
             # Use the provided DSL
             self.logger.debug("Using provided workflow definition")
@@ -177,6 +214,19 @@ class DSLWorkflow:
                     type=e.__class__.__name__,
                 ) from e
             self.dispatch_type = "pull"
+
+        # Signals
+        # Prepare signal activation mappings
+        # For each action in the DSL that's a `core.workflow.await_response` action,
+        # we need to prepare a signal activation mapping
+        for action in self.dsl.actions:
+            if action.action == CoreActions.WAIT_RESPONSE:
+                act_args = WaitResponseArgs.model_validate(action.args)
+                self.signal_states[act_args.ref] = SignalState(
+                    ref=action.ref,
+                    type=CoreActions.WAIT_RESPONSE,
+                )
+        self.logger.warning("Signal states", signal_states=self.signal_states)
 
         # Note that we can't run the error handler above this
         # Run the workflow with error handling
@@ -210,7 +260,7 @@ class DSLWorkflow:
                     message=e.message,
                     handler_wf_id=handler_wf_id,
                     orig_wf_id=args.wf_id,
-                    orig_wf_exec_id=wf_exec_id,
+                    orig_wf_exec_id=self.wf_exec_id,
                     errors=errors,
                 )
                 await self._run_error_handler_workflow(err_run_args)
@@ -477,27 +527,60 @@ class DSLWorkflow:
         task_result = DSLNodeResult(result=None, result_typename=type(None).__name__)
 
         try:
+            # Handle timing control flow logic
+            # Should we skip this if we're awaiting a response/approval?
             await self._handle_timers(task)
+
             # Do action stuff
-            if task.action == CoreActions.CHILD_WORKFLOW_EXECUTE:
-                # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
-                # 1. Prepare the child workflow
-                logger.trace("Preparing child workflow")
-                child_run_args = await self._prepare_child_workflow(task)
-                logger.trace("Child workflow prepared", child_run_args=child_run_args)
-                # This is the original child runtime args, preset by the DSL
-                # In contrast, task.args are the runtime args that the parent workflow provided
-                action_result = await self._execute_child_workflow(
-                    task=task, child_run_args=child_run_args
-                )
-            else:
-                # Below this point, we're executing the task
-                logger.trace(
-                    "Running action",
-                    task_ref=task.ref,
-                    runtime_config=self.runtime_config,
-                )
-                action_result = await self._run_action(task)
+            match task.action:
+                case CoreActions.CHILD_WORKFLOW_EXECUTE:
+                    # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
+                    # 1. Prepare the child workflow
+                    logger.trace("Preparing child workflow")
+                    child_run_args = await self._prepare_child_workflow(task)
+                    logger.trace(
+                        "Child workflow prepared", child_run_args=child_run_args
+                    )
+                    # This is the original child runtime args, preset by the DSL
+                    # In contrast, task.args are the runtime args that the parent workflow provided
+                    action_result = await self._execute_child_workflow(
+                        task=task, child_run_args=child_run_args
+                    )
+                case CoreActions.WAIT_RESPONSE:
+                    # In a previous action like slack.send_message, we passed some kind of signal ID
+                    # into the slack block metadata which is passed over to the client. Ths signal ID
+                    # is some value that the client can use to send a signal back to the workflow.
+                    args = WaitResponseArgs.model_validate(task.args)
+                    sig_ref = args.ref
+
+                    # Start an activity asynchronously to wait for the signal
+                    # This is so that we can return a result immediately
+                    # and not block the workflow
+                    logger.warning("Waiting for response", signal_ref=sig_ref)
+                    try:
+                        self.signal_states[sig_ref].status = SignalStatus.PENDING
+                        # 1. Wait for receipt of an external signal
+                        await workflow.wait_condition(
+                            lambda: self.signal_states[sig_ref].is_activated(),
+                            timeout=args.timeout,
+                        )
+                    except TimeoutError as e:
+                        raise ApplicationError(
+                            "Timeout waiting for response", non_retryable=True
+                        ) from e
+
+                    logger.warning("Response received", signal_ref=sig_ref)
+
+                    # 2. Perform a passthrough to log the response
+                    action_result = self.signal_states[sig_ref].data
+                case _:
+                    # Below this point, we're executing the task
+                    logger.trace(
+                        "Running action",
+                        task_ref=task.ref,
+                        runtime_config=self.runtime_config,
+                    )
+                    action_result = await self._run_action(task)
             logger.trace("Action completed successfully", action_result=action_result)
             task_result.update(
                 result=action_result, result_typename=type(action_result).__name__
