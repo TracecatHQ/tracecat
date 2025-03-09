@@ -1,12 +1,11 @@
-import { Buffer } from "buffer"
-import { WorkflowExecutionEvent } from "@/client"
+import {
+  DSLRunArgs,
+  RunActionInput,
+  SignalHandlerInput,
+  WorkflowEventType,
+} from "@/client"
 
-export const decode = (str: string): string =>
-  Buffer.from(str, "base64").toString("binary")
-export const encode = (str: string): string =>
-  Buffer.from(str, "binary").toString("base64")
-
-export const ERROR_EVENT_TYPES: WorkflowExecutionEvent["event_type"][] = [
+export const ERROR_EVENT_TYPES: WorkflowEventType[] = [
   "WORKFLOW_EXECUTION_FAILED",
   "WORKFLOW_EXECUTION_TERMINATED",
   "WORKFLOW_EXECUTION_TIMED_OUT",
@@ -14,20 +13,18 @@ export const ERROR_EVENT_TYPES: WorkflowExecutionEvent["event_type"][] = [
   "ACTIVITY_TASK_TIMED_OUT",
   "CHILD_WORKFLOW_EXECUTION_FAILED",
 ] as const
-export const SUCCESS_EVENT_TYPES: WorkflowExecutionEvent["event_type"][] = [
+export const SUCCESS_EVENT_TYPES: WorkflowEventType[] = [
   "ACTIVITY_TASK_COMPLETED",
   "WORKFLOW_EXECUTION_COMPLETED",
   "CHILD_WORKFLOW_EXECUTION_COMPLETED",
 ] as const
-export const STARTED_EVENT_TYPES: WorkflowExecutionEvent["event_type"][] = [
+export const STARTED_EVENT_TYPES: WorkflowEventType[] = [
   "ACTIVITY_TASK_STARTED",
   "WORKFLOW_EXECUTION_STARTED",
   "CHILD_WORKFLOW_EXECUTION_STARTED",
 ] as const
 
-export function parseEventType(
-  eventType: WorkflowExecutionEvent["event_type"]
-) {
+export function parseEventType(eventType: WorkflowEventType) {
   return eventType
     .toString()
     .split("_")
@@ -108,4 +105,37 @@ export type ExecutionId = {
 export function executionId(fullExecutionId: string): ExecutionId {
   const [wf, exec] = parseExecutionId(fullExecutionId)
   return { wf, exec }
+}
+
+export function isRunActionInput(
+  actionInput: unknown
+): actionInput is RunActionInput {
+  return (
+    typeof actionInput === "object" &&
+    actionInput !== null &&
+    "task" in actionInput &&
+    typeof (actionInput as RunActionInput).task === "object"
+  )
+}
+
+export function isSignalHandlerInput(
+  actionInput: unknown
+): actionInput is SignalHandlerInput {
+  return (
+    typeof actionInput === "object" &&
+    actionInput !== null &&
+    "signal_id" in actionInput &&
+    typeof (actionInput as SignalHandlerInput).signal_id === "string"
+  )
+}
+
+export function isDSLRunArgs(actionInput: unknown): actionInput is DSLRunArgs {
+  // Define the conditions to check for DSLRunArgs
+  return (
+    typeof actionInput === "object" &&
+    actionInput !== null &&
+    // Check specific properties of DSLRunArgs
+    typeof (actionInput as DSLRunArgs).dsl === "object" &&
+    (actionInput as DSLRunArgs).wf_id !== undefined
+  )
 }
