@@ -1,126 +1,148 @@
 # Container Runner Service
 
-This service provides isolated container execution capabilities via a hardened rootless Podman deployment.
-The goal is to be able to run pre-built containers within Podman isolated from the container runner's host.
+A hardened rootless Podman deployment for executing untrusted containers in an isolated environment.
 
-## Security Architecture Overview
+## Security Model: Multi-Layer Isolation
 
-### Multi-layer Defense Strategy
-
-The security architecture implements overlapping protection mechanisms:
+The service implements multiple isolation mechanisms functioning as independent security boundaries:
 
 ```
-    ┌─ External Network
-    │  ┌─ Network Namespace
-    │  │  ┌─ User Namespace
-    │  │  │  ┌─ SELinux
-    │  │  │  │  ┌─ Seccomp
-    ▼  ▼  ▼  ▼  ▼
+┌─ Network Restrictions
+│  ┌─ Resource Constraints
+│  │  ┌─ Capability Controls
+│  │  │  ┌─ User Namespace Isolation
+▼  ▼  ▼  ▼  ▼
 ┌──────────────────┐
 │    Container     │
 └──────────────────┘
 ```
 
-### 1. Process Isolation
+## Core Security Controls
 
-#### Rootless Podman with User Namespace Isolation
+### 1. Rootless Execution
 
+**Podman runs as unprivileged user:**
+- Non-root user `apiuser` (UID 1001)
+- User namespace remapping via `/etc/subuid` and `/etc/subgid`
+- UID/GID range: 100000-165536
+- Root in container (UID 0) maps to unprivileged host UID 100000
+
+### 2. System Call Filtering (Seccomp)
+
+**Default-deny whitelist approach:**
+- Default action: `SCMP_ACT_ERRNO` (deny all)
+- Architecture-specific: x86_64
+- Minimal syscall allowlist:
+  ```
+  read, write, open, close, exit, exit_group, socket, connect,
+  getpeername, getsockname, setsockopt, recvfrom, sendto, futex,
+  epoll_ctl, epoll_wait, poll, fcntl
+  ```
+
+### 3. SELinux Mandatory Access Control
+
+**Configuration Files:**
+```ini
+# containers.conf - Container runtime configuration
+[containers]
+# Container process labeling
+label = "system_u:system_r:container_t:s0"
+label_opts = ["disable=false"]
+label_range = "c0,c1023"
+
+# storage.conf - Storage and mount configuration
+[storage]
+# Runtime process labeling for storage operations
+selinux_process_label = "system_u:system_r:container_runtime_t:s0"
+# Filesystem mount labeling
+selinux_mount_context = "system_u:object_r:container_file_t:s0"
+mount_program_options = ["--selinuxcontext"]
 ```
-Host UID Space        Container UID Space
-   │                        │
-   │                    ┌───┴───┐
-   │                    │UID 0  │ ─────┐
-   │                    └───────┘      │
-┌──┴───┐                    │      mapped to
-│UID   │◄──────────────────┘          │
-│100000│                               │
-└──────┘                               ▼
-   │                          Unprivileged User
+
+**Process and File Context Implementation:**
+
+1. **Process Domain (`system_u:system_r:container_t:s0`):**
+   - Source: `containers.conf` → `label`
+   - Applied to all processes inside containers
+   - Enforced by SELinux policy installed via `container-selinux` package
+   - Process transitions controlled by `label_opts = ["disable=false"]`
+   - MCS categories dynamically assigned from range `c0-c1023`
+
+2. **Runtime Context (`system_u:system_r:container_runtime_t:s0`):**
+   - Source: `storage.conf` → `selinux_process_label`
+   - Applied to Podman API service running as `apiuser` (UID 1001)
+   - Controls access to:
+     - `/etc/containers/*` configuration files
+     - Container storage root at `/var/lib/containers/storage`
+     - Runtime directory at `/run/containers/storage`
+
+3. **Storage Implementation:**
+   - Source: `storage.conf` → `mount_program`, `mountopt`
+   - SELinux-aware overlay via `fuse-overlayfs` mount program
+   - Mount options: `nodev,metacopy=on,overlay.mount_program=/usr/bin/fuse-overlayfs`
+   - Context persistence enforced by `mount_program_options = ["--selinuxcontext"]`
+   - Storage paths labeled with `system_u:object_r:container_file_t:s0`
+   - Overlay operations maintain xattr-based SELinux labels across layers
+
+4. **Container Isolation:**
+   - Source: `containers.conf` → `label_range`
+   - Container process domain: `container_t`
+   - Container file access: `container_file_t`
+   - Runtime management: `container_runtime_t`
+   - Cross-container isolation:
+     - MCS category range defined in containers.conf: `label_range = "c0,c1023"`
+     - Unique category pairs assigned per container
+     - Mandatory access control enforced by kernel LSM
+     - Prevents unauthorized file/process access between containers
+
+All contexts and policies installed via `selinux-policy-targeted` and `container-selinux` packages in Dockerfile.
+
+**Quick Verification:**
+```bash
+# Check process contexts
+ps -eZ | grep container
+
+# Verify storage labels
+ls -Z /var/lib/containers/storage/
+
+# Monitor SELinux denials
+ausearch -m AVC -ts recent
 ```
 
-* **Implementation**:
-  * Podman runs as non-root user (apiuser, UID 1001)
-  * User namespace remapping via `/etc/subuid` and `/etc/subgid`
-  * UID/GID map range: 100000-165536 (65536 identities)
-  * Container root (UID 0) maps to unprivileged host UID 100000
+### 4. Capability Restrictions
 
-#### SELinux Mandatory Access Control
+**Empty capability set by default:**
+- `default_capabilities = []` in containers.conf
+- No privilege escalation: `no_new_privileges = true`
+- No sysctl modifications: `default_sysctls = []`
 
-* **Implementation**: Type enforcement with standard container context
-* **Technical details**:
-  * Using container-selinux and selinux-policy-targeted packages
-  * Process type: `container_t`
-  * File type: `container_file_t`
-  * SELinux contexts applied automatically by Podman
+### 5. Filesystem Protections
 
-### 2. Filesystem Isolation
+**Secure mount options enforced:**
+- `nodev`: Prevents device file creation
+- `nosuid`: Ignores SUID/SGID bits
+- `noexec`: Prevents executable files
+- Isolated overlay storage with SELinux awareness
 
-#### Storage Containment
+### 6. Network Isolation
 
-* **Implementation**: Container storage isolated in user's home directory
-* **Technical details**:
-  * Default storage location for rootless Podman
-  * Mount options enforced through containers.conf:
-    ```
-    nodev:   Prevents device file creation
-    nosuid:  Ignores SUID/SGID bits
-    noexec:  Prevents executable files
-    ```
-  * Overlay filesystem with SELinux awareness via fuse-overlayfs
+**Controlled network access:**
+- Network backend: Netavark with isolated bridge networks
+- Subnet allocation: `10.89.0.0/16` and `10.90.0.0/15`
+- Container-to-container isolation: `isolate = true`
+- Restricted DNS: `1.1.1.1`, `8.8.8.8` (trusted upstream resolvers)
 
-#### Seccomp Syscall Filtering
+### 7. Resource Limits
 
-* **Implementation**: Default-deny policy with minimal allowlist
-* **Technical details**:
-  * Default action: `SCMP_ACT_ERRNO` (deny all by default)
-  * Architecture-specific: x86_64
-  * Minimal syscall allowlist:
-    * Basic I/O: read, write, open, close
-    * Process: exit, exit_group, futex
-    * Network: socket, connect, getpeername, getsockname, setsockopt, recvfrom, sendto
-    * Event handling: epoll_ctl, epoll_wait, poll, fcntl
+**Strict resource quotas via cgroups:**
+- Memory: 512MB limit (incl. swap)
+- CPU: 20% quota (20000/100000)
+- Process limit: 100 processes per container
+- Volume cleanup to prevent data leaks
 
-### 3. Network Isolation
+## API and Usage
 
-#### Netavark Containment
-
-* **Implementation**: Custom isolated bridge networks
-* **Technical details**:
-  * Network backend: Netavark (native Podman implementation)
-  * Custom subnet allocation: `10.89.0.0/16` and `10.90.0.0/15`
-  * Network isolation parameter: `isolate = true`
-  * DNS servers: `1.1.1.1`, `8.8.8.8` (trusted upstreams)
-
-### 4. Resource Isolation
-
-#### Resource Limits
-
-* **Implementation**: Strict resource quotas via cgroups
-* **Technical details**:
-  * Memory limit: 512MB with equivalent swap limit
-  * CPU quota: 20% of available CPU (20000/100000)
-  * Process limit: 100 processes per container
-
-#### Capability Restrictions
-
-* **Implementation**: Empty capability set by default
-* **Technical details**:
-  * `default_capabilities = []` in containers.conf
-  * No privilege escalation: `no_new_privileges = true`
-  * No sysctl modifications: `default_sysctls = []`
-
-## Configuration
-
-### Environment Variables
-
-- `PODMAN_API_VERSION`: API version for client compatibility (default: `v1.40`)
-- `PODMAN_LISTEN_ADDRESS`: Service bind address (default: `127.0.0.1`)
-
-## Usage
-
-The executor service connects to the container-runner service. The container-runner service exposes its API on port 8080.
-
-### Example (Python Client)
+The service exposes a Podman API on port 8080 (bound to 127.0.0.1 by default):
 
 ```python
 from tracecat.sandbox.podman import run_podman_container, PodmanNetwork
@@ -135,18 +157,24 @@ print(result.output)
 
 ## Security Verification
 
-### Key Verification Commands
-
 ```bash
-# Check if Podman is running as non-root
-docker exec -it container-runner ps -ef | grep podman
+# Verify rootless execution
+ps -ef | grep podman  # Should run as apiuser
 
-# Verify user namespace configuration
-docker exec -it container-runner grep apiuser /etc/subuid
+# Confirm user namespace mapping
+grep apiuser /etc/subuid
 
-# Check SELinux is enforcing
-docker exec -it container-runner getenforce
+# Verify SELinux enforcement
+getenforce  # Should return "Enforcing"
 
-# Verify seccomp profile is in place
-docker exec -it container-runner ls -l /etc/containers/seccomp.json
+# Check seccomp profile
+ls -l /etc/containers/seccomp.json
 ```
+
+## Implementation Details
+
+Configuration spread across multiple files:
+- `Dockerfile`: Base setup, user creation, package installation
+- `seccomp.json`: System call filtering policy
+- `containers.conf`: Runtime behavior, capabilities, resource limits
+- `storage.conf`: Filesystem isolation, SELinux contexts, mount options
