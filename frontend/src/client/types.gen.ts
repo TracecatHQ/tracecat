@@ -371,6 +371,8 @@ export type EventGroup = {
     | RunActionInput
     | DSLRunArgs
     | GetWorkflowDefinitionActivityInputs
+    | SignalHandlerResult
+    | SignalHandlerInput
   action_result?: unknown | null
   current_attempt?: number | null
   retry_policy?: ActionRetryPolicy
@@ -1078,6 +1080,25 @@ export type SessionRead = {
 }
 
 /**
+ * Input for the workflow signal handler. This is used on the client side.
+ */
+export type SignalHandlerInput = {
+  signal_id: string
+  ref: string
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Output for the workflow signal handler. This is used on the client side.
+ */
+export type SignalHandlerResult = {
+  message: string
+  detail?: unknown | null
+}
+
+/**
  * A sentinel user ID that represents the current user.
  */
 export type SpecialUserID = "current"
@@ -1502,6 +1523,10 @@ export type WorkflowEventType =
   | "CHILD_WORKFLOW_EXECUTION_TERMINATED"
   | "START_CHILD_WORKFLOW_EXECUTION_INITIATED"
   | "CHILD_WORKFLOW_EXECUTION_TIMED_OUT"
+  | "WORKFLOW_EXECUTION_SIGNALED"
+  | "WORKFLOW_EXECUTION_UPDATE_ACCEPTED"
+  | "WORKFLOW_EXECUTION_UPDATE_REJECTED"
+  | "WORKFLOW_EXECUTION_UPDATE_COMPLETED"
 
 export type WorkflowExecutionCreate = {
   workflow_id: string
