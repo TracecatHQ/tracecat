@@ -1,188 +1,29 @@
 # Container Runner Service
 
-This service provides isolated container execution capabilities via a hardened Podman deployment.
+This service provides isolated container execution capabilities via a hardened rootless Podman deployment.
 The goal is to be able to run pre-built containers within Podman isolated from the container runner's host.
 
-## Architecture Overview
+## Security Architecture Overview
 
-- Process isolation: via user namespaces + SELinux MAC + seccomp filters
-  - Threats: container escape, privilege escalation, process manipulation
-  - Mitigations: UID remapping (100000-165536), SELinux enforcement, syscall filtering
+### Multi-layer Defense Strategy
 
-- Filesystem isolation: via mount namespaces + SELinux labeling + overlay isolation
-  - Threats: host filesystem access, volume tampering, sensitive file access, data persistence
-  - Mitigations: confined storage paths, SELinux contexts, nodev/nosuid/noexec mounts, fuse-overlayfs
+The security architecture implements overlapping protection mechanisms:
 
-- Network policies: via netavark + network namespaces + DNS isolation
-  - Threats: container-to-container attacks, network sniffing, DNS poisoning, API exposure
-  - Mitigations: isolated subnets (10.89.0.0/16), container network isolation, trusted DNS (Cloudflare, Google), localhost-bound API
-
-- Resource limits: via cgroups + process restrictions
-  - Threats: DoS attacks, resource exhaustion, fork bombs, memory leaks
-  - Mitigations: 512MB memory limit, 20% CPU quota, 100 process limit, swap limit
-
-- Capability restrictions: via Linux capabilities + no-new-privileges
-  - Threats: privilege escalation, system manipulation, kernel module loading, sysctl changes
-  - Mitigations: empty capability set, no privilege escalation, no sysctl modifications, seccomp defaults
-
-## SELinux Security Model
-
-### Understanding SELinux Components
-
-#### 1. Mandatory Access Control (MAC)
-```ascii
-Traditional Unix (DAC)          SELinux (MAC)
-┌─────────────┐                ┌─────────────┐
-│ User        │                │ System      │
-│ Controls    │                │ Controls    │
-│ Permissions │                │ Everything  │
-└─────────────┘                └─────────────┘
-      │                              │
-      ▼                              ▼
-chmod/chown                    Policy Rules
 ```
-
-SELinux enforces system-wide security policies that cannot be overridden by users.
-Even if a file has chmod 777, SELinux can still prevent access based on policy.
-
-#### 2. SELinux Context Structure
-```ascii
-system_u:system_r:container_t:s0:c1,c2
-   │        │         │      │   └── Categories (Container Isolation)
-   │        │         │      └────── Sensitivity Level
-   │        │         └───────────── Type (Main Policy Target)
-   │        └─────────────────────── Role (Job Function)
-   └────────────────────────────────── User (Identity)
+    ┌─ External Network
+    │  ┌─ Network Namespace
+    │  │  ┌─ User Namespace
+    │  │  │  ┌─ SELinux
+    │  │  │  │  ┌─ Seccomp
+    ▼  ▼  ▼  ▼  ▼
+┌──────────────────┐
+│    Container     │
+└──────────────────┘
 ```
-
-Each component serves a specific purpose:
-- **SELinux User**: Defines broad security characteristics (`system_u` for system processes)
-- **Role**: Controls what types a user can transition to (`system_r` for system processes)
-- **Type**: The primary mechanism for access control (`container_t` for container processes)
-- **Level**: Security clearance level (`s0` for standard operations)
-- **Categories**: Used to isolate containers from each other (`c1`,`c2` unique per container)
-
-#### 3. Process and File Labeling
-```ascii
-Process Context                File Context
-┌──────────────┐              ┌──────────────┐
-│container_t   │ ─ access ─>  │container_file_t│
-│s0:c1,c2      │              │s0:c1,c2      │
-└──────────────┘              └──────────────┘
-       │                             │
-       │         Host Files          │
-       │      ┌──────────────┐      │
-       └─ ╳ ─> │   etc_t     │ < ╳ ─┘
-              └──────────────┘
-                     ╳
-              Access Denied
-```
-
-### Container Isolation Model
-
-#### 1. Container-to-Host Isolation
-```ascii
-Host System                    Container
-┌──────────────┐              ┌──────────────┐
-│ unconfined_t │              │ container_t  │
-│ etc_t, bin_t │ < ── ╳ ────  │ (restricted) │
-└──────────────┘              └──────────────┘
-```
-
-#### 2. Container-to-Container Isolation
-```ascii
-Container A                    Container B
-┌──────────────┐              ┌──────────────┐
-│ container_t  │              │ container_t  │
-│ s0:c1,c2     │ < ── ╳ ────  │ s0:c3,c4    │
-└──────────────┘              └──────────────┘
-     Different categories prevent access
-```
-
-#### 3. Volume Mount Security
-```ascii
-Host Volume                    Container Mount
-┌──────────────┐              ┌──────────────┐
-│ default_t    │ ─ relabel ─> │container_file_t│
-└──────────────┘              └──────────────┘
-```
-
-### SELinux Policy Rules
-
-Key policy rules that enforce container isolation:
-
-```text
-# Process Isolation
-allow container_t container_file_t:file { read write execute };
-deny container_t etc_t:file { read write execute };
-
-# Network Isolation
-allow container_t container_port_t:tcp_socket { bind name_bind };
-deny container_t unreserved_port_t:tcp_socket { bind name_bind };
-
-# Resource Access
-allow container_t proc_t:file { read getattr };
-deny container_t sysctl_t:file { read write };
-```
-
-### Verification and Troubleshooting
-
-#### 1. Context Verification
-```bash
-# Check process context
-ps -eZ | grep container_t
-# Expected: system_u:system_r:container_t:s0:c1,c2 1234 ? container1
-
-# Check file context
-ls -Z /var/lib/containers/storage/
-# Expected: system_u:object_r:container_file_t:s0 ...
-```
-
-#### 2. Policy Verification
-```bash
-# Check SELinux mode
-getenforce
-# Expected: Enforcing
-
-# Check for denials
-ausearch -m AVC -ts recent
-# Look for: type=AVC msg=audit(...)
-```
-
-#### 3. Common Issues and Solutions
-
-1. Volume Mount Issues
-```bash
-# Fix volume labels
-chcon -Rt container_file_t /path/to/volume
-
-# Verify labels
-ls -Z /path/to/volume
-```
-
-2. Network Access Issues
-```bash
-# Check port context
-semanage port -l | grep container_port_t
-
-# Add port to container context
-semanage port -a -t container_port_t -p tcp 8080
-```
-
-3. Process Access Issues
-```bash
-# Generate policy for denials
-audit2allow -a -M container_policy
-
-# Review and load policy
-semodule -i container_policy.pp
-```
-
-## Isolation Domains
 
 ### 1. Process Isolation
 
-#### User Namespace Isolation
+#### Rootless Podman with User Namespace Isolation
 
 ```
 Host UID Space        Container UID Space
@@ -197,214 +38,68 @@ Host UID Space        Container UID Space
    │                          Unprivileged User
 ```
 
-* **Implementation**: User namespace remapping through `/etc/subuid` and `/etc/subgid`
-* **Technical details**:
+* **Implementation**:
+  * Podman runs as non-root user (apiuser, UID 1001)
+  * User namespace remapping via `/etc/subuid` and `/etc/subgid`
   * UID/GID map range: 100000-165536 (65536 identities)
-  * Root inside container (UID 0) maps to unprivileged host UID 100000
-  * Enforced via `userns_mode = "auto"` in containers.conf
-  * Persisted through `/etc/subuid` entries: `apiuser:100000:65536`
-* **Attack surface reduction**:
-  * Even with root access in container, process runs as unprivileged on host
-  * Container root cannot access host resources outside mapped range
-  * File capabilities limited to container namespace
+  * Container root (UID 0) maps to unprivileged host UID 100000
 
 #### SELinux Mandatory Access Control
 
-* **Implementation**: Type enforcement with Multi-Category Security (MCS)
-
-```text
-┌─────────────────────────────────────────────────────────┐
-│ SELinux Security Model                                  │
-│                                                         │
-│  ┌─────────────────┐      ┌──────────────────┐         │
-│  │ Type Enforcement│      │ MCS Categories    │         │
-│  │                 │      │                   │         │
-│  │ container_t     │──────│ s0:c1,c2         │         │
-│  │ container_file_t│      │ (unique per      │         │
-│  │                 │      │  container)       │         │
-│  └─────────────────┘      └──────────────────┘         │
-└─────────────────────────────────────────────────────────┘
-```
-
+* **Implementation**: Type enforcement with standard container context
 * **Technical details**:
+  * Using container-selinux and selinux-policy-targeted packages
   * Process type: `container_t`
   * File type: `container_file_t`
-  * MCS categories: `s0:c1,c2` (unique per container)
-  * SELinux contexts: `system_u:system_r:container_t:s0:c1,c2`
-
-#### SELinux Security Model Deep Dive
-
-The container-runner service implements a comprehensive SELinux security model with three core protection layers:
-
-```ascii
-┌─────────────────────────────────────────────────────────┐
-│ SELinux Security Model                                  │
-│                                                         │
-│  ┌─────────────────┐      ┌──────────────────┐         │
-│  │ Type Enforcement│      │ MCS Categories    │         │
-│  │                 │      │                   │         │
-│  │ container_t     │──────│ s0:c1,c2         │         │
-│  │ container_file_t│      │ (unique per      │         │
-│  │                 │      │  container)       │         │
-│  └─────────────────┘      └──────────────────┘         │
-│                                                         │
-│  ┌──────────────────────────────────────────┐          │
-│  │           Access Controls                 │          │
-│  │                                          │          │
-│  │ - Process boundaries                     │          │
-│  │ - File access                           │          │
-│  │ - Network isolation                      │          │
-│  └──────────────────────────────────────────┘          │
-└─────────────────────────────────────────────────────────┘
-```
-
-**1. Type Enforcement (TE)**
-- Defines what processes can do and what files they can access
-- Container processes run as `container_t`
-- Container files are labeled as `container_file_t`
-- Prevents containers from accessing host system resources
-
-**2. Multi-Category Security (MCS)**
-```ascii
-Container A                     Container B
-┌──────────────┐               ┌──────────────┐
-│ s0:c1,c2     │   ≠   Access │ s0:c3,c4     │
-│ (Category 1) │ ◄─╳──────────│ (Category 2) │
-└──────────────┘               └──────────────┘
-```
-- Each container gets unique security categories
-- Prevents containers from accessing each other's resources
-- Automatic isolation between workloads
-
-**3. Access Controls**
-- **Process**: Prevents privilege escalation and controls process transitions
-- **Filesystem**: Automatically labels mounted volumes and enforces access rules
-- **Network**: Labels and controls network traffic between containers
-
-This multi-layered approach ensures:
-- Containers cannot break out of their assigned boundaries
-- Host system resources are protected
-- Containers are isolated from each other
-- Mounted volumes maintain proper security context
-- Network traffic is controlled and isolated
+  * SELinux contexts applied automatically by Podman
 
 ### 2. Filesystem Isolation
 
 #### Storage Containment
 
-* **Implementation**: Controlled mount namespaces with SELinux labeling
+* **Implementation**: Container storage isolated in user's home directory
 * **Technical details**:
-  * Storage confined to `/var/lib/containers/storage` and `/run/containers/storage`
-  * Mount options for security:
-    ```text
+  * Default storage location for rootless Podman
+  * Mount options enforced through containers.conf:
+    ```
     nodev:   Prevents device file creation
-    │   ┌─── nosuid:  Ignores SUID/SGID bits
-    │   │    ┌── noexec:  Prevents executable files
-    ↓   ↓    ↓
-    /container/volume
-    ├── device-file  ╳ (blocked by nodev)
-    ├── setuid-file  ╳ (blocked by nosuid)
-    └── script.sh    ╳ (blocked by noexec)
+    nosuid:  Ignores SUID/SGID bits
+    noexec:  Prevents executable files
     ```
-  * Overlay filesystem with SELinux awareness:
-    ```text
-    Container View    │    Actual Storage
-                     │
-    /container/file ──┼──► Overlay Layer (Read-Write)
-                     │         │
-                     │    Image Layer (Read-Only)
-                     │         │
-                     │    Host Filesystem
-    ```
-  * SELinux mount context: `system_u:object_r:container_file_t:s0`
-
-* **Security boundaries**:
-  * Double isolation via filesystem namespaces and SELinux types
-  * Host filesystem invisible to container processes
-  * Volume mounts restricted with security options
-  * Container volumes receive proper SELinux context
+  * Overlay filesystem with SELinux awareness via fuse-overlayfs
 
 #### Seccomp Syscall Filtering
 
-* **Implementation**: Default-deny policy with explicit allowlist
+* **Implementation**: Default-deny policy with minimal allowlist
 * **Technical details**:
   * Default action: `SCMP_ACT_ERRNO` (deny all by default)
   * Architecture-specific: x86_64
-  * Limited syscall set: basic I/O, networking, inter-process communication
-  * No dangerous syscalls: no `ptrace`, `mount`, kernel module ops, etc.
-* **Vulnerability mitigation**:
-  * Prevents container breakout via syscall exploitation
-  * Blocks access to sensitive kernel functionality
-  * Reduces kernel attack surface to minimum required set
-  * Complements namespace isolation at syscall boundary
+  * Minimal syscall allowlist:
+    * Basic I/O: read, write, open, close
+    * Process: exit, exit_group, futex
+    * Network: socket, connect, getpeername, getsockname, setsockopt, recvfrom, sendto
+    * Event handling: epoll_ctl, epoll_wait, poll, fcntl
 
 ### 3. Network Isolation
 
 #### Netavark Containment
 
 * **Implementation**: Custom isolated bridge networks
-
-```text
-┌─────────────────┐   ╳   ┌─────────────────┐
-│   Container A   │ ──╳── │   Container B   │
-│  10.89.0.2/24  │   ╳   │  10.89.1.2/24  │
-└─────────────────┘   ╳   └─────────────────┘
-        │                         │
-        └─────────┐     ┌────────┘
-                  ▼     ▼
-            Isolated Networks
-                  │
-                  ▼
-          External Network
-```
-
 * **Technical details**:
   * Network backend: Netavark (native Podman implementation)
   * Custom subnet allocation: `10.89.0.0/16` and `10.90.0.0/15`
   * Network isolation parameter: `isolate = true`
   * DNS servers: `1.1.1.1`, `8.8.8.8` (trusted upstreams)
 
-#### API Endpoint Security
-
-* **Implementation**: Localhost-bound service with controlled exposure
-* **Technical details**:
-  * Podman API service listens on `127.0.0.1:8080`
-  * TCP encapsulation for API calls
-  * Accessed via Docker network from specific containers only
-
-```text
-External Network        Docker Network          Container Network
-     ╳                      ↓                        ↓
-Can't access ──► localhost:8080 ──► Podman API ──► Containers
-```
-
-* **Attack surface reduction**:
-  * API only accessible within Docker network
-  * No external exposure of Podman API
-  * IP-based access restriction
-
 ### 4. Resource Isolation
 
-#### cgroups Containment
+#### Resource Limits
 
 * **Implementation**: Strict resource quotas via cgroups
-
-```text
-┌──────── Container Resources ────────┐
-│                                    │
-│  ┌─────────┐  ┌─────┐  ┌───────┐  │
-│  │ Memory  │  │ CPU │  │ PIDs  │  │
-│  │ 512MB   │  │ 20% │  │ 100   │  │
-│  └─────────┘  └─────┘  └───────┘  │
-│                                    │
-└────────────────────────────────────┘
-```
-
 * **Technical details**:
   * Memory limit: 512MB with equivalent swap limit
   * CPU quota: 20% of available CPU (20000/100000)
   * Process limit: 100 processes per container
-  * cgroups manager: cgroupfs
 
 #### Capability Restrictions
 
@@ -413,141 +108,19 @@ Can't access ──► localhost:8080 ──► Podman API ──► Containers
   * `default_capabilities = []` in containers.conf
   * No privilege escalation: `no_new_privileges = true`
   * No sysctl modifications: `default_sysctls = []`
-* **Protection provided**:
-  * Containers cannot perform privileged operations
-  * Cannot modify system-wide kernel parameters
-  * No ability to load kernel modules or manipulate hardware
-
-## Storage Security Model
-
-### Directory Structure and Isolation
-
-The container storage is strictly isolated into two main hierarchies:
-
-#### 1. Runtime Storage
-```ascii
-/run/containers/storage/           # tmpfs-backed
-├── overlay-layers/               # Container runtime layers
-│   └── [layer-id]/              # Isolated layer data
-├── overlay-images/               # Runtime image data
-│   ├── images.json              # Image metadata
-│   └── [image-id]/              # Image runtime data
-└── overlay-containers/           # Active container state
-    └── [container-id]/          # Per-container runtime
-        ├── userdata/            # Container user data
-        ├── state.json           # Container state
-        └── mountpoints/         # Active mounts
-```
-
-**Security Properties**:
-- Tmpfs-backed (memory-only storage)
-- Cleared on system reboot
-- No persistent sensitive data
-- SELinux context: `container_file_t`
-- Permissions: `770` (root:apiuser rwxrwx---)
-
-#### 2. Persistent Storage
-```ascii
-/var/lib/containers/storage/      # Disk-backed
-├── overlay/                      # Container layers
-│   ├── [layer-id]/              # Immutable layers
-│   └── diff/                    # Layer contents
-├── volumes/                      # Named volumes
-│   └── [volume-id]/             # Volume data
-│       ├── _data/               # Volume contents
-│       └── metadata.json        # Volume metadata
-├── tmp/                         # Temporary files
-│   └── [build-id]/              # Build context
-└── mounts/                      # Bind mounts
-    └── [mount-id]/              # Mount tracking
-```
-
-**Security Properties**:
-- Disk-backed persistent storage
-- SELinux labeled directories
-- Overlay isolation for layers
-- Volume isolation per container
-- Permissions: `770` (root:apiuser rwxrwx---)
-
-### Access Control Matrix
-
-| Directory                    | Permission | Owner:Group  | SELinux Context        | Purpose                    |
-|-----------------------------|------------|--------------|----------------------|----------------------------|
-| `/run/podman`               | 750        | root:apiuser | container_runtime_t | API socket access          |
-| `/run/containers/storage`   | 770        | root:apiuser | container_file_t    | Runtime data               |
-| `/var/lib/containers/overlay`| 770       | root:apiuser | container_file_t    | Container layers           |
-| `/var/lib/containers/volumes`| 770       | root:apiuser | container_file_t    | Persistent volumes         |
-| `/etc/containers/*`         | 644        | root:root    | etc_t              | Configuration files        |
-
-### Storage Security Features
-
-1. **Filesystem Isolation**:
-   - Runtime storage in tmpfs (memory)
-   - Persistent storage in controlled paths
-   - Overlay filesystem for layer isolation
-   - Volume isolation between containers
-
-2. **Access Controls**:
-   - Root ownership of all directories
-   - apiuser group access where needed
-   - No world-readable files
-   - SELinux context separation
-
-3. **Mount Security**:
-   - nodev: prevent device file creation
-   - nosuid: ignore setuid bits
-   - noexec: prevent executable files (where appropriate)
-
-4. **Data Protection**:
-   - Temporary data in memory only
-   - Persistent data properly labeled
-   - Volume data isolated per container
-   - Build cache cleaned automatically
-
-## Defense in Depth Strategy
-
-The security architecture implements overlapping protection mechanisms to ensure that compromise of one layer doesn't lead to full system compromise:
-
-```text
-    ┌─ External Network
-    │  ┌─ Network Namespace
-    │  │  ┌─ User Namespace
-    │  │  │  ┌─ SELinux
-    │  │  │  │  ┌─ Seccomp
-    ▼  ▼  ▼  ▼  ▼
-┌──────────────────┐
-│    Container     │
-└──────────────────┘
-```
-
-| Attack Vector | Primary Defense | Secondary Defense | Tertiary Defense |
-|---------------|----------------|-------------------|------------------|
-| Container Escape | User Namespace Isolation | SELinux Enforcement | Seccomp Filtering |
-| Privilege Escalation | No Capabilities | No New Privileges | SELinux Type Enforcement |
-| Resource Attacks | cgroups Limits | Process Limits | CPU/Memory Quotas |
-| Filesystem Access | Mount Namespace | SELinux Labels | Mount Options |
-| Network Attacks | Network Namespace | Netavark Isolation | Limited Exposure |
-
-The security model maintains these characteristics even if individual protections fail:
-
-1. **Container-to-host isolation**: Protected by user namespaces + SELinux + seccomp
-2. **Container-to-container isolation**: Protected by SELinux MCS + network isolation
-3. **Resource protection**: Protected by cgroups + process limits
-4. **Filesystem protection**: Protected by SELinux + mount options + overlay isolation
 
 ## Configuration
 
 ### Environment Variables
 
-- `TRACECAT__PODMAN_URI`: API endpoint URI (default: `tcp://container-runner:8080`)
 - `PODMAN_API_VERSION`: API version for client compatibility (default: `v1.40`)
 - `PODMAN_LISTEN_ADDRESS`: Service bind address (default: `127.0.0.1`)
 
 ## Usage
 
-The executor service connects to the container-runner service using the `TRACECAT__PODMAN_URI` environment variable. The container-runner service exposes its API on port 8080.
+The executor service connects to the container-runner service. The container-runner service exposes its API on port 8080.
 
-### Example
+### Example (Python Client)
 
 ```python
 from tracecat.sandbox.podman import run_podman_container, PodmanNetwork
@@ -562,83 +135,18 @@ print(result.output)
 
 ## Security Verification
 
-### SELinux Verification
+### Key Verification Commands
 
 ```bash
-# Verify SELinux is enforcing
+# Check if Podman is running as non-root
+docker exec -it container-runner ps -ef | grep podman
+
+# Verify user namespace configuration
+docker exec -it container-runner grep apiuser /etc/subuid
+
+# Check SELinux is enforcing
 docker exec -it container-runner getenforce
-# Expected: Enforcing
 
-# Verify container processes have correct context
-docker exec -it container-runner podman exec <container_id> ps -efZ
-# Should show: system_u:system_r:container_t:s0:c1,c2
-
-# Check for SELinux denials
-docker exec -it container-runner ausearch -m avc -ts recent
-```
-
-### Namespace Verification
-
-```bash
-# Verify user namespaces are in use
-docker exec -it container-runner podman info | grep userns
-# Should show: userns: true
-
-# Check UID mapping
-docker exec -it container-runner podman inspect <container_id> | grep -A 10 IDMappings
-```
-
-### Network Isolation Testing
-
-```bash
-# Create two containers on default network
-docker exec -it container-runner podman run -d --name c1 alpine sleep 1000
-docker exec -it container-runner podman run -d --name c2 alpine sleep 1000
-
-# Verify isolation (should fail to connect)
-docker exec -it container-runner podman exec c1 ping -c 1 $(podman inspect -f '{{.NetworkSettings.IPAddress}}' c2)
-```
-
-### Resource Limit Verification
-
-```bash
-# Verify memory limits
-docker exec -it container-runner podman exec <container_id> cat /sys/fs/cgroup/memory/memory.limit_in_bytes
-# Should show: 536870912 (512MB)
-
-# Verify process limits
-docker exec -it container-runner podman exec <container_id> cat /sys/fs/cgroup/pids/pids.max
-# Should show: 100
-```
-
-## Troubleshooting
-
-### SELinux Issues
-
-```bash
-# Temporarily set to permissive for debugging
-docker exec -it container-runner setenforce 0
-
-# Get detailed SELinux denials with context
-docker exec -it container-runner ausearch -m avc -ts recent | audit2why
-```
-
-### Network Connectivity Issues
-
-```bash
-# Check DNS resolution
-docker exec -it container-runner podman run --rm alpine nslookup google.com
-
-# Inspect network configuration
-docker exec -it container-runner podman inspect --format '{{.NetworkSettings}}' <container_id>
-```
-
-### API Access Issues
-
-```bash
-# Verify API is responsive
-docker exec -it container-runner curl http://127.0.0.1:8080/v1.40/version
-
-# Check API service logs
-docker exec -it container-runner journalctl -u podman
+# Verify seccomp profile is in place
+docker exec -it container-runner ls -l /etc/containers/seccomp.json
 ```
