@@ -1,51 +1,31 @@
 FROM quay.io/containers/podman:v5.4.0
 
-# Install SELinux and required utilities
+# Install required packages and clean up in one layer
 RUN dnf install -y \
     container-selinux \
-    selinux-policy \
     selinux-policy-targeted \
-    policycoreutils \
-    policycoreutils-python-utils \
     fuse-overlayfs \
     && dnf clean all
 
-# Copy the setup script and configuration files
-COPY setup-podman.sh /tmp/setup-podman.sh
-COPY containers.conf /app/config/podman/containers.conf
-COPY storage.conf /app/config/podman/storage.conf
-COPY seccomp.json /app/config/podman/seccomp.json
+# Create non-root user for running podman
+RUN useradd -m -u 1001 apiuser && \
+    mkdir -p /etc/containers && \
+    chown -R apiuser:apiuser /etc/containers
 
-# Run the setup script to configure Podman with security hardening
-RUN chmod +x /tmp/setup-podman.sh && \
-    /tmp/setup-podman.sh && \
-    rm /tmp/setup-podman.sh
+# Copy configs with correct ownership
+COPY --chown=apiuser:apiuser containers.conf /etc/containers/containers.conf
+COPY --chown=apiuser:apiuser storage.conf /etc/containers/storage.conf
+COPY --chown=apiuser:apiuser seccomp.json /etc/containers/seccomp.json
 
-# SELinux context for container files
-RUN mkdir -p /etc/selinux/targeted/contexts/containers && \
-    echo 'container_file_t' > /etc/selinux/targeted/contexts/containers/file_contexts && \
-    echo 'container_runtime_t' > /etc/selinux/targeted/contexts/containers/process_contexts
+# Set up user namespace mapping
+RUN echo "apiuser:100000:65536" > /etc/subuid && \
+    echo "apiuser:100000:65536" > /etc/subgid && \
+    chmod 644 /etc/sub{u,g}id
 
-# Create home directories for the apiuser
-RUN mkdir -p /home/apiuser/.cache /home/apiuser/.local && \
-    chown -R apiuser:apiuser /home/apiuser/.cache /home/apiuser/.local && \
-    chmod -R 755 /home/apiuser/.cache /home/apiuser/.local && \
-    chown -R apiuser:apiuser /tmp /home/apiuser && \
-    # Set SELinux context for apiuser directories
-    [ -x /usr/sbin/restorecon ] && /usr/sbin/restorecon -R /home/apiuser || true
+# Switch to non-root user
+USER apiuser
 
-# Set environment variables
-ENV HOME="/home/apiuser"
-ENV PODMAN_API_VERSION=v1.40
-ENV PODMAN_LISTEN_ADDRESS=127.0.0.1
-ENV CONTAINER_SELINUX=1
-
-# Expose the podman API port
 EXPOSE 8080
 
-# Note: We need to run as root because podman system service requires it
-# However, containers launched by this podman instance will run as non-root
-# using the configured user namespace remapping and SELinux isolation
-
-# Command to run the podman API service with secure defaults
+# Run podman API service as non-root
 CMD ["podman", "system", "service", "tcp:127.0.0.1:8080", "--time=0"]
