@@ -13,15 +13,14 @@ from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat.dsl.common import ChildWorkflowMemo, DSLRunArgs
-from tracecat.dsl.enums import CoreActions, JoinStrategy
+from tracecat.dsl.enums import JoinStrategy, PlatformAction
 from tracecat.dsl.models import (
     ActionErrorInfo,
     ActionRetryPolicy,
     RunActionInput,
-    SignalHandlerInput,
-    SignalHandlerResult,
     TriggerInputs,
 )
+from tracecat.ee.interactions.models import SignalHandlerInput, SignalHandlerResult
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
@@ -389,7 +388,7 @@ class WorkflowExecutionEventCompact(BaseModel):
             schedule_time=event.event_time.ToDatetime(UTC),
             curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
             status=WorkflowExecutionEventStatus.SCHEDULED,
-            action_name=CoreActions.CHILD_WORKFLOW_EXECUTE.value,
+            action_name=PlatformAction.CHILD_WORKFLOW_EXECUTE.value,
             action_ref=memo.action_ref,
             action_input=dsl_run_args.trigger_inputs,
             child_wf_exec_id=wf_exec_id,

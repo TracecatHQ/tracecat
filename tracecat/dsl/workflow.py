@@ -37,10 +37,9 @@ with workflow.unsafe.imports_passed_through():
         DSLInput,
         DSLRunArgs,
         ExecuteChildWorkflowArgs,
-        WaitResponseArgs,
         dsl_execution_error_from_exception,
     )
-    from tracecat.dsl.enums import CoreActions, FailStrategy, LoopStrategy
+    from tracecat.dsl.enums import FailStrategy, LoopStrategy, PlatformAction
     from tracecat.dsl.models import (
         ActionErrorInfo,
         ActionStatement,
@@ -51,10 +50,6 @@ with workflow.unsafe.imports_passed_through():
         ExecutionContext,
         RunActionInput,
         RunContext,
-        SignalHandlerInput,
-        SignalHandlerResult,
-        SignalState,
-        SignalStatus,
         TriggerInputs,
     )
     from tracecat.dsl.scheduler import DSLScheduler
@@ -62,6 +57,10 @@ with workflow.unsafe.imports_passed_through():
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
     )
+    from tracecat.ee.enums import PlatformAction as PlatformActionEE
+    from tracecat.ee.interactions import service as interactions
+    from tracecat.ee.interactions.common import SignalState
+    from tracecat.ee.interactions.models import SignalHandlerInput, SignalHandlerResult
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
@@ -169,29 +168,12 @@ class DSLWorkflow:
     @workflow.update
     def signal_receiver(self, input: SignalHandlerInput) -> SignalHandlerResult:
         """Handle signals from the workflow and return a result."""
-        self.logger.info("Received signal", input=input)
-        if input.signal_id not in self.signal_states:
-            self.logger.warning(
-                "Received signal for unknown action", signal_id=input.signal_id
-            )
-            raise ApplicationError(
-                "Received signal for unknown action", non_retryable=True
-            )
-        self.signal_states[input.signal_id].data = input.data
-        self.signal_states[input.signal_id].status = SignalStatus.COMPLETED
-        return SignalHandlerResult(
-            message="success",
-            detail=input.data,
-        )
+        return interactions.receive_signal(self, input)
 
     @signal_receiver.validator
     def validate_signal_receiver(self, input: SignalHandlerInput) -> None:
-        # Match the signal id and action ref
-        if input.signal_id not in self.signal_states:
-            raise ValueError("Workflow signal receiver cannot find signal state")
-        state = self.signal_states[input.signal_id]
-        if state.ref != input.ref:
-            raise ValueError("Workflow signal receiver received invalid signal")
+        """Validate the signal receiver."""
+        return interactions.validate_signal(self, input)
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
@@ -217,15 +199,7 @@ class DSLWorkflow:
 
         # Signals
         # Prepare signal activation mappings
-        # For each action in the DSL that's a `core.workflow.await_response` action,
-        # we need to prepare a signal activation mapping
-        for action in self.dsl.actions:
-            if action.action == CoreActions.WAIT_RESPONSE:
-                act_args = WaitResponseArgs.model_validate(action.args)
-                self.signal_states[act_args.ref] = SignalState(
-                    ref=action.ref,
-                    type=CoreActions.WAIT_RESPONSE,
-                )
+        self.signal_states = interactions.prepare_signal_states(self.dsl)
         self.logger.warning("Signal states", signal_states=self.signal_states)
 
         # Note that we can't run the error handler above this
@@ -533,7 +507,7 @@ class DSLWorkflow:
 
             # Do action stuff
             match task.action:
-                case CoreActions.CHILD_WORKFLOW_EXECUTE:
+                case PlatformAction.CHILD_WORKFLOW_EXECUTE:
                     # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
                     # 1. Prepare the child workflow
                     logger.trace("Preparing child workflow")
@@ -546,33 +520,10 @@ class DSLWorkflow:
                     action_result = await self._execute_child_workflow(
                         task=task, child_run_args=child_run_args
                     )
-                case CoreActions.WAIT_RESPONSE:
-                    # In a previous action like slack.send_message, we passed some kind of signal ID
-                    # into the slack block metadata which is passed over to the client. Ths signal ID
-                    # is some value that the client can use to send a signal back to the workflow.
-                    args = WaitResponseArgs.model_validate(task.args)
-                    sig_ref = args.ref
-
-                    # Start an activity asynchronously to wait for the signal
-                    # This is so that we can return a result immediately
-                    # and not block the workflow
-                    logger.warning("Waiting for response", signal_ref=sig_ref)
-                    try:
-                        self.signal_states[sig_ref].status = SignalStatus.PENDING
-                        # 1. Wait for receipt of an external signal
-                        await workflow.wait_condition(
-                            lambda: self.signal_states[sig_ref].is_activated(),
-                            timeout=args.timeout,
-                        )
-                    except TimeoutError as e:
-                        raise ApplicationError(
-                            "Timeout waiting for response", non_retryable=True
-                        ) from e
-
-                    logger.warning("Response received", signal_ref=sig_ref)
-
-                    # 2. Perform a passthrough to log the response
-                    action_result = self.signal_states[sig_ref].data
+                case PlatformActionEE.WAIT_RESPONSE:
+                    action_result = await interactions.handle_wait_response_action(
+                        self, task
+                    )
                 case _:
                     # Below this point, we're executing the task
                     logger.trace(
