@@ -144,69 +144,67 @@ ausearch -m AVC -ts recent
      [engine]
      cgroup_manager = "cgroupfs"
      ```
-   - Mounted at `/sys/fs/cgroup/`
-   - Suitable for:
-     - Rootless containers
-     - Nested container deployments
-     - User namespace isolation
 
-2. **Outer Container Limits** (docker-compose.dev.yml)
+2. **Container Resource Configuration**
    ```yaml
-   deploy:
-     resources:
-       limits:
-         cpus: '0.2'    # 20% CPU limit
-         memory: 512M   # 512MB memory limit
-       reservations:
-         cpus: '0.1'    # Guaranteed minimum CPU
-         memory: 256M   # Guaranteed minimum memory
+   container-runner:
+     volumes:
+       - containers:/var/lib/containers
+     security_opt:
+       - label=disable
+       - unmask=ALL
+     device_cgroup_rules:
+       - 'c 10:229 rwm'
+     devices:
+       - /dev/fuse:/dev/fuse
    ```
-
-3. **Inner Container Limits** (containers.conf)
-   ```ini
-   pids_limit = 100              # Process limit
-   memory_limit = "512m"         # Memory limit
-   memory_swap = "512m"          # Swap limit
-   cpu_period = 100000          # CPU period
-   cpu_quota = 20000           # CPU quota (20%)
-   ```
-
-**Resource Management Flow:**
 
 ### 8. Device Access and Filesystem Operations
 
-**FUSE Device Configuration:**
-```yaml
-# Docker Compose configuration
-device_cgroup_rules:
-  - 'c 10:229 rwm'  # Character device for /dev/fuse
-devices:
-  - /dev/fuse:/dev/fuse
+**FUSE Configuration:**
+- Required for overlay filesystem operations
+- Device access controlled via cgroup rules
+- SELinux-aware mounting using fuse-overlayfs
+
+**Storage Implementation:**
+```ini
+[storage]
+runroot = "/run/containers/storage"
+graphroot = "/var/lib/containers/storage"
+
+[storage.options]
+enable_selinux = true
+mount_program = "/usr/bin/fuse-overlayfs"
+mountopt = "nodev,metacopy=on,overlay.mount_program=/usr/bin/fuse-overlayfs"
 ```
 
-**Purpose and Implementation:**
-1. **FUSE (Filesystem in UserSpacE):**
-   - Enables non-privileged filesystem operations
-   - Required for rootless container storage
-   - Provides overlay filesystem capabilities
+### 9. Network Configuration
 
-2. **Device Configuration:**
-   - Character device (c)
-   - Major number: 10
-   - Minor number: 229
-   - Permissions: read(r), write(w), mknod(m)
+**Network Settings** (containers.conf):
+```ini
+[network]
+network_backend = "netavark"
+default_subnet_pools = [
+  {"base" = "10.89.0.0/16", "size" = 24},
+  {"base" = "10.90.0.0/15", "size" = 24}
+]
+dns_servers = ["1.1.1.1", "8.8.8.8"]
 
-3. **Security Considerations:**
-   - Limited to specific device (/dev/fuse)
-   - Controlled by user namespace restrictions
-   - Required for container image layering
-   - Subject to normal permission boundaries
+default_network_options = {
+  "podman" = {
+    "isolate" = true,
+    "no_dns" = false
+  }
+}
+```
 
-4. **Storage Implementation:**
-   - Uses fuse-overlayfs for rootless operation
-   - Enables efficient container image layering
-   - Maintains isolation between container layers
-   - Preserves SELinux contexts across mounts
+## Container Runtime
+
+The service uses Podman v5.4.0 with the following key components:
+- Base image: `quay.io/containers/podman:v5.4.0`
+- Runtime: crun
+- Network backend: netavark
+- Storage driver: overlay with fuse-overlayfs
 
 ## API and Usage
 
