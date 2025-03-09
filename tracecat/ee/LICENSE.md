@@ -1,4 +1,4 @@
-The Tracecat Enterprise license (the “Enterprise License”) Copyright (c) 2025 Tracecat Inc
+The Tracecat Enterprise license (the “Enterprise License”) Copyright (c) 2024-present Tracecat Inc
 
 With regard to the Tracecat Software:
 
