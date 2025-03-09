@@ -4,8 +4,10 @@ FROM quay.io/containers/podman:v5.4.0
 RUN dnf install -y \
     container-selinux \
     selinux-policy \
-    fuse-overlayfs \
+    selinux-policy-targeted \
     policycoreutils \
+    policycoreutils-python-utils \
+    fuse-overlayfs \
     && dnf clean all
 
 # Copy the setup script and configuration files
