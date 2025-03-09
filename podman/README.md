@@ -132,13 +132,81 @@ ausearch -m AVC -ts recent
 - Container-to-container isolation: `isolate = true`
 - Restricted DNS: `1.1.1.1`, `8.8.8.8` (trusted upstream resolvers)
 
-### 7. Resource Limits
+### 7. Resource Management
 
-**Strict resource quotas via cgroups:**
-- Memory: 512MB limit (incl. swap)
-- CPU: 20% quota (20000/100000)
-- Process limit: 100 processes per container
-- Volume cleanup to prevent data leaks
+**Resource Control Architecture:**
+
+1. **Cgroup Management (cgroupfs)**
+   - Direct filesystem-based cgroup interface
+   - No systemd dependency required
+   - Configured in containers.conf:
+     ```ini
+     [engine]
+     cgroup_manager = "cgroupfs"
+     ```
+   - Mounted at `/sys/fs/cgroup/`
+   - Suitable for:
+     - Rootless containers
+     - Nested container deployments
+     - User namespace isolation
+
+2. **Outer Container Limits** (docker-compose.dev.yml)
+   ```yaml
+   deploy:
+     resources:
+       limits:
+         cpus: '0.2'    # 20% CPU limit
+         memory: 512M   # 512MB memory limit
+       reservations:
+         cpus: '0.1'    # Guaranteed minimum CPU
+         memory: 256M   # Guaranteed minimum memory
+   ```
+
+3. **Inner Container Limits** (containers.conf)
+   ```ini
+   pids_limit = 100              # Process limit
+   memory_limit = "512m"         # Memory limit
+   memory_swap = "512m"          # Swap limit
+   cpu_period = 100000          # CPU period
+   cpu_quota = 20000           # CPU quota (20%)
+   ```
+
+**Resource Management Flow:**
+
+### 8. Device Access and Filesystem Operations
+
+**FUSE Device Configuration:**
+```yaml
+# Docker Compose configuration
+device_cgroup_rules:
+  - 'c 10:229 rwm'  # Character device for /dev/fuse
+devices:
+  - /dev/fuse:/dev/fuse
+```
+
+**Purpose and Implementation:**
+1. **FUSE (Filesystem in UserSpacE):**
+   - Enables non-privileged filesystem operations
+   - Required for rootless container storage
+   - Provides overlay filesystem capabilities
+
+2. **Device Configuration:**
+   - Character device (c)
+   - Major number: 10
+   - Minor number: 229
+   - Permissions: read(r), write(w), mknod(m)
+
+3. **Security Considerations:**
+   - Limited to specific device (/dev/fuse)
+   - Controlled by user namespace restrictions
+   - Required for container image layering
+   - Subject to normal permission boundaries
+
+4. **Storage Implementation:**
+   - Uses fuse-overlayfs for rootless operation
+   - Enables efficient container image layering
+   - Maintains isolation between container layers
+   - Preserves SELinux contexts across mounts
 
 ## API and Usage
 
