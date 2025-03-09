@@ -58,7 +58,7 @@ with workflow.unsafe.imports_passed_through():
         validate_trigger_inputs_activity,
     )
     from tracecat.ee.enums import PlatformAction as PlatformActionEE
-    from tracecat.ee.interactions import service as interactions
+    from tracecat.ee.interactions import service as interactions_service
     from tracecat.ee.interactions.common import SignalState
     from tracecat.ee.interactions.models import SignalHandlerInput, SignalHandlerResult
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
@@ -168,12 +168,12 @@ class DSLWorkflow:
     @workflow.update
     def signal_receiver(self, input: SignalHandlerInput) -> SignalHandlerResult:
         """Handle signals from the workflow and return a result."""
-        return interactions.receive_signal(self, input)
+        return interactions_service.receive_signal(self, input)
 
     @signal_receiver.validator
     def validate_signal_receiver(self, input: SignalHandlerInput) -> None:
         """Validate the signal receiver."""
-        return interactions.validate_signal(self, input)
+        return interactions_service.validate_signal(self, input)
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
@@ -199,7 +199,7 @@ class DSLWorkflow:
 
         # Signals
         # Prepare signal activation mappings
-        self.signal_states = interactions.prepare_signal_states(self.dsl)
+        self.signal_states = interactions_service.prepare_signal_states(self.dsl)
         self.logger.warning("Signal states", signal_states=self.signal_states)
 
         # Note that we can't run the error handler above this
@@ -521,7 +521,7 @@ class DSLWorkflow:
                         task=task, child_run_args=child_run_args
                     )
                 case PlatformActionEE.WAIT_RESPONSE:
-                    action_result = await interactions.handle_wait_response_action(
+                    action_result = await interactions_service.handle_wait_response(
                         self, task
                     )
                 case _:
