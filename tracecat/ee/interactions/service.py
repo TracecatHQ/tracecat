@@ -37,9 +37,10 @@ def prepare_signal_states(dsl: DSLInput) -> dict[str, SignalState]:
     return signal_states
 
 
-async def handle_wait_response_action(
+async def handle_wait_response(
     wf: DSLWorkflow, task: ActionStatement
 ) -> dict[str, Any]:
+    """Handle a wait response action."""
     # In a previous action like slack.send_message, we passed some kind of signal ID
     # into the slack block metadata which is passed over to the client. Ths signal ID
     # is some value that the client can use to send a signal back to the workflow.
