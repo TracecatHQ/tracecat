@@ -25,6 +25,159 @@ The goal is to be able to run pre-built containers within Podman isolated from t
   - Threats: privilege escalation, system manipulation, kernel module loading, sysctl changes
   - Mitigations: empty capability set, no privilege escalation, no sysctl modifications, seccomp defaults
 
+## SELinux Security Model
+
+### Understanding SELinux Components
+
+#### 1. Mandatory Access Control (MAC)
+```ascii
+Traditional Unix (DAC)          SELinux (MAC)
+┌─────────────┐                ┌─────────────┐
+│ User        │                │ System      │
+│ Controls    │                │ Controls    │
+│ Permissions │                │ Everything  │
+└─────────────┘                └─────────────┘
+      │                              │
+      ▼                              ▼
+chmod/chown                    Policy Rules
+```
+
+SELinux enforces system-wide security policies that cannot be overridden by users.
+Even if a file has chmod 777, SELinux can still prevent access based on policy.
+
+#### 2. SELinux Context Structure
+```ascii
+system_u:system_r:container_t:s0:c1,c2
+   │        │         │      │   └── Categories (Container Isolation)
+   │        │         │      └────── Sensitivity Level
+   │        │         └───────────── Type (Main Policy Target)
+   │        └─────────────────────── Role (Job Function)
+   └────────────────────────────────── User (Identity)
+```
+
+Each component serves a specific purpose:
+- **SELinux User**: Defines broad security characteristics (`system_u` for system processes)
+- **Role**: Controls what types a user can transition to (`system_r` for system processes)
+- **Type**: The primary mechanism for access control (`container_t` for container processes)
+- **Level**: Security clearance level (`s0` for standard operations)
+- **Categories**: Used to isolate containers from each other (`c1`,`c2` unique per container)
+
+#### 3. Process and File Labeling
+```ascii
+Process Context                File Context
+┌──────────────┐              ┌──────────────┐
+│container_t   │ ─ access ─>  │container_file_t│
+│s0:c1,c2      │              │s0:c1,c2      │
+└──────────────┘              └──────────────┘
+       │                             │
+       │         Host Files          │
+       │      ┌──────────────┐      │
+       └─ ╳ ─> │   etc_t     │ < ╳ ─┘
+              └──────────────┘
+                     ╳
+              Access Denied
+```
+
+### Container Isolation Model
+
+#### 1. Container-to-Host Isolation
+```ascii
+Host System                    Container
+┌──────────────┐              ┌──────────────┐
+│ unconfined_t │              │ container_t  │
+│ etc_t, bin_t │ < ── ╳ ────  │ (restricted) │
+└──────────────┘              └──────────────┘
+```
+
+#### 2. Container-to-Container Isolation
+```ascii
+Container A                    Container B
+┌──────────────┐              ┌──────────────┐
+│ container_t  │              │ container_t  │
+│ s0:c1,c2     │ < ── ╳ ────  │ s0:c3,c4    │
+└──────────────┘              └──────────────┘
+     Different categories prevent access
+```
+
+#### 3. Volume Mount Security
+```ascii
+Host Volume                    Container Mount
+┌──────────────┐              ┌──────────────┐
+│ default_t    │ ─ relabel ─> │container_file_t│
+└──────────────┘              └──────────────┘
+```
+
+### SELinux Policy Rules
+
+Key policy rules that enforce container isolation:
+
+```text
+# Process Isolation
+allow container_t container_file_t:file { read write execute };
+deny container_t etc_t:file { read write execute };
+
+# Network Isolation
+allow container_t container_port_t:tcp_socket { bind name_bind };
+deny container_t unreserved_port_t:tcp_socket { bind name_bind };
+
+# Resource Access
+allow container_t proc_t:file { read getattr };
+deny container_t sysctl_t:file { read write };
+```
+
+### Verification and Troubleshooting
+
+#### 1. Context Verification
+```bash
+# Check process context
+ps -eZ | grep container_t
+# Expected: system_u:system_r:container_t:s0:c1,c2 1234 ? container1
+
+# Check file context
+ls -Z /var/lib/containers/storage/
+# Expected: system_u:object_r:container_file_t:s0 ...
+```
+
+#### 2. Policy Verification
+```bash
+# Check SELinux mode
+getenforce
+# Expected: Enforcing
+
+# Check for denials
+ausearch -m AVC -ts recent
+# Look for: type=AVC msg=audit(...)
+```
+
+#### 3. Common Issues and Solutions
+
+1. Volume Mount Issues
+```bash
+# Fix volume labels
+chcon -Rt container_file_t /path/to/volume
+
+# Verify labels
+ls -Z /path/to/volume
+```
+
+2. Network Access Issues
+```bash
+# Check port context
+semanage port -l | grep container_port_t
+
+# Add port to container context
+semanage port -a -t container_port_t -p tcp 8080
+```
+
+3. Process Access Issues
+```bash
+# Generate policy for denials
+audit2allow -a -M container_policy
+
+# Review and load policy
+semodule -i container_policy.pp
+```
+
 ## Isolation Domains
 
 ### 1. Process Isolation
@@ -264,6 +417,92 @@ Can't access ──► localhost:8080 ──► Podman API ──► Containers
   * Containers cannot perform privileged operations
   * Cannot modify system-wide kernel parameters
   * No ability to load kernel modules or manipulate hardware
+
+## Storage Security Model
+
+### Directory Structure and Isolation
+
+The container storage is strictly isolated into two main hierarchies:
+
+#### 1. Runtime Storage
+```ascii
+/run/containers/storage/           # tmpfs-backed
+├── overlay-layers/               # Container runtime layers
+│   └── [layer-id]/              # Isolated layer data
+├── overlay-images/               # Runtime image data
+│   ├── images.json              # Image metadata
+│   └── [image-id]/              # Image runtime data
+└── overlay-containers/           # Active container state
+    └── [container-id]/          # Per-container runtime
+        ├── userdata/            # Container user data
+        ├── state.json           # Container state
+        └── mountpoints/         # Active mounts
+```
+
+**Security Properties**:
+- Tmpfs-backed (memory-only storage)
+- Cleared on system reboot
+- No persistent sensitive data
+- SELinux context: `container_file_t`
+- Permissions: `770` (root:apiuser rwxrwx---)
+
+#### 2. Persistent Storage
+```ascii
+/var/lib/containers/storage/      # Disk-backed
+├── overlay/                      # Container layers
+│   ├── [layer-id]/              # Immutable layers
+│   └── diff/                    # Layer contents
+├── volumes/                      # Named volumes
+│   └── [volume-id]/             # Volume data
+│       ├── _data/               # Volume contents
+│       └── metadata.json        # Volume metadata
+├── tmp/                         # Temporary files
+│   └── [build-id]/              # Build context
+└── mounts/                      # Bind mounts
+    └── [mount-id]/              # Mount tracking
+```
+
+**Security Properties**:
+- Disk-backed persistent storage
+- SELinux labeled directories
+- Overlay isolation for layers
+- Volume isolation per container
+- Permissions: `770` (root:apiuser rwxrwx---)
+
+### Access Control Matrix
+
+| Directory                    | Permission | Owner:Group  | SELinux Context        | Purpose                    |
+|-----------------------------|------------|--------------|----------------------|----------------------------|
+| `/run/podman`               | 750        | root:apiuser | container_runtime_t | API socket access          |
+| `/run/containers/storage`   | 770        | root:apiuser | container_file_t    | Runtime data               |
+| `/var/lib/containers/overlay`| 770       | root:apiuser | container_file_t    | Container layers           |
+| `/var/lib/containers/volumes`| 770       | root:apiuser | container_file_t    | Persistent volumes         |
+| `/etc/containers/*`         | 644        | root:root    | etc_t              | Configuration files        |
+
+### Storage Security Features
+
+1. **Filesystem Isolation**:
+   - Runtime storage in tmpfs (memory)
+   - Persistent storage in controlled paths
+   - Overlay filesystem for layer isolation
+   - Volume isolation between containers
+
+2. **Access Controls**:
+   - Root ownership of all directories
+   - apiuser group access where needed
+   - No world-readable files
+   - SELinux context separation
+
+3. **Mount Security**:
+   - nodev: prevent device file creation
+   - nosuid: ignore setuid bits
+   - noexec: prevent executable files (where appropriate)
+
+4. **Data Protection**:
+   - Temporary data in memory only
+   - Persistent data properly labeled
+   - Volume data isolated per container
+   - Build cache cleaned automatically
 
 ## Defense in Depth Strategy
 
