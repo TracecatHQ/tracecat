@@ -30,8 +30,16 @@ wazuh_secret = RegistrySecret(
 )
 async def get_access_token(
     url: Annotated[str, Field(..., description="Base URL for Wazuh WUI API.")],
-    verify_ssl: Annotated[bool, Field(True, description="If False, disables SSL verification for internal networks.")],
-    auth_token_exp_timeout: Annotated[int, Field(900, description="Change the token base duration")],
+    verify_ssl: Annotated[
+        bool,
+        Field(
+            True,
+            description="If False, disables SSL verification for internal networks.",
+        ),
+    ],
+    auth_token_exp_timeout: Annotated[
+        int, Field(900, description="Change the token base duration")
+    ],
 ) -> str:
     async with httpx.AsyncClient(verify=verify_ssl) as client:
         response = await client.post(

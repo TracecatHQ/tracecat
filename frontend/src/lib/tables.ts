@@ -1,7 +1,7 @@
-import { $tracecat__tables__enums__SqlType__1 } from "@/client"
+import { $SqlType } from "@/client"
 import Papa from "papaparse"
 
-export const SqlType = $tracecat__tables__enums__SqlType__1.enum
+export const SqlTypeEnum = $SqlType.enum
 
 export interface CsvPreviewData {
   headers: string[]

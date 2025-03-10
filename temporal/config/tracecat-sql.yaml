@@ -1,3 +1,0 @@
-limit.maxIDLength:
-  - value: 255
-    constraints: {}

@@ -30,7 +30,7 @@ from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.tags.models import TagRead
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.validation.service import validate_dsl
-from tracecat.webhooks.models import UpsertWebhookParams, WebhookResponse
+from tracecat.webhooks.models import WebhookCreate, WebhookRead, WebhookUpdate
 from tracecat.workflow.actions.models import ActionRead
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -206,7 +206,7 @@ async def get_workflow(
         static_inputs=workflow.static_inputs,
         config=DSLConfig(**workflow.config),
         actions=actions_responses,
-        webhook=WebhookResponse(**workflow.webhook.model_dump()),
+        webhook=WebhookRead.model_validate(workflow.webhook, from_attributes=True),
         schedules=workflow.schedules or [],
         alias=workflow.alias,
         error_handler=workflow.error_handler,
@@ -466,7 +466,7 @@ async def create_webhook(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
-    params: UpsertWebhookParams,
+    params: WebhookCreate,
 ) -> None:
     """Create a webhook for a workflow."""
     if role.workspace_id is None:
@@ -476,20 +476,24 @@ async def create_webhook(
 
     webhook = Webhook(
         owner_id=role.workspace_id,
-        method=params.method or "POST",
+        method=params.method,
         workflow_id=workflow_id,
+        status=params.status,
     )  # type: ignore
     session.add(webhook)
     await session.commit()
     await session.refresh(webhook)
 
 
-@router.get("/{workflow_id}/webhook", tags=["triggers"])
+@router.get(
+    "/{workflow_id}/webhook",
+    tags=["triggers"],
+)
 async def get_webhook(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
-) -> WebhookResponse:
+) -> WebhookRead:
     """Get the webhook from a workflow."""
     statement = select(Webhook).where(
         Webhook.owner_id == role.workspace_id,
@@ -498,7 +502,7 @@ async def get_webhook(
     result = await session.exec(statement)
     try:
         webhook = result.one()
-        return WebhookResponse(**webhook.model_dump())
+        return WebhookRead.model_validate(webhook, from_attributes=True)
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
@@ -514,7 +518,7 @@ async def update_webhook(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
-    params: UpsertWebhookParams,
+    params: WebhookUpdate,
 ) -> None:
     """Update the webhook for a workflow. We currently supprt only one webhook per workflow."""
     result = await session.exec(

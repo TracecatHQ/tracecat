@@ -18,7 +18,7 @@ import { z } from "zod"
 
 import { userIsPrivileged } from "@/lib/auth"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
-import { SqlType } from "@/lib/tables"
+import { SqlTypeEnum } from "@/lib/tables"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -225,7 +225,7 @@ const updateColumnSchema = z.object({
     .regex(/^[a-zA-Z0-9_]+$/, {
       message: "Name must contain only letters, numbers, and underscores",
     }),
-  type: z.enum(SqlType),
+  type: z.enum(SqlTypeEnum),
   nullable: z.boolean(),
 })
 
@@ -334,7 +334,7 @@ function TableColumnEditDialog({
                         <SelectValue placeholder="Select a type..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {SqlType.map((type) => (
+                        {SqlTypeEnum.map((type) => (
                           <SelectItem key={type} value={type}>
                             {type}
                           </SelectItem>

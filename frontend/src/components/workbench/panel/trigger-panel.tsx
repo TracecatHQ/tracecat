@@ -3,7 +3,7 @@
 import "react18-json-view/src/style.css"
 
 import React from "react"
-import { ApiError, WebhookResponse, WorkflowRead } from "@/client"
+import { ApiError, WebhookRead, WorkflowRead } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
@@ -158,7 +158,7 @@ export function WebhookControls({
   webhook: { url, status },
   workflowId,
 }: {
-  webhook: WebhookResponse
+  webhook: WebhookRead
   workflowId: string
 }) {
   const { workspaceId } = useWorkspace()
