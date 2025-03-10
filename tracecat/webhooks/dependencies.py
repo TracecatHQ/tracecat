@@ -29,14 +29,14 @@ async def validate_incoming_webhook(
             # One webhook per workflow
             webhook = result.one()
         except NoResultFound as e:
-            logger.opt(exception=e).error("Webhook does not exist", error=e)
+            logger.info("Webhook does not exist")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Unauthorized webhook request.",
+                detail="Unauthorized webhook request",
             ) from e
 
         if secret != webhook.secret:
-            logger.error("Secret does not match")
+            logger.warning("Secret does not match")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Unauthorized webhook request",
@@ -44,14 +44,14 @@ async def validate_incoming_webhook(
 
         # If we're here, the webhook has been validated
         if webhook.status == "offline":
-            logger.error("Webhook is offline")
+            logger.info("Webhook is offline")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Webhook is offline",
             )
 
         if webhook.method.lower() != request.method.lower():
-            logger.error("Method does not match")
+            logger.info("Method does not match")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Request method not allowed",
@@ -66,23 +66,18 @@ async def validate_incoming_webhook(
             .where(WorkflowDefinition.workflow_id == workflow_id)
             .order_by(col(WorkflowDefinition.version).desc())
         )
-        try:
-            defn = result.first()
-            if not defn:
-                raise NoResultFound(
-                    "No workflow definition found for workflow ID. Please commit your changes to the workflow and try again."
-                )
-        except NoResultFound as e:
-            # No workflow associated with the webhook
-            logger.error(str(e), error=e)
+        defn = result.first()
+        if not defn:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-            ) from e
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No workflow definition found for workflow ID."
+                " Please commit your changes to the workflow and try again.",
+            )
 
         # Check if the workflow is active
 
         if defn.workflow.status == "offline":
-            logger.error("Workflow is offline")
+            logger.info("Workflow is offline")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Workflow is offline",
