@@ -8,8 +8,11 @@ ENV PORT=8000
 # Expose the application port
 EXPOSE $PORT
 
-# Install xmlsec1
-RUN apt-get update && apt-get install -y xmlsec1
+# Install packages
+COPY scripts/install-packages.sh .
+RUN chmod +x install-packages.sh && \
+    ./install-packages.sh && \
+    rm install-packages.sh
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -29,9 +32,6 @@ RUN chmod +x /app/entrypoint.sh
 # Install package and registry in editable mode
 RUN uv pip install -e .
 RUN uv pip install -e ./registry
-
-# Install git
-RUN apt-get update && apt-get install -y git
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 

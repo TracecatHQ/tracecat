@@ -8,12 +8,7 @@ ENV PORT=8000
 # Expose the application port
 EXPOSE $PORT
 
-# Install necessary packages
-RUN apt-get update && \
-    apt-get install -y acl git xmlsec1 && \
-    rm -rf /var/lib/apt/lists/*
-
-# Copy and run the script to install additional packages
+# Install required apt packages
 COPY scripts/install-packages.sh .
 RUN chmod +x install-packages.sh && \
     ./install-packages.sh && \

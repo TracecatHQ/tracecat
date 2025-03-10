@@ -44,6 +44,7 @@ dependencies = [
     "openai==1.65.2",
     "orjson==3.10.3",
     "paramiko==3.5.0",
+    "podman==5.4.0.1",
     "psycopg[binary]==3.1.19",
     "pyarrow==16.1.0",
     "pydantic==2.10.6",
@@ -122,5 +123,5 @@ markers = [
     "slow: marks tests as slow",
     "dbtest: marks tests that make database calls",
     "disable_fixture: marks tests that disable fixtures",
-    "integration: marks tests that require a live Tracecat stack and env vars.",
+    "integration: marks tests that perform live network calls and container operations",
 ]
