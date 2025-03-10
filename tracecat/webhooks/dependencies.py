@@ -16,7 +16,7 @@ from tracecat.types.auth import Role
 
 async def validate_incoming_webhook(
     workflow_id: AnyWorkflowIDPath, secret: str, request: Request
-) -> WorkflowDefinition:
+) -> None:
     """Validate incoming webhook request.
 
     NOte: The webhook ID here is the workflow ID.
@@ -57,10 +57,23 @@ async def validate_incoming_webhook(
                 detail="Request method not allowed",
             )
 
-        # Reaching here means the webhook is online and connected to an entrypoint
+        ctx_role.set(
+            Role(
+                type="service",
+                workspace_id=webhook.owner_id,
+                service_id="tracecat-runner",
+            )
+        )
 
-        # Match the webhook id with the workflow id and get the latest version
-        # of the workflow defitniion.
+
+async def validate_workflow_definition(
+    workflow_id: AnyWorkflowIDPath,
+) -> WorkflowDefinition:
+    # Reaching here means the webhook is online and connected to an entrypoint
+
+    # Match the webhook id with the workflow id and get the latest version
+    # of the workflow defitniion.
+    async with get_async_session_context_manager() as session:
         result = await session.exec(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == workflow_id)
@@ -85,13 +98,6 @@ async def validate_incoming_webhook(
 
         # If we are here, all checks have passed
         validated_defn = WorkflowDefinition.model_validate(defn)
-        ctx_role.set(
-            Role(
-                type="service",
-                workspace_id=validated_defn.owner_id,
-                service_id="tracecat-runner",
-            )
-        )
         return validated_defn
 
 
@@ -118,7 +124,7 @@ async def parse_webhook_payload(
             # Newline delimited json
             try:
                 lines = body.splitlines()
-                return cast(TriggerInputs, [orjson.loads(line) for line in lines])
+                result = [orjson.loads(line) for line in lines]
             except orjson.JSONDecodeError as e:
                 logger.error("Failed to parse ndjson payload", error=e)
                 raise HTTPException(
@@ -128,7 +134,7 @@ async def parse_webhook_payload(
         case "application/x-www-form-urlencoded":
             try:
                 form_data = await request.form()
-                return cast(TriggerInputs, dict(form_data))
+                result = dict(form_data)
             except Exception as e:
                 logger.error("Failed to parse form data payload", error=e)
                 raise HTTPException(
@@ -138,7 +144,7 @@ async def parse_webhook_payload(
         case _:
             # Interpret everything else as json
             try:
-                return cast(TriggerInputs, orjson.loads(body))
+                result = orjson.loads(body)
             except orjson.JSONDecodeError as e:
                 logger.error("Failed to parse json payload", error=e)
                 raise HTTPException(
@@ -146,10 +152,10 @@ async def parse_webhook_payload(
                     detail="Invalid json payload",
                 ) from e
 
+    return cast(TriggerInputs, result)
+
 
 PayloadDep = Annotated[TriggerInputs | None, Depends(parse_webhook_payload)]
-
-
-WorkflowDefinitionFromWebhook = Annotated[
-    WorkflowDefinition, Depends(validate_incoming_webhook)
+ValidWorkflowDefinitionDep = Annotated[
+    WorkflowDefinition, Depends(validate_workflow_definition)
 ]
