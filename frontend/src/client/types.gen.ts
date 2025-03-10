@@ -371,6 +371,8 @@ export type EventGroup = {
     | RunActionInput
     | DSLRunArgs
     | GetWorkflowDefinitionActivityInputs
+    | InteractionResult
+    | InteractionInput
   action_result?: unknown | null
   current_attempt?: number | null
   retry_policy?: ActionRetryPolicy
@@ -423,6 +425,25 @@ export type GitSettingsUpdate = {
 
 export type HTTPValidationError = {
   detail?: Array<ValidationError>
+}
+
+/**
+ * Input for the workflow interaction handler. This is used on the client side.
+ */
+export type InteractionInput = {
+  interaction_id: string
+  ref: string
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Output for the workflow interaction handler. This is used on the client side.
+ */
+export type InteractionResult = {
+  message: string
+  detail?: unknown | null
 }
 
 export type JoinStrategy = "any" | "all"
@@ -1502,6 +1523,10 @@ export type WorkflowEventType =
   | "CHILD_WORKFLOW_EXECUTION_TERMINATED"
   | "START_CHILD_WORKFLOW_EXECUTION_INITIATED"
   | "CHILD_WORKFLOW_EXECUTION_TIMED_OUT"
+  | "WORKFLOW_EXECUTION_SIGNALED"
+  | "WORKFLOW_EXECUTION_UPDATE_ACCEPTED"
+  | "WORKFLOW_EXECUTION_UPDATE_REJECTED"
+  | "WORKFLOW_EXECUTION_UPDATE_COMPLETED"
 
 export type WorkflowExecutionCreate = {
   workflow_id: string

@@ -44,11 +44,17 @@ class WorkflowEventType(StrEnum):
     )
     CHILD_WORKFLOW_EXECUTION_TIMED_OUT = "CHILD_WORKFLOW_EXECUTION_TIMED_OUT"
 
+    WORKFLOW_EXECUTION_SIGNALED = "WORKFLOW_EXECUTION_SIGNALED"
+    WORKFLOW_EXECUTION_UPDATE_ACCEPTED = "WORKFLOW_EXECUTION_UPDATE_ACCEPTED"
+    WORKFLOW_EXECUTION_UPDATE_REJECTED = "WORKFLOW_EXECUTION_UPDATE_REJECTED"
+    WORKFLOW_EXECUTION_UPDATE_COMPLETED = "WORKFLOW_EXECUTION_UPDATE_COMPLETED"
+
     def to_status(self) -> WorkflowExecutionEventStatus:
         match self:
             case (
                 WorkflowEventType.ACTIVITY_TASK_SCHEDULED
                 | WorkflowEventType.START_CHILD_WORKFLOW_EXECUTION_INITIATED
+                | WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_ACCEPTED
             ):
                 return WorkflowExecutionEventStatus.SCHEDULED
             case (
@@ -59,11 +65,13 @@ class WorkflowEventType(StrEnum):
             case (
                 WorkflowEventType.ACTIVITY_TASK_COMPLETED
                 | WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED
+                | WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_COMPLETED
             ):
                 return WorkflowExecutionEventStatus.COMPLETED
             case (
                 WorkflowEventType.ACTIVITY_TASK_FAILED
                 | WorkflowEventType.CHILD_WORKFLOW_EXECUTION_FAILED
+                | WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_REJECTED
             ):
                 return WorkflowExecutionEventStatus.FAILED
             case (

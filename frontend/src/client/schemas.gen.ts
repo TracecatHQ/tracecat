@@ -1079,6 +1079,12 @@ export const $EventGroup = {
         {
           $ref: "#/components/schemas/GetWorkflowDefinitionActivityInputs",
         },
+        {
+          $ref: "#/components/schemas/InteractionResult",
+        },
+        {
+          $ref: "#/components/schemas/InteractionInput",
+        },
       ],
       title: "Action Input",
     },
@@ -1310,6 +1316,51 @@ export const $HTTPValidationError = {
   },
   type: "object",
   title: "HTTPValidationError",
+} as const
+
+export const $InteractionInput = {
+  properties: {
+    interaction_id: {
+      type: "string",
+      title: "Interaction Id",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    data: {
+      type: "object",
+      title: "Data",
+    },
+  },
+  type: "object",
+  required: ["interaction_id", "ref", "data"],
+  title: "InteractionInput",
+  description:
+    "Input for the workflow interaction handler. This is used on the client side.",
+} as const
+
+export const $InteractionResult = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    detail: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "InteractionResult",
+  description:
+    "Output for the workflow interaction handler. This is used on the client side.",
 } as const
 
 export const $JoinStrategy = {
@@ -4520,6 +4571,10 @@ export const $WorkflowEventType = {
     "CHILD_WORKFLOW_EXECUTION_TERMINATED",
     "START_CHILD_WORKFLOW_EXECUTION_INITIATED",
     "CHILD_WORKFLOW_EXECUTION_TIMED_OUT",
+    "WORKFLOW_EXECUTION_SIGNALED",
+    "WORKFLOW_EXECUTION_UPDATE_ACCEPTED",
+    "WORKFLOW_EXECUTION_UPDATE_REJECTED",
+    "WORKFLOW_EXECUTION_UPDATE_COMPLETED",
   ],
   title: "WorkflowEventType",
   description: "The event types we care about.",

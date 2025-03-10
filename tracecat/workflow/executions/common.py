@@ -17,23 +17,27 @@ from tracecat.workflow.management.management import WorkflowsManagementService
 SCHEDULED_EVENT_TYPES = (
     EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,
     EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED,
+    EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED,
 )
 
 START_EVENT_TYPES = (
     EventType.EVENT_TYPE_ACTIVITY_TASK_STARTED,
     EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED,
+    EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED,  # This is both a start and a scheduled event
 )
 
 CLOSE_EVENT_TYPES = (
     EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,
     EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED,
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED,
+    EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED,
 )
 
 ERROR_EVENT_TYPES = (
     EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED,
     EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED,
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,
+    EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_REJECTED,
 )
 
 HISTORY_TO_WF_EVENT_TYPE = {
@@ -58,6 +62,10 @@ HISTORY_TO_WF_EVENT_TYPE = {
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED: WorkflowEventType.WORKFLOW_EXECUTION_CANCELED,
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW: WorkflowEventType.WORKFLOW_EXECUTION_CONTINUED_AS_NEW,
     EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT: WorkflowEventType.WORKFLOW_EXECUTION_TIMED_OUT,
+    # Workflow Update
+    EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED: WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_ACCEPTED,
+    EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED: WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_COMPLETED,
+    EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_REJECTED: WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_REJECTED,
 }
 
 
@@ -94,14 +102,16 @@ def is_utility_activity(activity_name: str) -> bool:
 def get_result(event: HistoryEvent) -> Any:
     match event.event_type:
         case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
-            attrs = event.workflow_execution_completed_event_attributes
+            payload = event.workflow_execution_completed_event_attributes.result
         case EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
-            attrs = event.activity_task_completed_event_attributes
+            payload = event.activity_task_completed_event_attributes.result
         case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED:
-            attrs = event.child_workflow_execution_completed_event_attributes
+            payload = event.child_workflow_execution_completed_event_attributes.result
+        case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
+            payload = event.workflow_execution_update_completed_event_attributes.outcome.success
         case _:
             raise ValueError("Event is not a completed event")
-    return extract_first(attrs.result)
+    return extract_first(payload)
 
 
 def get_source_event_id(event: HistoryEvent) -> int | None:
@@ -126,6 +136,8 @@ def get_source_event_id(event: HistoryEvent) -> int | None:
             return event.child_workflow_execution_failed_event_attributes.initiated_event_id
         case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT:
             return event.child_workflow_execution_timed_out_event_attributes.initiated_event_id
+        case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
+            return event.workflow_execution_update_completed_event_attributes.accepted_event_id
         case _:
             return None
 
