@@ -3,10 +3,7 @@ FROM ghcr.io/astral-sh/uv:0.4.20-python3.12-bookworm-slim
 # Define the environment variables
 ENV UV_SYSTEM_PYTHON=1
 ENV HOST=0.0.0.0
-ENV PORT=8000
-
-# Expose the application port
-EXPOSE $PORT
+ENV PORT=${PORT}
 
 # Install required apt packages
 COPY scripts/install-packages.sh .
