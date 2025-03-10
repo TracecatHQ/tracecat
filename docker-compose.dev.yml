@@ -153,8 +153,8 @@ services:
 
   container-runner:
     build:
-      context: ./podman
-      dockerfile: podman/Dockerfile
+      context: podman
+      dockerfile: Dockerfile
     container_name: container-runner
     restart: unless-stopped
     ports:
