@@ -113,9 +113,9 @@ import {
   tagsUpdateTag,
   TagsUpdateTagData,
   triggersUpdateWebhook,
-  UpsertWebhookParams,
   usersUsersPatchCurrentUser,
   UserUpdate,
+  WebhookUpdate,
   WorkflowExecutionCreate,
   WorkflowExecutionRead,
   WorkflowExecutionReadCompact,
@@ -248,7 +248,7 @@ export function useAction(
 export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
-    mutationFn: async (params: UpsertWebhookParams) =>
+    mutationFn: async (params: WebhookUpdate) =>
       await triggersUpdateWebhook({
         workspaceId,
         workflowId,

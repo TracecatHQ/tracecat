@@ -5,19 +5,30 @@ from pydantic import BaseModel
 from tracecat.db.schemas import Resource
 from tracecat.identifiers.workflow import WorkflowID
 
+# API Models
 
-class WebhookResponse(Resource):
+type WebhookStatus = Literal["online", "offline"]
+type WebhookMethod = Literal["GET", "POST"]
+
+
+class WebhookRead(Resource):
     id: str
     secret: str
-    status: Literal["online", "offline"]
+    status: WebhookStatus
     entrypoint_ref: str | None = None
     filters: dict[str, Any]
-    method: Literal["GET", "POST"]
+    method: WebhookMethod
     workflow_id: WorkflowID
     url: str
 
 
-class UpsertWebhookParams(BaseModel):
-    status: Literal["online", "offline"] | None = None
+class WebhookCreate(BaseModel):
+    status: WebhookStatus = "offline"
+    method: WebhookMethod = "POST"
     entrypoint_ref: str | None = None
-    method: Literal["GET", "POST"] | None = None
+
+
+class WebhookUpdate(BaseModel):
+    status: WebhookStatus | None = None
+    method: WebhookMethod | None = None
+    entrypoint_ref: str | None = None

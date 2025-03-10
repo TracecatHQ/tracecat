@@ -1352,12 +1352,6 @@ export type UpdateWorkspaceParams = {
   } | null
 }
 
-export type UpsertWebhookParams = {
-  status?: "online" | "offline" | null
-  entrypoint_ref?: string | null
-  method?: "GET" | "POST" | null
-}
-
 export type UserCreate = {
   email: string
   password: string
@@ -1405,23 +1399,37 @@ export type ValidationError = {
   type: string
 }
 
-export type WebhookResponse = {
+export type WebhookCreate = {
+  status?: WebhookStatus
+  method?: WebhookMethod
+  entrypoint_ref?: string | null
+}
+
+export type WebhookMethod = "GET" | "POST"
+
+export type WebhookRead = {
   created_at?: string
   updated_at?: string
   owner_id: string
   id: string
   secret: string
-  status: "online" | "offline"
+  status: WebhookStatus
   entrypoint_ref?: string | null
   filters: {
     [key: string]: unknown
   }
-  method: "GET" | "POST"
+  method: WebhookMethod
   workflow_id: string
   url: string
 }
 
-export type method = "GET" | "POST"
+export type WebhookStatus = "online" | "offline"
+
+export type WebhookUpdate = {
+  status?: WebhookStatus | null
+  method?: WebhookMethod | null
+  entrypoint_ref?: string | null
+}
 
 export type WorkflowCommitResponse = {
   workflow_id: string
@@ -1700,7 +1708,7 @@ export type WorkflowRead = {
   } | null
   owner_id: string
   version?: number | null
-  webhook: WebhookResponse
+  webhook: WebhookRead
   schedules: Array<Schedule>
   entrypoint: string | null
   static_inputs: {
@@ -1956,7 +1964,7 @@ export type WorkflowsCreateWorkflowDefinitionData = {
 export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinition
 
 export type TriggersCreateWebhookData = {
-  requestBody: UpsertWebhookParams
+  requestBody: WebhookCreate
   workflowId: string
   workspaceId: string
 }
@@ -1968,10 +1976,10 @@ export type TriggersGetWebhookData = {
   workspaceId: string
 }
 
-export type TriggersGetWebhookResponse = WebhookResponse
+export type TriggersGetWebhookResponse = WebhookRead
 
 export type TriggersUpdateWebhookData = {
-  requestBody: UpsertWebhookParams
+  requestBody: WebhookUpdate
   workflowId: string
   workspaceId: string
 }
@@ -2928,7 +2936,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WebhookResponse
+        200: WebhookRead
         /**
          * Validation Error
          */
