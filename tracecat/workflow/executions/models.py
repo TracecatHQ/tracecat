@@ -20,7 +20,10 @@ from tracecat.dsl.models import (
     RunActionInput,
     TriggerInputs,
 )
-from tracecat.ee.interactions.models import SignalHandlerInput, SignalHandlerResult
+from tracecat.ee.interactions.models import (
+    InteractionInput,
+    InteractionResult,
+)
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
@@ -115,8 +118,8 @@ EventInput = TypeVar(
     RunActionInput,
     DSLRunArgs,
     GetWorkflowDefinitionActivityInputs,
-    SignalHandlerResult,
-    SignalHandlerInput,
+    InteractionResult,
+    InteractionInput,
 )
 
 
@@ -223,7 +226,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
     @staticmethod
     def from_accepted_workflow_update(
         event: temporalio.api.history.v1.HistoryEvent,
-    ) -> EventGroup[SignalHandlerInput]:
+    ) -> EventGroup[InteractionInput]:
         if (
             event.event_type
             != temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED
@@ -238,7 +241,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
             udf_namespace="core.wait",
             udf_name="response",
             udf_key="core.wait.response",
-            action_input=SignalHandlerInput(**input),
+            action_input=InteractionInput(**input),
         )
         logger.debug(
             "Workflow update accepted event", event_id=event.event_id, group=group
@@ -407,7 +410,7 @@ class WorkflowExecutionEventCompact(BaseModel):
 
         attrs = event.workflow_execution_update_accepted_event_attributes
         input_data = extract_first(attrs.accepted_request.input.args)
-        signal_input = SignalHandlerInput(**input_data)
+        signal_input = InteractionInput(**input_data)
         return WorkflowExecutionEventCompact(
             source_event_id=event.event_id,
             schedule_time=event.event_time.ToDatetime(UTC),
@@ -446,3 +449,7 @@ class ErrorHandlerWorkflowInput:
     orig_wf_id: WorkflowID
     orig_wf_exec_id: WorkflowExecutionID
     errors: dict[str, ActionErrorInfo] | None
+
+
+class ReceiveInteractionResponse(BaseModel):
+    message: str

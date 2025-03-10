@@ -30,7 +30,7 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.ee.interactions.models import SignalHandlerInput
+from tracecat.ee.interactions.models import InteractionInput
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
     ExecutionUUID,
@@ -500,12 +500,8 @@ class WorkflowExecutionsService:
                             event_group=group,
                         )
                     )
-                # === Workflow Execution Signal Events ===
+                # === Workflow Execution Interaction Events ===
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
-                    # Correlate this to the sender activity task that sent out a request
-                    # Do we need the signal args? yes
-
-                    # This event represents the receiver of the request
                     attrs = event.workflow_execution_signaled_event_attributes
                     data = extract_first(attrs.input)
                     events.append(
@@ -514,10 +510,9 @@ class WorkflowExecutionsService:
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=WorkflowEventType.WORKFLOW_EXECUTION_SIGNALED,
                             task_id=event.task_id,
-                            result=SignalHandlerInput(**data),
+                            result=InteractionInput(**data),
                         )
                     )
-                # === Workflow Execution Update Events ===
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
                     group = EventGroup.from_accepted_workflow_update(event)
                     event_group_names[event.event_id] = group
