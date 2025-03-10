@@ -153,7 +153,7 @@ services:
 
   container-runner:
     build:
-      context: podman
+      context: ./podman
       dockerfile: Dockerfile
     container_name: container-runner
     restart: unless-stopped
@@ -161,9 +161,9 @@ services:
       - 8080:8080  # Expose Podman API endpoint
     volumes:
       - containers:/var/lib/containers  # Persistent storage for container images and data
+    user: podman-user  # Run as non-root user
     security_opt:
-      - label=disable  # Required: Allows nested containers by disabling outer container SELinux
-      - unmask=ALL     # Required: Provides necessary device access for container operations
+      - label=disable  # Disable SELinux separation
     device_cgroup_rules:
       - 'c 10:229 rwm'  # For /dev/fuse (required for overlay filesystem)
     devices:

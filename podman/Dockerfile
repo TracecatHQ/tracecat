@@ -8,22 +8,22 @@ RUN dnf install -y \
     && dnf clean all
 
 # Create non-root user for running podman
-RUN useradd -m -u 1001 apiuser && \
+RUN useradd -m -u 1001 podman-user && \
     mkdir -p /etc/containers && \
-    chown -R apiuser:apiuser /etc/containers
+    chown -R podman-user:podman-user /etc/containers
 
 # Copy configs with correct ownership
-COPY --chown=apiuser:apiuser containers.conf /etc/containers/containers.conf
-COPY --chown=apiuser:apiuser storage.conf /etc/containers/storage.conf
-COPY --chown=apiuser:apiuser seccomp.json /etc/containers/seccomp.json
+COPY --chown=podman-user:podman-user containers.conf /etc/containers/containers.conf
+COPY --chown=podman-user:podman-user storage.conf /etc/containers/storage.conf
+COPY --chown=podman-user:podman-user seccomp.json /etc/containers/seccomp.json
 
 # Set up user namespace mapping
-RUN echo "apiuser:100000:65536" > /etc/subuid && \
-    echo "apiuser:100000:65536" > /etc/subgid && \
+RUN echo "podman-user:100000:65536" > /etc/subuid && \
+    echo "podman-user:100000:65536" > /etc/subgid && \
     chmod 644 /etc/sub{u,g}id
 
 # Switch to non-root user
-USER apiuser
+USER podman-user
 
 EXPOSE 8080
 
