@@ -23,8 +23,8 @@ import {
   ERROR_EVENT_TYPES,
   getRelativeTime,
   isDSLRunArgs,
+  isInteractionInput,
   isRunActionInput,
-  isSignalHandlerInput,
   parseEventType,
   parseExecutionId,
 } from "@/lib/event-history"
@@ -141,7 +141,7 @@ export function WorkflowExecutionEventDetailView({
           </AccordionItem>
         )}
 
-        {isSignalHandlerInput(action_input) && (
+        {isInteractionInput(action_input) && (
           <AccordionItem value="result">
             <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
               <div className="flex items-end">

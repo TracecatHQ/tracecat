@@ -1,7 +1,7 @@
 import {
   DSLRunArgs,
+  InteractionInput,
   RunActionInput,
-  SignalHandlerInput,
   WorkflowEventType,
 } from "@/client"
 
@@ -118,14 +118,14 @@ export function isRunActionInput(
   )
 }
 
-export function isSignalHandlerInput(
+export function isInteractionInput(
   actionInput: unknown
-): actionInput is SignalHandlerInput {
+): actionInput is InteractionInput {
   return (
     typeof actionInput === "object" &&
     actionInput !== null &&
-    "signal_id" in actionInput &&
-    typeof (actionInput as SignalHandlerInput).signal_id === "string"
+    "interaction_id" in actionInput &&
+    typeof (actionInput as InteractionInput).interaction_id === "string"
   )
 }
 

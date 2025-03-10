@@ -1,7 +1,12 @@
 from enum import StrEnum
 
 
-class SignalStatus(StrEnum):
+class InteractionStatus(StrEnum):
     IDLE = "idle"
     PENDING = "pending"
     COMPLETED = "completed"
+
+
+class InteractionType(StrEnum):
+    APPROVAL = "approval"
+    RESPONSE = "response"

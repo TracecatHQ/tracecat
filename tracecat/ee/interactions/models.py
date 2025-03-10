@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, TypeAdapter
 
 from tracecat.ee.enums import PlatformAction
-from tracecat.ee.interactions.enums import SignalStatus
+from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
 
 
 class WaitResponseArgs(BaseModel):
@@ -20,44 +20,70 @@ class WaitResponseArgs(BaseModel):
     """The timeout for the response."""
 
 
-class SignalHandlerInput(BaseModel):
-    """Input for the workflow signal handler. This is used on the client side."""
+class InteractionInput(BaseModel):
+    """Input for the workflow interaction handler. This is used on the client side."""
 
-    signal_id: str
-    """The signal ID."""
+    interaction_id: str
+    """The interaction ID."""
 
     ref: str
-    """The action reference of the signal sender."""
+    """The action reference of the interaction sender."""
 
     data: dict[str, Any]
-    """Data passed to the signal handler."""
+    """Data passed to the interaction handler."""
 
 
-class SignalHandlerResult(BaseModel):
-    """Output for the workflow signal handler. This is used on the client side."""
+class InteractionResult(BaseModel):
+    """Output for the workflow interaction handler. This is used on the client side."""
 
     message: str
-    """The message of the signal handler."""
+    """The message of the interaction handler."""
 
     detail: Any | None = None
-    """The detail of the signal handler."""
+    """The detail of the interaction handler."""
 
 
 @dataclass
-class SignalState:
-    """A signal state."""
+class InteractionState:
+    """An interaction state."""
 
     ref: str
-    """The action reference of the signal receiver."""
+    """The action reference of the interaction receiver."""
 
     type: Literal[PlatformAction.WAIT_RESPONSE] = PlatformAction.WAIT_RESPONSE
-    """The signal type. Response, approval, etc."""
+    """The interaction type. Response, approval, etc."""
 
-    status: SignalStatus = SignalStatus.IDLE
-    """The status of the signal."""
+    status: InteractionStatus = InteractionStatus.IDLE
+    """The status of the interaction."""
 
     data: dict[str, Any] = field(default_factory=dict)
-    """The data passed to the signal handler."""
+    """The data passed to the interaction handler."""
 
     def is_activated(self) -> bool:
-        return self.status == SignalStatus.COMPLETED
+        return self.status == InteractionStatus.COMPLETED
+
+
+class ApprovalEvent(BaseModel):
+    """An approval event."""
+
+    type: Literal[InteractionType.APPROVAL] = Field(
+        default=InteractionType.APPROVAL, frozen=True
+    )
+    payload: dict[str, Any] | None = None
+
+
+class ResponseEvent(BaseModel):
+    """A response event."""
+
+    type: Literal[InteractionType.RESPONSE] = Field(
+        default=InteractionType.RESPONSE, frozen=True
+    )
+    signal_name: str
+    payload: dict[str, Any] | None = None
+
+
+# Use pydantic TypeAdapter
+type InteractionEvent = Annotated[
+    ApprovalEvent | ResponseEvent, Field(discriminator="type")
+]
+InteractionEventValidator: TypeAdapter[InteractionEvent] = TypeAdapter(InteractionEvent)

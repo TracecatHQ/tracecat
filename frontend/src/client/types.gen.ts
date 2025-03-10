@@ -371,8 +371,8 @@ export type EventGroup = {
     | RunActionInput
     | DSLRunArgs
     | GetWorkflowDefinitionActivityInputs
-    | SignalHandlerResult
-    | SignalHandlerInput
+    | InteractionResult
+    | InteractionInput
   action_result?: unknown | null
   current_attempt?: number | null
   retry_policy?: ActionRetryPolicy
@@ -425,6 +425,25 @@ export type GitSettingsUpdate = {
 
 export type HTTPValidationError = {
   detail?: Array<ValidationError>
+}
+
+/**
+ * Input for the workflow interaction handler. This is used on the client side.
+ */
+export type InteractionInput = {
+  interaction_id: string
+  ref: string
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Output for the workflow interaction handler. This is used on the client side.
+ */
+export type InteractionResult = {
+  message: string
+  detail?: unknown | null
 }
 
 export type JoinStrategy = "any" | "all"
@@ -1077,25 +1096,6 @@ export type SessionRead = {
   created_at: string
   user_id: string
   user_email: string
-}
-
-/**
- * Input for the workflow signal handler. This is used on the client side.
- */
-export type SignalHandlerInput = {
-  signal_id: string
-  ref: string
-  data: {
-    [key: string]: unknown
-  }
-}
-
-/**
- * Output for the workflow signal handler. This is used on the client side.
- */
-export type SignalHandlerResult = {
-  message: string
-  detail?: unknown | null
 }
 
 /**

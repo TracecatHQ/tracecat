@@ -12,7 +12,10 @@ from tracecat.webhooks.dependencies import (
     validate_incoming_webhook,
 )
 from tracecat.workflow.executions.enums import TriggerType
-from tracecat.workflow.executions.models import WorkflowExecutionCreateResponse
+from tracecat.workflow.executions.models import (
+    ReceiveInteractionResponse,
+    WorkflowExecutionCreateResponse,
+)
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
 router = APIRouter(
@@ -20,6 +23,28 @@ router = APIRouter(
     tags=["public"],
     dependencies=[Depends(validate_incoming_webhook)],
 )
+
+
+@router.post("/{workflow_id}/interactions/{secret}", include_in_schema=False)
+async def receive_interaction(
+    workflow_id: AnyWorkflowIDPath,
+    payload: PayloadDep,
+) -> ReceiveInteractionResponse:
+    """Webhook endpoint to trigger a workflow.
+
+    This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
+    The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
+    """
+    logger.info(
+        "Received interaction",
+        workflow_id=workflow_id,
+        payload=payload,
+        role=ctx_role.get(),
+    )
+
+    return ReceiveInteractionResponse(
+        message="Interaction received",
+    )
 
 
 @router.post("/{workflow_id}/{secret}")
