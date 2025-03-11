@@ -21,7 +21,7 @@ def test_hello_world():
     """Test basic container operation with Alpine Linux."""
     result = run_podman_container(
         image="alpine:latest",
-        command=["echo", "hello world"],
+        command=["echo", "hello", "world"],
         network=PodmanNetwork.NONE,
         pull_policy=PullPolicy.MISSING,
         base_url=TEST_PODMAN_URI,  # Pass base_url explicitly

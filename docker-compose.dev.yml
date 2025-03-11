@@ -154,25 +154,23 @@ services:
         "--reload",
       ]
 
+  # Rootless podman running in rootless podman
   container-runner:
-    build:
-      context: ./podman
-      dockerfile: Dockerfile
-    container_name: container-runner
+    image: quay.io/containers/podman:v5.4.0
     restart: unless-stopped
     ports:
       - 8080:8080
+    user: podman
     environment:
       LOG_LEVEL: debug
+    command: ["podman", "system", "service", "--time=0", "--log-level=debug", "tcp://0.0.0.0:8080"]
     volumes:
       - containers:/var/lib/containers
-    user: podman-user
-    cap_add:
-      - SYS_ADMIN
     security_opt:
-      - seccomp=unconfined
+      - label=disable
     devices:
       - /dev/fuse:/dev/fuse
+
   ui:
     build:
       context: ./frontend
