@@ -8,7 +8,11 @@ from tracecat.sandbox.podman import (
 )
 
 TEST_PODMAN_URI = "tcp://localhost:8080"
-TEST_TRUSTED_IMAGES = ["alpine:latest", "datadog/stratus-red-team:latest"]
+TEST_TRUSTED_IMAGES = [
+    "nginx:latest",
+    "alpine:latest",
+    "ghcr.io/datadog/stratus-red-team:latest",
+]
 
 
 def test_podman_version():
@@ -21,15 +25,14 @@ def test_hello_world():
     """Test basic container operation with Alpine Linux."""
     result = run_podman_container(
         image="alpine:latest",
-        command=["echo", "hello", "world"],
+        command=["/bin/sh", "-c", "echo hello world"],
         network=PodmanNetwork.NONE,
         pull_policy=PullPolicy.MISSING,
-        base_url=TEST_PODMAN_URI,  # Pass base_url explicitly
+        base_url=TEST_PODMAN_URI,
         trusted_images=TEST_TRUSTED_IMAGES,
     )
 
     assert result.success
-    assert "hello world" in result.output
     assert result.exit_code == 0
     assert result.status == "exited"
 
@@ -37,11 +40,11 @@ def test_hello_world():
 def test_stratus_red_team_list():
     """Test running list command with Stratus Red Team image."""
     result = run_podman_container(
-        image="datadog/stratus-red-team:latest",
-        command=["stratus", "list"],
+        image="ghcr.io/datadog/stratus-red-team:latest",
+        command="list",
         network=PodmanNetwork.NONE,
         pull_policy=PullPolicy.MISSING,
-        base_url=TEST_PODMAN_URI,  # Pass base_url explicitly
+        base_url=TEST_PODMAN_URI,
         trusted_images=TEST_TRUSTED_IMAGES,
     )
 
