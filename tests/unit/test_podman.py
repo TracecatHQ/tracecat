@@ -1,4 +1,4 @@
-"""Test the container runner live."""
+import pytest
 
 from tracecat.sandbox.podman import (
     PodmanNetwork,
@@ -9,7 +9,6 @@ from tracecat.sandbox.podman import (
 
 TEST_PODMAN_URI = "tcp://localhost:8080"
 TEST_TRUSTED_IMAGES = [
-    "nginx:latest",
     "alpine:latest",
     "ghcr.io/datadog/stratus-red-team:latest",
 ]
@@ -59,14 +58,11 @@ def test_stratus_red_team_list():
 
 def test_untrusted_image():
     """Test that non-allowlisted images are rejected."""
-    result = run_podman_container(
-        image="nginx:latest",
-        command=["nginx", "-v"],
-        network=PodmanNetwork.NONE,
-        base_url=TEST_PODMAN_URI,
-        trusted_images=TEST_TRUSTED_IMAGES,
-    )
-
-    assert not result.success
-    assert result.exit_code == 1
-    assert result.status == "failed"
+    with pytest.raises(ValueError):
+        run_podman_container(
+            image="docker.io/library/nginx:latest",
+            command=["nginx", "-v"],
+            network=PodmanNetwork.NONE,
+            base_url=TEST_PODMAN_URI,
+            trusted_images=TEST_TRUSTED_IMAGES,
+        )
