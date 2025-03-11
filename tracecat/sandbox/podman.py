@@ -77,17 +77,37 @@ def is_trusted_image(image: str, trusted_images: list[str] | None = None) -> boo
     ----------
     image : str
         Docker image to check.
+    trusted_images : list of str, optional
+        Override the default trusted images list.
 
     Returns
     -------
     bool
         True if the image is trusted, False otherwise.
     """
+    trusted_images = trusted_images or TRACECAT__TRUSTED_DOCKER_IMAGES
     if not trusted_images:
         logger.warning("No trusted images defined, rejecting all images.")
         return False
 
+    logger.info(
+        "Checked Docker image against trusted images",
+        image=image,
+        trusted_images=trusted_images,
+    )
     return image in trusted_images
+
+
+def get_podman_client(base_url: str | None = None) -> podman.PodmanClient:
+    """Get a Podman client.
+
+    Parameters
+    ----------
+    base_url : str, optional
+        Override the default Podman API URL for testing
+    """
+    base_url = base_url or TRACECAT__PODMAN_URI
+    return podman.PodmanClient(base_url=base_url)
 
 
 def get_podman_version(base_url: str | None = None) -> str:
@@ -108,7 +128,7 @@ def get_podman_version(base_url: str | None = None) -> str:
     RuntimeError
         If the podman version check fails.
     """
-    with podman.PodmanClient(base_url=base_url) as client:
+    with get_podman_client(base_url=base_url) as client:
         version_info = client.version()
         logger.debug(
             "Podman version",
@@ -210,13 +230,11 @@ def run_podman_container(
 
     try:
         # Use the provided base_url or fall back to config
-        url = base_url or TRACECAT__PODMAN_URI
-        trusted_images = trusted_images or TRACECAT__TRUSTED_DOCKER_IMAGES
-        version = get_podman_version(base_url=url)
+        version = get_podman_version(base_url=base_url)
         runtime_info["podman_version"] = version
 
         # Check trusted images
-        if not is_trusted_image(image, trusted_images=trusted_images):
+        if not is_trusted_image(image, trusted_images):
             runtime_info["logs"].append(f"Image not in trusted list: {image}")
             return PodmanResult(
                 output="Image not in trusted list",
@@ -224,12 +242,6 @@ def run_podman_container(
                 status="failed",
                 runtime_info=runtime_info,
             )
-
-        logger.info(
-            "Checked Docker image against trusted images",
-            image=image,
-            trusted_images=TRACECAT__TRUSTED_DOCKER_IMAGES,
-        )
 
         volume_mounts = {}
         if volume_name and volume_path:
@@ -240,7 +252,7 @@ def run_podman_container(
             }
 
         # Connect to the podman service
-        with podman.PodmanClient(base_url=url) as client:
+        with get_podman_client(base_url=base_url) as client:
             # Pull image if needed
             if pull_policy == PullPolicy.ALWAYS or (
                 pull_policy == PullPolicy.MISSING and not client.images.exists(image)
