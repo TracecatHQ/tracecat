@@ -161,19 +161,18 @@ services:
     container_name: container-runner
     restart: unless-stopped
     ports:
-      - 8080:8080  # Expose Podman API endpoint
+      - 8080:8080
     environment:
       LOG_LEVEL: debug
     volumes:
-      - containers:/var/lib/containers  # Persistent storage for container images and data
-    user: podman-user  # Run as non-root user
+      - containers:/var/lib/containers
+    user: podman-user
+    cap_add:
+      - SYS_ADMIN
     security_opt:
-      - label=disable  # Disable SELinux separation
-    device_cgroup_rules:
-      - 'c 10:229 rwm'  # For /dev/fuse (required for overlay filesystem)
+      - seccomp=unconfined
     devices:
-      - /dev/fuse:/dev/fuse  # Required for overlay filesystem operations
-
+      - /dev/fuse:/dev/fuse
   ui:
     build:
       context: ./frontend

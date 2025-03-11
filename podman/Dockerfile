@@ -22,6 +22,11 @@ RUN echo "podman-user:100000:65536" > /etc/subuid && \
     echo "podman-user:100000:65536" > /etc/subgid && \
     chmod 644 /etc/sub{u,g}id
 
+# Create the containers directory
+# Grant ownership to the podman-user
+RUN mkdir -p /var/lib/containers && \
+    chown -R podman-user:podman-user /var/lib/containers
+
 # Switch to non-root user
 USER podman-user
 
