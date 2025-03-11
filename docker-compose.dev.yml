@@ -244,6 +244,7 @@ services:
       - 11434:11434
     volumes:
       - ollama:/root/.ollama
+
   ee-container-runner:
     image: quay.io/podman/stable
     container_name: container-runner

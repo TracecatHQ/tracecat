@@ -224,8 +224,6 @@ services:
   #   image: quay.io/podman/stable
   #   container_name: container-runner
   #   restart: unless-stopped
-  #   environment:
-  #     LOG_LEVEL: debug
   #   user: podman
   #   command: ["podman", "system", "service", "--time=0", "--log-level=debug", "tcp://0.0.0.0:8080"]
   #   volumes:
