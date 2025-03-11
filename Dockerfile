@@ -2,7 +2,7 @@ FROM ghcr.io/astral-sh/uv:0.4.20-python3.12-bookworm-slim
 
 ENV UV_SYSTEM_PYTHON=1
 ENV HOST=0.0.0.0
-ENV PORT=${PORT}
+ENV PORT=8000
 
 # Install required apt packages
 COPY scripts/install-packages.sh .
@@ -54,6 +54,8 @@ RUN chown -R apiuser:apiuser /tmp /home/apiuser
 
 # Change to the non-root user
 USER apiuser
+
+EXPOSE $PORT
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 
