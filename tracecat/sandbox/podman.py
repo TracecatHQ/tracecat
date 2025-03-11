@@ -208,7 +208,7 @@ def run_podman_container(
         if not is_trusted_image(image):
             runtime_info["logs"].append(f"Image not in trusted list: {image}")
             return PodmanResult(
-                output="Error: Image not in trusted list",
+                output="Image not in trusted list",
                 exit_code=1,
                 status="failed",
                 runtime_info=runtime_info,

@@ -160,8 +160,15 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv("TEMPORAL__CLUSTER_URL", "http://localhost:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "test-tracecat-task-queue")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
+
+    # Add Podman-specific environment variables
+    monkeysession.setenv("TRACECAT__PODMAN_URI", "http://localhost:8080")
+    monkeysession.setenv(
+        "TRACECAT__TRUSTED_DOCKER_IMAGES",
+        "alpine:latest,datadog/stratus-red-team:latest",
+    )
+
     yield
-    # Cleanup is automatic with monkeypatch
     logger.info("Environment variables cleaned up")
 
 
