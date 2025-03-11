@@ -1,9 +1,5 @@
 FROM quay.io/containers/podman:v5.4.0
 
-ENV LOG_LEVEL=info
-ENV HOST=0.0.0.0
-ENV PORT=8080
-
 # Install required packages and clean up in one layer
 RUN dnf install -y \
     container-selinux \
@@ -29,7 +25,7 @@ RUN echo "podman-user:100000:65536" > /etc/subuid && \
 # Switch to non-root user
 USER podman-user
 
-EXPOSE 8080
+EXPOSE $PORT
 
 # Run podman API service as non-root
-CMD ["podman", "system", "service", "--time=0", "--log-level=${LOG_LEVEL}", "tcp://${HOST}:${PORT}"]
+CMD ["podman", "system", "service", "--time=0", "--log-level=debug", "tcp://0.0.0.0:8080"]

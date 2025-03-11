@@ -166,13 +166,13 @@ services:
       LOG_LEVEL: debug
     volumes:
       - containers:/var/lib/containers  # Persistent storage for container images and data
-    # user: podman-user  # Run as non-root user
-    # security_opt:
-    #   - label=disable  # Disable SELinux separation
-    # device_cgroup_rules:
-    #   - 'c 10:229 rwm'  # For /dev/fuse (required for overlay filesystem)
-    # devices:
-    #   - /dev/fuse:/dev/fuse  # Required for overlay filesystem operations
+    user: podman-user  # Run as non-root user
+    security_opt:
+      - label=disable  # Disable SELinux separation
+    device_cgroup_rules:
+      - 'c 10:229 rwm'  # For /dev/fuse (required for overlay filesystem)
+    devices:
+      - /dev/fuse:/dev/fuse  # Required for overlay filesystem operations
 
   ui:
     build:
