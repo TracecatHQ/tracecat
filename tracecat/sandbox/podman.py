@@ -70,7 +70,7 @@ class PullPolicy(StrEnum):
     ALWAYS = auto()  # Always pull
 
 
-def is_trusted_image(image: str) -> bool:
+def is_trusted_image(image: str, trusted_images: list[str] | None = None) -> bool:
     """Check if the image is in the trusted images list.
 
     Parameters
@@ -83,11 +83,11 @@ def is_trusted_image(image: str) -> bool:
     bool
         True if the image is trusted, False otherwise.
     """
-    if not TRACECAT__TRUSTED_DOCKER_IMAGES:
-        logger.warning("No trusted images defined, rejecting all images")
+    if not trusted_images:
+        logger.warning("No trusted images defined, rejecting all images.")
         return False
 
-    return image in TRACECAT__TRUSTED_DOCKER_IMAGES
+    return image in trusted_images
 
 
 def get_podman_version(base_url: str | None = None) -> str:
@@ -138,6 +138,7 @@ def run_podman_container(
     pull_policy: PullPolicy = PullPolicy.MISSING,
     raise_on_error: bool = False,
     base_url: str | None = None,
+    trusted_images: list[str] | None = None,
 ) -> PodmanResult:
     """Run a container securely with Podman using functional approach.
 
@@ -164,6 +165,8 @@ def run_podman_container(
         If False, returns PodmanResult with error information.
     base_url : str, optional
         Override the default Podman API URL.
+    trusted_images : list of str, optional
+        Override the default trusted images list.
 
     Returns
     -------
@@ -208,11 +211,12 @@ def run_podman_container(
     try:
         # Use the provided base_url or fall back to config
         url = base_url or TRACECAT__PODMAN_URI
+        trusted_images = trusted_images or TRACECAT__TRUSTED_DOCKER_IMAGES
         version = get_podman_version(base_url=url)
         runtime_info["podman_version"] = version
 
         # Check trusted images
-        if not is_trusted_image(image):
+        if not is_trusted_image(image, trusted_images=trusted_images):
             runtime_info["logs"].append(f"Image not in trusted list: {image}")
             return PodmanResult(
                 output="Image not in trusted list",

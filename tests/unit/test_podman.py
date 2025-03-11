@@ -1,7 +1,5 @@
 """Test the container runner live."""
 
-import pytest
-
 from tracecat.sandbox.podman import (
     PodmanNetwork,
     PullPolicy,
@@ -11,17 +9,6 @@ from tracecat.sandbox.podman import (
 
 TEST_PODMAN_URI = "tcp://localhost:8080"
 TEST_TRUSTED_IMAGES = ["alpine:latest", "datadog/stratus-red-team:latest"]
-
-
-@pytest.fixture(autouse=True)
-def podman_config(monkeypatch):
-    """Configure Podman for tests."""
-
-    from tracecat import config
-
-    monkeypatch.setattr(
-        config, "TRACECAT__TRUSTED_DOCKER_IMAGES", ",".join(TEST_TRUSTED_IMAGES)
-    )
 
 
 def test_podman_version():
@@ -38,6 +25,7 @@ def test_hello_world():
         network=PodmanNetwork.NONE,
         pull_policy=PullPolicy.MISSING,
         base_url=TEST_PODMAN_URI,  # Pass base_url explicitly
+        trusted_images=TEST_TRUSTED_IMAGES,
     )
 
     assert result.success
@@ -54,6 +42,7 @@ def test_stratus_red_team_list():
         network=PodmanNetwork.NONE,
         pull_policy=PullPolicy.MISSING,
         base_url=TEST_PODMAN_URI,  # Pass base_url explicitly
+        trusted_images=TEST_TRUSTED_IMAGES,
     )
 
     assert result.success
@@ -69,6 +58,7 @@ def test_untrusted_image():
         command=["nginx", "-v"],
         network=PodmanNetwork.NONE,
         base_url=TEST_PODMAN_URI,
+        trusted_images=TEST_TRUSTED_IMAGES,
     )
 
     assert not result.success
