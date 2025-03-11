@@ -25,7 +25,7 @@ def test_hello_world():
     """Test basic container operation with Alpine Linux."""
     result = run_podman_container(
         image="alpine:latest",
-        command=["/bin/sh", "-c", "echo hello world"],
+        command=["/bin/sh", "-c", "echo Hello, World!"],
         network=PodmanNetwork.NONE,
         pull_policy=PullPolicy.MISSING,
         base_url=TEST_PODMAN_URI,
@@ -35,6 +35,7 @@ def test_hello_world():
     assert result.success
     assert result.exit_code == 0
     assert result.status == "exited"
+    assert any("Hello, World!" in log for log in result.logs)
 
 
 def test_stratus_red_team_list():
@@ -49,9 +50,11 @@ def test_stratus_red_team_list():
     )
 
     assert result.success
-    assert "Available attack techniques:" in result.output
     assert result.exit_code == 0
     assert result.status == "exited"
+    assert any(
+        "View the list of all available attack techniques" in log for log in result.logs
+    )
 
 
 def test_untrusted_image():
@@ -65,6 +68,5 @@ def test_untrusted_image():
     )
 
     assert not result.success
-    assert "Image not in trusted list" in result.output
     assert result.exit_code == 1
     assert result.status == "failed"

@@ -225,7 +225,6 @@ TRACECAT__PODMAN_URI = os.environ.get(
 )
 """URI for the podman API.
 For TCP connections, use format: tcp://hostname:port
-For Unix sockets, use format: unix:///path/to/socket
 """
 
 TRACECAT__TRUSTED_DOCKER_IMAGES = (

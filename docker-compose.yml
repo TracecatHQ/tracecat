@@ -220,11 +220,29 @@ services:
   #   volumes:
   #     - ollama:/root/.ollama
 
+  # ee-container-runner:
+  #   image: quay.io/podman/stable
+  #   container_name: container-runner
+  #   restart: unless-stopped
+  #   environment:
+  #     LOG_LEVEL: debug
+  #   user: podman
+  #   command: ["podman", "system", "service", "--time=0", "--log-level=debug", "tcp://0.0.0.0:8080"]
+  #   volumes:
+  #     - containers:/var/lib/containers
+  #   networks:
+  #     - temporal
+  #   security_opt:
+  #     - label=disable
+  #   devices:
+  #     - /dev/fuse:/dev/fuse
+
 volumes:
   core-db:
   temporal-db:
   podman-storage:
   # ollama:
+  # containers:
 
 networks:
   core:

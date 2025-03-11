@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from enum import StrEnum, auto
 
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 import podman
 from podman.errors import APIError, ContainerError, ImageNotFound
@@ -38,11 +38,11 @@ class PodmanResult(BaseModel):
     """
 
     image: str
-    logs: str | list[str]
+    logs: list[str]
     exit_code: int
-    command: list[str] = Field(default_factory=list)
+    command: list[str]
     status: str | None = None
-    runtime_info: dict = Field(default_factory=dict)
+    runtime_info: dict
 
     @property
     def success(self) -> bool:
@@ -111,6 +111,8 @@ def get_podman_client(base_url: str | None = None) -> podman.PodmanClient:
         Override the default Podman API URL for testing
     """
     base_url = base_url or TRACECAT__PODMAN_URI
+    if base_url.startswith("unix://"):
+        return podman.PodmanClient(base_url=base_url, remote=True)
     return podman.PodmanClient(base_url=base_url)
 
 
@@ -139,6 +141,17 @@ def get_podman_version(base_url: str | None = None) -> str:
             version_info=version_info,
         )
         return version_info["Version"]
+
+
+def _process_logs(logs: bytes | Iterator[bytes] | str | int) -> list[str]:
+    """Process logs from a container."""
+    if isinstance(logs, bytes):
+        return [logs.decode()]
+    if isinstance(logs, str):
+        return [logs]
+    if isinstance(logs, int):
+        return [str(logs)]
+    return [log.decode() if isinstance(log, bytes) else str(log) for log in logs]
 
 
 def run_podman_container(
@@ -262,27 +275,27 @@ def run_podman_container(
                     logger.error("Failed to pull image", image=image, error=e)
                     raise RuntimeError(f"Failed to pull image: {e}") from e
 
-            # Run container and get output directly
-            # Returns logs as an iterator after container exits
-            logger.info("Running container", image=image, command=command)
-            logs = client.containers.run(
+            # Create container and get container ID
+            container = client.containers.create(
                 image=image,
                 command=command,
                 environment=env_vars,
                 network_mode=network_mode,
-                remove=True,
-                detach=False,
-                stdout=True,
-                stderr=True,
-                stream=False,
                 volumes=volume_mounts,
             )
+            container_id = container.id
 
-            if not isinstance(logs, Iterator):
-                raise ValueError(f"Expected output to be an iterator, got {type(logs)}")
+            # Start the container and wait for it to finish
+            container.start()
+            container.wait()
+            logs = _process_logs(container.logs())
+
+            if container_id:
+                # Remove the container after use
+                client.containers.remove(container_id)
 
             return PodmanResult(
-                logs=list(logs),
+                logs=logs,
                 exit_code=0,
                 image=image,
                 command=command,
@@ -312,7 +325,7 @@ def run_podman_container(
             raise
 
         return PodmanResult(
-            logs=str(e),
+            logs=[str(e)],
             exit_code=1,
             image=image,
             command=command,
@@ -326,7 +339,7 @@ def run_podman_container(
             raise
 
         return PodmanResult(
-            logs=str(e),
+            logs=[str(e)],
             exit_code=1,
             image=image,
             command=command,
