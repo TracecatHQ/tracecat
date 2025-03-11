@@ -33,11 +33,32 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
         </div>
       ),
       cell: ({ row }: CellT) => {
-        const value = row.original[column.name as keyof TableRowRead]
+        const value = row.original[column.name as keyof TableRowRead];
+        const [isExpanded, setIsExpanded] = React.useState(false);
+
+        const formattedJson = value && typeof value === "object" ? JSON.stringify(value, null, 2) : "";
+        const lines = formattedJson.split('\n');
+        const hasMoreThan15Lines = lines.length > 15;
+
         return (
-          <div className="flex items-center gap-2 text-xs">
+          <div className="text-xs w-full">
             {typeof value === "object" ? (
-              <pre className="text-xs">{JSON.stringify(value, null, 2)}</pre>
+              <div className="relative w-full">
+                {value && hasMoreThan15Lines && (
+                  <button
+                    className="absolute right-1 top-1 p-1 rounded-full bg-slate-200 hover:bg-slate-300 z-10"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsExpanded(!isExpanded);
+                    }}
+                  >
+                    {isExpanded ? "↑" : "↓"}
+                  </button>
+                )}
+                <pre className="text-xs overflow-hidden">
+                  {value && formatJsonWithLimit(value, isExpanded ? undefined : 15)}
+                </pre>
+              </div>
             ) : (
               <pre className="text-xs">{String(value)}</pre>
             )}
@@ -65,4 +86,20 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
       columns={allColumns}
     />
   )
+}
+
+function formatJsonWithLimit(jsonValue: any, lineLimit?: number): string {
+  const formattedJson = JSON.stringify(jsonValue, null, 2);
+
+  if (!lineLimit) {
+    return formattedJson;
+  }
+
+  const lines = formattedJson.split('\n');
+  if (lines.length <= lineLimit) {
+    return formattedJson;
+  }
+
+  const limitedLines = lines.slice(0, lineLimit);
+  return limitedLines.join('\n') + '\n...';
 }
