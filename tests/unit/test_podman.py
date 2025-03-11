@@ -1,10 +1,33 @@
 """Test the container runner live."""
 
+import pytest
+
 from tracecat.sandbox.podman import (
     PodmanNetwork,
     PullPolicy,
+    get_podman_version,
     run_podman_container,
 )
+
+TEST_PODMAN_URI = "tcp://localhost:8080"
+TEST_TRUSTED_IMAGES = ["alpine:latest", "datadog/stratus-red-team:latest"]
+
+
+@pytest.fixture(autouse=True)
+def podman_config(monkeypatch):
+    """Configure Podman for tests."""
+
+    from tracecat import config
+
+    monkeypatch.setattr(
+        config, "TRACECAT__TRUSTED_DOCKER_IMAGES", ",".join(TEST_TRUSTED_IMAGES)
+    )
+
+
+def test_podman_version():
+    """Smoke test to verify Podman API connectivity."""
+    version = get_podman_version(base_url=TEST_PODMAN_URI)
+    assert version == "5.4.0"
 
 
 def test_hello_world():
@@ -14,6 +37,7 @@ def test_hello_world():
         command=["echo", "hello world"],
         network=PodmanNetwork.NONE,
         pull_policy=PullPolicy.MISSING,
+        base_url=TEST_PODMAN_URI,  # Pass base_url explicitly
     )
 
     assert result.success
@@ -29,6 +53,7 @@ def test_stratus_red_team_list():
         command=["stratus", "list"],
         network=PodmanNetwork.NONE,
         pull_policy=PullPolicy.MISSING,
+        base_url=TEST_PODMAN_URI,  # Pass base_url explicitly
     )
 
     assert result.success
@@ -40,7 +65,10 @@ def test_stratus_red_team_list():
 def test_untrusted_image():
     """Test that non-allowlisted images are rejected."""
     result = run_podman_container(
-        image="nginx:latest", command=["nginx", "-v"], network=PodmanNetwork.NONE
+        image="nginx:latest",
+        command=["nginx", "-v"],
+        network=PodmanNetwork.NONE,
+        base_url=TEST_PODMAN_URI,
     )
 
     assert not result.success

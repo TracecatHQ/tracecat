@@ -220,9 +220,6 @@ TRACECAT__RATE_LIMIT_BY_ENDPOINT = (
 """Whether to rate limit by endpoint."""
 
 # === Podman Config === #
-PODMAN_API_VERSION = os.environ.get("PODMAN_API_VERSION", "v1.40")
-"""API version for the podman service."""
-
 TRACECAT__PODMAN_URI = os.environ.get(
     "TRACECAT__PODMAN_URI", "tcp://container-runner:8080"
 )
@@ -235,3 +232,6 @@ TRACECAT__TRUSTED_DOCKER_IMAGES = (
     (images := os.environ.get("TRACECAT__TRUSTED_DOCKER_IMAGES", ""))
     and images.split(",")
 ) or []
+"""List of trusted docker images.
+If not provided, no images will be trusted.
+"""

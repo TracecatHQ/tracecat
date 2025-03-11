@@ -90,8 +90,13 @@ def is_trusted_image(image: str) -> bool:
     return image in TRACECAT__TRUSTED_DOCKER_IMAGES
 
 
-def get_podman_version() -> str:
+def get_podman_version(base_url: str | None = None) -> str:
     """Get Podman version from the remote podman service.
+
+    Parameters
+    ----------
+    base_url : str, optional
+        Override the default Podman API URL for testing
 
     Returns
     -------
@@ -103,15 +108,13 @@ def get_podman_version() -> str:
     RuntimeError
         If the podman version check fails.
     """
-    try:
-        with podman.PodmanClient(base_url=TRACECAT__PODMAN_URI) as client:
-            version_info = client.version()
-            version = f"Version: {version_info['Version']}, API Version: {version_info['ApiVersion']}"
-            logger.debug("Podman version", version=version)
-            return version
-    except Exception as e:
-        logger.error("Failed to get podman version", error=e)
-        raise RuntimeError(f"Failed to get podman version: {e}") from e
+    with podman.PodmanClient(base_url=base_url) as client:
+        version_info = client.version()
+        logger.debug(
+            "Podman version",
+            version_info=version_info,
+        )
+        return version_info["Version"]
 
 
 def _process_container_logs(logs: bytes | Iterator[bytes] | str) -> str:
@@ -134,6 +137,7 @@ def run_podman_container(
     network: PodmanNetwork = PodmanNetwork.NONE,
     pull_policy: PullPolicy = PullPolicy.MISSING,
     raise_on_error: bool = False,
+    base_url: str | None = None,
 ) -> PodmanResult:
     """Run a container securely with Podman using functional approach.
 
@@ -158,6 +162,8 @@ def run_podman_container(
     raise_on_error : bool, default False
         If True, raises RuntimeError on container errors.
         If False, returns PodmanResult with error information.
+    base_url : str, optional
+        Override the default Podman API URL.
 
     Returns
     -------
@@ -200,9 +206,10 @@ def run_podman_container(
     }
 
     try:
-        version = get_podman_version()
+        # Use the provided base_url or fall back to config
+        url = base_url or TRACECAT__PODMAN_URI
+        version = get_podman_version(base_url=url)
         runtime_info["podman_version"] = version
-        runtime_info["logs"].append("Podman version validated")
 
         # Check trusted images
         if not is_trusted_image(image):
@@ -229,7 +236,7 @@ def run_podman_container(
             }
 
         # Connect to the podman service
-        with podman.PodmanClient(base_url=TRACECAT__PODMAN_URI) as client:
+        with podman.PodmanClient(base_url=url) as client:
             # Pull image if needed
             if pull_policy == PullPolicy.ALWAYS or (
                 pull_policy == PullPolicy.MISSING and not client.images.exists(image)
