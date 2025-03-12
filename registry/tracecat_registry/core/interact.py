@@ -6,16 +6,16 @@ from typing_extensions import Doc
 
 
 @registry.register(
-    namespace="core.wait",
-    description="Wait for a response from an external communication channel.",
+    namespace="core.interact",
+    description="Wait for a response from an incoming interaction.",
     default_title="Wait For Response",
-    display_group="Wait",
+    display_group="Interact",
 )
 async def response(
     *,
     interaction_id: Annotated[
         str,
-        Doc("The identifier for the interaction wait for."),
+        Doc("The identifier for the interaction to wait for."),
     ],
     channel: Annotated[
         str | None,

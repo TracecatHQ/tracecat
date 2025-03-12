@@ -37,11 +37,11 @@ class InteractionManager:
             Dictionary mapping interaction references to their states
         """
         for action in dsl.actions:
-            if action.action == PlatformAction.WAIT_RESPONSE:
+            if action.action == PlatformAction.INTERACT_RESPONSE:
                 act_args = WaitResponseArgs.model_validate(action.args)
                 self.states[act_args.interaction_id] = InteractionState(
                     ref=action.ref,
-                    type=PlatformAction.WAIT_RESPONSE,
+                    type=PlatformAction.INTERACT_RESPONSE,
                 )
 
     def validate_interaction(self, input: InteractionInput) -> None:
@@ -105,7 +105,7 @@ class InteractionManager:
         Raises:
             ApplicationError: If the interaction times out or encounters an error
         """
-        if task.action != PlatformAction.WAIT_RESPONSE:
+        if task.action != PlatformAction.INTERACT_RESPONSE:
             raise ValueError("Task is not a wait response action")
 
         args = WaitResponseArgs.model_validate(task.args)

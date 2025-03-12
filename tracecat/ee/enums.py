@@ -2,4 +2,4 @@ from enum import StrEnum
 
 
 class PlatformAction(StrEnum):
-    WAIT_RESPONSE = "core.wait.response"
+    INTERACT_RESPONSE = "core.interact.response"

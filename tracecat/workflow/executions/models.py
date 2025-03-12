@@ -238,9 +238,9 @@ class EventGroup(BaseModel, Generic[EventInput]):
         input = extract_first(attrs.accepted_request.input.args)
         group = EventGroup(
             event_id=event.event_id,
-            udf_namespace="core.wait",
+            udf_namespace="core.interact",
             udf_name="response",
-            udf_key="core.wait.response",
+            udf_key="core.interact.response",
             action_input=InteractionInput(**input),
         )
         logger.debug(

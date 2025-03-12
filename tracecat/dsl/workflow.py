@@ -521,7 +521,7 @@ class DSLWorkflow:
                     action_result = await self._execute_child_workflow(
                         task=task, child_run_args=child_run_args
                     )
-                case PlatformActionEE.WAIT_RESPONSE:
+                case PlatformActionEE.INTERACT_RESPONSE:
                     action_result = await self.interactions.wait_for_response(task)
                 case _:
                     # Below this point, we're executing the task
