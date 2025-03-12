@@ -10,3 +10,7 @@ class InteractionStatus(StrEnum):
 class InteractionType(StrEnum):
     APPROVAL = "approval"
     RESPONSE = "response"
+
+
+class InteractionCategory(StrEnum):
+    SLACK = "slack"

@@ -5,12 +5,13 @@ from pydantic import BaseModel, Field, TypeAdapter
 
 from tracecat.ee.enums import PlatformAction
 from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
+from tracecat.identifiers.workflow import WorkflowExecutionID
 
 
 class WaitResponseArgs(BaseModel):
     """The arguments for the `core.wait.response` action."""
 
-    ref: str
+    interaction_id: str
     """The reference to the action that will receive the response."""
 
     channel: str | None = None
@@ -20,14 +21,21 @@ class WaitResponseArgs(BaseModel):
     """The timeout for the response."""
 
 
-class InteractionInput(BaseModel):
-    """Input for the workflow interaction handler. This is used on the client side."""
+class InteractionContext(BaseModel):
+    """The context of the interaction."""
 
     interaction_id: str
     """The interaction ID."""
 
+    execution_id: WorkflowExecutionID
+    """The workflow execution ID."""
+
     ref: str
     """The action reference of the interaction sender."""
+
+
+class InteractionInput(InteractionContext):
+    """Input for the workflow interaction handler. This is used on the client side."""
 
     data: dict[str, Any]
     """Data passed to the interaction handler."""

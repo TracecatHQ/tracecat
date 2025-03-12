@@ -39,7 +39,7 @@ class InteractionManager:
         for action in dsl.actions:
             if action.action == PlatformAction.WAIT_RESPONSE:
                 act_args = WaitResponseArgs.model_validate(action.args)
-                self.states[act_args.ref] = InteractionState(
+                self.states[act_args.interaction_id] = InteractionState(
                     ref=action.ref,
                     type=PlatformAction.WAIT_RESPONSE,
                 )
@@ -57,10 +57,9 @@ class InteractionManager:
             raise ValueError(
                 "Workflow interaction handler could not find interaction state"
             )
-        state = self.states[input.interaction_id]
-        if state.ref != input.ref:
+        if self.wf.wf_exec_id != input.execution_id:
             raise ValueError(
-                "Workflow interaction handler received invalid interaction"
+                "Workflow interaction handler received invalid execution ID"
             )
 
     def handle_interaction(self, input: InteractionInput) -> InteractionResult:
@@ -110,7 +109,7 @@ class InteractionManager:
             raise ValueError("Task is not a wait response action")
 
         args = WaitResponseArgs.model_validate(task.args)
-        ref = args.ref
+        ref = args.interaction_id
 
         self.wf.logger.warning("Waiting for response", interaction_ref=ref)
         try:
