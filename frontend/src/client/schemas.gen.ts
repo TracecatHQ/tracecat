@@ -1318,11 +1318,23 @@ export const $HTTPValidationError = {
   title: "HTTPValidationError",
 } as const
 
+export const $InteractionCategory = {
+  type: "string",
+  enum: ["slack"],
+  title: "InteractionCategory",
+} as const
+
 export const $InteractionInput = {
   properties: {
     interaction_id: {
       type: "string",
       title: "Interaction Id",
+    },
+    execution_id: {
+      type: "string",
+      pattern:
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+      title: "Execution Id",
     },
     ref: {
       type: "string",
@@ -1334,7 +1346,7 @@ export const $InteractionInput = {
     },
   },
   type: "object",
-  required: ["interaction_id", "ref", "data"],
+  required: ["interaction_id", "execution_id", "ref", "data"],
   title: "InteractionInput",
   description:
     "Input for the workflow interaction handler. This is used on the client side.",
@@ -1483,6 +1495,18 @@ export const $OrgMemberRead = {
     "last_login_at",
   ],
   title: "OrgMemberRead",
+} as const
+
+export const $ReceiveInteractionResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "ReceiveInteractionResponse",
 } as const
 
 export const $RegistryActionCreate = {
