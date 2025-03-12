@@ -9,7 +9,7 @@ from tracecat.identifiers.workflow import WorkflowExecutionID
 
 
 class WaitResponseArgs(BaseModel):
-    """The arguments for the `core.wait.response` action."""
+    """The arguments for the `core.interact.response` action."""
 
     interaction_id: str
     """The reference to the action that will receive the response."""
@@ -58,7 +58,7 @@ class InteractionState:
     ref: str
     """The action reference of the interaction receiver."""
 
-    type: Literal[PlatformAction.WAIT_RESPONSE] = PlatformAction.WAIT_RESPONSE
+    type: Literal[PlatformAction.INTERACT_RESPONSE] = PlatformAction.INTERACT_RESPONSE
     """The interaction type. Response, approval, etc."""
 
     status: InteractionStatus = InteractionStatus.IDLE
