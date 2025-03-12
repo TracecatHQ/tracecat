@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel
 
 from tracecat.ee.enums import PlatformAction
-from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
+from tracecat.ee.interactions.enums import InteractionStatus
 from tracecat.identifiers.workflow import WorkflowExecutionID
 
 
@@ -69,29 +69,3 @@ class InteractionState:
 
     def is_activated(self) -> bool:
         return self.status == InteractionStatus.COMPLETED
-
-
-class ApprovalEvent(BaseModel):
-    """An approval event."""
-
-    type: Literal[InteractionType.APPROVAL] = Field(
-        default=InteractionType.APPROVAL, frozen=True
-    )
-    payload: dict[str, Any] | None = None
-
-
-class ResponseEvent(BaseModel):
-    """A response event."""
-
-    type: Literal[InteractionType.RESPONSE] = Field(
-        default=InteractionType.RESPONSE, frozen=True
-    )
-    signal_name: str
-    payload: dict[str, Any] | None = None
-
-
-# Use pydantic TypeAdapter
-type InteractionEvent = Annotated[
-    ApprovalEvent | ResponseEvent, Field(discriminator="type")
-]
-InteractionEventValidator: TypeAdapter[InteractionEvent] = TypeAdapter(InteractionEvent)
