@@ -4,6 +4,8 @@ from tracecat.sandbox.podman import (
     PodmanNetwork,
     PullPolicy,
     get_podman_version,
+    list_volumes,
+    remove_volumes,
     run_podman_container,
 )
 
@@ -53,6 +55,54 @@ def test_stratus_red_team_list():
     assert result.status == "exited"
     assert any(
         "View the list of all available attack techniques" in log for log in result.logs
+    )
+
+
+def test_volumes_persist_across_runs():
+    """Test that volumes persist across container runs."""
+    volume_name = "test-persist-volume"
+    volume_path = "/data"
+    test_file = "test.txt"
+    test_content = "Hello from container 1"
+
+    # First container: Write data to volume
+    first_run = run_podman_container(
+        image="docker.io/library/alpine:latest",
+        command=["/bin/sh", "-c", f"echo '{test_content}' > {volume_path}/{test_file}"],
+        volume_name=volume_name,
+        volume_path=volume_path,
+        base_url=TEST_PODMAN_URI,
+        trusted_images=["docker.io/library/alpine:latest"],
+    )
+    assert first_run.success, f"First container failed: {first_run.logs}"
+
+    # Verify the volume was created
+    volumes = list_volumes(base_url=TEST_PODMAN_URI)
+    assert volume_name in volumes, (
+        f"Volume {volume_name} was not created. Found volumes: {volumes}"
+    )
+
+    # Second container: Read data from volume
+    second_run = run_podman_container(
+        image="docker.io/library/alpine:latest",
+        command=["/bin/sh", "-c", f"cat {volume_path}/{test_file}"],
+        volume_name=volume_name,
+        volume_path=volume_path,
+        base_url=TEST_PODMAN_URI,
+        trusted_images=["docker.io/library/alpine:latest"],
+    )
+
+    # Verify the content persisted
+    assert second_run.success, f"Second container failed: {second_run.logs}"
+    assert test_content in second_run.logs[0], "Content did not persist in volume"
+
+    # Remove the volume
+    remove_volumes(volume_name=volume_name, base_url=TEST_PODMAN_URI)
+
+    # Verify the volume is removed
+    volumes = list_volumes(base_url=TEST_PODMAN_URI)
+    assert volume_name not in volumes, (
+        f"Volume {volume_name} was not removed. Found volumes: {volumes}"
     )
 
 

@@ -350,3 +350,42 @@ def run_podman_container(
     except Exception as e:
         logger.error("Unexpected error", error=e)
         raise
+
+
+def remove_volumes(volume_name: str | None = None, base_url: str | None = None):
+    """Remove volumes from the podman service.
+
+    Parameters
+    ----------
+    volume_name : str
+        The name of the volume to remove. If not provided, all volumes will be removed.
+    base_url : str, optional
+        Override the default Podman API URL.
+    """
+    with get_podman_client(base_url=base_url) as client:
+        if volume_name:
+            client.volumes.remove(volume_name)
+        else:
+            for volume in client.volumes.list():
+                logger.info("Removing volume", volume_name=volume.name)
+                name = volume.name
+                if name:
+                    client.volumes.remove(name)
+
+
+def list_volumes(base_url: str | None = None) -> list[str]:
+    """List all volumes from the podman service.
+
+    Parameters
+    ----------
+    base_url : str, optional
+        Override the default Podman API URL.
+
+    Returns
+    -------
+    list of str
+        A list of volume names.
+    """
+
+    with get_podman_client(base_url=base_url) as client:
+        return [volume.name for volume in client.volumes.list() if volume.name]
