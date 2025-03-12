@@ -13,9 +13,9 @@ from typing_extensions import Doc
 )
 async def response(
     *,
-    ref: Annotated[
+    interaction_id: Annotated[
         str,
-        Doc("The reference of the signal to wait for."),
+        Doc("The identifier for the interaction wait for."),
     ],
     channel: Annotated[
         str | None,

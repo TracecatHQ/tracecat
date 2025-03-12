@@ -35,6 +35,9 @@ definition:
       type: str | None
       description: Timestamp of the thread to reply to.
       default: null
+    interaction_context:
+      type: dict[str, any]
+      description: ID of the interaction to send the notification to.
   steps:
     - ref: metadata_block
       action: tools.slack_blocks.format_metadata
@@ -82,6 +85,8 @@ definition:
           thread_ts: ${{ inputs.thread_ts }}
           metadata:
             event_type: notification
-            event_payload: ${{ inputs.metadata }}
+            event_payload:
+              metadata: ${{ inputs.metadata }}
+              interaction_context: ${{ inputs.interaction_context }}
           blocks: ${{ steps.blocks.result }}
   returns: ${{ steps.post_message.result.message }}
