@@ -193,7 +193,7 @@ def parse_interaction_payload(
             )
 
 
-type PayloadDep = Annotated[TriggerInputs | None, Depends(parse_webhook_payload)]
+PayloadDep = Annotated[TriggerInputs | None, Depends(parse_webhook_payload)]
 ValidWorkflowDefinitionDep = Annotated[
     WorkflowDefinition, Depends(validate_workflow_definition)
 ]
