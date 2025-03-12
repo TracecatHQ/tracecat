@@ -327,6 +327,8 @@ class DSLWorkflow:
                 workflow={
                     "start_time": wf_info.start_time,
                     "dispatch_type": self.dispatch_type,
+                    "execution_id": self.wf_exec_id,
+                    "run_id": self.wf_run_id,
                 },
                 environment=self.runtime_config.environment,
                 variables={},
