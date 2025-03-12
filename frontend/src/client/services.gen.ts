@@ -61,6 +61,8 @@ import type {
   PublicIncomingWebhookResponse,
   PublicIncomingWebhookWaitData,
   PublicIncomingWebhookWaitResponse,
+  PublicReceiveInteractionData,
+  PublicReceiveInteractionResponse,
   RegistryActionsCreateRegistryActionData,
   RegistryActionsCreateRegistryActionResponse,
   RegistryActionsDeleteRegistryActionData,
@@ -285,6 +287,48 @@ export const publicIncomingWebhookWait = (
     method: "POST",
     url: "/webhooks/{workflow_id}/{secret}/wait",
     path: {
+      secret: data.secret,
+      workflow_id: data.workflowId,
+    },
+    headers: {
+      "content-type": data.contentType,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Receive Interaction
+ * Process incoming workflow interactions from external services.
+ *
+ * Args:
+ * workflow_id: ID of the workflow to interact with
+ * payload: Raw interaction payload from the external service
+ * category: Category of interaction (e.g., slack)
+ *
+ * Returns:
+ * Response confirming the interaction was processed
+ *
+ * Raises:
+ * HTTPException: If payload is invalid or workflow interaction fails
+ * @param data The data for the request.
+ * @param data.category
+ * @param data.secret
+ * @param data.workflowId
+ * @param data.contentType
+ * @returns ReceiveInteractionResponse Successful Response
+ * @throws ApiError
+ */
+export const publicReceiveInteraction = (
+  data: PublicReceiveInteractionData
+): CancelablePromise<PublicReceiveInteractionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/webhooks/{workflow_id}/{secret}/interactions/{category}",
+    path: {
+      category: data.category,
       secret: data.secret,
       workflow_id: data.workflowId,
     },

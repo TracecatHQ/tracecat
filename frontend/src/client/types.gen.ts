@@ -427,11 +427,14 @@ export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
 
+export type InteractionCategory = "slack"
+
 /**
  * Input for the workflow interaction handler. This is used on the client side.
  */
 export type InteractionInput = {
   interaction_id: string
+  execution_id: string
   ref: string
   data: {
     [key: string]: unknown
@@ -479,6 +482,10 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
+}
+
+export type ReceiveInteractionResponse = {
+  message: string
 }
 
 /**
@@ -1849,6 +1856,15 @@ export type PublicIncomingWebhookWaitData = {
 
 export type PublicIncomingWebhookWaitResponse = unknown
 
+export type PublicReceiveInteractionData = {
+  category: InteractionCategory
+  contentType?: string | null
+  secret: string
+  workflowId: string
+}
+
+export type PublicReceiveInteractionResponse = ReceiveInteractionResponse
+
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>
 
 export type WorkspacesCreateWorkspaceData = {
@@ -2672,6 +2688,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/webhooks/{workflow_id}/{secret}/interactions/{category}": {
+    post: {
+      req: PublicReceiveInteractionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ReceiveInteractionResponse
         /**
          * Validation Error
          */
