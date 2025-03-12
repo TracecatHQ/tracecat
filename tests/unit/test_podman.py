@@ -4,8 +4,8 @@ from tracecat.sandbox.podman import (
     PodmanNetwork,
     PullPolicy,
     get_podman_version,
-    list_volumes,
-    remove_volumes,
+    list_podman_volumes,
+    remove_podman_volumes,
     run_podman_container,
 )
 
@@ -77,7 +77,7 @@ def test_volumes_persist_across_runs():
     assert first_run.success, f"First container failed: {first_run.logs}"
 
     # Verify the volume was created
-    volumes = list_volumes(base_url=TEST_PODMAN_URI)
+    volumes = list_podman_volumes(base_url=TEST_PODMAN_URI)
     assert volume_name in volumes, (
         f"Volume {volume_name} was not created. Found volumes: {volumes}"
     )
@@ -97,10 +97,10 @@ def test_volumes_persist_across_runs():
     assert test_content in second_run.logs[0], "Content did not persist in volume"
 
     # Remove the volume
-    remove_volumes(volume_name=volume_name, base_url=TEST_PODMAN_URI)
+    remove_podman_volumes(volume_name=volume_name, base_url=TEST_PODMAN_URI)
 
     # Verify the volume is removed
-    volumes = list_volumes(base_url=TEST_PODMAN_URI)
+    volumes = list_podman_volumes(base_url=TEST_PODMAN_URI)
     assert volume_name not in volumes, (
         f"Volume {volume_name} was not removed. Found volumes: {volumes}"
     )
