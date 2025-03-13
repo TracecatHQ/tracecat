@@ -288,10 +288,10 @@ def run_podman_container(
                 # Remove the container after use
                 client.containers.remove(container_id)
 
-            if isinstance(result, dict):
-                exit_code = result.get("StatusCode")
-            elif isinstance(result, int):
+            if isinstance(result, int):
                 exit_code = result
+            elif isinstance(result, dict):
+                exit_code = result.get("StatusCode")
             else:
                 raise ValueError(
                     f"Unexpected container wait result: {result}."
