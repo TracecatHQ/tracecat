@@ -21,7 +21,7 @@
     "upgrade:next": "pnpm add next@14 react@18 react-dom@18 && pnpm add -D eslint-config-next@14 eslint@8"
   },
   "dependencies": {
-    "@babel/helpers": "^7.26.9",
+    "@babel/helpers": "^7.26.10",
     "@dagrejs/dagre": "^1.1.4",
     "@hookform/resolvers": "^3.10.0",
     "@monaco-editor/react": "^4.7.0",
@@ -66,7 +66,7 @@
     "next-themes": "^0.2.1",
     "papaparse": "^5.5.2",
     "posthog-js": "^1.219.1",
-    "prismjs": "1.29.0",
+    "prismjs": "1.30.0",
     "react": "^18.3.1",
     "react-colorful": "^5.6.1",
     "react-confetti-explosion": "^2.1.2",
