@@ -131,3 +131,36 @@ def test_untrusted_image():
             base_url=TEST_PODMAN_URI,
             trusted_images=TEST_TRUSTED_IMAGES,
         )
+
+
+def test_curl_google_with_bridge_network():
+    """Test that curl google.com returns a 200 status code with bridge network."""
+    result = run_podman_container(
+        image="docker.io/library/alpine:latest",
+        command=["/bin/sh", "-c", "curl -s -o /dev/null -w '%{http_code}' google.com"],
+        network=PodmanNetwork.BRIDGE,
+        pull_policy=PullPolicy.MISSING,
+        base_url=TEST_PODMAN_URI,
+        trusted_images=["docker.io/library/alpine:latest"],
+    )
+    assert result.success
+    assert result.exit_code == 0
+    assert result.status == "exited"
+
+
+def test_curl_google_with_none_network():
+    """Test that curl google.com fails with no network."""
+    result = run_podman_container(
+        image="docker.io/library/alpine:latest",
+        command=["/bin/sh", "-c", "curl -s -o /dev/null -w '%{http_code}' google.com"],
+        network=PodmanNetwork.NONE,
+        pull_policy=PullPolicy.MISSING,
+        base_url=TEST_PODMAN_URI,
+        trusted_images=["docker.io/library/alpine:latest"],
+    )
+    assert result.success
+    assert result.exit_code == 7
+    assert result.status == "exited"
+    assert result.logs[0].startswith(
+        "curl: (7) Failed to connect to google.com port 80: Connection refused"
+    )
