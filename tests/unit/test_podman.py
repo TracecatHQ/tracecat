@@ -38,12 +38,12 @@ def test_hello_world():
     assert any("Hello, World!" in log for log in result.logs)
 
 
-def test_env_vars_are_set():
+def test_environment_variables_are_set():
     """Test that environment variables are set."""
     result = run_podman_container(
         image="alpine:latest",
         command=["/bin/sh", "-c", "echo $ENV_VAR $ENV_VAR2 $ENV_VAR3"],
-        env_vars={"ENV_VAR": "hello!", "ENV_VAR2": "world!", "ENV_VAR3": "foo!"},
+        environment={"ENV_VAR": "hello!", "ENV_VAR2": "world!", "ENV_VAR3": "foo!"},
         base_url=TEST_PODMAN_URI,
         trusted_images=TEST_TRUSTED_IMAGES,
     )

@@ -155,7 +155,7 @@ def _process_logs(logs: bytes | Iterator[bytes] | str | int) -> list[str]:
 def run_podman_container(
     image: str,
     command: str | list[str] | None = None,
-    env_vars: dict[str, str] | None = None,
+    environment: dict[str, str] | None = None,
     volume_name: str | None = None,  # Single named volume
     volume_path: str | None = None,  # Where to mount it
     network: PodmanNetwork = PodmanNetwork.NONE,
@@ -173,7 +173,7 @@ def run_podman_container(
         The container image to run.
     command : str or list of str, optional
         The command to run in the container.
-    env_vars : dict of str to str, optional
+    environment : dict of str to str, optional
         Environment variables to set in the container.
     volume_name : str, optional
         Name of the volume to mount.
@@ -218,7 +218,7 @@ def run_podman_container(
     >>> result = run_podman_container(
     ...     "python:3.10-slim",
     ...     ["python", "-c", "import os; print(os.environ['MY_VAR'])"],
-    ...     env_vars={"MY_VAR": "Hello from env"}
+    ...     environment={"MY_VAR": "Hello from env"}
     ... )
     >>> print(result.output)
     Hello from env
@@ -232,7 +232,7 @@ def run_podman_container(
         "container_info": None,
     }
 
-    env_vars = env_vars or {}
+    environment = environment or {}
     network_mode = network.value.lower()
     command = command or []
     if isinstance(command, str):
@@ -273,7 +273,7 @@ def run_podman_container(
             container = client.containers.create(
                 image=image,
                 command=command,
-                environment=env_vars,
+                environment=environment,
                 network_mode=network_mode,
                 volumes=volume_mounts,
                 timezone="local",

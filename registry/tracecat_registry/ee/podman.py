@@ -22,7 +22,7 @@ from tracecat_registry import registry
 def run_container(
     image: Annotated[str, Doc("Image to run.")],
     command: Annotated[str | list[str] | None, Doc("Command to run.")] = None,
-    env_vars: Annotated[
+    environment: Annotated[
         dict[str, str] | None, Doc("Environment variables to set.")
     ] = None,
     volume_name: Annotated[str | None, Doc("Create a named volume.")] = None,
@@ -37,7 +37,7 @@ def run_container(
     result = run_podman_container(
         image=image,
         command=command,
-        env_vars=env_vars,
+        environment=environment,
         pull_policy=PullPolicy(pull_policy),
         volume_name=volume_name,
         volume_path=volume_path,
