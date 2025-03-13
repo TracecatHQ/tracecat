@@ -10,6 +10,8 @@ import { useListRows } from "@/lib/hooks"
 import { DataTable } from "@/components/data-table"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
+import { JsonViewWithControls } from "../workbench/events/events-selected-action"
+import { TooltipProvider } from "@radix-ui/react-tooltip"
 
 export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
   const { tableId } = useParams<{ tableId: string }>()
@@ -42,22 +44,13 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
 
         return (
           <div className="text-xs w-full">
-            {typeof value === "object" ? (
-              <div className="relative w-full">
-                {value && hasMoreThan15Lines && (
-                  <button
-                    className="absolute right-1 top-1 p-1 rounded-full bg-slate-200 hover:bg-slate-300 z-10"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsExpanded(!isExpanded);
-                    }}
-                  >
-                    {isExpanded ? "↑" : "↓"}
-                  </button>
-                )}
-                <pre className="text-xs overflow-hidden">
-                  {value && formatJsonWithLimit(value, isExpanded ? undefined : 15)}
-                </pre>
+            {typeof value === "object" && value ? (
+              <div onClick={(e) => e.stopPropagation()} className="w-full">
+                <TooltipProvider>
+                  <JsonViewWithControls
+                    src={value}
+                  />
+                </TooltipProvider>
               </div>
             ) : (
               <pre className="text-xs">{String(value)}</pre>
