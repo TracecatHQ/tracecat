@@ -152,6 +152,52 @@ def _process_logs(logs: bytes | Iterator[bytes] | str | int) -> list[str]:
     return [log.decode() if isinstance(log, bytes) else str(log) for log in logs]
 
 
+def _format_runtime_error(
+    image: str,
+    short_id: str,
+    command: list[str],
+    exit_code: int,
+    logs: list[str],
+) -> RuntimeError:
+    """Format a user-friendly RuntimeError for container execution failures.
+
+    Parameters
+    ----------
+    image : str
+        The container image that was used
+    container_id : str
+        The ID of the container that failed
+    command : list[str]
+        The command that was executed
+    exit_code : int
+        The exit code returned by the container
+    logs : list[str]
+        The logs output from the container
+
+    Returns
+    -------
+    RuntimeError
+        A formatted exception with structured information
+    """
+
+    # Format the logs with bullet points
+    if logs:
+        formatted_logs = "\n".join(logs)
+        error_message = f"The container returned the following logs:\n{formatted_logs}"
+    else:
+        error_message = "The container did not return any logs."
+
+    # Create the formatted error message
+    error_message = (
+        f"Container {short_id} exited with code {exit_code}.\n"
+        f"Image: {image}\n"
+        f"Command: {command!s}\n\n"
+        f"{error_message}"
+    )
+
+    return RuntimeError(error_message)
+
+
 def run_podman_container(
     image: str,
     command: str | list[str] | None = None,
@@ -308,10 +354,12 @@ def run_podman_container(
                     command=command,
                     logs=logs,
                 )
-                raise RuntimeError(
-                    f"Container {short_id} exited with code {exit_code}."
-                    f" Command: {command}"
-                    f" Logs: {logs}"
+                raise _format_runtime_error(
+                    image=image,
+                    short_id=short_id,
+                    command=command,
+                    exit_code=exit_code,
+                    logs=logs,
                 )
 
             return PodmanResult(
