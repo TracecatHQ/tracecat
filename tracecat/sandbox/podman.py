@@ -282,6 +282,7 @@ def run_podman_container(
                 environment=env_vars,
                 network_mode=network_mode,
                 volumes=volume_mounts,
+                timezone="local",
             )
             container_id = container.id
 

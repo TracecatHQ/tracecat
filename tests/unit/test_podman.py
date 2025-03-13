@@ -43,15 +43,15 @@ def test_env_vars_are_set():
     """Test that environment variables are set."""
     result = run_podman_container(
         image="alpine:latest",
-        command=["/bin/sh", "-c", "echo $TEST_ENV_VAR"],
-        env_vars={"TEST_ENV_VAR": "test"},
+        command=["/bin/sh", "-c", "echo $ENV_VAR $ENV_VAR2 $ENV_VAR3"],
+        env_vars={"ENV_VAR": "hello!", "ENV_VAR2": "world!", "ENV_VAR3": "foo!"},
         base_url=TEST_PODMAN_URI,
         trusted_images=TEST_TRUSTED_IMAGES,
     )
     assert result.success
     assert result.exit_code == 0
     assert result.status == "exited"
-    assert any("test" in log for log in result.logs)
+    assert result.logs[0].startswith("hello! world! foo!")
 
 
 def test_stratus_red_team_list():
