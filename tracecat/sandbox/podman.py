@@ -208,6 +208,7 @@ def run_podman_container(
     pull_policy: PullPolicy = PullPolicy.MISSING,
     base_url: str | None = None,
     trusted_images: list[str] | None = None,
+    expected_exit_codes: list[int] | None = None,
 ) -> PodmanResult:
     """Run a container securely with Podman using functional approach.
 
@@ -233,6 +234,9 @@ def run_podman_container(
         Override the default Podman API URL.
     trusted_images : list of str, optional
         Override the default trusted images list.
+    expected_exit_codes : list of int, optional
+        List of additional exit codes that are expected and should not raise an error.
+        If None, only exit code 0 is considered expected.
 
     Returns
     -------
@@ -249,6 +253,8 @@ def run_podman_container(
         If the image does not exist.
     APIError
         If the Podman API returns an error.
+    RuntimeError
+        If the container exits with an unexpected exit code.
 
     Examples
     --------
@@ -346,7 +352,10 @@ def run_podman_container(
                     f" Expected dict or int, got {type(result)}"
                 )
 
-            if exit_code is None or exit_code != 0:
+            if exit_code is None or (
+                exit_code != 0
+                and (not expected_exit_codes or exit_code not in expected_exit_codes)
+            ):
                 logger.error(
                     "Container exited with non-zero exit code",
                     exit_code=exit_code,

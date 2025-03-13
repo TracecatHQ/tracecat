@@ -33,6 +33,10 @@ def run_container(
     pull_policy: Annotated[
         Literal["missing", "never", "always"], Doc("Pull policy.")
     ] = "missing",
+    expected_exit_codes: Annotated[
+        list[int] | None,
+        Doc("Exit codes that are expected and should not raise an error."),
+    ] = None,
 ) -> dict[str, Any]:
     result = run_podman_container(
         image=image,
@@ -42,6 +46,7 @@ def run_container(
         volume_name=volume_name,
         volume_path=volume_path,
         network=PodmanNetwork(network),
+        expected_exit_codes=expected_exit_codes,
     )
     return result.model_dump()
 

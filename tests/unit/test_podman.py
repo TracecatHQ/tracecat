@@ -184,3 +184,39 @@ except Exception as e:
     error_message = str(excinfo.value)
     assert "exited with code 7" in error_message
     assert "Error:" in error_message
+
+
+def test_expected_exit_codes():
+    """Test that expected exit codes don't raise errors."""
+    # Test a command that exits with code 1
+    result = run_podman_container(
+        image="alpine:latest",
+        command=["/bin/sh", "-c", "exit 1"],
+        expected_exit_codes=[1],
+        base_url=TEST_PODMAN_URI,
+        trusted_images=TEST_TRUSTED_IMAGES,
+    )
+    assert result.exit_code == 1
+    assert not result.success  # success should still be False for non-zero exit codes
+
+    # Test that other exit codes still raise errors
+    with pytest.raises(RuntimeError) as excinfo:
+        run_podman_container(
+            image="alpine:latest",
+            command=["/bin/sh", "-c", "exit 2"],
+            expected_exit_codes=[1],  # only expect exit code 1
+            base_url=TEST_PODMAN_URI,
+            trusted_images=TEST_TRUSTED_IMAGES,
+        )
+    assert "exited with code 2" in str(excinfo.value)
+
+    # Test multiple expected exit codes
+    result = run_podman_container(
+        image="alpine:latest",
+        command=["/bin/sh", "-c", "exit 3"],
+        expected_exit_codes=[1, 2, 3],
+        base_url=TEST_PODMAN_URI,
+        trusted_images=TEST_TRUSTED_IMAGES,
+    )
+    assert result.exit_code == 3
+    assert not result.success
