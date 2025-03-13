@@ -22,22 +22,23 @@ services:
     environment:
       # App
       LOG_LEVEL: ${LOG_LEVEL}
-      TRACECAT__API_URL: ${TRACECAT__API_URL}
+      TRACECAT__ALLOW_ORIGINS: ${TRACECAT__ALLOW_ORIGINS}
       TRACECAT__API_ROOT_PATH: ${TRACECAT__API_ROOT_PATH}
+      TRACECAT__API_URL: ${TRACECAT__API_URL}
       TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS}
+      TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH}
+      TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
       TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
       TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
-      TRACECAT__ALLOW_ORIGINS: ${TRACECAT__ALLOW_ORIGINS}
-      TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
-      TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS}
-      TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH}
       TRACECAT__SETTING_OVERRIDE_SAML_ENABLED: ${TRACECAT__SETTING_OVERRIDE_SAML_ENABLED}
-      TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__TRUSTED_DOCKER_IMAGES: ${TRACECAT__TRUSTED_DOCKER_IMAGES}
       OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
@@ -133,6 +134,9 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Podman
+      TRACECAT__PODMAN_URI: ${TRACECAT__PODMAN_URI}
+      TRACECAT__TRUSTED_DOCKER_IMAGES: ${TRACECAT__TRUSTED_DOCKER_IMAGES}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
@@ -223,7 +227,7 @@ services:
     image: temporalio/ui:${TEMPORAL__UI_VERSION}
     container_name: temporal_ui
     ports:
-      - 8080:8080
+      - 8081:8080
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:8080
@@ -241,7 +245,30 @@ services:
     volumes:
       - ollama:/root/.ollama
 
+  ee-container-runner:
+    image: quay.io/podman/stable
+    container_name: container-runner
+    restart: unless-stopped
+    ports:
+      - 8080:8080
+    environment:
+      LOG_LEVEL: debug
+    user: podman
+    command: ["podman", "system", "service", "--time=0", "--log-level=debug", "tcp://0.0.0.0:8080"]
+    volumes:
+      - containers:/var/lib/containers
+      - /etc/localtime:/etc/localtime:ro
+    security_opt:
+      - label=disable
+    devices:
+      - /dev/fuse:/dev/fuse
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+
 volumes:
   core-db:
   temporal-db:
   ollama:
+  containers:
