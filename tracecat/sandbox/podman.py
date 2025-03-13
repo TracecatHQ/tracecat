@@ -31,8 +31,6 @@ class PodmanResult(BaseModel):
         ID of the container that was created.
     command : list of str
         The command that was executed.
-    status : str, optional
-        Final status of the container (e.g., "exited", "error").
     runtime_info : dict
         Runtime diagnostic information including logs, version info, and container details.
     """
@@ -41,7 +39,6 @@ class PodmanResult(BaseModel):
     logs: list[str]
     exit_code: int
     command: list[str]
-    status: str | None = None
     runtime_info: dict
 
     @property
@@ -284,19 +281,40 @@ def run_podman_container(
 
             # Start the container and wait for it to finish
             container.start()
-            container.wait()
+            result = container.wait()
             logs = _process_logs(container.logs())
 
             if container_id:
                 # Remove the container after use
                 client.containers.remove(container_id)
 
+            if isinstance(result, dict):
+                exit_code = result.get("StatusCode")  # type: ignore
+            else:
+                raise ValueError(
+                    f"Unexpected container wait result: {result}."
+                    f" Expected dict, got {type(result)}"
+                )
+
+            if exit_code is None or exit_code != 0:
+                logger.error(
+                    "Container exited with non-zero exit code",
+                    exit_code=exit_code,
+                    container_id=container_id,
+                    command=command,
+                    logs=logs,
+                )
+                raise RuntimeError(
+                    f"Container {container_id} exited with code {exit_code}."
+                    f"\nCommand: {command}"
+                    f"\nLogs: {logs}"
+                )
+
             return PodmanResult(
                 logs=logs,
-                exit_code=0,
+                exit_code=exit_code,
                 image=image,
                 command=command,
-                status="exited",
                 runtime_info=runtime_info,
             )
 
