@@ -36,12 +36,6 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
       ),
       cell: ({ row }: CellT) => {
         const value = row.original[column.name as keyof TableRowRead];
-        const [isExpanded, setIsExpanded] = React.useState(false);
-
-        const formattedJson = value && typeof value === "object" ? JSON.stringify(value, null, 2) : "";
-        const lines = formattedJson.split('\n');
-        const hasMoreThan15Lines = lines.length > 15;
-
         return (
           <div className="text-xs w-full">
             {typeof value === "object" && value ? (
@@ -79,20 +73,4 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
       columns={allColumns}
     />
   )
-}
-
-function formatJsonWithLimit(jsonValue: any, lineLimit?: number): string {
-  const formattedJson = JSON.stringify(jsonValue, null, 2);
-
-  if (!lineLimit) {
-    return formattedJson;
-  }
-
-  const lines = formattedJson.split('\n');
-  if (lines.length <= lineLimit) {
-    return formattedJson;
-  }
-
-  const limitedLines = lines.slice(0, lineLimit);
-  return limitedLines.join('\n') + '\n...';
 }
