@@ -13,7 +13,7 @@ from tracecat_registry import registry
 
 
 @registry.register(
-    default_title="[Enterprise only] Run a container",
+    default_title="Run a container",
     description="Run a container using rootless Podman.",
     display_group="Podman",
     namespace="ee.podman",
@@ -48,7 +48,7 @@ def run_container(
 
 
 @registry.register(
-    default_title="[Enterprise only] List volumes",
+    default_title="List volumes",
     description="List all volumes from the Podman service.",
     display_group="Podman",
     namespace="ee.podman",
@@ -59,7 +59,7 @@ def list_volumes() -> list[str]:
 
 
 @registry.register(
-    default_title="[Enterprise only] Remove volumes",
+    default_title="Remove volumes",
     description="Remove all volumes from the Podman service.",
     display_group="Podman",
     namespace="ee.podman",
