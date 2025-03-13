@@ -5,20 +5,20 @@
 # http://redsymbol.net/articles/unofficial-bash-strict-mode/ for details.
 set -euo pipefail
 
-# Tell apt-get we're never going to be able to give manual feedback:
 export DEBIAN_FRONTEND=noninteractive
 
-# Update the package listing, so we know what package exist:
+# Update package lists
 apt-get update
 
-# Install security updates:
+# Install base packages
+apt-get install -y \
+  acl \
+  git \
+  xmlsec1
+
+# Apply security updates
 apt-get -y upgrade
 
-# Install a new package, without unnecessary recommended packages:
-apt-get -y install --no-install-recommends syslog-ng
-
-# Delete cached files we don't need anymore
+# Clean up
 apt-get clean
-
-# Delete index files we don't need anymore:
 rm -rf /var/lib/apt/lists/*
