@@ -162,7 +162,6 @@ def run_podman_container(
     volume_path: str | None = None,  # Where to mount it
     network: PodmanNetwork = PodmanNetwork.NONE,
     pull_policy: PullPolicy = PullPolicy.MISSING,
-    raise_on_error: bool = False,
     base_url: str | None = None,
     trusted_images: list[str] | None = None,
 ) -> PodmanResult:
@@ -186,9 +185,6 @@ def run_podman_container(
         Network mode for the container. Defaults to isolated.
     pull_policy : PullPolicy, default PullPolicy.MISSING
         When to pull the image.
-    raise_on_error : bool, default False
-        If True, raises RuntimeError on container errors.
-        If False, returns PodmanResult with error information.
     base_url : str, optional
         Override the default Podman API URL.
     trusted_images : list of str, optional
@@ -306,47 +302,15 @@ def run_podman_container(
 
     except ContainerError as e:
         logger.error("Container error", error=e)
-        if raise_on_error:
-            raise
-
-        stderr: Iterator[bytes] = e.stderr  # type: ignore
-
-        return PodmanResult(
-            logs=[s.decode() for s in stderr],
-            exit_code=e.exit_status,
-            image=e.image,
-            command=command,
-            status="ContainerError",
-            runtime_info=runtime_info,
-        )
+        raise
 
     except ImageNotFound as e:
         logger.error("Image not found", error=e)
-        if raise_on_error:
-            raise
-
-        return PodmanResult(
-            logs=[str(e)],
-            exit_code=1,
-            image=image,
-            command=command,
-            status="ImageNotFound",
-            runtime_info=runtime_info,
-        )
+        raise
 
     except APIError as e:
         logger.error("Podman API error", error=e)
-        if raise_on_error:
-            raise
-
-        return PodmanResult(
-            logs=[str(e)],
-            exit_code=1,
-            image=image,
-            command=command,
-            status="APIError",
-            runtime_info=runtime_info,
-        )
+        raise
 
     except Exception as e:
         logger.error("Unexpected error", error=e)

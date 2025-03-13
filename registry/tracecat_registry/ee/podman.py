@@ -31,9 +31,6 @@ def run_container(
     pull_policy: Annotated[
         Literal["missing", "never", "always"], Doc("Pull policy.")
     ] = "missing",
-    raise_on_error: Annotated[
-        bool, Doc("Return failed exit code and logs instead of raising an error.")
-    ] = True,
 ) -> dict[str, Any]:
     result = run_podman_container(
         image=image,
@@ -43,7 +40,6 @@ def run_container(
         volume_name=volume_name,
         volume_path=volume_path,
         network=PodmanNetwork(network),
-        raise_on_error=raise_on_error,
     )
     return result.model_dump()
 
