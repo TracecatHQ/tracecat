@@ -58,6 +58,7 @@ class PodmanNetwork(StrEnum):
 
     NONE = auto()  # Most secure, no network
     BRIDGE = auto()  # Default podman network, required for external services
+    HOST = auto()  # Use host network
 
 
 class PullPolicy(StrEnum):

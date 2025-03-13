@@ -146,7 +146,7 @@ except Exception as e:
     result = run_podman_container(
         image="docker.io/library/python:3.11-slim",
         command=["python", "-c", script],
-        network=PodmanNetwork.BRIDGE,
+        network=PodmanNetwork.HOST,
         pull_policy=PullPolicy.MISSING,
         base_url=TEST_PODMAN_URI,
         trusted_images=["docker.io/library/python:3.11-slim"],

@@ -220,20 +220,37 @@ services:
   #   volumes:
   #     - ollama:/root/.ollama
 
+  # ---------------------------------------------------------
+  #
+  # NOTE: Only uncomment the `ee-container-runner` service
+  # if you have a Tracecat Enterprise license.
+  #
+  # To request an NFR license for evaluation, please contact us:
+  # at https://cal.com/team/tracecat or founders@tracecat.com.
+  #
+  # ---------------------------------------------------------
+  #
   # ee-container-runner:
   #   image: quay.io/podman/stable
   #   container_name: container-runner
   #   restart: unless-stopped
+  #   ports:
+  #     - 8080:8080
+  #   environment:
+  #     LOG_LEVEL: debug
   #   user: podman
-  #   command: ["podman", "system", "service", "--time=0", "--log-level=debug", "tcp://0.0.0.0:8080"]
+  #   command: ["podman", "system", "service", "--time=0", "--log-level=info", "tcp://0.0.0.0:8080"]
   #   volumes:
   #     - containers:/var/lib/containers
-  #   networks:
-  #     - temporal
+  #     - /etc/localtime:/etc/localtime:ro
   #   security_opt:
   #     - label=disable
   #   devices:
   #     - /dev/fuse:/dev/fuse
+  #     - /dev/net/tun:/dev/net/tun
+  #   cap_add:
+  #     - NET_ADMIN
+  #     - SYS_ADMIN
 
 volumes:
   core-db:

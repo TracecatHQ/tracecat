@@ -262,6 +262,10 @@ services:
       - label=disable
     devices:
       - /dev/fuse:/dev/fuse
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
 
 volumes:
   core-db:
