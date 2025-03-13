@@ -27,7 +27,9 @@ def run_container(
     ] = None,
     volume_name: Annotated[str | None, Doc("Create a named volume.")] = None,
     volume_path: Annotated[str | None, Doc("Path to mount in the container.")] = None,
-    network: Annotated[Literal["none", "bridge"], Doc("Network to use.")] = "none",
+    network: Annotated[
+        Literal["none", "bridge", "host"], Doc("Network to use.")
+    ] = "none",
     pull_policy: Annotated[
         Literal["missing", "never", "always"], Doc("Pull policy.")
     ] = "missing",
