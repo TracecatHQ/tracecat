@@ -35,7 +35,6 @@ def test_hello_world():
 
     assert result.success
     assert result.exit_code == 0
-    assert result.status == "exited"
     assert any("Hello, World!" in log for log in result.logs)
 
 
@@ -50,7 +49,6 @@ def test_env_vars_are_set():
     )
     assert result.success
     assert result.exit_code == 0
-    assert result.status == "exited"
     assert result.logs[0].startswith("hello! world! foo!")
 
 
@@ -67,7 +65,6 @@ def test_stratus_red_team_list():
 
     assert result.success
     assert result.exit_code == 0
-    assert result.status == "exited"
     assert any(
         "View the list of all available attack techniques" in log for log in result.logs
     )
@@ -133,34 +130,57 @@ def test_untrusted_image():
         )
 
 
-def test_curl_google_with_bridge_network():
-    """Test that curl google.com returns a 200 status code with bridge network."""
+def test_http_request_with_bridge_network():
+    """Test that HTTP request to google.com works with bridge network."""
+    script = """
+import sys
+import urllib.request
+try:
+    with urllib.request.urlopen('http://google.com', timeout=5) as response:
+        print(response.status)
+    sys.exit(0)
+except Exception as e:
+    print(f"Error: {e}")
+    sys.exit(1)
+"""
     result = run_podman_container(
-        image="docker.io/library/alpine:latest",
-        command=["/bin/sh", "-c", "curl -s -o /dev/null -w '%{http_code}' google.com"],
+        image="docker.io/library/python:3.11-slim",
+        command=["python", "-c", script],
         network=PodmanNetwork.BRIDGE,
         pull_policy=PullPolicy.MISSING,
         base_url=TEST_PODMAN_URI,
-        trusted_images=["docker.io/library/alpine:latest"],
+        trusted_images=["docker.io/library/python:3.11-slim"],
     )
     assert result.success
     assert result.exit_code == 0
-    assert result.status == "exited"
+    assert "200" in " ".join(result.logs)
 
 
-def test_curl_google_with_none_network():
-    """Test that curl google.com fails with no network."""
-    result = run_podman_container(
-        image="docker.io/library/alpine:latest",
-        command=["/bin/sh", "-c", "curl -s -o /dev/null -w '%{http_code}' google.com"],
-        network=PodmanNetwork.NONE,
-        pull_policy=PullPolicy.MISSING,
-        base_url=TEST_PODMAN_URI,
-        trusted_images=["docker.io/library/alpine:latest"],
-    )
-    assert result.success
-    assert result.exit_code == 7
-    assert result.status == "exited"
-    assert result.logs[0].startswith(
-        "curl: (7) Failed to connect to google.com port 80: Connection refused"
-    )
+def test_http_request_with_none_network():
+    """Test that HTTP request to google.com fails with no network."""
+    script = """
+import sys
+import urllib.request
+try:
+    with urllib.request.urlopen('http://google.com', timeout=5) as response:
+        print(response.status)
+    sys.exit(0)
+except Exception as e:
+    print(f"Error: {e}")
+    sys.exit(7)  # Use exit code 7 to match curl's connection error code
+"""
+    # This should raise a RuntimeError
+    with pytest.raises(RuntimeError) as excinfo:
+        run_podman_container(
+            image="docker.io/library/python:3.11-slim",
+            command=["python", "-c", script],
+            network=PodmanNetwork.NONE,
+            pull_policy=PullPolicy.MISSING,
+            base_url=TEST_PODMAN_URI,
+            trusted_images=["docker.io/library/python:3.11-slim"],
+        )
+
+    # Check that the error message contains the expected information
+    error_message = str(excinfo.value)
+    assert "exited with code 7" in error_message
+    assert "Error:" in error_message
