@@ -6,7 +6,7 @@ from tracecat.sandbox.podman import (
     PullPolicy,
 )
 
-from typing import Any, Annotated
+from typing import Any, Annotated, Literal
 from typing_extensions import Doc
 
 from tracecat_registry import registry
@@ -25,23 +25,24 @@ def run_container(
     env_vars: Annotated[
         dict[str, str] | None, Doc("Environment variables to set.")
     ] = None,
-    pull_policy: Annotated[PullPolicy, Doc("Pull policy.")] = PullPolicy.MISSING,
     volume_name: Annotated[str | None, Doc("Create a named volume.")] = None,
     volume_path: Annotated[str | None, Doc("Path to mount in the container.")] = None,
-    use_bridge_network: Annotated[bool, Doc("Use the bridge network.")] = False,
+    network: Annotated[Literal["none", "bridge"], Doc("Network to use.")] = "none",
+    pull_policy: Annotated[
+        Literal["missing", "never", "always"], Doc("Pull policy.")
+    ] = "missing",
     raise_on_error: Annotated[
         bool, Doc("Return failed exit code and logs instead of raising an error.")
     ] = True,
 ) -> dict[str, Any]:
-    network = PodmanNetwork.BRIDGE if use_bridge_network else PodmanNetwork.NONE
     result = run_podman_container(
         image=image,
         command=command,
         env_vars=env_vars,
-        pull_policy=pull_policy,
+        pull_policy=PullPolicy(pull_policy),
         volume_name=volume_name,
         volume_path=volume_path,
-        network=network,
+        network=PodmanNetwork(network),
         raise_on_error=raise_on_error,
     )
     return result.model_dump()
