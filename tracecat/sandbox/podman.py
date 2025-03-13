@@ -278,6 +278,7 @@ def run_podman_container(
                 timezone="local",
             )
             container_id = container.id
+            short_id = container.short_id
 
             # Start the container and wait for it to finish
             container.start()
@@ -302,14 +303,14 @@ def run_podman_container(
                 logger.error(
                     "Container exited with non-zero exit code",
                     exit_code=exit_code,
-                    container_id=container_id,
+                    container_id=short_id,
                     command=command,
                     logs=logs,
                 )
                 raise RuntimeError(
-                    f"Container {container_id} exited with code {exit_code}."
-                    f"\nCommand: {command}"
-                    f"\nLogs: {logs}"
+                    f"Container {short_id} exited with code {exit_code}."
+                    f" Command: {command}"
+                    f" Logs: {logs}"
                 )
 
             return PodmanResult(
