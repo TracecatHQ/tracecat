@@ -44,11 +44,7 @@ export const $ActionControlFlow = {
       title: "For Each",
     },
     join_strategy: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/JoinStrategy",
-        },
-      ],
+      $ref: "#/components/schemas/JoinStrategy",
       default: "all",
     },
     retry_policy: {
@@ -276,11 +272,7 @@ export const $ActionStatement = {
         "Iterate over a list of items and run the task for each item.",
     },
     retry_policy: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/ActionRetryPolicy",
-        },
-      ],
+      $ref: "#/components/schemas/ActionRetryPolicy",
       description: "Retry policy for the action.",
     },
     start_delay: {
@@ -304,11 +296,7 @@ export const $ActionStatement = {
         "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.",
     },
     join_strategy: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/JoinStrategy",
-        },
-      ],
+      $ref: "#/components/schemas/JoinStrategy",
       description:
         "The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.",
       default: "all",
@@ -877,11 +865,7 @@ export const $DSLRunArgs = {
       ],
     },
     runtime_config: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/DSLConfig-Output",
-        },
-      ],
+      $ref: "#/components/schemas/DSLConfig-Output",
       description:
         "Runtime configuration that can be set on workflow entry. Note that this can override the default config in DSLInput.",
     },
@@ -1127,11 +1111,7 @@ export const $EventGroup = {
       default: 0,
     },
     join_strategy: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/JoinStrategy",
-        },
-      ],
+      $ref: "#/components/schemas/JoinStrategy",
       default: "all",
     },
     related_wf_exec_id: {
@@ -1506,7 +1486,7 @@ export const $RegistryActionCreate = {
       $ref: "#/components/schemas/RegistryActionInterface",
     },
     implementation: {
-      anyOf: [
+      oneOf: [
         {
           $ref: "#/components/schemas/RegistryActionTemplateImpl-Input",
         },
@@ -1515,6 +1495,13 @@ export const $RegistryActionCreate = {
         },
       ],
       title: "Implementation",
+      discriminator: {
+        propertyName: "type",
+        mapping: {
+          template: "#/components/schemas/RegistryActionTemplateImpl-Input",
+          udf: "#/components/schemas/RegistryActionUDFImpl",
+        },
+      },
     },
     default_title: {
       anyOf: [
@@ -1587,11 +1574,7 @@ export const $RegistryActionCreate = {
       description: "Marks action as deprecated along with message",
     },
     options: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/RegistryActionOptions",
-        },
-      ],
+      $ref: "#/components/schemas/RegistryActionOptions",
       description: "The options for the action",
     },
     repository_id: {
@@ -1609,6 +1592,7 @@ export const $RegistryActionCreate = {
     "type",
     "origin",
     "interface",
+    "implementation",
     "repository_id",
   ],
   title: "RegistryActionCreate",
@@ -1694,7 +1678,7 @@ export const $RegistryActionRead = {
       $ref: "#/components/schemas/RegistryActionInterface",
     },
     implementation: {
-      anyOf: [
+      oneOf: [
         {
           $ref: "#/components/schemas/RegistryActionTemplateImpl-Output",
         },
@@ -1703,6 +1687,13 @@ export const $RegistryActionRead = {
         },
       ],
       title: "Implementation",
+      discriminator: {
+        propertyName: "type",
+        mapping: {
+          template: "#/components/schemas/RegistryActionTemplateImpl-Output",
+          udf: "#/components/schemas/RegistryActionUDFImpl",
+        },
+      },
     },
     default_title: {
       anyOf: [
@@ -1775,11 +1766,7 @@ export const $RegistryActionRead = {
       description: "Marks action as deprecated along with message",
     },
     options: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/RegistryActionOptions",
-        },
-      ],
+      $ref: "#/components/schemas/RegistryActionOptions",
       description: "The options for the action",
     },
     repository_id: {
@@ -1815,6 +1802,7 @@ export const $RegistryActionRead = {
     "type",
     "origin",
     "interface",
+    "implementation",
     "repository_id",
     "id",
     "action",
@@ -1906,16 +1894,13 @@ export const $RegistryActionReadMinimal = {
 export const $RegistryActionTemplateImpl_Input = {
   properties: {
     type: {
+      type: "string",
       const: "template",
       title: "Type",
       default: "template",
     },
     template_action: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/TemplateAction-Input",
-        },
-      ],
+      $ref: "#/components/schemas/TemplateAction-Input",
       description: "The template action",
     },
   },
@@ -1927,16 +1912,13 @@ export const $RegistryActionTemplateImpl_Input = {
 export const $RegistryActionTemplateImpl_Output = {
   properties: {
     type: {
+      type: "string",
       const: "template",
       title: "Type",
       default: "template",
     },
     template_action: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/TemplateAction-Output",
-        },
-      ],
+      $ref: "#/components/schemas/TemplateAction-Output",
       description: "The template action",
     },
   },
@@ -1948,6 +1930,7 @@ export const $RegistryActionTemplateImpl_Output = {
 export const $RegistryActionUDFImpl = {
   properties: {
     type: {
+      type: "string",
       const: "udf",
       title: "Type",
       default: "udf",
@@ -2031,10 +2014,21 @@ export const $RegistryActionUpdate = {
     implementation: {
       anyOf: [
         {
-          $ref: "#/components/schemas/RegistryActionTemplateImpl-Input",
-        },
-        {
-          $ref: "#/components/schemas/RegistryActionUDFImpl",
+          oneOf: [
+            {
+              $ref: "#/components/schemas/RegistryActionTemplateImpl-Input",
+            },
+            {
+              $ref: "#/components/schemas/RegistryActionUDFImpl",
+            },
+          ],
+          discriminator: {
+            propertyName: "type",
+            mapping: {
+              template: "#/components/schemas/RegistryActionTemplateImpl-Input",
+              udf: "#/components/schemas/RegistryActionUDFImpl",
+            },
+          },
         },
         {
           type: "null",
@@ -2463,11 +2457,7 @@ export const $Role = {
       title: "User Id",
     },
     access_level: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/AccessLevel",
-        },
-      ],
+      $ref: "#/components/schemas/AccessLevel",
       default: 0,
     },
     service_id: {
@@ -2519,6 +2509,9 @@ export const $RunActionInput = {
       $ref: "#/components/schemas/ActionStatement",
     },
     exec_context: {
+      propertyNames: {
+        $ref: "#/components/schemas/ExprContext",
+      },
       type: "object",
       title: "Exec Context",
     },
@@ -3007,11 +3000,7 @@ export const $ScheduleUpdate = {
 export const $SecretCreate = {
   properties: {
     type: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/SecretType",
-        },
-      ],
+      $ref: "#/components/schemas/SecretType",
       default: "custom",
     },
     name: {
@@ -3342,12 +3331,12 @@ export const $SessionRead = {
 
 export const $SpecialUserID = {
   type: "string",
-  const: "current",
+  enum: ["current"],
   title: "SpecialUserID",
   description: "A sentinel user ID that represents the current user.",
 } as const
 
-export const $SqlType_Output = {
+export const $SqlType = {
   type: "string",
   enum: [
     "TEXT",
@@ -3375,11 +3364,7 @@ export const $TableColumnCreate = {
       description: "The name of the column",
     },
     type: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/tracecat__tables__enums__SqlType__1",
-        },
-      ],
+      $ref: "#/components/schemas/SqlType",
       maxLength: 100,
       minLength: 1,
       description: "The SQL type of the column",
@@ -3417,7 +3402,7 @@ export const $TableColumnRead = {
       title: "Name",
     },
     type: {
-      $ref: "#/components/schemas/SqlType-Output",
+      $ref: "#/components/schemas/SqlType",
     },
     nullable: {
       type: "boolean",
@@ -3459,11 +3444,7 @@ export const $TableColumnUpdate = {
     type: {
       anyOf: [
         {
-          allOf: [
-            {
-              $ref: "#/components/schemas/tracecat__tables__enums__SqlType__1",
-            },
-          ],
+          $ref: "#/components/schemas/SqlType",
           maxLength: 100,
           minLength: 1,
         },
@@ -3752,6 +3733,7 @@ export const $TagUpdate = {
 export const $TemplateAction_Input = {
   properties: {
     type: {
+      type: "string",
       const: "action",
       title: "Type",
       default: "action",
@@ -3768,6 +3750,7 @@ export const $TemplateAction_Input = {
 export const $TemplateAction_Output = {
   properties: {
     type: {
+      type: "string",
       const: "action",
       title: "Type",
       default: "action",
@@ -3982,48 +3965,6 @@ export const $UpdateWorkspaceParams = {
   title: "UpdateWorkspaceParams",
 } as const
 
-export const $UpsertWebhookParams = {
-  properties: {
-    status: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["online", "offline"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Status",
-    },
-    entrypoint_ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Entrypoint Ref",
-    },
-    method: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["GET", "POST"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Method",
-    },
-  },
-  type: "object",
-  title: "UpsertWebhookParams",
-} as const
-
 export const $UserCreate = {
   properties: {
     email: {
@@ -4072,11 +4013,7 @@ export const $UserCreate = {
       default: false,
     },
     role: {
-      allOf: [
-        {
-          $ref: "#/components/schemas/UserRole",
-        },
-      ],
+      $ref: "#/components/schemas/UserRole",
       default: "basic",
     },
     first_name: {
@@ -4311,7 +4248,38 @@ export const $ValidationError = {
   title: "ValidationError",
 } as const
 
-export const $WebhookResponse = {
+export const $WebhookCreate = {
+  properties: {
+    status: {
+      $ref: "#/components/schemas/WebhookStatus",
+      default: "offline",
+    },
+    method: {
+      $ref: "#/components/schemas/WebhookMethod",
+      default: "POST",
+    },
+    entrypoint_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entrypoint Ref",
+    },
+  },
+  type: "object",
+  title: "WebhookCreate",
+} as const
+
+export const $WebhookMethod = {
+  type: "string",
+  enum: ["GET", "POST"],
+} as const
+
+export const $WebhookRead = {
   properties: {
     created_at: {
       type: "string",
@@ -4337,9 +4305,7 @@ export const $WebhookResponse = {
       title: "Secret",
     },
     status: {
-      type: "string",
-      enum: ["online", "offline"],
-      title: "Status",
+      $ref: "#/components/schemas/WebhookStatus",
     },
     entrypoint_ref: {
       anyOf: [
@@ -4357,9 +4323,7 @@ export const $WebhookResponse = {
       title: "Filters",
     },
     method: {
-      type: "string",
-      enum: ["GET", "POST"],
-      title: "Method",
+      $ref: "#/components/schemas/WebhookMethod",
     },
     workflow_id: {
       type: "string",
@@ -4381,7 +4345,50 @@ export const $WebhookResponse = {
     "workflow_id",
     "url",
   ],
-  title: "WebhookResponse",
+  title: "WebhookRead",
+} as const
+
+export const $WebhookStatus = {
+  type: "string",
+  enum: ["online", "offline"],
+} as const
+
+export const $WebhookUpdate = {
+  properties: {
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WebhookStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    method: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WebhookMethod",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    entrypoint_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entrypoint Ref",
+    },
+  },
+  type: "object",
+  title: "WebhookUpdate",
 } as const
 
 export const $WorkflowCommitResponse = {
@@ -5172,7 +5179,7 @@ export const $WorkflowRead = {
       title: "Version",
     },
     webhook: {
-      $ref: "#/components/schemas/WebhookResponse",
+      $ref: "#/components/schemas/WebhookRead",
     },
     schedules: {
       items: {
@@ -5718,27 +5725,4 @@ export const $login = {
   type: "object",
   required: ["username", "password"],
   title: "Body_auth-auth:database.login",
-} as const
-
-export const $tracecat__tables__enums__SqlType__1 = {
-  type: "string",
-  enum: [
-    "TEXT",
-    "VARCHAR",
-    "INTEGER",
-    "BIGINT",
-    "DECIMAL",
-    "BOOLEAN",
-    "TIMESTAMP",
-    "TIMESTAMPTZ",
-    "JSONB",
-    "UUID",
-  ],
-  title: "SqlType",
-  description: "Supported SQL types.",
-} as const
-
-export const $tracecat__tables__enums__SqlType__2 = {
-  $ref: "#/components/schemas/tracecat__tables__enums__SqlType__1",
-  minLength: 1,
 } as const

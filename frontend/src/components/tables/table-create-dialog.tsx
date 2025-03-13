@@ -8,7 +8,7 @@ import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { useCreateTable } from "@/lib/hooks"
-import { SqlType } from "@/lib/tables"
+import { SqlTypeEnum } from "@/lib/tables"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -48,7 +48,7 @@ const createTableSchema = z.object({
   columns: z.array(
     z.object({
       name: z.string().min(1, "Column name is required"),
-      type: z.enum(SqlType),
+      type: z.enum(SqlTypeEnum),
     })
   ),
 })
@@ -191,7 +191,7 @@ export function CreateTableDialog({
                                     />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {SqlType.map((type) => (
+                                    {SqlTypeEnum.map((type) => (
                                       <SelectItem key={type} value={type}>
                                         {type}
                                       </SelectItem>
@@ -220,7 +220,7 @@ export function CreateTableDialog({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => append({ name: "", type: SqlType[0] })}
+                onClick={() => append({ name: "", type: SqlTypeEnum[0] })}
                 className="space-x-2 text-xs"
                 aria-label="Add new column"
               >

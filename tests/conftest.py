@@ -45,7 +45,10 @@ async def test_db_engine():
         yield engine
     finally:
         # Ensure the engine is disposed even if the test fails
-        await engine.dispose()
+        try:
+            await engine.dispose()
+        except Exception as e:
+            logger.error(f"Error disposing engine in test_db_engine: {e}")
 
 
 @pytest.fixture(scope="session")
@@ -116,10 +119,17 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield async_session
         finally:
-            await async_session.close()
-            # Rollback the outer transaction, invalidating everything done in the test
-            await connection.rollback()
-            await async_engine.dispose()
+            try:
+                await async_session.close()
+                # Rollback the outer transaction, invalidating everything done in the test
+                await connection.rollback()
+            except Exception as e:
+                logger.error(f"Error during session cleanup: {e}")
+            finally:
+                try:
+                    await async_engine.dispose()
+                except Exception as e:
+                    logger.error(f"Error disposing engine: {e}")
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -404,8 +414,13 @@ async def svc_workspace(
         yield workspace
     finally:
         logger.info("Cleaning up test workspace")
-        await session.delete(workspace)
-        await session.commit()
+        try:
+            if session.is_active:
+                await session.delete(workspace)
+                await session.commit()
+        except Exception as e:
+            # Log the error but don't raise it to prevent test teardown failures
+            logger.error(f"Error during workspace cleanup: {e}")
 
 
 @pytest.fixture

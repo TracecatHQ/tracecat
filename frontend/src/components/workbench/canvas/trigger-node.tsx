@@ -1,5 +1,5 @@
 import React from "react"
-import { Schedule, WebhookResponse } from "@/client"
+import { Schedule, WebhookRead } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import {
   CalendarCheck,
@@ -37,7 +37,7 @@ export interface TriggerNodeData {
   status: "online" | "offline"
   isConfigured: boolean
   entrypointId?: string
-  webhook: WebhookResponse
+  webhook: WebhookRead
   schedules: Schedule[]
 }
 export type TriggerNodeType = Node<TriggerNodeData>

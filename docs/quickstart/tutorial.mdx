@@ -158,9 +158,21 @@ ${{ ACTIONS.scan_url.result.data.message == "Submission successful" }}
   Combine binary operators and in-line functions to express complex conditions with ease.
 </Note>
 
-Here are examples of commonly used conditional expressions:
+Here are examples of commonly used conditional expressions.
 
 <CodeGroup>
+  ```php Boolean Checks
+  # Check if condition is True
+  ${{ bool(ACTIONS.is_enabled.result) }}
+
+  # Check if condition is False
+  ${{ bool(ACTIONS.is_locked.result) }}
+
+  # Note: If the condition is already truthy
+  # or falsy there's no need to use bool()
+  ${{ ACTIONS.is_enabled.result }}
+  ```
+
   ```php Basic Comparison
   # Equal to
   ${{ ACTIONS.user_role.result == "admin" }}
@@ -192,23 +204,12 @@ Here are examples of commonly used conditional expressions:
   ${{ ACTIONS.alert.severity in ACTIONS.get_critical_levels.result }}
   ```
 
-  ```php Boolean Checks
-  # Check if condition is True
-  ${{ bool(ACTIONS.is_enabled.result) is True }}
-
-  # Check if condition is False
-  ${{ bool(ACTIONS.is_locked.result) is False }}
-  ```
-
   ```php Identity Checks
   # Check if value is None/null
-  ${{ ACTIONS.optional_field.result is None }}
+  ${{ ACTIONS.optional_field.result == None }}
 
   # Check if value is not None/null
-  ${{ ACTIONS.required_field.result is not None }}
-
-  # Check if service status is running
-  ${{ ACTIONS.service_status.result is 'running' }}
+  ${{ ACTIONS.required_field.result != None }}
   ```
 </CodeGroup>
 

@@ -70,14 +70,14 @@ Repository = "https://github.com/TracecatHQ/tracecat"
 
 [project.optional-dependencies]
 dev = [
-    "minio",
-    "mypy",
-    "pre-commit",
-    "pytest-mock",
+    "minio==7.2.15",
+    "mypy==1.15.0",
+    "pre-commit==4.1.0",
+    "pytest-mock==3.14.0",
     "pytest==8.3.2",
-    "python-dotenv",
+    "python-dotenv==1.0.1",
     "psycopg>=3.1.19",
-    "respx",
+    "respx==0.22.0",
     "ruff==0.9.1",
 ]
 

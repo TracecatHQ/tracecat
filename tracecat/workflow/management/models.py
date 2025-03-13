@@ -15,7 +15,7 @@ from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, Workfl
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.tags.models import TagRead
 from tracecat.types.auth import Role
-from tracecat.webhooks.models import WebhookResponse
+from tracecat.webhooks.models import WebhookRead
 from tracecat.workflow.actions.models import ActionRead
 
 
@@ -28,7 +28,7 @@ class WorkflowRead(BaseModel):
     object: dict[str, Any] | None  # React Flow object
     owner_id: OwnerID
     version: int | None = None
-    webhook: WebhookResponse
+    webhook: WebhookRead
     schedules: list[Schedule]
     entrypoint: str | None
     static_inputs: dict[str, Any]

@@ -489,7 +489,7 @@ export type RegistryActionCreate = {
    */
   secrets?: Array<RegistrySecret> | null
   interface: RegistryActionInterface
-  implementation?: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl
+  implementation: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl
   /**
    * The default title of the action
    */
@@ -565,7 +565,7 @@ export type RegistryActionRead = {
    */
   secrets?: Array<RegistrySecret> | null
   interface: RegistryActionInterface
-  implementation?: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl
+  implementation: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl
   /**
    * The default title of the action
    */
@@ -1085,7 +1085,7 @@ export type SpecialUserID = "current"
 /**
  * Supported SQL types.
  */
-export type SqlType_Output =
+export type SqlType =
   | "TEXT"
   | "VARCHAR"
   | "INTEGER"
@@ -1108,7 +1108,7 @@ export type TableColumnCreate = {
   /**
    * The SQL type of the column
    */
-  type: tracecat__tables__enums__SqlType__1
+  type: SqlType
   nullable?: boolean
   default?: unknown | null
 }
@@ -1119,7 +1119,7 @@ export type TableColumnCreate = {
 export type TableColumnRead = {
   id: string
   name: string
-  type: SqlType_Output
+  type: SqlType
   nullable?: boolean
   default?: unknown | null
 }
@@ -1135,7 +1135,7 @@ export type TableColumnUpdate = {
   /**
    * The SQL type of the column
    */
-  type?: tracecat__tables__enums__SqlType__1 | null
+  type?: SqlType | null
   /**
    * Whether the column can be null
    */
@@ -1352,12 +1352,6 @@ export type UpdateWorkspaceParams = {
   } | null
 }
 
-export type UpsertWebhookParams = {
-  status?: "online" | "offline" | null
-  entrypoint_ref?: string | null
-  method?: "GET" | "POST" | null
-}
-
 export type UserCreate = {
   email: string
   password: string
@@ -1405,23 +1399,37 @@ export type ValidationError = {
   type: string
 }
 
-export type WebhookResponse = {
+export type WebhookCreate = {
+  status?: WebhookStatus
+  method?: WebhookMethod
+  entrypoint_ref?: string | null
+}
+
+export type WebhookMethod = "GET" | "POST"
+
+export type WebhookRead = {
   created_at?: string
   updated_at?: string
   owner_id: string
   id: string
   secret: string
-  status: "online" | "offline"
+  status: WebhookStatus
   entrypoint_ref?: string | null
   filters: {
     [key: string]: unknown
   }
-  method: "GET" | "POST"
+  method: WebhookMethod
   workflow_id: string
   url: string
 }
 
-export type method = "GET" | "POST"
+export type WebhookStatus = "online" | "offline"
+
+export type WebhookUpdate = {
+  status?: WebhookStatus | null
+  method?: WebhookMethod | null
+  entrypoint_ref?: string | null
+}
 
 export type WorkflowCommitResponse = {
   workflow_id: string
@@ -1700,7 +1708,7 @@ export type WorkflowRead = {
   } | null
   owner_id: string
   version?: number | null
-  webhook: WebhookResponse
+  webhook: WebhookRead
   schedules: Array<Schedule>
   entrypoint: string | null
   static_inputs: {
@@ -1799,24 +1807,6 @@ export type login = {
   client_id?: string | null
   client_secret?: string | null
 }
-
-/**
- * Supported SQL types.
- */
-export type tracecat__tables__enums__SqlType__1 =
-  | "TEXT"
-  | "VARCHAR"
-  | "INTEGER"
-  | "BIGINT"
-  | "DECIMAL"
-  | "BOOLEAN"
-  | "TIMESTAMP"
-  | "TIMESTAMPTZ"
-  | "JSONB"
-  | "UUID"
-
-export type tracecat__tables__enums__SqlType__2 =
-  tracecat__tables__enums__SqlType__1
 
 export type PublicIncomingWebhookData = {
   contentType?: string | null
@@ -1974,7 +1964,7 @@ export type WorkflowsCreateWorkflowDefinitionData = {
 export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinition
 
 export type TriggersCreateWebhookData = {
-  requestBody: UpsertWebhookParams
+  requestBody: WebhookCreate
   workflowId: string
   workspaceId: string
 }
@@ -1986,10 +1976,10 @@ export type TriggersGetWebhookData = {
   workspaceId: string
 }
 
-export type TriggersGetWebhookResponse = WebhookResponse
+export type TriggersGetWebhookResponse = WebhookRead
 
 export type TriggersUpdateWebhookData = {
-  requestBody: UpsertWebhookParams
+  requestBody: WebhookUpdate
   workflowId: string
   workspaceId: string
 }
@@ -2946,7 +2936,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WebhookResponse
+        200: WebhookRead
         /**
          * Validation Error
          */
