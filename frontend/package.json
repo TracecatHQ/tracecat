@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@babel/helpers": "^7.26.10",
+    "@babel/runtime": "^7.26.10",
     "@dagrejs/dagre": "^1.1.4",
     "@hookform/resolvers": "^3.10.0",
     "@monaco-editor/react": "^4.7.0",
