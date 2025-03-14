@@ -59,7 +59,7 @@ async def local_package_path(tmp_path: Path, sample_package_content: str) -> Pat
     init_file = test_actions_dir / "__init__.py"
     init_file.write_text("")
 
-    actions_file = test_actions_dir / "actions.py"
+    actions_file = test_actions_dir / "udfs.py"
     actions_file.write_text(sample_package_content)
 
     return package_dir
@@ -108,7 +108,7 @@ async def test_local_registry(
     assert result == 3
 
     # Modify the action
-    actions_file = local_package_path / "test_actions" / "actions.py"
+    actions_file = local_package_path / "test_actions" / "udfs.py"
     actions_file.write_text(
         dedent(
             """

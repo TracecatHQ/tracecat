@@ -69,11 +69,9 @@ def mock_package(tmp_path):
         sys.modules["test_module"] = test_module
         # Create a file for the sync function
         base_path = Path(__file__)
-        path = base_path.joinpath(
-            "../../data/test_actions/test_executor_functions.py"
-        ).resolve()
+        path = base_path.joinpath("../../data/actions/udfs.py").resolve()
         logger.info("PATH", path=path)
-        tmp_path.joinpath("test_executor_functions.py").symlink_to(path)
+        tmp_path.joinpath("udfs.py").symlink_to(path)
         yield test_module
     finally:
         # Clean up
