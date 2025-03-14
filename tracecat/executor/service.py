@@ -151,11 +151,13 @@ async def run_template_action(
     secrets_context = {}
     if context is not None:
         secrets_context = context.get(ExprContext.SECRETS, {})
+        env_context = context.get(ExprContext.ENV, {})
 
     template_context = cast(
         ExecutionContext,
         {
             ExprContext.SECRETS: secrets_context,
+            ExprContext.ENV: env_context,
             ExprContext.TEMPLATE_ACTION_INPUTS: validated_args,
             ExprContext.TEMPLATE_ACTION_STEPS: {},
         },
