@@ -1,4 +1,4 @@
-from tracecat.sandbox.podman import (
+from tracecat.ee.sandbox.podman import (
     run_podman_container,
     list_podman_volumes,
     remove_podman_volumes,
