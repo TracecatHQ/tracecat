@@ -23,34 +23,25 @@ class PodmanResult(BaseModel):
 
     Parameters
     ----------
-    output : str
-        Combined output (stdout/stderr) from the container.
+    image : str
+        The container image that was used.
+    command : list[str]
+        The command that was executed.
+    stdout : list[str]
+        Standard output lines from the container.
+    stderr : list[str]
+        Standard error lines from the container.
     exit_code : int
         Exit code from the container.
     container_id : str, optional
         ID of the container that was created.
-    command : list of str
-        The command that was executed.
-    runtime_info : dict
-        Runtime diagnostic information including logs, version info, and container details.
     """
 
     image: str
-    logs: list[str]
-    exit_code: int
     command: list[str]
-    runtime_info: dict
-
-    @property
-    def success(self) -> bool:
-        """Whether the container execution was successful.
-
-        Returns
-        -------
-        bool
-            True if the exit code was 0, False otherwise.
-        """
-        return self.exit_code == 0
+    stdout: list[str]
+    stderr: list[str]
+    exit_code: int
 
 
 class PodmanNetwork(StrEnum):
@@ -141,8 +132,23 @@ def get_podman_version(base_url: str | None = None) -> str:
         return version_info["Version"]
 
 
-def _process_logs(logs: bytes | Iterator[bytes] | str | int) -> list[str]:
-    """Process logs from a container."""
+def _process_logs(
+    logs: bytes | Iterator[bytes] | str | int, stream: str = "stdout"
+) -> list[str]:
+    """Process logs from a container.
+
+    Parameters
+    ----------
+    logs : bytes | Iterator[bytes] | str | int
+        The logs to process.
+    stream : str
+        The stream type ("stdout" or "stderr"). Used for debug purposes.
+
+    Returns
+    -------
+    list[str]
+        Processed logs as a list of strings.
+    """
     if isinstance(logs, bytes):
         return [logs.decode()]
     if isinstance(logs, str):
@@ -263,7 +269,7 @@ def run_podman_container(
     ...     ["echo", "Hello, World!"],
     ...     network=PodmanNetwork.NONE
     ... )
-    >>> print(result.output)
+    >>> print(result.stdout)
     Hello, World!
 
     >>> # Example with environment variables
@@ -272,17 +278,9 @@ def run_podman_container(
     ...     ["python", "-c", "import os; print(os.environ['MY_VAR'])"],
     ...     environment={"MY_VAR": "Hello from env"}
     ... )
-    >>> print(result.output)
+    >>> print(result.stdout)
     Hello from env
     """
-
-    # Runtime info collection
-    # Track volumes to use in future containers if needed
-    runtime_info = {
-        "logs": [],
-        "podman_version": None,
-        "container_info": None,
-    }
 
     environment = environment or {}
     network_mode = network.value.lower()
@@ -291,10 +289,6 @@ def run_podman_container(
         command = [command]
 
     try:
-        # Use the provided base_url or fall back to config
-        version = get_podman_version(base_url=base_url)
-        runtime_info["podman_version"] = version
-
         # Check trusted images
         if not is_trusted_image(image, trusted_images):
             raise ValueError(f"Image {image!r} not in trusted list: {trusted_images}")
@@ -316,7 +310,6 @@ def run_podman_container(
                 logger.info("Pulling image", image=image)
                 try:
                     client.images.pull(image)
-                    runtime_info["logs"].append(f"Pulled image: {image}")
                 except Exception as e:
                     logger.error("Failed to pull image", image=image, error=e)
                     raise RuntimeError(f"Failed to pull image: {e}") from e
@@ -336,7 +329,13 @@ def run_podman_container(
             # Start the container and wait for it to finish
             container.start()
             result = container.wait()
-            logs = _process_logs(container.logs())
+
+            # Get stdout and stderr separately
+            stdout = _process_logs(container.logs(stdout=True, stderr=False), "stdout")
+            stderr = _process_logs(container.logs(stdout=False, stderr=True), "stderr")
+
+            # Get combined logs for error messages and logging
+            logs = stdout + stderr
 
             if container_id:
                 # Remove the container after use
@@ -372,11 +371,11 @@ def run_podman_container(
                 )
 
             return PodmanResult(
-                logs=logs,
+                stdout=stdout,
+                stderr=stderr,
                 exit_code=exit_code,
                 image=image,
                 command=command,
-                runtime_info=runtime_info,
             )
 
     except ContainerError as e:
