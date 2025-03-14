@@ -1,6 +1,6 @@
 import pytest
 
-from tracecat.sandbox.podman import (
+from tracecat.ee.sandbox.podman import (
     PodmanNetwork,
     PullPolicy,
     get_podman_version,
