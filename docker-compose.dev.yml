@@ -206,7 +206,7 @@ services:
       - temporal-db:/var/lib/postgresql/data
 
   temporal:
-    image: temporalio/auto-setup:${TEMPORAL__VERSION}
+    image: temporalio/auto-setup:${TEMPORAL__VERSION:-0.27.1}
     container_name: temporal
     restart: unless-stopped
     ports:
