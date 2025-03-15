@@ -12,7 +12,7 @@ if (typeof window !== "undefined") {
     loading: () => <CenteredSpinner />,
   })
 } else {
-  const EmptyEditor = (props: CustomEditorProps) => <></>
+  const EmptyEditor = () => <></>
   EmptyEditor.displayName = "EmptyEditor"
   DynamicCustomEditor = EmptyEditor
 }

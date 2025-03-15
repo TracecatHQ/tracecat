@@ -67,7 +67,7 @@ export function CustomHandle(props: CustomHandleProps) {
     }
 
     return props.isConnectable
-  }, [nodeLookup, edges, nodeId, props.isConnectable])
+  }, [nodeLookup, edges, nodeId, props])
 
   if (!nodeLookup || !edges || !nodeId) {
     return null

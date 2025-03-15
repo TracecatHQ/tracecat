@@ -14,7 +14,7 @@ import {
 import { TriggerPanel } from "@/components/workbench/panel/trigger-panel"
 import { WorkflowPanel } from "@/components/workbench/panel/workflow-panel"
 
-export const WorkbenchPanel = React.forwardRef<ActionPanelRef>((_, ref) => {
+export const WorkbenchPanel = React.forwardRef<ActionPanelRef, object>(() => {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
   const { workflow, isLoading, error } = useWorkflow()
   const selectedNode = getNode(selectedNodeId ?? "")

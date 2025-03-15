@@ -2,7 +2,7 @@
 
 import React from "react"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 import { ApiError, RegistryActionValidateResponse } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -23,7 +23,7 @@ import { z } from "zod"
 
 import { TracecatApiError } from "@/lib/errors"
 import { exportWorkflow, handleExportError } from "@/lib/export"
-import { useManualWorkflowExecution, useWorkflowManager } from "@/lib/hooks"
+import { useManualWorkflowExecution } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -531,15 +531,6 @@ function WorkbenchNavOptions({
   workspaceId: string
   workflowId: string
 }) {
-  const router = useRouter()
-  const { deleteWorkflow } = useWorkflowManager()
-
-  const handleDeleteWorkflow = async () => {
-    console.log("Delete workflow")
-    await deleteWorkflow(workflowId)
-    router.push(`/workspaces/${workspaceId}`)
-  }
-
   return (
     <>
       <Dialog>

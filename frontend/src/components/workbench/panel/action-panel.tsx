@@ -270,7 +270,6 @@ export function ActionPanel({
       }
     },
     [
-      workspaceId,
       registryAction,
       action,
       updateAction,
@@ -307,10 +306,9 @@ export function ActionPanel({
     [handleSave, action]
   )
 
-  const onPanelBlur = useCallback(methods.handleSubmit(onSubmit), [
-    methods,
-    handleSave,
-  ])
+  const onPanelBlur = useCallback(() => {
+    methods.handleSubmit(onSubmit)()
+  }, [methods, onSubmit])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

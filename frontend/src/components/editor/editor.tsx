@@ -174,7 +174,7 @@ function registerProviders(
         " ",
         ...EXPR_CONTEXTS.map((c) => c[0]),
       ],
-      provideCompletionItems: async (model, position, context, token) => {
+      provideCompletionItems: async (model, position, context) => {
         const wordUntilPos = model.getWordUntilPosition(position)
         const lineContent = model.getLineContent(position.lineNumber)
         const textUntilPos = lineContent.substring(0, position.column - 1)
@@ -335,7 +335,6 @@ function registerProviders(
 
 export function CustomEditor({
   className,
-  onKeyDown,
   workspaceId,
   workflowId,
   ...props

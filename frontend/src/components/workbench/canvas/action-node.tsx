@@ -137,7 +137,7 @@ export default React.memo(function ActionNode({
       setError("Invalid configuration")
       return {}
     }
-  }, [action, action?.inputs, toast])
+  }, [action, toast])
   const childWorkflowId = actionInputsObj?.workflow_id
     ? String(actionInputsObj?.workflow_id)
     : undefined

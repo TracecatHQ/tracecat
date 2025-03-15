@@ -127,7 +127,7 @@ export const WorkflowBuilderProvider: React.FC<
       }
       return newState
     })
-  }, [sidebarRef])
+  }, [actionPanelRef])
 
   const expandSidebarAndFocusEvents = React.useCallback(() => {
     setIsSidebarCollapsed(() => {

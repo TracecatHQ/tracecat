@@ -1,6 +1,5 @@
 "use client"
 
-import { AppSettingsUpdate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -42,7 +41,6 @@ export function OrgSettingsAppForm() {
     },
   })
   const onSubmit = async (data: AppFormValues) => {
-    const conditional: Partial<AppSettingsUpdate> = {}
     try {
       await updateAppSettings({
         requestBody: {
