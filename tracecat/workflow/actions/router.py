@@ -160,25 +160,9 @@ async def update_action(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
 
-    if params.title is not None:
-        action.title = params.title
-    if params.description is not None:
-        action.description = params.description
-    if params.status is not None:
-        action.status = params.status
-    if params.inputs is not None:
-        action.inputs = params.inputs
-        # Validate that it's a valid YAML string
-        try:
-            yaml.safe_load(action.inputs)
-        except yaml.YAMLError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Action input contains invalid YAML",
-            ) from e
-    if params.control_flow is not None:
-        action.control_flow = params.control_flow.model_dump(mode="json")
-
+    set_fields = params.model_dump(exclude_unset=True)
+    for field, value in set_fields.items():
+        setattr(action, field, value)
     session.add(action)
     await session.commit()
     await session.refresh(action)

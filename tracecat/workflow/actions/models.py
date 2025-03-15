@@ -1,4 +1,5 @@
 import dateparser
+import yaml
 from pydantic import BaseModel, Field, field_validator
 
 from tracecat.dsl.enums import JoinStrategy
@@ -71,4 +72,13 @@ class ActionUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     status: str | None = None
     inputs: str = Field(default="", max_length=10000)
-    control_flow: ActionControlFlow | None = None
+    control_flow: ActionControlFlow | None = Field(
+        default=None, json_schema_extra={"mode": "json"}
+    )
+    @field_validator("inputs", mode="after")
+    def validate_inputs(cls, v: str) -> str:
+        try:
+            yaml.safe_load(v)
+        except yaml.YAMLError:
+            raise ValueError("Action input contains invalid YAML") from None
+        return v
