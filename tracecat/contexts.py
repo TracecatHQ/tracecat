@@ -8,6 +8,14 @@ from tracecat.dsl.models import RunContext
 from tracecat.ee.interactions.models import InteractionContext
 from tracecat.types.auth import Role
 
+__all__ = [
+    "ctx_run",
+    "ctx_role",
+    "ctx_logger",
+    "ctx_interaction",
+    "get_env",
+]
+
 ctx_run: ContextVar[RunContext] = ContextVar("run", default=None)  # type: ignore
 ctx_role: ContextVar[Role] = ContextVar("role", default=None)  # type: ignore
 ctx_logger: ContextVar[loguru.Logger] = ContextVar("logger", default=None)  # type: ignore
