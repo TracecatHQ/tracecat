@@ -206,7 +206,7 @@ services:
       - temporal-db:/var/lib/postgresql/data
 
   temporal:
-    image: temporalio/auto-setup:${TEMPORAL__VERSION}
+    image: temporalio/auto-setup:${TEMPORAL__VERSION:-1.27.1}
     container_name: temporal
     restart: unless-stopped
     ports:
@@ -254,7 +254,15 @@ services:
     environment:
       LOG_LEVEL: debug
     user: podman
-    command: ["podman", "system", "service", "--time=0", "--log-level=debug", "tcp://0.0.0.0:8080"]
+    command:
+      [
+        "podman",
+        "system",
+        "service",
+        "--time=0",
+        "--log-level=debug",
+        "tcp://0.0.0.0:8080",
+      ]
     volumes:
       - containers:/var/lib/containers
       - /etc/localtime:/etc/localtime:ro
