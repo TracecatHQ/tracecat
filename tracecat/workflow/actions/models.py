@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import ActionRetryPolicy
+from tracecat.ee.interactions.models import ActionInteraction
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
 
@@ -50,6 +51,8 @@ class ActionRead(BaseModel):
     status: str
     inputs: str
     control_flow: ActionControlFlow = Field(default_factory=ActionControlFlow)
+    is_interactive: bool
+    interaction: ActionInteraction | None = None
 
 
 class ActionReadMinimal(BaseModel):
@@ -59,6 +62,7 @@ class ActionReadMinimal(BaseModel):
     title: str
     description: str
     status: str
+    is_interactive: bool
 
 
 class ActionCreate(BaseModel):
@@ -75,6 +79,9 @@ class ActionUpdate(BaseModel):
     control_flow: ActionControlFlow | None = Field(
         default=None, json_schema_extra={"mode": "json"}
     )
+    is_interactive: bool | None = None
+    interaction: ActionInteraction | None = None
+
     @field_validator("inputs", mode="after")
     def validate_inputs(cls, v: str) -> str:
         try:

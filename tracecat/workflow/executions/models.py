@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar, cast
@@ -23,6 +24,7 @@ from tracecat.dsl.models import (
 from tracecat.ee.interactions.models import (
     InteractionInput,
     InteractionResult,
+    InteractionState,
 )
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
@@ -100,11 +102,19 @@ class WorkflowExecutionRead(WorkflowExecutionBase):
     events: list[WorkflowExecutionEvent] = Field(
         ..., description="The events in the workflow execution"
     )
+    interaction_states: dict[uuid.UUID, InteractionState] = Field(
+        default_factory=dict,
+        description="The interactions in the workflow execution",
+    )
 
 
 class WorkflowExecutionReadCompact(WorkflowExecutionBase):
     events: list[WorkflowExecutionEventCompact] = Field(
         ..., description="Compact events in the workflow execution"
+    )
+    interaction_states: dict[uuid.UUID, InteractionState] = Field(
+        default_factory=dict,
+        description="The interactions in the workflow execution",
     )
 
 
@@ -416,8 +426,8 @@ class WorkflowExecutionEventCompact(BaseModel):
             schedule_time=event.event_time.ToDatetime(UTC),
             curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
             status=WorkflowExecutionEventStatus.SCHEDULED,
-            action_name=signal_input.ref,
-            action_ref=signal_input.ref,
+            action_name=signal_input.action_ref,
+            action_ref=signal_input.action_ref,
             action_input=signal_input,
         )
 
