@@ -254,7 +254,15 @@ services:
     environment:
       LOG_LEVEL: debug
     user: podman
-    command: ["podman", "system", "service", "--time=0", "--log-level=debug", "tcp://0.0.0.0:8080"]
+    command:
+      [
+        "podman",
+        "system",
+        "service",
+        "--time=0",
+        "--log-level=debug",
+        "tcp://0.0.0.0:8080",
+      ]
     volumes:
       - containers:/var/lib/containers
       - /etc/localtime:/etc/localtime:ro
