@@ -2,11 +2,11 @@ import React from "react"
 import { WorkflowRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
+import { Node } from "@xyflow/react"
 import { Search } from "lucide-react"
 
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
-import { NodeType } from "@/components/workbench/canvas/canvas"
 import {
   ActionPanel,
   ActionPanelRef,
@@ -66,13 +66,7 @@ export const WorkbenchPanel = React.forwardRef<ActionPanelRef>((_, ref) => {
 
 WorkbenchPanel.displayName = "WorkbenchPanel"
 
-function NodePanel({
-  node,
-  workflow,
-}: {
-  node: NodeType
-  workflow: WorkflowRead
-}) {
+function NodePanel({ node, workflow }: { node: Node; workflow: WorkflowRead }) {
   switch (node.type) {
     case "udf":
       return <ActionPanel actionId={node.id} workflowId={workflow.id} />

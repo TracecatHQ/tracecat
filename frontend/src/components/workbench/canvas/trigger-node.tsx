@@ -1,13 +1,13 @@
 import React from "react"
 import { Schedule, WebhookRead } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
+import { Node, NodeProps } from "@xyflow/react"
 import {
   CalendarCheck,
   TimerOffIcon,
   UnplugIcon,
   WebhookIcon,
 } from "lucide-react"
-import { Node, NodeProps } from "reactflow"
 
 import { useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
@@ -31,7 +31,7 @@ import {
 import { getIcon } from "@/components/icons"
 import { TriggerSourceHandle } from "@/components/workbench/canvas/custom-handle"
 
-export interface TriggerNodeData {
+export type TriggerNodeData = {
   type: "trigger"
   title: string
   status: "online" | "offline"
@@ -40,13 +40,13 @@ export interface TriggerNodeData {
   webhook: WebhookRead
   schedules: Schedule[]
 }
-export type TriggerNodeType = Node<TriggerNodeData>
+export type TriggerNodeType = Node<TriggerNodeData, "trigger">
 export const TriggerTypename = "trigger" as const
 
 export default React.memo(function TriggerNode({
-  data: { title, isConfigured, type },
+  data: { title, type },
   selected,
-}: NodeProps<TriggerNodeData>) {
+}: NodeProps<TriggerNodeType>) {
   const { workflow } = useWorkflow()
 
   if (!workflow) {
