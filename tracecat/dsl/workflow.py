@@ -27,7 +27,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import identifiers
     from tracecat.concurrency import GatheringTaskGroup
-    from tracecat.contexts import ctx_logger, ctx_role, ctx_run
+    from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.action import (
         DSLActivities,
         ValidateActionActivityInput,
@@ -57,8 +57,12 @@ with workflow.unsafe.imports_passed_through():
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
     )
-    from tracecat.ee.enums import PlatformAction as PlatformActionEE
-    from tracecat.ee.interactions.models import InteractionInput, InteractionResult
+    from tracecat.ee.interactions.decorators import maybe_interactive
+    from tracecat.ee.interactions.models import (
+        InteractionInput,
+        InteractionResult,
+        InteractionState,
+    )
     from tracecat.ee.interactions.service import InteractionManager
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
@@ -164,6 +168,11 @@ class DSLWorkflow:
 
         self.interactions = InteractionManager(self)
 
+    @workflow.query
+    def get_interaction_states(self) -> dict[uuid.UUID, InteractionState]:
+        """Get the interaction states."""
+        return self.interactions.states
+
     @workflow.update
     def interaction_handler(self, input: InteractionInput) -> InteractionResult:
         """Handle interactions from the workflow and return a result."""
@@ -196,7 +205,6 @@ class DSLWorkflow:
                 ) from e
             self.dispatch_type = "pull"
 
-        self.interactions.prepare_states(self.dsl)
         self.logger.warning(
             "Interaction states", signal_states=self.interactions.states
         )
@@ -478,6 +486,7 @@ class DSLWorkflow:
                 break
         return result
 
+    @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> DSLNodeResult:
         """Purely execute a task and manage the results.
 
@@ -503,7 +512,6 @@ class DSLWorkflow:
 
         try:
             # Handle timing control flow logic
-            # Should we skip this if we're awaiting a response/approval?
             await self._handle_timers(task)
 
             # Do action stuff
@@ -521,8 +529,6 @@ class DSLWorkflow:
                     action_result = await self._execute_child_workflow(
                         task=task, child_run_args=child_run_args
                     )
-                case PlatformActionEE.INTERACT_RESPONSE:
-                    action_result = await self.interactions.wait_for_response(task)
                 case _:
                     # Below this point, we're executing the task
                     logger.trace(
@@ -881,7 +887,10 @@ class DSLWorkflow:
 
     async def _run_action(self, task: ActionStatement) -> Any:
         arg = RunActionInput(
-            task=task, run_context=self.run_context, exec_context=self.context
+            task=task,
+            run_context=self.run_context,
+            exec_context=self.context,
+            interaction_context=ctx_interaction.get(),
         )
         self.logger.debug("Running action", action=task.action)
 

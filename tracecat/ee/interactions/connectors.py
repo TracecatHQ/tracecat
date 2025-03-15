@@ -13,7 +13,7 @@ def parse_slack_interaction_input(payload: dict[str, Any]) -> InteractionInput:
                 "metadata": {
                     "event_payload": {
                         "interaction_context": {
-                            "id": interaction_id,
+                            "interaction_id": interaction_id,
                             "execution_id": execution_id,
                             "action_ref": action_ref,
                         }
@@ -24,7 +24,7 @@ def parse_slack_interaction_input(payload: dict[str, Any]) -> InteractionInput:
             return InteractionInput(
                 interaction_id=interaction_id,
                 execution_id=execution_id,
-                ref=action_ref,
+                action_ref=action_ref,
                 data=payload,
             )
         case _:
