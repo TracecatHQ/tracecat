@@ -8,19 +8,6 @@ from tracecat.ee.interactions.enums import InteractionStatus
 from tracecat.identifiers.workflow import WorkflowExecutionID
 
 
-class WaitResponseArgs(BaseModel):
-    """The arguments for the `core.interact.response` action."""
-
-    interaction_id: str
-    """The reference to the action that will receive the response."""
-
-    channel: str | None = None
-    """The communication channel to await the response on."""
-
-    timeout: float | None = None
-    """The timeout for the response."""
-
-
 class InteractionContext(BaseModel):
     """The context of the interaction."""
 
