@@ -1,22 +1,19 @@
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
-from tracecat.ee.enums import PlatformAction
 from tracecat.ee.interactions.enums import InteractionStatus
 from tracecat.ee.interactions.models import (
     InteractionInput,
     InteractionResult,
     InteractionState,
-    WaitResponseArgs,
 )
 
 if TYPE_CHECKING:
-    from tracecat.dsl.common import DSLInput
-    from tracecat.dsl.models import ActionStatement
     from tracecat.dsl.workflow import DSLWorkflow
 
 
@@ -25,24 +22,7 @@ class InteractionManager:
 
     def __init__(self, workflow: DSLWorkflow) -> None:
         self.wf = workflow
-        self.states: dict[str, InteractionState] = {}
-
-    def prepare_states(self, dsl: DSLInput) -> None:
-        """Prepare interaction states for DSL actions.
-
-        Args:
-            dsl: The DSL input containing workflow actions
-
-        Returns:
-            Dictionary mapping interaction references to their states
-        """
-        for action in dsl.actions:
-            if action.action == PlatformAction.INTERACT_RESPONSE:
-                act_args = WaitResponseArgs.model_validate(action.args)
-                self.states[act_args.interaction_id] = InteractionState(
-                    ref=action.ref,
-                    type=PlatformAction.INTERACT_RESPONSE,
-                )
+        self.states: dict[uuid.UUID, InteractionState] = {}
 
     def validate_interaction(self, input: InteractionInput) -> None:
         """Validate that a received interaction matches its expected state.
@@ -74,7 +54,9 @@ class InteractionManager:
         Raises:
             ApplicationError: If the interaction is unknown
         """
-        self.wf.logger.info("Received interaction", input=input)
+        self.wf.logger.info(
+            "Received interaction", id=input.interaction_id, action_ref=input.action_ref
+        )
         if input.interaction_id not in self.states:
             self.wf.logger.warning(
                 "Received interaction for unknown action",
@@ -93,7 +75,9 @@ class InteractionManager:
 
     """Actions"""
 
-    async def wait_for_response(self, task: ActionStatement) -> dict[str, Any]:
+    async def wait_for_response(
+        self, interaction_id: uuid.UUID, timeout: float | None = None
+    ) -> dict[str, Any]:
         """Handle a wait response action within the workflow.
 
         Args:
@@ -105,18 +89,13 @@ class InteractionManager:
         Raises:
             ApplicationError: If the interaction times out or encounters an error
         """
-        if task.action != PlatformAction.INTERACT_RESPONSE:
-            raise ValueError("Task is not a wait response action")
 
-        args = WaitResponseArgs.model_validate(task.args)
-        ref = args.interaction_id
-
-        self.wf.logger.warning("Waiting for response", interaction_ref=ref)
+        self.wf.logger.info("Waiting for response", interaction_id=interaction_id)
         try:
-            self.states[ref].status = InteractionStatus.PENDING
+            self.states[interaction_id].status = InteractionStatus.PENDING
             await workflow.wait_condition(
-                lambda: self.states[ref].is_activated(),
-                timeout=args.timeout,
+                lambda: self.states[interaction_id].is_activated(),
+                timeout=timeout,
             )
         except TimeoutError as e:
             raise ApplicationError(
@@ -124,9 +103,9 @@ class InteractionManager:
             ) from e
         except Exception as e:
             self.wf.logger.error(
-                "Error waiting for response", interaction_ref=ref, exc=e
+                "Error waiting for response", interaction_id=interaction_id, exc=e
             )
             raise e
 
-        self.wf.logger.warning("Received response", interaction_ref=ref)
-        return self.states[ref].data
+        self.wf.logger.info("Received response", interaction_id=interaction_id)
+        return self.states[interaction_id].data

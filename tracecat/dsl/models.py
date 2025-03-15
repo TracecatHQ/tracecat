@@ -4,10 +4,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.enums import JoinStrategy
+from tracecat.ee.interactions.models import ActionInteraction, InteractionContext
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
@@ -31,6 +32,9 @@ class DSLNodeResult(TypedDict, total=False):
     result_typename: str
     error: Any | None
     error_typename: str | None
+    interaction: Any | None
+    interaction_id: str | None
+    interaction_type: str | None
 
 
 @dataclass(frozen=True)
@@ -96,6 +100,11 @@ class ActionStatement(BaseModel):
 
     depends_on: list[str] = Field(default_factory=list, description="Task dependencies")
 
+    interaction: ActionInteraction | None = Field(
+        default=None,
+        description="Whether the action is interactive.",
+    )
+
     """Control flow options"""
 
     run_if: ExpressionStr | None = Field(
@@ -132,6 +141,12 @@ class ActionStatement(BaseModel):
     @property
     def title(self) -> str:
         return self.ref.capitalize().replace("_", " ")
+
+    @model_validator(mode="after")
+    def validate_interaction(self):
+        if self.interaction and self.for_each:
+            raise ValueError("Interaction is not allowed when for_each is provided.")
+        return self
 
 
 class DSLConfig(BaseModel):
@@ -202,6 +217,8 @@ class RunActionInput(BaseModel):
     task: ActionStatement
     exec_context: ExecutionContext
     run_context: RunContext
+    # This gets passed in from the worker
+    interaction_context: InteractionContext | None = None
 
 
 class DSLExecutionError(TypedDict, total=False):
