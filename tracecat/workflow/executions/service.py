@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import uuid
 from collections import OrderedDict
 from collections.abc import AsyncGenerator, Awaitable
 from typing import Any
@@ -30,7 +31,7 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.ee.interactions.models import InteractionInput
+from tracecat.ee.interactions.models import InteractionInput, InteractionState
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
     ExecutionUUID,
@@ -82,8 +83,18 @@ class WorkflowExecutionsService:
         client = await get_temporal_client()
         return WorkflowExecutionsService(client=client, role=role)
 
-    def handle(self, wf_exec_id: WorkflowExecutionID) -> WorkflowHandle:
-        return self._client.get_workflow_handle(wf_exec_id)
+    def handle(
+        self, wf_exec_id: WorkflowExecutionID
+    ) -> WorkflowHandle[DSLWorkflow, DSLRunArgs]:
+        return self._client.get_workflow_handle_for(DSLWorkflow.run, wf_exec_id)
+
+    async def query_interaction_states(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+    ) -> dict[uuid.UUID, InteractionState]:
+        """Query the interaction states for a workflow execution."""
+        handle = self.handle(wf_exec_id)
+        return await handle.query(DSLWorkflow.get_interaction_states)
 
     async def query_executions(
         self,
