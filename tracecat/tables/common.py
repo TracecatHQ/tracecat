@@ -4,6 +4,7 @@ from uuid import UUID
 
 import orjson
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
 
 from tracecat.db.schemas import TableColumn
 from tracecat.tables.enums import SqlType
@@ -43,7 +44,7 @@ def handle_default_value(type: SqlType, default: Any) -> str:
     return default_value
 
 
-def to_sql_clause(value: Any, column: TableColumn) -> sa.TextClause:
+def to_sql_clause(value: Any, column: TableColumn) -> sa.BindParameter:
     """Convert a value to a SQL-compatible string based on type.
 
     Args:
@@ -59,15 +60,15 @@ def to_sql_clause(value: Any, column: TableColumn) -> sa.TextClause:
     name = column.name
     match SqlType(column.type):
         case SqlType.JSONB:
-            # orjson handles serialization of complex types better than json
-            value = orjson.dumps(value).decode()
-            return sa.text(f"(:{name})::jsonb").bindparams(**{name: value})
+            return sa.bindparam(key=name, value=value, type_=JSONB)
         case SqlType.TEXT | SqlType.VARCHAR:
-            return sa.text(f"(:{name})").bindparams(**{name: str(value)})
+            return sa.bindparam(key=name, value=str(value), type_=sa.String)
         case SqlType.TIMESTAMP:
-            return sa.text(f"(:{name})::timestamp").bindparams(**{name: str(value)})
+            return sa.bindparam(key=name, value=value, type_=sa.TIMESTAMP)
         case SqlType.TIMESTAMPTZ:
-            return sa.text(f"(:{name})::timestamptz").bindparams(**{name: str(value)})
+            return sa.bindparam(
+                key=name, value=value, type_=sa.TIMESTAMP(timezone=True)
+            )
         case SqlType.BOOLEAN:
             # Allow bool, 1, 0 as valid boolean values
             match str(value).lower():
@@ -79,15 +80,15 @@ def to_sql_clause(value: Any, column: TableColumn) -> sa.TextClause:
                     raise TypeError(
                         f"Expected bool or 0/1, got {type(value).__name__}: {value}"
                     )
-            return sa.text(f"(:{name})::boolean").bindparams(**{name: bool_value})
+            return sa.bindparam(key=name, value=bool_value, type_=sa.Boolean)
         case SqlType.INTEGER:
-            return sa.text(f"(:{name})::integer").bindparams(**{name: str(value)})
+            return sa.bindparam(key=name, value=value, type_=sa.Integer)
         case SqlType.BIGINT:
-            return sa.text(f"(:{name})::bigint").bindparams(**{name: str(value)})
+            return sa.bindparam(key=name, value=value, type_=sa.BigInteger)
         case SqlType.DECIMAL:
-            return sa.text(f"(:{name})::decimal").bindparams(**{name: str(value)})
+            return sa.bindparam(key=name, value=value, type_=sa.Numeric)
         case SqlType.UUID:
-            return sa.text(f"(:{name})::uuid").bindparams(**{name: str(value)})
+            return sa.bindparam(key=name, value=value, type_=sa.UUID)
         case _:
             raise ValueError(f"Unsupported SQL type for value conversion: {type}")
 
