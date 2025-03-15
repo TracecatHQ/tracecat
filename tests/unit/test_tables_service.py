@@ -23,7 +23,7 @@ from tracecat.types.exceptions import TracecatNotFoundError
 pytestmark = pytest.mark.usefixtures("db")
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 async def tables_service(session: AsyncSession, svc_admin_role: Role) -> TablesService:
     """Fixture to create a TablesService instance using an admin role."""
     return TablesService(session=session, role=svc_admin_role)
