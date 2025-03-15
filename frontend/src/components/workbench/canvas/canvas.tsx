@@ -4,10 +4,8 @@ import React, {
   useImperativeHandle,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
-  type TouchEvent as ReactTouchEvent,
 } from "react"
-import ReactFlow, {
+import {
   addEdge,
   Background,
   Connection,
@@ -20,6 +18,7 @@ import ReactFlow, {
   OnConnectStartParams,
   Panel,
   Position,
+  ReactFlow,
   ReactFlowInstance,
   useEdgesState,
   useNodesState,
@@ -27,10 +26,10 @@ import ReactFlow, {
   XYPosition,
   type Node,
   type ReactFlowJsonObject,
-} from "reactflow"
+} from "@xyflow/react"
 import { v4 as uuid4 } from "uuid"
 
-import "reactflow/dist/style.css"
+import "@xyflow/react/dist/style.css"
 
 import { actionsDeleteAction } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
@@ -46,6 +45,7 @@ import actionNode, {
   ActionNodeType,
 } from "@/components/workbench/canvas/action-node"
 import selectorNode, {
+  SelectorNodeData,
   SelectorNodeType,
   SelectorTypename,
 } from "@/components/workbench/canvas/selector-node"
@@ -119,9 +119,9 @@ function getLayoutedElements(
   return { nodes: newNodes, edges }
 }
 
-export type NodeTypename = "udf" | "trigger"
+export type NodeTypename = "udf" | "trigger" | "selector"
 export type NodeType = ActionNodeType | TriggerNodeType | SelectorNodeType
-export type NodeData = ActionNodeData | TriggerNodeData
+export type NodeData = ActionNodeData | TriggerNodeData | SelectorNodeData
 
 export const invincibleNodeTypes: readonly string[] = [TriggerTypename]
 export const ephemeralNodeTypes: readonly string[] = [SelectorTypename]
@@ -143,10 +143,10 @@ const defaultEdgeOptions = {
   },
 }
 
-export function isInvincible<T>(node: Node<T>): boolean {
+export function isInvincible(node: Node | Node<NodeData>): boolean {
   return invincibleNodeTypes.includes(node?.type as string)
 }
-export function isEphemeral<T>(node: Node<T>): boolean {
+export function isEphemeral(node: Node | Node<NodeData>): boolean {
   return ephemeralNodeTypes.includes(node?.type as string)
 }
 
@@ -161,8 +161,8 @@ export const WorkflowCanvas = React.forwardRef<
   const containerRef = useRef<HTMLDivElement>(null)
   const connectingNodeId = useRef<string | null>(null)
   const connectingHandleId = useRef<string | null>(null)
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [reactFlowInstance, setReactFlowInstance] =
     useState<ReactFlowInstance | null>(null)
   const { setViewport, getNode, screenToFlowPosition } = useReactFlow()
@@ -181,7 +181,7 @@ export const WorkflowCanvas = React.forwardRef<
         return
       }
       try {
-        const graph = workflow.object as ReactFlowJsonObject
+        const graph = workflow.object as ReactFlowJsonObject<NodeType>
         if (!graph) {
           throw new Error("No workflow data found")
         }
@@ -190,8 +190,8 @@ export const WorkflowCanvas = React.forwardRef<
           graph.edges,
           "TB"
         )
-        setNodes(layoutNodes)
-        setEdges(layoutEdges)
+        setNodes((currNodes) => [...currNodes, ...layoutNodes])
+        setEdges((currEdges) => [...currEdges, ...layoutEdges])
         setViewport({
           x: graph.viewport.x,
           y: graph.viewport.y,
@@ -234,10 +234,7 @@ export const WorkflowCanvas = React.forwardRef<
   )
 
   const onConnectStart = useCallback(
-    (
-      event: ReactMouseEvent | ReactTouchEvent,
-      params: OnConnectStartParams
-    ) => {
+    (event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
       connectingNodeId.current = params.nodeId
       connectingHandleId.current = params.handleId
       setIsConnecting(true)
@@ -250,13 +247,13 @@ export const WorkflowCanvas = React.forwardRef<
       const x = (event as MouseEvent).clientX - defaultNodeWidth / 2
       const y = (event as MouseEvent).clientY - defaultNodeHeight / 2
       const id = getId()
-      const newNode = {
+      const newNode: SelectorNodeType = {
         id,
         type: SelectorTypename,
         position: screenToFlowPosition({ x, y }),
-        data: {},
+        data: { type: "selector" },
         origin: [0.5, 0.0],
-      } as Node
+      }
 
       setNodes((nds) => nds.concat(newNode))
       return newNode
@@ -287,7 +284,7 @@ export const WorkflowCanvas = React.forwardRef<
               sourceHandle: connectingHandleId.current,
             }),
           } as Edge
-          setEdges((eds) => eds.concat(edge))
+          setEdges((eds) => [...eds, edge])
         }
       } finally {
         console.log("Cleaning up connect end")
@@ -300,7 +297,7 @@ export const WorkflowCanvas = React.forwardRef<
   )
 
   const onPaneMouseMove = useCallback(
-    (event: ReactMouseEvent) => {
+    (event: React.MouseEvent) => {
       if (!isConnecting || !containerRef.current) return
 
       const bounds = containerRef.current.getBoundingClientRect()
@@ -318,7 +315,7 @@ export const WorkflowCanvas = React.forwardRef<
     event.dataTransfer.dropEffect = "move"
   }, [])
 
-  const onNodesDelete = async <T,>(nodesToDelete: Node<T>[]) => {
+  const onNodesDelete = async (nodesToDelete: Node[]) => {
     if (!workflowId || !reactFlowInstance) {
       return
     }
@@ -467,10 +464,12 @@ export const WorkflowCanvas = React.forwardRef<
 
   // Right click context menu
   const onPaneContextMenu = useCallback(
-    (event: ReactMouseEvent | ReactTouchEvent) => {
+    (event: React.MouseEvent | MouseEvent) => {
       event.preventDefault()
       if (!reactFlowInstance) return
-      dropSelectorNode(event.nativeEvent)
+      // For React.MouseEvent, use nativeEvent, for MouseEvent use the event directly
+      const nativeEvent = "nativeEvent" in event ? event.nativeEvent : event
+      dropSelectorNode(nativeEvent)
     },
     [reactFlowInstance] // eslint-disable-line react-hooks/exhaustive-deps
   )

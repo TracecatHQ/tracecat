@@ -2,6 +2,12 @@ import React, { useCallback, useMemo, useState } from "react"
 import Link from "next/link"
 import { useWorkflowBuilder } from "@/providers/builder"
 import {
+  useEdges,
+  type Node,
+  type NodeProps,
+  type XYPosition,
+} from "@xyflow/react"
+import {
   AlertTriangleIcon,
   ChevronDownIcon,
   CircleCheckBigIcon,
@@ -9,7 +15,6 @@ import {
   SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from "lucide-react"
-import { Node, NodeProps, useEdges } from "reactflow"
 import YAML from "yaml"
 
 import { useAction, useWorkflowManager } from "@/lib/hooks"
@@ -42,25 +47,23 @@ import {
   ActionTargetHandle,
 } from "@/components/workbench/canvas/custom-handle"
 
-/**
- * Represents the data structure for an Action Node
- * @deprecated Previous version contained additional fields that are no longer used.
- * Extra fields in existing data structures will be ignored.
- */
-export interface ActionNodeData {
+export type ActionNodeData = {
+  id: string
   type: string // alias for key
+  position: XYPosition
+  data: ActionNodeData
   isConfigured: boolean
 
   // Allow any additional properties from legacy data
   [key: string]: unknown
 }
 
-export type ActionNodeType = Node<ActionNodeData>
+export type ActionNodeType = Node<ActionNodeData, "udf">
 
 export default React.memo(function ActionNode({
   selected,
   id,
-}: NodeProps<ActionNodeData>) {
+}: NodeProps<ActionNodeType>) {
   const [error, setError] = useState<string | null>(null)
   const {
     workflowId,
