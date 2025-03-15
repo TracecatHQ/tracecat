@@ -34,6 +34,8 @@ export type ActionRead = {
   status: string
   inputs: string
   control_flow?: ActionControlFlow
+  is_interactive: boolean
+  interaction?: ResponseInteraction | ApprovalInteraction | null
 }
 
 export type ActionReadMinimal = {
@@ -43,6 +45,7 @@ export type ActionReadMinimal = {
   title: string
   description: string
   status: string
+  is_interactive: boolean
 }
 
 export type ActionRetryPolicy = {
@@ -80,6 +83,10 @@ export type ActionStatement = {
    * Task dependencies
    */
   depends_on?: Array<string>
+  /**
+   * Whether the action is interactive.
+   */
+  interaction?: ResponseInteraction | ApprovalInteraction | null
   /**
    * Condition to run the task
    */
@@ -123,6 +130,8 @@ export type ActionUpdate = {
   status?: string | null
   inputs?: string
   control_flow?: ActionControlFlow | null
+  is_interactive?: boolean | null
+  interaction?: ResponseInteraction | ApprovalInteraction | null
 }
 
 /**
@@ -140,6 +149,33 @@ export type AppSettingsUpdate = {
    * Whether registry validation is enabled.
    */
   app_registry_validation_enabled?: boolean
+}
+
+/**
+ * Configuration for an approval interaction.
+ */
+export type ApprovalInteraction = {
+  type: "approval"
+  /**
+   * The timeout for the interaction in seconds.
+   */
+  timeout?: number | null
+  /**
+   * Number of approvers required before the action can proceed.
+   */
+  required_approvers?: number
+  /**
+   * List of groups that are allowed to approve this action.
+   */
+  approver_groups?: Array<string>
+  /**
+   * Custom message to display to approvers.
+   */
+  message?: string
+  /**
+   * Condition to approve the action.
+   */
+  approve_if?: string | null
 }
 
 export type AuthSettingsRead = {
@@ -371,6 +407,8 @@ export type EventGroup = {
     | RunActionInput
     | DSLRunArgs
     | GetWorkflowDefinitionActivityInputs
+    | InteractionResult
+    | InteractionInput
   action_result?: unknown | null
   current_attempt?: number | null
   retry_policy?: ActionRetryPolicy
@@ -425,6 +463,50 @@ export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
 
+export type InteractionCategory = "slack"
+
+/**
+ * The context of the interaction.
+ */
+export type InteractionContext = {
+  interaction_id: string
+  execution_id: string
+  action_ref: string
+}
+
+/**
+ * Input for the workflow interaction handler. This is used on the client side.
+ */
+export type InteractionInput = {
+  interaction_id: string
+  execution_id: string
+  action_ref: string
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Output for the workflow interaction handler. This is used on the client side.
+ */
+export type InteractionResult = {
+  message: string
+  detail?: unknown | null
+}
+
+export type InteractionState = {
+  type: InteractionType
+  action_ref: string
+  status: InteractionStatus
+  data?: {
+    [key: string]: unknown
+  }
+}
+
+export type InteractionStatus = "idle" | "pending" | "completed"
+
+export type InteractionType = "approval" | "response"
+
 export type JoinStrategy = "any" | "all"
 
 export type OAuth2AuthorizeResponse = {
@@ -458,6 +540,10 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
+}
+
+export type ReceiveInteractionResponse = {
+  message: string
 }
 
 /**
@@ -804,6 +890,17 @@ export type RegistrySecret = {
 }
 
 /**
+ * Configuration for a response interaction.
+ */
+export type ResponseInteraction = {
+  type: "response"
+  /**
+   * The timeout for the interaction in seconds.
+   */
+  timeout?: number | null
+}
+
+/**
  * The identity and authorization of a user or service.
  *
  * Params
@@ -864,6 +961,7 @@ export type RunActionInput = {
     [key: string]: unknown
   }
   run_context: RunContext
+  interaction_context?: InteractionContext | null
 }
 
 /**
@@ -1502,6 +1600,10 @@ export type WorkflowEventType =
   | "CHILD_WORKFLOW_EXECUTION_TERMINATED"
   | "START_CHILD_WORKFLOW_EXECUTION_INITIATED"
   | "CHILD_WORKFLOW_EXECUTION_TIMED_OUT"
+  | "WORKFLOW_EXECUTION_SIGNALED"
+  | "WORKFLOW_EXECUTION_UPDATE_ACCEPTED"
+  | "WORKFLOW_EXECUTION_UPDATE_REJECTED"
+  | "WORKFLOW_EXECUTION_UPDATE_COMPLETED"
 
 export type WorkflowExecutionCreate = {
   workflow_id: string
@@ -1600,6 +1702,12 @@ export type WorkflowExecutionRead = {
    * The events in the workflow execution
    */
   events: Array<WorkflowExecutionEvent>
+  /**
+   * The interactions in the workflow execution
+   */
+  interaction_states?: {
+    [key: string]: InteractionState
+  }
 }
 
 export type status3 =
@@ -1651,6 +1759,12 @@ export type WorkflowExecutionReadCompact = {
    * Compact events in the workflow execution
    */
   events: Array<WorkflowExecutionEventCompact>
+  /**
+   * The interactions in the workflow execution
+   */
+  interaction_states?: {
+    [key: string]: InteractionState
+  }
 }
 
 export type WorkflowExecutionReadMinimal = {
@@ -1823,6 +1937,15 @@ export type PublicIncomingWebhookWaitData = {
 }
 
 export type PublicIncomingWebhookWaitResponse = unknown
+
+export type PublicReceiveInteractionData = {
+  category: InteractionCategory
+  contentType?: string | null
+  secret: string
+  workflowId: string
+}
+
+export type PublicReceiveInteractionResponse = ReceiveInteractionResponse
 
 export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>
 
@@ -2647,6 +2770,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/webhooks/{workflow_id}/{secret}/interactions/{category}": {
+    post: {
+      req: PublicReceiveInteractionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ReceiveInteractionResponse
         /**
          * Validation Error
          */

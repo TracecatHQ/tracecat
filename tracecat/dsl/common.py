@@ -33,6 +33,7 @@ from tracecat.dsl.models import (
     TriggerInputs,
 )
 from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDFNodeData
+from tracecat.ee.interactions.models import ActionInteractionValidator
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.expectations import ExpectedField
@@ -355,6 +356,11 @@ def build_action_statements(
         action = id2action[node.id]
         control_flow = ActionControlFlow.model_validate(action.control_flow)
         args = yaml.safe_load(action.inputs) or {}
+        interaction = (
+            ActionInteractionValidator.validate_python(action.interaction)
+            if action.is_interactive and action.interaction
+            else None
+        )
         action_stmt = ActionStatement(
             id=action.id,
             ref=action.ref,
@@ -367,6 +373,7 @@ def build_action_statements(
             start_delay=control_flow.start_delay,
             wait_until=control_flow.wait_until,
             join_strategy=control_flow.join_strategy,
+            interaction=interaction,
         )
         statements.append(action_stmt)
     return statements

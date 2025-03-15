@@ -82,6 +82,10 @@ definition:
           thread_ts: ${{ inputs.thread_ts }}
           metadata:
             event_type: notification
-            event_payload: ${{ inputs.metadata }}
+            event_payload:
+              metadata: ${{ inputs.metadata }}
+              # Get the interaction context from the current action in the workflow execution
+              # This returns null if the action is not interactive
+              interaction_context: ${{ FN.get_interaction() }}
           blocks: ${{ steps.blocks.result }}
   returns: ${{ steps.post_message.result.message }}

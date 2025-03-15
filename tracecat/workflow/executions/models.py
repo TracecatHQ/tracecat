@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar, cast
@@ -13,12 +14,17 @@ from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat.dsl.common import ChildWorkflowMemo, DSLRunArgs
-from tracecat.dsl.enums import CoreActions, JoinStrategy
+from tracecat.dsl.enums import JoinStrategy, PlatformAction
 from tracecat.dsl.models import (
     ActionErrorInfo,
     ActionRetryPolicy,
     RunActionInput,
     TriggerInputs,
+)
+from tracecat.ee.interactions.models import (
+    InteractionInput,
+    InteractionResult,
+    InteractionState,
 )
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
@@ -96,11 +102,19 @@ class WorkflowExecutionRead(WorkflowExecutionBase):
     events: list[WorkflowExecutionEvent] = Field(
         ..., description="The events in the workflow execution"
     )
+    interaction_states: dict[uuid.UUID, InteractionState] = Field(
+        default_factory=dict,
+        description="The interactions in the workflow execution",
+    )
 
 
 class WorkflowExecutionReadCompact(WorkflowExecutionBase):
     events: list[WorkflowExecutionEventCompact] = Field(
         ..., description="Compact events in the workflow execution"
+    )
+    interaction_states: dict[uuid.UUID, InteractionState] = Field(
+        default_factory=dict,
+        description="The interactions in the workflow execution",
     )
 
 
@@ -114,6 +128,8 @@ EventInput = TypeVar(
     RunActionInput,
     DSLRunArgs,
     GetWorkflowDefinitionActivityInputs,
+    InteractionResult,
+    InteractionInput,
 )
 
 
@@ -217,6 +233,31 @@ class EventGroup(BaseModel, Generic[EventInput]):
             related_wf_exec_id=wf_exec_id,
         )
 
+    @staticmethod
+    def from_accepted_workflow_update(
+        event: temporalio.api.history.v1.HistoryEvent,
+    ) -> EventGroup[InteractionInput]:
+        if (
+            event.event_type
+            != temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED
+            or not event.HasField("workflow_execution_update_accepted_event_attributes")
+        ):
+            raise ValueError("Event is not a workflow update accepted event.")
+
+        attrs = event.workflow_execution_update_accepted_event_attributes
+        input = extract_first(attrs.accepted_request.input.args)
+        group = EventGroup(
+            event_id=event.event_id,
+            udf_namespace="core.interact",
+            udf_name="response",
+            udf_key="core.interact.response",
+            action_input=InteractionInput(**input),
+        )
+        logger.debug(
+            "Workflow update accepted event", event_id=event.event_id, group=group
+        )
+        return group
+
 
 class EventFailure(BaseModel):
     message: str
@@ -226,23 +267,17 @@ class EventFailure(BaseModel):
     def from_history_event(
         event: temporalio.api.history.v1.HistoryEvent,
     ) -> EventFailure:
-        if (
-            event.event_type
-            == temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED
-        ):
-            failure = event.activity_task_failed_event_attributes.failure
-        elif (
-            event.event_type
-            == temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED
-        ):
-            failure = event.workflow_execution_failed_event_attributes.failure
-        elif (
-            event.event_type
-            == temporalio.api.enums.v1.EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED
-        ):
-            failure = event.child_workflow_execution_failed_event_attributes.failure
-        else:
-            raise ValueError("Event type not supported for failure extraction.")
+        match event.event_type:
+            case temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED:
+                failure = event.activity_task_failed_event_attributes.failure
+            case temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+                failure = event.workflow_execution_failed_event_attributes.failure
+            case temporalio.api.enums.v1.EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED:
+                failure = event.child_workflow_execution_failed_event_attributes.failure
+            case temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
+                failure = event.workflow_execution_update_completed_event_attributes.outcome.failure
+            case _:
+                raise ValueError("Event type not supported for failure extraction.")
 
         return EventFailure(
             message=failure.message,
@@ -296,6 +331,10 @@ class WorkflowExecutionEventCompact(BaseModel):
                 return WorkflowExecutionEventCompact.from_scheduled_activity(event)
             case temporalio.api.enums.v1.EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
                 return WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                    event
+                )
+            case temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
+                return WorkflowExecutionEventCompact.from_workflow_update_accepted(
                     event
                 )
             case _:
@@ -362,11 +401,34 @@ class WorkflowExecutionEventCompact(BaseModel):
             schedule_time=event.event_time.ToDatetime(UTC),
             curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
             status=WorkflowExecutionEventStatus.SCHEDULED,
-            action_name=CoreActions.CHILD_WORKFLOW_EXECUTE.value,
+            action_name=PlatformAction.CHILD_WORKFLOW_EXECUTE.value,
             action_ref=memo.action_ref,
             action_input=dsl_run_args.trigger_inputs,
             child_wf_exec_id=wf_exec_id,
             loop_index=memo.loop_index,
+        )
+
+    @staticmethod
+    def from_workflow_update_accepted(
+        event: temporalio.api.history.v1.HistoryEvent,
+    ) -> WorkflowExecutionEventCompact | None:
+        if (
+            event.event_type
+            != temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED
+        ):
+            raise ValueError("Event is not a workflow update accepted event.")
+
+        attrs = event.workflow_execution_update_accepted_event_attributes
+        input_data = extract_first(attrs.accepted_request.input.args)
+        signal_input = InteractionInput(**input_data)
+        return WorkflowExecutionEventCompact(
+            source_event_id=event.event_id,
+            schedule_time=event.event_time.ToDatetime(UTC),
+            curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+            status=WorkflowExecutionEventStatus.SCHEDULED,
+            action_name=signal_input.action_ref,
+            action_ref=signal_input.action_ref,
+            action_input=signal_input,
         )
 
 
@@ -397,3 +459,7 @@ class ErrorHandlerWorkflowInput:
     orig_wf_id: WorkflowID
     orig_wf_exec_id: WorkflowExecutionID
     errors: dict[str, ActionErrorInfo] | None
+
+
+class ReceiveInteractionResponse(BaseModel):
+    message: str

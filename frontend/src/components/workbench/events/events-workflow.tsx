@@ -14,6 +14,7 @@ import {
   AlarmClockOffIcon,
   AlarmClockPlusIcon,
   CalendarIcon,
+  CalendarSearchIcon,
   CircleCheck,
   CircleDot,
   CircleMinusIcon,
@@ -66,7 +67,7 @@ export function WorkflowEventsHeader({
     <div className="space-y-2 p-4 text-xs text-muted-foreground">
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-2">
-          <CircleDot className="size-4" />
+          <CircleDot className="size-3" />
           <span>Status</span>
         </div>
         <div className="ml-auto">
@@ -88,7 +89,7 @@ export function WorkflowEventsHeader({
       </div>
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-2">
-          <CalendarIcon className="size-4" />
+          <CalendarIcon className="size-3" />
           <span>Scheduled</span>
         </div>
         <Badge
@@ -100,7 +101,7 @@ export function WorkflowEventsHeader({
       </div>
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-2">
-          <AlarmClockPlusIcon className="size-4" />
+          <AlarmClockPlusIcon className="size-3" />
           <span>Start time</span>
         </div>
         <Badge
@@ -114,7 +115,7 @@ export function WorkflowEventsHeader({
       </div>
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-2">
-          <AlarmClockCheckIcon className="size-4" />
+          <AlarmClockCheckIcon className="size-3" />
           <span>End time</span>
         </div>
         <Badge
@@ -131,7 +132,7 @@ export function WorkflowEventsHeader({
         <>
           <div className="flex items-center gap-1">
             <div className="flex items-center gap-2">
-              <CirclePlayIcon className="size-4" />
+              <CirclePlayIcon className="size-3" />
               <span>Parent run</span>
             </div>
             <Badge variant="outline" className="ml-auto text-foreground/70">
@@ -154,7 +155,7 @@ export function WorkflowEventsHeader({
           </div>
           <div className="flex items-center gap-1">
             <div className="flex items-center gap-2">
-              <WorkflowIcon className="size-4" />
+              <WorkflowIcon className="size-3" />
               <span>Parent workflow</span>
             </div>
             <Badge variant="outline" className="ml-auto text-foreground/70">
@@ -237,6 +238,10 @@ export function WorkflowEvents({
 
   return (
     <ScrollArea className="p-4 pt-0">
+      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+        <CalendarSearchIcon className="size-3" />
+        <span>Events</span>
+      </div>
       <div className="rounded-md border">
         <Table>
           <TableHeader>

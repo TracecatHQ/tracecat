@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import uuid
 from collections import OrderedDict
 from collections.abc import AsyncGenerator, Awaitable
 from typing import Any
@@ -30,6 +31,7 @@ from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.ee.interactions.models import InteractionInput, InteractionState
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
     ExecutionUUID,
@@ -81,8 +83,18 @@ class WorkflowExecutionsService:
         client = await get_temporal_client()
         return WorkflowExecutionsService(client=client, role=role)
 
-    def handle(self, wf_exec_id: WorkflowExecutionID) -> WorkflowHandle:
-        return self._client.get_workflow_handle(wf_exec_id)
+    def handle(
+        self, wf_exec_id: WorkflowExecutionID
+    ) -> WorkflowHandle[DSLWorkflow, DSLRunArgs]:
+        return self._client.get_workflow_handle_for(DSLWorkflow.run, wf_exec_id)
+
+    async def query_interaction_states(
+        self,
+        wf_exec_id: WorkflowExecutionID,
+    ) -> dict[uuid.UUID, InteractionState]:
+        """Query the interaction states for a workflow execution."""
+        handle = self.handle(wf_exec_id)
+        return await handle.query(DSLWorkflow.get_interaction_states)
 
     async def query_executions(
         self,
@@ -280,7 +292,7 @@ class WorkflowExecutionsService:
             event_filter_type=event_filter_type, **kwargs
         )
         event_group_names: dict[int, EventGroup | None] = {}
-        events = []
+        events: list[WorkflowExecutionEvent] = []
         for event in history.events:
             match event.event_type:
                 # === Child Workflow Execution Events ===
@@ -499,9 +511,75 @@ class WorkflowExecutionsService:
                             event_group=group,
                         )
                     )
+                # === Workflow Execution Interaction Events ===
+                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
+                    attrs = event.workflow_execution_signaled_event_attributes
+                    data = extract_first(attrs.input)
+                    events.append(
+                        WorkflowExecutionEvent(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
+                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_SIGNALED,
+                            task_id=event.task_id,
+                            result=InteractionInput(**data),
+                        )
+                    )
+                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
+                    group = EventGroup.from_accepted_workflow_update(event)
+                    event_group_names[event.event_id] = group
+                    events.append(
+                        WorkflowExecutionEvent(
+                            event_id=event.event_id,
+                            event_time=event.event_time.ToDatetime(datetime.UTC),
+                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_ACCEPTED,
+                            event_group=group,
+                            task_id=event.task_id,
+                        )
+                    )
+                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_REJECTED:
+                    # TODO: Handle this
+                    logger.warning(
+                        "Received a workflow execution update rejected event",
+                        event_id=event.event_id,
+                        event_type=event.event_type,
+                    )
+                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
+                    attrs = event.workflow_execution_update_completed_event_attributes
+                    parent_event_id = attrs.accepted_event_id
+                    if not (group := event_group_names.get(parent_event_id)):
+                        logger.warning(
+                            "Received a workflow execution update completed event with an unexpected parent event id",
+                            event_id=event.event_id,
+                            parent_event_id=parent_event_id,
+                        )
+                        continue
+                    event_group_names[event.event_id] = group
+                    outcome = attrs.outcome
+                    if outcome.HasField("success"):
+                        result = extract_first(outcome.success)
+                        events.append(
+                            WorkflowExecutionEvent(
+                                event_id=event.event_id,
+                                event_time=event.event_time.ToDatetime(datetime.UTC),
+                                event_type=WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_COMPLETED,
+                                event_group=group,
+                                task_id=event.task_id,
+                                result=result,
+                            )
+                        )
+                    elif outcome.HasField("failure"):
+                        events.append(
+                            WorkflowExecutionEvent(
+                                event_id=event.event_id,
+                                event_time=event.event_time.ToDatetime(datetime.UTC),
+                                event_type=WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_COMPLETED,
+                                event_group=group,
+                                task_id=event.task_id,
+                                failure=EventFailure.from_history_event(event),
+                            )
+                        )
                 case _:
                     logger.trace("Unhandled event type", event_type=event.event_type)
-                    continue
         return events
 
     async def iter_list_workflow_execution_event_history(

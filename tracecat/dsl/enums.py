@@ -1,10 +1,8 @@
 from enum import StrEnum, auto
 
 
-class CoreActions(StrEnum):
+class PlatformAction(StrEnum):
     CHILD_WORKFLOW_EXECUTE = "core.workflow.execute"
-    TABLE_LOOKUP = "core.table.lookup"
-    TABLE_INSERT_ROW = "core.table.insert_row"
 
 
 class FailStrategy(StrEnum):

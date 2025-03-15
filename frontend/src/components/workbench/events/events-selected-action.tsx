@@ -3,6 +3,7 @@
 import React from "react"
 import {
   EventFailure,
+  InteractionState,
   WorkflowExecutionEventCompact,
   WorkflowExecutionReadCompact,
 } from "@/client"
@@ -38,7 +39,7 @@ export function ActionEvent({
   type,
 }: {
   execution: WorkflowExecutionReadCompact
-  type: "input" | "result"
+  type: "input" | "result" | "interaction"
 }) {
   const { workflowId, selectedActionEventRef, setSelectedActionEventRef } =
     useWorkflowBuilder()
@@ -46,6 +47,14 @@ export function ActionEvent({
   if (!workflowId)
     return <AlertNotification level="error" message="No workflow in context" />
 
+  let events = execution.events
+  if (type === "interaction") {
+    // Filter events to only include interaction events
+    const interactionEvents = new Set(
+      Object.values(execution.interaction_states ?? {}).map((s) => s.action_ref)
+    )
+    events = events.filter((e) => interactionEvents.has(e.action_ref))
+  }
   return (
     <div className="flex flex-col gap-4 p-4">
       <Select
@@ -57,7 +66,7 @@ export function ActionEvent({
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {execution.events.map((event) => (
+            {events.map((event) => (
               <SelectItem
                 key={event.action_ref}
                 value={event.action_ref}
@@ -69,17 +78,84 @@ export function ActionEvent({
           </SelectGroup>
         </SelectContent>
       </Select>
-      {selectedActionEventRef && (
-        <ActionEventDetails
-          eventRef={selectedActionEventRef}
-          status={execution.status}
-          events={execution.events}
-          type={type}
-        />
-      )}
+
+      <ActionEventView
+        selectedRef={selectedActionEventRef}
+        execution={execution}
+        type={type}
+      />
     </div>
   )
 }
+function ActionEventView({
+  selectedRef,
+  execution,
+  type,
+}: {
+  selectedRef?: string
+  execution: WorkflowExecutionReadCompact
+  type: "input" | "result" | "interaction"
+}) {
+  const noEvent = (
+    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+      <CircleDot className="size-3 text-muted-foreground" />
+      <span>Please select an event</span>
+    </div>
+  )
+  if (!selectedRef) {
+    return noEvent
+  }
+  if (type === "interaction") {
+    const interactionState = Object.values(
+      execution.interaction_states ?? {}
+    ).find((s) => s.action_ref === selectedRef)
+    if (!interactionState) {
+      // We reach this if we switch tabs or select an event that has no interaction state
+      return noEvent
+    }
+    return (
+      <ActionInteractionEventDetails
+        eventRef={selectedRef}
+        interactionState={interactionState}
+      />
+    )
+  }
+  return (
+    <ActionEventDetails
+      eventRef={selectedRef}
+      status={execution.status}
+      events={execution.events}
+      type={type}
+    />
+  )
+}
+
+function ActionInteractionEventDetails({
+  eventRef,
+  interactionState,
+}: {
+  eventRef: string
+  interactionState: InteractionState
+}) {
+  if (interactionState.data === undefined) {
+    return (
+      <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+        <CircleDot className="size-3 text-muted-foreground" />
+        <span>No interaction data</span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      <JsonViewWithControls
+        src={interactionState.data}
+        defaultExpanded={true}
+        copyPrefix={`ACTIONS.${eventRef}.interaction`}
+      />
+    </div>
+  )
+}
+
 export function ActionEventDetails({
   eventRef,
   status,
@@ -232,18 +308,31 @@ export function JsonViewWithControls({
 }): JSX.Element {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
 
-  // Function to flatten JSON object
-  // Safely flatten the source if it's an object
-  const isCollapsible = ["object", "array"].includes(typeof src)
-  const flattenedSrc =
-    typeof src === "object" && src !== null
-      ? flattenObject(src as Record<string, unknown>)
-      : src
+  // Memoize the source data to prevent unnecessary re-renders
+  const memoizedSrc = React.useMemo(() => {
+    const isCollapsible = ["object", "array"].includes(typeof src)
+    const flattenedSrc =
+      typeof src === "object" && src !== null
+        ? flattenObject(src as Record<string, unknown>)
+        : src
 
-  const tabItems = [
-    { value: "flat", label: "Flat", src: flattenedSrc },
-    { value: "nested", label: "Nested", src: src },
-  ]
+    return {
+      isCollapsible,
+      flattenedSrc,
+      originalSrc: src,
+    }
+  }, [src])
+
+  const { isCollapsible, flattenedSrc, originalSrc } = memoizedSrc
+
+  const tabItems = React.useMemo(
+    () => [
+      { value: "flat", label: "Flat", src: flattenedSrc },
+      { value: "nested", label: "Nested", src: originalSrc },
+    ],
+    [flattenedSrc, originalSrc]
+  )
+
   return (
     <div className="w-full space-y-2 overflow-x-auto">
       <Tabs defaultValue="flat">

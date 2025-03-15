@@ -67,7 +67,7 @@ async def get_workflow_execution(
     role: WorkspaceUserRole, execution_id: UnquotedExecutionID
 ) -> WorkflowExecutionRead:
     """Get a workflow execution."""
-    logger.info("Getting workflow execution", execution_id=execution_id)
+    logger.debug("Getting workflow execution", execution_id=execution_id)
     service = await WorkflowExecutionsService.connect(role=role)
     execution = await service.get_execution(execution_id)
     if not execution:
@@ -77,6 +77,7 @@ async def get_workflow_execution(
         )
     logger.info("Getting workflow execution events", execution_id=execution.id)
     events = await service.list_workflow_execution_events(execution.id)
+    interaction_states = await service.query_interaction_states(execution.id)
     return WorkflowExecutionRead(
         id=execution.id,
         run_id=execution.run_id,
@@ -88,6 +89,7 @@ async def get_workflow_execution(
         task_queue=execution.task_queue,
         history_length=execution.history_length,
         events=events,
+        interaction_states=interaction_states,
     )
 
 
@@ -106,6 +108,7 @@ async def get_workflow_execution_compact(
         )
 
     compact_events = await service.list_workflow_execution_events_compact(execution_id)
+    interaction_states = await service.query_interaction_states(execution_id)
     return WorkflowExecutionReadCompact(
         id=execution.id,
         parent_wf_exec_id=execution.parent_id,
@@ -118,6 +121,7 @@ async def get_workflow_execution_compact(
         task_queue=execution.task_queue,
         history_length=execution.history_length,
         events=compact_events,
+        interaction_states=interaction_states,
     )
 
 
