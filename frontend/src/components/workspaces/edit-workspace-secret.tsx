@@ -77,10 +77,13 @@ export function EditCredentialsDialog({
         name: "",
         description: "",
         environment: "",
-        keys: selectedSecret.keys.map(keyName => ({ key: keyName, value: "" })),
-      });
+        keys: selectedSecret.keys.map((keyName) => ({
+          key: keyName,
+          value: "",
+        })),
+      })
     }
-  }, [selectedSecret, reset]);
+  }, [selectedSecret, reset])
 
   const onSubmit = useCallback(
     async (values: SecretUpdate) => {
