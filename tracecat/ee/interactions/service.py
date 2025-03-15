@@ -68,10 +68,7 @@ class InteractionManager:
 
         self.states[input.interaction_id].data = input.data
         self.states[input.interaction_id].status = InteractionStatus.COMPLETED
-        return InteractionResult(
-            message="success",
-            detail=input.data,
-        )
+        return InteractionResult(message="success", detail=input.data)
 
     """Actions"""
 
