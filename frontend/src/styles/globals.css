@@ -135,6 +135,10 @@
     font-weight: bold;
   }
 
+  .table-alignment-fix tbody tr td {
+    vertical-align: top !important;
+  }
+
   /* Style the matching text in non-selected items */
   .editor-wrapper
     .monaco-editor

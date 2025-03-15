@@ -10,6 +10,8 @@ import { useListRows } from "@/lib/hooks"
 import { DataTable } from "@/components/data-table"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
+import { JsonViewWithControls } from "../workbench/events/events-selected-action"
+import { TooltipProvider } from "@radix-ui/react-tooltip"
 
 export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
   const { tableId } = useParams<{ tableId: string }>()
@@ -33,11 +35,17 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
         </div>
       ),
       cell: ({ row }: CellT) => {
-        const value = row.original[column.name as keyof TableRowRead]
+        const value = row.original[column.name as keyof TableRowRead];
         return (
-          <div className="flex items-center gap-2 text-xs">
-            {typeof value === "object" ? (
-              <pre className="text-xs">{JSON.stringify(value, null, 2)}</pre>
+          <div className="text-xs w-full">
+            {typeof value === "object" && value ? (
+              <div onClick={(e) => e.stopPropagation()} className="w-full">
+                <TooltipProvider>
+                  <JsonViewWithControls
+                    src={value}
+                  />
+                </TooltipProvider>
+              </div>
             ) : (
               <pre className="text-xs">{String(value)}</pre>
             )}
