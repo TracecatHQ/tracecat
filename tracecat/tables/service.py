@@ -449,7 +449,7 @@ class TablesService(BaseService):
         row_data = params.data
         col_map = {c.name: c for c in table.columns}
 
-        value_clauses: dict[str, sa.TextClause] = {}
+        value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
         for col, value in row_data.items():
             value_clauses[col] = to_sql_clause(value, col_map[col])
