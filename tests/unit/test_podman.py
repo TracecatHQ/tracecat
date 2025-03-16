@@ -9,6 +9,8 @@ from tracecat.ee.sandbox.podman import (
     run_podman_container,
 )
 
+pytestmark = pytest.mark.podman
+
 TEST_PODMAN_URI = "tcp://localhost:8080"
 TEST_TRUSTED_IMAGES = [
     "alpine:latest",

@@ -117,4 +117,4 @@ jobs:
       - name: Run tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: uv run pytest tests/${{ matrix.test_type }} -k "not test_podman" -ra
+        run: uv run pytest tests/${{ matrix.test_type }} -m "not podman" -ra
