@@ -9,13 +9,14 @@ from typing import Any
 
 import httpx
 import pytest
+from openai.types.responses import Response
 
 from tracecat.llm import (
     async_ollama_call,
     async_openai_call,
 )
 from tracecat.llm.ollama import ChatResponse
-from tracecat.llm.openai import DEFAULT_OPENAI_MODEL, Response
+from tracecat.llm.openai import DEFAULT_OPENAI_MODEL
 from tracecat.logger import logger
 
 pytestmark = pytest.mark.llm

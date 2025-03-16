@@ -5,7 +5,6 @@ from typing_extensions import Doc
 from tracecat.llm import async_openai_call, OpenAIModel
 from tracecat_registry import RegistrySecret, registry, secrets
 
-
 openai_secret = RegistrySecret(
     name="openai",
     keys=["OPENAI_API_KEY"],
@@ -22,6 +21,7 @@ openai_secret = RegistrySecret(
     default_title="Call OpenAI",
     description="Call an LLM via OpenAI API.",
     display_group="OpenAI",
+    doc_url="https://platform.openai.com/docs/api-reference/responses/create",
     namespace="llm.openai",
     secrets=[openai_secret],
 )
@@ -29,20 +29,23 @@ async def call(
     prompt: Annotated[str, Doc("Prompt to send to the LLM")],
     model: Annotated[str, Doc("Model to use")],
     memory: Annotated[
-        list[dict[str, Any]] | None, Doc("Past messages to include in the conversation")
+        list[dict[str, Any]] | None,
+        Doc("Past messages to include in the conversation."),
     ] = None,
-    system_prompt: Annotated[
-        str | None, Doc("System prompt to use for the LLM")
+    instructions: Annotated[
+        str | None, Doc("Insert a system message at the beginning of the conversation.")
     ] = None,
-) -> dict[str, Any] | list[dict[str, Any]]:
-    # NOTE: The type ignore is a workaround to avoid type mismatch
-    # between the action types shown to the user and the
-    # types used by internal Python functions.
+    text_format: Annotated[
+        dict[str, Any] | None,
+        Doc("Configuration options for a text response from the model."),
+    ] = None,
+) -> dict[str, Any]:
     response = await async_openai_call(
         prompt=prompt,
         model=OpenAIModel(model),
         memory=memory,  # type: ignore
-        system_prompt=system_prompt,
+        instructions=instructions,
+        text_format=text_format,
         api_key=secrets.get("OPENAI_API_KEY"),
     )
     return response.model_dump()

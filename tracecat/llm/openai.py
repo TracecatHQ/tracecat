@@ -4,13 +4,10 @@ Docs: https://platform.openai.com/docs/guides/text-generation
 """
 
 from enum import StrEnum
-from typing import overload
+from typing import Any
 
 from openai import AsyncOpenAI
-from openai.types.chat.chat_completion import ChatCompletion
-from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
-from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
-from pydantic import BaseModel
+from openai.types.responses import Response, ResponseInputParam
 
 from tracecat.logger import logger
 
@@ -37,63 +34,31 @@ class OpenAIModel(StrEnum):
 DEFAULT_OPENAI_MODEL = OpenAIModel.GPT4O_MINI
 
 
-# Call with structured output
-@overload
 async def async_openai_call(
     prompt: str,
     *,
     model: OpenAIModel = DEFAULT_OPENAI_MODEL,
-    memory: list[ChatCompletionMessageParam] | None = None,
-    system_prompt: str | None = None,
-    response_format: BaseModel,
+    memory: list[ResponseInputParam] | None = None,
+    instructions: str | None = None,
+    text_format: dict[str, Any] | None = None,
     api_key: str,
-) -> ParsedChatCompletion: ...
-
-
-# Call without structured output
-@overload
-async def async_openai_call(
-    prompt: str,
-    *,
-    model: OpenAIModel = DEFAULT_OPENAI_MODEL,
-    memory: list[ChatCompletionMessageParam] | None = None,
-    system_prompt: str | None = None,
-    response_format: None = None,
-    api_key: str,
-) -> ChatCompletion: ...
-
-
-async def async_openai_call(
-    prompt: str,
-    *,
-    model: OpenAIModel = DEFAULT_OPENAI_MODEL,
-    memory: list[ChatCompletionMessageParam] | None = None,
-    system_prompt: str | None = None,
-    response_format: BaseModel | None = None,
-    api_key: str,
-) -> ChatCompletion | ParsedChatCompletion:
+) -> Response:
     """Call the OpenAI API with the given prompt and return the response."""
     client = AsyncOpenAI(api_key=api_key)
     logger.debug(
         "🧠 Calling LLM chat completion", provider="openai", model=model, prompt=prompt
     )
 
-    messages: list[ChatCompletionMessageParam] = []
-
-    if system_prompt:
-        messages.append({"role": "developer", "content": system_prompt})
-    elif memory:
+    messages = []
+    if memory:
         messages.extend(memory)
-
     messages.append({"role": "user", "content": prompt})
 
-    kwargs = {
-        "model": model,
-        "messages": messages,
-    }
-    if response_format is not None:
-        kwargs["response_format"] = response_format
-        response = await client.beta.chat.completions.parse(**kwargs)
-    else:
-        response = await client.chat.completions.create(**kwargs)
+    kwargs = {"model": model, "input": messages}
+    if instructions:
+        kwargs["instructions"] = instructions
+    if text_format:
+        kwargs["text"] = {"format": text_format}
+
+    response = await client.responses.create(**kwargs)
     return response
