@@ -18,12 +18,29 @@ TEST_TRUSTED_IMAGES = [
 ]
 
 
+def is_podman_running():
+    """Check if Podman is accessible at the configured URI."""
+    try:
+        get_podman_version(base_url=TEST_PODMAN_URI)
+        return True
+    except Exception:
+        return False
+
+
+# Skip all tests if Podman is not running
+podman_not_running = pytest.mark.skipif(
+    not is_podman_running(), reason="Podman is not running at the configured URI"
+)
+
+
+@podman_not_running
 def test_podman_version():
     """Smoke test to verify Podman API connectivity."""
     version = get_podman_version(base_url=TEST_PODMAN_URI)
     assert version == "5.4.0"
 
 
+@podman_not_running
 def test_hello_world():
     """Test basic container operation with Alpine Linux."""
     result = run_podman_container(
@@ -39,6 +56,7 @@ def test_hello_world():
     assert any("Hello, World!" in line for line in result.stdout)
 
 
+@podman_not_running
 def test_environment_variables_are_set():
     """Test that environment variables are set."""
     result = run_podman_container(
@@ -52,6 +70,7 @@ def test_environment_variables_are_set():
     assert result.stdout[0].startswith("hello! world! foo!")
 
 
+@podman_not_running
 def test_stratus_red_team_list():
     """Test running list command with Stratus Red Team image."""
     result = run_podman_container(
@@ -70,6 +89,7 @@ def test_stratus_red_team_list():
     )
 
 
+@podman_not_running
 def test_volumes_persist_across_runs():
     """Test that volumes persist across container runs."""
     volume_name = "test-persist-volume"
@@ -117,6 +137,7 @@ def test_volumes_persist_across_runs():
     )
 
 
+@podman_not_running
 def test_untrusted_image():
     """Test that non-allowlisted images are rejected."""
     with pytest.raises(ValueError):
@@ -129,6 +150,7 @@ def test_untrusted_image():
         )
 
 
+@podman_not_running
 def test_http_request_with_bridge_network():
     """Test that HTTP request to google.com works with bridge network."""
     script = """
@@ -154,6 +176,7 @@ except Exception as e:
     assert "200" in " ".join(result.stdout)
 
 
+@podman_not_running
 def test_http_request_with_none_network():
     """Test that HTTP request to google.com fails with no network."""
     script = """
@@ -184,6 +207,7 @@ except Exception as e:
     assert "Error:" in error_message
 
 
+@podman_not_running
 def test_expected_exit_codes():
     """Test that expected exit codes don't raise errors."""
     # Test a command that exits with code 1
