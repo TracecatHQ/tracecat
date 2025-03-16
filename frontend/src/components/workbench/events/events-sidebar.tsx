@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { CalendarSearchIcon, FileInputIcon, ShapesIcon } from "lucide-react"
+import {
+  CalendarSearchIcon,
+  FileInputIcon,
+  MessagesSquare,
+  ShapesIcon,
+} from "lucide-react"
 import { ImperativePanelHandle } from "react-resizable-panels"
 
 import {
@@ -17,6 +22,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { ActionEvent } from "@/components/workbench/events/events-selected-action"
 import { EventsSidebarEmpty } from "@/components/workbench/events/events-sidebar-empty"
+import { WorkflowInteractions } from "@/components/workbench/events/events-sidebar-interactions"
 import {
   WorkflowEvents,
   WorkflowEventsHeader,
@@ -26,6 +32,7 @@ export type EventsSidebarTabs =
   | "workflow-events"
   | "action-input"
   | "action-result"
+  | "action-interaction"
 /**
  * Interface for controlling the events sidebar through a ref
  */
@@ -118,6 +125,7 @@ function WorkbenchSidebarEventsList({
       content: (
         <>
           <WorkflowEventsHeader execution={execution} />
+          <WorkflowInteractions execution={execution} />
           <WorkflowEvents events={execution.events} />
         </>
       ),
@@ -133,6 +141,12 @@ function WorkbenchSidebarEventsList({
       label: "Result",
       icon: ShapesIcon,
       content: <ActionEvent execution={execution} type="result" />,
+    },
+    {
+      value: "action-interaction",
+      label: "Interaction",
+      icon: MessagesSquare,
+      content: <ActionEvent execution={execution} type="interaction" />,
     },
   ]
   return (

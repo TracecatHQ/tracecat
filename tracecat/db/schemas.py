@@ -438,7 +438,16 @@ class Action(Resource, table=True):
         ),
     )
     control_flow: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
-
+    is_interactive: bool = Field(
+        default=False,
+        description="Whether the action is interactive",
+        nullable=False,
+    )
+    interaction: dict[str, Any] | None = Field(
+        default=None,
+        description="The interaction configuration for the action",
+        sa_column=Column(JSONB),
+    )
     workflow_id: uuid.UUID = Field(
         sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )

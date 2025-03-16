@@ -20,6 +20,8 @@ import orjson
 from slugify import slugify
 
 from tracecat.common import is_iterable
+from tracecat.contexts import ctx_interaction
+from tracecat.ee.interactions.models import InteractionContext
 
 
 def _bool(x: Any) -> bool:
@@ -30,6 +32,18 @@ def _bool(x: Any) -> bool:
         return x.lower() in ("true", "1")
     # Use default bool for everything else
     return bool(x)
+
+
+# Platform functions
+
+
+def get_interaction() -> dict[str, str] | None:
+    """Get the interaction context from the current action in the workflow execution."""
+    match interaction := ctx_interaction.get():
+        case InteractionContext():
+            return interaction.model_dump()
+        case _:
+            return None
 
 
 # String functions
@@ -889,6 +903,8 @@ _FUNCTION_MAPPING = {
     "ipv4_is_public": ipv4_is_public,
     "ipv6_is_public": ipv6_is_public,
     "check_ip_version": check_ip_version,
+    # Interaction
+    "get_interaction": get_interaction,
 }
 
 OPERATORS = {

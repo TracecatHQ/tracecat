@@ -11,7 +11,7 @@ from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs, context_locator
-from tracecat.dsl.enums import CoreActions
+from tracecat.dsl.enums import PlatformAction
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
 from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
@@ -161,7 +161,7 @@ async def validate_registry_action_args(
     # 3. validate the args against the pydantic model
     try:
         try:
-            if action_name == CoreActions.CHILD_WORKFLOW_EXECUTE:
+            if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteChildWorkflowArgs.model_validate(args)
             else:
                 service = RegistryActionsService(session)

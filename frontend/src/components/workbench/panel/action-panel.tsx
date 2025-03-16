@@ -23,6 +23,7 @@ import {
   LinkIcon,
   Loader2Icon,
   LucideIcon,
+  MessagesSquare,
   RotateCcwIcon,
   SaveIcon,
   SettingsIcon,
@@ -48,6 +49,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -60,7 +62,15 @@ import {
 } from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
 import {
   Table,
   TableBody,
@@ -121,6 +131,19 @@ const actionFormSchema = z.object({
       .max(1000, "Options must be less than 1000 characters")
       .optional(),
   }),
+  is_interactive: z.boolean().default(false),
+  interaction: z
+    .discriminatedUnion("type", [
+      z.object({
+        type: z.literal("response"),
+        timeout: z.number().nullish(),
+      }),
+      z.object({
+        type: z.literal("approval"),
+        timeout: z.number().nullish(),
+      }),
+    ])
+    .optional(),
 })
 type ActionFormSchema = z.infer<typeof actionFormSchema>
 
@@ -190,6 +213,8 @@ export function ActionPanel({
         retry_policy: stringifyYaml(retry_policy),
         options: stringifyYaml(options),
       },
+      is_interactive: action?.is_interactive ?? false,
+      interaction: action?.interaction ?? undefined,
     },
   })
 
@@ -226,6 +251,8 @@ export function ActionPanel({
             run_if: parseYaml(values.control_flow.run_if),
             retry_policy: parseYaml(values.control_flow.retry_policy),
           },
+          is_interactive: values.is_interactive,
+          interaction: values.interaction,
         }
 
         await updateAction(params)
@@ -353,6 +380,8 @@ export function ActionPanel({
     ...(validationErrors || []),
   ].filter((error) => error.action_ref === slugify(action.title))
   const ActionIcon = typeToLabel[registryAction.type].icon
+  const isInteractive = methods.watch("is_interactive")
+  const interactionType = methods.watch("interaction.type")
   return (
     <div onBlur={onPanelBlur}>
       <Tabs
@@ -551,6 +580,103 @@ export function ActionPanel({
                               />
                             </div>
                           </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+
+                    {/* Interaction */}
+                    <AccordionItem value="action-interaction">
+                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                        <div className="flex items-center">
+                          <MessagesSquare className="mr-3 size-4" />
+                          <span>Interaction</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="my-4 space-y-2 px-4">
+                          {/* Toggle for enabling interaction */}
+                          <FormField
+                            control={methods.control}
+                            name="is_interactive"
+                            render={({ field }) => (
+                              <FormItem>
+                                <div className="flex items-center gap-2">
+                                  <FormControl>
+                                    <Switch
+                                      checked={field.value}
+                                      onCheckedChange={field.onChange}
+                                    />
+                                  </FormControl>
+                                  <FormLabel className="text-xs">
+                                    Enable interaction
+                                  </FormLabel>
+                                </div>
+                                <FormMessage className="whitespace-pre-line" />
+                              </FormItem>
+                            )}
+                          />
+
+                          {/* Interaction settings - only shown when interaction is enabled */}
+                          {isInteractive && (
+                            <>
+                              <FormField
+                                control={methods.control}
+                                name="interaction.type"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel className="text-xs">
+                                      Type
+                                    </FormLabel>
+                                    <FormControl>
+                                      <Select
+                                        value={field.value}
+                                        onValueChange={field.onChange}
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue placeholder="Select a type..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="response">
+                                            Response
+                                          </SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </FormControl>
+                                    <FormMessage className="whitespace-pre-line" />
+                                  </FormItem>
+                                )}
+                              />
+
+                              {interactionType === "response" && (
+                                <div className="space-y-2">
+                                  <FormDescription className="text-xs">
+                                    The action will only complete when it
+                                    receives a response.
+                                  </FormDescription>
+                                  <FormField
+                                    control={methods.control}
+                                    name="interaction.timeout"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel className="text-xs">
+                                          Timeout
+                                        </FormLabel>
+                                        <FormControl>
+                                          <Input
+                                            type="number"
+                                            value={field.value || ""}
+                                            onChange={field.onChange}
+                                            placeholder="Timeout in seconds"
+                                          />
+                                        </FormControl>
+                                        <FormMessage className="whitespace-pre-line" />
+                                      </FormItem>
+                                    )}
+                                  />
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                       </AccordionContent>
                     </AccordionItem>

@@ -12,6 +12,7 @@ import {
   ChevronDownIcon,
   CircleCheckBigIcon,
   LayoutListIcon,
+  MessagesSquare,
   SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from "lucide-react"
@@ -103,6 +104,11 @@ export default React.memo(function ActionNode({
   const edges = useEdges()
   const incomingEdges = edges.filter((edge) => edge.target === id)
   const isChildWorkflow = action?.type === CHILD_WORKFLOW_ACTION_TYPE
+  const isInteractive = useMemo(
+    () => Boolean(action?.is_interactive),
+    [action?.is_interactive, action]
+  )
+
   const actionInputsObj = useMemo(() => {
     try {
       // Use YAML.parse with strict schema to catch duplicate keys
@@ -236,6 +242,18 @@ export default React.memo(function ActionNode({
                     <CircleCheckBigIcon className="mr-2 size-4" />
                     <span className="text-xs">View Last Result</span>
                   </DropdownMenuItem>
+                  {action?.is_interactive && (
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        sidebarRef.current?.setActiveTab("action-interaction")
+                        setSelectedActionEventRef(slugify(action.title))
+                      }}
+                    >
+                      <MessagesSquare className="mr-2 size-4" />
+                      <span className="text-xs">View Last Interaction</span>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={handleDeleteNode}>
                     <Trash2Icon className="mr-2 size-4 text-red-600" />
                     <span className="text-xs text-red-600">Delete</span>
@@ -273,6 +291,20 @@ export default React.memo(function ActionNode({
                 childWorkflowId={childWorkflowId}
                 childWorkflowAlias={childWorkflowAlias}
               />
+            )}
+            {isInteractive && (
+              <div className="flex justify-end">
+                <Badge
+                  variant="secondary"
+                  className="bg-sky-300/30 text-foreground/60 hover:cursor-pointer hover:bg-muted-foreground/5"
+                >
+                  <MessagesSquare
+                    className="mr-2 size-3 text-foreground/60"
+                    strokeWidth={3}
+                  />
+                  <span>Interactive</span>
+                </Badge>
+              </div>
             )}
           </div>
         </CardContent>
