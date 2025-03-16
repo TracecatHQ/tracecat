@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from tracecat.ee.sandbox.podman import (
@@ -9,7 +11,7 @@ from tracecat.ee.sandbox.podman import (
     run_podman_container,
 )
 
-TEST_PODMAN_URI = "tcp://localhost:8080"
+TEST_PODMAN_URI = os.environ.get("TEST_PODMAN_URI", "tcp://localhost:8080")
 TEST_TRUSTED_IMAGES = [
     "alpine:latest",
     "ghcr.io/datadog/stratus-red-team:latest",

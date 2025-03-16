@@ -107,7 +107,7 @@ jobs:
       - name: Start Docker services
         env:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-        run: docker compose -f docker-compose.dev.yml up --build -d temporal api worker executor postgres_db caddy
+        run: docker compose -f docker-compose.dev.yml up --build -d temporal api worker executor postgres_db caddy ee-container-runner
 
       - name: Install dependencies
         run: |
@@ -117,4 +117,5 @@ jobs:
       - name: Run tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: uv run pytest tests/${{ matrix.test_type }} -k "not test_podman" -ra
+          TEST_PODMAN_URI: tcp://host.docker.internal:8080
+        run: uv run pytest tests/${{ matrix.test_type }} -ra
