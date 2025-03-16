@@ -44,8 +44,8 @@ def is_container_running(container_name):
 
 # Skip all tests if Podman container runner is not running
 skipif_no_container_runner = pytest.mark.skipif(
-    not is_container_running("ee-container-runner"),
-    reason="No ee-container-runner Docker container found",
+    not is_container_running("container-runner"),
+    reason="No container-runner Docker container found",
 )
 
 
