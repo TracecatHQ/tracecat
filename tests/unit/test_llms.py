@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 import pytest
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from tracecat.llm import (
@@ -33,29 +34,26 @@ def is_ollama_available() -> bool:
     try:
         with httpx.Client() as client:
             response = client.get(f"{OLLAMA_URL}/api/version")
-            return response.status_code == 200
+            response.raise_for_status()
+            return True
     except httpx.RequestError:
         logger.warning("Ollama is not available")
         return False
 
 
 def load_api_kwargs(provider: str) -> dict[str, Any]:
-    from dotenv import load_dotenv
-
     load_dotenv()
-    try:
-        match provider:
-            case "openai":
-                api_key = os.environ["OPENAI_API_KEY"]
-                kwargs = {"api_key": api_key}
-            case "ollama":
-                # Requires docker-compose.dev.yml stack
-                # with ollama service exposed on port 11434
-                kwargs = {"api_url": OLLAMA_URL}
-            case _:
-                return {}
-    except KeyError:
-        pytest.fail(f"API key for LLM provider {provider!r} not found")
+
+    match provider:
+        case "openai":
+            api_key = os.environ["OPENAI_API_KEY"]
+            kwargs = {"api_key": api_key}
+        case "ollama":
+            # Requires docker-compose.dev.yml stack
+            # with ollama service exposed on port 11434
+            kwargs = {"api_url": OLLAMA_URL}
+        case _:
+            pytest.fail(f"API key for LLM provider {provider!r} not found")
     return kwargs
 
 
@@ -66,11 +64,10 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
             ("ollama", async_ollama_call),
             marks=[
                 pytest.mark.skipif(
-                    os.getenv("GITHUB_ACTIONS") is not None
-                    or not is_ollama_available(),
-                    reason="Skip Ollama tests in GitHub Actions CI or when Ollama is not available",
+                    not is_ollama_available(),
+                    reason="Skip Ollama tests when service is not available",
                 ),
-                pytest.mark.slow,
+                pytest.mark.llm,
             ],
         ),
         pytest.param(
@@ -80,6 +77,7 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
                     os.getenv("OPENAI_API_KEY") is None,
                     reason="Skip OpenAI tests when API key is not available",
                 ),
+                pytest.mark.llm,
             ],
         ),
     ],
