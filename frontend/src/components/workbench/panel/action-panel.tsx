@@ -46,6 +46,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   FormControl,
@@ -632,12 +633,59 @@ export function ActionPanel({
                                         value={field.value}
                                         onValueChange={field.onChange}
                                       >
-                                        <SelectTrigger>
-                                          <SelectValue placeholder="Select a type..." />
+                                        <SelectTrigger className="text-xs">
+                                          <SelectValue
+                                            placeholder="Select a type..."
+                                            className="text-xs"
+                                          />
                                         </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="response">
+                                        <SelectContent className="w-full text-xs">
+                                          <SelectItem
+                                            value="response"
+                                            className="text-xs"
+                                          >
                                             Response
+                                          </SelectItem>
+                                          <SelectItem
+                                            value="approval"
+                                            className="text-xs"
+                                            disabled
+                                          >
+                                            <span>Approval</span>
+                                            <Badge
+                                              variant="outline"
+                                              className="ml-4 text-xs font-normal"
+                                            >
+                                              Coming soon
+                                            </Badge>
+                                          </SelectItem>
+                                          <SelectItem
+                                            value="mfa"
+                                            className="text-xs"
+                                            disabled
+                                          >
+                                            <span>
+                                              Multi-factor Authentication
+                                            </span>
+                                            <Badge
+                                              variant="outline"
+                                              className="ml-4 text-xs font-normal"
+                                            >
+                                              Coming soon
+                                            </Badge>
+                                          </SelectItem>
+                                          <SelectItem
+                                            value="form"
+                                            className="text-xs"
+                                            disabled
+                                          >
+                                            <span>Form</span>
+                                            <Badge
+                                              variant="outline"
+                                              className="ml-4 text-xs font-normal"
+                                            >
+                                              Coming soon
+                                            </Badge>
                                           </SelectItem>
                                         </SelectContent>
                                       </Select>
@@ -663,10 +711,12 @@ export function ActionPanel({
                                         </FormLabel>
                                         <FormControl>
                                           <Input
+                                            disabled
                                             type="number"
                                             value={field.value || ""}
                                             onChange={field.onChange}
                                             placeholder="Timeout in seconds"
+                                            className="text-xs"
                                           />
                                         </FormControl>
                                         <FormMessage className="whitespace-pre-line" />
