@@ -14,6 +14,7 @@ from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.types.exceptions import TracecatValidationError
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -145,7 +146,9 @@ class ActionStatement(BaseModel):
     @model_validator(mode="after")
     def validate_interaction(self):
         if self.interaction and self.for_each:
-            raise ValueError("Interaction is not allowed when for_each is provided.")
+            raise TracecatValidationError(
+                "Interaction is not allowed when for_each is provided."
+            )
         return self
 
 
