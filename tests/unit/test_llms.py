@@ -19,6 +19,8 @@ from tracecat.llm.ollama import ChatResponse
 from tracecat.llm.openai import DEFAULT_OPENAI_MODEL, ChatCompletion
 from tracecat.logger import logger
 
+pytestmark = pytest.mark.llm
+
 OLLAMA_URL = "http://localhost:11434"
 
 
