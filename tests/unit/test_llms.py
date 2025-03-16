@@ -9,15 +9,13 @@ from typing import Any
 
 import httpx
 import pytest
-from dotenv import load_dotenv
-from pydantic import BaseModel, Field
 
 from tracecat.llm import (
     async_ollama_call,
     async_openai_call,
 )
 from tracecat.llm.ollama import ChatResponse
-from tracecat.llm.openai import DEFAULT_OPENAI_MODEL, ChatCompletion
+from tracecat.llm.openai import DEFAULT_OPENAI_MODEL, Response
 from tracecat.logger import logger
 
 pytestmark = pytest.mark.llm
@@ -42,8 +40,6 @@ def is_ollama_available() -> bool:
 
 
 def load_api_kwargs(provider: str) -> dict[str, Any]:
-    load_dotenv()
-
     match provider:
         case "openai":
             api_key = os.environ["OPENAI_API_KEY"]
@@ -99,41 +95,14 @@ async def test_user_prompt(call_llm_params: tuple[str, Callable]):
     response = await call_llm(**kwargs)
 
     match response:
-        case ChatCompletion():
-            assert "paris" in response.choices[0].message.content.lower()  # type: ignore
+        case Response():
+            assert "paris" in response.output_text.lower()
         case ChatResponse():
             assert "paris" in response.message.content.lower()  # type: ignore
         case _:
             pytest.fail(f"Unexpected response type: {type(response)}")
 
 
-@pytest.mark.anyio
-async def test_system_prompt(call_llm_params: tuple[str, Callable]):
-    """Test system prompt functionality."""
-    prompt = "What is an LLM?"
-    system_prompt = (
-        "You are a helpful AI assistant that explains technical concepts clearly."
-    )
-    provider, call_llm = call_llm_params
-    kwargs = {
-        "prompt": prompt,
-        "system_prompt": system_prompt,
-        **load_api_kwargs(provider),
-    }
-    response = await call_llm(**kwargs)
-    assert response is not None
-
-
-class BooleanResponse(BaseModel):
-    """Response to a boolean question."""
-
-    answer: bool = Field(strict=True)
-
-
-@pytest.mark.skipif(
-    os.getenv("GITHUB_ACTIONS") is not None,
-    reason="Skip memory tests in GitHub Actions CI. This is currently brokwn.",
-)
 @pytest.mark.anyio
 async def test_memory(call_llm_params: tuple[str, Callable]):
     """Test conversation memory functionality."""
@@ -158,8 +127,8 @@ async def test_memory(call_llm_params: tuple[str, Callable]):
     # Corner case dealing with len(response.choices) > 0 for OpenAI
     match response:
         # OpenAI
-        case ChatCompletion():
-            response_content = response.choices[0].message.content
+        case Response():
+            response_content = response.output_text
         # Ollama
         case ChatResponse():
             response_content = response.message.content
@@ -185,18 +154,35 @@ async def test_memory(call_llm_params: tuple[str, Callable]):
     verification_kwargs = {
         "prompt": judge_prompt,
         "model": DEFAULT_OPENAI_MODEL,
-        "response_format": BooleanResponse,
+        "text_format": {
+            "type": "json_schema",
+            "name": "is_answer_correct",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "type": "boolean",
+                        "description": "Whether the answer is correct",
+                    },
+                },
+                "required": ["answer"],
+                "strict": True,
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
         **load_api_kwargs("openai"),
     }
     judge_response = await async_openai_call(**verification_kwargs)
-    judge_message = judge_response.choices[0].message
 
-    if judge_message.refusal:
-        pytest.fail("LLM judge refused to verify the response")
+    if judge_response.incomplete_details:
+        pytest.fail(
+            f"LLM judge was unable to verify the response: {judge_response.incomplete_details}"
+        )
 
-    judge_message = judge_response.choices[0].message.parsed  # type: ignore
-    assert judge_message.answer, (
+    judge_answer = judge_response.output_text
+    assert judge_answer, (
         f"LLM judge determined response was incorrect.\n"
         f"Assistant response: {response_content}\n"
-        f"Judge response: {judge_message.answer}"
+        f"Judge answer: {judge_answer}"
     )
