@@ -15,7 +15,7 @@ from tracecat.llm import (
     async_ollama_call,
     async_openai_call,
 )
-from tracecat.llm.ollama import ChatResponse
+from tracecat.llm.ollama import DEFAULT_OLLAMA_MODEL, ChatResponse
 from tracecat.llm.openai import DEFAULT_OPENAI_MODEL, ChatCompletion
 from tracecat.logger import logger
 
@@ -31,7 +31,22 @@ def is_ollama_available() -> bool:
     try:
         with httpx.Client() as client:
             response = client.get(f"{OLLAMA_URL}/api/version")
-            return response.status_code == 200
+            if response.status_code != 200:
+                logger.warning("Ollama is not available")
+                return False
+        # Check if default ollama model is available
+        with httpx.Client() as client:
+            response = client.get(f"{OLLAMA_URL}/api/tags")
+            response.raise_for_status()
+            models = response.json()["models"]
+            if not next(
+                (m for m in models if m["model"] == DEFAULT_OLLAMA_MODEL), None
+            ):
+                logger.warning(
+                    f"Default Ollama model {DEFAULT_OLLAMA_MODEL!r} is not available"
+                )
+                return False
+        return True
     except httpx.RequestError:
         logger.warning("Ollama is not available")
         return False
@@ -64,9 +79,12 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
             ("ollama", async_ollama_call),
             marks=[
                 pytest.mark.skipif(
-                    os.getenv("GITHUB_ACTIONS") is not None
-                    or not is_ollama_available(),
-                    reason="Skip Ollama tests in GitHub Actions CI or when Ollama is not available",
+                    not is_ollama_available(),
+                    reason="Skip Ollama tests when Ollama is not available",
+                ),
+                pytest.mark.skipif(
+                    os.getenv("GITHUB_ACTIONS") is not None,
+                    reason="Skip Ollama tests in GitHub Actions CI",
                 ),
                 pytest.mark.slow,
             ],
@@ -74,6 +92,10 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
         pytest.param(
             ("openai", async_openai_call),
             marks=[
+                pytest.mark.skipif(
+                    os.getenv("GITHUB_ACTIONS") is not None,
+                    reason="Skip OpenAI tests in GitHub Actions CI",
+                ),
                 pytest.mark.skipif(
                     os.getenv("OPENAI_API_KEY") is None,
                     reason="Skip OpenAI tests when API key is not available",
@@ -130,10 +152,6 @@ class BooleanResponse(BaseModel):
     answer: bool = Field(strict=True)
 
 
-@pytest.mark.skipif(
-    os.getenv("GITHUB_ACTIONS") is not None,
-    reason="Skip memory tests in GitHub Actions CI. This is currently brokwn.",
-)
 @pytest.mark.anyio
 async def test_memory(call_llm_params: tuple[str, Callable]):
     """Test conversation memory functionality."""
