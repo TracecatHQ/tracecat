@@ -18,11 +18,11 @@ jobs:
       - uses: astral-sh/ruff-action@v3
         with:
           src: tracecat/
-          version: v0.9.1
+          version: latest
           args: check --no-fix
 
       - uses: astral-sh/ruff-action@v3
         with:
           src: tracecat/
-          version: v0.9.1
+          version: latest
           args: format --diff
