@@ -13,6 +13,9 @@ definition:
     input_context:
       type: str
       description: Description of the input text (e.g. "Job description").
+    max_length:
+      type: int
+      description: Maximum number of characters in the summary.
   steps:
     - ref: summarize
       action: llm.ollama.call
@@ -27,30 +30,25 @@ definition:
           You are an expert summarizer of unstructured text, specifically knowledgeable about ${{ inputs.input_context }}.
           Analyze this text from the perspective of a domain expert in ${{ inputs.input_context }}.
 
-          Your task is to:
+          <task>
           1. Identify the key topic and purpose of the text
           2. Extract the most important entities and relationships
           3. Provide a concise summary that reflects domain-specific expertise
+          </task>
 
-          Be direct, clear, and focus on the most relevant information.
+          <requirements>
+          - The summary should be no more than ${{ inputs.max_length }} characters.
+          - The summary should be concise and to the point.
+          - The summary should be written in the style of a domain expert in ${{ inputs.input_context }}.
+          </requirements>
         format:
           type: object
           properties:
-            context:
-              type: string
-              description: What is the main topic of the text in 1-sentence?
-            purpose:
-              type: string
-              description: What is the purpose of the text in 1-sentence?
-            key_points:
-              type: array
-              items:
-                type: string
-              description: List of the most important entities and relationships.
             summary:
               type: string
-              description: Final concise summary
-          required: ["context", "key_points", "summary"]
+              description: Summary of the text.
+          required:
+            - summary
           additionalProperties: false
     - ref: output
       action: core.transform.reshape

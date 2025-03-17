@@ -34,10 +34,11 @@ definition:
           </input_data>
         system_prompt: |
           You are an expert at structured data extraction.
+
+          <task>
           You will be given input data that represents a ${{ FN.lowercase(inputs.input_context) }}.
           Extract a single data value from the input data.
-
-          The data to extract is: ${{ inputs.output_context }}
+          </task>
         format:
           type: object
           properties:
@@ -47,6 +48,7 @@ definition:
           required:
             - ${{ inputs.output_name }}
           additionalProperties: false
+          strict: true
     - ref: output
       action: core.transform.reshape
       args:

@@ -34,15 +34,14 @@ definition:
           </input_data>
         instructions: |
           You are an expert at structured data extraction.
+
+          <task>
           You will be given input data that represents a ${{ FN.lowercase(inputs.input_context) }}.
           Extract a single data value from the input data.
-
-          You are given a JSON schema that describes the structure of the data to extract.
-          The JSON schema only has one property: named `${{ inputs.output_name }}` with type `${{ inputs.output_type }}`.
+          </task>
         text_format:
           type: json_schema
           name: ${{ inputs.output_name }}
-          description: Extracted `${{ inputs.output_name }}` data value from the input data.
           schema:
             type: object
             properties:

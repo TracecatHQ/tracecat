@@ -35,12 +35,11 @@ definition:
           </input_data>
         instructions: |
           You are an expert at structured data extraction.
+
+          <task>
           You will be given input data that represents a ${{ FN.lowercase(inputs.input_context) }}.
           Extract a list of data values from the input data.
-
-          You are given a JSON schema that describes the structure of the data to extract.
-          The JSON schema only has one property: named `${{ inputs.output_name }}` with type `array`.
-          The array contains items of type `${{ inputs.output_type }}`.
+          </task>
         text_format:
           type: json_schema
           name: extract_many

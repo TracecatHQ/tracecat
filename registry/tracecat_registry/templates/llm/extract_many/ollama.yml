@@ -36,10 +36,11 @@ definition:
           </input_data>
         system_prompt: |
           You are an expert at structured data extraction.
+
+          <task>
           You will be given input data that represents a ${{ FN.lowercase(inputs.input_context) }}.
           Extract a list of data values from the input data.
-
-          The data to extract is: ${{ inputs.output_context }}
+          </task>
         format:
           type: object
           properties:
@@ -51,4 +52,5 @@ definition:
           required:
             - ${{ inputs.output_name }}
           additionalProperties: false
+          strict: true
   returns: ${{ FN.deserialize_json(steps.extract_many.result.message.content) }}
