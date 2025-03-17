@@ -34,12 +34,17 @@ async def call(
     system_prompt: Annotated[
         str | None, Doc("System prompt to use for the LLM")
     ] = None,
+    format: Annotated[
+        dict[str, Any] | None,
+        Doc("JSON schema for structured output."),
+    ] = None,
 ) -> dict[str, Any]:
     response = await async_ollama_call(  # type: ignore
         prompt=prompt,
         model=OllamaModel(model),
         memory=memory,
         system_prompt=system_prompt,
+        format=format,
         api_url=secrets.get("OLLAMA_API_URL", None),
     )
     return response.model_dump()

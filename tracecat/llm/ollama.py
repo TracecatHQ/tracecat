@@ -92,7 +92,7 @@ async def async_ollama_call(
     model: OllamaModel | None = None,
     memory: list[dict[str, Any]] | None = None,
     system_prompt: str | None = None,
-    format: BaseModel | None = None,
+    format: dict[str, Any] | BaseModel | None = None,
     api_url: str | None = None,
 ) -> ChatResponse:
     client = _get_ollama_client(api_url)
@@ -122,7 +122,10 @@ async def async_ollama_call(
     kwargs = {"model": model, "messages": messages}
     if format:
         model = model or DEFAULT_OLLAMA_INSTRUCT_MODEL
-        kwargs["format"] = format.model_json_schema()
+        if isinstance(format, BaseModel):
+            kwargs["format"] = format.model_json_schema()
+        else:
+            kwargs["format"] = format
     else:
         model = model or DEFAULT_OLLAMA_MODEL
 
