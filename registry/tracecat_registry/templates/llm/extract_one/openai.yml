@@ -27,7 +27,7 @@ definition:
     - ref: extract_one
       action: llm.openai.call
       args:
-        model: gpt4o
+        model: gpt4o_mini
         prompt: |
           Extract a single data value from the input data:
           <input_data>

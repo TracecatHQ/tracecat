@@ -17,7 +17,7 @@ definition:
     - ref: summarize
       action: llm.openai.call
       args:
-        model: gpt4o
+        model: gpt4o_mini
         prompt: |
           Summarize the following text:
           <input_data>
