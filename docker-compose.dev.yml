@@ -68,7 +68,6 @@ services:
       - ./alembic:/app/alembic
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
-      - ollama
       - executor
 
   worker:
