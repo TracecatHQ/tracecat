@@ -1,8 +1,8 @@
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from typing_extensions import Doc
 
-from tracecat.llm import async_openai_call, OpenAIModel
+from tracecat.llm import async_openai_call, OpenAIModel, DEFAULT_OPENAI_MODEL
 from tracecat_registry import RegistrySecret, registry, secrets
 
 openai_secret = RegistrySecret(
@@ -31,16 +31,9 @@ async def call(
         Doc("Prompt or conversation history to send to the LLM"),
     ],
     model: Annotated[
-        Literal[
-            "chatgpt_4o",
-            "gpt4o",
-            "gpt4o_mini",
-            "o1",
-            "o1_mini",
-            "o3_mini",
-        ],
+        str,
         Doc("Model to use"),
-    ],
+    ] = DEFAULT_OPENAI_MODEL.value,
     memory: Annotated[
         list[dict[str, Any]] | None,
         Doc("Past messages to include in the conversation."),
