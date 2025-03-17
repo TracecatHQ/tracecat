@@ -58,5 +58,5 @@ definition:
     - ref: output
       action: core.transform.reshape
       args:
-        value: ${{ FN.lookup(FN.deserialize_json(steps.summarize.result.output_text), "summary") }}
-  returns: ${{ steps.output.result }}
+        value: ${{ FN.deserialize_json(steps.summarize.result.output_text) }}
+  returns: ${{ FN.lookup(steps.output.result, "summary") }}
