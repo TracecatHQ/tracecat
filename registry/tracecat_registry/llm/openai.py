@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
@@ -26,8 +26,21 @@ openai_secret = RegistrySecret(
     secrets=[openai_secret],
 )
 async def call(
-    prompt: Annotated[str, Doc("Prompt to send to the LLM")],
-    model: Annotated[str, Doc("Model to use")],
+    prompt: Annotated[
+        str | list[dict[str, Any]],
+        Doc("Prompt or conversation history to send to the LLM"),
+    ],
+    model: Annotated[
+        Literal[
+            "chatgpt_4o",
+            "gpt4o",
+            "gpt4o_mini",
+            "o1",
+            "o1_mini",
+            "o3_mini",
+        ],
+        Doc("Model to use"),
+    ],
     memory: Annotated[
         list[dict[str, Any]] | None,
         Doc("Past messages to include in the conversation."),

@@ -35,7 +35,7 @@ DEFAULT_OPENAI_MODEL = OpenAIModel.GPT4O_MINI
 
 
 async def async_openai_call(
-    prompt: str,
+    prompt: str | list[dict[str, Any]],
     *,
     model: OpenAIModel = DEFAULT_OPENAI_MODEL,
     memory: list[ResponseInputParam] | None = None,
@@ -52,7 +52,11 @@ async def async_openai_call(
     messages = []
     if memory:
         messages.extend(memory)
-    messages.append({"role": "user", "content": prompt})
+
+    if isinstance(prompt, list):
+        messages.extend(prompt)
+    else:
+        messages.append({"role": "user", "content": prompt})
 
     kwargs = {"model": model, "input": messages}
     if instructions:
