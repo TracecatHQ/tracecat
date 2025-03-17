@@ -17,7 +17,6 @@ from tracecat.llm import (
     async_openai_call,
 )
 from tracecat.llm.ollama import ChatResponse
-from tracecat.llm.openai import DEFAULT_OPENAI_MODEL
 from tracecat.logger import logger
 
 pytestmark = pytest.mark.llm
@@ -155,7 +154,7 @@ async def test_memory(call_llm_params: tuple[str, Callable]):
 
     verification_kwargs = {
         "prompt": judge_prompt,
-        "model": DEFAULT_OPENAI_MODEL,
+        "model": "gpt-4o",
         "text_format": {
             "type": "json_schema",
             "name": "is_answer_correct",
