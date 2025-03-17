@@ -42,7 +42,7 @@ definition:
           </task>
         text_format:
           type: json_schema
-          name: extract_many
+          name: ${{ inputs.output_name }}
           schema:
             type: object
             properties:

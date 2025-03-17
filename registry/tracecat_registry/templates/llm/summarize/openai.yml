@@ -42,7 +42,7 @@ definition:
           </requirements>
         text_format:
           type: json_schema
-          name: summarize
+          name: summary
           schema:
             type: object
             properties:
