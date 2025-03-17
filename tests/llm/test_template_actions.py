@@ -21,7 +21,7 @@ def llm_actions_repo():
 
 @pytest.fixture(
     scope="function",
-    params=glob_file_paths(LLM_TEMPLATES_DIR / "extract_one", "yaml"),
+    params=glob_file_paths(LLM_TEMPLATES_DIR / "extract_one", "yml"),
 )
 def extract_one(request: pytest.FixtureRequest) -> TemplateAction:
     return load_yaml_template_action(request.param)
@@ -29,7 +29,7 @@ def extract_one(request: pytest.FixtureRequest) -> TemplateAction:
 
 @pytest.fixture(
     scope="function",
-    params=glob_file_paths(LLM_TEMPLATES_DIR / "extract_many", "yaml"),
+    params=glob_file_paths(LLM_TEMPLATES_DIR / "extract_many", "yml"),
 )
 def extract_many(request: pytest.FixtureRequest) -> TemplateAction:
     return load_yaml_template_action(request.param)
@@ -37,7 +37,7 @@ def extract_many(request: pytest.FixtureRequest) -> TemplateAction:
 
 @pytest.fixture(
     scope="function",
-    params=glob_file_paths(LLM_TEMPLATES_DIR / "summarize", "yaml"),
+    params=glob_file_paths(LLM_TEMPLATES_DIR / "summarize", "yml"),
 )
 def summarize(request: pytest.FixtureRequest) -> TemplateAction:
     return load_yaml_template_action(request.param)

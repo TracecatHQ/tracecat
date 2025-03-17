@@ -29,11 +29,8 @@ def generate_test_exec_id(name: str) -> str:
 
 
 def glob_file_paths(dir_path: Path, file_ext: str) -> list[Path]:
-    """Glob all files with the given extension in the given directory.
-
-    Include directory path in the returned paths.
-    """
-    return [dir_path / f for f in dir_path.glob(f"*.{file_ext}")]
+    """Glob all files with the given extension in the given directory."""
+    return list(dir_path.glob(f"*.{file_ext}"))
 
 
 def load_yaml_template_action(file_path: Path) -> TemplateAction:
