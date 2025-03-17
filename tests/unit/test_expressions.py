@@ -1122,7 +1122,7 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
             _expr.validate(visitor)
 
     # NOTE: We are using results to get ALL validation results
-    errors = list(visitor.results())
+    errors = list(visitor.errors())
 
     for actual, ex in zip(errors, expected, strict=True):
         assert_validation_result(actual, **ex)
@@ -1322,7 +1322,6 @@ async def test_template_action_validator_unsupported_expressions(expr, expected_
     assert found_err is not None, f"Expected {expected_error}, got {val_results}"
 
 
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "test_name,data,template,expected",
     [
