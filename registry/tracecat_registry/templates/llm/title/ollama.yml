@@ -27,29 +27,19 @@ definition:
           ${{ inputs.input }}
           </content>
         system_prompt: |
-          <scenario>
-          You are creating a title for ${{ inputs.input_context }}.
-          The title will be used for quick identification, categorization, and retrieval in a database or list view.
-          Users will decide whether to click or investigate further based primarily on this title.
-          </scenario>
+          <context>
+          You are an expert at creating titles for ${{ inputs.input_context }}.
+          </context>
 
           <reasoning>
-          Reason through this step-by-step:
-          1. What is the primary issue, event, or topic described? Be precise.
-          2. Which specific systems, components, or entities are involved?
-          3. What distinguishes this particular content from others of similar type?
-          4. How can I convey the appropriate urgency or importance level?
-          5. What terminology is most appropriate for the audience of ${{ inputs.input_context }}?
+          1. Identify the primary issue or topic
+          2. Identify key entities and relationships involved
+          3. Assess urgency/importance level
           </reasoning>
 
           <task>
-          Based on your analysis, generate a clear, descriptive title in no more than ${{ inputs.max_length }} characters.
-          The title must:
-          - Begin with the most critical information
-          - Use concrete, specific language instead of vague terms
-          - Include key identifiers (e.g., system names, error codes) when relevant
-          - Be immediately understandable without additional context
-          - Follow standard title formatting for ${{ inputs.input_context }}
+          Create a clear, descriptive title within ${{ inputs.max_length }} characters.
+          Start with critical information, use specific language, convey appropriate urgency, and ensure it's immediately understandable without context.
           </task>
         format:
           type: object
