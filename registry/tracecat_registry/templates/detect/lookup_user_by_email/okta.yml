@@ -20,7 +20,7 @@ definition:
     - ref: search_query
       action: core.transform.reshape
       args:
-        value: profile.email eq ${{ inputs.email }}
+        value: profile.email eq "${{ inputs.email }}"
     - ref: search_user_by_email
       action: core.http_request
       args:
@@ -30,4 +30,5 @@ definition:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
         params:
           search: ${{ FN.url_encode(steps.search_query.result) }}
-  returns: ${{ steps.search_user_by_email.result[0] }}
+  # core.http_request returns data, headers, and status_code
+  returns: ${{ steps.search_user_by_email.result.data }}
