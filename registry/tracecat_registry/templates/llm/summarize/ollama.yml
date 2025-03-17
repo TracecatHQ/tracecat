@@ -50,6 +50,7 @@ definition:
           required:
             - summary
           additionalProperties: false
+          strict: true
     - ref: output
       action: core.transform.reshape
       args:
