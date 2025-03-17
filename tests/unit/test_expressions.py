@@ -1306,6 +1306,7 @@ async def test_template_action_validator_unsupported_expressions(expr, expected_
 
     val_results = list(visitor.results())
 
+    # Expect that in the validation results, the expected error is present
     found_err = next(
         (
             r
