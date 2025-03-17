@@ -23,18 +23,22 @@ definition:
       args:
         model: gemma3:1b-it-q8_0
         prompt: |
-          I need you to summarize the following text:
-          <input_data>
+          <text>
           ${{ inputs.input }}
-          </input_data>
+          </text>
         system_prompt: |
+          <context>
           You are an expert summarizer of unstructured text, specifically knowledgeable about ${{ inputs.input_context }}.
-          Analyze this text from the perspective of a domain expert in ${{ inputs.input_context }}.
+          </context>
 
-          <task>
+          <reasoning>
           1. Identify the key topic and purpose of the text
           2. Extract the most important entities and relationships
-          3. Finally, provide a concise summary no more than ${{ inputs.max_length }} characters
+          3. Synthesize into concise summary
+          </reasoning>
+
+          <task>
+          Summarize the text in no more than ${{ inputs.max_length }} characters.
           </task>
         format:
           type: object

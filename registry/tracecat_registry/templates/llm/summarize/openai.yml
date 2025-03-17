@@ -17,23 +17,33 @@ definition:
       type: int
       description: Maximum number of characters in the summary.
       default: 280
+    include_breakdown:
+      type: bool
+      description: |
+        If True, an object with `topic`, `purpose`, `key_points`, and `summary` fields is returned.
+        Otherwise, only the summary is returned.
+      default: true
   steps:
     - ref: summarize
       action: llm.openai.call
       args:
         prompt: |
-          Summarize the following text:
-          <input_data>
+          <text>
           ${{ inputs.input }}
-          </input_data>
+          </text>
         instructions: |
+          <context>
           You are an expert summarizer of unstructured text, specifically knowledgeable about ${{ inputs.input_context }}.
-          You will analyze this text from the perspective of a domain expert in ${{ inputs.input_context }}.
+          </context>
+
+          <reasoning>
+          1. Identify topic and purpose
+          2. Extract key points
+          3. Synthesize into concise summary
+          </reasoning>
 
           <task>
-          1. Identify the key topic and purpose of the text
-          2. Extract the most important entities and relationships
-          3. Finally, provide a concise summary no more than ${{ inputs.max_length }} characters
+          Summarize the text in no more than ${{ inputs.max_length }} characters.
           </task>
         text_format:
           type: json_schema
@@ -41,29 +51,29 @@ definition:
           schema:
             type: object
             properties:
-              context:
+              topic:
                 type: string
-                description: What is the main topic of the text in 1-sentence?
+                description: Main topic (brief).
               purpose:
                 type: string
-                description: What is the purpose of the text in 1-sentence?
+                description: Primary purpose (brief).
               key_points:
                 type: array
                 items:
                   type: string
-                description: List of the most important entities and relationships.
-              summary:
+                description: Essential points (3-5 items).
+              final_summary:
                 type: string
-                description: Summary of the text.
+                description: Summary within ${{ inputs.max_length }} characters.
             required:
-              - context
+              - topic
               - purpose
               - key_points
-              - summary
+              - final_summary
             additionalProperties: false
           strict: true
     - ref: output
       action: core.transform.reshape
       args:
         value: ${{ FN.deserialize_json(steps.summarize.result.output_text) }}
-  returns: ${{ FN.lookup(steps.output.result, "summary") }}
+  returns: ${{ steps.output.result if inputs.include_breakdown else FN.lookup(steps.output.result, "final_summary") }}

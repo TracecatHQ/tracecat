@@ -29,16 +29,16 @@ definition:
       action: llm.openai.call
       args:
         prompt: |
-          Extract a list of data values from:
           <input_data>
           ${{ inputs.input }}
           </input_data>
         instructions: |
+          <context>
           You are an expert at structured data extraction.
+          </context>
 
           <task>
-          You will be given input data that represents a ${{ FN.lowercase(inputs.input_context) }}.
-          Extract a list of data values from the input data.
+          Extract a list of ${{ inputs.output_name }} from the input data representing a ${{ FN.lowercase(inputs.input_context) }}.
           </task>
         text_format:
           type: json_schema

@@ -30,16 +30,16 @@ definition:
       args:
         model: gemma3:1b-it-q8_0
         prompt: |
-          Extract a list of data values from:
           <input_data>
           ${{ inputs.input }}
           </input_data>
         system_prompt: |
+          <context>
           You are an expert at structured data extraction.
+          </context>
 
           <task>
-          You will be given input data that represents a ${{ FN.lowercase(inputs.input_context) }}.
-          Extract a list of data values from the input data.
+          Extract a list of ${{ inputs.output_name }} from the input data representing a ${{ FN.lowercase(inputs.input_context) }}.
           </task>
         format:
           type: object
