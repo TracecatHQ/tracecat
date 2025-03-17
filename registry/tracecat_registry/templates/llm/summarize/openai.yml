@@ -17,7 +17,6 @@ definition:
     - ref: summarize
       action: llm.openai.call
       args:
-        model: gpt4o_mini
         prompt: |
           Summarize the following text:
           <input_data>
@@ -31,6 +30,8 @@ definition:
           1. Identify the key topic and purpose of the text
           2. Extract the most important entities and relationships
           3. Finally, provide a concise summary that reflects domain-specific expertise
+
+          Be direct, clear, and focus on the most relevant information.
         text_format:
           type: json_schema
           name: summarize

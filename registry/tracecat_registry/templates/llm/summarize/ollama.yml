@@ -17,7 +17,7 @@ definition:
     - ref: summarize
       action: llm.ollama.call
       args:
-        model: gemma3_12b_instruct
+        model: gemma3:1b-it-q8_0
         prompt: |
           I need you to summarize the following text:
           <input_data>

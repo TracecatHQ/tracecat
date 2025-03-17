@@ -26,7 +26,7 @@ definition:
     - ref: extract_one
       action: llm.ollama.call
       args:
-        model: gemma3_1b_instruct
+        model: gemma3:1b-it-q8_0
         prompt: |
           Extract a single data value from:
           <input_data>

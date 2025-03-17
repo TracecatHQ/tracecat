@@ -28,7 +28,6 @@ definition:
     - ref: extract_many
       action: llm.openai.call
       args:
-        model: gpt4o_mini
         prompt: |
           Extract a list of data values from:
           <input_data>
