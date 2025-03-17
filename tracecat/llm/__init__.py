@@ -1,4 +1,5 @@
 from .ollama import (
+    DEFAULT_OLLAMA_MODEL,
     OllamaModel,
     async_ollama_call,
     is_local_model,
@@ -7,6 +8,7 @@ from .ollama import (
     preload_ollama_models,
 )
 from .openai import (
+    DEFAULT_OPENAI_MODEL,
     OpenAIModel,
     async_openai_call,
 )
@@ -20,4 +22,6 @@ __all__ = [
     "list_local_models",
     "is_local_model",
     "preload_ollama_models",
+    "DEFAULT_OLLAMA_MODEL",
+    "DEFAULT_OPENAI_MODEL",
 ]
