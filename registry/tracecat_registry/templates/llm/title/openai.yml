@@ -1,0 +1,85 @@
+type: action
+definition:
+  title: Title
+  description: Generate an informative title for given text using OpenAI LLMs.
+  display_group: Title
+  doc_url: https://platform.openai.com/docs/guides/text-generation
+  namespace: openai.title
+  name: title
+  expects:
+    input:
+      type: str
+      description: Content to generate a title for.
+    input_context:
+      type: str
+      description: Type of content (e.g. "incident reports", "knowledge articles").
+    max_length:
+      type: int
+      description: Maximum number of characters in the title.
+      default: 60
+  steps:
+    - ref: generate_title
+      action: llm.openai.call
+      args:
+        prompt: |
+          <content>
+          ${{ inputs.input }}
+          </content>
+        instructions: |
+          <scenario>
+          You are creating a title for ${{ inputs.input_context }}.
+          The title will be used for quick identification, categorization, and retrieval in a database or list view.
+          Users will decide whether to click or investigate further based primarily on this title.
+          </scenario>
+
+          <reasoning>
+          Analyze this in a step-by-step manner:
+          1. What is the primary issue, event, or topic described? Be precise.
+          2. Which specific systems, components, or entities are involved?
+          3. What distinguishes this particular content from others of similar type?
+          4. How can I convey the appropriate urgency or importance level?
+          5. What terminology is most appropriate for the audience of ${{ inputs.input_context }}?
+          </reasoning>
+
+          <task>
+          Based on your analysis, generate a clear, descriptive title in no more than ${{ inputs.max_length }} characters.
+          The title must:
+          - Begin with the most critical information
+          - Use concrete, specific language instead of vague terms
+          - Include key identifiers (e.g., system names, error codes) when relevant
+          - Be immediately understandable without additional context
+          - Follow standard title formatting for ${{ inputs.input_context }}
+          </task>
+        text_format:
+          type: json_schema
+          name: title_generation
+          schema:
+            type: object
+            properties:
+              core_topic:
+                type: string
+                description: Primary issue or subject identified (be specific).
+              key_entities:
+                type: array
+                items:
+                  type: string
+                description: Important systems, components, or entities involved.
+              urgency_level:
+                type: string
+                enum: ["low", "medium", "high", "critical"]
+                description: Assessed urgency based on content.
+              title:
+                type: string
+                description: Final title within ${{ inputs.max_length }} characters.
+            required:
+              - core_topic
+              - key_entities
+              - urgency_level
+              - title
+            additionalProperties: false
+          strict: true
+    - ref: output
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.deserialize_json(steps.generate_title.result.output_text) }}
+  returns: ${{ FN.lookup(steps.output.result, "title") }}
