@@ -23,14 +23,25 @@ class OllamaModel(StrEnum):
     LLAMA32 = "llama3.2:3b"
     LLAMA32_1B = "llama3.2:1b"
     MISTRAL_SMALL = "mistral-small:24b"
+    GEMMA3_1B = "gemma3:1b"
+    GEMMA3_4B = "gemma3:4b"
+    GEMMA3_12B = "gemma3:12b"
+    # Smol instruction tuned
+    GEMMA3_1B_INSTRUCT = "gemma3:1b-it-q8_0"
+    GEMMA3_4B_INSTRUCT = "gemma3:4b-it-q8_0"
+    GEMMA3_12B_INSTRUCT = "gemma3:12b-it-q8_0"
     # Large models
     LLAMA33 = "llama3.3:70b"
     MISTRAL_LARGE = "mistral-large:123b"
     MIXTRAL = "mixtral:8x7b"
     MIXTRAL_22B = "mixtral:8x22b"
+    GEMMA3_27B = "gemma3:27b"
+    # Instruction tuned models
+    GEMMA3_27B_INSTRUCT = "gemma3:27b-it-q8_0"
 
 
-DEFAULT_OLLAMA_MODEL = OllamaModel.LLAMA32_1B
+DEFAULT_OLLAMA_MODEL = OllamaModel.GEMMA3_1B
+DEFAULT_OLLAMA_INSTRUCT_MODEL = OllamaModel.GEMMA3_1B_INSTRUCT
 
 
 def _get_ollama_client(api_url: str | None = None) -> ollama.AsyncClient:
@@ -76,7 +87,7 @@ async def is_local_model(model: str, api_url: str | None = None) -> bool:
 async def async_ollama_call(
     prompt: str,
     *,
-    model: OllamaModel = DEFAULT_OLLAMA_MODEL,
+    model: OllamaModel | None = None,
     memory: list[dict[str, Any]] | None = None,
     system_prompt: str | None = None,
     format: BaseModel | None = None,
@@ -108,6 +119,10 @@ async def async_ollama_call(
 
     kwargs = {"model": model, "messages": messages}
     if format:
+        model = model or DEFAULT_OLLAMA_INSTRUCT_MODEL
         kwargs["format"] = format.model_json_schema()
+    else:
+        model = model or DEFAULT_OLLAMA_MODEL
+
     response = await client.chat(**kwargs)
     return response
