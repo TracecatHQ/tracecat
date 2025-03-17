@@ -37,47 +37,15 @@ env:
   UV_SYSTEM_PYTHON: 1
 
 jobs:
-  test-registry:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.git-ref }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: "0.4.20"
-          enable-cache: true
-          cache-dependency-glob: "registry/pyproject.toml"
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: |
-          uv pip install ".[dev]"
-          uv pip install ./registry
-
-      - name: Run environment setup script
-        run: |
-          echo "y
-          localhost
-          n" | bash env.sh
-
-      - name: Run tests
-        run: uv run pytest -m "not integration" tests/registry -ra
-
   test-all:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     timeout-minutes: 60
-    needs: test-registry
     strategy:
       matrix:
-        test_type: [unit]
+        test_group:
+          - unit
+          - registry
+          - integration
     steps:
       - uses: actions/checkout@v4
         with:
@@ -107,7 +75,7 @@ jobs:
       - name: Start Docker services
         env:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-        run: docker compose -f docker-compose.dev.yml up --build -d temporal api worker executor postgres_db caddy
+        run: docker compose -f docker-compose.dev.yml up --build -d temporal api worker executor postgres_db caddy ollama
 
       - name: Install dependencies
         run: |
@@ -117,4 +85,4 @@ jobs:
       - name: Run tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: uv run pytest tests/${{ matrix.test_type }} -m "not podman" -ra
+        run: uv run pytest tests/${{ matrix.test_group }} -m "not podman" -ra
