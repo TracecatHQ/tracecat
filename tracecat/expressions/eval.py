@@ -18,7 +18,12 @@ def _eval_templated_obj_rec(obj: T, operator: Callable[[str], Any]) -> T:
         case list():
             return [_eval_templated_obj_rec(item, operator) for item in obj]
         case dict():
-            return {k: _eval_templated_obj_rec(v, operator) for k, v in obj.items()}
+            return {
+                operator(k) if isinstance(k, str) else k: _eval_templated_obj_rec(
+                    v, operator
+                )
+                for k, v in obj.items()
+            }
         case _:
             return obj
 
