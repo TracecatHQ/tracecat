@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
+import orjson
 import pytest
 from openai.types.responses import Response
 
@@ -181,7 +182,8 @@ async def test_memory(call_llm_params: tuple[str, Callable]):
             f"LLM judge was unable to verify the response: {judge_response.incomplete_details}"
         )
 
-    judge_answer = judge_response.output_text
+    judge_answer = orjson.loads(judge_response.output_text)["answer"]
+    assert isinstance(judge_answer, bool)
     assert judge_answer, (
         f"LLM judge determined response was incorrect.\n"
         f"Assistant response: {response_content}\n"
