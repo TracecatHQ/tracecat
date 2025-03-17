@@ -17,12 +17,6 @@ definition:
       type: int
       description: Maximum number of characters in the summary.
       default: 280
-    include_breakdown:
-      type: bool
-      description: |
-        If True, an object with `topic`, `purpose`, `key_points`, and `summary` fields is returned.
-        Otherwise, only the summary is returned.
-      default: true
   steps:
     - ref: summarize
       action: llm.openai.call
@@ -76,4 +70,4 @@ definition:
       action: core.transform.reshape
       args:
         value: ${{ FN.deserialize_json(steps.summarize.result.output_text) }}
-  returns: ${{ steps.output.result if inputs.include_breakdown else FN.lookup(steps.output.result, "final_summary") }}
+  returns: ${{ FN.lookup(steps.output.result, "final_summary") }}

@@ -45,7 +45,7 @@ definition:
           properties:
             summary:
               type: string
-              description: Summary of exactly ${{ inputs.max_length }} characters or fewer.
+              description: Summary within ${{ inputs.max_length }} characters.
           required:
             - summary
           additionalProperties: false
