@@ -1,0 +1,58 @@
+type: action
+definition:
+  title: Extract many
+  description: Extract a list of data values from given input data using OpenAI LLMs.
+  display_group: Extract
+  doc_url: https://platform.openai.com/docs/guides/structured-outputs
+  namespace: openai.extract_many
+  name: extract_many
+  expects:
+    input:
+      type: str | list[str] | dict[str, any]
+      description: Input data.
+    input_context:
+      type: str
+      description: Description of the input data (e.g. "Job description").
+    output_name:
+      type: str
+      description: Data value to extract in plural form (e.g. "locations").
+    output_type:
+      type: enum["string", "number", "integer", "boolean"]
+      description: Data type of the data to extract (e.g. "string").
+    output_context:
+      type: str
+      description: |
+        Description of the data to extract in plural form
+        (e.g. "Locations given by city and state (e.g. 'San Francisco, CA')").
+  steps:
+    - ref: extract_many
+      action: llm.openai.call
+      args:
+        model: gpt4o
+        prompt: |
+          Extract a list of data values from the ${{ FN.lowercase(inputs.input_context) }}:
+          <input>
+          ${{ inputs.input }}
+          </input>
+        instructions: |
+          You are an expert at structured data extraction.
+          You will be given input data that represents a ${{ FN.lowercase(inputs.input_context) }}.
+          Extract a list of data values from the input data according the given structured outputs JSON schema.
+          The JSON schema only has one property: named `${{ inputs.output_name }}` with type `array`.
+          The array contains items of type `${{ inputs.output_type }}`.
+        text_format:
+          type: json_schema
+          name: extract_many
+          schema:
+            type: object
+            properties:
+              ${{ inputs.output_name }}:
+                type: array
+                items:
+                  type: ${{ inputs.output_type }}
+                description: ${{ inputs.output_context }}
+            required:
+              - ${{ inputs.output_name }}
+            additionalProperties: false
+          strict: true
+  returns: ${{ FN.deserialize_json(steps.extract_many.result.output_text) }}
