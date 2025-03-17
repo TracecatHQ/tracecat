@@ -16,6 +16,7 @@ definition:
     max_length:
       type: int
       description: Maximum number of characters in the summary.
+      default: 280
   steps:
     - ref: summarize
       action: llm.ollama.call
@@ -33,20 +34,14 @@ definition:
           <task>
           1. Identify the key topic and purpose of the text
           2. Extract the most important entities and relationships
-          3. Provide a concise summary that reflects domain-specific expertise
+          3. Finally, provide a concise summary no more than ${{ inputs.max_length }} characters
           </task>
-
-          <requirements>
-          - The summary should be no more than ${{ inputs.max_length }} characters.
-          - The summary should be concise and to the point.
-          - The summary should be written in the style of a domain expert in ${{ inputs.input_context }}.
-          </requirements>
         format:
           type: object
           properties:
             summary:
               type: string
-              description: Summary of the text.
+              description: Summary of exactly ${{ inputs.max_length }} characters or fewer.
           required:
             - summary
           additionalProperties: false
