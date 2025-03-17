@@ -1,0 +1,59 @@
+type: action
+definition:
+  title: Summarize
+  description: Summarize a given text using Ollama LLMs.
+  display_group: Summarize
+  doc_url: https://github.com/ollama/ollama/blob/main/README.md
+  namespace: ollama.summarize
+  name: summarize
+  expects:
+    input:
+      type: str
+      description: Text to summarize.
+    input_context:
+      type: str
+      description: Description of the input text (e.g. "Job description").
+  steps:
+    - ref: summarize
+      action: llm.ollama.call
+      args:
+        model: gemma3_12b_instruct
+        prompt: |
+          I need you to summarize the following text:
+          <input_data>
+          ${{ inputs.input }}
+          </input_data>
+        system_prompt: |
+          You are an expert summarizer of unstructured text, specifically knowledgeable about ${{ inputs.input_context }}.
+          Analyze this text from the perspective of a domain expert in ${{ inputs.input_context }}.
+
+          Your task is to:
+          1. Identify the key topic and purpose of the text
+          2. Extract the most important entities and relationships
+          3. Provide a concise summary that reflects domain-specific expertise
+
+          Be direct, clear, and focus on the most relevant information.
+        format:
+          type: object
+          properties:
+            context:
+              type: string
+              description: What is the main topic of the text in 1-sentence?
+            purpose:
+              type: string
+              description: What is the purpose of the text in 1-sentence?
+            key_points:
+              type: array
+              items:
+                type: string
+              description: List of the most important entities and relationships.
+            summary:
+              type: string
+              description: Final concise summary
+          required: ["context", "key_points", "summary"]
+          additionalProperties: false
+    - ref: output
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.lookup(FN.deserialize_json(steps.summarize.result.message.content), "summary") }}
+  returns: ${{ steps.output.result }}
