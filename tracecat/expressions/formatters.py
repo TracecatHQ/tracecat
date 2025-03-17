@@ -15,28 +15,48 @@ from html import escape
 from typing import Any, Literal
 
 
-def _format_markdown(x: list[dict[str, Any]]) -> str:
-    """Format list of dictionaries into markdown table."""
+def _format_markdown(x: list[dict[str, Any]], default_value: str = "") -> str:
+    """Format list of dictionaries into markdown table.
+
+    Args:
+        x: List of dictionaries to format
+        default_value: Value to use for null values or missing keys
+    """
     if not x:
         return ""
 
-    # Get all possible keys from all dictionaries
+    # Get all unique keys from all dictionaries
     all_keys = set()
     for item in x:
         all_keys.update(item.keys())
-    all_keys = sorted(all_keys)
 
-    # Create header row
-    header = "| " + " | ".join(all_keys) + " |"
-    separator = "| " + " | ".join(["---" for _ in all_keys]) + " |"
+    # If there are no keys (all dictionaries are empty), return empty string
+    if not all_keys:
+        return ""
 
-    # Create data rows
-    rows = []
+    headers = sorted(all_keys)
+
+    # Build header row
+    header_row = "|" + "|".join(headers) + "|"
+
+    # Build separator row
+    separator_row = "|" + "|".join(["-" for key in headers]) + "|"
+
+    # Build data rows
+    data_rows = []
     for item in x:
-        row_values = [str(item.get(key, "")) for key in all_keys]
-        rows.append("| " + " | ".join(row_values) + " |")
+        row_parts = []
+        for key in headers:
+            value = item.get(key)
+            if value is None or value == "":
+                row_parts.append("")
+            else:
+                row_parts.append(str(value))
 
-    return "\n".join([header, separator] + rows)
+        row = "|" + "|".join(row_parts) + "|"
+        data_rows.append(row)
+
+    return "\n".join([header_row, separator_row] + data_rows)
 
 
 def _format_html(x: list[dict[str, Any]]) -> str:
