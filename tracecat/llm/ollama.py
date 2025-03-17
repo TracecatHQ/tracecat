@@ -81,9 +81,10 @@ async def list_local_model_names(api_url: str | None = None) -> list[str | None]
 
 
 @alru_cache(ttl=3600)
-async def is_local_model(model: str, api_url: str | None = None) -> bool:
+async def is_local_model(model: OllamaModel, api_url: str | None = None) -> bool:
     """Check if a model is available locally."""
-    return model in await list_local_model_names(api_url)
+    model_name = model.value
+    return model_name in await list_local_model_names(api_url)
 
 
 async def async_ollama_call(
