@@ -10,6 +10,7 @@ import ollama
 from async_lru import alru_cache
 from ollama import ChatResponse
 from pydantic import BaseModel
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tracecat import config
 from tracecat.logger import logger
@@ -48,6 +49,7 @@ def _get_ollama_client(api_url: str | None = None) -> ollama.AsyncClient:
     return ollama.AsyncClient(host=api_url or config.OLLAMA__API_URL)
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=2, min=4, max=30))
 async def preload_ollama_models(models: list[str]) -> list[dict[str, Any]]:
     client = _get_ollama_client()
     responses = []
