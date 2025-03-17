@@ -398,7 +398,7 @@ def map_dict_keys(x: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
         raise ValueError(f"Key {e} not found in keys mapping {keys}.") from e
 
 
-def serialize_to_json(x: Any) -> str:
+def serialize_json(x: Any) -> str:
     """Convert object to JSON string."""
     return orjson.dumps(x).decode()
 
@@ -856,7 +856,7 @@ _FUNCTION_MAPPING = {
     "or": or_,
     "not": not_,
     # Type conversion
-    "serialize_json": serialize_to_json,
+    "serialize_json": serialize_json,
     "deserialize_json": orjson.loads,
     "prettify_json": prettify_json,
     "deserialize_ndjson": deserialize_ndjson,
