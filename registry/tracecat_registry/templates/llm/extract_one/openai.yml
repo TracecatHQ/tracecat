@@ -36,7 +36,9 @@ definition:
         instructions: |
           You are an expert at structured data extraction.
           You will be given input data that represents a ${{ FN.lowercase(inputs.input_context) }}.
-          Extract a single data value from the input data according the given structured outputs JSON schema.
+          Extract a single data value from the input data.
+
+          You are given a JSON schema that describes the structure of the data to extract.
           The JSON schema only has one property: named `${{ inputs.output_name }}` with type `${{ inputs.output_type }}`.
         text_format:
           type: json_schema
