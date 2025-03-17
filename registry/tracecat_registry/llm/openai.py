@@ -54,4 +54,6 @@ async def call(
         text_format=text_format,
         api_key=secrets.get("OPENAI_API_KEY"),
     )
-    return response.model_dump()
+    json_response = response.model_dump()
+    json_response["output_text"] = response.output_text
+    return json_response
