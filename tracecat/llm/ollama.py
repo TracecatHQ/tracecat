@@ -90,7 +90,7 @@ async def is_local_model(model: OllamaModel, api_url: str | None = None) -> bool
 async def async_ollama_call(
     prompt: str,
     *,
-    model: OllamaModel | None = None,
+    model: OllamaModel = DEFAULT_OLLAMA_MODEL,
     memory: list[dict[str, Any]] | None = None,
     system_prompt: str | None = None,
     format: dict[str, Any] | BaseModel | None = None,
@@ -122,7 +122,6 @@ async def async_ollama_call(
 
     kwargs = {"model": model, "messages": messages}
     if format:
-        model = model or DEFAULT_OLLAMA_INSTRUCT_MODEL
         if isinstance(format, BaseModel):
             kwargs["format"] = format.model_json_schema()
         else:
