@@ -22,11 +22,15 @@ definition:
       type: str
       description: |
         Description of the data to extract (e.g. "Location given by city and state (e.g. 'San Francisco, CA')").
+    model:
+      type: str
+      description: Model to use for extraction.
+      default: gemma3:1b-it-q8_0
   steps:
     - ref: extract_one
       action: llm.ollama.call
       args:
-        model: gemma3:1b-it-q8_0
+        model: ${{ inputs.model }}
         prompt: |
           <input_data>
           ${{ inputs.input }}

@@ -17,11 +17,15 @@ definition:
       type: int
       description: Maximum number of characters in the title.
       default: 60
+    model:
+      type: str
+      description: Model to use for title generation.
+      default: gemma3:1b-it-q8_0
   steps:
     - ref: generate_title
       action: llm.ollama.call
       args:
-        model: gemma3:1b-it-q8_0
+        model: ${{ inputs.model }}
         prompt: |
           <content>
           ${{ inputs.input }}

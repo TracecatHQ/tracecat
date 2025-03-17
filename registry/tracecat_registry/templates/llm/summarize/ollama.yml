@@ -17,11 +17,15 @@ definition:
       type: int
       description: Maximum number of characters in the summary.
       default: 280
+    model:
+      type: str
+      description: Model to use for summarization.
+      default: gemma3:1b-it-q8_0
   steps:
     - ref: summarize
       action: llm.ollama.call
       args:
-        model: gemma3:1b-it-q8_0
+        model: ${{ inputs.model }}
         prompt: |
           <text>
           ${{ inputs.input }}
