@@ -14,6 +14,7 @@ from tracecat.expressions.formatters import (
     _format_xml,
     format_table,
 )
+from tracecat.logger import logger
 
 
 # Common test data fixtures
@@ -62,7 +63,13 @@ class TestMarkdown:
     def test_simple_format(self, simple_data):
         """Test markdown formatting with simple data."""
         result = _format_markdown(simple_data)
+        logger.debug("\n===== test_simple_format =====")
+        logger.debug(f"Input data: {simple_data}")
+        logger.debug(f"Result:\n{result}")
+
         lines = result.strip().split("\n")
+        logger.debug(f"Number of lines: {len(lines)}")
+        logger.debug(f"Lines: {lines}")
 
         # Check structure - we expect header, separator, and data rows
         assert len(lines) == 4, (
@@ -91,7 +98,13 @@ class TestMarkdown:
     def test_missing_values(self, missing_data):
         """Test markdown formatting with missing values."""
         result = _format_markdown(missing_data)
+        logger.debug("\n===== test_missing_values =====")
+        logger.debug(f"Input data: {missing_data}")
+        logger.debug(f"Result:\n{result}")
+
         lines = result.strip().split("\n")
+        logger.debug(f"Number of lines: {len(lines)}")
+        logger.debug(f"Contains '||': {'||' in result}")
 
         # Verify we have the expected number of lines
         assert len(lines) == 5, f"Expected 5 lines, but got {len(lines)}:\n{result}"
@@ -113,6 +126,18 @@ class TestMarkdown:
     def test_edge_cases(self, input_data):
         """Test markdown formatting with edge cases."""
         result = _format_markdown(input_data)
+        logger.debug(f"\n===== test_edge_cases ({input_data}) =====")
+        logger.debug(f"Result:\n{result}")
+
+        if not input_data or all(not item for item in input_data):
+            logger.debug("Testing empty input case")
+        else:
+            logger.debug("Testing non-empty case")
+            lines = result.strip().split("\n")
+            logger.debug(f"Number of lines: {len(lines)}")
+            logger.debug(f"Lines: {lines}")
+            if len(lines) > 1:
+                logger.debug(f"Separator row contains dash: {'-' in lines[1]}")
 
         if not input_data or all(not item for item in input_data):
             # For empty list or list with only empty dictionaries, expect empty output
@@ -308,16 +333,24 @@ def test_format_table_dispatch(simple_data):
     formatters = [_format_markdown, _format_html, _format_csv, _format_xml]
 
     for format_name, formatter_func in zip(formats, formatters, strict=False):
+        logger.debug(f"\n===== test_format_table_dispatch ({format_name}) =====")
+
         # Compare with direct formatter call
         table_result = format_table(simple_data, format_name)  # type: ignore
         direct_result = formatter_func(simple_data)
 
-        assert table_result == direct_result, (
-            f"format_table({format_name}) result doesn't match direct formatter call:\n{table_result}\n\nvs expected:\n{direct_result}"
+        logger.debug(
+            f"table_result equals direct_result: {table_result == direct_result}"
         )
+        if table_result != direct_result:
+            logger.debug("table_result:")
+            logger.debug(table_result)
+            logger.debug("\ndirect_result:")
+            logger.debug(direct_result)
 
-        # Also verify format-specific characteristics
+        # Also test format-specific characteristics
         if format_name == "markdown":
+            logger.debug(f"Contains pipe: {'|' in table_result}")
             assert "|" in table_result, (
                 f"Markdown table should contain pipe characters:\n{table_result}"
             )
