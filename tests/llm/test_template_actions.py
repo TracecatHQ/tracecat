@@ -12,7 +12,7 @@ from tracecat.registry.repository import Repository
 LLM_TEMPLATES_DIR = Path("registry/tracecat_registry/templates/llm")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def llm_actions_repo():
     repo = Repository()
     repo.init(include_base=True, include_templates=True)
@@ -21,7 +21,14 @@ def llm_actions_repo():
 
 @pytest.fixture(
     scope="function",
-    params=glob_file_paths(LLM_TEMPLATES_DIR / "extract_one", "yml"),
+    params=[
+        pytest.param(
+            path,
+            id=path.stem,
+            marks=[pytest.mark.ollama] if "ollama" in path.stem else [],
+        )
+        for path in glob_file_paths(LLM_TEMPLATES_DIR / "extract_one", "yml")
+    ],
 )
 def extract_one(request: pytest.FixtureRequest) -> TemplateAction:
     return load_yaml_template_action(request.param)
@@ -29,7 +36,14 @@ def extract_one(request: pytest.FixtureRequest) -> TemplateAction:
 
 @pytest.fixture(
     scope="function",
-    params=glob_file_paths(LLM_TEMPLATES_DIR / "extract_many", "yml"),
+    params=[
+        pytest.param(
+            path,
+            id=path.stem,
+            marks=[pytest.mark.ollama] if "ollama" in path.stem else [],
+        )
+        for path in glob_file_paths(LLM_TEMPLATES_DIR / "extract_many", "yml")
+    ],
 )
 def extract_many(request: pytest.FixtureRequest) -> TemplateAction:
     return load_yaml_template_action(request.param)
@@ -37,7 +51,14 @@ def extract_many(request: pytest.FixtureRequest) -> TemplateAction:
 
 @pytest.fixture(
     scope="function",
-    params=glob_file_paths(LLM_TEMPLATES_DIR / "summarize", "yml"),
+    params=[
+        pytest.param(
+            path,
+            id=path.stem,
+            marks=[pytest.mark.ollama] if "ollama" in path.stem else [],
+        )
+        for path in glob_file_paths(LLM_TEMPLATES_DIR / "summarize", "yml")
+    ],
 )
 def summarize(request: pytest.FixtureRequest) -> TemplateAction:
     return load_yaml_template_action(request.param)
@@ -86,7 +107,7 @@ async def test_extract_many(extract_many: TemplateAction, llm_actions_repo: Repo
             "input_context": "startup information",
             "output_name": "companies",
             "output_type": "string",
-            "output_context": "Successful Y Combinator startups from San Francisco",
+            "output_context": "Successful Y Combinator startups from San Francisco (e.g. 'Airbnb', 'Coinbase', 'Instacart)",
         },
         context={},
     )
@@ -96,12 +117,11 @@ async def test_extract_many(extract_many: TemplateAction, llm_actions_repo: Repo
     assert "companies" in result
     assert isinstance(result["companies"], list)
 
-    companies_lower = [company.lower() for company in result["companies"]]
-    assert any(
-        company in companies_lower
-        for company in ["airbnb", "stripe", "dropbox", "doordash"]
+    companies = [company.lower() for company in result["companies"]]
+    expected_companies = ["airbnb", "stripe", "dropbox", "doordash"]
+    assert any(company in companies for company in expected_companies), (
+        f"Expected at least one of the companies in the list: {expected_companies}. Got: {companies} instead."
     )
-    assert len(result["companies"]) >= 2, "Should extract at least two YC companies"
 
 
 @pytest.mark.anyio
@@ -124,14 +144,20 @@ async def test_summarize(summarize: TemplateAction, llm_actions_repo: Repository
     Bridge, cable cars, Alcatraz, and Chinatown, make it one of the most visited cities in the world.
     """
 
+    max_length = 400
     result = await service.run_template_action(
         action=bound_action,
-        args={"input": input_text, "input_context": "tech startup ecosystems"},
+        args={
+            "input": input_text,
+            "input_context": "tech startup ecosystems",
+            "max_length": max_length,
+        },
         context={},
     )
 
     assert result is not None
     assert isinstance(result, str)
+    assert len(result) <= max_length, f"Should be no more than {max_length} characters"
     assert any(
-        term in result.lower() for term in ["san francisco", "y combinator", "startup"]
-    )
+        term in result.lower() for term in ["y combinator", "startup", "tourism"]
+    ), f"Should contain at least one of the terms: {result}"

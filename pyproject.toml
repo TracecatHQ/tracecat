@@ -126,4 +126,5 @@ markers = [
     "integration: marks tests that perform live network calls and container operations",
     "podman: marks tests that use the Podman container runner",
     "llm: marks tests that perform LLM calls",
+    "ollama: mark tests that require Ollama"
 ]
