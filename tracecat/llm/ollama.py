@@ -18,27 +18,28 @@ from tracecat.logger import logger
 
 class OllamaModel(StrEnum):
     # Smol models (<15GB)
+    GEMMA3_12B = "gemma3:12b"
+    GEMMA3_1B = "gemma3:1b"
+    GEMMA3_4B = "gemma3:4b"
     LLAMA32 = "llama3.2:3b"
     LLAMA32_1B = "llama3.2:1b"
     MISTRAL_SMALL = "mistral-small:24b"
-    GEMMA3_1B = "gemma3:1b"
-    GEMMA3_4B = "gemma3:4b"
-    GEMMA3_12B = "gemma3:12b"
     # Smol instruction tuned
+    GEMMA3_12B_INSTRUCT = "gemma3:12b-it-q8_0"
     GEMMA3_1B_INSTRUCT = "gemma3:1b-it-q8_0"
     GEMMA3_4B_INSTRUCT = "gemma3:4b-it-q8_0"
-    GEMMA3_12B_INSTRUCT = "gemma3:12b-it-q8_0"
     LLAMA32_1B_INSTRUCT = "llama3.2:1b-instruct-q8_0"
     LLAMA32_3B_INSTRUCT = "llama3.2:3b-instruct-q8_0"
     # Large models
+    GEMMA3_27B = "gemma3:27b"
     LLAMA33 = "llama3.3:70b"
     MISTRAL_LARGE = "mistral-large:123b"
     MIXTRAL = "mixtral:8x7b"
     MIXTRAL_22B = "mixtral:8x22b"
-    GEMMA3_27B = "gemma3:27b"
     # Instruction tuned models
     GEMMA3_27B_INSTRUCT = "gemma3:27b-it-q8_0"
     LLAMA33_INSTRUCT = "llama3.3:70b-instruct-q8_0"
+    MISTRAL_SMALL_INSTRUCT = "mistral-small:24b-instruct-q8_0"
 
 
 DEFAULT_OLLAMA_MODEL = OllamaModel.GEMMA3_1B
