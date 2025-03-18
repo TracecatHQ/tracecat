@@ -154,19 +154,7 @@ def _format_xml(x: list[dict[str, Any]]) -> str:
 def format_table(
     x: list[dict[str, Any]], format: Literal["markdown", "html", "csv", "xml"]
 ) -> str:
-    """Format list of dictionaries into various string representations:
-    - csv
-    - markdown
-    - html
-    - xml
-
-    Args:
-        x: List of dictionaries to format
-        format: Output format (markdown, html, csv, or xml)
-
-    Returns:
-        Formatted string representation of the data
-    """
+    """Format list of objects into `markdown`, `html`, `csv`, or `xml`"""
     if format == "markdown":
         return _format_markdown(x)
     elif format == "html":
