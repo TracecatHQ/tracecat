@@ -31,6 +31,8 @@ class OllamaModel(StrEnum):
     GEMMA3_1B_INSTRUCT = "gemma3:1b-it-q8_0"
     GEMMA3_4B_INSTRUCT = "gemma3:4b-it-q8_0"
     GEMMA3_12B_INSTRUCT = "gemma3:12b-it-q8_0"
+    LLAMA32_1B_INSTRUCT = "llama3.2:1b-it-q8_0"
+    LLAMA32_3B_INSTRUCT = "llama3.2:3b-it-q8_0"
     # Large models
     LLAMA33 = "llama3.3:70b"
     MISTRAL_LARGE = "mistral-large:123b"
