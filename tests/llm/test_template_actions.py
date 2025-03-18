@@ -9,6 +9,7 @@ import pytest
 from tests.shared import glob_file_paths, load_yaml_template_action
 from tracecat.executor import service
 from tracecat.llm import async_openai_call
+from tracecat.logger import logger
 from tracecat.registry.actions.models import TemplateAction
 from tracecat.registry.repository import Repository
 
@@ -82,8 +83,25 @@ def title(request: pytest.FixtureRequest) -> TemplateAction:
     return load_yaml_template_action(request.param)
 
 
+@pytest.fixture(
+    scope="function",
+    params=[
+        pytest.param(
+            path,
+            id=path.stem,
+            marks=[pytest.mark.ollama] if "ollama" in path.stem else [],
+        )
+        for path in glob_file_paths(LLM_TEMPLATES_DIR / "extract_data", "yml")
+    ],
+)
+def extract_data(request: pytest.FixtureRequest) -> TemplateAction:
+    return load_yaml_template_action(request.param)
+
+
 @pytest.mark.anyio
-async def test_extract_one(extract_one: TemplateAction, llm_actions_repo: Repository):
+async def test_extract_one(
+    extract_one: TemplateAction, llm_actions_repo: Repository
+) -> None:
     llm_actions_repo.register_template_action(extract_one)
     bound_action = llm_actions_repo.get(extract_one.definition.action)
 
@@ -105,7 +123,9 @@ async def test_extract_one(extract_one: TemplateAction, llm_actions_repo: Reposi
 
 
 @pytest.mark.anyio
-async def test_extract_many(extract_many: TemplateAction, llm_actions_repo: Repository):
+async def test_extract_many(
+    extract_many: TemplateAction, llm_actions_repo: Repository
+) -> None:
     llm_actions_repo.register_template_action(extract_many)
     bound_action = llm_actions_repo.get(extract_many.definition.action)
 
@@ -143,7 +163,9 @@ async def test_extract_many(extract_many: TemplateAction, llm_actions_repo: Repo
 
 
 @pytest.mark.anyio
-async def test_summarize(summarize: TemplateAction, llm_actions_repo: Repository):
+async def test_summarize(
+    summarize: TemplateAction, llm_actions_repo: Repository
+) -> None:
     llm_actions_repo.register_template_action(summarize)
     bound_action = llm_actions_repo.get(summarize.definition.action)
 
@@ -241,9 +263,9 @@ async def test_summarize(summarize: TemplateAction, llm_actions_repo: Repository
 async def test_title(
     title: TemplateAction,
     llm_actions_repo: Repository,
-    input,
-    input_context,
-    max_length,
+    input: str,
+    input_context: str,
+    max_length: int,
 ):
     """Test title generation with various scenarios, evaluated by an LLM judge."""
     llm_actions_repo.register_template_action(title)
@@ -385,3 +407,153 @@ async def test_title(
         f"Title '{result}' only satisfies {criteria_count}/4 additional quality criteria. "
         f"Rationale: {evaluation['rationale']}"
     )
+
+
+@pytest.mark.anyio
+async def test_extract_data(
+    extract_data: TemplateAction, llm_actions_repo: Repository
+) -> None:
+    """Test data extraction with multiple data values in a single input."""
+
+    llm_actions_repo.register_template_action(extract_data)
+    bound_action = llm_actions_repo.get(extract_data.definition.action)
+
+    # Input with multiple security incidents
+    input_data = """
+    --- Incident 1 ---
+    Incident ID: SEC-2023-0142
+    Timestamp: 2023-07-15T03:15:27Z
+    Source IP: 45.132.98.211
+    Target: db-prod-01.example.com
+    Method: SSH Brute Force
+    Status: Contained
+
+    --- Incident 2 ---
+    Incident ID: SEC-2023-0157
+    Timestamp: 2023-07-16T14:22:05Z
+    Source IP: 193.27.14.65
+    Target: auth-service.example.com
+    Method: Credential Stuffing
+    Status: Investigating
+
+    --- Incident 3 ---
+    Incident ID: SEC-2023-0163
+    Timestamp: 2023-07-17T08:45:12Z
+    Source IP: 91.134.175.89
+    Target: api-gateway.example.com
+    Method: SQL Injection Attempt
+    Status: Mitigated
+    """
+
+    # Define test parameters
+    input_context = "security incidents log"
+    output_name = "incidents"
+    output_schema = {
+        "incident_id": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "source_ip": {"type": "string"},
+        "target": {"type": "string"},
+        "method": {"type": "string"},
+        "status": {"type": "string"},
+    }
+    expected_field_names = [
+        "incident_id",
+        "timestamp",
+        "source_ip",
+        "target",
+        "method",
+        "status",
+    ]
+
+    # Run the data extraction
+    result = await service.run_template_action(
+        action=bound_action,
+        args={
+            "input": input_data,
+            "input_context": input_context,
+            "output_name": output_name,
+            "output_schema": output_schema,
+        },
+        context={},
+    )
+
+    # Log the result for debugging
+    logger.debug(f"Extracted data: {result}")
+
+    # Verify correct number of items and structure
+    assert isinstance(result, list)
+    assert len(result) == 3
+
+    # Check field names to ensure structured output is properly configured
+    assert all(field in result[0] for field in expected_field_names)
+
+
+@pytest.mark.skip(reason="Not yet implemented")
+@pytest.mark.anyio
+async def test_extract_data_to_markdown(
+    extract_data: TemplateAction, llm_actions_repo: Repository
+) -> None:
+    """Test that markdown output_format works correctly in extract_data template."""
+
+    llm_actions_repo.register_template_action(extract_data)
+    bound_action = llm_actions_repo.get(extract_data.definition.action)
+
+    # Multiple security vulnerabilities in a single input
+    input_data = """
+    --- CVE-2023-1234 ---
+    Title: Remote Code Execution in Authentication Service
+    CVSS: 9.8 (Critical)
+    Affected Versions: v1.2.0 - v1.5.3
+    Vector: Network
+    Status: Patched in v1.5.4
+
+    --- CVE-2023-5678 ---
+    Title: SQL Injection in User Profile API
+    CVSS: 8.2 (High)
+    Affected Versions: v1.3.0 - v1.5.2
+    Vector: API
+    Status: Patched in v1.5.3
+
+    --- CVE-2023-9012 ---
+    Title: Cross-Site Scripting in Admin Dashboard
+    CVSS: 6.5 (Medium)
+    Affected Versions: v1.4.0 - v1.5.4
+    Vector: Web
+    Status: Under Investigation
+    """
+
+    # Run the data extraction with markdown output format
+    result = await service.run_template_action(
+        action=bound_action,
+        args={
+            "input": input_data,
+            "input_context": "security vulnerabilities",
+            "output_name": "vulnerabilities",
+            "output_schema": {
+                "cve_id": {"type": "string"},
+                "title": {"type": "string"},
+                "cvss": {"type": "string"},
+                "affected_versions": {"type": "string"},
+                "vector": {"type": "string"},
+                "status": {"type": "string"},
+            },
+            "output_format": "markdown",
+        },
+        context={},
+    )
+
+    # Log the result for debugging
+    logger.debug(f"Markdown result:\n{result}")
+
+    # Verify basic markdown format
+    assert isinstance(result, str)
+
+    # Check for header content to verify field names are preserved in markdown
+    header_terms = ["cve", "title", "cvss", "affected", "vector", "status"]
+    header = result.strip().split("\n")[0].lower()
+    for term in header_terms:
+        assert term in header, f"Expected field '{term}' missing from markdown header"
+
+    # Count the rows to ensure we have at least header + separator + data rows
+    rows = result.strip().split("\n")
+    assert len(rows) >= 5

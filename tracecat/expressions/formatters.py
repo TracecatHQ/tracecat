@@ -164,4 +164,6 @@ def tabulate(
     elif format == "xml":
         return _format_xml(x)
     else:
-        raise ValueError(f"Unsupported format: {format}")
+        raise ValueError(
+            f"Unsupported table format. Expected `markdown`, `html`, `csv`, or `xml`, got {format}."
+        )
