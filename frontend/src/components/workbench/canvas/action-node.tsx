@@ -16,9 +16,10 @@ import {
   SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from "lucide-react"
+import { useForm } from "react-hook-form"
 import YAML from "yaml"
 
-import { useAction, useWorkflowManager } from "@/lib/hooks"
+import { useAction, useGetRegistryAction } from "@/lib/hooks"
 import { cn, isEmptyObjectOrNullish, slugify } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
@@ -36,6 +37,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
@@ -76,8 +79,31 @@ export default React.memo(function ActionNode({
   } = useWorkflowBuilder()
   const { toast } = useToast()
   // SAFETY: Node only exists if it's in the workflow
-  const { action, actionIsLoading } = useAction(id, workspaceId, workflowId!)
+  const { action, actionIsLoading, updateAction } = useAction(
+    id,
+    workspaceId,
+    workflowId!
+  )
+  const { registryAction } = useGetRegistryAction(action?.type)
   const isConfigured = !isEmptyObjectOrNullish(action?.inputs)
+
+  const form = useForm({
+    values: {
+      title: action?.title ?? registryAction?.default_title ?? "",
+    },
+  })
+
+  const onSubmit = useCallback(
+    (values: { title: string }) => {
+      if (!action) {
+        return
+      }
+      updateAction({
+        title: values.title,
+      })
+    },
+    [action, updateAction]
+  )
 
   const handleDeleteNode = useCallback(async () => {
     try {
@@ -204,7 +230,29 @@ export default React.memo(function ActionNode({
             <div className="flex w-full flex-1 justify-between space-x-12">
               <div className="flex flex-col">
                 <CardTitle className="flex w-full items-center space-x-2 text-xs font-medium leading-none">
-                  <span>{action.title}</span>
+                  <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)}>
+                      <FormField
+                        control={form.control}
+                        name="title"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <Input
+                                type="text"
+                                {...field}
+                                onBlur={(e) => {
+                                  field.onBlur()
+                                  form.handleSubmit(onSubmit)()
+                                }}
+                                className="w-full border-none bg-transparent py-0 text-xs font-medium leading-none shadow-none hover:cursor-pointer focus:ring-0 focus:ring-offset-0"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </form>
+                  </Form>
                   <CopyButton
                     value={`ACTIONS.${slugify(action.title)}.result`}
                     toastMessage="Copied action reference to clipboard"
