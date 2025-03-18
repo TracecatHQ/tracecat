@@ -39,7 +39,7 @@ class OllamaModel(StrEnum):
     # Instruction tuned models
     GEMMA3_27B_INSTRUCT = "gemma3:27b-it-q8_0"
     LLAMA33_INSTRUCT = "llama3.3:70b-instruct-q8_0"
-    MISTRAL_SMALL_INSTRUCT = "mistral-small:24b-instruct-q8_0"
+    MISTRAL_SMALL_INSTRUCT = "mistral-small:24b-instruct-2501-q8_0"
 
 
 DEFAULT_OLLAMA_MODEL = OllamaModel.GEMMA3_1B
