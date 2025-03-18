@@ -16,9 +16,6 @@ from tracecat import config
 from tracecat.logger import logger
 
 
-# NOTE: We specify the params size tag otherwise
-# it defaults to the ambigious "latest" tag
-# https://ollama.com/search
 class OllamaModel(StrEnum):
     # Smol models (<15GB)
     LLAMA32 = "llama3.2:3b"
