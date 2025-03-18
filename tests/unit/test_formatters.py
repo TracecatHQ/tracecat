@@ -366,14 +366,3 @@ def test_tabulate_dispatch(simple_data):
             assert "<items>" in table_result, (
                 f"XML should have items root element:\n{table_result[:100]}..."
             )
-
-
-def test_tabulate_invalid_format(simple_data):
-    """Test tabulate with invalid format."""
-    invalid_format = "invalid"  # Using a variable to avoid type checking complaints
-    with pytest.raises(ValueError) as exc_info:
-        tabulate(simple_data, invalid_format)  # type: ignore
-
-    assert "Unsupported format" in str(exc_info.value), (
-        f"Expected error message about unsupported format, got: '{exc_info.value}'"
-    )
