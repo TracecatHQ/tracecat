@@ -151,7 +151,7 @@ def _format_xml(x: list[dict[str, Any]]) -> str:
     return reparsed.toprettyxml(indent="  ")
 
 
-def format_table(
+def tabulate(
     x: list[dict[str, Any]], format: Literal["markdown", "html", "csv", "xml"]
 ) -> str:
     """Format list of objects into `markdown`, `html`, `csv`, or `xml`"""

@@ -68,5 +68,5 @@ definition:
       action: core.transform.reshape
       args:
         value: |
-          ${{ steps.deserialize_data.result if inputs.output_format else FN.format_table(steps.deserialize_data.result, inputs.output_format) }}
+          ${{ steps.deserialize_data.result if inputs.output_format else FN.tabulate(steps.deserialize_data.result, inputs.output_format) }}
   returns: ${{ steps.format_data.result }}

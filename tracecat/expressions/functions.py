@@ -22,7 +22,7 @@ from slugify import slugify
 from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction
 from tracecat.ee.interactions.models import InteractionContext
-from tracecat.expressions.formatters import format_table
+from tracecat.expressions.formatters import tabulate
 
 
 def _bool(x: Any) -> bool:
@@ -852,7 +852,7 @@ _FUNCTION_MAPPING = {
     "merge": merge_dicts,
     "to_keys": dict_keys,
     "to_values": dict_values,
-    "format_table": format_table,
+    "tabulate": tabulate,
     # Logical
     "and": and_,
     "or": or_,

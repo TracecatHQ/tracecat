@@ -12,7 +12,7 @@ from tracecat.expressions.formatters import (
     _format_html,
     _format_markdown,
     _format_xml,
-    format_table,
+    tabulate,
 )
 from tracecat.logger import logger
 
@@ -327,16 +327,16 @@ class TestXML:
 
 
 # Integration tests
-def test_format_table_dispatch(simple_data):
-    """Test format_table dispatches to correct formatter."""
+def test_tabulate_dispatch(simple_data):
+    """Test tabulate dispatches to correct formatter."""
     formats = ["markdown", "html", "csv", "xml"]
     formatters = [_format_markdown, _format_html, _format_csv, _format_xml]
 
     for format_name, formatter_func in zip(formats, formatters, strict=False):
-        logger.debug(f"\n===== test_format_table_dispatch ({format_name}) =====")
+        logger.debug(f"\n===== test_tabulate_dispatch ({format_name}) =====")
 
         # Compare with direct formatter call
-        table_result = format_table(simple_data, format_name)  # type: ignore
+        table_result = tabulate(simple_data, format_name)  # type: ignore
         direct_result = formatter_func(simple_data)
 
         logger.debug(
@@ -368,11 +368,11 @@ def test_format_table_dispatch(simple_data):
             )
 
 
-def test_format_table_invalid_format(simple_data):
-    """Test format_table with invalid format."""
+def test_tabulate_invalid_format(simple_data):
+    """Test tabulate with invalid format."""
     invalid_format = "invalid"  # Using a variable to avoid type checking complaints
     with pytest.raises(ValueError) as exc_info:
-        format_table(simple_data, invalid_format)  # type: ignore
+        tabulate(simple_data, invalid_format)  # type: ignore
 
     assert "Unsupported format" in str(exc_info.value), (
         f"Expected error message about unsupported format, got: '{exc_info.value}'"
