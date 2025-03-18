@@ -349,11 +349,22 @@ export default React.memo(function ActionNode({
   }, [])
 
   const handleMouseLeave = useCallback(() => {
-    // Use a small delay to allow the mouse to move between elements
-    hideTimeoutRef.current = window.setTimeout(() => {
+    // Only hide toolbar if node is not selected
+    if (!selected) {
+      hideTimeoutRef.current = window.setTimeout(() => {
+        setShowToolbar(false)
+      }, 100)
+    }
+  }, [selected])
+
+  // Update toolbar visibility when selection changes
+  useEffect(() => {
+    if (selected) {
+      setShowToolbar(true)
+    } else {
       setShowToolbar(false)
-    }, 100)
-  }, [])
+    }
+  }, [selected])
 
   if (!action) {
     return null
@@ -374,7 +385,7 @@ export default React.memo(function ActionNode({
       <ActionSoruceSuccessHandle type="source" />
       <ActionSourceErrorHandle type="source" />
       <NodeToolbar
-        isVisible={showToolbar}
+        isVisible={showToolbar || selected}
         position={Position.Right}
         align="start"
         onMouseEnter={handleMouseEnter}
