@@ -101,3 +101,33 @@ resource "aws_ecs_service" "tracecat_executor" {
     }
   }
 }
+
+# Autoscaling for the executor service
+resource "aws_appautoscaling_target" "executor_scaling_target" {
+  max_capacity       = 4
+  min_capacity       = 1
+  resource_id        = "service/${aws_ecs_cluster.tracecat_cluster.name}/${aws_ecs_service.tracecat_executor.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+
+  # Ensure the service-linked role is created before the scaling target
+  depends_on = [aws_iam_service_linked_role.ecs_autoscaling]
+}
+
+# CPU-based autoscaling policy
+resource "aws_appautoscaling_policy" "executor_cpu_scaling_policy" {
+  name               = "executor-cpu-scaling-policy"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.executor_scaling_target.resource_id
+  scalable_dimension = aws_appautoscaling_target.executor_scaling_target.scalable_dimension
+  service_namespace  = aws_appautoscaling_target.executor_scaling_target.service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    target_value       = 40.0 # Scale when CPU exceeds 40% (more aggressive scaling)
+    scale_in_cooldown  = 120  # Wait 2 minutes before scaling in (balanced approach)
+    scale_out_cooldown = 20   # Very rapid scale out (20 seconds) for bursty workloads
+  }
+}
