@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: Title
+  description: Generate an informative title for given text using OpenAI LLMs.
+  display_group: Title
+  doc_url: https://platform.openai.com/docs/guides/text-generation
+  namespace: openai.title
+  name: title
+  expects:
+    input:
+      type: str
+      description: Content to generate a title for.
+    input_context:
+      type: str
+      description: Type of content (e.g. "incident reports", "knowledge articles").
+    max_length:
+      type: int
+      description: Maximum number of characters in the title.
+      default: 60
+  steps:
+    - ref: generate_title
+      action: llm.openai.call
+      args:
+        prompt: |
+          <content>
+          ${{ inputs.input }}
+          </content>
+        instructions: |
+          <context>
+          You are an expert at creating titles for ${{ inputs.input_context }}.
+          </context>
+
+          <reasoning>
+          1. Identify the primary issue or topic
+          2. Identify key entities and relationships involved
+          3. Assess urgency/importance level
+          </reasoning>
+
+          <task>
+          Create a clear, descriptive title within ${{ inputs.max_length }} characters.
+          Start with critical information, use specific language, convey appropriate urgency, and ensure it's immediately understandable without context.
+          </task>
+        text_format:
+          type: json_schema
+          name: title_generation
+          schema:
+            type: object
+            properties:
+              core_topic:
+                type: string
+                description: Primary issue or subject identified.
+              key_entities:
+                type: array
+                items:
+                  type: string
+                description: Important systems or entities involved.
+              urgency_level:
+                type: string
+                enum: ["low", "medium", "high", "critical"]
+                description: Assessed urgency based on content.
+              title:
+                type: string
+                description: Final title within ${{ inputs.max_length }} characters.
+            required:
+              - core_topic
+              - key_entities
+              - urgency_level
+              - title
+            additionalProperties: false
+          strict: true
+    - ref: output
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.deserialize_json(steps.generate_title.result.output_text) }}
+  returns: ${{ FN.lookup(steps.output.result, "title") }}

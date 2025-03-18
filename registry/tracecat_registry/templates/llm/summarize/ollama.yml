@@ -1,0 +1,61 @@
+type: action
+definition:
+  title: Summarize
+  description: Summarize a given text using Ollama LLMs.
+  display_group: Summarize
+  doc_url: https://github.com/ollama/ollama/blob/main/README.md
+  namespace: ollama.summarize
+  name: summarize
+  expects:
+    input:
+      type: str
+      description: Text to summarize.
+    input_context:
+      type: str
+      description: Description of the input text (e.g. "Job description").
+    max_length:
+      type: int
+      description: Maximum number of characters in the summary.
+      default: 280
+    model:
+      type: str
+      description: Model to use for summarization.
+      default: gemma3:1b-it-q8_0
+  steps:
+    - ref: summarize
+      action: llm.ollama.call
+      args:
+        model: ${{ inputs.model }}
+        prompt: |
+          <text>
+          ${{ inputs.input }}
+          </text>
+        system_prompt: |
+          <context>
+          You are an expert summarizer of unstructured text, specifically knowledgeable about ${{ inputs.input_context }}.
+          </context>
+
+          <reasoning>
+          1. Identify the key topic and purpose of the text
+          2. Extract the most important entities and relationships
+          3. Synthesize into concise summary
+          </reasoning>
+
+          <task>
+          Summarize the text in no more than ${{ inputs.max_length }} characters.
+          </task>
+        format:
+          type: object
+          properties:
+            summary:
+              type: string
+              description: Summary within ${{ inputs.max_length }} characters.
+          required:
+            - summary
+          additionalProperties: false
+          strict: true
+    - ref: output
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.deserialize_json(steps.summarize.result.message.content) }}
+  returns: ${{ FN.lookup(steps.output.result, "summary") }}

@@ -2,7 +2,7 @@ from typing import Annotated, Any
 
 from typing_extensions import Doc
 
-from tracecat.llm import async_ollama_call, OllamaModel
+from tracecat.llm import async_ollama_call, OllamaModel, DEFAULT_OLLAMA_MODEL
 from tracecat_registry import RegistrySecret, registry, secrets
 
 ollama_secret = RegistrySecret(
@@ -27,12 +27,16 @@ ollama_secret = RegistrySecret(
 )
 async def call(
     prompt: Annotated[str, Doc("Prompt to send to the LLM")],
-    model: Annotated[str, Doc("Model to use")],
+    model: Annotated[str, Doc("Model to use")] = DEFAULT_OLLAMA_MODEL.value,
     memory: Annotated[
         list[dict[str, Any]] | None, Doc("Past messages to include in the conversation")
     ] = None,
     system_prompt: Annotated[
         str | None, Doc("System prompt to use for the LLM")
+    ] = None,
+    format: Annotated[
+        dict[str, Any] | None,
+        Doc("JSON schema for structured output."),
     ] = None,
 ) -> dict[str, Any]:
     response = await async_ollama_call(  # type: ignore
@@ -40,6 +44,7 @@ async def call(
         model=OllamaModel(model),
         memory=memory,
         system_prompt=system_prompt,
+        format=format,
         api_url=secrets.get("OLLAMA_API_URL", None),
     )
     return response.model_dump()

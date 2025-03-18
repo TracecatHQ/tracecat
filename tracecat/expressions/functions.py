@@ -22,6 +22,7 @@ from slugify import slugify
 from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction
 from tracecat.ee.interactions.models import InteractionContext
+from tracecat.expressions.formatters import tabulate
 
 
 def _bool(x: Any) -> bool:
@@ -398,7 +399,7 @@ def map_dict_keys(x: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
         raise ValueError(f"Key {e} not found in keys mapping {keys}.") from e
 
 
-def serialize_to_json(x: Any) -> str:
+def serialize_json(x: Any) -> str:
     """Convert object to JSON string."""
     return orjson.dumps(x).decode()
 
@@ -851,12 +852,13 @@ _FUNCTION_MAPPING = {
     "merge": merge_dicts,
     "to_keys": dict_keys,
     "to_values": dict_values,
+    "tabulate": tabulate,
     # Logical
     "and": and_,
     "or": or_,
     "not": not_,
     # Type conversion
-    "serialize_json": serialize_to_json,
+    "serialize_json": serialize_json,
     "deserialize_json": orjson.loads,
     "prettify_json": prettify_json,
     "deserialize_ndjson": deserialize_ndjson,

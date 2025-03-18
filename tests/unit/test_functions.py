@@ -76,7 +76,7 @@ from tracecat.expressions.functions import (
     regex_match,
     regex_not_match,
     seconds_between,
-    serialize_to_json,
+    serialize_json,
     set_timezone,
     slice_str,
     split,
@@ -641,8 +641,8 @@ def test_logical_operations(func, a: bool, b: Any, expected: bool) -> None:
         (123, 123),
     ],
 )
-def test_serialize_to_json(input_data: Any, expected: Any) -> None:
-    result = serialize_to_json(input_data)
+def test_serialize_json(input_data: Any, expected: Any) -> None:
+    result = serialize_json(input_data)
     assert orjson.loads(result) == expected
 
 
