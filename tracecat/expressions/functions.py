@@ -17,6 +17,7 @@ from typing import Any, Literal, ParamSpec, TypeVar
 from uuid import uuid4
 
 import orjson
+import yaml
 from slugify import slugify
 
 from tracecat.common import is_iterable
@@ -860,6 +861,8 @@ _FUNCTION_MAPPING = {
     # Type conversion
     "serialize_json": serialize_json,
     "deserialize_json": orjson.loads,
+    "serialize_yaml": yaml.dump,
+    "deserialize_yaml": yaml.safe_load,
     "prettify_json": prettify_json,
     "deserialize_ndjson": deserialize_ndjson,
     "extract_text_from_html": extract_text_from_html,
