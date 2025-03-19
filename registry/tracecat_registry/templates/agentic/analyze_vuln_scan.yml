@@ -2,9 +2,9 @@ type: action
 definition:
   title: Analyze vulnerability scan
   description: Analyze vulnerability scan data to extract critical information and provide structured analysis.
-  display_group: Agents
-  namespace: agent.detect
-  name: analyze_vuln_scan
+  display_group: AI agents
+  namespace: agentic
+  name: analyze_scan
   expects:
     input:
       type: str | dict[str, any]
@@ -15,10 +15,10 @@ definition:
     model:
       type: str
       description: Model to use for analysis.
-      default: llama3.2:3b
+      default: llama3.2:8b
     model_provider:
       type: str
-      description: Provider to use for analysis.
+      description: Model provider to use for analysis.
       default: ollama
   steps:
     - ref: analyze
@@ -79,27 +79,29 @@ definition:
             important_fields:
               type: object
               properties:
-                device_type:
+                affected_packages:
                   type: string
-                  description: Type of affected device or system.
-                operating_system:
+                  description: Software packages identified as affected by the vulnerability (from OCSF affected_packages).
+                cve:
                   type: string
-                  description: Operating system of the affected system.
-                vulnerability_severity:
+                  description: Common Vulnerabilities and Exposures identifier and details related to the vulnerability.
+                severity:
                   type: string
-                  description: Severity rating of the vulnerability (e.g., Critical, High, Medium).
-                exposed_services:
+                  description: The vendor assigned severity of the vulnerability (from OCSF severity).
+                is_exploit_available:
                   type: string
-                  description: Services or applications that are exposed and vulnerable.
-                patch_status:
+                  description: Whether an exploit or proof-of-concept is available for this vulnerability.
+                is_fix_available:
                   type: string
-                  description: Status of patches or updates related to this vulnerability.
+                  description: Whether a fix or patch is available for the reported vulnerability.
               required:
-                - device_type
-                - operating_system
-                - vulnerability_severity
-                - exposed_services
-                - patch_status
+                - affected_packages
+                - cve
+                - severity
+                - is_exploit_available
+                - is_fix_available
+              # TODO: Add vendor specific fields
+              # TODO: Extract vendors mentioned in the scan (exclude the vendor that identified the vulnerability)
             title:
               type: string
               description: Concise title for the vulnerability finding (less than 10 words).
