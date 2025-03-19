@@ -332,8 +332,14 @@ def unique(items: Sequence[Any]) -> list[Any]:
     return list(set(items))
 
 
-def join_strings(items: Sequence[str], sep: str) -> str:
+def join_strings(
+    items: Sequence[str], sep: str | None = None, newlines: int = 0
+) -> str:
     """Join sequence of strings with separator."""
+    if newlines > 0:
+        sep = "\n" * newlines
+    if sep is None:
+        return "\n".join(items)
     return sep.join(items)
 
 
