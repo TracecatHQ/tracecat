@@ -44,10 +44,6 @@ definition:
       action: tools.slack_blocks.format_choices
       args:
         labels: ${{ inputs.choices }}
-    - ref: text_input_block
-      action: tools.slack_blocks.format_text_input
-      args:
-        prompt: ${{ inputs.prompt }}
     - ref: links_block
       action: tools.slack_blocks.format_links
       args:
@@ -69,7 +65,11 @@ definition:
               text: ${{ inputs.description }}
           - ${{ steps.metadata_block.result }}
           - type: divider
-          - ${{ steps.text_input_block.result }}
+          - type: section
+            block_id: prompt
+            text:
+              type: mrkdwn
+              text: ${{ inputs.prompt }}
           - ${{ steps.choices_block.result }}
           - ${{ steps.links_block.result }}
     - ref: post_message
