@@ -1,0 +1,121 @@
+type: action
+definition:
+  title: Analyze vulnerability scan
+  description: Analyze vulnerability scan data to extract critical information and provide structured analysis.
+  display_group: Agents
+  namespace: agent.detect
+  name: analyze_vuln_scan
+  expects:
+    input:
+      type: str | dict[str, any]
+      description: Vulnerability scan data to analyze.
+    tool:
+      type: str
+      description: The scanning tool used (e.g., "Tenable", "Nessus", "Qualys").
+    model:
+      type: str
+      description: Model to use for analysis.
+      default: llama3.2:3b
+    model_provider:
+      type: str
+      description: Provider to use for analysis.
+      default: ollama
+  steps:
+    - ref: analyze
+      action: llm.${{ inputs.model_provider }}.call
+      args:
+        model: ${{ inputs.model }}
+        prompt: |
+          <vulnerability_scan>
+          ${{ inputs.input }}
+          </vulnerability_scan>
+        system_prompt: |
+          <context>
+          You are an expert security analyst specializing in vulnerability scan analysis from ${{ inputs.tool }}.
+          Your expertise includes identifying critical vulnerabilities, understanding attack vectors, and providing
+          actionable remediation guidance.
+          </context>
+
+          <task>
+          Analyze the vulnerability scan data thoroughly and extract structured information for security triage.
+          Focus on identifying possible attack vectors, vulnerable systems, and potential business impact.
+          </task>
+        format:
+          type: object
+          properties:
+            thoughts:
+              type: array
+              items:
+                type: string
+              description: Chain of thought reasoning about the vulnerability scan.
+            fivew_oneh:
+              type: object
+              properties:
+                who:
+                  type: string
+                  description: Who is affected by this vulnerability (e.g., specific teams, users, customers).
+                what:
+                  type: string
+                  description: What is the vulnerability or security issue detected.
+                when:
+                  type: string
+                  description: When was the vulnerability detected or when could it be exploited.
+                where:
+                  type: string
+                  description: Where in the system/network is the vulnerability located.
+                why:
+                  type: string
+                  description: Why this vulnerability exists or is significant.
+                how:
+                  type: string
+                  description: How the vulnerability could be exploited or remediated.
+              required:
+                - who
+                - what
+                - when
+                - where
+                - why
+                - how
+            important_fields:
+              type: object
+              properties:
+                device_type:
+                  type: string
+                  description: Type of affected device or system.
+                operating_system:
+                  type: string
+                  description: Operating system of the affected system.
+                vulnerability_severity:
+                  type: string
+                  description: Severity rating of the vulnerability (e.g., Critical, High, Medium).
+                exposed_services:
+                  type: string
+                  description: Services or applications that are exposed and vulnerable.
+                patch_status:
+                  type: string
+                  description: Status of patches or updates related to this vulnerability.
+              required:
+                - device_type
+                - operating_system
+                - vulnerability_severity
+                - exposed_services
+                - patch_status
+            title:
+              type: string
+              description: Concise title for the vulnerability finding (less than 10 words).
+            summary:
+              type: string
+              description: Comprehensive summary of the vulnerability scan analysis.
+          required:
+            - thoughts
+            - fivew_oneh
+            - important_fields
+            - title
+            - summary
+          additionalProperties: false
+          strict: true
+    - ref: output
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.deserialize_json(steps.analyze.result.message.content) }}
+  returns: ${{ steps.output.result }}
