@@ -1,0 +1,97 @@
+type: action
+definition:
+  title: Extract AT&CK TTPs
+  description: Extract potential MITRE ATT&CK Tactics, Techniques, and Procedures from security alerts using AI analysis.
+  display_group: AI agents
+  namespace: agentic
+  name: extract_ttps
+  expects:
+    input:
+      type: str | dict[str, any]
+      description: Security alert content, such as a vulnerability scan result or SIEM alert.
+    input_context:
+      type: str
+      description: Type of security alert (e.g., "Tenable vulnerability scan", "SIEM detection alert").
+      default: "security alert"
+    known_ttps:
+      type: dict[str, any]
+      description: Dictionary of known MITRE ATT&CK techniques in format similar to ATT&CK Navigator layer JSON.
+    model:
+      type: str
+      description: Ollama model to use for analysis.
+      default: llama3.2:3b
+  steps:
+    - ref: extract_ttps
+      action: llm.ollama.call
+      args:
+        model: ${{ inputs.model }}
+        prompt: |
+          <security_alert>
+          ${{ inputs.input }}
+          </security_alert>
+        system_prompt: |
+          <context>
+          You are an expert security analyst specializing in mapping security alerts to the MITRE ATT&CK framework. Your task is to analyze security alerts and identify the most relevant ATT&CK TTPs that could be associated with the described activity or vulnerability.
+          </context>
+
+          <instructions>
+          Analyze the security alert and extract ONLY from the provided list of known ATT&CK TTPs that could be associated with this alert.
+
+          Follow these steps:
+          1. Carefully read and understand the security alert
+          2. Analyze what attack vectors, vulnerabilities, or suspicious behaviors are described
+          3. Review the provided list of known TTPs
+          4. Identify at least 1 and at most 3 most relevant ATT&CK TTPs from the provided list that match the alert
+          5. For each selected TTP, provide the tactic name, technique ID, technique name, and a brief rationale of why it's relevant
+
+          The security alert is related to: ${{ inputs.input_context }}
+          </instructions>
+
+          <known_ttps>
+          ${{ FN.to_json(inputs.known_ttps) }}
+          </known_ttps>
+        format:
+          type: object
+          properties:
+            chain_of_thought:
+              type: array
+              description: "Step-by-step reasoning about the alert and potential TTPs"
+              items:
+                type: string
+                description: "A logical step in your reasoning process"
+            ttps:
+              type: array
+              description: "Extracted MITRE ATT&CK TTPs (from provided `known_ttps` only). Include at least 1 and at most 3 TTPs."
+              items:
+                type: object
+                description: "A single TTP with its identifying information and relevance"
+                properties:
+                  id:
+                    type: string
+                    description: |
+                      ATT&CK Technique ID - must match regex pattern '^T[0-9]+(\.[0-9]+)?$'
+                  tactic:
+                    type: string
+                    description: "ATT&CK Tactic name (e.g., 'Initial Access')"
+                  technique:
+                    type: string
+                    description: "ATT&CK Technique name (e.g., 'Valid Accounts')"
+                  rationale:
+                    type: string
+                    description: "Brief explanation (1-2 sentences) of why this TTP is relevant to the alert"
+                required:
+                  - id
+                  - tactic
+                  - technique
+                  - rationale
+              minItems: 1
+              maxItems: 3
+          required:
+            - chain_of_thought
+            - ttps
+          additionalProperties: false
+    - ref: format_ttps
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.deserialize_json(steps.extract_ttps.result.output_text) }}
+  returns: ${{ steps.format_ttps.result }}
