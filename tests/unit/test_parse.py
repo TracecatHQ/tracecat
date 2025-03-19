@@ -1,8 +1,11 @@
 from pathlib import Path
 
+import pytest
+
 from tracecat.expressions.common import eval_jsonpath
 from tracecat.parse import (
     get_pyproject_toml_required_deps,
+    to_flat_jsonpaths,
     traverse_expressions,
     traverse_leaves,
 )
@@ -172,3 +175,137 @@ invalid toml content
     # Test parsing
     deps = get_pyproject_toml_required_deps(pyproject)
     assert deps == []
+
+
+def test_simple_json_paths() -> None:
+    """Test extraction of JSON paths from a simple flat object."""
+    input_json = {"name": "John", "age": 30, "active": True}
+    expected = {"$.name": "John", "$.age": 30, "$.active": True}
+    assert to_flat_jsonpaths(input_json) == expected
+
+
+def test_nested_json_paths() -> None:
+    """Test extraction of JSON paths from nested objects."""
+    input_json = {
+        "person": {
+            "name": "John",
+            "address": {"street": "123 Main St", "city": "Boston"},
+        }
+    }
+    expected = {
+        "$.person.name": "John",
+        "$.person.address.street": "123 Main St",
+        "$.person.address.city": "Boston",
+    }
+    assert to_flat_jsonpaths(input_json) == expected
+
+
+def test_array_json_paths() -> None:
+    """Test extraction of JSON paths from objects containing arrays."""
+    input_json = {"users": [{"id": 1, "name": "John"}, {"id": 2, "name": "Jane"}]}
+    expected = {
+        "$.users[0].id": 1,
+        "$.users[0].name": "John",
+        "$.users[1].id": 2,
+        "$.users[1].name": "Jane",
+    }
+    assert to_flat_jsonpaths(input_json) == expected
+
+
+def test_root_array_json_paths() -> None:
+    """Test extraction of JSON paths from a root array."""
+    input_json = [
+        {"id": 1, "name": "John"},
+        {"id": 2, "name": "Jane"},
+        "simple_string",
+        [1, 2, 3],
+    ]
+    expected = {
+        "$[0].id": 1,
+        "$[0].name": "John",
+        "$[1].id": 2,
+        "$[1].name": "Jane",
+        "$[2]": "simple_string",
+        "$[3][0]": 1,
+        "$[3][1]": 2,
+        "$[3][2]": 3,
+    }
+    assert to_flat_jsonpaths(input_json) == expected
+
+
+def test_dotted_key_json_paths() -> None:
+    """Test extraction of JSON paths from objects with dots in key names."""
+    input_json = {
+        "user.info": {"personal.details": {"first.name": "John", "last.name": "Doe"}},
+        "system.metadata": True,
+    }
+    expected = {
+        '$["user.info"]["personal.details"]["first.name"]': "John",
+        '$["user.info"]["personal.details"]["last.name"]': "Doe",
+        '$["system.metadata"]': True,
+    }
+    assert to_flat_jsonpaths(input_json) == expected
+
+
+def test_mixed_notation_json_paths() -> None:
+    """Test extraction of JSON paths from objects with mixed notation needs."""
+    input_json = {
+        "normal": {"dot.field": {"nested": "value", "other.nested": "value2"}},
+        "array.field": [{"id.number": 1}],
+    }
+    expected = {
+        '$.normal["dot.field"].nested': "value",
+        '$.normal["dot.field"]["other.nested"]': "value2",
+        '$["array.field"][0]["id.number"]': 1,
+    }
+    assert to_flat_jsonpaths(input_json) == expected
+
+
+def test_special_characters_json_paths() -> None:
+    """Test extraction of JSON paths from objects with special characters in keys."""
+    input_json = {
+        "": "empty",  # Empty string
+        "user name": "John",  # Space
+        "user-name": "Jane",  # Hyphen
+        "@metadata": True,  # Symbol
+        "123": "numeric",  # Numeric string
+        "user\\name": "backslash",  # Backslash
+        'user"name': "quote",  # Quote
+        "użytkownik": "unicode",  # Unicode
+        "user@123": "mixed",  # Mixed special chars
+    }
+    expected = {
+        '$[""]': "empty",
+        '$["user name"]': "John",
+        '$["user-name"]': "Jane",
+        '$["@metadata"]': True,
+        '$["123"]': "numeric",
+        '$["user\\\\name"]': "backslash",
+        '$["user\\"name"]': "quote",
+        '$["użytkownik"]': "unicode",
+        '$["user@123"]': "mixed",
+    }
+    assert to_flat_jsonpaths(input_json) == expected
+
+
+def test_empty_object() -> None:
+    """Test handling of empty objects."""
+    assert to_flat_jsonpaths({}) == {}
+
+
+def test_empty_array() -> None:
+    """Test handling of empty arrays."""
+    assert to_flat_jsonpaths([]) == {}
+
+
+def test_none_values() -> None:
+    """Test handling of None values in objects."""
+    input_json = {"field1": None, "nested": {"field2": None}}
+    expected = {"$.field1": None, "$.nested.field2": None}
+    assert to_flat_jsonpaths(input_json) == expected
+
+
+def test_invalid_input() -> None:
+    """Test handling of invalid input types."""
+    with pytest.raises(TypeError, match="Input must be a dictionary or list"):
+        to_flat_jsonpaths("not a dict")  # type: ignore
