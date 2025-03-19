@@ -29,7 +29,7 @@ definition:
           <Task>
           Generate remediation steps with AWS CLI commands based on this GuardDuty finding.
           Each command MUST:
-          1. Use or reference ACTUAL values from the alert. Please **bold** these values outside of CLI commands. (e.g. real instance IDs, IP addresses)
+          1. Use or reference ACTUAL values from the alert. (e.g. real instance IDs, IP addresses)
           2. Include a clear explanation of what it does
           3. Note any potential impact or risk
           4. Follow AWS security best practices
