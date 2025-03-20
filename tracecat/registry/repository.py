@@ -519,11 +519,19 @@ class Repository:
         base_path = module.__path__[0]
         base_package = module.__name__
         num_udfs = 0
-        # Ignore __init__.py
-        module_paths = [
-            path for path in Path(base_path).rglob("*.py") if path.stem != "__init__"
-        ]
-        for path in module_paths:
+        # Ignore __init__.py and __main__.py
+        exclude_filenames = ("__init__", "__main__")
+        # Ignore CLI files
+        exclude_prefixes = (f"{base_path}/cli",)
+
+        for path in Path(base_path).rglob("*.py"):
+            if path.stem in exclude_filenames:
+                logger.debug("Skipping excluded filename", path=path)
+                continue
+            p_str = path.as_posix()
+            if any(p_str.startswith(prefix) for prefix in exclude_prefixes):
+                logger.debug("Skipping excluded prefix", path=path)
+                continue
             logger.info(f"Loading UDFs from {path!s}")
             # Convert path to relative path
             relative_path = path.relative_to(base_path)
