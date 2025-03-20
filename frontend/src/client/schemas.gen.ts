@@ -445,7 +445,7 @@ export const $ActionUpdate = {
     },
     inputs: {
       type: "string",
-      maxLength: 10000,
+      maxLength: 300000,
       title: "Inputs",
       default: "",
     },
