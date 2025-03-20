@@ -115,7 +115,7 @@ export default React.memo(function ActionNode({
       hideTimeoutRef.current = window.setTimeout(() => {
         setShowToolbar(false)
         hideTimeoutRef.current = undefined
-      }, 100)
+      }, 50)
     }
 
     return () => {
