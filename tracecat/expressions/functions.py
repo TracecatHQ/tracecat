@@ -23,6 +23,8 @@ from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction
 from tracecat.ee.interactions.models import InteractionContext
 from tracecat.expressions.formatters import tabulate
+from tracecat.expressions.ioc_extractors.email import extract_emails
+from tracecat.expressions.ioc_extractors.ip import extract_ipv4
 
 
 def _bool(x: Any) -> bool:
@@ -907,6 +909,9 @@ _FUNCTION_MAPPING = {
     "check_ip_version": check_ip_version,
     # Interaction
     "get_interaction": get_interaction,
+    # IOC extractors
+    "extract_emails": extract_emails,
+    "extract_ipv4": extract_ipv4,
 }
 
 OPERATORS = {
