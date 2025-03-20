@@ -26,6 +26,7 @@ from tracecat.ee.interactions.models import InteractionContext
 from tracecat.expressions.formatters import tabulate
 from tracecat.expressions.ioc_extractors.email import extract_emails
 from tracecat.expressions.ioc_extractors.ip import extract_ipv4
+from tracecat.parse import unescape_string
 
 
 def _bool(x: Any) -> bool:
@@ -336,7 +337,8 @@ def unique(items: Sequence[Any]) -> list[Any]:
 
 def join_strings(items: Sequence[str], sep: str) -> str:
     """Join sequence of strings with separator."""
-    return sep.join(items)
+    excaped_sep = unescape_string(sep)
+    return excaped_sep.join(items)
 
 
 def concat_strings(*items: str) -> str:
