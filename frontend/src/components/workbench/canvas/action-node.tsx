@@ -377,10 +377,6 @@ export default React.memo(function ActionNode({
     setIsMouseOverToolbar(false)
   }, [])
 
-  if (!action) {
-    return null
-  }
-
   return (
     <Card
       ref={nodeRef}
@@ -395,14 +391,15 @@ export default React.memo(function ActionNode({
       />
       <ActionSoruceSuccessHandle type="source" />
       <ActionSourceErrorHandle type="source" />
-      <NodeToolbar
-        isVisible={showToolbar || selected}
-        position={Position.Right}
-        align="start"
-        onMouseEnter={handleToolbarMouseEnter}
-        onMouseLeave={handleToolbarMouseLeave}
-        className={cn(
-          `
+      {action && (
+        <NodeToolbar
+          isVisible={showToolbar || selected}
+          position={Position.Right}
+          align="start"
+          onMouseEnter={handleToolbarMouseEnter}
+          onMouseLeave={handleToolbarMouseLeave}
+          className={cn(
+            `
             [&>button]:variant-ghost
             flex min-w-16 flex-col
             rounded-lg border bg-background p-0.5 shadow-md
@@ -415,85 +412,86 @@ export default React.memo(function ActionNode({
             [&>button_svg]:mr-1
             [&>button_svg]:size-3
           `,
-          selected && "shadow-xl drop-shadow-xl"
-        )}
-      >
-        <Button
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation()
-            navigator.clipboard.writeText(
-              `ACTIONS.${slugify(action.title)}.result`
-            )
-            toast({
-              title: "Copied action reference",
-              description: (
-                <Badge
-                  variant="secondary"
-                  className="bg-muted-foreground/10 font-mono text-xs font-normal tracking-tight"
-                >
-                  {`ACTIONS.${slugify(action.title)}.result`}
-                </Badge>
-              ),
-            })
-          }}
+            selected && "shadow-xl drop-shadow-xl"
+          )}
         >
-          <CopyIcon />
-          <span className="text-xs">Copy Reference</span>
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation()
-            form.setFocus("title")
-          }}
-        >
-          <PencilIcon />
-          <span className="text-xs">Rename</span>
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation()
-            sidebarRef.current?.setOpen(true)
-            sidebarRef.current?.setActiveTab("action-input")
-            setSelectedActionEventRef(slugify(action.title))
-          }}
-        >
-          <LayoutListIcon />
-          <span className="text-xs">View Last Input</span>
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation()
-            sidebarRef.current?.setOpen(true)
-            sidebarRef.current?.setActiveTab("action-result")
-            setSelectedActionEventRef(slugify(action.title))
-          }}
-        >
-          <CircleCheckBigIcon />
-          <span className="text-xs">View Last Result</span>
-        </Button>
-        {action?.is_interactive && (
+          <Button
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation()
+              navigator.clipboard.writeText(
+                `ACTIONS.${slugify(action?.title)}.result`
+              )
+              toast({
+                title: "Copied action reference",
+                description: (
+                  <Badge
+                    variant="secondary"
+                    className="bg-muted-foreground/10 font-mono text-xs font-normal tracking-tight"
+                  >
+                    {`ACTIONS.${slugify(action.title)}.result`}
+                  </Badge>
+                ),
+              })
+            }}
+          >
+            <CopyIcon />
+            <span className="text-xs">Copy Reference</span>
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation()
+              form.setFocus("title")
+            }}
+          >
+            <PencilIcon />
+            <span className="text-xs">Rename</span>
+          </Button>
           <Button
             variant="ghost"
             onClick={(e) => {
               e.stopPropagation()
               sidebarRef.current?.setOpen(true)
-              sidebarRef.current?.setActiveTab("action-interaction")
+              sidebarRef.current?.setActiveTab("action-input")
               setSelectedActionEventRef(slugify(action.title))
             }}
           >
-            <MessagesSquare />
-            <span className="text-xs">View Last Interaction</span>
+            <LayoutListIcon />
+            <span className="text-xs">View Last Input</span>
           </Button>
-        )}
-        <Button variant="ghost" onClick={handleDeleteNode}>
-          <Trash2Icon className="size-3 text-red-600" />
-          <span className="text-xs text-red-600">Delete</span>
-        </Button>
-      </NodeToolbar>
+          <Button
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation()
+              sidebarRef.current?.setOpen(true)
+              sidebarRef.current?.setActiveTab("action-result")
+              setSelectedActionEventRef(slugify(action.title))
+            }}
+          >
+            <CircleCheckBigIcon />
+            <span className="text-xs">View Last Result</span>
+          </Button>
+          {action?.is_interactive && (
+            <Button
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation()
+                sidebarRef.current?.setOpen(true)
+                sidebarRef.current?.setActiveTab("action-interaction")
+                setSelectedActionEventRef(slugify(action.title))
+              }}
+            >
+              <MessagesSquare />
+              <span className="text-xs">View Last Interaction</span>
+            </Button>
+          )}
+          <Button variant="ghost" onClick={handleDeleteNode}>
+            <Trash2Icon className="size-3 text-red-600" />
+            <span className="text-xs text-red-600">Delete</span>
+          </Button>
+        </NodeToolbar>
+      )}
     </Card>
   )
 })
