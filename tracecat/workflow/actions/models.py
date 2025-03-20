@@ -75,7 +75,7 @@ class ActionUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=1000)
     status: str | None = None
-    inputs: str = Field(default="", max_length=10000)
+    inputs: str = Field(default="", max_length=300000)
     control_flow: ActionControlFlow | None = Field(
         default=None, json_schema_extra={"mode": "json"}
     )
