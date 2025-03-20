@@ -78,9 +78,6 @@ export function WorkbenchSidebarEvents() {
       </div>
     )
 
-  // Only render content when open
-  if (!open) return null
-
   return (
     <WorkbenchSidebarEventsList
       workflowId={workflow.id}
