@@ -111,7 +111,7 @@ const actionFormSchema = z.object({
     .optional(),
   inputs: z
     .string()
-    .max(10000, "Inputs must be less than 10000 characters")
+    .max(300000, "Inputs must be less than 300000 characters")
     .default(""),
   control_flow: z.object({
     for_each: z
