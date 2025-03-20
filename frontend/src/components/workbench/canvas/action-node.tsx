@@ -176,10 +176,7 @@ export default React.memo(function ActionNode({
   const edges = useEdges()
   const incomingEdges = edges.filter((edge) => edge.target === id)
   const isChildWorkflow = action?.type === CHILD_WORKFLOW_ACTION_TYPE
-  const isInteractive = useMemo(
-    () => Boolean(action?.is_interactive),
-    [action?.is_interactive, action]
-  )
+  const isInteractive = useMemo(() => Boolean(action?.is_interactive), [action])
 
   const actionInputsObj = useMemo(() => {
     try {
@@ -232,7 +229,7 @@ export default React.memo(function ActionNode({
   )
 
   // Create a skeleton loading state within the card frame
-  const renderContent = useCallback(() => {
+  const renderContent = () => {
     if (actionIsLoading) {
       return (
         <>
@@ -362,15 +359,7 @@ export default React.memo(function ActionNode({
         </form>
       </Form>
     )
-  }, [
-    action,
-    actionIsLoading,
-    form,
-    Icon,
-    isChildWorkflow,
-    isConfigured,
-    onSubmit,
-  ])
+  }
 
   const handleNodeMouseEnter = useCallback(() => {
     setIsMouseOverNode(true)
