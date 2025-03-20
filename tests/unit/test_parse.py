@@ -5,6 +5,7 @@ from tracecat.parse import (
     get_pyproject_toml_required_deps,
     traverse_expressions,
     traverse_leaves,
+    unescape_string,
 )
 
 
@@ -172,3 +173,49 @@ invalid toml content
     # Test parsing
     deps = get_pyproject_toml_required_deps(pyproject)
     assert deps == []
+
+
+def test_unescape_string_newlines() -> None:
+    """Test that backslash-n sequences are converted to actual newlines."""
+    input_str = "Hello\\nWorld"
+    expected = "Hello\nWorld"
+    assert unescape_string(input_str) == expected
+
+
+def test_unescape_string_tabs() -> None:
+    """Test that backslash-t sequences are converted to actual tabs."""
+    input_str = "Hello\\tWorld"
+    expected = "Hello\tWorld"
+    assert unescape_string(input_str) == expected
+
+
+def test_unescape_string_carriage_returns() -> None:
+    """Test that backslash-r sequences are converted to actual carriage returns."""
+    input_str = "Hello\\rWorld"
+    expected = "Hello\rWorld"
+    assert unescape_string(input_str) == expected
+
+
+def test_unescape_string_backslashes() -> None:
+    """Test that double backslashes are converted to a single backslash."""
+    input_str = "Hello\\\\World"
+    expected = "Hello\\World"
+    assert unescape_string(input_str) == expected
+
+
+def test_unescape_string_multiple_escapes() -> None:
+    """Test that multiple escape sequences in a string are all converted."""
+    input_str = "Line1\\nLine2\\tTabbed\\r\\\\Backslash"
+    expected = "Line1\nLine2\tTabbed\r\\Backslash"
+    assert unescape_string(input_str) == expected
+
+
+def test_unescape_string_no_escapes() -> None:
+    """Test that strings without escape sequences remain unchanged."""
+    input_str = "Regular string with no escapes"
+    assert unescape_string(input_str) == input_str
+
+
+def test_unescape_string_empty() -> None:
+    """Test that empty strings are handled correctly."""
+    assert unescape_string("") == ""
