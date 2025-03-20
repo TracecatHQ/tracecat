@@ -242,12 +242,7 @@ export default React.memo(function ActionNode({
     return (
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
-          <CardHeader
-            className="p-4"
-            onBlur={() => {
-              form.handleSubmit(onSubmit)()
-            }}
-          >
+          <CardHeader className="p-4" onBlur={form.handleSubmit(onSubmit)}>
             <div className="flex w-full items-center space-x-4">
               {getIcon(action.type, {
                 className: "size-10 p-2",
