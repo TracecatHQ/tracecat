@@ -1,7 +1,9 @@
-import React, { useCallback, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { useWorkflowBuilder } from "@/providers/builder"
 import {
+  NodeToolbar,
+  Position,
   useEdges,
   type Node,
   type NodeProps,
@@ -9,16 +11,22 @@ import {
 } from "@xyflow/react"
 import {
   AlertTriangleIcon,
-  ChevronDownIcon,
   CircleCheckBigIcon,
+  CopyIcon,
   LayoutListIcon,
   MessagesSquare,
+  PencilIcon,
   SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from "lucide-react"
+import { useForm } from "react-hook-form"
 import YAML from "yaml"
 
-import { useAction, useWorkflowManager } from "@/lib/hooks"
+import {
+  useAction,
+  useGetRegistryAction,
+  useWorkflowManager,
+} from "@/lib/hooks"
 import { cn, isEmptyObjectOrNullish, slugify } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
@@ -30,16 +38,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
-import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { AlertNotification } from "@/components/notifications"
 import {
@@ -76,8 +79,77 @@ export default React.memo(function ActionNode({
   } = useWorkflowBuilder()
   const { toast } = useToast()
   // SAFETY: Node only exists if it's in the workflow
-  const { action, actionIsLoading } = useAction(id, workspaceId, workflowId!)
+  const { action, actionIsLoading, updateAction } = useAction(
+    id,
+    workspaceId,
+    workflowId!
+  )
+  const { registryAction } = useGetRegistryAction(action?.type)
   const isConfigured = !isEmptyObjectOrNullish(action?.inputs)
+  const [showToolbar, setShowToolbar] = useState(false)
+  const [isMouseOverNode, setIsMouseOverNode] = useState(false)
+  const [isMouseOverToolbar, setIsMouseOverToolbar] = useState(false)
+  const nodeRef = useRef<HTMLDivElement>(null)
+  const hideTimeoutRef = useRef<number>()
+
+  // Clear timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (hideTimeoutRef.current) {
+        window.clearTimeout(hideTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  // Handle combined mouse over state
+  useEffect(() => {
+    if (isMouseOverNode || isMouseOverToolbar || selected) {
+      // Mouse is over either element or node is selected, show toolbar
+      if (hideTimeoutRef.current) {
+        window.clearTimeout(hideTimeoutRef.current)
+        hideTimeoutRef.current = undefined
+      }
+      setShowToolbar(true)
+    } else {
+      // Mouse is not over either element and node is not selected, hide toolbar after a delay
+      hideTimeoutRef.current = window.setTimeout(() => {
+        setShowToolbar(false)
+        hideTimeoutRef.current = undefined
+      }, 50)
+    }
+
+    return () => {
+      if (hideTimeoutRef.current) {
+        window.clearTimeout(hideTimeoutRef.current)
+      }
+    }
+  }, [isMouseOverNode, isMouseOverToolbar, selected])
+
+  const form = useForm({
+    values: {
+      title: action?.title ?? registryAction?.default_title ?? "",
+    },
+  })
+
+  const onSubmit = useCallback(
+    async (values: { title: string }) => {
+      if (!action) {
+        return
+      }
+      try {
+        await updateAction({
+          title: values.title,
+        })
+      } catch (error) {
+        console.error("Failed to update action title:", error)
+        toast({
+          title: "Couldn't update action title",
+          description: "Please try again.",
+        })
+      }
+    },
+    [action, updateAction]
+  )
 
   const handleDeleteNode = useCallback(async () => {
     try {
@@ -199,126 +271,123 @@ export default React.memo(function ActionNode({
     }
 
     return (
-      <>
-        <CardHeader className="p-4">
-          <div className="flex w-full items-center space-x-4">
-            {getIcon(action.type, {
-              className: "size-10 p-2",
-            })}
-
-            <div className="flex w-full flex-1 justify-between space-x-12">
-              <div className="flex flex-col">
-                <CardTitle className="flex w-full items-center space-x-2 text-xs font-medium leading-none">
-                  <span>{action.title}</span>
-                  <CopyButton
-                    value={`ACTIONS.${slugify(action.title)}.result`}
-                    toastMessage="Copied action reference to clipboard"
-                    tooltipMessage="Copy action reference"
-                  />
-                </CardTitle>
-                <CardDescription className="mt-2 text-xs text-muted-foreground">
-                  {action.type}
-                </CardDescription>
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="m-0 size-6 p-0">
-                    <ChevronDownIcon className="m-1 size-4 text-muted-foreground" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      sidebarRef.current?.setActiveTab("action-input")
-                      setSelectedActionEventRef(slugify(action.title))
-                    }}
-                  >
-                    <LayoutListIcon className="mr-2 size-4" />
-                    <span className="text-xs">View Last Input</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      sidebarRef.current?.setActiveTab("action-result")
-                      setSelectedActionEventRef(slugify(action.title))
-                    }}
-                  >
-                    <CircleCheckBigIcon className="mr-2 size-4" />
-                    <span className="text-xs">View Last Result</span>
-                  </DropdownMenuItem>
-                  {action?.is_interactive && (
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        sidebarRef.current?.setActiveTab("action-interaction")
-                        setSelectedActionEventRef(slugify(action.title))
-                      }}
-                    >
-                      <MessagesSquare className="mr-2 size-4" />
-                      <span className="text-xs">View Last Interaction</span>
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem onClick={handleDeleteNode}>
-                    <Trash2Icon className="mr-2 size-4 text-red-600" />
-                    <span className="text-xs text-red-600">Delete</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        </CardHeader>
-        <Separator />
-        <CardContent className="p-4 py-2">
-          <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
-            <div className="flex items-center space-x-2">
-              {error ? (
-                <div className="flex items-center space-x-1">
-                  <AlertTriangleIcon className="size-4 fill-yellow-500 stroke-white" />
-                  <span className="text-xs capitalize">{error}</span>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)}>
+          <CardHeader className="p-4" onBlur={form.handleSubmit(onSubmit)}>
+            <div className="flex w-full items-center space-x-4">
+              {Icon}
+              <div className="flex w-full flex-1 justify-between space-x-12">
+                <div className="flex flex-col">
+                  <CardTitle className="flex items-center justify-start space-x-2 text-xs font-medium leading-none">
+                    <FormField
+                      control={form.control}
+                      name="title"
+                      render={({ field }) => (
+                        <FormItem className="!w-auto">
+                          <FormControl className="!w-auto">
+                            <div className="!w-auto">
+                              <Input
+                                type="text"
+                                {...field}
+                                className={cn(
+                                  "m-0 h-5 shrink-0 border-none bg-transparent p-0",
+                                  "text-xs font-medium leading-none",
+                                  "shadow-none outline-none",
+                                  "hover:cursor-pointer hover:bg-muted-foreground/10",
+                                  "focus:ring-0 focus:ring-offset-0",
+                                  "focus-visible:bg-muted-foreground/10 focus-visible:ring-0 focus-visible:ring-offset-0"
+                                )}
+                              />
+                            </div>
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </CardTitle>
+                  <CardDescription className="mt-2 text-xs text-muted-foreground">
+                    {action.type}
+                  </CardDescription>
                 </div>
-              ) : (
-                <div className="flex items-center space-x-1">
-                  {isConfigured ? (
-                    <CircleCheckBigIcon className="size-4 text-emerald-500" />
-                  ) : (
-                    <LayoutListIcon className="size-4 text-gray-400" />
-                  )}
-                  <span className="text-xs capitalize">
-                    {isConfigured ? "Ready" : "Missing inputs"}
-                  </span>
+              </div>
+            </div>
+          </CardHeader>
+          <Separator />
+          <CardContent className="p-4 py-2">
+            <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
+              <div className="flex items-center space-x-2">
+                {error ? (
+                  <div className="flex items-center space-x-1">
+                    <AlertTriangleIcon className="size-4 fill-yellow-500 stroke-white" />
+                    <span className="text-xs capitalize">{error}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-1">
+                    {isConfigured ? (
+                      <CircleCheckBigIcon className="size-4 text-emerald-500" />
+                    ) : (
+                      <LayoutListIcon className="size-4 text-gray-400" />
+                    )}
+                    <span className="text-xs capitalize">
+                      {isConfigured ? "Ready" : "Missing inputs"}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {isChildWorkflow && (
+                <ChildWorkflowLink
+                  workspaceId={workspaceId}
+                  childWorkflowId={childWorkflowId}
+                  childWorkflowAlias={childWorkflowAlias}
+                />
+              )}
+              {isInteractive && (
+                <div className="flex justify-end">
+                  <Badge
+                    variant="secondary"
+                    className="bg-sky-300/30 text-foreground/60 hover:cursor-pointer hover:bg-muted-foreground/5"
+                  >
+                    <MessagesSquare
+                      className="mr-2 size-3 text-foreground/60"
+                      strokeWidth={3}
+                    />
+                    <span>Interactive</span>
+                  </Badge>
                 </div>
               )}
             </div>
-            {isChildWorkflow && (
-              <ChildWorkflowLink
-                workspaceId={workspaceId}
-                childWorkflowId={childWorkflowId}
-                childWorkflowAlias={childWorkflowAlias}
-              />
-            )}
-            {isInteractive && (
-              <div className="flex justify-end">
-                <Badge
-                  variant="secondary"
-                  className="bg-sky-300/30 text-foreground/60 hover:cursor-pointer hover:bg-muted-foreground/5"
-                >
-                  <MessagesSquare
-                    className="mr-2 size-3 text-foreground/60"
-                    strokeWidth={3}
-                  />
-                  <span>Interactive</span>
-                </Badge>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </>
+          </CardContent>
+        </form>
+      </Form>
     )
   }
 
+  const handleNodeMouseEnter = useCallback(() => {
+    setIsMouseOverNode(true)
+  }, [])
+
+  const handleNodeMouseLeave = useCallback(() => {
+    setIsMouseOverNode(false)
+  }, [])
+
+  const handleToolbarMouseEnter = useCallback(() => {
+    setIsMouseOverToolbar(true)
+  }, [])
+
+  const handleToolbarMouseLeave = useCallback(() => {
+    setIsMouseOverToolbar(false)
+  }, [])
+
+  if (!action) {
+    return null
+  }
+
   return (
-    <Card className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}>
+    <Card
+      ref={nodeRef}
+      className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}
+      onMouseEnter={handleNodeMouseEnter}
+      onMouseLeave={handleNodeMouseLeave}
+    >
       {renderContent()}
       <ActionTargetHandle
         join_strategy={action?.control_flow?.join_strategy}
@@ -326,6 +395,105 @@ export default React.memo(function ActionNode({
       />
       <ActionSoruceSuccessHandle type="source" />
       <ActionSourceErrorHandle type="source" />
+      <NodeToolbar
+        isVisible={showToolbar || selected}
+        position={Position.Right}
+        align="start"
+        onMouseEnter={handleToolbarMouseEnter}
+        onMouseLeave={handleToolbarMouseLeave}
+        className={cn(
+          `
+            [&>button]:variant-ghost
+            flex min-w-16 flex-col
+            rounded-lg border bg-background p-0.5 shadow-md
+            [&>button]:h-7
+            [&>button]:justify-start
+            [&>button]:px-2
+            [&>button]:py-1
+            [&>button]:text-foreground/70
+            [&>button_span]:text-[0.75rem]
+            [&>button_svg]:mr-1
+            [&>button_svg]:size-3
+          `,
+          selected && "shadow-xl drop-shadow-xl"
+        )}
+      >
+        <Button
+          variant="ghost"
+          onClick={(e) => {
+            e.stopPropagation()
+            navigator.clipboard.writeText(
+              `ACTIONS.${slugify(action.title)}.result`
+            )
+            toast({
+              title: "Copied action reference",
+              description: (
+                <Badge
+                  variant="secondary"
+                  className="bg-muted-foreground/10 font-mono text-xs font-normal tracking-tight"
+                >
+                  {`ACTIONS.${slugify(action.title)}.result`}
+                </Badge>
+              ),
+            })
+          }}
+        >
+          <CopyIcon />
+          <span className="text-xs">Copy Reference</span>
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={(e) => {
+            e.stopPropagation()
+            form.setFocus("title")
+          }}
+        >
+          <PencilIcon />
+          <span className="text-xs">Rename</span>
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={(e) => {
+            e.stopPropagation()
+            sidebarRef.current?.setOpen(true)
+            sidebarRef.current?.setActiveTab("action-input")
+            setSelectedActionEventRef(slugify(action.title))
+          }}
+        >
+          <LayoutListIcon />
+          <span className="text-xs">View Last Input</span>
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={(e) => {
+            e.stopPropagation()
+            sidebarRef.current?.setOpen(true)
+            sidebarRef.current?.setActiveTab("action-result")
+            setSelectedActionEventRef(slugify(action.title))
+          }}
+        >
+          <CircleCheckBigIcon />
+          <span className="text-xs">View Last Result</span>
+        </Button>
+        {action?.is_interactive && (
+          <Button
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation()
+              sidebarRef.current?.setOpen(true)
+              sidebarRef.current?.setActiveTab("action-interaction")
+              setSelectedActionEventRef(slugify(action.title))
+            }}
+          >
+            <MessagesSquare />
+            <span className="text-xs">View Last Interaction</span>
+          </Button>
+        )}
+        <Button variant="ghost" onClick={handleDeleteNode}>
+          <Trash2Icon className="size-3 text-red-600" />
+          <span className="text-xs text-red-600">Delete</span>
+        </Button>
+      </NodeToolbar>
     </Card>
   )
 })

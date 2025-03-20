@@ -41,12 +41,17 @@ export interface EventsSidebarRef extends ImperativePanelHandle {
   setActiveTab: (tab: EventsSidebarTabs) => void
   /** Gets the current active tab */
   getActiveTab: () => EventsSidebarTabs
+  /** Sets the open state of the events sidebar */
+  setOpen: (open: boolean) => void
+  /** Gets the open state of the events sidebar */
+  isOpen: () => boolean
 }
 
 export function WorkbenchSidebarEvents() {
   const { sidebarRef } = useWorkflowBuilder()
   const [activeTab, setActiveTab] =
     useState<EventsSidebarTabs>("workflow-events")
+  const [open, setOpen] = useState(false)
   const { workflow, isLoading } = useWorkflow()
 
   // Set up the ref methods
@@ -54,8 +59,16 @@ export function WorkbenchSidebarEvents() {
     if (sidebarRef.current) {
       sidebarRef.current.setActiveTab = setActiveTab
       sidebarRef.current.getActiveTab = () => activeTab
+      sidebarRef.current.setOpen = (newOpen: boolean) => {
+        setOpen(newOpen)
+        // If the panel has a collapse method, use it
+        if (sidebarRef.current?.collapse && sidebarRef.current?.expand) {
+          newOpen ? sidebarRef.current.expand() : sidebarRef.current.collapse()
+        }
+      }
+      sidebarRef.current.isOpen = () => open
     }
-  }, [sidebarRef, activeTab])
+  }, [sidebarRef, activeTab, setOpen, open])
 
   if (isLoading) return <CenteredSpinner />
   if (!workflow)
@@ -64,6 +77,7 @@ export function WorkbenchSidebarEvents() {
         No workflow in context
       </div>
     )
+
   return (
     <WorkbenchSidebarEventsList
       workflowId={workflow.id}
