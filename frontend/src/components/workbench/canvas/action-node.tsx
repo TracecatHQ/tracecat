@@ -223,8 +223,16 @@ export default React.memo(function ActionNode({
     ? String(actionInputsObj?.workflow_alias)
     : undefined
 
+  const Icon = useMemo(
+    () =>
+      getIcon(action?.type ?? "", {
+        className: "size-10 p-2",
+      }),
+    [action?.type]
+  )
+
   // Create a skeleton loading state within the card frame
-  const renderContent = () => {
+  const renderContent = useCallback(() => {
     if (actionIsLoading) {
       return (
         <>
@@ -270,14 +278,8 @@ export default React.memo(function ActionNode({
         <form onSubmit={form.handleSubmit(onSubmit)}>
           <CardHeader className="p-4" onBlur={form.handleSubmit(onSubmit)}>
             <div className="flex w-full items-center space-x-4">
-              {getIcon(action.type, {
-                className: "size-10 p-2",
-              })}
-
-              <div
-                id="ASDF"
-                className="flex w-full flex-1 justify-between space-x-12"
-              >
+              {Icon}
+              <div className="flex w-full flex-1 justify-between space-x-12">
                 <div className="flex flex-col">
                   <CardTitle className="flex items-center justify-start space-x-2 text-xs font-medium leading-none">
                     <FormField
@@ -360,7 +362,15 @@ export default React.memo(function ActionNode({
         </form>
       </Form>
     )
-  }
+  }, [
+    action,
+    actionIsLoading,
+    form,
+    Icon,
+    isChildWorkflow,
+    isConfigured,
+    onSubmit,
+  ])
 
   const handleNodeMouseEnter = useCallback(() => {
     setIsMouseOverNode(true)
