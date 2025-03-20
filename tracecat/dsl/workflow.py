@@ -205,10 +205,6 @@ class DSLWorkflow:
                 ) from e
             self.dispatch_type = "pull"
 
-        self.logger.warning(
-            "Interaction states", signal_states=self.interactions.states
-        )
-
         # Note that we can't run the error handler above this
         # Run the workflow with error handling
         try:
