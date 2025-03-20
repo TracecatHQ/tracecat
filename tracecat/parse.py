@@ -80,3 +80,20 @@ def get_pyproject_toml_required_deps(pyproject_path: Path) -> list[str]:
     except Exception as e:
         logger.error("Error parsing pyproject.toml", error=e)
         return []
+
+
+def unescape_string(s: str) -> str:
+    """Convert string escape sequences to their actual characters.
+
+    Handles common escape sequences:
+    - "\\n" becomes a newline
+    - "\\t" becomes a tab
+    - "\\r" becomes a carriage return
+    - "\\\\" becomes a backslash
+    """
+    # Use a single regex substitution instead of multiple string replacements
+    return re.sub(
+        r"\\([\\nrt])",
+        lambda m: {"n": "\n", "t": "\t", "r": "\r", "\\": "\\"}[m.group(1)],
+        s,
+    )
