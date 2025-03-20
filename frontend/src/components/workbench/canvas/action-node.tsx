@@ -87,6 +87,8 @@ export default React.memo(function ActionNode({
   const { registryAction } = useGetRegistryAction(action?.type)
   const isConfigured = !isEmptyObjectOrNullish(action?.inputs)
   const [showToolbar, setShowToolbar] = useState(false)
+  const [isMouseOverNode, setIsMouseOverNode] = useState(false)
+  const [isMouseOverToolbar, setIsMouseOverToolbar] = useState(false)
   const nodeRef = useRef<HTMLDivElement>(null)
   const hideTimeoutRef = useRef<number>()
 
@@ -98,6 +100,30 @@ export default React.memo(function ActionNode({
       }
     }
   }, [])
+
+  // Handle combined mouse over state
+  useEffect(() => {
+    if (isMouseOverNode || isMouseOverToolbar || selected) {
+      // Mouse is over either element or node is selected, show toolbar
+      if (hideTimeoutRef.current) {
+        window.clearTimeout(hideTimeoutRef.current)
+        hideTimeoutRef.current = undefined
+      }
+      setShowToolbar(true)
+    } else {
+      // Mouse is not over either element and node is not selected, hide toolbar after a delay
+      hideTimeoutRef.current = window.setTimeout(() => {
+        setShowToolbar(false)
+        hideTimeoutRef.current = undefined
+      }, 50)
+    }
+
+    return () => {
+      if (hideTimeoutRef.current) {
+        window.clearTimeout(hideTimeoutRef.current)
+      }
+    }
+  }, [isMouseOverNode, isMouseOverToolbar, selected])
 
   const form = useForm({
     values: {
@@ -197,8 +223,16 @@ export default React.memo(function ActionNode({
     ? String(actionInputsObj?.workflow_alias)
     : undefined
 
+  const Icon = useMemo(
+    () =>
+      getIcon(action?.type ?? "", {
+        className: "size-10 p-2",
+      }),
+    [action?.type]
+  )
+
   // Create a skeleton loading state within the card frame
-  const renderContent = () => {
+  const renderContent = useCallback(() => {
     if (actionIsLoading) {
       return (
         <>
@@ -242,21 +276,10 @@ export default React.memo(function ActionNode({
     return (
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
-          <CardHeader
-            className="p-4"
-            onBlur={() => {
-              form.handleSubmit(onSubmit)()
-            }}
-          >
+          <CardHeader className="p-4" onBlur={form.handleSubmit(onSubmit)}>
             <div className="flex w-full items-center space-x-4">
-              {getIcon(action.type, {
-                className: "size-10 p-2",
-              })}
-
-              <div
-                id="ASDF"
-                className="flex w-full flex-1 justify-between space-x-12"
-              >
+              {Icon}
+              <div className="flex w-full flex-1 justify-between space-x-12">
                 <div className="flex flex-col">
                   <CardTitle className="flex items-center justify-start space-x-2 text-xs font-medium leading-none">
                     <FormField
@@ -339,32 +362,31 @@ export default React.memo(function ActionNode({
         </form>
       </Form>
     )
-  }
+  }, [
+    action,
+    actionIsLoading,
+    form,
+    Icon,
+    isChildWorkflow,
+    isConfigured,
+    onSubmit,
+  ])
 
-  const handleMouseEnter = useCallback(() => {
-    if (hideTimeoutRef.current) {
-      window.clearTimeout(hideTimeoutRef.current)
-    }
-    setShowToolbar(true)
+  const handleNodeMouseEnter = useCallback(() => {
+    setIsMouseOverNode(true)
   }, [])
 
-  const handleMouseLeave = useCallback(() => {
-    // Only hide toolbar if node is not selected
-    if (!selected) {
-      hideTimeoutRef.current = window.setTimeout(() => {
-        setShowToolbar(false)
-      }, 100)
-    }
-  }, [selected])
+  const handleNodeMouseLeave = useCallback(() => {
+    setIsMouseOverNode(false)
+  }, [])
 
-  // Update toolbar visibility when selection changes
-  useEffect(() => {
-    if (selected) {
-      setShowToolbar(true)
-    } else {
-      setShowToolbar(false)
-    }
-  }, [selected])
+  const handleToolbarMouseEnter = useCallback(() => {
+    setIsMouseOverToolbar(true)
+  }, [])
+
+  const handleToolbarMouseLeave = useCallback(() => {
+    setIsMouseOverToolbar(false)
+  }, [])
 
   if (!action) {
     return null
@@ -374,8 +396,8 @@ export default React.memo(function ActionNode({
     <Card
       ref={nodeRef}
       className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onMouseEnter={handleNodeMouseEnter}
+      onMouseLeave={handleNodeMouseLeave}
     >
       {renderContent()}
       <ActionTargetHandle
@@ -388,8 +410,8 @@ export default React.memo(function ActionNode({
         isVisible={showToolbar || selected}
         position={Position.Right}
         align="start"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        onMouseEnter={handleToolbarMouseEnter}
+        onMouseLeave={handleToolbarMouseLeave}
         className={cn(
           `
             [&>button]:variant-ghost
