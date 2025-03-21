@@ -2,7 +2,6 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Set
 
 from typing_extensions import Doc
 from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.engine.url import URL
 import ipaddress
 import re
