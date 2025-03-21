@@ -75,6 +75,13 @@ def _is_select_query(query: str) -> bool:
     # Normalize whitespace
     clean_query = re.sub(r"\s+", " ", clean_query).strip().lower()
 
+    # Split on common SQL statement separators
+    for separator in (";", r"\g", r"\G", "GO"):
+        if separator in clean_query:
+            clean_query = clean_query.split(separator)[0]
+
+    clean_query = clean_query.strip().lower()
+
     # Check if it starts with SELECT
     return clean_query.startswith("select ")
 
@@ -225,7 +232,7 @@ def _build_connection_url(
 
 def _get_engine(connection_url: URL, timeout: int = 30) -> Engine:
     """
-    Get a SQLAlchemy engine with security settings.
+    Get a read-only SQLAlchemy engine with security settings.
 
     Args:
         connection_url: SQLAlchemy URL object
@@ -234,17 +241,22 @@ def _get_engine(connection_url: URL, timeout: int = 30) -> Engine:
     Returns:
         Engine: SQLAlchemy engine
     """
-    connect_args = {}
+    connect_args: dict[str, Any] = {}
+    execution_options: dict[str, Any] = {}
 
     # Add driver-specific timeout settings
     driver = str(connection_url).split("://")[0]
-    if driver.startswith("postgresql"):
-        if not isinstance(timeout, int):
-            raise ValueError("Timeout must be an integer")
-        connect_args["connect_timeout"] = timeout
-        connect_args["options"] = "-c statement_timeout={}s".format(timeout)
-    elif driver.startswith("mysql"):
-        connect_args["connect_timeout"] = timeout
+    if not driver.startswith("postgresql"):
+        raise ValueError(
+            f"Driver not supported. Must be one of: {', '.join(VALID_DATABASE_DRIVERS.keys())}"
+        )
+    if not isinstance(timeout, int):
+        raise ValueError("Timeout must be an integer")
+    connect_args["connect_timeout"] = timeout
+    connect_args["options"] = "-c statement_timeout={}s".format(timeout)
+
+    # XXX(security): This is a temporary solution to prevent SQL injection and dangerous queries.
+    execution_options["postgresql_readonly"] = True
 
     return create_engine(
         connection_url,
@@ -252,6 +264,7 @@ def _get_engine(connection_url: URL, timeout: int = 30) -> Engine:
         echo=False,
         pool_pre_ping=True,
         connect_args=connect_args,
+        execution_options=execution_options,
     )
 
 

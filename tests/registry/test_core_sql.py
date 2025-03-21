@@ -25,6 +25,12 @@ class TestSelectQueryValidator:
             ("  SELECT  *  FROM  users  ", True),
             ("/* comment */ SELECT id FROM users", True),
             ("-- comment\nSELECT id FROM users", True),
+            # Test different separators
+            ("SELECT * FROM users; DELETE FROM users", True),
+            ("SELECT * FROM users\\G DROP TABLE users", True),
+            ("SELECT * FROM users\\g INSERT INTO users", True),
+            ("SELECT * FROM users GO DELETE FROM users", True),
+            ("SELECT * FROM users\nGO\nDROP TABLE users", True),
             # Invalid queries
             ("INSERT INTO users VALUES (1, 'test')", False),
             ("UPDATE users SET name='test'", False),
@@ -32,14 +38,42 @@ class TestSelectQueryValidator:
             ("DROP TABLE users", False),
             ("CREATE TABLE users (id INT)", False),
             ("TRUNCATE TABLE users", False),
+            # Complex injection attempts
+            ("/* select */DELETE FROM users", False),
+            ("--select\nDROP TABLE users", False),
+            # Edge cases
             ("", False),
             (None, False),
             (123, False),  # Non-string
+            ("SELECTFROM users", False),  # Missing space after SELECT
+            ("/**/SELECT * FROM users", True),  # Empty comment
+            ("--\nSELECT * FROM users", True),  # Empty comment
         ],
     )
     def test_select_query_validation(self, query_text, expected):
         """Test SELECT query validation function."""
         assert _is_select_query(query_text) == expected
+
+    @pytest.mark.parametrize("separator", [";", "\\G", "\\g", "GO", "\nGO\n"])
+    def test_statement_separators(self, separator):
+        """Test that only the first statement is considered when using different separators."""
+        valid_query = f"SELECT * FROM users{separator}DELETE FROM users"
+        invalid_query = f"DELETE FROM users{separator}SELECT * FROM users"
+
+        assert _is_select_query(valid_query) is True
+        assert _is_select_query(invalid_query) is False
+
+    def test_nested_comments(self):
+        """Test handling of nested comments and complex whitespace."""
+        queries = [
+            "/* outer /* nested */ comment */SELECT * FROM users",
+            "/* comment *//* another */\n--line comment\nSELECT * FROM users",
+            "--line /*not a block comment\nSELECT * FROM users",
+            "/*\nmultiline\n*/SELECT * FROM users",
+        ]
+
+        for query in queries:
+            assert _is_select_query(query) is True
 
 
 class TestDriverValidator:
@@ -302,3 +336,46 @@ class TestQuery:
 
         # Verify timeout was passed to _get_engine
         mock_get_engine.assert_called_once_with("mock_url", timeout=60)
+
+    def test_sql_injection_protection_parameters(
+        self, mock_engine, mock_build_url, mock_is_select
+    ):
+        """Test that SQL injection attempts are prevented by parameter binding."""
+        mock_get_engine, conn_mock = mock_engine
+
+        # Query with a parameter that would be vulnerable to SQL injection if directly interpolated
+        query(
+            "SELECT * FROM users WHERE username = :username",
+            "postgresql",
+            "testdb",
+            None,
+            params={"username": "admin'; DROP TABLE users; --"},
+        )
+
+        # Verify that the parameter was passed separately and not interpolated
+        conn = mock_engine[0].return_value.connect.return_value.__enter__.return_value
+        args, kwargs = conn.execute.call_args
+
+        # Check that the query is still the original (not interpolated)
+        assert "DROP TABLE" not in str(args[0])
+
+        # Check that the malicious input was passed as a parameter, not interpolated
+        assert kwargs["parameters"]["username"] == "admin'; DROP TABLE users; --"
+
+    def test_sql_injection_prevention_select_only(self, mock_engine, mock_build_url):
+        """Test that non-SELECT statements (potential SQL injection) are rejected."""
+        with patch("tracecat_registry.core.sql._is_select_query", return_value=False):
+            with pytest.raises(ValueError, match="Only SELECT queries are allowed"):
+                query("DROP TABLE users", "postgresql", "testdb")
+
+            with pytest.raises(ValueError, match="Only SELECT queries are allowed"):
+                query(
+                    "INSERT INTO users VALUES (1, 'malicious')", "postgresql", "testdb"
+                )
+
+            with pytest.raises(ValueError, match="Only SELECT queries are allowed"):
+                query(
+                    "UPDATE users SET admin=TRUE WHERE username='victim'",
+                    "postgresql",
+                    "testdb",
+                )
