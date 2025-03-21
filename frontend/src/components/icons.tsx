@@ -4,6 +4,7 @@ import {
   BoxIcon,
   Building2Icon,
   Cpu,
+  Database,
   Globe,
   ListChecks,
   Mail,
@@ -260,6 +261,11 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "core.send_email_smtp": ({ className, ...rest }) => (
       <div className={cn(basicIconsCommon, "bg-lime-100", className)}>
         <Send {...rest} />
+      </div>
+    ),
+    "core.sql": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-sky-100", className)}>
+        <Database {...rest} />
       </div>
     ),
     /* AI subnamespace */
