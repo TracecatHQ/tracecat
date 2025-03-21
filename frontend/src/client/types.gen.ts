@@ -238,6 +238,10 @@ export type Body_tables_import_csv = {
 export type Body_workflows_create_workflow = {
   title?: string | null
   description?: string | null
+  /**
+   * Use the workflow ID if it is provided in the YAML file
+   */
+  use_workflow_id?: boolean
   file?: (Blob | File) | null
 }
 

@@ -775,6 +775,12 @@ export const $Body_workflows_create_workflow = {
       ],
       title: "Description",
     },
+    use_workflow_id: {
+      type: "boolean",
+      title: "Use Workflow Id",
+      description: "Use the workflow ID if it is provided in the YAML file",
+      default: false,
+    },
     file: {
       anyOf: [
         {
