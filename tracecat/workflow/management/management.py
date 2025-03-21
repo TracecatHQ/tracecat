@@ -250,7 +250,7 @@ class WorkflowsManagementService(BaseService):
         )
 
     async def create_workflow_from_external_definition(
-        self, import_data: dict[str, Any]
+        self, import_data: dict[str, Any], *, use_workflow_id: bool = False
     ) -> Workflow:
         """Import an external workflow definition into the current workspace.
 
@@ -269,7 +269,7 @@ class WorkflowsManagementService(BaseService):
 
         workflow = await self._create_db_workflow_from_dsl(
             dsl,
-            workflow_id=external_defn.workflow_id,
+            workflow_id=external_defn.workflow_id if use_workflow_id else None,
             created_at=external_defn.created_at,
             updated_at=external_defn.updated_at,
         )
