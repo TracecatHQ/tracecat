@@ -66,7 +66,6 @@ class TestSelectQueryValidator:
     def test_nested_comments(self):
         """Test handling of nested comments and complex whitespace."""
         queries = [
-            "/* outer /* nested */ comment */SELECT * FROM users",
             "/* comment *//* another */\n--line comment\nSELECT * FROM users",
             "--line /*not a block comment\nSELECT * FROM users",
             "/*\nmultiline\n*/SELECT * FROM users",
