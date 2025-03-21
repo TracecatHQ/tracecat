@@ -1,4 +1,4 @@
-from typing import Annotated, Any, Dict, List, Literal, Optional, Set
+from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 from sqlalchemy import Engine, create_engine, text
@@ -8,28 +8,6 @@ import re
 
 from tracecat.types.exceptions import TracecatException
 from tracecat_registry import RegistrySecret, registry, secrets
-
-# Maximum SQL statement length
-MAX_SQL_LENGTH = 10000
-
-# Valid database drivers
-# Map SQL dialects to their SQLAlchemy drivers
-VALID_DATABASE_DRIVERS = {
-    "postgresql": "postgresql+psycopg",  # Using psycopg3 driver
-    # "mysql": "mysql+pymysql",  # Using PyMySQL driver
-    # "sqlite": "sqlite",  # SQLite uses built-in driver
-    # "mssql": "mssql+pyodbc",  # Using pyodbc driver
-}
-
-# Valid SSL modes
-VALID_SSL_MODES: Set[str] = {
-    "disable",
-    "allow",
-    "prefer",
-    "require",
-    "verify-ca",
-    "verify-full",
-}
 
 sql_secret = RegistrySecret(
     name="sql",
@@ -49,6 +27,28 @@ sql_secret = RegistrySecret(
     - `SQL_USER`
     - `SQL_PASS`
 """
+
+# Maximum SQL statement length
+MAX_SQL_LENGTH = 10000
+
+# Valid database drivers
+# Map SQL dialects to their SQLAlchemy drivers
+VALID_DATABASE_DRIVERS = {
+    "postgresql": "postgresql+psycopg",  # Using psycopg3 driver
+    # "mysql": "mysql+pymysql",  # Using PyMySQL driver
+    # "sqlite": "sqlite",  # SQLite uses built-in driver
+    # "mssql": "mssql+pyodbc",  # Using pyodbc driver
+}
+
+# Valid SSL modes
+VALID_SSL_MODES: set[str] = {
+    "disable",
+    "allow",
+    "prefer",
+    "require",
+    "verify-ca",
+    "verify-full",
+}
 
 
 def _is_select_query(query: str) -> bool:
@@ -100,9 +100,8 @@ def _validate_db_driver(db_driver: str) -> None:
 
 def _build_connection_url(
     db_driver: str,
-    db_name: str,
-    ssl_mode: Optional[str] = None,
-    read_only: bool = True,
+    db_name: str | None = None,
+    ssl_mode: str | None = None,
 ) -> URL:
     """
     Build a connection URL for SQLAlchemy.
@@ -182,13 +181,13 @@ def _build_connection_url(
                 raise
 
         # Valid hostname pattern
-        # if host == "postgres_db":
-        #     raise ValueError("Cannot use reserved hostname 'postgres_db'")
+        if host == "postgres_db":
+            raise ValueError("Cannot use reserved hostname 'postgres_db'")
 
-        # # NOTE: Hostnames should not contain underscores
-        # host_pattern = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,253}[a-zA-Z0-9])?$")
-        # if not host_pattern.match(host):
-        #     raise ValueError("Invalid host format")
+        # NOTE: Hostnames should not contain underscores
+        host_pattern = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9\-\.]{0,253}[a-zA-Z0-9])?$")
+        if not host_pattern.match(host):
+            raise ValueError("Invalid host format")
 
     # Add query parameters if needed
     kwargs = {}
@@ -270,18 +269,18 @@ def query(
     ],
     db_driver: Annotated[
         Literal["postgresql"],
-        Doc("Database type. Currently only PostgreSQL is supported."),
+        Doc("Database driver. Currently only PostgreSQL is supported."),
     ] = "postgresql",
     db_name: Annotated[
-        str,
-        Doc("Database name to connect to"),
-    ] = "postgres",
+        str | None,
+        Doc("Database name. If not provided, the default database will be used."),
+    ] = None,
     ssl_mode: Annotated[
-        Optional[str],
+        str | None,
         Doc("SSL mode for connection (e.g., 'require', 'disable', etc.)"),
     ] = None,
     params: Annotated[
-        Optional[Dict[str, Any]],
+        dict[str, Any] | None,
         Doc("Parameters to bind to the query for SQL injection protection"),
     ] = None,
     use_transaction: Annotated[
@@ -292,7 +291,7 @@ def query(
         int,
         Doc("Query timeout in seconds"),
     ] = 30,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Execute a read-only SQL SELECT query against a database using SQLAlchemy.
 
@@ -328,7 +327,6 @@ def query(
         db_driver=db_driver,
         db_name=db_name,
         ssl_mode=ssl_mode,
-        read_only=True,
     )
 
     # Get engine with timeout
