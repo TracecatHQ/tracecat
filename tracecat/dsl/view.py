@@ -101,7 +101,7 @@ NodeValidator: TypeAdapter[NodeVariant] = TypeAdapter(AnnotatedNodeVariant)
 class RFEdge(TSObject):
     """React Flow Graph Edge."""
 
-    id: str = Field(default=None)
+    id: str | None = Field(default=None, description="RF Graph Edge ID")
     """RF Graph Edge ID. Not used in this context."""
 
     source: str
