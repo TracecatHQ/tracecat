@@ -100,6 +100,7 @@ async def sync_registry_repository(
             commit_sha=commit_sha,
             last_synced_at=last_synced_at,
         )
+        session.expire(repo)
         # Update the registry repository table
         await repos_service.update_repository(
             repo,
