@@ -197,7 +197,13 @@ class DSLInput(BaseModel):
                 if not action.depends_on:
                     # If there are no dependencies, this is an entrypoint
                     entrypoint_id = ref2id[action.ref]
-                    edges.append(RFEdge(source=trigger_node.id, target=entrypoint_id))
+                    edges.append(
+                        RFEdge(
+                            source=trigger_node.id,
+                            target=entrypoint_id,
+                            label="⚡ Trigger",
+                        )
+                    )
                 else:
                     # Otherwise, add edges for all dependencies
                     for dep_ref in action.depends_on:
