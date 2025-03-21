@@ -110,7 +110,6 @@ def _build_connection_url(
         db_driver: Database driver name
         db_name: Database name
         ssl_mode: SSL mode for connection
-        read_only: Whether to make the connection read-only if supported
 
     Returns:
         URL: SQLAlchemy URL object
@@ -258,7 +257,7 @@ def _get_engine(connection_url: URL, timeout: int = 30) -> Engine:
 
 @registry.register(
     namespace="core.sql",
-    description="Query a database with a read-only SELECT statement. Returns a list of results.",
+    description="Query a database with a SELECT statement. Returns a list of results.",
     default_title="Query Database",
     secrets=[sql_secret],
 )

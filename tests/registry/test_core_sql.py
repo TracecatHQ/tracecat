@@ -97,7 +97,7 @@ class TestBuildConnectionUrl:
         assert url.database == "testdb"
         assert url.username == "testuser"
         assert url.password == "testpass"
-        assert url.drivername == "postgresql"
+        assert url.drivername == "postgresql+psycopg"
 
     def test_missing_credentials(self, mock_secrets):
         """Test with missing credentials."""
@@ -115,7 +115,7 @@ class TestBuildConnectionUrl:
         mock_secrets.side_effect = (
             lambda key: "not_a_number" if key == "SQL_PORT" else "value"
         )
-        with pytest.raises(ValueError, match="Invalid port format"):
+        with pytest.raises(ValueError, match="Port must be a number"):
             _build_connection_url("postgresql", "testdb", None)
 
     def test_ssl_mode(self, mock_secrets):
@@ -127,16 +127,6 @@ class TestBuildConnectionUrl:
         """Test with invalid SSL mode."""
         with pytest.raises(ValueError, match="Invalid SSL mode"):
             _build_connection_url("postgresql", "testdb", "invalid_mode")
-
-    def test_read_only_mode(self, mock_secrets):
-        """Test read-only mode is set."""
-        # For PostgreSQL, check read-only is set
-        url = _build_connection_url("postgresql", "testdb", None, read_only=True)
-        assert url.query["default_transaction_read_only"] == "true"
-
-        # For PostgreSQL, check read-only is not set when disabled
-        url = _build_connection_url("postgresql", "testdb", None, read_only=False)
-        assert "default_transaction_read_only" not in url.query
 
     @pytest.mark.parametrize(
         "blocked_host",
@@ -243,7 +233,7 @@ class TestQuery:
 
         # Verify URL was built with correct parameters
         mock_build_url.assert_called_once_with(
-            db_driver="postgresql", db_name="testdb", ssl_mode=None, read_only=True
+            db_driver="postgresql", db_name="testdb", ssl_mode=None
         )
 
         # Verify query was executed
