@@ -113,7 +113,7 @@ class RFEdge(TSObject):
     label: str | None = Field(default=None, description="Edge label")
 
     source_handle: EdgeType | None = Field(
-        default=EdgeType.SUCCESS, description="Edge source handle type"
+        default=None, description="Edge source handle type"
     )
 
     @model_validator(mode="before")
