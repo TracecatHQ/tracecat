@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useEffect } from "react"
 import { WorkflowRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -18,6 +18,12 @@ export const WorkbenchPanel = React.forwardRef<ActionPanelRef, object>(() => {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
   const { workflow, isLoading, error } = useWorkflow()
   const selectedNode = getNode(selectedNodeId ?? "")
+
+  useEffect(() => {
+    if (workflow) {
+      document.title = `${workflow.title} | Tracecat`
+    }
+  }, [workflow])
 
   if (isLoading || !workflow) {
     return <FormLoading />
