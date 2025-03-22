@@ -163,60 +163,60 @@ export function WorkflowPanel({
     },
   })
 
-  const onSubmit = async (values: WorkflowUpdateForm) => {
-    console.log("Saving changes...", values)
-    try {
-      await updateWorkflow(values)
-    } catch (error) {
-      if (error instanceof ApiError) {
-        const apiError = error as TracecatApiError
-        console.error("Application failed to validate action", apiError.body)
+  const onSubmit = useCallback(
+    async (values: WorkflowUpdateForm) => {
+      console.log("Saving changes...", values)
+      try {
+        await updateWorkflow(values)
+      } catch (error) {
+        if (error instanceof ApiError) {
+          const apiError = error as TracecatApiError
+          console.error("Application failed to validate action", apiError.body)
 
-        // Set form errors from API validation errors
-        if (isRequestValidationErrorArray(apiError.body.detail)) {
-          const details = apiError.body.detail
-          details.forEach((detail) => {
-            methods.setError(detail.loc[1] as keyof WorkflowUpdateForm, {
-              message: detail.msg,
+          // Set form errors from API validation errors
+          if (isRequestValidationErrorArray(apiError.body.detail)) {
+            const details = apiError.body.detail
+            details.forEach((detail) => {
+              methods.setError(detail.loc[1] as keyof WorkflowUpdateForm, {
+                message: detail.msg,
+              })
             })
-          })
-        } else {
-          console.error("Validation failed, unknown error", error)
-          methods.setError("root", {
-            message: `Validation failed, unknown error: ${JSON.stringify(
-              apiError.body.detail
-            )}`,
-          })
-        }
-      } else {
-        console.error("Validation failed, unknown error", error)
-      }
-    }
-  }
-
-  const onPanelBlur = useCallback(
-    async (event: React.FocusEvent) => {
-      // Save whenever focus changes, regardless of where it's going
-      const values = methods.getValues()
-      // Parse values through zod schema first
-      const result = await workflowUpdateFormSchema.safeParseAsync(values)
-      if (!result.success) {
-        console.error("Validation failed:", result.error)
-        // Set form errors with field name and message
-        Object.entries(result.error.formErrors.fieldErrors).forEach(
-          ([fieldName, error]) => {
-            methods.setError(fieldName as keyof WorkflowUpdateForm, {
-              type: "validation",
-              message: error[0] || "Invalid value",
+          } else {
+            console.error("Validation failed, unknown error", error)
+            methods.setError("root", {
+              message: `Validation failed, unknown error: ${JSON.stringify(
+                apiError.body.detail
+              )}`,
             })
           }
-        )
-        return
+        } else {
+          console.error("Validation failed, unknown error", error)
+        }
       }
-      await onSubmit(result.data)
     },
-    [methods, onSubmit]
+    [updateWorkflow, methods]
   )
+
+  const onPanelBlur = useCallback(async () => {
+    // Save whenever focus changes, regardless of where it's going
+    const values = methods.getValues()
+    // Parse values through zod schema first
+    const result = await workflowUpdateFormSchema.safeParseAsync(values)
+    if (!result.success) {
+      console.error("Validation failed:", result.error)
+      // Set form errors with field name and message
+      Object.entries(result.error.formErrors.fieldErrors).forEach(
+        ([fieldName, error]) => {
+          methods.setError(fieldName as keyof WorkflowUpdateForm, {
+            type: "validation",
+            message: error[0] || "Invalid value",
+          })
+        }
+      )
+      return
+    }
+    await onSubmit(result.data)
+  }, [methods, onSubmit])
 
   return (
     <div onBlur={onPanelBlur}>

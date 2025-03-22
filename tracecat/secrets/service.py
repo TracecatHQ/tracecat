@@ -54,9 +54,27 @@ class SecretsService(BaseService):
         set_fields = params.model_dump(exclude_unset=True)
         # Handle keys separately
         if keys := set_fields.pop("keys", None):
-            keyvalues = [SecretKeyValue(**kv) for kv in keys]
+            # Decrypt existing keys to a dictionary for easy lookup
+            existing_keys = {
+                kv.key: kv.value for kv in self.decrypt_keys(secret.encrypted_keys)
+            }
+
+            # Create new key-value pairs, preserving existing values when the new value is empty
+            merged_keyvalues = []
+            for kv in keys:
+                key = kv["key"]
+                value = kv["value"]
+
+                # If value is empty and the key already exists, keep the existing value
+                if not value and key in existing_keys:
+                    merged_keyvalues.append(
+                        SecretKeyValue(key=key, value=existing_keys[key])
+                    )
+                else:
+                    merged_keyvalues.append(SecretKeyValue(**kv))
+
             secret.encrypted_keys = encrypt_keyvalues(
-                keyvalues, key=self._encryption_key
+                merged_keyvalues, key=self._encryption_key
             )
 
         for field, value in set_fields.items():

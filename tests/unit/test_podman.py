@@ -1,6 +1,6 @@
 import pytest
 
-from tracecat.sandbox.podman import (
+from tracecat.ee.sandbox.podman import (
     PodmanNetwork,
     PullPolicy,
     get_podman_version,
@@ -8,6 +8,8 @@ from tracecat.sandbox.podman import (
     remove_podman_volumes,
     run_podman_container,
 )
+
+pytestmark = pytest.mark.podman
 
 TEST_PODMAN_URI = "tcp://localhost:8080"
 TEST_TRUSTED_IMAGES = [
@@ -33,9 +35,8 @@ def test_hello_world():
         trusted_images=TEST_TRUSTED_IMAGES,
     )
 
-    assert result.success
     assert result.exit_code == 0
-    assert any("Hello, World!" in log for log in result.logs)
+    assert any("Hello, World!" in line for line in result.stdout)
 
 
 def test_environment_variables_are_set():
@@ -47,9 +48,8 @@ def test_environment_variables_are_set():
         base_url=TEST_PODMAN_URI,
         trusted_images=TEST_TRUSTED_IMAGES,
     )
-    assert result.success
     assert result.exit_code == 0
-    assert result.logs[0].startswith("hello! world! foo!")
+    assert result.stdout[0].startswith("hello! world! foo!")
 
 
 def test_stratus_red_team_list():
@@ -63,10 +63,10 @@ def test_stratus_red_team_list():
         trusted_images=TEST_TRUSTED_IMAGES,
     )
 
-    assert result.success
     assert result.exit_code == 0
     assert any(
-        "View the list of all available attack techniques" in log for log in result.logs
+        "View the list of all available attack techniques" in line
+        for line in result.stdout
     )
 
 
@@ -86,7 +86,7 @@ def test_volumes_persist_across_runs():
         base_url=TEST_PODMAN_URI,
         trusted_images=["docker.io/library/alpine:latest"],
     )
-    assert first_run.success, f"First container failed: {first_run.logs}"
+    assert first_run.exit_code == 0
 
     # Verify the volume was created
     volumes = list_podman_volumes(base_url=TEST_PODMAN_URI)
@@ -103,10 +103,9 @@ def test_volumes_persist_across_runs():
         base_url=TEST_PODMAN_URI,
         trusted_images=["docker.io/library/alpine:latest"],
     )
-
+    assert second_run.exit_code == 0
     # Verify the content persisted
-    assert second_run.success, f"Second container failed: {second_run.logs}"
-    assert test_content in second_run.logs[0], "Content did not persist in volume"
+    assert test_content in second_run.stdout[0], "Content did not persist in volume"
 
     # Remove the volume
     remove_podman_volumes(volume_name=volume_name, base_url=TEST_PODMAN_URI)
@@ -151,9 +150,8 @@ except Exception as e:
         base_url=TEST_PODMAN_URI,
         trusted_images=["docker.io/library/python:3.11-slim"],
     )
-    assert result.success
     assert result.exit_code == 0
-    assert "200" in " ".join(result.logs)
+    assert "200" in " ".join(result.stdout)
 
 
 def test_http_request_with_none_network():
@@ -197,7 +195,6 @@ def test_expected_exit_codes():
         trusted_images=TEST_TRUSTED_IMAGES,
     )
     assert result.exit_code == 1
-    assert not result.success  # success should still be False for non-zero exit codes
 
     # Test that other exit codes still raise errors
     with pytest.raises(RuntimeError) as excinfo:
@@ -219,4 +216,3 @@ def test_expected_exit_codes():
         trusted_images=TEST_TRUSTED_IMAGES,
     )
     assert result.exit_code == 3
-    assert not result.success

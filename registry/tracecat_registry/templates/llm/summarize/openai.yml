@@ -1,0 +1,73 @@
+type: action
+definition:
+  title: Summarize
+  description: Summarize a given text using OpenAI LLMs.
+  display_group: Summarize
+  doc_url: https://platform.openai.com/docs/guides/summarization
+  namespace: openai.summarize
+  name: summarize
+  expects:
+    input:
+      type: str
+      description: Text to summarize.
+    input_context:
+      type: str
+      description: Description of the input text (e.g. "Job description").
+    max_length:
+      type: int
+      description: Maximum number of characters in the summary.
+      default: 280
+  steps:
+    - ref: summarize
+      action: llm.openai.call
+      args:
+        prompt: |
+          <text>
+          ${{ inputs.input }}
+          </text>
+        instructions: |
+          <context>
+          You are an expert summarizer of unstructured text, specifically knowledgeable about ${{ inputs.input_context }}.
+          </context>
+
+          <reasoning>
+          1. Identify topic and purpose
+          2. Extract key points
+          3. Synthesize into concise summary
+          </reasoning>
+
+          <task>
+          Summarize the text in no more than ${{ inputs.max_length }} characters.
+          </task>
+        text_format:
+          type: json_schema
+          name: summary
+          schema:
+            type: object
+            properties:
+              topic:
+                type: string
+                description: Main topic (brief).
+              purpose:
+                type: string
+                description: Primary purpose (brief).
+              key_points:
+                type: array
+                items:
+                  type: string
+                description: Essential points (3-5 items).
+              final_summary:
+                type: string
+                description: Summary within ${{ inputs.max_length }} characters.
+            required:
+              - topic
+              - purpose
+              - key_points
+              - final_summary
+            additionalProperties: false
+          strict: true
+    - ref: output
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.deserialize_json(steps.summarize.result.output_text) }}
+  returns: ${{ FN.lookup(steps.output.result, "final_summary") }}

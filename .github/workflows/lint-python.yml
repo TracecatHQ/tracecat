@@ -15,14 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: chartboost/ruff-action@v1
+      - uses: astral-sh/ruff-action@v3
         with:
           src: tracecat/
-          version: v0.9.1
+          version: latest
           args: check --no-fix
 
-      - uses: chartboost/ruff-action@v1
+      - uses: astral-sh/ruff-action@v3
         with:
           src: tracecat/
-          version: v0.9.1
+          version: latest
           args: format --diff

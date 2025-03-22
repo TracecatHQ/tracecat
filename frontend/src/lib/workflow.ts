@@ -1,4 +1,4 @@
-import { ReactFlowInstance } from "reactflow"
+import { ReactFlowInstance } from "@xyflow/react"
 
 import { isEphemeral } from "@/components/workbench/canvas/canvas"
 

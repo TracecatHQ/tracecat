@@ -5,12 +5,11 @@ import {
   getConnectedEdges,
   Handle,
   Node,
-  NodeInternals,
   Position,
   useNodeId,
   useStore,
   type HandleProps,
-} from "reactflow"
+} from "@xyflow/react"
 
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -22,7 +21,7 @@ import {
 } from "@/components/ui/tooltip"
 
 interface CustomHandleProps
-  extends Omit<HandleProps, "isConnectable">,
+  extends Omit<HandleProps, "isConnectable" | "id">,
     React.HTMLAttributes<HTMLDivElement> {
   isConnectable?:
     | number
@@ -30,11 +29,8 @@ interface CustomHandleProps
     | ((args: { node: Node; connectedEdges: Edge[] }) => boolean)
 }
 export function CustomHandle(props: CustomHandleProps) {
-  const { nodeInternals, edges } = useStore<{
-    nodeInternals: NodeInternals
-    edges: Edge[]
-  }>((s) => ({
-    nodeInternals: s.nodeInternals,
+  const { nodeLookup, edges } = useStore((s) => ({
+    nodeLookup: s.nodeLookup,
     edges: s.edges,
   }))
   const nodeId = useNodeId()
@@ -45,7 +41,7 @@ export function CustomHandle(props: CustomHandleProps) {
     }
 
     if (typeof props.isConnectable === "function") {
-      const node = nodeInternals.get(nodeId)
+      const node = nodeLookup.get(nodeId)
       if (!node) {
         console.error(
           `Node with id ${nodeId} not found in nodeInternals. Make sure you are using the latest version of react-flow.`
@@ -58,7 +54,7 @@ export function CustomHandle(props: CustomHandleProps) {
     }
 
     if (typeof props.isConnectable === "number") {
-      const node = nodeInternals.get(nodeId)
+      const node = nodeLookup.get(nodeId)
       if (!node) {
         console.error(
           `Node with id ${nodeId} not found in nodeInternals. Make sure you are using the latest version of react-flow.`
@@ -71,9 +67,9 @@ export function CustomHandle(props: CustomHandleProps) {
     }
 
     return props.isConnectable
-  }, [nodeInternals, edges, nodeId, props.isConnectable])
+  }, [nodeLookup, edges, nodeId, props])
 
-  if (!nodeInternals || !edges || !nodeId) {
+  if (!nodeLookup || !edges || !nodeId) {
     return null
   }
 

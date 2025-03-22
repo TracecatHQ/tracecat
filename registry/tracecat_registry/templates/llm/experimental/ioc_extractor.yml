@@ -1,0 +1,238 @@
+type: action
+definition:
+  title: Extract IOCs from GuardDuty Alert
+  description: Extract technical indicators and entities from GuardDuty alerts
+  display_group: Security
+  namespace: openai.guardduty
+  name: ioc_extractor
+  expects:
+    alert:
+      type: str | dict[str, any] | list[any]
+      description: GuardDuty finding JSON payload
+  steps:
+    - ref: extract_iocs
+      action: llm.openai.call
+      args:
+        prompt: |
+          <input_data>
+          ${{ FN.serialize_yaml(inputs.alert) }}
+          </input_data>
+        instructions: |
+          <context>
+          You are an expert at identifying technical indicators of compromise (IoCs) and affected entities in AWS GuardDuty alerts.
+          You MUST extract only actual, concrete values from the alert - no placeholders or generic descriptions. Do not make up values.
+          </context>
+
+          <task>
+          Extract all technical indicators and affected entities from this GuardDuty finding (yaml).
+          Include network indicators, AWS resources, and any other technical artifacts found in the alert.
+          These will be used as part of a chatops workflow (slack, teams) to triage and respond to the alert.
+          </task>
+        text_format:
+          type: json_schema
+          name: indicators
+          schema:
+            type: object
+            properties:
+              chain_of_thought:
+                type: array
+                items:
+                  type: string
+                description: |
+                  Your thought process in extracting the IoCs
+                  - Identify the key entities and relationships in the alert
+                  - Extract the IoCs from the alert
+                  - Return the IoCs in a structured format
+              network_indicators:
+                type: object
+                properties:
+                  ip_addresses:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        address:
+                          type: string
+                          description: IP address
+                        is_public:
+                          type: boolean
+                          description: Whether this is a public (true) or private (false) IP address
+                      required:
+                        - address
+                        - is_public
+                      additionalProperties: false
+                    description: IP addresses involved in the activity
+                  domains:
+                    type: array
+                    items:
+                      type: string
+                    description: Domain names involved in the activity
+                  ports:
+                    type: array
+                    items:
+                      type: string
+                    description: Network ports involved (e.g. "80/tcp", "53/udp")
+                required:
+                  - ip_addresses
+                  - domains
+                  - ports
+                additionalProperties: false
+              aws_resources:
+                type: object
+                properties:
+                  instances:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        instance_id:
+                          type: string
+                          description: EC2 instance ID
+                        arn:
+                          type: string
+                          description: Full ARN of the instance
+                        tags:
+                          type: object
+                          description: Instance tags
+                          additionalProperties: false
+                      required:
+                        - instance_id
+                        - arn
+                      additionalProperties: false
+                    description: EC2 instances involved
+                  roles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        role_name:
+                          type: string
+                          description: IAM role name
+                        arn:
+                          type: string
+                          description: Full ARN of the role
+                      required:
+                        - role_name
+                        - arn
+                      additionalProperties: false
+                    description: IAM roles involved
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        username:
+                          type: string
+                          description: IAM username
+                        arn:
+                          type: string
+                          description: Full ARN of the user
+                      required:
+                        - username
+                        - arn
+                      additionalProperties: false
+                    description: IAM users involved
+                  buckets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        bucket_name:
+                          type: string
+                          description: S3 bucket name
+                        arn:
+                          type: string
+                          description: Full ARN of the bucket
+                      required:
+                        - bucket_name
+                        - arn
+                      additionalProperties: false
+                    description: S3 buckets involved
+                required:
+                  - instances
+                  - roles
+                  - users
+                  - buckets
+                additionalProperties: false
+              process_details:
+                type: object
+                properties:
+                  processes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          description: Process name
+                        path:
+                          type: string
+                          description: Process path
+                        pid:
+                          type: integer
+                          description: Process ID
+                        parent_pid:
+                          type: integer
+                          description: Parent process ID
+                        cmdline:
+                          type: string
+                          description: Command line arguments
+                      required:
+                        - name
+                        - path
+                        - pid
+                        - parent_pid
+                        - cmdline
+                      additionalProperties: false
+                    description: Processes involved in the activity
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                          description: File path
+                        hash:
+                          type: object
+                          properties:
+                            md5:
+                              type: string
+                            sha256:
+                              type: string
+                          required:
+                            - md5
+                            - sha256
+                          additionalProperties: false
+                      required:
+                        - path
+                        - hash
+                      additionalProperties: false
+                    description: Files involved in the activity
+                required:
+                  - processes
+                  - files
+                additionalProperties: false
+              other_indicators:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    value:
+                      type: string
+                  required:
+                    - type
+                    - value
+                  additionalProperties: false
+                description: Other indicators of compromise
+            required:
+              - chain_of_thought
+              - network_indicators
+              - aws_resources
+              - process_details
+              - other_indicators
+            additionalProperties: false
+          strict: true
+  returns: ${{ FN.deserialize_json(steps.extract_iocs.result.output_text) }}

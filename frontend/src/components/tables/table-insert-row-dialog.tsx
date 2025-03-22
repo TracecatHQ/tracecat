@@ -99,7 +99,7 @@ export function TableInsertRowDialog({
   const { tableId } = useParams<{ tableId: string }>()
   const { workspaceId } = useWorkspace()
   const { table } = useGetTable({ tableId, workspaceId })
-  const { insertRow, insertRowIsPending, insertRowError } = useInsertRow()
+  const { insertRow, insertRowIsPending } = useInsertRow()
 
   // Create form schema once table data is available
   const schema = table ? createInsertTableRowSchema(table) : z.object({})

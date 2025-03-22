@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { CalendarSearchIcon, FileInputIcon, ShapesIcon } from "lucide-react"
+import {
+  CalendarSearchIcon,
+  FileInputIcon,
+  MessagesSquare,
+  ShapesIcon,
+} from "lucide-react"
 import { ImperativePanelHandle } from "react-resizable-panels"
 
 import {
@@ -17,6 +22,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { ActionEvent } from "@/components/workbench/events/events-selected-action"
 import { EventsSidebarEmpty } from "@/components/workbench/events/events-sidebar-empty"
+import { WorkflowInteractions } from "@/components/workbench/events/events-sidebar-interactions"
 import {
   WorkflowEvents,
   WorkflowEventsHeader,
@@ -26,6 +32,7 @@ export type EventsSidebarTabs =
   | "workflow-events"
   | "action-input"
   | "action-result"
+  | "action-interaction"
 /**
  * Interface for controlling the events sidebar through a ref
  */
@@ -34,12 +41,17 @@ export interface EventsSidebarRef extends ImperativePanelHandle {
   setActiveTab: (tab: EventsSidebarTabs) => void
   /** Gets the current active tab */
   getActiveTab: () => EventsSidebarTabs
+  /** Sets the open state of the events sidebar */
+  setOpen: (open: boolean) => void
+  /** Gets the open state of the events sidebar */
+  isOpen: () => boolean
 }
 
 export function WorkbenchSidebarEvents() {
   const { sidebarRef } = useWorkflowBuilder()
   const [activeTab, setActiveTab] =
     useState<EventsSidebarTabs>("workflow-events")
+  const [open, setOpen] = useState(false)
   const { workflow, isLoading } = useWorkflow()
 
   // Set up the ref methods
@@ -47,8 +59,16 @@ export function WorkbenchSidebarEvents() {
     if (sidebarRef.current) {
       sidebarRef.current.setActiveTab = setActiveTab
       sidebarRef.current.getActiveTab = () => activeTab
+      sidebarRef.current.setOpen = (newOpen: boolean) => {
+        setOpen(newOpen)
+        // If the panel has a collapse method, use it
+        if (sidebarRef.current?.collapse && sidebarRef.current?.expand) {
+          newOpen ? sidebarRef.current.expand() : sidebarRef.current.collapse()
+        }
+      }
+      sidebarRef.current.isOpen = () => open
     }
-  }, [sidebarRef, activeTab])
+  }, [sidebarRef, activeTab, setOpen, open])
 
   if (isLoading) return <CenteredSpinner />
   if (!workflow)
@@ -57,6 +77,7 @@ export function WorkbenchSidebarEvents() {
         No workflow in context
       </div>
     )
+
   return (
     <WorkbenchSidebarEventsList
       workflowId={workflow.id}
@@ -118,6 +139,7 @@ function WorkbenchSidebarEventsList({
       content: (
         <>
           <WorkflowEventsHeader execution={execution} />
+          <WorkflowInteractions execution={execution} />
           <WorkflowEvents events={execution.events} />
         </>
       ),
@@ -133,6 +155,12 @@ function WorkbenchSidebarEventsList({
       label: "Result",
       icon: ShapesIcon,
       content: <ActionEvent execution={execution} type="result" />,
+    },
+    {
+      value: "action-interaction",
+      label: "Interaction",
+      icon: MessagesSquare,
+      content: <ActionEvent execution={execution} type="interaction" />,
     },
   ]
   return (

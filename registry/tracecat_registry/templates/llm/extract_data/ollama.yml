@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: Extract data
+  description: Extract data into a list of objects using Ollama LLMs.
+  display_group: Extract Data
+  doc_url: https://github.com/ollama/ollama/blob/main/README.md
+  namespace: ollama.extract_data
+  name: extract_data
+  expects:
+    input:
+      type: str | list[str] | dict[str, any]
+      description: Input data.
+    input_context:
+      type: str
+      description: Description of the input data (e.g. "Job description").
+    output_name:
+      type: str
+      description: Data value to extract in plural form (e.g. "locations").
+    output_schema:
+      type: dict[str, dict[str, str]]
+      description: JSON Schema properties to extract.
+    model:
+      type: str
+      description: Model to use for extraction.
+      default: llama3.2:1b
+  steps:
+    - ref: extract_data
+      action: llm.ollama.call
+      args:
+        model: ${{ inputs.model }}
+        prompt: |
+          <input_data>
+          ${{ inputs.input }}
+          </input_data>
+        system_prompt: |
+          <context>
+          You are an expert at structured data extraction.
+          </context>
+
+          <task>
+          Extract data from the input data representing a ${{ FN.lowercase(inputs.input_context) }}.
+          </task>
+        format:
+          type: object
+          properties:
+            ${{ inputs.output_name }}:
+              type: array
+              items:
+                type: object
+                properties: ${{ inputs.output_schema }}
+                required: ${{ FN.to_keys(inputs.output_schema) }}
+                additionalProperties: false
+                strict: true
+          required:
+            - ${{ inputs.output_name }}
+          additionalProperties: false
+          strict: true
+    - ref: output
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.deserialize_json(steps.extract_data.result.output_text) }}
+  returns: ${{ FN.lookup(steps.output.result, inputs.output_name) }}

@@ -13,6 +13,7 @@ import { z } from "zod"
 import { TracecatApiError } from "@/lib/errors"
 import { useWorkflowManager } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,7 @@ const formSchema = z.object({
   file: z.instanceof(File).refine((file) => file.size <= 5000000, {
     message: "File size must be less than 5MB.",
   }),
+  use_workflow_id: z.boolean().default(false),
 })
 
 type FormValues = z.infer<typeof formSchema>
@@ -55,6 +57,9 @@ export function CreateWorkflowButton() {
   const [validationErrors, setValidationErrors] = useState<string | null>(null)
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
+    defaultValues: {
+      use_workflow_id: false,
+    },
   })
   const workspaceUrl = `/workspaces/${workspaceId}/workflows`
   const handleCreateWorkflow = async () => {
@@ -68,12 +73,13 @@ export function CreateWorkflowButton() {
 
   const onSubmit = async (data: FormValues) => {
     try {
-      const { file } = data
+      const { file, use_workflow_id } = data
       const contentType = file.type
       const response = await createWorkflow({
         workspaceId,
         formData: {
           file: new Blob([file], { type: contentType }),
+          use_workflow_id,
         },
       })
       router.push(`${workspaceUrl}/${response.id}`)
@@ -95,7 +101,7 @@ export function CreateWorkflowButton() {
             console.error("Conflict:", apiError)
             form.setError("file", {
               message: `A workflow with this workflow ID already exists.
-              Please either delete the existing workflow, remove the ID from the file, or upload a file with a different ID.`,
+              Please either uncheck "Use workflow ID from file", delete the existing workflow, remove the ID from the file, or upload a file with a different ID.`,
             })
             break
           default:
@@ -172,6 +178,30 @@ export function CreateWorkflowButton() {
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name="use_workflow_id"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <div className="space-y-1 leading-none">
+                    <FormLabel>Use workflow ID from file</FormLabel>
+                    <FormDescription>
+                      When checked, the system will use the workflow ID provided
+                      in the YAML/JSON file. If not checked, a new ID will be
+                      generated.
+                    </FormDescription>
+                  </div>
+                </FormItem>
+              )}
+            />
+
             <Button type="submit">Upload</Button>
           </form>
         </Form>

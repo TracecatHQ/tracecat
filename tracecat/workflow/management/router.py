@@ -88,6 +88,10 @@ async def create_workflow(
     session: AsyncDBSession,
     title: str | None = Form(default=None, min_length=1, max_length=100),
     description: str | None = Form(default=None, max_length=1000),
+    use_workflow_id: bool = Form(
+        default=False,
+        description="Use the workflow ID if it is provided in the YAML file",
+    ),
     file: UploadFile | None = File(default=None),
 ) -> WorkflowReadMinimal:
     """Create a new Workflow.
@@ -136,7 +140,7 @@ async def create_workflow(
         logger.info("Importing workflow", external_defn_data=external_defn_data)
         try:
             workflow = await service.create_workflow_from_external_definition(
-                external_defn_data
+                external_defn_data, use_workflow_id=use_workflow_id
             )
         except ValidationError as e:
             raise HTTPException(

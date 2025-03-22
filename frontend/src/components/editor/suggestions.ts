@@ -154,22 +154,30 @@ export function getContextSuggestions(
   }))
 }
 
-export function getEnvCompletions(range: IRange): languages.CompletionItem[] {
+export function getEnvCompletions(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
+  _range: IRange
+): languages.CompletionItem[] {
   return []
 }
 
-export function getInputCompletions(range: IRange): languages.CompletionItem[] {
+export function getInputCompletions(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
+  _range: IRange
+): languages.CompletionItem[] {
   return []
 }
 
 export function getSecretCompletions(
-  range: IRange
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
+  _range: IRange
 ): languages.CompletionItem[] {
   return []
 }
 
 export function getTriggerCompletions(
-  range: IRange
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
+  _range: IRange
 ): languages.CompletionItem[] {
   return []
 }

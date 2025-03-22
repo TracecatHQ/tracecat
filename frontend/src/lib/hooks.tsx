@@ -147,6 +147,7 @@ import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { toast } from "@/components/ui/use-toast"
 
 interface AppInfo {
+  version: string
   public_app_url: string
   auth_allowed_types: string[]
   auth_basic_enabled: boolean

@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: Title
+  description: Generate an informative title for given text using Ollama LLMs.
+  display_group: Title
+  doc_url: https://github.com/ollama/ollama/blob/main/README.md
+  namespace: ollama.title
+  name: title
+  expects:
+    input:
+      type: str
+      description: Content to generate a title for.
+    input_context:
+      type: str
+      description: Type of content (e.g. "incident reports", "knowledge articles").
+    max_length:
+      type: int
+      description: Maximum number of characters in the title.
+      default: 60
+    model:
+      type: str
+      description: Model to use for title generation.
+      default: gemma3:1b-it-q8_0
+  steps:
+    - ref: generate_title
+      action: llm.ollama.call
+      args:
+        model: ${{ inputs.model }}
+        prompt: |
+          <content>
+          ${{ inputs.input }}
+          </content>
+        system_prompt: |
+          <context>
+          You are an expert at creating titles for ${{ inputs.input_context }}.
+          </context>
+
+          <reasoning>
+          1. Identify the primary issue or topic
+          2. Identify key entities and relationships involved
+          3. Assess urgency/importance level
+          </reasoning>
+
+          <task>
+          Create a clear, descriptive title within ${{ inputs.max_length }} characters.
+          Start with critical information, use specific language, convey appropriate urgency, and ensure it's immediately understandable without context.
+          </task>
+        format:
+          type: object
+          properties:
+            title:
+              type: string
+              description: Concise title within ${{ inputs.max_length }} characters.
+          required:
+            - title
+          additionalProperties: false
+          strict: true
+    - ref: output
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.deserialize_json(steps.generate_title.result.message.content) }}
+  returns: ${{ FN.lookup(steps.output.result, "title") }}

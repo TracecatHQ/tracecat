@@ -17,9 +17,16 @@ from typing import Any, Literal, ParamSpec, TypeVar
 from uuid import uuid4
 
 import orjson
+import yaml
 from slugify import slugify
 
 from tracecat.common import is_iterable
+from tracecat.contexts import ctx_interaction
+from tracecat.ee.interactions.models import InteractionContext
+from tracecat.expressions.formatters import tabulate
+from tracecat.expressions.ioc_extractors.email import extract_emails
+from tracecat.expressions.ioc_extractors.ip import extract_ipv4
+from tracecat.parse import unescape_string
 
 
 def _bool(x: Any) -> bool:
@@ -30,6 +37,18 @@ def _bool(x: Any) -> bool:
         return x.lower() in ("true", "1")
     # Use default bool for everything else
     return bool(x)
+
+
+# Platform functions
+
+
+def get_interaction() -> dict[str, str] | None:
+    """Get the interaction context from the current action in the workflow execution."""
+    match interaction := ctx_interaction.get():
+        case InteractionContext():
+            return interaction.model_dump()
+        case _:
+            return None
 
 
 # String functions
@@ -318,7 +337,8 @@ def unique(items: Sequence[Any]) -> list[Any]:
 
 def join_strings(items: Sequence[str], sep: str) -> str:
     """Join sequence of strings with separator."""
-    return sep.join(items)
+    excaped_sep = unescape_string(sep)
+    return excaped_sep.join(items)
 
 
 def concat_strings(*items: str) -> str:
@@ -384,7 +404,7 @@ def map_dict_keys(x: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
         raise ValueError(f"Key {e} not found in keys mapping {keys}.") from e
 
 
-def serialize_to_json(x: Any) -> str:
+def serialize_json(x: Any) -> str:
     """Convert object to JSON string."""
     return orjson.dumps(x).decode()
 
@@ -837,13 +857,16 @@ _FUNCTION_MAPPING = {
     "merge": merge_dicts,
     "to_keys": dict_keys,
     "to_values": dict_values,
+    "tabulate": tabulate,
     # Logical
     "and": and_,
     "or": or_,
     "not": not_,
     # Type conversion
-    "serialize_json": serialize_to_json,
+    "serialize_json": serialize_json,
     "deserialize_json": orjson.loads,
+    "serialize_yaml": yaml.dump,
+    "deserialize_yaml": yaml.safe_load,
     "prettify_json": prettify_json,
     "deserialize_ndjson": deserialize_ndjson,
     "extract_text_from_html": extract_text_from_html,
@@ -889,6 +912,11 @@ _FUNCTION_MAPPING = {
     "ipv4_is_public": ipv4_is_public,
     "ipv6_is_public": ipv6_is_public,
     "check_ip_version": check_ip_version,
+    # Interaction
+    "get_interaction": get_interaction,
+    # IOC extractors
+    "extract_emails": extract_emails,
+    "extract_ipv4": extract_ipv4,
 }
 
 OPERATORS = {

@@ -27,7 +27,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat import identifiers
     from tracecat.concurrency import GatheringTaskGroup
-    from tracecat.contexts import ctx_logger, ctx_role, ctx_run
+    from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.action import (
         DSLActivities,
         ValidateActionActivityInput,
@@ -39,7 +39,7 @@ with workflow.unsafe.imports_passed_through():
         ExecuteChildWorkflowArgs,
         dsl_execution_error_from_exception,
     )
-    from tracecat.dsl.enums import CoreActions, FailStrategy, LoopStrategy
+    from tracecat.dsl.enums import FailStrategy, LoopStrategy, PlatformAction
     from tracecat.dsl.models import (
         ActionErrorInfo,
         ActionStatement,
@@ -57,6 +57,13 @@ with workflow.unsafe.imports_passed_through():
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
     )
+    from tracecat.ee.interactions.decorators import maybe_interactive
+    from tracecat.ee.interactions.models import (
+        InteractionInput,
+        InteractionResult,
+        InteractionState,
+    )
+    from tracecat.ee.interactions.service import InteractionManager
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
@@ -125,17 +132,19 @@ retry_policies = {
 class DSLWorkflow:
     """Manage only the state and execution of the DSL workflow."""
 
-    @workflow.run
-    async def run(self, args: DSLRunArgs) -> Any:
+    @workflow.init
+    def __init__(self, args: DSLRunArgs) -> None:
         self.role = args.role
         self.start_to_close_timeout = args.timeout
         wf_info = workflow.info()
-        wf_exec_id = wf_info.workflow_id
-        wf_run_id = wf_info.run_id
+        # Tracecat wf exec id == Temporal wf exec id
+        self.wf_exec_id = wf_info.workflow_id
+        # Tracecat wf run id == Temporal wf run id
+        self.wf_run_id = wf_info.run_id
         self.logger = logger.bind(
             wf_id=args.wf_id,
-            wf_exec_id=wf_exec_id,
-            wf_run_id=wf_run_id,
+            wf_exec_id=self.wf_exec_id,
+            wf_run_id=self.wf_run_id,
             role=self.role,
             service="dsl-workflow-runner",
         )
@@ -157,8 +166,26 @@ class DSLWorkflow:
         except Exception as e:
             self.logger.error("Failed to show workflow info", error=e)
 
-        # Set DSL
+        self.interactions = InteractionManager(self)
 
+    @workflow.query
+    def get_interaction_states(self) -> dict[uuid.UUID, InteractionState]:
+        """Get the interaction states."""
+        return self.interactions.states
+
+    @workflow.update
+    def interaction_handler(self, input: InteractionInput) -> InteractionResult:
+        """Handle interactions from the workflow and return a result."""
+        return self.interactions.handle_interaction(input)
+
+    @interaction_handler.validator
+    def validate_interaction_handler(self, input: InteractionInput) -> None:
+        """Validate the interaction handler."""
+        return self.interactions.validate_interaction(input)
+
+    @workflow.run
+    async def run(self, args: DSLRunArgs) -> Any:
+        # Set DSL
         if args.dsl:
             # Use the provided DSL
             self.logger.debug("Using provided workflow definition")
@@ -210,7 +237,7 @@ class DSLWorkflow:
                     message=e.message,
                     handler_wf_id=handler_wf_id,
                     orig_wf_id=args.wf_id,
-                    orig_wf_exec_id=wf_exec_id,
+                    orig_wf_exec_id=self.wf_exec_id,
                     errors=errors,
                 )
                 await self._run_error_handler_workflow(err_run_args)
@@ -304,6 +331,8 @@ class DSLWorkflow:
                 workflow={
                     "start_time": wf_info.start_time,
                     "dispatch_type": self.dispatch_type,
+                    "execution_id": self.wf_exec_id,
+                    "run_id": self.wf_run_id,
                 },
                 environment=self.runtime_config.environment,
                 variables={},
@@ -453,6 +482,7 @@ class DSLWorkflow:
                 break
         return result
 
+    @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> DSLNodeResult:
         """Purely execute a task and manage the results.
 
@@ -477,27 +507,32 @@ class DSLWorkflow:
         task_result = DSLNodeResult(result=None, result_typename=type(None).__name__)
 
         try:
+            # Handle timing control flow logic
             await self._handle_timers(task)
+
             # Do action stuff
-            if task.action == CoreActions.CHILD_WORKFLOW_EXECUTE:
-                # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
-                # 1. Prepare the child workflow
-                logger.trace("Preparing child workflow")
-                child_run_args = await self._prepare_child_workflow(task)
-                logger.trace("Child workflow prepared", child_run_args=child_run_args)
-                # This is the original child runtime args, preset by the DSL
-                # In contrast, task.args are the runtime args that the parent workflow provided
-                action_result = await self._execute_child_workflow(
-                    task=task, child_run_args=child_run_args
-                )
-            else:
-                # Below this point, we're executing the task
-                logger.trace(
-                    "Running action",
-                    task_ref=task.ref,
-                    runtime_config=self.runtime_config,
-                )
-                action_result = await self._run_action(task)
+            match task.action:
+                case PlatformAction.CHILD_WORKFLOW_EXECUTE:
+                    # NOTE: We don't support (nor recommend, unless a use case is justified) passing SECRETS to child workflows
+                    # 1. Prepare the child workflow
+                    logger.trace("Preparing child workflow")
+                    child_run_args = await self._prepare_child_workflow(task)
+                    logger.trace(
+                        "Child workflow prepared", child_run_args=child_run_args
+                    )
+                    # This is the original child runtime args, preset by the DSL
+                    # In contrast, task.args are the runtime args that the parent workflow provided
+                    action_result = await self._execute_child_workflow(
+                        task=task, child_run_args=child_run_args
+                    )
+                case _:
+                    # Below this point, we're executing the task
+                    logger.trace(
+                        "Running action",
+                        task_ref=task.ref,
+                        runtime_config=self.runtime_config,
+                    )
+                    action_result = await self._run_action(task)
             logger.trace("Action completed successfully", action_result=action_result)
             task_result.update(
                 result=action_result, result_typename=type(action_result).__name__
@@ -848,7 +883,10 @@ class DSLWorkflow:
 
     async def _run_action(self, task: ActionStatement) -> Any:
         arg = RunActionInput(
-            task=task, run_context=self.run_context, exec_context=self.context
+            task=task,
+            run_context=self.run_context,
+            exec_context=self.context,
+            interaction_context=ctx_interaction.get(),
         )
         self.logger.debug("Running action", action=task.action)
 

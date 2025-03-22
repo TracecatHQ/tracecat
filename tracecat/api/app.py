@@ -10,6 +10,7 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat import __version__ as APP_VERSION
 from tracecat import config
 from tracecat.api.common import (
     bootstrap_role,
@@ -272,6 +273,7 @@ def root() -> dict[str, str]:
 
 
 class AppInfo(BaseModel):
+    version: str
     public_app_url: str
     auth_allowed_types: list[AuthType]
     auth_basic_enabled: bool
@@ -291,6 +293,7 @@ async def info(session: AsyncDBSession) -> AppInfo:
     for key in keys:
         keyvalues[key] = get_setting_override(key) or keyvalues[key]
     return AppInfo(
+        version=APP_VERSION,
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,
         auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
         auth_basic_enabled=keyvalues["auth_basic_enabled"],

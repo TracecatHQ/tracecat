@@ -69,7 +69,21 @@ export function UpdateOrgSecretDialog({
       keys: [],
     },
   })
-  const { control, register } = methods
+  const { control, register, reset } = methods
+
+  React.useEffect(() => {
+    if (selectedSecret) {
+      reset({
+        name: "",
+        description: "",
+        environment: "",
+        keys: selectedSecret.keys.map((keyName) => ({
+          key: keyName,
+          value: "",
+        })),
+      })
+    }
+  }, [selectedSecret, reset])
 
   const onSubmit = useCallback(
     async (values: SecretUpdate) => {

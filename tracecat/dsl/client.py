@@ -56,7 +56,7 @@ async def _retrieve_temporal_api_key(arn: str) -> str:
 @retry(
     stop=stop_after_attempt(TEMPORAL__CONNECT_RETRIES),
     wait=wait_exponential(multiplier=1, min=1, max=10),
-    retry=retry_if_exception_type(TemporalError),
+    retry=retry_if_exception_type((TemporalError, RuntimeError)),
     reraise=True,
 )
 async def connect_to_temporal() -> Client:

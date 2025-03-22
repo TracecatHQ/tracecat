@@ -1,4 +1,3 @@
-import yaml
 from fastapi import APIRouter, HTTPException, status
 from pydantic_core import PydanticUndefined
 from sqlalchemy.exc import NoResultFound
@@ -7,6 +6,7 @@ from sqlmodel import select
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Action
+from tracecat.ee.interactions.models import ActionInteractionValidator
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.registry.actions.service import RegistryActionsService
@@ -42,6 +42,7 @@ async def list_actions(
             title=action.title,
             description=action.description,
             status=action.status,
+            is_interactive=action.is_interactive,
         )
         for action in actions
     ]
@@ -90,6 +91,7 @@ async def create_action(
         title=action.title,
         description=action.description,
         status=action.status,
+        is_interactive=action.is_interactive,
     )
     return action_metadata
 
@@ -136,6 +138,12 @@ async def get_action(
         status=action.status,
         inputs=action.inputs,
         control_flow=ActionControlFlow(**action.control_flow),
+        is_interactive=action.is_interactive,
+        interaction=(
+            ActionInteractionValidator.validate_python(action.interaction)
+            if action.interaction is not None
+            else None
+        ),
     )
 
 
@@ -160,25 +168,9 @@ async def update_action(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
 
-    if params.title is not None:
-        action.title = params.title
-    if params.description is not None:
-        action.description = params.description
-    if params.status is not None:
-        action.status = params.status
-    if params.inputs is not None:
-        action.inputs = params.inputs
-        # Validate that it's a valid YAML string
-        try:
-            yaml.safe_load(action.inputs)
-        except yaml.YAMLError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Action input contains invalid YAML",
-            ) from e
-    if params.control_flow is not None:
-        action.control_flow = params.control_flow.model_dump(mode="json")
-
+    set_fields = params.model_dump(exclude_unset=True)
+    for field, value in set_fields.items():
+        setattr(action, field, value)
     session.add(action)
     await session.commit()
     await session.refresh(action)
@@ -190,6 +182,13 @@ async def update_action(
         description=action.description,
         status=action.status,
         inputs=action.inputs,
+        control_flow=ActionControlFlow(**action.control_flow),
+        is_interactive=action.is_interactive,
+        interaction=(
+            ActionInteractionValidator.validate_python(action.interaction)
+            if action.interaction is not None
+            else None
+        ),
     )
 
 

@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef } from "react"
 import { actionsCreateAction, RegistryActionReadMinimal } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { Handle, Node, NodeProps, Position, useNodeId } from "@xyflow/react"
 import fuzzysort from "fuzzysort"
 import { CloudOffIcon, XIcon } from "lucide-react"
-import { Handle, Node, NodeProps, Position, useNodeId } from "reactflow"
 
 import { useWorkbenchRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -41,14 +41,14 @@ function filterActions(actions: RegistryActionReadMinimal[], search: string) {
   return results
 }
 
-export interface SelectorNodeData {
+export type SelectorNodeData = {
   type: "selector"
 }
-export type SelectorNodeType = Node<SelectorNodeData>
+export type SelectorNodeType = Node<SelectorNodeData, "selector">
 
 export default React.memo(function SelectorNode({
   targetPosition,
-}: NodeProps<SelectorNodeData>) {
+}: NodeProps<SelectorNodeType>) {
   const id = useNodeId()
   const { workflowId, reactFlow } = useWorkflowBuilder()
   const { setNodes, setEdges } = reactFlow

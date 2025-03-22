@@ -1,9 +1,10 @@
 "use client"
 
 import React from "react"
-import { WorkflowExecutionEvent } from "@/client"
+import { WorkflowEventType, WorkflowExecutionEvent } from "@/client"
 import {
   AlarmClockOffIcon,
+  BookCheckIcon,
   CalendarCheck,
   CircleArrowRightIcon,
   CircleCheck,
@@ -129,7 +130,7 @@ export function EventHistoryItemIcon({
   eventType,
   className,
 }: {
-  eventType: WorkflowExecutionEvent["event_type"]
+  eventType: WorkflowEventType
 } & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <Tooltip>
@@ -143,10 +144,7 @@ export function EventHistoryItemIcon({
   )
 }
 
-function getEventHistoryIcon(
-  eventType: WorkflowExecutionEvent["event_type"],
-  className?: string
-) {
+function getEventHistoryIcon(eventType: WorkflowEventType, className?: string) {
   switch (eventType) {
     /* === Workflow Execution Events === */
     case "WORKFLOW_EXECUTION_STARTED":
@@ -231,6 +229,23 @@ function getEventHistoryIcon(
           strokeWidth={2.5}
         />
       )
+    case "WORKFLOW_EXECUTION_UPDATE_ACCEPTED":
+      return (
+        <BookCheckIcon
+          className={cn("fill-indigo-500/20 stroke-indigo-500/50", className)}
+        />
+      )
+    case "WORKFLOW_EXECUTION_UPDATE_REJECTED":
+      return (
+        <CircleX className={cn("fill-indigo-500/50 stroke-white", className)} />
+      )
+    case "WORKFLOW_EXECUTION_UPDATE_COMPLETED":
+      return (
+        <CircleCheck
+          className={cn("fill-indigo-500/50 stroke-white", className)}
+        />
+      )
+
     default:
       return (
         <CircleDotIcon

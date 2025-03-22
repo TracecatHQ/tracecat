@@ -8,16 +8,18 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
+import orjson
 import pytest
-from pydantic import BaseModel, Field
+from openai.types.responses import Response
 
 from tracecat.llm import (
     async_ollama_call,
     async_openai_call,
 )
 from tracecat.llm.ollama import ChatResponse
-from tracecat.llm.openai import DEFAULT_OPENAI_MODEL, ChatCompletion
 from tracecat.logger import logger
+
+pytestmark = pytest.mark.llm
 
 OLLAMA_URL = "http://localhost:11434"
 
@@ -31,29 +33,24 @@ def is_ollama_available() -> bool:
     try:
         with httpx.Client() as client:
             response = client.get(f"{OLLAMA_URL}/api/version")
-            return response.status_code == 200
+            response.raise_for_status()
+            return True
     except httpx.RequestError:
         logger.warning("Ollama is not available")
         return False
 
 
 def load_api_kwargs(provider: str) -> dict[str, Any]:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-    try:
-        match provider:
-            case "openai":
-                api_key = os.environ["OPENAI_API_KEY"]
-                kwargs = {"api_key": api_key}
-            case "ollama":
-                # Requires docker-compose.dev.yml stack
-                # with ollama service exposed on port 11434
-                kwargs = {"api_url": OLLAMA_URL}
-            case _:
-                return {}
-    except KeyError:
-        pytest.fail(f"API key for LLM provider {provider!r} not found")
+    match provider:
+        case "openai":
+            api_key = os.environ["OPENAI_API_KEY"]
+            kwargs = {"api_key": api_key}
+        case "ollama":
+            # Requires docker-compose.dev.yml stack
+            # with ollama service exposed on port 11434
+            kwargs = {"api_url": OLLAMA_URL}
+        case _:
+            pytest.fail(f"API key for LLM provider {provider!r} not found")
     return kwargs
 
 
@@ -64,11 +61,10 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
             ("ollama", async_ollama_call),
             marks=[
                 pytest.mark.skipif(
-                    os.getenv("GITHUB_ACTIONS") is not None
-                    or not is_ollama_available(),
-                    reason="Skip Ollama tests in GitHub Actions CI or when Ollama is not available",
+                    not is_ollama_available(),
+                    reason="Skip Ollama tests when service is not available",
                 ),
-                pytest.mark.slow,
+                pytest.mark.llm,
             ],
         ),
         pytest.param(
@@ -78,6 +74,7 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
                     os.getenv("OPENAI_API_KEY") is None,
                     reason="Skip OpenAI tests when API key is not available",
                 ),
+                pytest.mark.llm,
             ],
         ),
     ],
@@ -99,41 +96,14 @@ async def test_user_prompt(call_llm_params: tuple[str, Callable]):
     response = await call_llm(**kwargs)
 
     match response:
-        case ChatCompletion():
-            assert "paris" in response.choices[0].message.content.lower()  # type: ignore
+        case Response():
+            assert "paris" in response.output_text.lower()
         case ChatResponse():
             assert "paris" in response.message.content.lower()  # type: ignore
         case _:
             pytest.fail(f"Unexpected response type: {type(response)}")
 
 
-@pytest.mark.anyio
-async def test_system_prompt(call_llm_params: tuple[str, Callable]):
-    """Test system prompt functionality."""
-    prompt = "What is an LLM?"
-    system_prompt = (
-        "You are a helpful AI assistant that explains technical concepts clearly."
-    )
-    provider, call_llm = call_llm_params
-    kwargs = {
-        "prompt": prompt,
-        "system_prompt": system_prompt,
-        **load_api_kwargs(provider),
-    }
-    response = await call_llm(**kwargs)
-    assert response is not None
-
-
-class BooleanResponse(BaseModel):
-    """Response to a boolean question."""
-
-    answer: bool = Field(strict=True)
-
-
-@pytest.mark.skipif(
-    os.getenv("GITHUB_ACTIONS") is not None,
-    reason="Skip memory tests in GitHub Actions CI. This is currently brokwn.",
-)
 @pytest.mark.anyio
 async def test_memory(call_llm_params: tuple[str, Callable]):
     """Test conversation memory functionality."""
@@ -158,8 +128,8 @@ async def test_memory(call_llm_params: tuple[str, Callable]):
     # Corner case dealing with len(response.choices) > 0 for OpenAI
     match response:
         # OpenAI
-        case ChatCompletion():
-            response_content = response.choices[0].message.content
+        case Response():
+            response_content = response.output_text
         # Ollama
         case ChatResponse():
             response_content = response.message.content
@@ -184,19 +154,37 @@ async def test_memory(call_llm_params: tuple[str, Callable]):
 
     verification_kwargs = {
         "prompt": judge_prompt,
-        "model": DEFAULT_OPENAI_MODEL,
-        "response_format": BooleanResponse,
+        "model": "gpt-4o",
+        "text_format": {
+            "type": "json_schema",
+            "name": "is_answer_correct",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "type": "boolean",
+                        "description": "Whether the answer is correct",
+                    },
+                },
+                "required": ["answer"],
+                "strict": True,
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
         **load_api_kwargs("openai"),
     }
     judge_response = await async_openai_call(**verification_kwargs)
-    judge_message = judge_response.choices[0].message
 
-    if judge_message.refusal:
-        pytest.fail("LLM judge refused to verify the response")
+    if judge_response.incomplete_details:
+        pytest.fail(
+            f"LLM judge was unable to verify the response: {judge_response.incomplete_details}"
+        )
 
-    judge_message = judge_response.choices[0].message.parsed  # type: ignore
-    assert judge_message.answer, (
+    judge_answer = orjson.loads(judge_response.output_text)["answer"]
+    assert isinstance(judge_answer, bool)
+    assert judge_answer, (
         f"LLM judge determined response was incorrect.\n"
         f"Assistant response: {response_content}\n"
-        f"Judge response: {judge_message.answer}"
+        f"Judge answer: {judge_answer}"
     )

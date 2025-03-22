@@ -1,12 +1,12 @@
-import React from "react"
+import React, { useEffect } from "react"
 import { WorkflowRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
+import { Node } from "@xyflow/react"
 import { Search } from "lucide-react"
 
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
-import { NodeType } from "@/components/workbench/canvas/canvas"
 import {
   ActionPanel,
   ActionPanelRef,
@@ -14,10 +14,16 @@ import {
 import { TriggerPanel } from "@/components/workbench/panel/trigger-panel"
 import { WorkflowPanel } from "@/components/workbench/panel/workflow-panel"
 
-export const WorkbenchPanel = React.forwardRef<ActionPanelRef>((_, ref) => {
+export const WorkbenchPanel = React.forwardRef<ActionPanelRef, object>(() => {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
   const { workflow, isLoading, error } = useWorkflow()
   const selectedNode = getNode(selectedNodeId ?? "")
+
+  useEffect(() => {
+    if (workflow) {
+      document.title = `${workflow.title} | Tracecat`
+    }
+  }, [workflow])
 
   if (isLoading || !workflow) {
     return <FormLoading />
@@ -66,13 +72,7 @@ export const WorkbenchPanel = React.forwardRef<ActionPanelRef>((_, ref) => {
 
 WorkbenchPanel.displayName = "WorkbenchPanel"
 
-function NodePanel({
-  node,
-  workflow,
-}: {
-  node: NodeType
-  workflow: WorkflowRead
-}) {
+function NodePanel({ node, workflow }: { node: Node; workflow: WorkflowRead }) {
   switch (node.type) {
     case "udf":
       return <ActionPanel actionId={node.id} workflowId={workflow.id} />

@@ -1,4 +1,6 @@
-from typing import Annotated, cast
+from __future__ import annotations
+
+from typing import Annotated, Any, cast
 
 import orjson
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -9,6 +11,9 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Webhook, WorkflowDefinition
 from tracecat.dsl.models import TriggerInputs
+from tracecat.ee.interactions.connectors import parse_slack_interaction_input
+from tracecat.ee.interactions.enums import InteractionCategory
+from tracecat.ee.interactions.models import InteractionInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.types.auth import Role
@@ -153,6 +158,39 @@ async def parse_webhook_payload(
                 ) from e
 
     return cast(TriggerInputs, result)
+
+
+def parse_interaction_payload(
+    category: InteractionCategory,
+    payload: TriggerInputs | None = Depends(parse_webhook_payload),
+) -> InteractionInput:
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing interaction payload",
+        )
+    logger.info("Parsed interaction payload", payload=payload)
+    match category:
+        case InteractionCategory.SLACK:
+            # Specific steps to handle interactive Slack payloads
+            # according to https://api.slack.com/interactivity/handling#payloads
+            if not isinstance(payload, dict):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Malformed Slack interaction payload",
+                )
+            if "payload" not in payload:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Missing payload field in Slack interaction payload",
+                )
+            payload_obj = cast(dict[str, Any], orjson.loads(payload["payload"]))
+            return parse_slack_interaction_input(payload_obj)
+        case _:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid interaction category",
+            )
 
 
 PayloadDep = Annotated[TriggerInputs | None, Depends(parse_webhook_payload)]

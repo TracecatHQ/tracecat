@@ -59,33 +59,62 @@ class TestSecretsService:
         assert decrypted_keys[0].key == secret_create_params.keys[0].key
         assert decrypted_keys[0].value == secret_create_params.keys[0].value
 
-    async def test_update_secret(
+    async def test_update_secret_preserves_empty_values(
         self, service: SecretsService, secret_create_params: SecretCreate
     ) -> None:
-        """Test updating a secret."""
-        # Create initial secret
-        await service.create_secret(secret_create_params)
+        """Test that updating a secret with empty values preserves existing values."""
+        # Create initial secret with multiple keys
+        initial_keys = [
+            SecretKeyValue(key="key1", value=SecretStr("value1")),
+            SecretKeyValue(key="key2", value=SecretStr("value2")),
+            SecretKeyValue(key="key3", value=SecretStr("value3")),
+        ]
+        create_params = SecretCreate(
+            name="test-preserve-secret",
+            type=SecretType.CUSTOM,
+            description="Initial description",
+            keys=initial_keys,
+        )
+        await service.create_secret(create_params)
 
-        # Update parameters
+        # Update with a mix of scenarios:
+        # - key1: provide empty value (should preserve original)
+        # - key2: provide new value (should update)
+        # - key3: not included (will be removed in this update)
+        # - key4: new key being added
         update_params = SecretUpdate(
             description="Updated description",
-            keys=[SecretKeyValue(key="new_key", value=SecretStr("new_value"))],
+            keys=[
+                SecretKeyValue(key="key1", value=SecretStr("")),  # Empty value
+                SecretKeyValue(
+                    key="key2", value=SecretStr("updated_value2")
+                ),  # Updated
+                SecretKeyValue(key="key4", value=SecretStr("new_value4")),  # New key
+            ],
         )
 
         # Get secret
-        secret = await service.get_secret_by_name(secret_create_params.name)
+        secret = await service.get_secret_by_name(create_params.name)
         assert secret is not None
 
         # Update secret
         await service.update_secret(secret, update_params)
 
         # Verify updates
-        updated_secret = await service.get_secret_by_name(secret_create_params.name)
+        updated_secret = await service.get_secret_by_name(create_params.name)
         assert updated_secret.description == update_params.description
-        decrypted_keys = service.decrypt_keys(updated_secret.encrypted_keys)
-        assert len(decrypted_keys) == 1
-        assert decrypted_keys[0].key == "new_key"
-        assert decrypted_keys[0].value.get_secret_value() == "new_value"
+
+        # Check the keys were handled correctly
+        decrypted_keys = {
+            k.key: k.value.get_secret_value()
+            for k in service.decrypt_keys(updated_secret.encrypted_keys)
+        }
+
+        assert len(decrypted_keys) == 3
+        assert decrypted_keys["key1"] == "value1"  # Original value preserved
+        assert decrypted_keys["key2"] == "updated_value2"  # Value updated
+        assert "key3" not in decrypted_keys  # Key removed
+        assert decrypted_keys["key4"] == "new_value4"  # New key added
 
     async def test_delete_secret(
         self, service: SecretsService, secret_create_params: SecretCreate

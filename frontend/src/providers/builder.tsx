@@ -17,7 +17,7 @@ import {
   ReactFlowInstance,
   useOnSelectionChange,
   useReactFlow,
-} from "reactflow"
+} from "@xyflow/react"
 
 import { pruneGraphObject } from "@/lib/workflow"
 import {
@@ -32,7 +32,7 @@ interface ReactFlowContextType {
   workflowId: string | null
   workspaceId: string
   selectedNodeId: string | null
-  getNode: (id: string) => NodeType | undefined
+  getNode: (id: string) => Node | undefined
   setNodes: React.Dispatch<SetStateAction<Node[]>>
   setEdges: React.Dispatch<SetStateAction<Edge[]>>
   setSelectedNodeId: React.Dispatch<SetStateAction<string | null>>
@@ -78,7 +78,7 @@ export const WorkflowBuilderProvider: React.FC<
   }, [workflowId])
 
   const setReactFlowNodes = useCallback(
-    (nodes: NodeType[] | ((nodes: NodeType[]) => NodeType[])) => {
+    (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
       reactFlowInstance.setNodes(nodes)
       updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
     },
@@ -127,7 +127,7 @@ export const WorkflowBuilderProvider: React.FC<
       }
       return newState
     })
-  }, [sidebarRef])
+  }, [actionPanelRef])
 
   const expandSidebarAndFocusEvents = React.useCallback(() => {
     setIsSidebarCollapsed(() => {

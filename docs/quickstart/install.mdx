@@ -24,11 +24,16 @@ Tracecat supports three deployment options:
 Deploy a local Tracecat stack using Docker Compose. View step-by-step instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/docker-compose).
 
 ```bash
-# Download Tracecat
-git clone https://github.com/TracecatHQ/tracecat.git
+# 1. Setup .env configs and secrets
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.28.0/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.28.0/.env.example
+chmod +x env.sh && ./env.sh
 
-# Generate .env file
-./env.sh
+# 2. Download Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.28.0/Caddyfile
+
+# 3. Download Docker Compose file
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.28.0/docker-compose.yml
 
 # Run Tracecat
 docker compose up -d
@@ -45,6 +50,7 @@ You can also view the template `.env.example` file [here](https://github.com/Tra
 
 ```bash
 # Download Terraform files
+# from https://github.com/TracecatHQ/tracecat/tree/main/deployments/aws
 git clone https://github.com/TracecatHQ/tracecat.git
 cd tracecat/deployments/aws
 

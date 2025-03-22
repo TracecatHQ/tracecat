@@ -55,8 +55,7 @@ export function TableInsertColumnDialog({
   const { tableId } = useParams<{ tableId: string }>()
   const { workspaceId } = useWorkspace()
   const { table } = useGetTable({ tableId, workspaceId })
-  const { insertColumn, insertColumnIsPending, insertColumnError } =
-    useInsertColumn()
+  const { insertColumn, insertColumnIsPending } = useInsertColumn()
 
   const form = useForm<ColumnFormData>({
     resolver: zodResolver(createInsertTableColumnSchema),

@@ -1321,3 +1321,200 @@ async def test_template_action_validator_unsupported_expressions(expr, expected_
     )
 
     assert found_err is not None, f"Expected {expected_error}, got {val_results}"
+
+
+@pytest.mark.parametrize(
+    "test_name,data,template,expected",
+    [
+        (
+            "basic_template_key",
+            {
+                ExprContext.ACTIONS: {
+                    "input_action": {
+                        "result": {"key_name": "dynamic_key", "value": "dynamic_value"}
+                    }
+                }
+            },
+            {
+                "${{ ACTIONS.input_action.result.key_name }}": "${{ ACTIONS.input_action.result.value }}",
+                "static_key": {
+                    "${{ ACTIONS.input_action.result.key_name }}_nested": "${{ ACTIONS.input_action.result.value }}"
+                },
+            },
+            {
+                "dynamic_key": "dynamic_value",
+                "static_key": {"dynamic_key_nested": "dynamic_value"},
+            },
+        ),
+        (
+            "multiple_expressions_in_key",
+            {
+                ExprContext.ACTIONS: {
+                    "prefix_action": {"result": "test"},
+                    "suffix_action": {"result": "key"},
+                    "value_action": {"result": "result"},
+                }
+            },
+            {
+                "${{ ACTIONS.prefix_action.result }}_${{ ACTIONS.suffix_action.result }}": "${{ ACTIONS.value_action.result }}"
+            },
+            {"test_key": "result"},
+        ),
+        (
+            "non_string_key_evaluation",
+            {
+                ExprContext.ACTIONS: {
+                    "key_action": {"result": 123},
+                    "value_action": {"result": "numeric_key"},
+                }
+            },
+            {"${{ ACTIONS.key_action.result }}": "${{ ACTIONS.value_action.result }}"},
+            {123: "numeric_key"},
+        ),
+        (
+            "deeply_nested_key_expressions",
+            {
+                ExprContext.ACTIONS: {
+                    "level1_action": {"result": "outer"},
+                    "level2_action": {"result": "inner"},
+                    "value_action": {"result": "nested_value"},
+                }
+            },
+            {
+                "${{ ACTIONS.level1_action.result }}": {
+                    "${{ ACTIONS.level2_action.result }}": {
+                        "${{ ACTIONS.level1_action.result }}_${{ ACTIONS.level2_action.result }}": "${{ ACTIONS.value_action.result }}"
+                    }
+                }
+            },
+            {"outer": {"inner": {"outer_inner": "nested_value"}}},
+        ),
+    ],
+    ids=lambda x: x if isinstance(x, str) else "data",
+)
+def test_eval_templated_object_with_key_expressions(
+    test_name, data, template, expected
+):
+    """Test that expressions in dictionary keys are properly evaluated."""
+    result = eval_templated_object(template, operand=data)
+    assert result == expected
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "expr,expected",
+    [
+        # Test valid workflow action keys
+        (
+            {
+                "${{ ACTIONS.my_action.result.key }}": "value",
+            },
+            [{"type": ExprType.ACTION, "status": "success"}],
+        ),
+        # Test invalid workflow action reference
+        (
+            {"${{ ACTIONS.invalid_action.result }}": "value"},
+            [
+                {
+                    "type": ExprType.ACTION,
+                    "status": "error",
+                    "contains_msg": "Invalid action reference",
+                },
+                {
+                    "type": ExprType.ACTION,
+                    "status": "success",  # The validator also returns a success result for the full path
+                },
+            ],
+        ),
+        # Test nested expressions in keys
+        (
+            {"parent": {"${{ ACTIONS.my_action.result }}": "value"}},
+            [{"type": ExprType.ACTION, "status": "success"}],
+        ),
+    ],
+)
+async def test_validate_workflow_key_expressions(expr, expected):
+    """Test validation of expressions in workflow dictionary keys."""
+    validation_context = ExprValidationContext(
+        action_refs={"my_action"},  # Only my_action is valid
+        inputs_context={},
+    )
+    validators = get_validators()
+
+    async with GatheringTaskGroup() as tg:
+        visitor = ExprValidator(
+            task_group=tg,
+            validation_context=validation_context,
+            validators=validators,  # type: ignore
+        )
+        exprs = extract_expressions(expr)
+        for expr in exprs:
+            expr.validate(visitor)
+
+    validation_results = list(visitor.results())
+
+    # Sort both lists by type and status to ensure consistent comparison
+    validation_results.sort(key=lambda x: (x.expression_type, x.status))
+    expected.sort(key=lambda x: (x["type"], x["status"]))
+
+    assert len(validation_results) == len(expected), (
+        f"Expected {len(expected)} validation results, got {len(validation_results)}"
+    )
+
+    for actual, ex in zip(validation_results, expected, strict=True):
+        assert_validation_result(actual, **ex)
+
+
+@pytest.mark.parametrize(
+    "expr,expected",
+    [
+        # Test valid template keys
+        (
+            {
+                "${{ inputs.key_name }}": "value",
+            },
+            [{"type": ExprType.TEMPLATE_ACTION_INPUT, "status": "success"}],
+        ),
+        # Test valid step reference in key
+        (
+            {"${{ steps.step1.result }}": "value"},
+            [{"type": ExprType.TEMPLATE_ACTION_STEP, "status": "success"}],
+        ),
+        # Test invalid input reference
+        (
+            {"${{ inputs.invalid }}": "value"},
+            [
+                {
+                    "type": ExprType.TEMPLATE_ACTION_INPUT,
+                    "status": "error",
+                    "contains_msg": "Invalid input reference 'invalid'",
+                }
+            ],
+        ),
+        # Test unsupported expression type in key
+        (
+            {"${{ ACTIONS.some_action.result }}": "value"},
+            [
+                {
+                    "type": ExprType.ACTION,
+                    "status": "error",
+                    "contains_msg": "ACTIONS expressions are not supported in Template Actions",
+                }
+            ],
+        ),
+    ],
+)
+def test_validate_template_action_key_expressions(expr, expected):
+    """Test validation of expressions in template action dictionary keys."""
+    validation_context = TemplateActionValidationContext(
+        expects={"key_name": ExpectedField(type="str")}, step_refs={"step1"}
+    )
+
+    visitor = TemplateActionExprValidator(validation_context=validation_context)
+    exprs = extract_expressions(expr)
+    for expr in exprs:
+        expr.validate(visitor)
+
+    validation_results = list(visitor.results())
+    for actual, ex in zip(validation_results, expected, strict=True):
+        assert_validation_result(actual, **ex)
