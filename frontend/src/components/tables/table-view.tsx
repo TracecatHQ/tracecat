@@ -13,6 +13,7 @@ import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
+
 export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
   const { tableId } = useParams<{ tableId: string }>()
   const { workspaceId } = useWorkspace()
