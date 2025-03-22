@@ -10,8 +10,8 @@ import { useListRows } from "@/lib/hooks"
 import { DataTable } from "@/components/data-table"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
-import { JsonViewWithControls } from "../workbench/events/events-selected-action"
-import { TooltipProvider } from "@radix-ui/react-tooltip"
+import { JsonViewWithControls } from "@/components/json-viewer"
+import { TooltipProvider } from "@/components/ui/tooltip"
 
 export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
   const { tableId } = useParams<{ tableId: string }>()
