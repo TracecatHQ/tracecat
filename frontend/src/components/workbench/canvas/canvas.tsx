@@ -1,3 +1,5 @@
+import "@xyflow/react/dist/style.css"
+
 import React, {
   useCallback,
   useEffect,
@@ -5,6 +7,8 @@ import React, {
   useRef,
   useState,
 } from "react"
+import { actionsDeleteAction } from "@/client"
+import { useWorkflow } from "@/providers/workflow"
 import {
   addEdge,
   Background,
@@ -17,7 +21,6 @@ import {
   NodeChange,
   OnConnectStartParams,
   Panel,
-  Position,
   ReactFlow,
   ReactFlowInstance,
   useEdgesState,
@@ -27,37 +30,29 @@ import {
   type Node,
   type ReactFlowJsonObject,
 } from "@xyflow/react"
+import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 import { v4 as uuid4 } from "uuid"
 
-import "@xyflow/react/dist/style.css"
-
-import { actionsDeleteAction } from "@/client"
-import { useWorkflow } from "@/providers/workflow"
-import Dagre from "@dagrejs/dagre"
-import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
-
+import {
+  NodeType,
+  NodeTypename,
+  SelectorNodeType,
+  TriggerNodeType,
+} from "@/lib/workbench"
+import { isInvincible } from "@/lib/workbench/utils/graph"
+import {
+  defaultNodeHeight,
+  defaultNodeWidth,
+  getLayoutedElements,
+} from "@/lib/workbench/utils/layout"
 import { pruneGraphObject } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
-import actionNode, {
-  ActionNodeData,
-  ActionNodeType,
-} from "@/components/workbench/canvas/action-node"
-import selectorNode, {
-  SelectorNodeData,
-  SelectorNodeType,
-  SelectorTypename,
-} from "@/components/workbench/canvas/selector-node"
-import triggerNode, {
-  TriggerNodeData,
-  TriggerNodeType,
-  TriggerTypename,
-} from "@/components/workbench/canvas/trigger-node"
-
-const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
-const defaultNodeWidth = 172
-const defaultNodeHeight = 36
+import actionNode from "@/components/workbench/canvas/action-node"
+import selectorNode from "@/components/workbench/canvas/selector-node"
+import subflowNode from "@/components/workbench/canvas/subflow-node"
+import triggerNode from "@/components/workbench/canvas/trigger-node"
 
 const fitViewOptions: FitViewOptions = {
   minZoom: 0.75,
@@ -66,70 +61,11 @@ const fitViewOptions: FitViewOptions = {
 
 const getId = () => uuid4()
 
-/**
- * Taken from https://reactflow.dev/examples/layout/dagre
- * @param nodes
- * @param edges
- * @param direction
- * @returns
- */
-function getLayoutedElements(
-  nodes: Node[],
-  edges: Edge[],
-  direction = "TB"
-): {
-  nodes: Node[]
-  edges: Edge[]
-} {
-  const isHorizontal = direction === "LR"
-  dagreGraph.setGraph({ rankdir: direction, nodesep: 250, ranksep: 300 })
-
-  nodes.forEach((node) => {
-    dagreGraph.setNode(node.id, {
-      width: node.width ?? defaultNodeWidth,
-      height: node.height ?? defaultNodeHeight,
-    })
-  })
-
-  edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target)
-  })
-
-  Dagre.layout(dagreGraph)
-
-  const newNodes = nodes.map((node) => {
-    const nodeWithPosition = dagreGraph.node(node.id)
-    const height = node.height ?? defaultNodeHeight
-    const width = node.width ?? defaultNodeWidth
-    const newNode = {
-      ...node,
-      targetPosition: isHorizontal ? Position.Left : Position.Top,
-      sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
-      // We are shifting the dagre node position (anchor=center center) to the top left
-      // so it matches the React Flow node anchor point (top left).
-      position: {
-        x: nodeWithPosition.x - width / 2,
-        y: nodeWithPosition.y - height / 2,
-      },
-    }
-
-    return newNode
-  })
-
-  return { nodes: newNodes, edges }
-}
-
-export type NodeTypename = "udf" | "trigger" | "selector"
-export type NodeType = ActionNodeType | TriggerNodeType | SelectorNodeType
-export type NodeData = ActionNodeData | TriggerNodeData | SelectorNodeData
-
-export const invincibleNodeTypes: readonly string[] = [TriggerTypename]
-export const ephemeralNodeTypes: readonly string[] = [SelectorTypename]
-
 const nodeTypes = {
   udf: actionNode,
   trigger: triggerNode,
   selector: selectorNode,
+  subflow: subflowNode,
 }
 
 const defaultEdgeOptions = {
@@ -141,13 +77,6 @@ const defaultEdgeOptions = {
   pathOptions: {
     borderRadius: 20,
   },
-}
-
-export function isInvincible(node: Node | Node<NodeData>): boolean {
-  return invincibleNodeTypes.includes(node?.type as string)
-}
-export function isEphemeral(node: Node | Node<NodeData>): boolean {
-  return ephemeralNodeTypes.includes(node?.type as string)
 }
 
 export interface WorkflowCanvasRef {
@@ -171,7 +100,6 @@ export const WorkflowCanvas = React.forwardRef<
   const [silhouettePosition, setSilhouettePosition] =
     useState<XYPosition | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
-
   /**
    * Load the saved workflow
    */
@@ -249,7 +177,7 @@ export const WorkflowCanvas = React.forwardRef<
       const id = getId()
       const newNode: SelectorNodeType = {
         id,
-        type: SelectorTypename,
+        type: NodeTypename.Selector,
         position: screenToFlowPosition({ x, y }),
         data: { type: "selector" },
         origin: [0.5, 0.0],
@@ -319,23 +247,33 @@ export const WorkflowCanvas = React.forwardRef<
     if (!workflowId || !reactFlowInstance) {
       return
     }
-    const filteredNodes = nodesToDelete.filter((node) => !isInvincible(node))
-    if (filteredNodes.length === 0) {
+
+    // Filter out invincible nodes and nodes that are part of a subflow
+    const deletableNodes = nodesToDelete.filter(
+      (node) => !isInvincible(node) && !node.parentId
+    )
+
+    if (deletableNodes.length === 0) {
       toast({
         title: "Invalid action",
-        description: "Cannot delete invincible node",
+        description: "Cannot delete invincible nodes or nodes within a subflow",
       })
       return
     }
+
     try {
+      // Physically delete the nodes from the DB
       await Promise.all(
-        filteredNodes.map((node) =>
+        deletableNodes.map((node) =>
           actionsDeleteAction({ actionId: node.id, workspaceId })
         )
       )
+
+      // Remove nodes from the visual graph
       setNodes((nds) =>
         nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id))
       )
+
       await updateWorkflow({
         object: pruneGraphObject(reactFlowInstance),
       })

@@ -19,15 +19,13 @@ import {
   useReactFlow,
 } from "@xyflow/react"
 
+import { NodeType } from "@/lib/workbench"
 import { pruneGraphObject } from "@/lib/workflow"
-import {
-  NodeType,
-  WorkflowCanvasRef,
-} from "@/components/workbench/canvas/canvas"
+import { WorkflowCanvasRef } from "@/components/workbench/canvas/canvas"
 import { EventsSidebarRef } from "@/components/workbench/events/events-sidebar"
 import { ActionPanelRef } from "@/components/workbench/panel/action-panel"
 
-interface ReactFlowContextType {
+interface WorkflowBuilderContextType {
   reactFlow: ReactFlowInstance
   workflowId: string | null
   workspaceId: string
@@ -49,15 +47,15 @@ interface ReactFlowContextType {
 }
 
 const ReactFlowInteractionsContext = createContext<
-  ReactFlowContextType | undefined
+  WorkflowBuilderContextType | undefined
 >(undefined)
 
-interface ReactFlowInteractionsProviderProps {
+interface WorkflowBuilderProviderProps {
   children: ReactNode
 }
 
 export const WorkflowBuilderProvider: React.FC<
-  ReactFlowInteractionsProviderProps
+  WorkflowBuilderProviderProps
 > = ({ children }) => {
   const reactFlowInstance = useReactFlow()
   const { workspaceId, workflowId, error, updateWorkflow } = useWorkflow()
@@ -198,7 +196,7 @@ export const WorkflowBuilderProvider: React.FC<
   )
 }
 
-export const useWorkflowBuilder = (): ReactFlowContextType => {
+export const useWorkflowBuilder = (): WorkflowBuilderContextType => {
   const context = useContext(ReactFlowInteractionsContext)
   if (context === undefined) {
     throw new Error(

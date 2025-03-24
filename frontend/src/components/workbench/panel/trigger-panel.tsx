@@ -18,6 +18,7 @@ import {
   durationToISOString,
 } from "@/lib/time"
 import { cn } from "@/lib/utils"
+import { NodeTypename } from "@/lib/workbench"
 import {
   Accordion,
   AccordionContent,
@@ -80,7 +81,6 @@ import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { TriggerTypename } from "@/components/workbench/canvas/trigger-node"
 
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   return (
@@ -89,7 +89,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
         <div className="col-span-2 overflow-hidden">
           <h3 className="p-4">
             <div className="flex w-full items-center space-x-4">
-              {getIcon(TriggerTypename, {
+              {getIcon(NodeTypename.Trigger, {
                 className: "size-10 p-2",
                 flairsize: "md",
               })}

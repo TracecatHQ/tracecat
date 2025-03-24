@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 
 const nextConfig = {
+  productionBrowserSourceMaps: true,
   reactStrictMode: true, // Default to true; overridden in development
   output: "standalone", // Ensure standalone output for production
   generateBuildId: async () => {

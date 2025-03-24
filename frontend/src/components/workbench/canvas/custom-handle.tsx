@@ -117,6 +117,31 @@ export function TriggerSourceHandle({
   )
 }
 
+export function SubflowTriggerHandle({
+  className,
+}: React.HTMLProps<HTMLDivElement>) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Handle
+            id="subflow-trigger"
+            type="source"
+            position={Position.Bottom}
+            className={cn(
+              "group !top-12 left-1/2 !size-8 !-translate-x-1/2 !border-none !bg-transparent",
+              className
+            )}
+          >
+            <div className="pointer-events-none absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground/50 shadow-sm transition-all duration-150" />
+          </Handle>
+        </TooltipTrigger>
+        <TooltipContent>Subflow Entry Point</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 export function ActionTargetHandle({
   className,
   join_strategy,

@@ -1,14 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import Link from "next/link"
 import { useWorkflowBuilder } from "@/providers/builder"
-import {
-  NodeToolbar,
-  Position,
-  useEdges,
-  type Node,
-  type NodeProps,
-  type XYPosition,
-} from "@xyflow/react"
+import { NodeToolbar, Position, useEdges, type NodeProps } from "@xyflow/react"
 import {
   AlertTriangleIcon,
   CircleCheckBigIcon,
@@ -16,18 +8,14 @@ import {
   LayoutListIcon,
   MessagesSquare,
   PencilIcon,
-  SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from "lucide-react"
 import { useForm } from "react-hook-form"
 import YAML from "yaml"
 
-import {
-  useAction,
-  useGetRegistryAction,
-  useWorkflowManager,
-} from "@/lib/hooks"
+import { useAction, useGetRegistryAction } from "@/lib/hooks"
 import { cn, isEmptyObjectOrNullish, slugify } from "@/lib/utils"
+import { ActionNodeType } from "@/lib/workbench/types/nodes"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -50,27 +38,17 @@ import {
   ActionSourceErrorHandle,
   ActionTargetHandle,
 } from "@/components/workbench/canvas/custom-handle"
-
-export type ActionNodeData = {
-  id: string
-  type: string // alias for key
-  position: XYPosition
-  data: ActionNodeData
-  isConfigured: boolean
-
-  // Allow any additional properties from legacy data
-  [key: string]: unknown
-}
-
-export type ActionNodeType = Node<ActionNodeData, "udf">
+import { SubflowLink } from "@/components/workbench/canvas/subflows"
 
 export default React.memo(function ActionNode({
   selected,
+  type,
   id,
+  data,
 }: NodeProps<ActionNodeType>) {
   const [error, setError] = useState<string | null>(null)
   const {
-    workflowId,
+    workflowId: builderWfId,
     getNode,
     workspaceId,
     reactFlow,
@@ -79,6 +57,8 @@ export default React.memo(function ActionNode({
   } = useWorkflowBuilder()
   const { toast } = useToast()
   // SAFETY: Node only exists if it's in the workflow
+  // If we're inside a subflow, we need to use the child workflow ID
+  const workflowId = data.subflowId ?? builderWfId
   const { action, actionIsLoading, updateAction } = useAction(
     id,
     workspaceId,
@@ -334,10 +314,10 @@ export default React.memo(function ActionNode({
                 )}
               </div>
               {isChildWorkflow && (
-                <ChildWorkflowLink
+                <SubflowLink
                   workspaceId={workspaceId}
-                  childWorkflowId={childWorkflowId}
-                  childWorkflowAlias={childWorkflowAlias}
+                  subflowId={childWorkflowId}
+                  subflowAlias={childWorkflowAlias}
                 />
               )}
               {isInteractive && (
@@ -495,75 +475,3 @@ export default React.memo(function ActionNode({
     </Card>
   )
 })
-
-function ChildWorkflowLink({
-  workspaceId,
-  childWorkflowId,
-  childWorkflowAlias,
-}: {
-  workspaceId: string
-  childWorkflowId?: string
-  childWorkflowAlias?: string
-}) {
-  const { workflows } = useWorkflowManager()
-  const { setSelectedNodeId } = useWorkflowBuilder()
-  const childIdFromAlias = workflows?.find(
-    (w) => w.alias === childWorkflowAlias
-  )?.id
-
-  const handleClearSelection = () => {
-    setSelectedNodeId(null)
-  }
-
-  const inner = () => {
-    if (childWorkflowId) {
-      return (
-        <Link
-          href={`/workspaces/${workspaceId}/workflows/${childWorkflowId}`}
-          onClick={handleClearSelection}
-        >
-          <div className="flex items-center gap-1">
-            <span className="font-normal">Open workflow</span>
-            <SquareArrowOutUpRightIcon className="size-3" />
-          </div>
-        </Link>
-      )
-    }
-    if (childWorkflowAlias) {
-      if (!childIdFromAlias) {
-        return (
-          <div className="flex items-center gap-1">
-            <span className="font-normal">Cannot find workflow by alias</span>
-            <AlertTriangleIcon className="size-3 text-red-500" />
-          </div>
-        )
-      }
-      return (
-        <div className="flex items-center gap-1">
-          <Link
-            href={`/workspaces/${workspaceId}/workflows/${childIdFromAlias}`}
-            onClick={handleClearSelection}
-          >
-            <div className="flex items-center gap-1">
-              <span className="font-mono font-normal tracking-tighter text-foreground/80">
-                {childWorkflowAlias}
-              </span>
-              <SquareArrowOutUpRightIcon className="size-3" />
-            </div>
-          </Link>
-        </div>
-      )
-    }
-    return <span className="font-normal">Missing identifier</span>
-  }
-  return (
-    <div className="flex justify-end">
-      <Badge
-        variant="outline"
-        className="text-foreground/70 hover:cursor-pointer hover:bg-muted-foreground/5"
-      >
-        {inner()}
-      </Badge>
-    </div>
-  )
-}
