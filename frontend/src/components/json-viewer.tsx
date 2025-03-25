@@ -1,27 +1,12 @@
 "use client"
 
 import React from "react"
-import {
-  EventFailure,
-  InteractionState,
-  WorkflowExecutionEventCompact,
-  WorkflowExecutionReadCompact,
-} from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
-import { CheckCheckIcon, CircleDot, CopyIcon, LoaderIcon } from "lucide-react"
+import { CheckCheckIcon, CopyIcon } from "lucide-react"
 import JsonView from "react18-json-view"
 import { NodeMeta } from "react18-json-view/dist/types"
 
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -30,9 +15,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { CodeBlock } from "@/components/code-block"
-import { AlertNotification } from "@/components/notifications"
-import { getWorkflowEventIcon } from "@/components/workbench/events/events-workflow"
 import "react18-json-view/src/style.css"
 
 function flattenObject(
