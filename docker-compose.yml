@@ -205,6 +205,7 @@ services:
     restart: unless-stopped
     networks:
       - temporal
+      - core
     # ports:
     #   - 8081:8080
     environment:
