@@ -88,8 +88,12 @@ async def insert_row(
         dict[str, Any],
         Doc("The data to insert into the row."),
     ],
+    upsert: Annotated[
+        bool,
+        Doc("If true, update the row if it already exists (based on primary key)."),
+    ] = False,
 ) -> Any:
-    params = TableRowInsert(data=row_data)
+    params = TableRowInsert(data=row_data, upsert=upsert)
     async with TablesService.with_session() as service:
         db_table = await service.get_table_by_name(table)
         row = await service.insert_row(table=db_table, params=params)
