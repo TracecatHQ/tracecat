@@ -1068,6 +1068,8 @@ export function useGetRegistryAction(actionName?: string) {
         actionName,
       })
     },
+    enabled: !!actionName,
+    initialData: undefined,
   })
 
   return { registryAction, registryActionIsLoading, registryActionError }

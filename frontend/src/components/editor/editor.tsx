@@ -179,10 +179,10 @@ function registerProviders(
         const lineContent = model.getLineContent(position.lineNumber)
         const textUntilPos = lineContent.substring(0, position.column - 1)
 
-        console.log("TEXT: ", textUntilPos)
-        console.log("WORD: ", wordUntilPos)
-        console.log("lineContent", lineContent)
-        console.log("Trigger", context.triggerCharacter)
+        console.debug("TEXT: ", textUntilPos)
+        console.debug("WORD: ", wordUntilPos)
+        console.debug("lineContent", lineContent)
+        console.debug("Trigger", context.triggerCharacter)
 
         const range: IRange = {
           startLineNumber: position.lineNumber,
@@ -193,15 +193,15 @@ function registerProviders(
 
         // Use negative lookahead to ensure we don't match outside of expressions
         if (textUntilPos.match(INSIDE_EXPR_PATTERN)) {
-          console.log("MATCH: inside expr")
+          console.debug("MATCH: inside expr")
 
           // 1. Check if specific context
           if (textUntilPos.match(ACTION_CONTEXT_PATTERN)) {
-            console.log("MATCH: inside actions")
+            console.debug("MATCH: inside actions")
 
             if (textUntilPos.endsWith("ACTIONS.")) {
               if (workflowId && workspaceId) {
-                console.log("MATCH: get action completions")
+                console.debug("MATCH: get action completions")
                 return {
                   suggestions: await getActionCompletions(
                     monaco,
@@ -215,7 +215,7 @@ function registerProviders(
               }
             }
             if (textUntilPos.match(ACTION_REF_PATTERN)) {
-              console.log("MATCH: action ref")
+              console.debug("MATCH: action ref")
               return {
                 suggestions: [
                   {
@@ -237,7 +237,7 @@ function registerProviders(
             }
 
             if (textUntilPos.match(ACTIONS_RES_ERR_PATTERN)) {
-              console.log("MATCH: action res err")
+              console.debug("MATCH: action res err")
               return { suggestions: [] }
             }
 
@@ -245,7 +245,7 @@ function registerProviders(
           }
 
           if (textUntilPos.endsWith("FN.") && workspaceId) {
-            console.log("MATCH: inside fn")
+            console.debug("MATCH: inside fn")
             return {
               suggestions: await getFunctionSuggestions(
                 monaco,
@@ -256,22 +256,22 @@ function registerProviders(
           }
 
           if (textUntilPos.endsWith("ENV.")) {
-            console.log("MATCH: inside env")
+            console.debug("MATCH: inside env")
             return { suggestions: getEnvCompletions(range) }
           }
 
           if (textUntilPos.endsWith("INPUTS.")) {
-            console.log("MATCH: inside inputs")
+            console.debug("MATCH: inside inputs")
             return { suggestions: getInputCompletions(range) }
           }
 
           if (textUntilPos.endsWith("SECRETS.")) {
-            console.log("MATCH: inside secrets")
+            console.debug("MATCH: inside secrets")
             return { suggestions: getSecretCompletions(range) }
           }
 
           if (textUntilPos.endsWith("TRIGGER.")) {
-            console.log("MATCH: inside trigger")
+            console.debug("MATCH: inside trigger")
             return { suggestions: getTriggerCompletions(range) }
           }
 
@@ -289,13 +289,13 @@ function registerProviders(
         }
 
         if (textUntilPos.endsWith("$")) {
-          console.log("MATCH: starting $")
+          console.debug("MATCH: starting $")
           return {
             suggestions: getExpressionCompletions(range),
           }
         }
 
-        console.log("NO MATCH")
+        console.debug("NO MATCH")
         return { suggestions: [] }
       },
     }

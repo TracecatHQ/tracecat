@@ -36,6 +36,40 @@ export function Workbench({ defaultLayout = [0, 68, 24] }: WorkbenchProps) {
     isActionPanelCollapsed,
     toggleActionPanel,
   } = useWorkflowBuilder()
+
+  // Add keyboard shortcut for toggling sidebar (Cmd+E)
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check for Cmd+E (or Ctrl+E for non-Mac)
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e") {
+        event.preventDefault() // Prevent default browser behavior
+        toggleSidebar()
+      }
+    }
+
+    // Add event listener
+    window.addEventListener("keydown", handleKeyDown)
+
+    // Clean up on component unmount
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [toggleSidebar])
+
+  // Add keyboard shortcut for toggling action panel (Cmd+Shift+E or Ctrl+Shift+E)
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "u") {
+        event.preventDefault() // Prevent default browser behavior
+        toggleActionPanel()
+      }
+    }
+
+    // Add event listener
+    window.addEventListener("keydown", handleKeyDown)
+
+    // Clean up on component unmount
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [toggleActionPanel])
+
   return (
     <TooltipProvider delayDuration={0}>
       <ResizablePanelGroup

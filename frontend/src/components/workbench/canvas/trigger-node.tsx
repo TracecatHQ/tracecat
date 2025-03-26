@@ -1,7 +1,6 @@
 import React from "react"
-import { Schedule, WebhookRead } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
-import { Node, NodeProps } from "@xyflow/react"
+import { NodeProps } from "@xyflow/react"
 import {
   CalendarCheck,
   TimerOffIcon,
@@ -12,6 +11,7 @@ import {
 import { useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
 import { cn } from "@/lib/utils"
+import { TriggerNodeType } from "@/lib/workbench"
 import {
   Card,
   CardDescription,
@@ -30,18 +30,6 @@ import {
 } from "@/components/ui/table"
 import { getIcon } from "@/components/icons"
 import { TriggerSourceHandle } from "@/components/workbench/canvas/custom-handle"
-
-export type TriggerNodeData = {
-  type: "trigger"
-  title: string
-  status: "online" | "offline"
-  isConfigured: boolean
-  entrypointId?: string
-  webhook: WebhookRead
-  schedules: Schedule[]
-}
-export type TriggerNodeType = Node<TriggerNodeData, "trigger">
-export const TriggerTypename = "trigger" as const
 
 export default React.memo(function TriggerNode({
   data: { title, type },

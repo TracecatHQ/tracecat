@@ -5,6 +5,7 @@ import { useWorkflow } from "@/providers/workflow"
 import { Node } from "@xyflow/react"
 import { Search } from "lucide-react"
 
+import { ActionNodeData } from "@/lib/workbench"
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
 import {
@@ -75,12 +76,24 @@ WorkbenchPanel.displayName = "WorkbenchPanel"
 function NodePanel({ node, workflow }: { node: Node; workflow: WorkflowRead }) {
   switch (node.type) {
     case "udf":
-      return <ActionPanel actionId={node.id} workflowId={workflow.id} />
+      // Use the overrided workflow ID if it exists
+      const wfId = (node.data as ActionNodeData).subflowId ?? workflow.id
+      const wfAlias =
+        (node.data as ActionNodeData).subflowAlias ?? workflow.alias
+      return (
+        <ActionPanel
+          actionId={node.id}
+          workflowId={wfId}
+          workflowAlias={wfAlias ?? undefined}
+        />
+      )
     case "trigger":
       return <TriggerPanel workflow={workflow} />
     case "selector":
       // XXX: Unreachable, as we never select the selector node
       return <></>
+    case "subflow":
+      return <ActionPanel actionId={node.id} workflowId={workflow.id} />
     default:
       return <AlertNotification level="error" message="Unknown node type" />
   }

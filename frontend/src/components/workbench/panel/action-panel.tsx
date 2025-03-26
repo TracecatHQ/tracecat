@@ -31,6 +31,7 @@ import {
   SplitIcon,
   SquareFunctionIcon,
   ToyBrickIcon,
+  WorkflowIcon,
 } from "lucide-react"
 import { FormProvider, useForm } from "react-hook-form"
 import { ImperativePanelHandle } from "react-resizable-panels"
@@ -148,13 +149,13 @@ const actionFormSchema = z.object({
 })
 type ActionFormSchema = z.infer<typeof actionFormSchema>
 
-const isControlFlowOption = (key: string) => {
-  return [
+const isControlFlowOption = (key: string) =>
+  [
     "control_flow.wait_until",
     "control_flow.join_strategy",
     "control_flow.start_delay",
   ].includes(key)
-}
+
 const typeToLabel: Record<
   RegistryActionRead["type"],
   { label: string; icon: LucideIcon }
@@ -186,13 +187,15 @@ export interface ActionPanelRef extends ImperativePanelHandle {}
 
 export function ActionPanel({
   actionId,
-  workflowId,
+  workflowId, // Can be the main wf or subflow
+  workflowAlias,
 }: {
   actionId: string
   workflowId: string
+  workflowAlias?: string
 }) {
   const { workspaceId } = useWorkspace()
-  const { validationErrors } = useWorkflow()
+  const { workflowId: builderWfId, validationErrors } = useWorkflow()
   const { action, actionIsLoading, updateAction } = useAction(
     actionId,
     workspaceId,
@@ -383,6 +386,7 @@ export function ActionPanel({
   const ActionIcon = typeToLabel[registryAction.type].icon
   const isInteractive = methods.watch("is_interactive")
   const interactionType = methods.watch("interaction.type")
+  const isSubflow = workflowId !== builderWfId
   return (
     <div onBlur={onPanelBlur}>
       <Tabs
@@ -413,6 +417,19 @@ export function ActionPanel({
                         )}
                       </p>
                       <div className="mt-2 hover:cursor-default">
+                        {isSubflow && workflowAlias && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="mt-2 flex items-center text-xs text-muted-foreground">
+                                <WorkflowIcon className="mr-1 size-3 stroke-2" />
+                                <span>{workflowAlias}</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="left" sideOffset={10}>
+                              Subflow
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <div className="mt-2 flex items-center text-xs text-muted-foreground">
@@ -437,6 +454,7 @@ export function ActionPanel({
                             Origin
                           </TooltipContent>
                         </Tooltip>
+
                         {registryAction.doc_url && (
                           <Tooltip>
                             <TooltipTrigger asChild>

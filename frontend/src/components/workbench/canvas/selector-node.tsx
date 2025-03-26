@@ -5,8 +5,17 @@ import { Handle, Node, NodeProps, Position, useNodeId } from "@xyflow/react"
 import fuzzysort from "fuzzysort"
 import { CloudOffIcon, XIcon } from "lucide-react"
 
+import { SUBFLOW_ACTION_TYPES, SubflowActionType } from "@/lib/actions"
 import { useWorkbenchRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
+import { SubflowNodeType } from "@/lib/workbench"
+import {
+  ActionNodeType,
+  NodeTypename,
+  SelectorNodeData,
+  SelectorNodeType,
+} from "@/lib/workbench/types/nodes"
+import { isEphemeral } from "@/lib/workbench/utils/graph"
 import {
   Command,
   CommandEmpty,
@@ -21,10 +30,6 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
-import { ActionNodeType } from "@/components/workbench/canvas/action-node"
-import { isEphemeral } from "@/components/workbench/canvas/canvas"
-
-export const SelectorTypename = "selector" as const
 
 const highlight = true
 const SEARCH_KEYS = [
@@ -40,11 +45,6 @@ function filterActions(actions: RegistryActionReadMinimal[], search: string) {
   })
   return results
 }
-
-export type SelectorNodeData = {
-  type: "selector"
-}
-export type SelectorNodeType = Node<SelectorNodeData, "selector">
 
 export default React.memo(function SelectorNode({
   targetPosition,
@@ -242,15 +242,28 @@ function ActionCommandGroup({
             title,
           },
         })
-        const newNode = {
-          id,
-          type: "udf",
-          position,
-          data: {
-            type,
-            isConfigured: false,
-          },
-        } as ActionNodeType
+        let newNode: Node
+        if (SUBFLOW_ACTION_TYPES.includes(type as SubflowActionType)) {
+          newNode = {
+            id,
+            type: NodeTypename.Subflow,
+            position,
+            data: {
+              type,
+              isExpanded: false,
+            },
+          } as SubflowNodeType
+        } else {
+          newNode = {
+            id,
+            type: NodeTypename.Action,
+            position,
+            data: {
+              type,
+              isConfigured: false,
+            },
+          } as ActionNodeType
+        }
         // Given successful creation, we can now remove the selector node
         // Find the current "selector" node and replace it with the new node
         // XXX: Actually just filter all ephemeral nodes
