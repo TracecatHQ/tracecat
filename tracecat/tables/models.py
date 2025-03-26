@@ -86,6 +86,7 @@ class TableRowInsert(BaseModel):
     """Insert model for a table row."""
 
     data: dict[str, Any]
+    upsert: bool = False
 
 
 class TableRowInsertBatch(BaseModel):

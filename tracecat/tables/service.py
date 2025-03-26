@@ -8,6 +8,7 @@ from asyncpg.exceptions import (
     InvalidCachedStatementError,
     UndefinedTableError,
 )
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlmodel import select
 from tenacity import (
@@ -446,20 +447,54 @@ class TablesService(BaseService):
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        row_data = params.data
+        row_data = params.data.copy()
         col_map = {c.name: c for c in table.columns}
+        upsert = getattr(params, "upsert", False)
 
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
+
+        row_id = None
+        if "id" in row_data and upsert:
+            row_id = row_data.pop("id")
+
         for col, value in row_data.items():
             value_clauses[col] = to_sql_clause(value, col_map[col])
             cols.append(sa.column(self._sanitize_identifier(col)))
 
-        stmt = (
-            sa.insert(sa.table(table.name, *cols, schema=schema_name))
-            .values(**value_clauses)
-            .returning(sa.text("*"))
-        )
+        if not upsert:
+            stmt = (
+                sa.insert(sa.table(table.name, *cols, schema=schema_name))
+                .values(**value_clauses)
+                .returning(sa.text("*"))
+            )
+        else:
+            # For upsert, we need the row_id in the values to trigger the conflict
+            if row_id:
+                value_clauses["id"] = sa.bindparam(
+                    key="id", value=row_id, type_=sa.UUID
+                )
+                id_col = sa.column("id")
+                cols.append(id_col)
+
+            table_obj = sa.table(table.name, *cols, schema=schema_name)
+            pg_stmt = insert(table_obj)
+            pg_stmt = pg_stmt.values(**value_clauses)
+
+            # Exclude id from updates
+            update_dict = {
+                col: pg_stmt.excluded[col]
+                for col in value_clauses.keys()
+                if col != "id"
+            }
+
+            update_dict["updated_at"] = sa.text("CLOCK_TIMESTAMP()")
+
+            # Complete the statement with on_conflict_do_update
+            stmt = pg_stmt.on_conflict_do_update(
+                index_elements=["id"], set_=update_dict
+            ).returning(sa.text("*"))
+
         result = await conn.execute(stmt)
         await self.session.commit()
         row = result.mappings().one()
