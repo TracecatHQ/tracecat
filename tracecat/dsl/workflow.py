@@ -46,10 +46,10 @@ with workflow.unsafe.imports_passed_through():
         DSLConfig,
         DSLEnvironment,
         DSLExecutionError,
-        DSLNodeResult,
         ExecutionContext,
         RunActionInput,
         RunContext,
+        TaskResult,
         TriggerInputs,
     )
     from tracecat.dsl.scheduler import DSLScheduler
@@ -457,9 +457,7 @@ class DSLWorkflow:
             return await self._execute_task_until_condition(task)
         return await self._execute_task(task)
 
-    async def _execute_task_until_condition(
-        self, task: ActionStatement
-    ) -> DSLNodeResult:
+    async def _execute_task_until_condition(self, task: ActionStatement) -> TaskResult:
         """Execute a task until a condition is met."""
         retry_until = task.retry_policy.retry_until
         if retry_until is None:
@@ -483,7 +481,7 @@ class DSLWorkflow:
         return result
 
     @maybe_interactive
-    async def _execute_task(self, task: ActionStatement) -> DSLNodeResult:
+    async def _execute_task(self, task: ActionStatement) -> TaskResult:
         """Purely execute a task and manage the results.
 
 
@@ -504,7 +502,7 @@ class DSLWorkflow:
         """
 
         logger.info("Begin task execution", task_ref=task.ref)
-        task_result = DSLNodeResult(result=None, result_typename=type(None).__name__)
+        task_result = TaskResult(result=None, result_typename=type(None).__name__)
 
         try:
             # Handle timing control flow logic

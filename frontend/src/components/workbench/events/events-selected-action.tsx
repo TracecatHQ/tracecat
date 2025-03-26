@@ -9,7 +9,6 @@ import {
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { CircleDot, LoaderIcon } from "lucide-react"
-import { JsonViewWithControls } from "@/components/json-viewer"
 
 import { Badge } from "@/components/ui/badge"
 import {
@@ -21,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { CodeBlock } from "@/components/code-block"
+import { JsonViewWithControls } from "@/components/json-viewer"
 import { AlertNotification } from "@/components/notifications"
 import { getWorkflowEventIcon } from "@/components/workbench/events/events-workflow"
 

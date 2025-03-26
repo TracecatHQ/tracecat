@@ -95,18 +95,18 @@ class DSLActivities:
         environment = input.run_context.environment
         action_name = task.action
 
-        act_logger = logger.bind(
+        log = logger.bind(
             task_ref=task.ref,
             action_name=action_name,
             wf_id=input.run_context.wf_id,
             role=role,
             environment=environment,
         )
-        ctx_logger.set(act_logger)
+        ctx_logger.set(log)
 
         act_info = activity.info()
         act_attempt = act_info.attempt
-        act_logger.info(
+        log.info(
             "Run action activity",
             task=task,
             attempt=act_attempt,
@@ -119,7 +119,7 @@ class DSLActivities:
                 wait=wait_exponential(min=4, max=300),
             ):
                 with attempt_manager:
-                    act_logger.info(
+                    log.info(
                         "Tenacity retrying",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
@@ -129,9 +129,7 @@ class DSLActivities:
             # We only expect ExecutorClientError to be raised from the executor client
             kind = e.__class__.__name__
             msg = str(e)
-            act_logger.error(
-                "Application exception occurred", error=msg, detail=e.detail
-            )
+            log.error("Application exception occurred", error=msg, detail=e.detail)
             err_info = ActionErrorInfo(
                 ref=task.ref,
                 message=msg,
@@ -142,7 +140,7 @@ class DSLActivities:
             raise ApplicationError(err_msg, err_info, type=kind) from e
         except ApplicationError as e:
             # Unexpected application error - depends
-            act_logger.error("ApplicationError occurred", error=e)
+            log.error("ApplicationError occurred", error=e)
             err_info = ActionErrorInfo(
                 ref=task.ref,
                 message=str(e),
@@ -157,7 +155,7 @@ class DSLActivities:
             # Unexpected errors - non-retryable
             kind = e.__class__.__name__
             raw_msg = f"{kind} occurred:\n{e}"
-            act_logger.error(raw_msg)
+            log.error(raw_msg)
 
             err_info = ActionErrorInfo(
                 ref=task.ref,

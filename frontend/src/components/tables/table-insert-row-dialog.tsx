@@ -63,19 +63,20 @@ const createInsertTableRowSchema = (table: TableRead) => {
         break
       case "json":
       case "jsonb":
-        columnValidations[column.name] = z.string()
-        .refine(
-          (val) => {
-            try {
-              JSON.parse(val);
-              return true;
-            } catch (e) {
-              return false;
-            }
-          },
-          { message: `${column.name} must be valid JSON` }
-        )
-        .transform((val) => JSON.parse(val))
+        columnValidations[column.name] = z
+          .string()
+          .refine(
+            (val) => {
+              try {
+                JSON.parse(val)
+                return true
+              } catch (e) {
+                return false
+              }
+            },
+            { message: `${column.name} must be valid JSON` }
+          )
+          .transform((val) => JSON.parse(val))
         break
       default:
         columnValidations[column.name] = z

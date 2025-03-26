@@ -26,7 +26,7 @@ ExecutionContext = dict[ExprContext, Any]
 """Workflow execution context."""
 
 
-class DSLNodeResult(TypedDict, total=False):
+class TaskResult(TypedDict, total=False):
     """Result of executing a DSL node."""
 
     result: Any
