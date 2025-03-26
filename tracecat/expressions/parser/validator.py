@@ -10,7 +10,7 @@ from lark.exceptions import VisitError
 from pydantic import BaseModel, Field
 
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.dsl.models import DSLNodeResult
+from tracecat.dsl.models import TaskResult
 from tracecat.expressions import functions
 from tracecat.expressions.common import (
     VISITOR_NODE_TO_EXPR_TYPE,
@@ -324,7 +324,7 @@ class ExprValidator(BaseExprValidator):
                 type=ExprType.ACTION,
             )
         # Check prop
-        valid_properties = "|".join(DSLNodeResult.__annotations__.keys())
+        valid_properties = "|".join(TaskResult.__annotations__.keys())
         pattern = rf"({valid_properties})(\[(\d+|\*)\])?"  # e.g. "result[0], result[*], result"
         if not re.match(pattern, prop):
             self.add(

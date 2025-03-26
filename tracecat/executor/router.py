@@ -33,10 +33,10 @@ async def run_action(
 ) -> Any:
     """Execute a registry action."""
     ref = action_input.task.ref
-    act_logger = logger.bind(role=role, action_name=action_name, ref=ref)
-    ctx_logger.set(act_logger)
+    log = logger.bind(role=role, action_name=action_name, ref=ref)
+    ctx_logger.set(log)
 
-    act_logger.info("Starting action")
+    log.info("Starting action")
 
     try:
         return await dispatch_action_on_cluster(input=action_input, session=session)
@@ -48,14 +48,14 @@ async def run_action(
     except ExecutionError as e:
         # This is an error that occurred inside an executing action
         err_info_dict = e.info.model_dump(mode="json")
-        act_logger.error("Error in action", **err_info_dict)
+        log.error("Error in action", **err_info_dict)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=err_info_dict,
         ) from e
     except LoopExecutionError as e:
         err_info_list = [e.info.model_dump(mode="json") for e in e.loop_errors]
-        act_logger.error("Error in loop", n_errors=len(err_info_list))
+        log.error("Error in loop", n_errors=len(err_info_list))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=err_info_list,
@@ -64,7 +64,7 @@ async def run_action(
         logger.warning("Unexpected error running action", exc_info=e)
         err_info = ExecutorActionErrorInfo.from_exc(e, action_name)
         err_info_dict = err_info.model_dump(mode="json")
-        act_logger.error("Error running action", **err_info_dict)
+        log.error("Error running action", **err_info_dict)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=err_info_dict,

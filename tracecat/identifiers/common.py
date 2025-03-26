@@ -5,6 +5,7 @@ from typing import Any, ClassVar, Self, cast
 from uuid import UUID
 
 from pydantic_core import CoreSchema, core_schema
+from temporalio import workflow
 
 from tracecat import base62
 
@@ -32,6 +33,13 @@ def id_from_short(short_id: str, prefix: str) -> UUID:
     prefix_len = len(prefix)
     suffix = short_id[prefix_len:]
     return UUID(int=base62.b62decode(suffix))
+
+
+def safe_uuid4() -> UUID:
+    """Generate a UUID4 safe for use in workflows."""
+    if workflow.unsafe.in_sandbox():
+        return workflow.uuid4()
+    return uuid.uuid4()
 
 
 class TracecatUUID[ShortID: str](UUID):
@@ -122,7 +130,7 @@ class TracecatUUID[ShortID: str](UUID):
 
     @classmethod
     def new_uuid4(cls) -> Self:
-        return cls.from_uuid(uuid.uuid4())
+        return cls.from_uuid(safe_uuid4())
 
     @classmethod
     def new(cls, id: Any) -> Self:
