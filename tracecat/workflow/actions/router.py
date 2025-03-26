@@ -10,6 +10,7 @@ from tracecat.ee.interactions.models import ActionInteractionValidator
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.types.exceptions import RegistryError
 from tracecat.workflow.actions.models import (
     ActionControlFlow,
     ActionCreate,
@@ -121,7 +122,13 @@ async def get_action(
     if len(action.inputs) == 0:
         # Lookup action type in the registry
         ra_service = RegistryActionsService(session, role=role)
-        reg_action = await ra_service.load_action_impl(action.type)
+        try:
+            reg_action = await ra_service.load_action_impl(action.type)
+        except RegistryError as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Action not found in registry",
+            ) from e
         # We want to construct a YAML string that contains the defaults
         prefilled_inputs = "\n".join(
             f"{field}: "

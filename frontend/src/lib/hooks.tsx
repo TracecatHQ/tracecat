@@ -1058,7 +1058,7 @@ export function useGetRegistryAction(actionName?: string) {
     data: registryAction,
     isLoading: registryActionIsLoading,
     error: registryActionError,
-  } = useQuery<RegistryActionRead | undefined>({
+  } = useQuery<RegistryActionRead | undefined, ApiError>({
     queryKey: ["registry_action", actionName],
     queryFn: async () => {
       if (!actionName) {
@@ -1068,6 +1068,7 @@ export function useGetRegistryAction(actionName?: string) {
         actionName,
       })
     },
+    retry: retryHandler,
   })
 
   return { registryAction, registryActionIsLoading, registryActionError }
