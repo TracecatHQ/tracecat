@@ -7,12 +7,11 @@ import { useWorkspace } from "@/providers/workspace"
 import { CellContext, ColumnDef } from "@tanstack/react-table"
 
 import { useListRows } from "@/lib/hooks"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { DataTable } from "@/components/data-table"
+import { JsonViewWithControls } from "@/components/json-viewer"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
-import { JsonViewWithControls } from "@/components/json-viewer"
-import { TooltipProvider } from "@/components/ui/tooltip"
-
 
 export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
   const { tableId } = useParams<{ tableId: string }>()
@@ -36,15 +35,13 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
         </div>
       ),
       cell: ({ row }: CellT) => {
-        const value = row.original[column.name as keyof TableRowRead];
+        const value = row.original[column.name as keyof TableRowRead]
         return (
-          <div className="text-xs w-full">
+          <div className="w-full text-xs">
             {typeof value === "object" && value ? (
               <div onClick={(e) => e.stopPropagation()} className="w-full">
                 <TooltipProvider>
-                  <JsonViewWithControls
-                    src={value}
-                  />
+                  <JsonViewWithControls src={value} />
                 </TooltipProvider>
               </div>
             ) : (
