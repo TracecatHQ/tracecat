@@ -1285,7 +1285,8 @@ export type TableReadMinimal = {
 export type TableRowInsert = {
   data: {
     [key: string]: unknown
-  }
+  },
+  upsert?: boolean
 }
 
 /**
