@@ -1,7 +1,6 @@
 import asyncio
 from collections import defaultdict
-from collections.abc import Coroutine
-from typing import Any
+from collections.abc import Awaitable, Callable
 
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
@@ -14,6 +13,7 @@ from tracecat.dsl.models import (
     ActionStatement,
     ExecutionContext,
     TaskExceptionInfo,
+    TaskResult,
 )
 from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
@@ -30,7 +30,7 @@ class DSLScheduler:
     def __init__(
         self,
         *,
-        executor: Coroutine[Any, Any, Any],
+        executor: Callable[[ActionStatement], Awaitable[TaskResult]],
         dsl: DSLInput,
         skip_strategy: SkipStrategy = SkipStrategy.PROPAGATE,
         context: ExecutionContext,
@@ -237,7 +237,7 @@ class DSLScheduler:
             # NOTE: If an exception is thrown from this coroutine, it signals that
             # the task failed after all attempts. Adding the exception to the task
             # exceptions set will cause the workflow to fail.
-            await self.executor(task)  # type: ignore
+            await self.executor(task)
         except Exception as e:
             kind = e.__class__.__name__
             non_retryable = getattr(e, "non_retryable", True)
