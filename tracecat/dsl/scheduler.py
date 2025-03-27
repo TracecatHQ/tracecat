@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
+from tracecat import config
 from tracecat.contexts import ctx_logger
 from tracecat.dsl.common import AdjDst, DSLEdge, DSLInput, edge_components_from_dep
 from tracecat.dsl.enums import EdgeMarker, EdgeType, JoinStrategy, SkipStrategy
@@ -199,7 +200,11 @@ class DSLScheduler:
             # NOTE: If an exception is thrown from this coroutine, it signals that
             # the task failed after all attempts. Adding the exception to the task
             # exceptions set will cause the workflow to fail.
-            await self.executor(task)
+            result = await self.executor(task)
+            if config.TRACECAT__USE_OBJECT_STORE:
+                # Store shit in object store
+                pass
+
         except Exception as e:
             kind = e.__class__.__name__
             non_retryable = getattr(e, "non_retryable", True)

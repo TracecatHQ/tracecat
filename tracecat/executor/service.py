@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import ray
 import uvloop
+from pydantic import ValidationError
 from ray.exceptions import RayTaskError
 from ray.runtime_env import RuntimeEnv
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -25,9 +26,12 @@ from tracecat.dsl.models import (
     RunActionInput,
     TaskResult,
 )
+from tracecat.ee.store.models import ObjectRef
+from tracecat.ee.store.object_store import get_store
 from tracecat.executor.engine import EXECUTION_TIMEOUT
 from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorInfo
 from tracecat.expressions.common import ExprContext, ExprOperand
+from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.eval import (
     eval_templated_object,
     extract_templated_secrets,
@@ -202,10 +206,16 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     if input.interaction_context is not None:
         ctx_interaction.set(input.interaction_context)
     log = ctx_logger.get(logger.bind(ref=input.task.ref))
-
+    log.warning(
+        "Preparing action",
+        ref=input.task.ref,
+        use_store=config.TRACECAT__USE_OBJECT_STORE,
+    )
     task = input.task
     action_name = task.action
 
+    context = await prepare_execution_context(input)
+    # ===== SECRETS START
     async with RegistryActionsService.with_session() as service:
         reg_action = await service.get_action(action_name)
         action_secrets = await service.fetch_all_action_secrets(reg_action)
@@ -250,7 +260,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         args=task.args,
     )
 
-    context = input.exec_context.copy()
+    # context = input.exec_context.copy()
     context.update(SECRETS=secrets)
 
     flattened_secrets = flatten_secrets(secrets)
@@ -263,6 +273,62 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
 
     log.trace("Result", result=result)
     return result
+
+
+async def prepare_execution_context(input: RunActionInput) -> ExecutionContext:
+    """Prepare the action context for running an action. If we're using the store pull from minio."""
+
+    log = ctx_logger.get()
+    context = input.exec_context.copy()
+    if not config.TRACECAT__USE_OBJECT_STORE:
+        log.warning("Object store is disabled, skipping action result fetching")
+        return context
+
+    # Actions
+    # (1) Extract expressions: Grab the action refs that this action depends on
+    log.warning("Store backend, pulling action results into execution context")
+
+    task = input.task
+    extracted_exprs = extract_expressions(task.args)  # ACTIONS and SECRETS refs
+    log.warning("Extracted expressions", extracted_exprs=extracted_exprs)
+
+    extracted_action_refs = extracted_exprs[ExprContext.ACTIONS]
+    if extracted_action_refs:
+        log.warning("No action refs in task args")
+        return context
+
+    # (2) Pull action results from the store
+    # We only pull the action results that are actually used in the template
+    # We need to populate the action context with the action results
+    store = get_store()
+    # Inside the ExecutionContext, each action ref is mapped to an object ref
+    # Grab each object ref and resolve it
+    action_refs = list(extracted_action_refs)
+    # Read keys from the action context.
+    action_context = context.get(ExprContext.ACTIONS, {})
+
+    ref2key: dict[str, str] = {}
+    for act_ref in action_refs:
+        # Try parse this as an ObjectRef
+        try:
+            result = action_context[act_ref]
+            obj_ref = ObjectRef.model_validate(result)
+            ref2key[act_ref] = obj_ref.key
+        except ValidationError:
+            log.warning(
+                "Couldn't parse action ref result as ObjectRef",
+                ref=act_ref,
+                result=result,
+            )
+    result_objs = await store.get_json_many(keys=list(ref2key.values()))
+    action_results = dict(zip(ref2key.keys(), result_objs, strict=True))
+    context.update(ACTIONS=action_results)
+    log.warning(
+        "Updated action context",
+        action_results=action_results,
+        context=context,
+    )
+    return context
 
 
 def get_runtime_env() -> str:

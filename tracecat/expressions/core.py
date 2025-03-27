@@ -198,3 +198,15 @@ def extract_expressions(args: Mapping[str, Any]) -> Mapping[ExprContext, set[str
     for expr_str in traverse_expressions(args):
         Expression(expr_str, visitor=extractor)()
     return extractor.results()
+
+
+# Test RegistryActionExtractor
+if __name__ == "__main__":
+    print(
+        extract_expressions(
+            {
+                "action": "asdf ${{ ACTIONS.act.result }}",
+                "secret": "asdf ${{ SECRETS.sec.key }}",
+            }
+        )
+    )

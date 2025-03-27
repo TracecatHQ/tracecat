@@ -451,6 +451,7 @@ class DSLWorkflow:
             # In Temporal 1.9.0+, we can use workflow.sleep() as well
             await asyncio.sleep(task.start_delay)
 
+    # NOTE: We can only write the final result to object storage here.
     async def execute_task(self, task: ActionStatement) -> TaskResult:
         """Execute a task and manage the results."""
         if task.retry_policy.retry_until:
