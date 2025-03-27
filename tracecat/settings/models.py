@@ -105,6 +105,7 @@ class AppSettingsRead(BaseSettingsGroup):
     """Settings for the app."""
 
     app_registry_validation_enabled: bool
+    app_executions_query_limit: int
 
 
 class AppSettingsUpdate(BaseSettingsGroup):
@@ -112,6 +113,10 @@ class AppSettingsUpdate(BaseSettingsGroup):
 
     app_registry_validation_enabled: bool = Field(
         default=False, description="Whether registry validation is enabled."
+    )
+    app_executions_query_limit: int = Field(
+        default=100,
+        description="The maximum number of executions to return in a single query.",
     )
 
 
