@@ -358,7 +358,7 @@ class DSLWorkflow:
         )
 
         self.scheduler = DSLScheduler(
-            executor=self.execute_task,  # type: ignore
+            executor=self.execute_task,
             dsl=self.dsl,
             context=self.context,
         )
@@ -451,7 +451,7 @@ class DSLWorkflow:
             # In Temporal 1.9.0+, we can use workflow.sleep() as well
             await asyncio.sleep(task.start_delay)
 
-    async def execute_task(self, task: ActionStatement) -> Any:
+    async def execute_task(self, task: ActionStatement) -> TaskResult:
         """Execute a task and manage the results."""
         if task.retry_policy.retry_until:
             return await self._execute_task_until_condition(task)
