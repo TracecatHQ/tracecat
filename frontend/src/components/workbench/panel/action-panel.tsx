@@ -24,6 +24,7 @@ import {
   Loader2Icon,
   LucideIcon,
   MessagesSquare,
+  Plus,
   RotateCcwIcon,
   SaveIcon,
   SettingsIcon,
@@ -357,9 +358,8 @@ export function ActionPanel({
   if (!registryAction || registryActionError) {
     return (
       <div className="flex h-full items-center justify-center space-x-2 p-4">
-        <AlertNotification
-          level="error"
-          message={`Could not load action schema '${action?.type}'.`}
+        <ActionPanelNotFound
+          description={`Could not load action schema '${action?.type}'.`}
         />
       </div>
     )
@@ -1187,5 +1187,56 @@ function SaveShortcut() {
         </p>
       </div>
     </span>
+  )
+}
+
+export interface ActionPanelEmptyProps
+  extends React.HTMLAttributes<HTMLDivElement> {
+  title?: string
+  description?: React.ReactNode | string
+  action?: () => void
+  icon?: LucideIcon
+  actionLabel?: string
+}
+
+export function ActionPanelNotFound({
+  title = "This action could not be found",
+  description = "Please check the action type and try again.",
+  action,
+  actionLabel = "Create item",
+  className,
+  ...props
+}: ActionPanelEmptyProps) {
+  if (typeof description === "string") {
+    description = <p className="text-xs text-muted-foreground">{description}</p>
+  }
+  return (
+    <div
+      id="outer"
+      className={cn(
+        "flex size-full flex-col items-center justify-center",
+        className
+      )}
+      {...props}
+    >
+      <div className="flex flex-col items-center gap-4 p-6 text-center">
+        <div className="rounded-full bg-muted p-3 font-semibold">?</div>
+        <div className="space-y-1">
+          <h4 className="text-sm font-semibold">{title}</h4>
+          {description}
+        </div>
+        {action && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={action}
+            className="w-full gap-1.5"
+          >
+            <Plus className="size-4" />
+            {actionLabel}
+          </Button>
+        )}
+      </div>
+    </div>
   )
 }

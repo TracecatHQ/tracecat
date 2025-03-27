@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from temporalio import workflow
 
 from tracecat.contexts import ctx_interaction
-from tracecat.dsl.models import ActionStatement, DSLNodeResult
+from tracecat.dsl.models import ActionStatement, TaskResult
 from tracecat.ee.interactions.enums import InteractionStatus
 from tracecat.ee.interactions.models import (
     InteractionContext,
@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 
 
 def maybe_interactive(
-    func: Callable[..., Awaitable[DSLNodeResult]],
-) -> Callable[[DSLWorkflow, ActionStatement], Awaitable[DSLNodeResult]]:
+    func: Callable[..., Awaitable[TaskResult]],
+) -> Callable[[DSLWorkflow, ActionStatement], Awaitable[TaskResult]]:
     """Decorator that manages interactivity for a task execution.
 
     Args:
@@ -30,7 +30,7 @@ def maybe_interactive(
         Decorator function that wraps the task execution
     """
 
-    async def wrapper(wf: DSLWorkflow, task: ActionStatement) -> DSLNodeResult:
+    async def wrapper(wf: DSLWorkflow, task: ActionStatement) -> TaskResult:
         match task.interaction:
             case ResponseInteraction():
                 # We only support response interactions for now

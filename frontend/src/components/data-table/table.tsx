@@ -101,7 +101,7 @@ export function DataTable<TData, TValue>({
       <div className="space-y-4">
         {toolbarProps && <DataTableToolbar table={table} {...toolbarProps} />}
         <div className="rounded-md border">
-          <Table className="table-alignment-fix">
+          <Table>
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>

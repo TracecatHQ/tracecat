@@ -508,9 +508,13 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Registry Validation Enabled",
     },
+    app_executions_query_limit: {
+      type: "integer",
+      title: "App Executions Query Limit",
+    },
   },
   type: "object",
-  required: ["app_registry_validation_enabled"],
+  required: ["app_registry_validation_enabled", "app_executions_query_limit"],
   title: "AppSettingsRead",
   description: "Settings for the app.",
 } as const
@@ -522,6 +526,13 @@ export const $AppSettingsUpdate = {
       title: "App Registry Validation Enabled",
       description: "Whether registry validation is enabled.",
       default: false,
+    },
+    app_executions_query_limit: {
+      type: "integer",
+      title: "App Executions Query Limit",
+      description:
+        "The maximum number of executions to return in a single query.",
+      default: 100,
     },
   },
   type: "object",
