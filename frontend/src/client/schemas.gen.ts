@@ -512,9 +512,17 @@ export const $AppSettingsRead = {
       type: "integer",
       title: "App Executions Query Limit",
     },
+    app_interactions_enabled: {
+      type: "boolean",
+      title: "App Interactions Enabled",
+    },
   },
   type: "object",
-  required: ["app_registry_validation_enabled", "app_executions_query_limit"],
+  required: [
+    "app_registry_validation_enabled",
+    "app_executions_query_limit",
+    "app_interactions_enabled",
+  ],
   title: "AppSettingsRead",
   description: "Settings for the app.",
 } as const
@@ -533,6 +541,12 @@ export const $AppSettingsUpdate = {
       description:
         "The maximum number of executions to return in a single query.",
       default: 100,
+    },
+    app_interactions_enabled: {
+      type: "boolean",
+      title: "App Interactions Enabled",
+      description: "Whether app interactions are enabled.",
+      default: false,
     },
   },
   type: "object",
