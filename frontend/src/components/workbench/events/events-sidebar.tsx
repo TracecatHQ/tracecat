@@ -14,6 +14,7 @@ import { ImperativePanelHandle } from "react-resizable-panels"
 import {
   useCompactWorkflowExecution,
   useManualWorkflowExecution,
+  useOrgAppSettings,
 } from "@/lib/hooks"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
@@ -93,6 +94,7 @@ function WorkbenchSidebarEventsList({
   workflowId: string
   activeTab: EventsSidebarTabs
 }) {
+  const { appSettings } = useOrgAppSettings()
   const { sidebarRef } = useWorkflowBuilder()
   const { lastExecution, lastExecutionIsLoading, lastExecutionError } =
     useManualWorkflowExecution(workflowId)
@@ -139,7 +141,9 @@ function WorkbenchSidebarEventsList({
       content: (
         <>
           <WorkflowEventsHeader execution={execution} />
-          <WorkflowInteractions execution={execution} />
+          {appSettings?.app_interactions_enabled && (
+            <WorkflowInteractions execution={execution} />
+          )}
           <WorkflowEvents events={execution.events} />
         </>
       ),
@@ -156,13 +160,16 @@ function WorkbenchSidebarEventsList({
       icon: ShapesIcon,
       content: <ActionEvent execution={execution} type="result" />,
     },
-    {
+  ]
+  if (appSettings?.app_interactions_enabled) {
+    tabItems.push({
       value: "action-interaction",
       label: "Interaction",
       icon: MessagesSquare,
       content: <ActionEvent execution={execution} type="interaction" />,
-    },
-  ]
+    })
+  }
+
   return (
     <div className="h-full">
       <Tabs
