@@ -106,6 +106,7 @@ class AppSettingsRead(BaseSettingsGroup):
 
     app_registry_validation_enabled: bool
     app_executions_query_limit: int
+    app_interactions_enabled: bool
 
 
 class AppSettingsUpdate(BaseSettingsGroup):
@@ -117,6 +118,10 @@ class AppSettingsUpdate(BaseSettingsGroup):
     app_executions_query_limit: int = Field(
         default=100,
         description="The maximum number of executions to return in a single query.",
+    )
+    app_interactions_enabled: bool = Field(
+        default=False,
+        description="Whether app interactions are enabled.",
     )
 
 

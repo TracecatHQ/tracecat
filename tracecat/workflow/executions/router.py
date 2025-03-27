@@ -74,7 +74,12 @@ async def get_workflow_execution(
         )
     logger.info("Getting workflow execution events", execution_id=execution.id)
     events = await service.list_workflow_execution_events(execution.id)
-    interaction_states = await service.query_interaction_states(execution.id)
+    if await get_setting("app_interactions_enabled"):
+        logger.warning("Interactions are enabled, querying interaction states")
+        interaction_states = await service.query_interaction_states(execution.id)
+    else:
+        logger.warning("Interactions are disabled, skipping interaction states")
+        interaction_states = {}
     return WorkflowExecutionRead(
         id=execution.id,
         run_id=execution.run_id,
@@ -105,7 +110,12 @@ async def get_workflow_execution_compact(
         )
 
     compact_events = await service.list_workflow_execution_events_compact(execution_id)
-    interaction_states = await service.query_interaction_states(execution_id)
+    if await get_setting("app_interactions_enabled"):
+        logger.warning("Interactions are enabled, querying interaction states")
+        interaction_states = await service.query_interaction_states(execution_id)
+    else:
+        logger.warning("Interactions are disabled, skipping interaction states")
+        interaction_states = {}
     return WorkflowExecutionReadCompact(
         id=execution.id,
         parent_wf_exec_id=execution.parent_id,
