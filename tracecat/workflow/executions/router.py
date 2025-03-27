@@ -1,10 +1,5 @@
 import temporalio.service
-from fastapi import (
-    APIRouter,
-    HTTPException,
-    Query,
-    status,
-)
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 
@@ -16,6 +11,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.settings.service import get_setting
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.enums import TriggerType
@@ -39,7 +35,7 @@ async def list_workflow_executions(
     workflow_id: OptionalAnyWorkflowIDQuery,
     trigger_types: set[TriggerType] | None = Query(None, alias="trigger"),
     triggered_by_user_id: UserID | SpecialUserID | None = Query(None, alias="user_id"),
-    limit: int | None = Query(None, alias="limit"),
+    limit: int | None = Query(None),
 ) -> list[WorkflowExecutionReadMinimal]:
     """List all workflow executions."""
     service = await WorkflowExecutionsService.connect(role=role)
@@ -50,6 +46,7 @@ async def list_workflow_executions(
                 detail="User ID is required to filter by user ID",
             )
         triggered_by_user_id = role.user_id
+    limit = limit or await get_setting("app_executions_query_limit") or 100
     executions = await service.list_executions(
         workflow_id=workflow_id,
         trigger_types=trigger_types,
