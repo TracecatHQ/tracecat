@@ -28,11 +28,11 @@ definition:
       action: llm.openai.call
       args:
         model: ${{ inputs.model }}
-        prompt: |
+        prompt: >
           <input_data>
           ${{ inputs.input }}
           </input_data>
-        instructions: |
+        instructions: >
           <context>
           You are an expert at structured data extraction.
           </context>

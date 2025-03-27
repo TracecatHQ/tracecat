@@ -26,11 +26,11 @@ definition:
       action: llm.ollama.call
       args:
         model: ${{ inputs.model }}
-        prompt: |
+        prompt: >
           <text>
           ${{ inputs.input }}
           </text>
-        system_prompt: |
+        system_prompt: >
           <context>
           You are an expert summarizer of unstructured text, specifically knowledgeable about ${{ inputs.input_context }}.
           </context>

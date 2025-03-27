@@ -1,5 +1,5 @@
 title: Core AI Action Integration Test
-description: |
+description: >
   Test that the core.ai_action UDF works as expected.
   Requires `openai.OPENAI_API_KEY` secret.
 entrypoint:

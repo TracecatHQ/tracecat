@@ -13,11 +13,11 @@ definition:
     - ref: extract_iocs
       action: llm.openai.call
       args:
-        prompt: |
+        prompt: >
           <input_data>
           ${{ FN.serialize_yaml(inputs.alert) }}
           </input_data>
-        instructions: |
+        instructions: >
           <context>
           You are an expert at identifying technical indicators of compromise (IoCs) and affected entities in AWS GuardDuty alerts.
           You MUST extract only actual, concrete values from the alert - no placeholders or generic descriptions. Do not make up values.
@@ -38,7 +38,7 @@ definition:
                 type: array
                 items:
                   type: string
-                description: |
+                description: >
                   Your thought process in extracting the IoCs
                   - Identify the key entities and relationships in the alert
                   - Extract the IoCs from the alert

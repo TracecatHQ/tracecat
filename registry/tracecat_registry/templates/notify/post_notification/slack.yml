@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Post notification
-  description: |
+  description: >
     Post interactive notification with buttons to a Slack channel.
     Action names are slugified and sent with the interaction payload as action values.
   display_group: Slack

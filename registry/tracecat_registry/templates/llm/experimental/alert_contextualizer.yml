@@ -13,11 +13,11 @@ definition:
     - ref: parse_alert
       action: llm.openai.call
       args:
-        prompt: |
+        prompt: >
           <input_data>
           ${{ FN.serialize_yaml(inputs.alert) }}
           </input_data>
-        instructions: |
+        instructions: >
           <context>
           You are an expert at analyzing AWS GuardDuty alerts and extracting key information.
           You only extract specific values from the alert, not generic descriptions.

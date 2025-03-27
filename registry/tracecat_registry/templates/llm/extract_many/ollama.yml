@@ -21,7 +21,7 @@ definition:
       description: Data type of the data to extract (e.g. "string").
     output_context:
       type: str
-      description: |
+      description: >
         Description of the data to extract in plural form
         (e.g. "Locations given by city and state (e.g. 'San Francisco, CA')").
     model:
@@ -33,11 +33,11 @@ definition:
       action: llm.ollama.call
       args:
         model: ${{ inputs.model }}
-        prompt: |
+        prompt: >
           <input_data>
           ${{ inputs.input }}
           </input_data>
-        system_prompt: |
+        system_prompt: >
           <context>
           You are an expert at structured data extraction.
           </context>

@@ -21,11 +21,11 @@ definition:
     - ref: summarize
       action: llm.openai.call
       args:
-        prompt: |
+        prompt: >
           <text>
           ${{ inputs.input }}
           </text>
-        instructions: |
+        instructions: >
           <context>
           You are an expert summarizer of unstructured text, specifically knowledgeable about ${{ inputs.input_context }}.
           </context>
