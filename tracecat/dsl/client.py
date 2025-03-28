@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import aioboto3
 from temporalio.client import Client
 from temporalio.exceptions import TemporalError
+from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.service import TLSConfig
 from tenacity import (
     RetryError,
@@ -83,6 +84,7 @@ async def connect_to_temporal() -> Client:
         tls_config = True
         rpc_metadata["temporal-namespace"] = TEMPORAL__CLUSTER_NAMESPACE
 
+    runtime = init_runtime_with_prometheus(port=9000)
     client = await Client.connect(
         target_host=TEMPORAL__CLUSTER_URL,
         namespace=TEMPORAL__CLUSTER_NAMESPACE,
@@ -90,6 +92,7 @@ async def connect_to_temporal() -> Client:
         api_key=api_key,
         tls=tls_config,
         data_converter=pydantic_data_converter,
+        runtime=runtime,
     )
     return client
 
@@ -116,3 +119,12 @@ async def get_temporal_client() -> Client:
         raise RuntimeError(msg) from e
     else:
         return _client
+
+
+def init_runtime_with_prometheus(port: int) -> Runtime:
+    # Create runtime for use with Prometheus metrics
+    return Runtime(
+        telemetry=TelemetryConfig(
+            metrics=PrometheusConfig(bind_address=f"127.0.0.1:{port}")
+        )
+    )
