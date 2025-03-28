@@ -24,6 +24,12 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
           hostPort      = 8001
           name          = "worker"
           appProtocol   = "http"
+        },
+        {
+          containerPort = 9000
+          hostPort      = 9000
+          name          = "metrics"
+          appProtocol   = "http"
         }
       ]
       logConfiguration = {
