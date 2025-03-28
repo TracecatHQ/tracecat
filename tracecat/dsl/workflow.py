@@ -711,6 +711,7 @@ class DSLWorkflow:
                     tg.create_task(
                         self._run_child_workflow(task, patched_run_args, loop_index=i)
                     )
+                    await workflow.sleep(0.1)
             return tg.results()
         else:
             # Isolated
@@ -723,6 +724,7 @@ class DSLWorkflow:
                 )
                 coro = self._run_child_workflow(task, patched_run_args, loop_index=i)
                 coros.append(coro)
+                await workflow.sleep(0.1)
             gather_result = await asyncio.gather(*coros, return_exceptions=True)
             result: list[DSLExecutionError | Any] = [
                 dsl_execution_error_from_exception(val)

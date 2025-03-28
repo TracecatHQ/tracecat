@@ -1,10 +1,5 @@
 import temporalio.service
-from fastapi import (
-    APIRouter,
-    HTTPException,
-    Query,
-    status,
-)
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 
@@ -16,6 +11,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.settings.service import get_setting
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.enums import TriggerType
@@ -39,7 +35,7 @@ async def list_workflow_executions(
     workflow_id: OptionalAnyWorkflowIDQuery,
     trigger_types: set[TriggerType] | None = Query(None, alias="trigger"),
     triggered_by_user_id: UserID | SpecialUserID | None = Query(None, alias="user_id"),
-    limit: int | None = Query(None, alias="limit"),
+    limit: int | None = Query(None),
 ) -> list[WorkflowExecutionReadMinimal]:
     """List all workflow executions."""
     service = await WorkflowExecutionsService.connect(role=role)
@@ -50,6 +46,7 @@ async def list_workflow_executions(
                 detail="User ID is required to filter by user ID",
             )
         triggered_by_user_id = role.user_id
+    limit = limit or await get_setting("app_executions_query_limit") or 100
     executions = await service.list_executions(
         workflow_id=workflow_id,
         trigger_types=trigger_types,
@@ -77,7 +74,12 @@ async def get_workflow_execution(
         )
     logger.info("Getting workflow execution events", execution_id=execution.id)
     events = await service.list_workflow_execution_events(execution.id)
-    interaction_states = await service.query_interaction_states(execution.id)
+    if await get_setting("app_interactions_enabled"):
+        logger.warning("Interactions are enabled, querying interaction states")
+        interaction_states = await service.query_interaction_states(execution.id)
+    else:
+        logger.warning("Interactions are disabled, skipping interaction states")
+        interaction_states = {}
     return WorkflowExecutionRead(
         id=execution.id,
         run_id=execution.run_id,
@@ -108,7 +110,12 @@ async def get_workflow_execution_compact(
         )
 
     compact_events = await service.list_workflow_execution_events_compact(execution_id)
-    interaction_states = await service.query_interaction_states(execution_id)
+    if await get_setting("app_interactions_enabled"):
+        logger.warning("Interactions are enabled, querying interaction states")
+        interaction_states = await service.query_interaction_states(execution_id)
+    else:
+        logger.warning("Interactions are disabled, skipping interaction states")
+        interaction_states = {}
     return WorkflowExecutionReadCompact(
         id=execution.id,
         parent_wf_exec_id=execution.parent_id,

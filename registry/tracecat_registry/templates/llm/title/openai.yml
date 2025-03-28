@@ -21,11 +21,11 @@ definition:
     - ref: generate_title
       action: llm.openai.call
       args:
-        prompt: |
+        prompt: >
           <content>
           ${{ inputs.input }}
           </content>
-        instructions: |
+        instructions: >
           <context>
           You are an expert at creating titles for ${{ inputs.input_context }}.
           </context>

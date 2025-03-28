@@ -139,6 +139,8 @@ export type ActionUpdate = {
  */
 export type AppSettingsRead = {
   app_registry_validation_enabled: boolean
+  app_executions_query_limit: number
+  app_interactions_enabled: boolean
 }
 
 /**
@@ -149,6 +151,14 @@ export type AppSettingsUpdate = {
    * Whether registry validation is enabled.
    */
   app_registry_validation_enabled?: boolean
+  /**
+   * The maximum number of executions to return in a single query.
+   */
+  app_executions_query_limit?: number
+  /**
+   * Whether app interactions are enabled.
+   */
+  app_interactions_enabled?: boolean
 }
 
 /**

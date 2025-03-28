@@ -32,7 +32,7 @@ definition:
           - daryl@tracecat.com
           - chris@tracecat.com
         subject: Malware report for ${{ TRIGGER.hash }}
-        body: |
+        body: >
           Dear Team,
 
           Below is the daily malware report summary for the file.

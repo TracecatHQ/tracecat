@@ -15,7 +15,7 @@ definition:
       description: End time for the query (exclusive).
     query:
       type: str | None
-      description: |
+      description: >
         Falcon Query Language (FQL) filter to apply to alerts.
         If specified, overrides `start_time` and `end_time`.
       default: null

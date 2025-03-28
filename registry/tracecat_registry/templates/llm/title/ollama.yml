@@ -26,11 +26,11 @@ definition:
       action: llm.ollama.call
       args:
         model: ${{ inputs.model }}
-        prompt: |
+        prompt: >
           <content>
           ${{ inputs.input }}
           </content>
-        system_prompt: |
+        system_prompt: >
           <context>
           You are an expert at creating titles for ${{ inputs.input_context }}.
           </context>

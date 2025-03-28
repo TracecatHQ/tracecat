@@ -4,7 +4,7 @@ title: Adder diamond skip with join with strong depedency
 #   B  [C] <- C should not run
 #    \ /
 #     D <- D should fail, because it tries to access C's result
-description: |
+description: >
   Initial conditions:
   - C fails
   - D has a strong dependency on C, meaning it's both structurally dependent and data dependent

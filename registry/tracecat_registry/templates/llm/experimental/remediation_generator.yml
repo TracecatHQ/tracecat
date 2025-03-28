@@ -19,7 +19,7 @@ definition:
     - ref: generate_remediation
       action: llm.openai.call
       args:
-        instructions: |
+        instructions: >
           <Context>
           You are an expert at AWS security remediation.
           You must generate specific AWS CLI commands using actual values from the alert.
@@ -119,7 +119,7 @@ definition:
             </Step>
           </RemediationSteps>
 
-        prompt: |
+        prompt: >
           <alert_data>
           ${{ FN.serialize_yaml(inputs.alert) }}
           </alert_data>

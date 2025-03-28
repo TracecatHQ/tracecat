@@ -4,7 +4,7 @@ title: Adder diamond skip with join with weak depedency
 #   B  [C] <- C should not run
 #    \ /
 #     D <- D should still run, because it is not entirely dependent on C
-description: |
+description: >
   Initial conditions:
   - C fails
   - D has a weak dependency on C, meaning it's only structurally dependent but not data dependent

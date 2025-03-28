@@ -14,12 +14,15 @@ import {
   FormItem,
   FormLabel,
 } from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 
 const appFormSchema = z.object({
   app_registry_validation_enabled: z.boolean(),
+  app_executions_query_limit: z.number().min(1).max(1000),
+  app_interactions_enabled: z.boolean(),
 })
 
 type AppFormValues = z.infer<typeof appFormSchema>
@@ -38,13 +41,19 @@ export function OrgSettingsAppForm() {
     values: {
       app_registry_validation_enabled:
         appSettings?.app_registry_validation_enabled ?? false,
+      app_executions_query_limit:
+        appSettings?.app_executions_query_limit ?? 100,
+      app_interactions_enabled: appSettings?.app_interactions_enabled ?? false,
     },
   })
+
   const onSubmit = async (data: AppFormValues) => {
     try {
       await updateAppSettings({
         requestBody: {
           app_registry_validation_enabled: data.app_registry_validation_enabled,
+          app_executions_query_limit: data.app_executions_query_limit,
+          app_interactions_enabled: data.app_interactions_enabled,
         },
       })
     } catch {
@@ -76,6 +85,52 @@ export function OrgSettingsAppForm() {
                 <FormLabel>Enable registry validation</FormLabel>
                 <FormDescription>
                   Enable registry validation (alpha).
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="app_executions_query_limit"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Workflow Executions Query Limit</FormLabel>
+                <FormDescription>
+                  Maximum number of executions that can be queried at once.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  {...field}
+                  onChange={(e) => field.onChange(Number(e.target.value))}
+                  className="w-24"
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="app_interactions_enabled"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Enable Interactions</FormLabel>
+                <FormDescription>
+                  Enable application interactions functionality (alpha).
                 </FormDescription>
               </div>
               <FormControl>
