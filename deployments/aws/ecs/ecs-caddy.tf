@@ -36,19 +36,21 @@ cat <<EOF > /etc/caddy/Caddyfile
   handle_path /temporal-admin* {
     reverse_proxy http://temporal-ui-service:8080
   }
+%{if var.enable_metrics}
   handle_path /metrics* {
     basicauth {
       {$METRICS_AUTH_USERNAME} {$METRICS_AUTH_PASSWORD_HASH}
     }
     reverse_proxy http://metrics-service:9000
   }
+%{endif}
 }
 EOF
 caddy run --config /etc/caddy/Caddyfile
 EOT
       ]
 
-      environment = [
+      environment = var.enable_metrics ? [
         {
           name  = "METRICS_AUTH_USERNAME"
           value = var.metrics_auth_username
@@ -57,7 +59,7 @@ EOT
           name  = "METRICS_AUTH_PASSWORD_HASH"
           value = var.metrics_auth_password_hash
         }
-      ]
+      ] : []
 
       logConfiguration = {
         logDriver = "awslogs"

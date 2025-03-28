@@ -374,7 +374,14 @@ variable "metrics_auth_username" {
 }
 
 variable "metrics_auth_password_hash" {
-  description = "Bcrypt hash of the password for basic auth on metrics endpoints"
+  description = "Bcrypt hash of the password for basic auth on metrics endpoints (required when enable_metrics_auth is true)"
   type        = string
+  default     = null
   sensitive   = true
+}
+
+variable "enable_metrics" {
+  description = "Whether to expose metrics endpoints with basic auth protection"
+  type        = bool
+  default     = false
 }
