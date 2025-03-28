@@ -44,6 +44,7 @@ cat <<EOF > /etc/caddy/Caddyfile
     reverse_proxy http://metrics-service:9000
   }
 %{endif}
+  reverse_proxy http://ui-service:3000
 }
 EOF
 caddy run --config /etc/caddy/Caddyfile
