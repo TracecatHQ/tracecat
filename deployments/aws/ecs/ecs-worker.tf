@@ -73,6 +73,17 @@ resource "aws_ecs_service" "tracecat_worker" {
         dns_name = "worker-service"
       }
     }
+    service {
+      port_name      = "metrics"
+      discovery_name = "metrics-service"
+      timeout {
+        per_request_timeout_seconds = 120
+      }
+      client_alias {
+        port     = 9000
+        dns_name = "metrics-service"
+      }
+    }
 
     log_configuration {
       log_driver = "awslogs"

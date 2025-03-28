@@ -430,3 +430,17 @@ variable "rds_auto_minor_version_upgrade" {
   description = "Enable auto minor version upgrades for RDS instances"
   default     = false
 }
+
+### Prometheus Metrics
+
+variable "metrics_auth_username" {
+  description = "Username for basic auth on metrics endpoints"
+  type        = string
+  default     = "metrics"
+}
+
+variable "metrics_auth_password_hash" {
+  description = "Bcrypt hash of the password for basic auth on metrics endpoints"
+  type        = string
+  sensitive   = true
+}

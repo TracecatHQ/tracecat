@@ -363,3 +363,18 @@ variable "rds_backup_retention_period" {
   description = "The number of days to retain backups for RDS instances"
   default     = 7
 }
+
+
+### Prometheus Metrics
+
+variable "metrics_auth_username" {
+  description = "Username for basic auth on metrics endpoints"
+  type        = string
+  default     = "metrics"
+}
+
+variable "metrics_auth_password_hash" {
+  description = "Bcrypt hash of the password for basic auth on metrics endpoints"
+  type        = string
+  sensitive   = true
+}
