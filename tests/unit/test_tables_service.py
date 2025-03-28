@@ -200,6 +200,58 @@ class TestTableRows:
         assert "created_at" in retrieved
         assert "updated_at" in retrieved
 
+    async def test_upsert_row(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        # First insert a row
+        row_insert = TableRowInsert(data={"name": "John", "age": 30}, upsert=False)
+        inserted = await tables_service.insert_row(table, row_insert)
+
+        # Keep track of original values
+        row_id = inserted["id"]
+        original_created_at = inserted["created_at"]
+        original_updated_at = inserted["updated_at"]
+
+        # Attempt to upsert the same row with modified data
+        upsert_data = {"name": "John Smith", "age": 31}
+        upsert_insert = TableRowInsert(data={"id": row_id, **upsert_data}, upsert=True)
+        upserted = await tables_service.insert_row(table, upsert_insert)
+
+        # Verify the row was updated
+        assert upserted["id"] == row_id, "ID should remain the same"
+        assert upserted["name"] == "John Smith", "Name should be updated"
+        assert upserted["age"] == 31, "Age should be updated"
+
+        # Check if created_at remains the same but updated_at changed
+        assert upserted["created_at"] == original_created_at, (
+            "created_at should not change on upsert"
+        )
+        assert upserted["updated_at"] > original_updated_at, (
+            "updated_at should be newer than original updated_at"
+        )
+
+        # Verify with a get operation
+        retrieved = await tables_service.get_row(table, row_id)
+        assert retrieved["name"] == "John Smith"
+        assert retrieved["age"] == 31
+
+        # Count rows to ensure no new row was created
+        rows = await tables_service.list_rows(table)
+        assert len(rows) == 1, "Only one row should exist after upsert"
+
+        # Test upserting a new record (one that doesn't exist yet)
+        new_upsert_data = {"name": "Emily", "age": 32}
+        new_upsert = TableRowInsert(data=new_upsert_data, upsert=True)
+        new_row = await tables_service.insert_row(table, new_upsert)
+
+        # Verify the new row was created
+        assert new_row["name"] == "Emily"
+        assert new_row["age"] == 32
+
+        # Count rows to ensure a new row was created
+        rows = await tables_service.list_rows(table)
+        assert len(rows) == 2, "Two rows should exist after upserting a new row"
+
     async def test_update_row(
         self, tables_service: TablesService, table: Table
     ) -> None:
