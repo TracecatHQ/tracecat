@@ -24,8 +24,8 @@ async def reload_registry(session: AsyncSession, role: Role):
     # Setup Tracecat base repository
     base_origin = DEFAULT_REGISTRY_ORIGIN
     # Check if the base registry repository already exists
-    repo = await repos_service.get_repository(base_origin)
-    if repo is None:
+    # NOTE: Should we sync the base repo every time?
+    if await repos_service.get_repository(base_origin) is None:
         base_repo = await repos_service.create_repository(
             RegistryRepositoryCreate(origin=base_origin)
         )
@@ -33,13 +33,7 @@ async def reload_registry(session: AsyncSession, role: Role):
         actions_service = RegistryActionsService(session, role=role)
         await actions_service.sync_actions_from_repository(base_repo)
     else:
-        # Repo exists, sync actions
-        logger.info(
-            "Base registry repository already exists, resyncing actions",
-            origin=base_origin,
-        )
-        actions_service = RegistryActionsService(session, role=role)
-        await actions_service.sync_actions_from_repository(repo)
+        logger.info("Base registry repository already exists", origin=base_origin)
 
     # Setup custom repository
     # This is where custom template actions are created and stored
