@@ -10,6 +10,12 @@ resource "aws_ecs_cluster" "tracecat_cluster" {
   service_connect_defaults {
     namespace = aws_service_discovery_http_namespace.namespace.arn
   }
+
+  # Enable Container Insights
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
 }
 
 locals {
