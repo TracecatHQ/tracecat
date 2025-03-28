@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import cast
 from urllib.parse import urlparse
 
@@ -12,7 +13,10 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
-from tracecat.registry.repositories.models import RegistryRepositoryCreate
+from tracecat.registry.repositories.models import (
+    RegistryRepositoryCreate,
+    RegistryRepositoryUpdate,
+)
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
 from tracecat.types.auth import Role
@@ -40,6 +44,25 @@ async def reload_registry(session: AsyncSession, role: Role):
         )
         actions_service = RegistryActionsService(session, role=role)
         await actions_service.sync_actions_from_repository(repo)
+
+        # Update the registry actions table
+        last_synced_at = datetime.now(UTC)
+        commit_sha = await actions_service.sync_actions_from_repository(repo)
+        logger.info(
+            "Synced repository",
+            origin=repo.origin,
+            commit_sha=commit_sha,
+            last_synced_at=last_synced_at,
+        )
+        session.expire(repo)
+        # Update the registry repository table
+        await repos_service.update_repository(
+            repo,
+            RegistryRepositoryUpdate(
+                last_synced_at=last_synced_at, commit_sha=commit_sha
+            ),
+        )
+        logger.info("Updated repository", origin=repo.origin)
 
     # Setup custom repository
     # This is where custom template actions are created and stored
