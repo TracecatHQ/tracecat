@@ -125,6 +125,6 @@ def init_runtime_with_prometheus(port: int) -> Runtime:
     # Create runtime for use with Prometheus metrics
     return Runtime(
         telemetry=TelemetryConfig(
-            metrics=PrometheusConfig(bind_address=f"127.0.0.1:{port}")
+            metrics=PrometheusConfig(bind_address=f"0.0.0.0:{port}")
         )
     )
