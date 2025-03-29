@@ -13,10 +13,11 @@ definition:
     description:
       type: str
       description: Short description of the event. Supports Markdown.
-    metadata:
+    fields:
       type: list[dict[str, any]]
       description: >-
-        Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`).
+        List of fields to display in the notification
+        (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
     images:
       type: list[str] | None
       description: List of image URLs to display per metadata field.
@@ -32,7 +33,7 @@ definition:
     - ref: fields_block
       action: tools.slack_blocks.format_fields_context
       args:
-        metadata: ${{ inputs.metadata }}
+        fields: ${{ inputs.fields }}
         images: ${{ inputs.images }}
     - ref: blocks
       action: core.transform.reshape

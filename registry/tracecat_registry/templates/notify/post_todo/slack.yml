@@ -16,7 +16,8 @@ definition:
     fields:
       type: list[dict[str, any]]
       description: >-
-        List of fields to display in the todo (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
+        List of fields to display in the notification
+        (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
     images:
       type: list[str] | None
       description: List of image URLs to display per metadata field.

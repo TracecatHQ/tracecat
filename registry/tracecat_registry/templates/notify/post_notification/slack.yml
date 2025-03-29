@@ -18,7 +18,8 @@ definition:
     fields:
       type: list[dict[str, any]]
       description: >-
-        List of fields to display in the notification (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
+        List of fields to display in the notification
+        (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
     choices:
       type: list[str]
       description: List of possible boolean choices for user to take (e.g. "Confirm", "Deny").
