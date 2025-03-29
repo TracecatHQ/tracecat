@@ -430,3 +430,29 @@ variable "rds_auto_minor_version_upgrade" {
   description = "Enable auto minor version upgrades for RDS instances"
   default     = false
 }
+
+### Prometheus Metrics
+
+variable "metrics_auth_username" {
+  description = "Username for basic auth on metrics endpoints"
+  type        = string
+  default     = "metrics"
+}
+
+variable "metrics_auth_password_hash" {
+  description = "Bcrypt hash of the password for basic auth on metrics endpoints (required when enable_metrics is true)"
+  type        = string
+  default     = null
+  sensitive   = true
+
+  validation {
+    condition     = var.metrics_auth_password_hash != null || var.enable_metrics == false
+    error_message = "metrics_auth_password_hash must be set when enable_metrics is true."
+  }
+}
+
+variable "enable_metrics" {
+  description = "Whether to expose metrics endpoints with basic auth protection"
+  type        = bool
+  default     = true
+}

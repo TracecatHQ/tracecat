@@ -92,11 +92,49 @@ class DSLScheduler:
             await self._queue_tasks(ref, unreachable=non_err_edges)
         else:
             self.logger.error("Task failed with no error paths", ref=ref)
+            details = None
             if isinstance(exc, ApplicationError) and exc.details:
-                details = ActionErrorInfo(**exc.details[0])
-            else:
-                details = None
-
+                self.logger.warning(
+                    "Task failed with application error",
+                    ref=ref,
+                    exc=exc,
+                    details=exc.details,
+                )
+                details = exc.details[0]
+                if not isinstance(details, dict):
+                    self.logger.warning(
+                        "Application error details are not a dictionary",
+                        ref=ref,
+                        details=details,
+                    )
+                    details = None
+                elif all(k in details for k in ("ref", "message", "type")):
+                    # Regular action error
+                    # it's of shape ActionErrorInfo()
+                    try:
+                        # This is normal action error
+                        details = ActionErrorInfo(**details)
+                    except Exception as e:
+                        self.logger.warning(
+                            "Failed to parse regular application error details",
+                            ref=ref,
+                            error=e,
+                        )
+                        details = None
+                else:
+                    # Child workflow error
+                    # it's of shape {ref: ActionErrorInfo(), ...}
+                    # try get the first element
+                    try:
+                        val = list(details.values())[0]
+                        details = ActionErrorInfo(**val)
+                    except Exception as e:
+                        self.logger.warning(
+                            "Failed to parse child wf application error details",
+                            ref=ref,
+                            error=e,
+                        )
+                        details = None
             self.task_exceptions[ref] = TaskExceptionInfo(
                 exception=exc, details=details
             )
