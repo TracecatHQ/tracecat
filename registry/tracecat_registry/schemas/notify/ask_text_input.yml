@@ -1,6 +1,0 @@
-prompt:
-  type: str
-  description: Prompt to ask the user. Supports Markdown.
-metadata:
-  type: dict[str, any]
-  description: Metadata to add to the response.
