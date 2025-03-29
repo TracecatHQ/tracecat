@@ -74,8 +74,9 @@ definition:
       args:
         url: ${{ inputs.base_url }}/rest/api/3/issue
         method: POST
-        headers:
-          Authorization: Basic ${{ FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
         payload:
           # Merge required fields with custom fields
           fields: ${{ steps.fields.result }}
