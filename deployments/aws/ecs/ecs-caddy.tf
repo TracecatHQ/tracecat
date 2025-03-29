@@ -134,6 +134,7 @@ resource "aws_ecs_service" "tracecat_caddy" {
 
   depends_on = [
     aws_ecs_service.tracecat_api,
-    aws_ecs_service.tracecat_ui
+    aws_ecs_service.tracecat_ui,
+    aws_ecs_service.tracecat_worker
   ]
 }
