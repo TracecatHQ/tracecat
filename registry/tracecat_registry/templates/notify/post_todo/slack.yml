@@ -13,10 +13,10 @@ definition:
     status:
       type: enum["to_do", "in_progress", "done"]
       description: Status of the action item.
-    metadata:
+    fields:
       type: list[dict[str, any]]
       description: >-
-        Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`).
+        List of fields to display in the todo (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
     images:
       type: list[str] | None
       description: List of image URLs to display per metadata field.
@@ -45,10 +45,10 @@ definition:
           text:
             type: mrkdwn
             text: "*${{ inputs.summary }}*"
-    - ref: metadata_block
-      action: tools.slack_blocks.format_metadata_context
+    - ref: fields_block
+      action: tools.slack_blocks.format_fields_context
       args:
-        metadata: "${{ inputs.metadata + [{'Status': FN.capitalize(FN.replace(inputs.status, '_', ' '))}] }}"
+        fields: "${{ inputs.fields + [{'Status': FN.capitalize(FN.replace(inputs.status, '_', ' '))}] }}"
         images: ${{ inputs.images }}
     - ref: overflow_menu
       action: tools.slack_elements.format_overflow_menu
@@ -62,12 +62,16 @@ definition:
         params:
           channel: ${{ inputs.channel }}
           thread_ts: ${{ inputs.thread_ts }}
-          metadata:
-            event_type: update
-            event_payload: ${{ inputs.metadata }}
           attachments:
             - color: ${{ "#22c55e" if inputs.status == "done" else "#eab308" if inputs.status == "in_progress" else "" }}
               blocks:
                 - "${{ FN.merge([steps.summary_block.result, {'accessory': steps.overflow_menu.result}]) }}"
-                - "${{ steps.metadata_block.result }}"
+                - "${{ steps.fields_block.result }}"
+          metadata:
+            event_type: todo
+            event_payload:
+              # Get the interaction context from the current action
+              # in the workflow execution. Returns null if the
+              # action is not interactive
+              interaction_context: ${{ FN.get_interaction() }}
   returns: ${{ steps.post_message.result.message }}
