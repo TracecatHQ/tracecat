@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Update issue description
+  description: Update the description of an existing issue in Jira.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-put
+  namespace: tools.jira
+  name: update_issue_description
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    issue_id_or_key:
+      type: str
+      description: ID or key of the issue to update.
+    description:
+      type: dict[str, any]
+      description: New description in Atlassian Document Format.
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
+  steps:
+    - ref: update_issue
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issue_id_or_key }}
+        method: PUT
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+        payload:
+          fields:
+            description: ${{ inputs.description }}
+  returns: ${{ steps.update_issue.result }}
