@@ -39,7 +39,7 @@ cat <<EOF > /etc/caddy/Caddyfile
 %{if var.enable_metrics}
   handle_path /metrics* {
     basicauth {
-      {$METRICS_AUTH_USERNAME} {$METRICS_AUTH_PASSWORD_HASH}
+      $METRICS_AUTH_USERNAME $METRICS_AUTH_PASSWORD_HASH
     }
     reverse_proxy http://metrics-service:9000
   }
