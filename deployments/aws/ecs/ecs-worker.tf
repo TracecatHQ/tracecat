@@ -62,12 +62,14 @@ resource "aws_ecs_service" "tracecat_worker" {
     security_groups = [
       aws_security_group.core.id,
       aws_security_group.core_db.id,
+      aws_security_group.caddy.id
     ]
   }
 
   service_connect_configuration {
     enabled   = true
     namespace = local.local_dns_namespace
+
     service {
       port_name      = "worker"
       discovery_name = "worker-service"
@@ -79,6 +81,7 @@ resource "aws_ecs_service" "tracecat_worker" {
         dns_name = "worker-service"
       }
     }
+
     service {
       port_name      = "metrics"
       discovery_name = "metrics-service"

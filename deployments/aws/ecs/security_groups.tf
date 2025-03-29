@@ -138,11 +138,11 @@ resource "aws_security_group" "core" {
   }
 
   ingress {
-    description     = "Allow traffic to metrics endpoint on port 9000"
-    from_port       = 9000
-    to_port         = 9000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.caddy.id]
+    description = "Allow inbound traffic for metrics service"
+    from_port   = 9000
+    to_port     = 9000
+    protocol    = "tcp"
+    self        = true
   }
 
   egress {
