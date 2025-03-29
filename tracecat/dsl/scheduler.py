@@ -93,19 +93,7 @@ class DSLScheduler:
         else:
             self.logger.error("Task failed with no error paths", ref=ref)
             if isinstance(exc, ApplicationError) and exc.details:
-                self.logger.warning(
-                    "Task failed with application error",
-                    ref=ref,
-                    exc=exc,
-                    details=exc.details,
-                )
-                try:
-                    details = ActionErrorInfo(**exc.details[0])
-                except Exception as e:
-                    self.logger.warning(
-                        "Failed to parse application error details", ref=ref, error=e
-                    )
-                    details = None
+                details = ActionErrorInfo(**exc.details[0])
             else:
                 details = None
 
