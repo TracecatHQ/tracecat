@@ -28,8 +28,16 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
         "/bin/sh",
         "-c",
         <<EOT
-# Write base Caddyfile
-cat > /etc/caddy/Caddyfile <<'BASECONFIG'
+# Write the username and password hash to files for Caddy to use
+if [ "${var.enable_metrics}" = "true" ]; then
+  echo "Setting up metrics authentication" >&2
+  echo "${var.metrics_auth_username}" > /etc/caddy/metrics_username
+  echo "${var.metrics_auth_password_hash}" > /etc/caddy/metrics_password_hash
+fi
+
+# Create the Caddyfile with conditional metrics section
+echo "Creating Caddyfile" >&2
+cat > /etc/caddy/Caddyfile <<EOF
 :80 {
   handle_path /api* {
     reverse_proxy http://api-service:8000
@@ -37,27 +45,29 @@ cat > /etc/caddy/Caddyfile <<'BASECONFIG'
   handle_path /temporal-admin* {
     reverse_proxy http://temporal-ui-service:8080
   }
-BASECONFIG
+EOF
 
-# Conditionally append metrics config
+# Conditionally add metrics section with basic auth
 if [ "${var.enable_metrics}" = "true" ]; then
-  cat >> /etc/caddy/Caddyfile <<'METRICSCONFIG'
+  cat >> /etc/caddy/Caddyfile <<EOF
   handle_path /metrics* {
-    basic_auth {
-      {$METRICS_AUTH_USERNAME} {$METRICS_AUTH_PASSWORD_HASH}
+    basicauth {
+      \$(cat /etc/caddy/metrics_username) \$(cat /etc/caddy/metrics_password_hash)
     }
     reverse_proxy http://metrics-service:9000
   }
-METRICSCONFIG
+EOF
 fi
 
-# Append final UI config
-cat >> /etc/caddy/Caddyfile <<'UICONFIG'
+# Complete the Caddyfile
+cat >> /etc/caddy/Caddyfile <<EOF
   reverse_proxy http://ui-service:3000
 }
-UICONFIG
+EOF
 
-# Run Caddy
+echo "Caddyfile created:" >&2
+cat /etc/caddy/Caddyfile >&2
+echo "Starting Caddy" >&2
 caddy run --config /etc/caddy/Caddyfile
 EOT
       ]
