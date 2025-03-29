@@ -1,7 +1,7 @@
 type: action
 definition:
-  title: Create case
-  description: Create a new case in Jira as a issue.
+  title: Create issue
+  description: Create a new issue in Jira.
   display_group: Jira
   doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-post
   namespace: tools.jira
@@ -31,9 +31,6 @@ definition:
     project_id:
       type: str
       description: Jira project ID.
-    priority_scheme_id:
-      type: str
-      description: Jira priority scheme ID.
     issue_type_id:
       type: str
       description: Jira issue type ID.
