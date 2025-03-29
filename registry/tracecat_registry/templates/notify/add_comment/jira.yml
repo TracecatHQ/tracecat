@@ -29,5 +29,12 @@ definition:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
         payload:
-          body: ${{ inputs.comment }}
+          body:
+            version: 1
+            type: doc
+            content:
+              - type: paragraph
+                content:
+                  - type: text
+                    text: ${{ inputs.comment }}
   returns: ${{ steps.add_comment.result }}
