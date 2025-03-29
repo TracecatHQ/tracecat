@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Add comment to issue
+  description: Add a comment to an issue in Jira.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-post
+  namespace: tools.jira
+  name: add_comment
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    issue_id_or_key:
+      type: str
+      description: ID or key of the issue to add a comment to.
+    comment:
+      type: dict[str, any]
+      description: Comment in Atlassian Document Format.
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
+  steps:
+    - ref: add_comment
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issue_id_or_key }}/comment
+        method: POST
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+        payload:
+          body: ${{ inputs.comment }}
+  returns: ${{ steps.add_comment.result }}
