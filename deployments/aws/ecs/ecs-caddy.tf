@@ -28,7 +28,8 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
         "/bin/sh",
         "-c",
         <<EOT
-cat <<EOF > /etc/caddy/Caddyfile
+# Write base Caddyfile
+cat > /etc/caddy/Caddyfile <<'BASECONFIG'
 :80 {
   handle_path /api* {
     reverse_proxy http://api-service:8000
@@ -36,17 +37,27 @@ cat <<EOF > /etc/caddy/Caddyfile
   handle_path /temporal-admin* {
     reverse_proxy http://temporal-ui-service:8080
   }
-%{if var.enable_metrics}
+BASECONFIG
+
+# Conditionally append metrics config
+if [ "${var.enable_metrics}" = "true" ]; then
+  cat >> /etc/caddy/Caddyfile <<'METRICSCONFIG'
   handle_path /metrics* {
     basicauth {
-      $METRICS_AUTH_USERNAME $METRICS_AUTH_PASSWORD_HASH
+      {$METRICS_AUTH_USERNAME} {$METRICS_AUTH_PASSWORD_HASH}
     }
     reverse_proxy http://metrics-service:9000
   }
-%{endif}
+METRICSCONFIG
+fi
+
+# Append final UI config
+cat >> /etc/caddy/Caddyfile <<'UICONFIG'
   reverse_proxy http://ui-service:3000
 }
-EOF
+UICONFIG
+
+# Run Caddy
 caddy run --config /etc/caddy/Caddyfile
 EOT
       ]
