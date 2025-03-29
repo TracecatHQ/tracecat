@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Get transitions
+  description: Get a list of available transitions for an issue.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-transitions-get
+  namespace: tools.jira
+  name: get_transitions
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    issue_id_or_key:
+      type: str
+      description: ID or key of the issue to get transitions for.
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
+  steps:
+    - ref: get_transitions
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issue_id_or_key }}/transitions
+        method: GET
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+  returns: ${{ steps.get_transitions.result.data.transitions }}
