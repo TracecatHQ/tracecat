@@ -28,7 +28,7 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
         "/bin/sh",
         "-c",
         <<EOT
-cat <<EOF > /etc/caddy/Caddyfile
+cat <<'EOF' > /etc/caddy/Caddyfile
 :80 {
   handle_path /api* {
     reverse_proxy http://api-service:8000
@@ -36,46 +36,47 @@ cat <<EOF > /etc/caddy/Caddyfile
   handle_path /temporal-admin* {
     reverse_proxy http://temporal-ui-service:8080
   }
-%{if var.enable_metrics}
+${var.enable_metrics ? <<METRICS
   handle_path /metrics* {
     basic_auth {
       {$METRICS_AUTH_USERNAME} {$METRICS_AUTH_PASSWORD_HASH}
     }
     reverse_proxy http://metrics-service:9000
   }
-%{endif}
+METRICS
+      : ""}
   reverse_proxy http://ui-service:3000
 }
 EOF
 caddy run --config /etc/caddy/Caddyfile
 EOT
-      ]
+    ]
 
-      environment = var.enable_metrics ? [
-        {
-          name  = "METRICS_AUTH_USERNAME"
-          value = var.metrics_auth_username
-        },
-        {
-          name  = "METRICS_AUTH_PASSWORD_HASH"
-          value = var.metrics_auth_password_hash
-        }
-      ] : []
-
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
-          awslogs-region        = var.aws_region
-          awslogs-stream-prefix = "caddy"
-        }
+    environment = var.enable_metrics ? [
+      {
+        name  = "METRICS_AUTH_USERNAME"
+        value = var.metrics_auth_username
+      },
+      {
+        name  = "METRICS_AUTH_PASSWORD_HASH"
+        value = var.metrics_auth_password_hash
       }
-      dockerPullConfig = {
-        maxAttempts = 3
-        backoffTime = 10
+    ] : []
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
+        awslogs-region        = var.aws_region
+        awslogs-stream-prefix = "caddy"
       }
     }
-  ])
+    dockerPullConfig = {
+      maxAttempts = 3
+      backoffTime = 10
+    }
+    }
+])
 }
 
 resource "aws_ecs_service" "tracecat_caddy" {
