@@ -24,9 +24,13 @@ definition:
       description: Tags to categorize the incident. Added as Jira labels.
       default: []
     fields:
-      type: dict[str, any]
-      description: Mapping of Jira custom field IDs to values.
-      default: {}
+      type: list[dict[str, any]]
+      description: >-
+        List of fields to display in the issue.
+        Each field is an object with a `key` and `value`.
+        The `key` is the Jira custom field ID.
+        The `value` is the field value.
+      default: []
     project_id:
       type: str
       description: Jira project ID.
