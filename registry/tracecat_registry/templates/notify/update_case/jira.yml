@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Update issue
+  description: Update fields of an existing issue in Jira.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-put
+  namespace: tools.jira
+  name: update_issue
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    issue_id_or_key:
+      type: str
+      description: ID or key of the issue to update.
+    fields:
+      type: dict[str, any]
+      description: Fields to update. Can include summary, description, priority, labels, and custom fields.
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
+  steps:
+    - ref: update_issue
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issue_id_or_key }}
+        method: PUT
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+        payload:
+          fields: ${{ inputs.fields }}
+  returns: ${{ steps.update_issue.result }}
