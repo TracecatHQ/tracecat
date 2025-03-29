@@ -54,7 +54,7 @@ resource "aws_ecs_service" "tracecat_worker" {
   name                 = "tracecat-worker"
   cluster              = aws_ecs_cluster.tracecat_cluster.id
   task_definition      = aws_ecs_task_definition.worker_task_definition.arn
-  desired_count        = 4
+  desired_count        = 2
   force_new_deployment = var.force_new_deployment
 
   network_configuration {
