@@ -14,8 +14,8 @@ definition:
       type: str
       description: ID or key of the issue to update.
     description:
-      type: dict[str, any]
-      description: New description in Atlassian Document Format.
+      type: str
+      description: Updated description of the incident.
     base_url:
       type: str
       description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
@@ -30,5 +30,12 @@ definition:
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
         payload:
           fields:
-            description: ${{ inputs.description }}
+            description:
+              version: 1
+              type: doc
+              content:
+                - type: paragraph
+                  content:
+                    - type: text
+                      text: ${{ inputs.description }}
   returns: ${{ steps.update_issue.result }}

@@ -14,8 +14,20 @@ definition:
       type: str
       description: ID or key of the issue to update.
     fields:
-      type: dict[str, any]
-      description: New fields to update. Keys are Jira custom field IDs.
+      type: list[dict[str, any]]
+      description: >-
+        List of fields to update in the issue.
+        Each field is an object with the following keys:
+        - `key`: The Jira custom field ID.
+        - `value`: The field value.
+
+        For example:
+        ```
+        [
+          {"key": "customfield_10000", "value": "New value"},
+          {"key": "customfield_10001", "value": "Another value"}
+        ]
+        ```
     base_url:
       type: str
       description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
@@ -29,5 +41,5 @@ definition:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
         payload:
-          fields: ${{ inputs.fields }}
+          fields: ${{ FN.merge(inputs.fields) }}
   returns: ${{ steps.update_issue.result }}

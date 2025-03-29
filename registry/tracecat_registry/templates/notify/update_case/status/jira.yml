@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Transition issue
-  description: Transition an issue to a new status.
+  title: Update issue status
+  description: Update the status of an issue.
   display_group: Jira
   doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-transitions-post
   namespace: tools.jira
-  name: transition_issue
+  name: update_issue_status
   secrets:
     - name: jira
       keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]

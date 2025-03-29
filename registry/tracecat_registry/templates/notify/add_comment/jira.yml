@@ -5,7 +5,7 @@ definition:
   display_group: Jira
   doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-post
   namespace: tools.jira
-  name: add_comment
+  name: add_issue_comment
   secrets:
     - name: jira
       keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]

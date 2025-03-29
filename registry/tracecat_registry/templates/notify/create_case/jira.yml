@@ -26,10 +26,18 @@ definition:
     fields:
       type: list[dict[str, any]]
       description: >-
-        List of fields to display in the issue.
-        Each field is an object with a `key` and `value`.
-        The `key` is the Jira custom field ID.
-        The `value` is the field value.
+        List of fields to add to the issue.
+        Each field is an object with the following keys:
+        - `key`: The Jira custom field ID.
+        - `value`: The field value.
+
+        For example:
+        ```
+        [
+          {"key": "customfield_10000", "value": "New value"},
+          {"key": "customfield_10001", "value": "Another value"}
+        ]
+        ```
       default: []
     project_id:
       type: str
@@ -78,6 +86,5 @@ definition:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
         payload:
-          # Merge required fields with custom fields
           fields: ${{ steps.fields.result }}
-  returns: ${{ steps.fields.result }}
+  returns: ${{ steps.create_issue.result }}
