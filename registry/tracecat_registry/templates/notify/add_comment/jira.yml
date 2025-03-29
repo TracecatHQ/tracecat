@@ -14,8 +14,8 @@ definition:
       type: str
       description: ID or key of the issue to add a comment to.
     comment:
-      type: dict[str, any]
-      description: Comment in Atlassian Document Format.
+      type: str
+      description: Comment to add to the issue.
     base_url:
       type: str
       description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
