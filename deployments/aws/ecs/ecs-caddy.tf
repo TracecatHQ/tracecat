@@ -43,7 +43,7 @@ BASECONFIG
 if [ "${var.enable_metrics}" = "true" ]; then
   cat >> /etc/caddy/Caddyfile <<'METRICSCONFIG'
   handle_path /metrics* {
-    basicauth {
+    basic_auth {
       {$METRICS_AUTH_USERNAME} {$METRICS_AUTH_PASSWORD_HASH}
     }
     reverse_proxy http://metrics-service:9000
