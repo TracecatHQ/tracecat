@@ -23,11 +23,10 @@ definition:
       type: list[str]
       description: Tags to categorize the incident. Added as Jira labels.
       default: []
-    metadata:
-      type: list[dict[str, any]]
-      description: >-
-        Context related to the incident. Keys are Jira custom field IDs.
-      default: []
+    fields:
+      type: dict[str, any]
+      description: Mapping of Jira custom field IDs to values.
+      default: {}
     project_id:
       type: str
       description: Jira project ID.
@@ -64,7 +63,7 @@ definition:
     - ref: fields
       action: core.transform.reshape
       args:
-        value: ${{ FN.merge([steps.required_fields.result, FN.merge(inputs.metadata)]) }}
+        value: ${{ FN.merge([steps.required_fields.result, FN.merge(inputs.fields)]) }}
     # Create the issue
     - ref: create_issue
       action: core.http_request
