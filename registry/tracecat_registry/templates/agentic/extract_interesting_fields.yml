@@ -1,0 +1,112 @@
+type: action
+definition:
+  title: Extract interesting fields
+  description: Extract and analyze interesting fields from a detection finding.
+  display_group: Agents
+  namespace: agentic
+  name: extract_interesting_fields
+  expects:
+    alert:
+      type: dict[str, any]
+      description: Alert to extract interesting fields from.
+    alert_context:
+      type: str
+      description: What are the alerts about? Where did they come from?
+    analyst_context:
+      type: str
+      description: >
+        Who is the analyst examining these alerts?
+        What is their role? For what organization?
+    analyst_instructions:
+      type: str
+      description: How should the alerts be analyzed?
+  steps:
+    - ref: structured_output
+      action: core.transform.reshape
+      args:
+        value:
+          type: json_schema
+          name: interesting_fields
+          description: Extract and analyze interesting fields from a security alert
+          strict: true
+          schema:
+            type: object
+            required:
+              - thoughts
+              - interesting_fields
+            additionalProperties: false
+            properties:
+              thoughts:
+                type: string
+                description: Thoughts about the alert overall.
+              interesting_fields:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - name
+                    - value
+                    - description
+                    - information_type
+                    - is_potential_ioc
+                    - requires_enrichment
+                    - needs_organization_context
+                    - thoughts
+                  additionalProperties: false
+                  properties:
+                    name:
+                      type: string
+                      description: Human readable name of the field.
+                    value:
+                      type: string
+                      description: Value of the field.
+                    description:
+                      type: string
+                      description: One sentence description of the field.
+                    information_type:
+                      type: string
+                      enum:
+                        - who
+                        - what
+                        - when
+                        - where
+                        - why
+                        - how
+                      description: What type of information (5W1H) does this field contain?
+                    is_potential_ioc:
+                      type: boolean
+                      description: Is this field a potential indicator of compromise (IoC)?
+                    requires_enrichment:
+                      type: boolean
+                      description: Does this field require enrichment from threat intelligence sources (e.g. VirusTotal)?
+                    needs_organization_context:
+                      type: boolean
+                      description: Does this field require additional organization-specific context to be useful?
+                    thoughts:
+                      type: string
+                      description: Thoughts about this field in the alert.
+    - ref: extract_interesting_fields
+      action: llm.openai.call
+      args:
+        prompt: >
+          <alert>
+          ${{ inputs.alert }}
+          </alert>
+        instructions: >
+          <alert_context>
+          ${{ inputs.alert_context }}
+          </alert_context>
+
+          <analyst_context>
+          ${{ inputs.analyst_context }}
+          </analyst_context>
+
+          <analyst_instructions>
+          ${{ inputs.analyst_instructions }}
+          </analyst_instructions>
+
+          <task>
+          Extract and analyze interesting fields from the alert.
+          </task>
+        text_format: ${{ steps.structured_output.result }}
+  returns: ${{ FN.deserialize_json(steps.extract_interesting_fields.result.output_text) }}
