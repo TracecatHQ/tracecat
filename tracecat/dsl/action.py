@@ -129,7 +129,7 @@ class DSLActivities:
             # We only expect ExecutorClientError to be raised from the executor client
             kind = e.__class__.__name__
             msg = str(e)
-            log.error("Application exception occurred", error=msg, detail=e.detail)
+            log.info("Executor Client Error", error=msg, detail=e.detail)
             err_info = ActionErrorInfo(
                 ref=task.ref,
                 message=msg,
@@ -154,7 +154,7 @@ class DSLActivities:
         except Exception as e:
             # Unexpected errors - non-retryable
             kind = e.__class__.__name__
-            raw_msg = f"{kind} occurred:\n{e}"
+            raw_msg = f"Unexpected {kind} occurred:\n{e}"
             log.error(raw_msg)
 
             err_info = ActionErrorInfo(

@@ -91,7 +91,7 @@ class DSLScheduler:
         if len(non_err_edges) < len(self.adj[ref]):
             await self._queue_tasks(ref, unreachable=non_err_edges)
         else:
-            self.logger.error("Task failed with no error paths", ref=ref)
+            self.logger.info("Task failed with no error paths", ref=ref)
             details = None
             if isinstance(exc, ApplicationError) and exc.details:
                 self.logger.warning(
@@ -241,7 +241,7 @@ class DSLScheduler:
         except Exception as e:
             kind = e.__class__.__name__
             non_retryable = getattr(e, "non_retryable", True)
-            self.logger.error(
+            self.logger.warning(
                 f"{kind} in DSLScheduler", ref=ref, error=e, non_retryable=non_retryable
             )
             await self._handle_error_path(ref, e)
