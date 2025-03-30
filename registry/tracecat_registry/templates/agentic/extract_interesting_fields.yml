@@ -106,7 +106,8 @@ definition:
           </analyst_instructions>
 
           <task>
-          Extract and analyze interesting fields from the alert.
+          Extract and analyze key fields from the alert.
+          You must only extract specific, actual values from the alert.
           </task>
         text_format: ${{ steps.structured_output.result }}
   returns: ${{ FN.deserialize_json(steps.extract_interesting_fields.result.output_text) }}
