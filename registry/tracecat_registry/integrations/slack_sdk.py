@@ -94,14 +94,14 @@ async def call_paginated_method(
 
 
 @registry.register(
-    default_title="Format metadata",
-    description="Format metadata into a section block.",
+    default_title="Format fields",
+    description="Format fields into a section block.",
     display_group="Slack",
     doc_url="https://api.slack.com/reference/block-kit/blocks#section",
     namespace="tools.slack_blocks",
 )
-def format_metadata(
-    metadata: Annotated[
+def format_fields(
+    fields: Annotated[
         list[dict[str, Any]],
         Field(
             ...,
@@ -110,29 +110,29 @@ def format_metadata(
     ],
     block_id: Annotated[
         str | None,
-        Field(..., description="Block ID. If None, defaults to `tc-metadata`."),
+        Field(..., description="Block ID. If None, defaults to `tc-fields`."),
     ] = None,
 ) -> dict[str, Any]:
-    metadata_pairs = [d.popitem() for d in metadata]
-    metadata_str = "\n".join([f">*{k}*: {v}" for k, v in metadata_pairs])
-    block_id = block_id or "tc_metadata"
+    fields_pairs = [d.popitem() for d in fields]
+    fields_str = "\n".join([f">*{k}*: {v}" for k, v in fields_pairs])
+    block_id = block_id or "tc_fields"
     block = {
         "type": "section",
-        "text": {"type": "mrkdwn", "text": metadata_str},
+        "text": {"type": "mrkdwn", "text": fields_str},
         "block_id": block_id,
     }
     return block
 
 
 @registry.register(
-    default_title="Format metadata context",
-    description="Format metadata into a context block with optional images per field.",
+    default_title="Format fields context",
+    description="Format fields into a context block with optional images per field.",
     display_group="Slack",
     doc_url="https://api.slack.com/reference/block-kit/blocks#context",
     namespace="tools.slack_blocks",
 )
-def format_metadata_context(
-    metadata: Annotated[
+def format_fields_context(
+    fields: Annotated[
         list[dict[str, Any]],
         Field(
             ...,
@@ -141,19 +141,19 @@ def format_metadata_context(
     ],
     images: Annotated[
         list[str] | None,
-        Field(..., description="List of image URLs to display alongside the metadata."),
+        Field(..., description="List of image URLs to display alongside the fields."),
     ] = None,
     block_id: Annotated[
         str | None,
         Field(..., description="Block ID. If None, defaults to `tc-links`."),
     ] = None,
 ) -> dict[str, Any]:
-    block_id = block_id or "tc_metadata_context"
-    metadata_pairs = [d.popitem() for d in metadata]
+    block_id = block_id or "tc_fields_context"
+    fields_pairs = [d.popitem() for d in fields]
     if images:
         elements = []
-        for image_url, metadata_item in zip_longest(images, metadata_pairs):
-            k, v = metadata_item
+        for image_url, fields_item in zip_longest(images, fields_pairs):
+            k, v = fields_item
             text = f"{k}: *{v}*"
             if image_url:
                 elements.append(
@@ -175,7 +175,7 @@ def format_metadata_context(
                 "type": "mrkdwn",
                 "text": f"{k}: *{v}*",
             }
-            for k, v in metadata_pairs
+            for k, v in fields_pairs
         ]
 
     block = {

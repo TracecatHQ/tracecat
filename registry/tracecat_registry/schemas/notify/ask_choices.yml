@@ -1,9 +1,0 @@
-prompt:
-  type: str
-  description: Prompt to ask the user. Supports Markdown.
-labels:
-  type: list[str]
-  description: List of possible boolean choices for user to take (e.g. "Confirm", "Deny").
-metadata:
-  type: dict[str, any]
-  description: Metadata to add to the response.

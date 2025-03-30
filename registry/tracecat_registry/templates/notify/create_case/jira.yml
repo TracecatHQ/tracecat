@@ -1,7 +1,7 @@
 type: action
 definition:
-  title: Create case
-  description: Create a new case in Jira as a issue.
+  title: Create issue
+  description: Create a new issue in Jira.
   display_group: Jira
   doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-post
   namespace: tools.jira
@@ -23,17 +23,25 @@ definition:
       type: list[str]
       description: Tags to categorize the incident. Added as Jira labels.
       default: []
-    metadata:
+    fields:
       type: list[dict[str, any]]
       description: >-
-        Context related to the incident. Keys are Jira custom field IDs.
+        List of fields to add to the issue.
+        Each field is an object with the following keys:
+        - `key`: The Jira custom field ID.
+        - `value`: The field value.
+
+        For example:
+        ```
+        [
+          {"key": "customfield_10000", "value": "New value"},
+          {"key": "customfield_10001", "value": "Another value"}
+        ]
+        ```
       default: []
     project_id:
       type: str
       description: Jira project ID.
-    priority_scheme_id:
-      type: str
-      description: Jira priority scheme ID.
     issue_type_id:
       type: str
       description: Jira issue type ID.
@@ -67,16 +75,16 @@ definition:
     - ref: fields
       action: core.transform.reshape
       args:
-        value: ${{ FN.merge([steps.required_fields.result, FN.merge(inputs.metadata)]) }}
+        value: ${{ FN.merge([steps.required_fields.result, FN.merge(inputs.fields)]) }}
     # Create the issue
     - ref: create_issue
       action: core.http_request
       args:
         url: ${{ inputs.base_url }}/rest/api/3/issue
         method: POST
-        headers:
-          Authorization: Basic ${{ FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
         payload:
-          # Merge required fields with custom fields
           fields: ${{ steps.fields.result }}
-  returns: ${{ steps.fields.result }}
+  returns: ${{ steps.create_issue.result }}
