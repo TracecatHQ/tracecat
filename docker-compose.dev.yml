@@ -95,6 +95,8 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Sentry
+      SENTRY_DSN: ${SENTRY_DSN}
     volumes:
       - ./tracecat:/app/tracecat
       - ./registry:/app/registry
