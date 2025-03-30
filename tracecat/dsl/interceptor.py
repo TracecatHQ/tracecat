@@ -50,6 +50,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                 # We want to log the error if this is a scheduled workflow
                 # Get the temporal search attribute for TracecatTriggerType
                 if trigger_type == TriggerType.SCHEDULED:
+                    logger.info("Reporting scheduled workflow error")
                     role = ctx_role.get()
                     if role and role.workspace_id:
                         sentry.set_tag("tracecat.workspace_id", str(role.workspace_id))
@@ -57,6 +58,8 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                         # NOTE: We log here instead of capturing the exception because of metaclass issues with ApplicationError
                         # Related issue: https://temporalio.slack.com/archives/CTT84RS0P/p1720730740608279?thread_ts=1720727238.727909&cid=CTT84RS0P
                         logger.error("Scheduled Workflow Error", error=str(e))
+                else:
+                    logger.info("Not a scheduled workflow, skipping reporting")
                 raise e
             except Exception as e:
                 logger.warning("Caught platform level workflow error", error=str(e))
