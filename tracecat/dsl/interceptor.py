@@ -28,7 +28,7 @@ def _set_common_workflow_tags(info: workflow.Info | activity.Info):
 class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
         # https://docs.sentry.io/platforms/python/troubleshooting/#addressing-concurrency-issues
-        with sentry.isolation_scope():
+        with sentry.isolation_scope() as scope:
             sentry.set_tag("temporal.execution_type", "workflow")
             sentry.set_tag(
                 "module", input.run_fn.__module__ + "." + input.run_fn.__qualname__
@@ -42,6 +42,9 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
             trigger_type = search_attributes.get(
                 SearchAttributeKey.for_keyword(TemporalSearchAttr.TRIGGER_TYPE.value)
             )
+            if (role := ctx_role.get()) and role.workspace_id:
+                sentry.set_tag("tracecat.workspace_id", str(role.workspace_id))
+            scope.fingerprint = [workflow_info.workflow_id]
             try:
                 return await super().execute_workflow(input)
             except ApplicationError as e:
@@ -51,9 +54,6 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                 # Get the temporal search attribute for TracecatTriggerType
                 if trigger_type == TriggerType.SCHEDULED:
                     logger.info("Reporting scheduled workflow error")
-                    role = ctx_role.get()
-                    if role and role.workspace_id:
-                        sentry.set_tag("tracecat.workspace_id", str(role.workspace_id))
                     if not workflow.unsafe.is_replaying():
                         # NOTE: We log here instead of capturing the exception because of metaclass issues with ApplicationError
                         # Related issue: https://temporalio.slack.com/archives/CTT84RS0P/p1720730740608279?thread_ts=1720727238.727909&cid=CTT84RS0P
