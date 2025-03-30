@@ -119,4 +119,7 @@ module "ecs" {
   enable_metrics             = var.enable_metrics
   metrics_auth_username      = var.metrics_auth_username
   metrics_auth_password_hash = var.metrics_auth_password_hash
+
+  # Sentry configuration
+  sentry_dsn = var.sentry_dsn
 }

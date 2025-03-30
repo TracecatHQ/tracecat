@@ -456,3 +456,10 @@ variable "enable_metrics" {
   type        = bool
   default     = true
 }
+
+variable "sentry_dsn" {
+  description = "The Sentry DSN to use for error reporting"
+  type        = string
+  default     = null
+  sensitive   = true
+}
