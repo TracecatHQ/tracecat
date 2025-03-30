@@ -20,7 +20,7 @@ definition:
         (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
     images:
       type: list[str] | None
-      description: List of image URLs to display per metadata field.
+      description: List of image URLs to display per field.
       default: null
     channel:
       type: str
@@ -61,6 +61,5 @@ definition:
           thread_ts: ${{ inputs.thread_ts }}
           metadata:
             event_type: update
-            event_payload: ${{ inputs.metadata }}
           blocks: ${{ steps.blocks.result }}
   returns: ${{ steps.post_message.result.message }}
