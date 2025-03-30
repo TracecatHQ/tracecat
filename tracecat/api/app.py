@@ -29,6 +29,7 @@ from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
 )
+from tracecat.cases.router import router as cases_router
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
@@ -173,6 +174,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
     app.include_router(tables_router)
+    app.include_router(cases_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",
