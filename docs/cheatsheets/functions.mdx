@@ -62,6 +62,7 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 | `merge` | (x: list[dict[Any, Any]]) -> dict[Any, Any] | Merge list of objects. Similar to merge function in Terraform. |
 | `to_keys` | (x: dict[Any, Any]) -> list[Any] | Extract keys from an object. |
 | `to_values` | (x: dict[Any, Any]) -> list[Any] | Extract values from an object. |
+| `tabulate` | (x: list[dict[str, typing.Any]], format: Literal[markdown, html, csv, xml]) -> str | Format list of objects into `markdown`, `html`, `csv`, or `xml` |
 | `and` | (a: bool, b: bool) -> bool | Logical AND operation. |
 | `or` | (a: bool, b: bool) -> bool | Logical OR operation. |
 | `not` | (x: bool) -> bool | Logical NOT operation. |
@@ -109,6 +110,9 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 | `ipv4_is_public` | (ipv4: str) -> bool | Check if IPv4 address is public/global. |
 | `ipv6_is_public` | (ipv6: str) -> bool | Check if IPv6 address is public/global. |
 | `check_ip_version` | (ip: str) -> int | Get IP address version (4 or 6). |
+| `get_interaction` | () -> dict[str, str] \| None | Get the interaction context from the current action in the workflow execution. |
+| `extract_emails` | (text: str, normalize: bool = False) -> list[str] | Extract unique emails from a string. |
+| `extract_ipv4` | (text: str, include_defanged: bool = False) -> list[str] | Extract unique IPv4 addresses from a string. |
 
 ## Operators
 | Operator | Description |
