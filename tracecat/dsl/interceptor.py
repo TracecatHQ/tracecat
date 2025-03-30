@@ -57,7 +57,10 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
                     if not workflow.unsafe.is_replaying():
                         # NOTE: We log here instead of capturing the exception because of metaclass issues with ApplicationError
                         # Related issue: https://temporalio.slack.com/archives/CTT84RS0P/p1720730740608279?thread_ts=1720727238.727909&cid=CTT84RS0P
-                        logger.error("Application error raised by scheduled workflow", error=str(e))
+                        logger.error(
+                            "Application error raised by scheduled workflow",
+                            error=str(e),
+                        )
                 else:
                     logger.info("Not a scheduled workflow, skipping reporting")
                 raise e
