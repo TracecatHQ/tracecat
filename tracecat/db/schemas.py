@@ -7,12 +7,18 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, func
+from sqlalchemy import TIMESTAMP, Column, ForeignKey, Identity, Integer, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
 from tracecat.auth.models import UserRole
+from tracecat.cases.enums import (
+    CaseEventType,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.db.adapter import (
     SQLModelBaseAccessToken,
     SQLModelBaseOAuthAccount,
@@ -640,3 +646,75 @@ class TableColumn(SQLModel, TimestampMixin, table=True):
         back_populates="columns",
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
+
+
+class Case(Resource, table=True):
+    """A case represents an incident or issue that needs to be tracked and resolved."""
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    # Auto-incrementing case number for human readable IDs
+    case_number: int = Field(
+        sa_column=Column(
+            "case_number",
+            Integer,
+            Identity(start=0, increment=1),
+            unique=True,
+            nullable=False,
+            index=True,
+        ),
+        description="Auto-incrementing case number for human readable IDs like CASE-1234",
+    )
+    summary: str = Field(..., max_length=200)
+    description: str = Field(..., max_length=1000)
+    priority: CasePriority | None = Field(
+        default=None,
+        description="Case priority level",
+    )
+    severity: CaseSeverity = Field(
+        ...,
+        description="Case severity level",
+    )
+    status: CaseStatus = Field(
+        default=CaseStatus.NEW,
+        description="Current case status (open, closed, escalated)",
+    )
+    # Relationships
+    activities: list["CaseActivity"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+
+class CaseActivity(Resource, table=True):
+    """Tracks activity and changes made to a case."""
+
+    __tablename__: str = "case_activity"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    type: CaseEventType = Field(
+        ...,
+        description="Type of activity (e.g. status_change, comment, field_update)",
+    )
+    data: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Data associated with the activity",
+    )
+    # Relationships
+    case_id: uuid.UUID = Field(
+        sa_column=Column(UUID, ForeignKey("case.id", ondelete="CASCADE")),
+    )
+    case: Case = Relationship(back_populates="activities")

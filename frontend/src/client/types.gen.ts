@@ -255,6 +255,117 @@ export type Body_workflows_create_workflow = {
   file?: (Blob | File) | null
 }
 
+export type CaseCreate = {
+  summary: string
+  description: string
+  status: CaseStatus
+  priority: CasePriority
+  severity: CaseSeverity
+}
+
+export type CaseEvent =
+  | CommentCreateEvent
+  | CommentUpdateEvent
+  | CommentDeleteEvent
+  | StatusUpdateEvent
+  | PriorityUpdateEvent
+  | SeverityUpdateEvent
+  | FieldUpdateEvent
+
+export type CaseEventType =
+  | "status_update"
+  | "priority_update"
+  | "severity_update"
+  | "field_update"
+  | "comment_create"
+  | "comment_update"
+  | "comment_delete"
+
+export type CasePriority = "low" | "medium" | "high" | "critical"
+
+export type CaseRead = {
+  id: string
+  created_at: string
+  updated_at: string
+  summary: string
+  status: CaseStatus
+  priority: CasePriority
+  severity: CaseSeverity
+  description: string
+  activities: Array<CommentActivity | EventActivity>
+}
+
+export type CaseReadMinimal = {
+  id: string
+  created_at: string
+  updated_at: string
+  summary: string
+  status: CaseStatus
+  priority: CasePriority
+  severity: CaseSeverity
+}
+
+export type CaseSeverity = "low" | "medium" | "high" | "critical"
+
+/**
+ * Case status values aligned with OCSF Incident Finding status.
+ */
+export type CaseStatus =
+  | "unknown"
+  | "new"
+  | "in_progress"
+  | "on_hold"
+  | "resolved"
+  | "closed"
+  | "other"
+
+export type CaseUpdate = {
+  summary?: string | null
+  description?: string | null
+  status?: CaseStatus | null
+  priority?: CasePriority | null
+  severity?: CaseSeverity | null
+}
+
+export type CommentActivity = {
+  id: string
+  created_at: string
+  updated_at: string
+  type: "comment"
+  content: string
+}
+
+export type CommentCreate = {
+  content: string
+}
+
+/**
+ * When a user creates a comment on a case.
+ */
+export type CommentCreateEvent = {
+  type: "comment_create"
+  content: string
+}
+
+/**
+ * When a user deletes a comment on a case.
+ */
+export type CommentDeleteEvent = {
+  type: "comment_delete"
+}
+
+export type CommentUpdate = {
+  content: string
+}
+
+/**
+ * When a user updates a comment on a case.
+ */
+export type CommentUpdateEvent = {
+  type: "comment_update"
+  content: string
+}
+
 export type CreateWorkspaceMembershipParams = {
   user_id: string
 }
@@ -401,6 +512,24 @@ export type ErrorModel = {
       }
 }
 
+export type EventActivity = {
+  id: string
+  created_at: string
+  updated_at: string
+  type: "event"
+  event: CaseEvent
+}
+
+/**
+ * When a user creates an event on a case.
+ */
+export type EventCreate = {
+  type: CaseEventType
+  data: {
+    [key: string]: unknown
+  }
+}
+
 export type EventFailure = {
   message: string
   cause?: {
@@ -450,6 +579,15 @@ export type ExprContext =
   | "var"
   | "inputs"
   | "steps"
+
+/**
+ * When a user updates a field on a case.
+ */
+export type FieldUpdateEvent = {
+  type: "field_update"
+  field: string
+  value: unknown
+}
 
 export type GetWorkflowDefinitionActivityInputs = {
   role: Role
@@ -554,6 +692,14 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
+}
+
+/**
+ * When a user updates the priority of a case.
+ */
+export type PriorityUpdateEvent = {
+  type: "priority_update"
+  priority: CasePriority
 }
 
 export type ReceiveInteractionResponse = {
@@ -1190,6 +1336,14 @@ export type SessionRead = {
 }
 
 /**
+ * When a user updates the severity of a case.
+ */
+export type SeverityUpdateEvent = {
+  type: "severity_update"
+  severity: CaseSeverity
+}
+
+/**
  * A sentinel user ID that represents the current user.
  */
 export type SpecialUserID = "current"
@@ -1208,6 +1362,14 @@ export type SqlType =
   | "TIMESTAMPTZ"
   | "JSONB"
   | "UUID"
+
+/**
+ * When a user updates the status of a case.
+ */
+export type StatusUpdateEvent = {
+  type: "status_update"
+  status: CaseStatus
+}
 
 /**
  * Create model for a table column.
@@ -2667,6 +2829,81 @@ export type TablesImportCsvData = {
 }
 
 export type TablesImportCsvResponse = TableRowInsertBatchResponse
+
+export type CasesListCasesData = {
+  workspaceId: string
+}
+
+export type CasesListCasesResponse = Array<CaseReadMinimal>
+
+export type CasesCreateCaseData = {
+  requestBody: CaseCreate
+  workspaceId: string
+}
+
+export type CasesCreateCaseResponse = unknown
+
+export type CasesGetCaseData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesGetCaseResponse = CaseRead
+
+export type CasesUpdateCaseData = {
+  caseId: string
+  requestBody: CaseUpdate
+  workspaceId: string
+}
+
+export type CasesUpdateCaseResponse = void
+
+export type CasesDeleteCaseData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesDeleteCaseResponse = void
+
+export type CasesCreateCommentData = {
+  caseId: string
+  requestBody: CommentCreate
+  workspaceId: string
+}
+
+export type CasesCreateCommentResponse = unknown
+
+export type CasesUpdateCommentData = {
+  caseId: string
+  commentId: string
+  requestBody: CommentUpdate
+  workspaceId: string
+}
+
+export type CasesUpdateCommentResponse = void
+
+export type CasesDeleteCommentData = {
+  caseId: string
+  commentId: string
+  workspaceId: string
+}
+
+export type CasesDeleteCommentResponse = void
+
+export type CasesListEventsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListEventsResponse = Array<EventActivity>
+
+export type CasesCreateEventData = {
+  caseId: string
+  requestBody: EventCreate
+  workspaceId: string
+}
+
+export type CasesCreateEventResponse = unknown
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -4194,6 +4431,146 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TableRowInsertBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases": {
+    get: {
+      req: CasesListCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesCreateCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}": {
+    get: {
+      req: CasesGetCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CasesUpdateCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/comments": {
+    post: {
+      req: CasesCreateCommentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/comments/{comment_id}": {
+    patch: {
+      req: CasesUpdateCommentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteCommentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/events": {
+    get: {
+      req: CasesListEventsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<EventActivity>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesCreateEventData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
         /**
          * Validation Error
          */

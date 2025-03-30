@@ -823,6 +823,390 @@ export const $Body_workflows_create_workflow = {
   title: "Body_workflows-create_workflow",
 } as const
 
+export const $CaseCreate = {
+  properties: {
+    summary: {
+      type: "string",
+      title: "Summary",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    priority: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    severity: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+  },
+  type: "object",
+  required: ["summary", "description", "status", "priority", "severity"],
+  title: "CaseCreate",
+} as const
+
+export const $CaseEvent = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/CommentCreateEvent",
+    },
+    {
+      $ref: "#/components/schemas/CommentUpdateEvent",
+    },
+    {
+      $ref: "#/components/schemas/CommentDeleteEvent",
+    },
+    {
+      $ref: "#/components/schemas/StatusUpdateEvent",
+    },
+    {
+      $ref: "#/components/schemas/PriorityUpdateEvent",
+    },
+    {
+      $ref: "#/components/schemas/SeverityUpdateEvent",
+    },
+    {
+      $ref: "#/components/schemas/FieldUpdateEvent",
+    },
+  ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      comment_create: "#/components/schemas/CommentCreateEvent",
+      comment_delete: "#/components/schemas/CommentDeleteEvent",
+      comment_update: "#/components/schemas/CommentUpdateEvent",
+      field_update: "#/components/schemas/FieldUpdateEvent",
+      priority_update: "#/components/schemas/PriorityUpdateEvent",
+      severity_update: "#/components/schemas/SeverityUpdateEvent",
+      status_update: "#/components/schemas/StatusUpdateEvent",
+    },
+  },
+} as const
+
+export const $CaseEventType = {
+  type: "string",
+  enum: [
+    "status_update",
+    "priority_update",
+    "severity_update",
+    "field_update",
+    "comment_create",
+    "comment_update",
+    "comment_delete",
+  ],
+  title: "CaseEventType",
+} as const
+
+export const $CasePriority = {
+  type: "string",
+  enum: ["low", "medium", "high", "critical"],
+  title: "CasePriority",
+} as const
+
+export const $CaseRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    summary: {
+      type: "string",
+      title: "Summary",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    priority: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    severity: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    activities: {
+      items: {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/CommentActivity",
+          },
+          {
+            $ref: "#/components/schemas/EventActivity",
+          },
+        ],
+        discriminator: {
+          propertyName: "type",
+          mapping: {
+            comment: "#/components/schemas/CommentActivity",
+            event: "#/components/schemas/EventActivity",
+          },
+        },
+      },
+      type: "array",
+      title: "Activities",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "created_at",
+    "updated_at",
+    "summary",
+    "status",
+    "priority",
+    "severity",
+    "description",
+    "activities",
+  ],
+  title: "CaseRead",
+} as const
+
+export const $CaseReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    summary: {
+      type: "string",
+      title: "Summary",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    priority: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    severity: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "created_at",
+    "updated_at",
+    "summary",
+    "status",
+    "priority",
+    "severity",
+  ],
+  title: "CaseReadMinimal",
+} as const
+
+export const $CaseSeverity = {
+  type: "string",
+  enum: ["low", "medium", "high", "critical"],
+  title: "CaseSeverity",
+} as const
+
+export const $CaseStatus = {
+  type: "string",
+  enum: [
+    "unknown",
+    "new",
+    "in_progress",
+    "on_hold",
+    "resolved",
+    "closed",
+    "other",
+  ],
+  title: "CaseStatus",
+  description: "Case status values aligned with OCSF Incident Finding status.",
+} as const
+
+export const $CaseUpdate = {
+  properties: {
+    summary: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Summary",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    priority: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CasePriority",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    severity: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSeverity",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "CaseUpdate",
+} as const
+
+export const $CommentActivity = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "comment",
+      title: "Type",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["id", "created_at", "updated_at", "type", "content"],
+  title: "CommentActivity",
+} as const
+
+export const $CommentCreate = {
+  properties: {
+    content: {
+      type: "string",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "CommentCreate",
+} as const
+
+export const $CommentCreateEvent = {
+  properties: {
+    type: {
+      type: "string",
+      const: "comment_create",
+      title: "Type",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["type", "content"],
+  title: "CommentCreateEvent",
+  description: "When a user creates a comment on a case.",
+} as const
+
+export const $CommentDeleteEvent = {
+  properties: {
+    type: {
+      type: "string",
+      const: "comment_delete",
+      title: "Type",
+    },
+  },
+  type: "object",
+  required: ["type"],
+  title: "CommentDeleteEvent",
+  description: "When a user deletes a comment on a case.",
+} as const
+
+export const $CommentUpdate = {
+  properties: {
+    content: {
+      type: "string",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "CommentUpdate",
+} as const
+
+export const $CommentUpdateEvent = {
+  properties: {
+    type: {
+      type: "string",
+      const: "comment_update",
+      title: "Type",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["type", "content"],
+  title: "CommentUpdateEvent",
+  description: "When a user updates a comment on a case.",
+} as const
+
 export const $CreateWorkspaceMembershipParams = {
   properties: {
     user_id: {
@@ -1188,6 +1572,53 @@ export const $ErrorModel = {
   title: "ErrorModel",
 } as const
 
+export const $EventActivity = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "event",
+      title: "Type",
+    },
+    event: {
+      $ref: "#/components/schemas/CaseEvent",
+    },
+  },
+  type: "object",
+  required: ["id", "created_at", "updated_at", "type", "event"],
+  title: "EventActivity",
+} as const
+
+export const $EventCreate = {
+  properties: {
+    type: {
+      $ref: "#/components/schemas/CaseEventType",
+    },
+    data: {
+      type: "object",
+      title: "Data",
+    },
+  },
+  type: "object",
+  required: ["type", "data"],
+  title: "EventCreate",
+  description: "When a user creates an event on a case.",
+} as const
+
 export const $EventFailure = {
   properties: {
     message: {
@@ -1397,6 +1828,27 @@ export const $ExprContext = {
   ],
   title: "ExprContext",
   description: "Expression contexts.",
+} as const
+
+export const $FieldUpdateEvent = {
+  properties: {
+    type: {
+      type: "string",
+      const: "field_update",
+      title: "Type",
+    },
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    value: {
+      title: "Value",
+    },
+  },
+  type: "object",
+  required: ["type", "field", "value"],
+  title: "FieldUpdateEvent",
+  description: "When a user updates a field on a case.",
 } as const
 
 export const $GetWorkflowDefinitionActivityInputs = {
@@ -1759,6 +2211,23 @@ export const $OrgMemberRead = {
     "last_login_at",
   ],
   title: "OrgMemberRead",
+} as const
+
+export const $PriorityUpdateEvent = {
+  properties: {
+    type: {
+      type: "string",
+      const: "priority_update",
+      title: "Type",
+    },
+    priority: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+  },
+  type: "object",
+  required: ["type", "priority"],
+  title: "PriorityUpdateEvent",
+  description: "When a user updates the priority of a case.",
 } as const
 
 export const $ReceiveInteractionResponse = {
@@ -3704,6 +4173,23 @@ export const $SessionRead = {
   title: "SessionRead",
 } as const
 
+export const $SeverityUpdateEvent = {
+  properties: {
+    type: {
+      type: "string",
+      const: "severity_update",
+      title: "Type",
+    },
+    severity: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+  },
+  type: "object",
+  required: ["type", "severity"],
+  title: "SeverityUpdateEvent",
+  description: "When a user updates the severity of a case.",
+} as const
+
 export const $SpecialUserID = {
   type: "string",
   enum: ["current"],
@@ -3727,6 +4213,23 @@ export const $SqlType = {
   ],
   title: "SqlType",
   description: "Supported SQL types.",
+} as const
+
+export const $StatusUpdateEvent = {
+  properties: {
+    type: {
+      type: "string",
+      const: "status_update",
+      title: "Type",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+  },
+  type: "object",
+  required: ["type", "status"],
+  title: "StatusUpdateEvent",
+  description: "When a user updates the status of a case.",
 } as const
 
 export const $TableColumnCreate = {
