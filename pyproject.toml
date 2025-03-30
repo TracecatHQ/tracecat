@@ -53,6 +53,7 @@ dependencies = [
     "pysaml2==7.5.0",
     "python-slugify==8.0.4",
     "ray[default]==2.40.0",
+    "sentry-sdk==2.24.1",
     "sqlmodel==0.0.18",
     "temporalio==1.9.0",
     "tenacity==8.3.0",
@@ -126,5 +127,5 @@ markers = [
     "integration: marks tests that perform live network calls and container operations",
     "podman: marks tests that use the Podman container runner",
     "llm: marks tests that perform LLM calls",
-    "ollama: mark tests that require Ollama"
+    "ollama: mark tests that require Ollama",
 ]

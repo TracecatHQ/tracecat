@@ -3,22 +3,27 @@ import dataclasses
 import os
 from collections.abc import Callable
 
+from temporalio import workflow
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
     SandboxRestrictions,
 )
 
-from tracecat.dsl.action import DSLActivities
-from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.validation import validate_trigger_inputs_activity
-from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.logger import logger
-from tracecat.workflow.management.definitions import (
-    get_workflow_definition_activity,
-)
-from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.schedules.service import WorkflowSchedulesService
+with workflow.unsafe.imports_passed_through():
+    import sentry_sdk
+
+    from tracecat.dsl.action import DSLActivities
+    from tracecat.dsl.client import get_temporal_client
+    from tracecat.dsl.interceptor import SentryInterceptor
+    from tracecat.dsl.validation import validate_trigger_inputs_activity
+    from tracecat.dsl.workflow import DSLWorkflow
+    from tracecat.logger import logger
+    from tracecat.workflow.management.definitions import (
+        get_workflow_definition_activity,
+    )
+    from tracecat.workflow.management.management import WorkflowsManagementService
+    from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 
 # Due to known issues with Pydantic's use of issubclass and our inability to
@@ -60,6 +65,12 @@ def get_activities() -> list[Callable]:
 async def main() -> None:
     client = await get_temporal_client()
 
+    interceptors = []
+    if sentry_dsn := os.environ.get("SENTRY_DSN"):
+        logger.info("Initializing Sentry interceptor")
+        sentry_sdk.init(sentry_dsn)
+        interceptors.append(SentryInterceptor())
+
     # Run a worker for the activities and workflow
     activities = get_activities()
     logger.debug(
@@ -74,6 +85,7 @@ async def main() -> None:
         activities=activities,
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
+        interceptors=interceptors,
     ):
         logger.info("Worker started, ctrl+c to exit")
         # Wait until interrupted

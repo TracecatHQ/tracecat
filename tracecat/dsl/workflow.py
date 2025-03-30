@@ -541,7 +541,7 @@ class DSLWorkflow:
             # These are deterministic and expected errors that
             err_type = e.__class__.__name__
             msg = self.ERROR_TYPE_TO_MESSAGE[err_type]
-            self.logger.error(msg, role=self.role, e=e, cause=e.cause, type=err_type)
+            self.logger.warning(msg, role=self.role, e=e, cause=e.cause, type=err_type)
             match cause := e.cause:
                 case ApplicationError(details=details) if details:
                     err_info = details[0]
@@ -562,7 +562,7 @@ class DSLWorkflow:
             raise ApplicationError(detail, non_retryable=True, type=err_type) from e
 
         except ValidationError as e:
-            logger.error("Runtime validation error", error=e.errors())
+            logger.warning("Runtime validation error", error=e.errors())
             task_result.update(
                 error=e.errors(), error_typename=ValidationError.__name__
             )
