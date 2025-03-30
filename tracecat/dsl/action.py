@@ -129,7 +129,7 @@ class DSLActivities:
             # We only expect ExecutorClientError to be raised from the executor client
             kind = e.__class__.__name__
             msg = str(e)
-            log.info("Executor Client Error", error=msg, detail=e.detail)
+            log.info("Executor client error", error=msg, detail=e.detail)
             err_info = ActionErrorInfo(
                 ref=task.ref,
                 message=msg,
