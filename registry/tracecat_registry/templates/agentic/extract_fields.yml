@@ -17,9 +17,6 @@ definition:
       description: >
         Who is the analyst examining these alerts?
         What is their role? For what organization?
-    analyst_instructions:
-      type: str
-      description: How should the alerts be analyzed?
   steps:
     - ref: structured_output
       action: core.transform.reshape
@@ -37,8 +34,10 @@ definition:
             additionalProperties: false
             properties:
               thoughts:
-                type: string
-                description: Thoughts about the alert
+                type: array
+                items:
+                  type: string
+                  description: Thoughts about the alert
               important_fields:
                 type: array
                 items:
@@ -101,10 +100,6 @@ definition:
           ${{ inputs.analyst_context }}
           </analyst_context>
 
-          <analyst_instructions>
-          ${{ inputs.analyst_instructions }}
-          </analyst_instructions>
-
           <analysis_process>
           Approach this analysis systematically:
           1. First review the entire alert to understand the full context
@@ -116,7 +111,10 @@ definition:
           <output_format>
           Example output format:
           {
-            "thoughts": "Initial observation: This alert shows a login from an unusual location...",
+            "thoughts": [
+              "Initial observation: According to the alert summary, this is a login attempt from an unusual IP address",
+              "The alert context includes information that this user is a high-value target"
+            ],
             "important_fields": [
               {
                 "name": "source_ip",
