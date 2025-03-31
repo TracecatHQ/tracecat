@@ -17,14 +17,40 @@ definition:
       description: >
         Who is the analyst examining these alerts?
         What is their role? For what organization?
+    example_response:
+      type: dict[str, any] | None
+      description: >
+        An example response from the model to improve the quality of the output.
+        Must fit the structured output schema. See `one_shot` step for an example.
+      default: null
   steps:
+    - ref: one_shot
+      action: core.transform.reshape
+      args:
+        value: {
+          "thoughts": [
+            "Initial observation: According to the alert summary, this is a login attempt from an unusual IP address",
+            "The alert context includes information that this user is a high-value target"
+          ],
+          "important_fields": [
+            {
+              "name": "source_ip",
+              "value": "192.168.1.1",
+              "description": "IP address where the login attempt originated",
+              "information_type": "where",
+              "is_potential_ioc": true,
+              "requires_enrichment": true,
+              "needs_organization_context": false,
+              "reasoning": "This IP is from a different country than the user normally accesses from"
+            }
+          ]
+        }
     - ref: structured_output
       action: core.transform.reshape
       args:
         value:
           type: json_schema
           name: important_fields
-          description: Extract and analyze important fields from an alert
           strict: true
           schema:
             type: object
@@ -37,7 +63,6 @@ definition:
                 type: array
                 items:
                   type: string
-                  description: Thoughts about the alert's important fields
               important_fields:
                 type: array
                 items:
@@ -55,13 +80,10 @@ definition:
                   properties:
                     name:
                       type: string
-                      description: Human readable name of the field.
                     value:
                       type: string
-                      description: Value of the field.
                     description:
                       type: string
-                      description: One sentence description of the field.
                     information_type:
                       type: string
                       enum:
@@ -71,19 +93,14 @@ definition:
                         - where
                         - why
                         - how
-                      description: What type of information (5W1H) does this field contain?
                     is_potential_ioc:
                       type: boolean
-                      description: Is this field a potential indicator of compromise (IoC)?
                     requires_enrichment:
                       type: boolean
-                      description: Does this field require enrichment from threat intelligence sources (e.g. VirusTotal)?
                     needs_organization_context:
                       type: boolean
-                      description: Does this field require additional organization-specific context to be useful?
-                    thoughts:
+                    reasoning:
                       type: string
-                      description: Thoughts about this field in the alert.
     - ref: extract_fields
       action: llm.openai.call
       args:
@@ -108,27 +125,11 @@ definition:
           4. Consider what additional context might be needed
           </analysis_process>
 
-          <output_format>
-          Example output format:
-          {
-            "thoughts": [
-              "Initial observation: According to the alert summary, this is a login attempt from an unusual IP address",
-              "The alert context includes information that this user is a high-value target"
-            ],
-            "important_fields": [
-              {
-                "name": "source_ip",
-                "value": "192.168.1.1",
-                "description": "IP address where the login attempt originated",
-                "information_type": "where",
-                "is_potential_ioc": true,
-                "requires_enrichment": true,
-                "needs_organization_context": false,
-                "thoughts": "This IP is from a different country than the user normally accesses from"
-              }
-            ]
-          }
-          </output_format>
+          <example_response>
+          Your output must be formatted as JSON.
+          Here is an example response:
+          ${{ inputs.example_response || steps.one_shot.result }}
+          </example_response>
 
           <task>
           Extract and analyze important fields from the alert.
