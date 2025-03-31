@@ -125,6 +125,11 @@ definition:
           4. Consider what additional context might be needed
           </analysis_process>
 
+          <guidance>
+          - You must extract specific, actual values from the alert
+          - Think critically about the alert and the context provided
+          </guidance>
+
           <example_response>
           Your output must be formatted as JSON.
           Here is an example response:
@@ -133,7 +138,6 @@ definition:
 
           <task>
           Extract and analyze important fields from the alert.
-          You must only extract specific, actual values from the alert.
           </task>
         text_format: ${{ steps.structured_output.result }}
   returns: ${{ FN.deserialize_json(steps.extract_fields.result.output_text) }}
