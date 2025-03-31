@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Extract important fields
-  description: Extract and analyze important fields from a security alert.
+  description: Extract and analyze important fields from an alert.
   display_group: Agents
   namespace: agentic
   name: extract_fields
@@ -27,7 +27,7 @@ definition:
         value:
           type: json_schema
           name: important_fields
-          description: Extract and analyze important fields from a security alert
+          description: Extract and analyze important fields from an alert
           strict: true
           schema:
             type: object
