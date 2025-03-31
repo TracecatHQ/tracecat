@@ -37,7 +37,7 @@ definition:
                 type: array
                 items:
                   type: string
-                  description: Thoughts about the alert
+                  description: Thoughts about the alert's important fields
               important_fields:
                 type: array
                 items:
