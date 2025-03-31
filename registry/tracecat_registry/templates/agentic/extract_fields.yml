@@ -1,14 +1,14 @@
 type: action
 definition:
-  title: Extract interesting fields
-  description: Extract and analyze interesting fields from a detection finding.
+  title: Extract important fields
+  description: Extract and analyze important fields from a security alert.
   display_group: Agents
   namespace: agentic
-  name: extract_interesting_fields
+  name: extract_fields
   expects:
     alert:
       type: dict[str, any]
-      description: Alert to extract interesting fields from.
+      description: Alert to extract important fields from.
     alert_context:
       type: str
       description: What are the alerts about? Where did they come from?
@@ -26,20 +26,20 @@ definition:
       args:
         value:
           type: json_schema
-          name: interesting_fields
-          description: Extract and analyze interesting fields from a security alert
+          name: important_fields
+          description: Extract and analyze important fields from a security alert
           strict: true
           schema:
             type: object
             required:
               - thoughts
-              - interesting_fields
+              - important_fields
             additionalProperties: false
             properties:
               thoughts:
                 type: string
-                description: Thoughts about the alert overall.
-              interesting_fields:
+                description: Thoughts about the alert
+              important_fields:
                 type: array
                 items:
                   type: object
@@ -85,7 +85,7 @@ definition:
                     thoughts:
                       type: string
                       description: Thoughts about this field in the alert.
-    - ref: extract_interesting_fields
+    - ref: extract_fields
       action: llm.openai.call
       args:
         prompt: >
@@ -105,9 +105,36 @@ definition:
           ${{ inputs.analyst_instructions }}
           </analyst_instructions>
 
+          <analysis_process>
+          Approach this analysis systematically:
+          1. First review the entire alert to understand the full context
+          2. Identify fields that could indicate malicious activity
+          3. Look for relationships between fields
+          4. Consider what additional context might be needed
+          </analysis_process>
+
+          <output_format>
+          Example output format:
+          {
+            "thoughts": "Initial observation: This alert shows a login from an unusual location...",
+            "important_fields": [
+              {
+                "name": "source_ip",
+                "value": "192.168.1.1",
+                "description": "IP address where the login attempt originated",
+                "information_type": "where",
+                "is_potential_ioc": true,
+                "requires_enrichment": true,
+                "needs_organization_context": false,
+                "thoughts": "This IP is from a different country than the user normally accesses from"
+              }
+            ]
+          }
+          </output_format>
+
           <task>
-          Extract and analyze key fields from the alert.
+          Extract and analyze important fields from the alert.
           You must only extract specific, actual values from the alert.
           </task>
         text_format: ${{ steps.structured_output.result }}
-  returns: ${{ FN.deserialize_json(steps.extract_interesting_fields.result.output_text) }}
+  returns: ${{ FN.deserialize_json(steps.extract_fields.result.output_text) }}
