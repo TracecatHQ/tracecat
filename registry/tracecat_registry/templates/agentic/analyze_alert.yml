@@ -31,44 +31,45 @@ definition:
         args:
           value: {
             "thoughts": [
-              "This alert indicates a potential unauthorized access attempt to a sensitive system",
-              "The source IP address is not in our allow list and is from a country not associated with our operations",
-              "The access occurred during non-business hours which is unusual for this user account"
+              "This alert indicates a potential unauthorized access attempt",
+              "The source IP is from a country not typically associated with this user",
+              "The login occurred outside normal business hours",
+              "Multiple failed attempts preceded the successful login"
             ],
-            "who": "User account 'admin_service' with source IP 185.143.223.45",
-            "what": "Failed login attempt with multiple password retries to the admin portal",
-            "when": "March 15, 2023 at 03:42 AM UTC, outside of normal business hours",
-            "where": "Admin portal login page from IP address originating in Russia",
-            "why": "Potential credential stuffing attack trying to gain unauthorized access to administrative functions",
-            "how": "Multiple login attempts using different password combinations within a short timeframe",
+            "who": "User jsmith@acme.com (employee) from IP address 45.67.89.123",
+            "what": "Successful login after multiple failed attempts from an unusual location",
+            "when": "2023-07-12T03:45:18Z (outside normal business hours)",
+            "where": "Via VPN from IP 45.67.89.123 (geo: Ukraine) to the corporate authentication portal",
+            "why": "Possible credential theft and unauthorized access attempt to corporate resources",
+            "how": "Multiple password attempts suggesting either password guessing or stolen credentials",
             "false_positives": [
               {
-                "scenario": "Administrator working after hours from a new location",
-                "reasoning": "The admin may be traveling and legitimately attempting to access the system outside normal work hours"
+                "scenario": "Employee traveling internationally",
+                "reasoning": "The employee could be on a business trip to Ukraine without updating their travel status"
               },
               {
-                "scenario": "VPN connection causing unusual IP address",
-                "reasoning": "User might be using a new VPN service that routes through servers in unusual locations"
+                "scenario": "VPN endpoint misattribution",
+                "reasoning": "The geolocation service might have incorrectly mapped the IP address to Ukraine"
               }
             ],
             "true_positives": [
               {
-                "scenario": "Credential stuffing attack",
-                "reasoning": "Pattern of multiple failed login attempts from unusual IP address is consistent with automated password guessing"
+                "scenario": "Credential theft",
+                "reasoning": "The multiple failed login attempts followed by success suggests password guessing or brute force"
               },
               {
-                "scenario": "Targeted intrusion attempt",
-                "reasoning": "Admin accounts are high-value targets and the timing suggests an attempt to avoid detection during low-monitoring hours"
+                "scenario": "Insider threat",
+                "reasoning": "The employee might be accessing systems from an unusual location intentionally to exfiltrate data"
               }
             ]
           }
+
       - ref: structured_output
         action: core.transform.reshape
         args:
           value:
             type: json_schema
             name: alert_analysis
-            description: Analysis of the alert
             strict: true
             schema:
               type: object
