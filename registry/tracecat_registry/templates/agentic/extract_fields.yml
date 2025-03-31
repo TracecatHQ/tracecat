@@ -127,12 +127,11 @@ definition:
 
           <guidance>
           - You must extract specific, actual values from the alert
-          - Think critically about the alert and the context provided
+          - You must think critically about the alert and the context provided
+          - Your output must be formatted as JSON.
           </guidance>
 
           <example_response>
-          Your output must be formatted as JSON.
-          Here is an example response:
           ${{ inputs.example_response || steps.one_shot.result }}
           </example_response>
 
