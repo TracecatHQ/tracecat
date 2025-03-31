@@ -143,17 +143,17 @@ definition:
 
           <output_format>
           Your response should include:
-          - "thoughts": Your analytical observations about the events and patterns
-          - "timeline": A chronologically ordered array of events with the following fields:
-              - timestamp: The exact time when the event occurred
-              - actor_id: A unique identifier for the human or non-human entity involved
-              - actor_type: Type of actor (employee, service account, administrator, etc.)
-              - user_agent: Software acting on behalf of the actor (browser, API, service name)
-              - event_action: Specific action taken by the actor
-              - event_outcome: Result of the action (success, failure, etc.)
-              - event_description: Short one-sentence description of what happened
-              - event_details: Object containing additional relevant information
-          - "relationships": A Mermaid flowchart diagram showing connections between entities
+          - `thoughts`: Your analytical observations about the events and patterns
+          - `timeline`: A chronologically ordered array of events with the following fields:
+              - `timestamp`: The exact time when the event occurred
+              - `actor_id`: A unique identifier for the human or non-human entity involved
+              - `actor_type`: Type of actor (employee, service account, administrator, etc.)
+              - `user_agent`: Software acting on behalf of the actor (browser, API, service name)
+              - `event_action`: Specific action taken by the actor
+              - `event_outcome`: Result of the action (success, failure, etc.)
+              - `event_description`: Short one-sentence description of what happened
+              - `event_details`: Object containing additional relevant information
+          - `relationships`: A Mermaid flowchart diagram showing connections between entities
           </output_format>
 
           <guidance>

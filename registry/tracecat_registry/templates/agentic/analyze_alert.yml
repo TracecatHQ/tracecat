@@ -148,8 +148,6 @@ definition:
             </guidance>
 
             <example_response>
-            Your output must be formatted as JSON.
-            Here is an example response:
             ${{ inputs.example_response || steps.one_shot.result }}
             </example_response>
 

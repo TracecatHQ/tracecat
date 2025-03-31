@@ -1,0 +1,220 @@
+type: action
+definition:
+  title: Plan response
+  description: |
+    Create a structured incident response plan based on alert analysis.
+    Prioritize actions and assign responsibilities for handling the incident.
+  display_group: Agents
+  namespace: agentic
+  name: plan_response
+  expects:
+    alert_analysis:
+      type: dict[str, any]
+      description: Analysis of the alert including who, what, when, where, why, how.
+    alert_context:
+      type: str
+      description: What are the alerts about? Where did they come from? Additional context about the incident, environment, and systems involved.
+    analyst_context:
+      type: str
+      description: >
+        Who is the analyst examining these alerts?
+        What is their role? For what organization?
+    playbooks:
+      type: str
+      description: >
+        Optional reference playbooks, remediation guides, or standard operating procedures
+        that may be relevant to this type of incident. Should include team structure, roles,
+        responsibilities, escalation paths, and remediation procedures.
+      default: ""
+    example_response:
+      type: dict[str, any] | None
+      description: >
+        An example response from the model to improve the quality of the output.
+        Must fit the structured output schema. See `one_shot` step for an example.
+      default: null
+  steps:
+    - ref: one_shot
+      action: core.transform.reshape
+      args:
+        value: {
+          "thoughts": [
+            "IP 45.67.89.123 geolocates to Ukraine but user jsmith@acme.com has no travel history to this region in identity management system",
+            "Failed login attempts occurred at 03:42:15, 03:43:22, and 03:44:30 before successful authentication at 03:45:18, indicating potential password brute forcing",
+            "User accessed 15 financial files within 3 minutes of login, significantly faster than normal access patterns (usual: 5-7 files per hour)",
+            "VPN logs show the session originated from ASN-123456 associated with a known bulletproof hosting provider",
+            "Authentication using only password succeeded despite MFA being enabled for this user's account 3 weeks ago, suggesting MFA bypass or configuration issue"
+          ],
+          "summary": "Likely credential compromise of finance department employee jsmith@acme.com from Ukrainian IP with abnormally rapid access to financial documents at 03:45 UTC, bypassing recently implemented MFA controls.",
+          "severity": "high",
+          "analysis": {
+            "key_indicators": "Multiple failed logins (3) before success; Login from Ukraine (no authorized travel); Abnormal access speed (15 files in 3 minutes); MFA bypass despite being enabled; Login time (03:45 UTC) is outside business hours; Connection via known bulletproof hosting provider",
+            "affected_assets": "User account: jsmith@acme.com (Finance Department); 15 confidential financial reports; VPN authentication system",
+            "potential_impact": "Exfiltration of Q3 financial forecasts 2 weeks before earnings report; Potential insider trading risk; Compromise of user credentials"
+          },
+          "response_plan": {
+            "containment": [
+              {
+                "action": "Disable jsmith@acme.com Active Directory account",
+                "assignee": "Identity & Access Management Team (Eric Johnson)",
+                "timeframe": "Immediate (within 15 minutes)",
+                "playbook_reference": "Account Compromise Playbook step 1.2: 'Immediately disable the suspected compromised account in Active Directory'"
+              },
+              {
+                "action": "Terminate active VPN session from IP 45.67.89.123",
+                "assignee": "Network Security Team (Sarah Chen)",
+                "timeframe": "Immediate (within 15 minutes)",
+                "playbook_reference": "VPN Security Incident procedure ID: VPN-SEC-052"
+              },
+              {
+                "action": "Add IP 45.67.89.123 and ASN-123456 to firewall block list",
+                "assignee": "Network Operations (Michael Torres)",
+                "timeframe": "Within 30 minutes",
+                "playbook_reference": "From External Threat Mitigation Guide: 'Block malicious source IP addresses at the perimeter using null routing or firewall rules'"
+              }
+            ],
+            "investigation": [
+              {
+                "action": "Extract full VPN logs for user jsmith for past 14 days",
+                "assignee": "SOC Analyst (Robert Kim)",
+                "timeframe": "Within 1 hour"
+              },
+              {
+                "action": "Conduct file access audit for the 15 accessed documents",
+                "assignee": "Data Security Team (Lisa Wong)",
+                "timeframe": "Within 2 hours",
+                "playbook_reference": "From Data Exfiltration Investigation checklist, item #4: 'Determine exactly which files were accessed, when, and whether they were downloaded or copied'"
+              },
+              {
+                "action": "Interview John Smith regarding recent account activity",
+                "assignee": "Incident Response Lead (David Patel)",
+                "timeframe": "Within 4 hours (during business hours)",
+                "playbook_reference": "User Interview Template TEMPLATE-IR-203"
+              },
+              {
+                "action": "Check MFA system logs to determine why two-factor authentication was bypassed",
+                "assignee": "Identity & Access Management Team (Eric Johnson)",
+                "timeframe": "Within 4 hours",
+                "playbook_reference": null
+              }
+            ],
+            "recovery": [
+              {
+                "action": "Reset credentials with enforced MFA for jsmith@acme.com",
+                "assignee": "Identity & Access Management Team (Eric Johnson)",
+                "timeframe": "After identity verification and investigation completion",
+                "playbook_reference": "Account Reinstatement Process section 2.3.1"
+              },
+              {
+                "action": "Audit and reset MFA settings for all Finance Department users",
+                "assignee": "Identity & Access Management Team (Eric Johnson)",
+                "timeframe": "Within 24 hours",
+                "playbook_reference": null
+              }
+            ]
+          },
+          "communications": [
+            {
+              "recipient": "CISO (Jennifer Adams)",
+              "timeframe": "Immediate",
+              "channel": "Phone call followed by encrypted email",
+              "key_points": "Suspected unauthorized access to financial documents 2 weeks pre-earnings; Initial containment complete; Investigation in progress"
+            },
+            {
+              "recipient": "CFO (Thomas Wright)",
+              "timeframe": "Within 2 hours",
+              "channel": "Secure messaging followed by in-person briefing",
+              "key_points": "Finance team credentials compromised; Q3 financial data potentially accessed; Need to assess market disclosure requirements"
+            },
+            {
+              "recipient": "John Smith (account owner)",
+              "timeframe": "At start of business hours",
+              "channel": "Phone call",
+              "key_points": "Account temporarily disabled due to security incident; Alternative access arrangements; Required interview with IR team"
+            }
+          ]
+        }
+
+    - ref: structured_output
+      action: core.transform.reshape
+      args:
+        value:
+          type: json_schema
+          name: response_plan
+          strict: true
+          schema:
+            type: object
+            required:
+              - thoughts
+              - summary
+              - severity
+              - analysis
+              - response_plan
+            additionalProperties: true
+            properties:
+              thoughts:
+                type: array
+                items:
+                  type: string
+              summary:
+                type: string
+              severity:
+                type: string
+                enum:
+                  - low
+                  - medium
+                  - high
+                  - critical
+              analysis:
+                type: object
+              response_plan:
+                type: object
+    - ref: plan_response
+      action: llm.openai.call
+      args:
+        prompt: >
+          <alert_analysis>
+          ${{ inputs.alert_analysis }}
+          </alert_analysis>
+        instructions: >
+          <alert_context>
+          ${{ inputs.alert_context }}
+          </alert_context>
+
+          <analyst_context>
+          ${{ inputs.analyst_context }}
+          </analyst_context>
+
+          <playbooks>
+          ${{ inputs.playbooks }}
+          </playbooks>
+
+          <guidance>
+          Create a specific, actionable incident response plan with these required elements:
+
+          - `thoughts`: Technical observations from alert data revealing patterns, anomalies, or indicators.
+          - `summary`: Concise description of what happened, to whom, when, where, and potential impact.
+          - `severity`: Assessment as "low", "medium", "high", or "critical".
+          - `analysis`: Key elements of your incident analysis (flexible object).
+          - `response_plan`: Actions to address the incident (flexible object).
+
+          Make your plan specific and practical:
+          - Include exact identifiers (IPs, usernames, systems, paths)
+          - Specify timeframes (e.g., "within 15 minutes")
+          - Name responsible teams/roles
+          - When referencing playbooks, quote relevant language, section IDs, or procedure numbers
+          - Specify tools/systems needed for each action
+          - Prioritize actions by urgency and impact
+          - Include decision points where investigation findings might lead to different paths
+
+          Your output must be formatted as JSON.
+          </guidance>
+
+          <example_response>
+          ${{ inputs.example_response || steps.one_shot.result }}
+          </example_response>
+
+          <task>
+          Create an incident response plan based on the provided alert analysis.
+          </task>
+        text_format: ${{ steps.structured_output.result }}
+  returns: ${{ FN.deserialize_json(steps.plan_response.result.output_text) }}
