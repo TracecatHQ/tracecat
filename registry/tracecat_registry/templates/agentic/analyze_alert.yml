@@ -1,0 +1,162 @@
+type: action
+definition:
+  title: Analyze alert
+  description: |
+    Extract who, what, when, where, why, how from the alert.
+    Suggest scenarios where the alert is a false positive or a true positive.
+  display_group: Agents
+  namespace: agentic
+  name: analyze_alert
+  expects:
+    alert:
+      type: dict[str, any]
+      description: Alert to analyze.
+    alert_context:
+      type: str
+      description: What are the alerts about? Where did they come from?
+    analyst_context:
+      type: str
+      description: >
+        Who is the analyst examining these alerts?
+        What is their role? For what organization?
+    example_response:
+      type: dict[str, any] | None
+      description: >
+        An example response from the model to improve the quality of the output.
+        Must fit the structured output schema. See `one_shot` step for an example.
+      default: null
+    steps:
+      - ref: one_shot
+        action: core.transform.reshape
+        args:
+          value: {
+            "thoughts": [
+              "This alert indicates a potential unauthorized access attempt to a sensitive system",
+              "The source IP address is not in our allow list and is from a country not associated with our operations",
+              "The access occurred during non-business hours which is unusual for this user account"
+            ],
+            "who": "User account 'admin_service' with source IP 185.143.223.45",
+            "what": "Failed login attempt with multiple password retries to the admin portal",
+            "when": "March 15, 2023 at 03:42 AM UTC, outside of normal business hours",
+            "where": "Admin portal login page from IP address originating in Russia",
+            "why": "Potential credential stuffing attack trying to gain unauthorized access to administrative functions",
+            "how": "Multiple login attempts using different password combinations within a short timeframe",
+            "false_positives": [
+              {
+                "scenario": "Administrator working after hours from a new location",
+                "reasoning": "The admin may be traveling and legitimately attempting to access the system outside normal work hours"
+              },
+              {
+                "scenario": "VPN connection causing unusual IP address",
+                "reasoning": "User might be using a new VPN service that routes through servers in unusual locations"
+              }
+            ],
+            "true_positives": [
+              {
+                "scenario": "Credential stuffing attack",
+                "reasoning": "Pattern of multiple failed login attempts from unusual IP address is consistent with automated password guessing"
+              },
+              {
+                "scenario": "Targeted intrusion attempt",
+                "reasoning": "Admin accounts are high-value targets and the timing suggests an attempt to avoid detection during low-monitoring hours"
+              }
+            ]
+          }
+      - ref: structured_output
+        action: core.transform.reshape
+        args:
+          value:
+            type: json_schema
+            name: alert_analysis
+            description: Analysis of the alert
+            strict: true
+            schema:
+              type: object
+              required:
+                - thoughts
+                - who
+                - what
+                - when
+                - where
+                - why
+                - how
+              additionalProperties: false
+              properties:
+                thoughts:
+                  type: array
+                  items:
+                    type: string
+                who:
+                  type: string
+                what:
+                  type: string
+                when:
+                  type: string
+                where:
+                  type: string
+                why:
+                  type: string
+                how:
+                  type: string
+                false_positives:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      scenario:
+                        type: string
+                      reasoning:
+                        type: string
+                true_positives:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      scenario:
+                        type: string
+                      reasoning:
+                        type: string
+      - ref: analyze_alert
+        action: llm.openai.call
+        args:
+          prompt: >
+            <alert>
+            ${{ inputs.alert }}
+            </alert>
+          instructions: >
+            <alert_context>
+            ${{ inputs.alert_context }}
+            </alert_context>
+
+            <analyst_context>
+            ${{ inputs.analyst_context }}
+            </analyst_context>
+
+            <analysis_process>
+            Approach this analysis systematically:
+            1. First review the entire alert to understand the full context
+            2. Identify fields that could indicate malicious activity
+            3. Look for relationships between fields
+            4. Consider what additional context might be needed
+            </analysis_process>
+
+            <guidance>
+            - You must reference actual values from the alert and the context provided
+            - You must think critically about the alert and the context provided
+            - Your output must be formatted as JSON.
+            </guidance>
+
+            <example_response>
+            Your output must be formatted as JSON.
+            Here is an example response:
+            ${{ inputs.example_response || steps.one_shot.result }}
+            </example_response>
+
+            <task>
+            Analyze the alert by:
+            - Extracting who, what, when, where, why, how from the alert
+            - Suggesting scenarios where the alert is a false positive
+            - Suggesting scenarios where the alert is a true positive
+            </task>
+          text_format: ${{ steps.structured_output.result }}
+  returns: ${{ FN.deserialize_json(steps.analyze_alert.result.output_text) }}
