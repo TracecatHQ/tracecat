@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, Required, TypedDict
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -29,8 +29,8 @@ ExecutionContext = dict[ExprContext, Any]
 class TaskResult(TypedDict, total=False):
     """Result of executing a DSL node."""
 
-    result: Any
-    result_typename: str
+    result: Required[Any]
+    result_typename: Required[str]
     error: Any | None
     error_typename: str | None
     interaction: Any | None
@@ -206,6 +206,7 @@ class RunContext(BaseModel):
     wf_exec_id: WorkflowExecutionID
     wf_run_id: WorkflowRunID
     environment: str
+    namespace: str | None = None
 
     @field_validator("wf_id", mode="before")
     @classmethod
