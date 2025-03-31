@@ -1,0 +1,179 @@
+type: action
+definition:
+  title: Build timeline
+  description: Build a timeline of events and Mermaid diagram of relationships across entities.
+  display_group: Agents
+  namespace: agentic
+  name: build_timeline
+  expects:
+    events:
+      type: list[dict[str, any]]
+      description: Events or alerts to build a timeline from.
+    event_context:
+      type: str
+      description: What are the events or alerts about? Where did they come from?
+    analyst_context:
+      type: str
+      description: >
+        Who is the analyst examining these events or alerts?
+        What is their role? For what organization?
+    example_response:
+      type: dict[str, any] | None
+      description: >
+        An example response from the model to improve the quality of the output.
+        Must fit the structured output schema. See `one_shot` step for an example.
+      default: null
+  steps:
+    - ref: one_shot
+      action: core.transform.reshape
+      args:
+        value: {
+          "thoughts": [
+            "These events appear to be related to a possible data exfiltration attempt",
+            "There are several key entities involved: user123, the file server, and an external IP",
+            "The events occur in a clear sequence that suggests reconnaissance followed by access"
+          ],
+          "timeline": [
+            {
+              "timestamp": "2023-06-15T08:32:45Z",
+              "actor_id": "user123",
+              "actor_type": "employee",
+              "user_agent": "Chrome 115.0.5790.110",
+              "event_action": "login",
+              "event_outcome": "success",
+              "event_description": "User login from unusual IP address",
+              "event_details": {
+                "ip_address": "203.0.113.42",
+                "location": "Unknown location",
+                "auth_method": "password"
+              }
+            },
+            {
+              "timestamp": "2023-06-15T08:45:12Z",
+              "actor_id": "user123",
+              "actor_type": "employee",
+              "user_agent": "Chrome 115.0.5790.110",
+              "event_action": "file_access",
+              "event_outcome": "success",
+              "event_description": "Access to sensitive file share",
+              "event_details": {
+                "resource": "financial_reports",
+                "access_type": "read",
+                "file_count": 15
+              }
+            }
+          ],
+          "relationships": "graph TD\n    User123[User: user123] -->|logged in from| IP[IP: 203.0.113.42]\n    User123 -->|accessed| Files[Files: Financial Reports]\n    Files -->|stored on| Server[Server: file-server-01]\n    IP -->|external to| Network[Network: Corporate Network]"
+        }
+    - ref: structured_output
+      action: core.transform.reshape
+      args:
+        value:
+          type: json_schema
+          name: timeline_analysis
+          strict: true
+          schema:
+            type: object
+            required:
+              - thoughts
+              - timeline
+              - relationships
+            additionalProperties: false
+            properties:
+              thoughts:
+                type: array
+                items:
+                  type: string
+              timeline:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - timestamp
+                    - actor_id
+                    - actor_type
+                    - user_agent
+                    - event_action
+                    - event_outcome
+                    - event_details
+                  additionalProperties: false
+                  properties:
+                    timestamp:
+                      type: string
+                    actor_id:
+                      type: string
+                    actor_type:
+                      type: string
+                    user_agent:
+                      type: string
+                    event_action:
+                      type: string
+                    event_outcome:
+                      type: string
+                    event_description:
+                      type: string
+                    event_details:
+                      type: object
+              relationships:
+                type: string
+    - ref: build_timeline
+      action: llm.openai.call
+      args:
+        prompt: >
+          <events>
+          ${{ inputs.events }}
+          </events>
+        instructions: >
+          <event_context>
+          ${{ inputs.event_context }}
+          </event_context>
+
+          <analyst_context>
+          ${{ inputs.analyst_context }}
+          </analyst_context>
+
+          <analysis_process>
+          Approach this timeline construction systematically:
+          1. First organize all events chronologically
+          2. Identify key entities present across multiple events
+          3. Determine relationships between these entities
+          4. Look for patterns or sequences that might indicate specific tactics or techniques
+          5. Create a Mermaid diagram showing entity relationships
+          </analysis_process>
+
+          <output_format>
+          Your response should include:
+          - "thoughts": Your analytical observations about the events and patterns
+          - "timeline": A chronologically ordered array of events with the following fields:
+              - timestamp: The exact time when the event occurred
+              - actor_id: A unique identifier for the human or non-human entity involved
+              - actor_type: Type of actor (employee, service account, administrator, etc.)
+              - user_agent: Software acting on behalf of the actor (browser, API, service name)
+              - event_action: Specific action taken by the actor
+              - event_outcome: Result of the action (success, failure, etc.)
+              - event_description: Short one-sentence description of what happened
+              - event_details: Object containing additional relevant information
+          - "relationships": A Mermaid flowchart diagram showing connections between entities
+          </output_format>
+
+          <guidance>
+          - You must use actual timestamps and details from the provided events
+          - You must ensure the timeline reflects the correct sequence of activities
+          - Your output must be formatted as JSON
+          </guidance>
+
+          <example_response>
+          Your output must be formatted as JSON.
+          Here is an example response:
+          ${{ inputs.example_response || steps.one_shot.result }}
+          </example_response>
+
+          <task>
+          Build a comprehensive timeline from the events by:
+          - Arranging events chronologically with timestamps
+          - Identifying entities involved in each event
+          - Creating a Mermaid diagram showing relationships between entities
+          - Analyzing the sequence of events and their significance
+          </task>
+        text_format: ${{ steps.structured_output.result }}
+  returns: ${{ FN.deserialize_json(steps.build_timeline.result.output_text) }}
