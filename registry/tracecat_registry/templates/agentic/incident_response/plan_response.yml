@@ -38,98 +38,95 @@ definition:
       args:
         value: {
           "thoughts": [
-            "IP 45.67.89.123 geolocates to Ukraine but user jsmith@acme.com has no travel history to this region in identity management system",
-            "Failed login attempts occurred at 03:42:15, 03:43:22, and 03:44:30 before successful authentication at 03:45:18, indicating potential password brute forcing",
-            "User accessed 15 financial files within 3 minutes of login, significantly faster than normal access patterns (usual: 5-7 files per hour)",
-            "VPN logs show the session originated from ASN-123456 associated with a known bulletproof hosting provider",
-            "Authentication using only password succeeded despite MFA being enabled for this user's account 3 weeks ago, suggesting MFA bypass or configuration issue"
+            "Ukrainian IP with no authorized travel history for user jsmith@acme.com",
+            "Brute force pattern: 3 failed logins before successful authentication",
+            "Abnormal access: 15 financial files accessed in 3 minutes vs normal 5-7/hour",
+            "VPN from known bulletproof hosting provider (ASN-123456)",
+            "MFA bypass despite being enabled for this account"
           ],
-          "summary": "Likely credential compromise of finance department employee jsmith@acme.com from Ukrainian IP with abnormally rapid access to financial documents at 03:45 UTC, bypassing recently implemented MFA controls.",
-          "severity": "high",
+          "summary": "Credential compromise of jsmith@acme.com (Finance) from Ukrainian IP at 03:45 UTC with rapid financial document access, bypassing MFA.",
           "analysis": {
-            "key_indicators": "Multiple failed logins (3) before success; Login from Ukraine (no authorized travel); Abnormal access speed (15 files in 3 minutes); MFA bypass despite being enabled; Login time (03:45 UTC) is outside business hours; Connection via known bulletproof hosting provider",
-            "affected_assets": "User account: jsmith@acme.com (Finance Department); 15 confidential financial reports; VPN authentication system",
-            "potential_impact": "Exfiltration of Q3 financial forecasts 2 weeks before earnings report; Potential insider trading risk; Compromise of user credentials"
+            "key_indicators": "Multiple failed logins; Ukraine IP (unauthorized); Abnormal file access speed; MFA bypass; Off-hours activity; Bulletproof hosting connection",
+            "affected_assets": "Account: jsmith@acme.com (Finance); 15 financial reports; VPN system",
+            "potential_impact": "Q3 financial data exfiltration before earnings report; Potential insider trading risk"
           },
           "response_plan": {
             "containment": [
               {
-                "action": "Disable jsmith@acme.com Active Directory account",
-                "assignee": "Identity & Access Management Team (Eric Johnson)",
-                "timeframe": "Immediate (within 15 minutes)",
-                "playbook_reference": "Account Compromise Playbook step 1.2: 'Immediately disable the suspected compromised account in Active Directory'"
+                "action": "Disable jsmith@acme.com account",
+                "assignee": "IAM Team (Eric)",
+                "timeframe": "Immediate (<15 min)",
+                "reference": "Account Compromise Playbook 1.2"
               },
               {
-                "action": "Terminate active VPN session from IP 45.67.89.123",
-                "assignee": "Network Security Team (Sarah Chen)",
-                "timeframe": "Immediate (within 15 minutes)",
-                "playbook_reference": "VPN Security Incident procedure ID: VPN-SEC-052"
+                "action": "Terminate VPN session from 45.67.89.123",
+                "assignee": "Network Security (Sarah)",
+                "timeframe": "Immediate (<15 min)",
+                "reference": "VPN-SEC-052"
               },
               {
-                "action": "Add IP 45.67.89.123 and ASN-123456 to firewall block list",
-                "assignee": "Network Operations (Michael Torres)",
-                "timeframe": "Within 30 minutes",
-                "playbook_reference": "From External Threat Mitigation Guide: 'Block malicious source IP addresses at the perimeter using null routing or firewall rules'"
+                "action": "Block IP 45.67.89.123 and ASN-123456",
+                "assignee": "Network Ops (Michael)",
+                "timeframe": "<30 min",
+                "reference": "Threat Mitigation Guide"
               }
             ],
             "investigation": [
               {
-                "action": "Extract full VPN logs for user jsmith for past 14 days",
-                "assignee": "SOC Analyst (Robert Kim)",
-                "timeframe": "Within 1 hour"
+                "action": "Extract VPN logs for jsmith (past 14 days)",
+                "assignee": "SOC Analyst (Robert)",
+                "timeframe": "<1 hour"
               },
               {
-                "action": "Conduct file access audit for the 15 accessed documents",
-                "assignee": "Data Security Team (Lisa Wong)",
-                "timeframe": "Within 2 hours",
-                "playbook_reference": "From Data Exfiltration Investigation checklist, item #4: 'Determine exactly which files were accessed, when, and whether they were downloaded or copied'"
+                "action": "Audit accessed financial documents",
+                "assignee": "Data Security (Lisa)",
+                "timeframe": "<2 hours",
+                "reference": "Data Exfil checklist #4"
               },
               {
-                "action": "Interview John Smith regarding recent account activity",
-                "assignee": "Incident Response Lead (David Patel)",
-                "timeframe": "Within 4 hours (during business hours)",
-                "playbook_reference": "User Interview Template TEMPLATE-IR-203"
+                "action": "Interview John Smith",
+                "assignee": "IR Lead (David)",
+                "timeframe": "<4 hours (business hours)",
+                "reference": "TEMPLATE-IR-203"
               },
               {
-                "action": "Check MFA system logs to determine why two-factor authentication was bypassed",
-                "assignee": "Identity & Access Management Team (Eric Johnson)",
-                "timeframe": "Within 4 hours",
-                "playbook_reference": null
+                "action": "Check MFA logs for bypass method",
+                "assignee": "IAM Team (Eric)",
+                "timeframe": "<4 hours"
               }
             ],
             "recovery": [
               {
-                "action": "Reset credentials with enforced MFA for jsmith@acme.com",
-                "assignee": "Identity & Access Management Team (Eric Johnson)",
-                "timeframe": "After identity verification and investigation completion",
-                "playbook_reference": "Account Reinstatement Process section 2.3.1"
+                "action": "Reset credentials with enforced MFA",
+                "assignee": "IAM Team (Eric)",
+                "timeframe": "After investigation",
+                "reference": "Account Reinstatement 2.3.1"
               },
               {
-                "action": "Audit and reset MFA settings for all Finance Department users",
-                "assignee": "Identity & Access Management Team (Eric Johnson)",
-                "timeframe": "Within 24 hours",
-                "playbook_reference": null
+                "action": "Audit MFA for all Finance users",
+                "assignee": "IAM Team (Eric)",
+                "timeframe": "<24 hours"
               }
             ]
           },
           "communications": [
             {
-              "recipient": "CISO (Jennifer Adams)",
+              "recipient": "CISO (Jennifer)",
               "timeframe": "Immediate",
-              "channel": "Phone call followed by encrypted email",
-              "key_points": "Suspected unauthorized access to financial documents 2 weeks pre-earnings; Initial containment complete; Investigation in progress"
+              "channel": "Phone + encrypted email",
+              "message": "Financial data breach pre-earnings; Containment active; Investigation ongoing"
             },
             {
-              "recipient": "CFO (Thomas Wright)",
-              "timeframe": "Within 2 hours",
-              "channel": "Secure messaging followed by in-person briefing",
-              "key_points": "Finance team credentials compromised; Q3 financial data potentially accessed; Need to assess market disclosure requirements"
+              "recipient": "CFO (Thomas)",
+              "timeframe": "<2 hours",
+              "channel": "Secure message + in-person",
+              "message": "Finance credentials compromised; Q3 data potentially accessed; Assess disclosure needs"
             },
             {
-              "recipient": "John Smith (account owner)",
-              "timeframe": "At start of business hours",
-              "channel": "Phone call",
-              "key_points": "Account temporarily disabled due to security incident; Alternative access arrangements; Required interview with IR team"
+              "recipient": "John Smith",
+              "timeframe": "Start of business",
+              "channel": "Phone",
+              "message": "Account disabled; Alternative access plan; IR interview required"
             }
           ]
         }
@@ -146,7 +143,6 @@ definition:
             required:
               - thoughts
               - summary
-              - severity
               - analysis
               - response_plan
             additionalProperties: true
@@ -157,13 +153,6 @@ definition:
                   type: string
               summary:
                 type: string
-              severity:
-                type: string
-                enum:
-                  - low
-                  - medium
-                  - high
-                  - critical
               analysis:
                 type: object
               response_plan:
@@ -191,20 +180,17 @@ definition:
           <guidance>
           Create a specific, actionable incident response plan with these required elements:
 
-          - `thoughts`: Technical observations from alert data revealing patterns, anomalies, or indicators.
-          - `summary`: Concise description of what happened, to whom, when, where, and potential impact.
-          - `severity`: Assessment as "low", "medium", "high", or "critical".
-          - `analysis`: Key elements of your incident analysis (flexible object).
-          - `response_plan`: Actions to address the incident (flexible object).
+          - `thoughts`: Key technical observations from alert data (indicators, anomalies, patterns).
+          - `summary`: Concise description of the incident (what, who, when, where, impact).
+          - `analysis`: Key elements of your incident analysis (affected assets, indicators, impact).
+          - `response_plan`: Prioritized actions by category (containment, investigation, recovery).
 
-          Make your plan specific and practical:
-          - Include exact identifiers (IPs, usernames, systems, paths)
-          - Specify timeframes (e.g., "within 15 minutes")
-          - Name responsible teams/roles
-          - When referencing playbooks, quote relevant language, section IDs, or procedure numbers
-          - Specify tools/systems needed for each action
-          - Prioritize actions by urgency and impact
-          - Include decision points where investigation findings might lead to different paths
+          Make your plan actionable:
+          - Use exact identifiers (IPs, usernames, systems)
+          - Specify clear timeframes for each action
+          - Assign responsible teams/individuals
+          - Reference specific playbook sections when applicable
+          - Prioritize by urgency and impact
 
           Your output must be formatted as JSON.
           </guidance>

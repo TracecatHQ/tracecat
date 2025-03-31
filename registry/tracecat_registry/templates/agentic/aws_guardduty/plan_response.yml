@@ -5,6 +5,7 @@ definition:
   display_group: AWS GuardDuty
   namespace: aws_guardduty
   name: plan_response
+  doc_url: https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_remediate.html
   expects:
     alert_analysis:
       type: dict[str, any]
@@ -24,98 +25,83 @@ definition:
       args:
         value: |
           {
+            "thoughts": [
+              "API calls from IP 203.0.113.42 on threat list detected",
+              "IAM user developer-admin made suspicious calls",
+              "Finding: UnauthorizedAccess:IAMUser/MaliciousIPCaller.Custom",
+              "Access detected outside normal patterns",
+              "Potential credential compromise"
+            ],
+            "summary": "IAM User credential compromise: user developer-admin accessed AWS from known malicious IP 203.0.113.42",
+            "analysis": {
+              "key_indicators": "IP address on custom threat list; Unusual API call patterns; Access from non-corporate network",
+              "affected_assets": "Account: developer-admin (IAM User); AWS Account: 123456789012",
+              "potential_impact": "Unauthorized access to AWS resources; Data exfiltration; Privilege escalation"
+            },
             "response_plan": {
-              "summary": "Response plan for GuardDuty finding 'UnauthorizedAccess:IAMUser/MaliciousIPCaller.Custom' detected on 2023-08-15T14:30:22Z. This high-severity finding indicates that an IAM user in your AWS environment made API calls from an IP address that is included on a custom threat list.",
-              "severity": "HIGH",
-              "affected_resources": [
+              "containment": [
                 {
-                  "resource_type": "IAM User",
-                  "resource_id": "user-123456",
-                  "resource_name": "developer-admin"
+                  "action": "Disable IAM user access keys",
+                  "assignee": "Cloud Security",
+                  "timeframe": "Immediate (<15 min)",
+                  "commands": ["aws iam update-access-key --access-key-id <access_key_id> --status Inactive --user-name developer-admin"]
                 },
                 {
-                  "resource_type": "AWS Account",
-                  "resource_id": "123456789012"
+                  "action": "Block malicious IP at firewall",
+                  "assignee": "Network Security",
+                  "timeframe": "<30 min",
+                  "commands": ["aws ec2 create-network-acl-entry --network-acl-id acl-12345 --ingress --rule-number 100 --protocol all --port-range From=0,To=65535 --cidr-block 203.0.113.42/32 --rule-action deny"]
                 }
               ],
-              "investigation_steps": [
+              "investigation": [
                 {
-                  "step": "Verify the legitimacy of the API calls",
-                  "details": "Check if the IAM user should have legitimately been using this IP address (203.0.113.42) to make API calls",
-                  "commands": [
-                    "aws cloudtrail lookup-events --lookup-attributes AttributeKey=Username,AttributeValue=developer-admin --start-time 2023-08-15T13:30:22Z --end-time 2023-08-15T15:30:22Z"
-                  ]
+                  "action": "Review CloudTrail for user activity",
+                  "assignee": "SOC Analyst",
+                  "timeframe": "<1 hour",
+                  "commands": ["aws cloudtrail lookup-events --lookup-attributes AttributeKey=Username,AttributeValue=developer-admin --start-time 2023-08-15T13:30:22Z --end-time 2023-08-15T15:30:22Z"]
                 },
                 {
-                  "step": "Analyze the API calls made from the suspicious IP",
-                  "details": "Review CloudTrail logs to understand what actions were taken by the user from this IP address",
-                  "commands": [
-                    "aws cloudtrail lookup-events --lookup-attributes AttributeKey=Username,AttributeValue=developer-admin --start-time 2023-08-15T13:30:22Z --end-time 2023-08-15T15:30:22Z | grep '203.0.113.42'"
-                  ]
+                  "action": "Check for suspicious IP activity",
+                  "assignee": "SOC Analyst",
+                  "timeframe": "<1 hour",
+                  "commands": ["aws cloudtrail lookup-events --lookup-attributes AttributeKey=Username,AttributeValue=developer-admin --start-time 2023-08-15T13:30:22Z --end-time 2023-08-15T15:30:22Z | grep '203.0.113.42'"]
+                },
+                {
+                  "action": "Scan for additional compromises",
+                  "assignee": "Cloud Security",
+                  "timeframe": "<2 hours",
+                  "commands": ["aws cloudtrail lookup-events --start-time 2023-08-14T14:30:22Z --end-time 2023-08-15T14:30:22Z | grep -E 'AssumeRole|CreateAccessKey|DeleteCloudTrail'"]
                 }
               ],
-              "remediation_steps": [
+              "recovery": [
                 {
-                  "step": "Disable the compromised IAM user credentials",
-                  "details": "If unauthorized access is confirmed, immediately disable the IAM user's access keys",
-                  "commands": [
-                    "aws iam update-access-key --access-key-id <access_key_id> --status Inactive --user-name <user_name>"
-                  ]
+                  "action": "Reset user credentials with MFA",
+                  "assignee": "IAM Admin",
+                  "timeframe": "After investigation",
+                  "commands": ["aws iam update-login-profile --user-name developer-admin --password 'NewComplexTemporaryPassword123!' --password-reset-required"]
                 },
                 {
-                  "step": "Initiate password reset and MFA verification",
-                  "details": "Force a password reset for the affected user and verify their MFA setup",
-                  "commands": [
-                    "aws iam update-login-profile --user-name developer-admin --password 'NewComplexTemporaryPassword123!' --password-reset-required"
-                  ]
-                },
-                {
-                  "step": "Review and restrict IAM permissions",
-                  "details": "Apply the principle of least privilege to the affected IAM user",
-                  "commands": [
-                    "aws iam list-attached-user-policies --user-name developer-admin",
-                    "aws iam detach-user-policy --user-name developer-admin --policy-arn arn:aws:iam::aws:policy/AdministratorAccess"
-                  ]
-                },
-                {
-                  "step": "Add the malicious IP to a deny list in Network ACLs and Security Groups",
-                  "details": "Block the suspicious IP address at the network level",
-                  "commands": [
-                    "aws ec2 create-network-acl-entry --network-acl-id acl-12345 --ingress --rule-number 100 --protocol all --port-range From=0,To=65535 --cidr-block 203.0.113.42/32 --rule-action deny"
-                  ]
+                  "action": "Apply least privilege permissions",
+                  "assignee": "IAM Admin",
+                  "timeframe": "<4 hours",
+                  "commands": ["aws iam detach-user-policy --user-name developer-admin --policy-arn arn:aws:iam::aws:policy/AdministratorAccess"]
                 }
-              ],
-              "post_incident_steps": [
-                {
-                  "step": "Review CloudTrail logs for additional suspicious activity",
-                  "details": "Look for patterns of suspicious behavior across your AWS environment",
-                  "commands": [
-                    "aws cloudtrail lookup-events --start-time 2023-08-14T14:30:22Z --end-time 2023-08-15T14:30:22Z | grep -E 'AssumeRole|CreateAccessKey|DeleteCloudTrail'"
-                  ]
-                },
-                {
-                  "step": "Update security policies and procedures",
-                  "details": "Implement additional security controls based on the incident",
-                  "commands": []
-                },
-                {
-                  "step": "Document incident timeline and remediation steps",
-                  "details": "Create a detailed record of the incident for compliance and future reference",
-                  "commands": []
-                }
-              ],
-              "playbook_references": [
-                {
-                  "name": "IAM User Credential Compromise Response",
-                  "link": "https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_remediate.html#compromised-creds"
-                },
-                {
-                  "name": "AWS Security Incident Response Guide",
-                  "link": "https://docs.aws.amazon.com/whitepapers/latest/aws-security-incident-response-guide/welcome.html"
-                }
-              ],
-              "conclusion": "This response plan addresses a high-severity IAM credential compromise. By following these steps, you will contain the immediate threat, investigate the extent of the compromise, implement remediation actions, and strengthen your security posture to prevent similar incidents in the future."
-            }
+              ]
+            },
+            "communications": [
+              {
+                "recipient": "CISO",
+                "timeframe": "Immediate",
+                "channel": "Phone + email",
+                "message": "IAM credential compromise detected; Containment in progress; Investigation ongoing"
+              },
+              {
+                "recipient": "DevOps Lead",
+                "timeframe": "<1 hour",
+                "channel": "Slack secure channel",
+                "message": "Developer admin account compromised; Temporary access restrictions in place"
+              }
+            ]
           }
     - ref: plan_response
       action: agentic.plan_response
