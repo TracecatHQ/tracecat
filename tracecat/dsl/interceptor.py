@@ -16,13 +16,35 @@ with workflow.unsafe.imports_passed_through():
     from pydantic import BaseModel
 
     from tracecat.contexts import ctx_role
+    from tracecat.dsl.common import DSLRunArgs
     from tracecat.logger import logger
     from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
 
 
-def _set_common_workflow_tags(info: workflow.Info | activity.Info):
+def _set_common_workflow_tags(info: workflow.Info | activity.Info) -> None:
     sentry.set_tag("temporal.workflow.type", info.workflow_type)
     sentry.set_tag("temporal.workflow.id", info.workflow_id)
+
+
+def _set_fingerprint(
+    scope: sentry.Scope, input: ExecuteWorkflowInput, info: workflow.Info
+) -> None:
+    if len(input.args) > 0 and isinstance(input.args[0], DSLRunArgs):
+        arg = input.args[0]
+        wf_id = arg.wf_id.short()
+        logger.info("Using workflow ID for fingerprint", workflow_id=wf_id)
+        scope.fingerprint = [wf_id]
+    else:
+        logger.info("Deriving workflow ID from execution ID for fingerprint")
+        wf_exec_id = info.workflow_id
+        try:
+            scope.fingerprint = [wf_exec_id.split("/")[0]]
+        except Exception as e:
+            logger.warning(
+                "Failed to derive workflow ID for fingerprint, falling back to execution ID",
+                error=str(e),
+            )
+            scope.fingerprint = [wf_exec_id]
 
 
 class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
@@ -44,7 +66,8 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
             )
             if (role := ctx_role.get()) and role.workspace_id:
                 sentry.set_tag("tracecat.workspace_id", str(role.workspace_id))
-            scope.fingerprint = [workflow_info.workflow_id]
+            # Fingerprint to each workflow ID
+            _set_fingerprint(scope, input, workflow_info)
             try:
                 return await super().execute_workflow(input)
             except ApplicationError as e:
