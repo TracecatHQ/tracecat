@@ -467,17 +467,17 @@ class DSLWorkflow:
         result = None
         while True:
             # NOTE: This only works with successful results
+            # TODO: Add support to pass in additional retry context
             result = await self._execute_task(task)
             ctx[ExprContext.ACTIONS][task.ref] = result
-            retry_until_result = eval_templated_object(retry_until.strip(), operand=ctx)
-            if not isinstance(retry_until_result, bool):
-                try:
-                    retry_until_result = bool(retry_until_result)
-                except Exception:
-                    raise ApplicationError(
-                        "Retry until result is not a boolean", non_retryable=True
-                    ) from None
-            if retry_until_result:
+            condition_met = await workflow.execute_activity(
+                DSLActivities.resolve_condition_activity,
+                arg=ResolveConditionActivityInput(
+                    condition_expr=retry_until, context=ctx
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+            )
+            if condition_met:
                 break
         return result
 
