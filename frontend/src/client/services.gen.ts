@@ -2683,6 +2683,41 @@ export const tablesUpdateColumn = (
 }
 
 /**
+ * Set Column as Natural Key
+ * Set a column as a natural key by creating a unique index on it.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.columnId
+ * @param data.workspaceId
+ * @returns void
+ * @throws ApiError
+ */
+export const tablesSetColumnAsNaturalKey = (
+  data: {
+    tableId: string;
+    columnId: string;
+    workspaceId?: string;
+  }
+): CancelablePromise<void> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/{table_id}/columns/{column_id}/natural-key",
+    path: {
+      table_id: data.tableId,
+      column_id: data.columnId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      404: "Not Found",
+      409: "Conflict - Column contains duplicate values",
+      422: "Validation Error",
+    },
+  });
+};
+
+/**
  * Delete Column
  * Delete a column from a table.
  * @param data The data for the request.

@@ -1234,6 +1234,7 @@ export type TableColumnRead = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  isNaturalKey?: boolean
 }
 
 /**

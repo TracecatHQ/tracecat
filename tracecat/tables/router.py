@@ -132,11 +132,22 @@ async def get_table(
             detail=str(e),
         ) from e
 
+    # Get natural key info or default to empty dict if not present
+    natural_key_info = getattr(table, "_natural_key_columns", {})
+
+    # Convert to response model (includes is_natural_key field)
     return TableRead(
         id=table.id,
         name=table.name,
         columns=[
-            TableColumnRead.model_validate(column, from_attributes=True)
+            TableColumnRead(
+                id=column.id,
+                name=column.name,
+                type=column.type,
+                nullable=column.nullable,
+                default=column.default,
+                is_natural_key=natural_key_info.get(column.name, False),
+            )
             for column in table.columns
         ],
     )
@@ -284,6 +295,53 @@ async def delete_column(
             detail=str(e),
         ) from e
     await service.delete_column(column)
+
+
+@router.post(
+    "/{table_id}/columns/{column_id}/natural-key", status_code=status.HTTP_200_OK
+)
+async def set_column_as_natural_key(
+    role: WorkspaceAdminUser,
+    session: AsyncDBSession,
+    table_id: TableID,
+    column_id: TableColumnID,
+) -> None:
+    """Set a column as a natural key by creating a unique index on it."""
+    service = TablesService(session, role=role)
+    try:
+        await service.set_column_as_natural_key(table_id, column_id)
+    except TracecatNotFoundError as e:
+        # Handle not found errors (table or column doesn't exist)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ProgrammingError as e:
+        # Handle database errors
+        cause = e
+        # Drill down to the root cause
+        while (next_cause := cause.__cause__) is not None:
+            cause = next_cause
+
+        if "duplicate key value violates unique constraint" in str(cause):
+            # This error happens when trying to create a unique index
+            # on a column that contains duplicate values
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot create natural key: column contains duplicate values",
+            ) from e
+
+        # Handle other database errors
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected database error: {cause}",
+        ) from e
+    except Exception as e:
+        # Catch any other errors
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating natural key: {e}",
+        ) from e
 
 
 @router.get("/{table_id}/rows")
