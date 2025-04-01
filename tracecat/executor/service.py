@@ -7,6 +7,7 @@ from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, cast
 
+import orjson
 import ray
 import uvloop
 from ray.exceptions import RayTaskError
@@ -25,6 +26,8 @@ from tracecat.dsl.models import (
     RunActionInput,
     TaskResult,
 )
+from tracecat.ee.store.models import ObjectRef
+from tracecat.ee.store.service import ObjectStore
 from tracecat.executor.engine import EXECUTION_TIMEOUT
 from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorInfo
 from tracecat.expressions.common import ExprContext, ExprOperand
@@ -53,7 +56,7 @@ from tracecat.types.exceptions import (
 
 
 type ArgsT = Mapping[str, Any]
-type ExecutionResult = Any | ExecutorActionErrorInfo
+type ExecutionResult = Any | ExecutorActionErrorInfo | ObjectRef
 
 
 def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResult:
