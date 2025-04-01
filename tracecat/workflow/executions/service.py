@@ -53,6 +53,7 @@ from tracecat.workflow.executions.common import (
     is_error_event,
     is_scheduled_event,
     is_start_event,
+    resolve_first_task_result,
 )
 from tracecat.workflow.executions.enums import (
     TemporalSearchAttr,
@@ -239,7 +240,7 @@ class WorkflowExecutionsService:
                     source.start_time = event.event_time.ToDatetime(datetime.UTC)
                 if is_close_event(event):
                     source.close_time = event.event_time.ToDatetime(datetime.UTC)
-                    source.action_result = get_result(event)
+                    source.action_result = await get_result(event)
                 if is_error_event(event):
                     source.action_error = EventFailure.from_history_event(event)
         # For the resultant values, if there are duplicate source action_refs,
@@ -323,7 +324,7 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED:
-                    result = extract_first(
+                    result = await resolve_first_task_result(
                         event.child_workflow_execution_completed_event_attributes.result
                     )
                     initiator_event_id = event.child_workflow_execution_completed_event_attributes.initiated_event_id
@@ -372,7 +373,7 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
-                    result = extract_first(
+                    result = await resolve_first_task_result(
                         event.workflow_execution_completed_event_attributes.result
                     )
                     events.append(
@@ -468,7 +469,7 @@ class WorkflowExecutionsService:
                     if not (group := event_group_names.get(gparent_event_id)):
                         continue
                     event_group_names[event.event_id] = group
-                    result = extract_first(
+                    result = await resolve_first_task_result(
                         event.activity_task_completed_event_attributes.result
                     )
                     events.append(
@@ -556,7 +557,7 @@ class WorkflowExecutionsService:
                     event_group_names[event.event_id] = group
                     outcome = attrs.outcome
                     if outcome.HasField("success"):
-                        result = extract_first(outcome.success)
+                        result = await resolve_first_task_result(outcome.success)
                         events.append(
                             WorkflowExecutionEvent(
                                 event_id=event.event_id,
