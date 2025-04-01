@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
@@ -16,8 +17,15 @@ from tenacity import (
 
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
+from tracecat.dsl.models import (
+    ActionErrorInfo,
+    ActionStatement,
+    ExecutionContext,
+    RunActionInput,
+)
+from tracecat.ee.store.service import ObjectStore
 from tracecat.executor.client import ExecutorClient
+from tracecat.expressions.eval import eval_templated_object
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
@@ -32,6 +40,16 @@ from tracecat.validation.service import validate_registry_action_args
 class ValidateActionActivityInput(BaseModel):
     role: Role
     task: ActionStatement
+
+
+class ResolveConditionActivityInput(BaseModel):
+    """Input for the resolve run if activity."""
+
+    context: ExecutionContext
+    """The context of the workflow."""
+
+    condition_expr: str
+    """The condition expression to evaluate."""
 
 
 class DSLActivities:
@@ -180,3 +198,33 @@ class DSLActivities:
             wait_until, settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True}
         )
         return dt.isoformat() if dt else None
+
+    @staticmethod
+    @activity.defn
+    async def resolve_condition_activity(
+        input: ResolveConditionActivityInput,
+    ) -> bool:
+        """Resolve a condition expression. Throws an ApplicationError if the result
+        cannot be converted to a boolean.
+        """
+        logger.debug("Resolve condition", task_run_if=input.condition_expr)
+        # Don't block the main workflow thread
+        result = await resolve_templated_object(input.condition_expr, input.context)
+        try:
+            conditional_result = bool(result)
+            logger.debug(
+                "Resolved condition",
+                result=result,
+                conditional_result=conditional_result,
+            )
+            return conditional_result
+        except Exception:
+            raise ApplicationError(
+                "Condition result could not be converted to a boolean",
+                non_retryable=True,
+            ) from None
+
+
+async def resolve_templated_object(obj: Any, context: ExecutionContext) -> Any:
+    resolved_context = await ObjectStore.get().resolve_object_refs(obj, context)
+    return await asyncio.to_thread(eval_templated_object, obj, operand=resolved_context)
