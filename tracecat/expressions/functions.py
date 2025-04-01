@@ -856,6 +856,19 @@ def or_(a: bool, b: bool) -> bool:
     return a or b
 
 
+# YAML
+
+
+def serialize_yaml(x: Any) -> str:
+    """Serialize object to YAML string."""
+    return yaml.dump(x)
+
+
+def deserialize_yaml(x: str) -> Any:
+    """Deserialize YAML string to object."""
+    return yaml.safe_load(x)
+
+
 _FUNCTION_MAPPING = {
     # String transforms
     "capitalize": capitalize,
@@ -929,8 +942,8 @@ _FUNCTION_MAPPING = {
     # Type conversion
     "serialize_json": serialize_json,
     "deserialize_json": orjson.loads,
-    "serialize_yaml": yaml.dump,
-    "deserialize_yaml": yaml.safe_load,
+    "serialize_yaml": serialize_yaml,
+    "deserialize_yaml": deserialize_yaml,
     "prettify_json": prettify_json,
     "deserialize_ndjson": deserialize_ndjson,
     "extract_text_from_html": extract_text_from_html,
