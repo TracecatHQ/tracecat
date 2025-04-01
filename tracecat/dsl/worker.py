@@ -52,7 +52,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 interrupt_event = asyncio.Event()
 
 
-def get_activities() -> list[Callable]:
+def all_activities() -> list[Callable]:
     return [
         *DSLActivities.load(),
         get_workflow_definition_activity,
@@ -72,7 +72,7 @@ async def main() -> None:
         interceptors.append(SentryInterceptor())
 
     # Run a worker for the activities and workflow
-    activities = get_activities()
+    activities = all_activities()
     logger.debug(
         "Activities loaded",
         activities=[

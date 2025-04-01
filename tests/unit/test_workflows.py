@@ -43,7 +43,7 @@ from tracecat.dsl.models import (
     ExecutionContext,
     RunActionInput,
 )
-from tracecat.dsl.worker import get_activities, new_sandbox_runner
+from tracecat.dsl.worker import all_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.expressions.common import ExprContext
 from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID, WorkflowUUID
@@ -146,7 +146,7 @@ async def test_workflow_can_run_from_yaml(dsl, test_role, temporal_client):
     async with Worker(
         temporal_client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -188,7 +188,7 @@ async def test_workflow_ordering_is_correct(dsl, test_role, temporal_client):
     async with Worker(
         temporal_client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -237,7 +237,7 @@ async def test_workflow_completes_and_correct(
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -274,7 +274,7 @@ async def test_stress_workflow(dsl, test_role):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -354,7 +354,7 @@ async def test_stress_workflow_correctness(runs, test_role, temporal_client):
     async with Worker(
         temporal_client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
         max_concurrent_activities=1000,
@@ -429,7 +429,7 @@ async def test_workflow_set_environment_correct(test_role, temporal_client):
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -488,7 +488,7 @@ async def test_workflow_override_environment_correct(test_role, temporal_client)
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -545,7 +545,7 @@ async def test_workflow_default_environment_correct(test_role, temporal_client):
     async with Worker(
         temporal_client,
         task_queue=queue,
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -592,7 +592,7 @@ async def _run_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
     async with Worker(
         client,
         task_queue=queue,
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -2057,7 +2057,7 @@ async def test_workflow_error_path(test_role, runtime_config, dsl_data, expected
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -2137,7 +2137,7 @@ async def test_workflow_join_unreachable(test_role, runtime_config):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -2221,7 +2221,7 @@ async def test_workflow_multiple_entrypoints(test_role, runtime_config):
     async with Worker(
         client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
@@ -2344,7 +2344,7 @@ async def test_workflow_runs_template_for_each(
     async with Worker(
         temporal_client,
         task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
+        activities=all_activities(),
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
     ):
