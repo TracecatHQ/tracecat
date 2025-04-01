@@ -12,7 +12,7 @@ from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat.contexts import ctx_interaction
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionStatement
-from tracecat.dsl.worker import get_activities, new_sandbox_runner
+from tracecat.dsl.worker import all_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
 from tracecat.ee.interactions.models import (
@@ -101,7 +101,7 @@ async def test_workflow_interaction(test_role: Role, temporal_client: Client):
         async with Worker(
             temporal_client,
             task_queue=queue,
-            activities=get_activities(),
+            activities=all_activities(),
             workflows=[DSLWorkflow],
             workflow_runner=new_sandbox_runner(),
         ):
