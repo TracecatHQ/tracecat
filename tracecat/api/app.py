@@ -126,10 +126,15 @@ def fastapi_users_auth_exception_handler(request: Request, exc: FastAPIUsersExce
 
 
 def create_app(**kwargs) -> FastAPI:
+    # Default to only allowing the app's own domain if no origins are specified
+    allow_origins = []
     if config.TRACECAT__ALLOW_ORIGINS is not None:
-        allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
-    else:
-        allow_origins = ["*"]
+        allow_origins = [origin.strip() for origin in config.TRACECAT__ALLOW_ORIGINS.split(",")]
+    if config.TRACECAT__PUBLIC_APP_URL:
+        allow_origins.append(config.TRACECAT__PUBLIC_APP_URL)
+    # If still empty, default to localhost for development
+    if not allow_origins:
+        allow_origins = ["http://localhost:3000"]
     app = FastAPI(
         title="Tracecat API",
         description=(
