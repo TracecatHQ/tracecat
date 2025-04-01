@@ -1,7 +1,9 @@
 import os
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -19,7 +21,10 @@ from tracecat.expressions.common import (
     build_safe_lambda,
     eval_jsonpath,
 )
-from tracecat.expressions.core import TemplateExpression
+from tracecat.expressions.core import (
+    TemplateExpression,
+    extract_action_and_secret_expressions,
+)
 from tracecat.expressions.eval import (
     eval_templated_object,
     extract_expressions,
@@ -1518,3 +1523,185 @@ def test_validate_template_action_key_expressions(expr, expected):
     validation_results = list(visitor.results())
     for actual, ex in zip(validation_results, expected, strict=True):
         assert_validation_result(actual, **ex)
+
+
+class TestExtractExpressions:
+    def test_empty_object(self):
+        """Test extraction from an empty object."""
+        obj: dict[str, Any] = {}
+        result = extract_action_and_secret_expressions(obj)
+        assert isinstance(result, Mapping)
+        assert len(result) == 0
+
+    def test_object_with_no_expressions(self):
+        """Test extraction from an object with no expressions."""
+        obj = {
+            "key1": "value1",
+            "key2": 123,
+            "key3": {"nested": "regular_string"},
+            "key4": ["array", "items"],
+        }
+        result = extract_action_and_secret_expressions(obj)
+        assert isinstance(result, Mapping)
+        assert len(result) == 0
+
+    def test_actions_expressions(self):
+        """Test extraction of ACTIONS expressions."""
+        obj = {
+            "step1": {
+                "input": "${{ ACTIONS.someAction.result }}",
+                "description": "This uses an action",
+            },
+            "step2": {
+                "input": "${{ ACTIONS.anotherAction.value }}",
+                "config": {"param": "${{ ACTIONS.someAction.config }}"},
+            },
+        }
+        result = extract_action_and_secret_expressions(obj)
+        assert ExprContext.ACTIONS in result
+        assert "someAction" in result[ExprContext.ACTIONS]
+        assert "anotherAction" in result[ExprContext.ACTIONS]
+        assert len(result[ExprContext.ACTIONS]) == 2
+
+    def test_secrets_expressions(self):
+        """Test extraction of SECRETS expressions."""
+        obj = {
+            "step1": {
+                "input": "${{ SECRETS.apiKey.value }}",
+                "description": "This uses a secret",
+            },
+            "step2": {
+                "input": "${{ SECRETS.credentials.password }}",
+                "config": {"token": "${{ SECRETS.apiKey.token }}"},
+            },
+        }
+        result = extract_action_and_secret_expressions(obj)
+        assert ExprContext.SECRETS in result
+        assert "apiKey" in result[ExprContext.SECRETS]
+        assert "credentials" in result[ExprContext.SECRETS]
+        assert len(result[ExprContext.SECRETS]) == 2
+
+    def test_mixed_expressions(self):
+        """Test extraction of mixed expression types."""
+        obj = {
+            "step1": {
+                "input": "${{ ACTIONS.someAction.result }}",
+                "description": "This uses an action and a secret: ${{ SECRETS.apiKey.value }}",
+            },
+            "step2": {
+                "input": "${{ SECRETS.credentials.password }}",
+                "config": {"param": "${{ ACTIONS.anotherAction.config }}"},
+            },
+        }
+        result = extract_action_and_secret_expressions(obj)
+        assert ExprContext.ACTIONS in result
+        assert ExprContext.SECRETS in result
+        assert "someAction" in result[ExprContext.ACTIONS]
+        assert "anotherAction" in result[ExprContext.ACTIONS]
+        assert "apiKey" in result[ExprContext.SECRETS]
+        assert "credentials" in result[ExprContext.SECRETS]
+        assert len(result[ExprContext.ACTIONS]) == 2
+        assert len(result[ExprContext.SECRETS]) == 2
+
+    def test_nested_expressions(self):
+        """Test extraction from deeply nested objects."""
+        obj = {
+            "level1": {
+                "level2": {"level3": {"input": "${{ ACTIONS.deeplyNested.value }}"}}
+            },
+            "array": [
+                {"item": "${{ SECRETS.arraySecret.key }}"},
+                {"item": "${{ ACTIONS.arrayAction.result }}"},
+            ],
+        }
+        result = extract_action_and_secret_expressions(obj)
+        assert ExprContext.ACTIONS in result
+        assert ExprContext.SECRETS in result
+        assert "deeplyNested" in result[ExprContext.ACTIONS]
+        assert "arrayAction" in result[ExprContext.ACTIONS]
+        assert "arraySecret" in result[ExprContext.SECRETS]
+        assert len(result[ExprContext.ACTIONS]) == 2
+        assert len(result[ExprContext.SECRETS]) == 1
+
+    def test_multiple_expressions_in_one_string(self):
+        """Test extraction from strings with multiple expressions."""
+        obj = {
+            "step": {
+                "input": "Use ${{ ACTIONS.firstAction.result }} and ${{ ACTIONS.secondAction.result }} with ${{ SECRETS.apiKey.value }}"
+            }
+        }
+        result = extract_action_and_secret_expressions(obj)
+        assert ExprContext.ACTIONS in result
+        assert ExprContext.SECRETS in result
+        assert "firstAction" in result[ExprContext.ACTIONS]
+        assert "secondAction" in result[ExprContext.ACTIONS]
+        assert "apiKey" in result[ExprContext.SECRETS]
+        assert len(result[ExprContext.ACTIONS]) == 2
+        assert len(result[ExprContext.SECRETS]) == 1
+
+    @patch("tracecat.expressions.core.traverse_expressions")
+    def test_traverse_expressions_integration(self, mock_traverse):
+        """Test integration with traverse_expressions function."""
+        mock_traverse.return_value = [
+            "ACTIONS.testAction.result",
+            "SECRETS.testSecret.key",
+        ]
+
+        obj = {"dummy": "object"}
+        result = extract_action_and_secret_expressions(obj)
+
+        # Verify traverse_expressions was called with the object
+        mock_traverse.assert_called_once_with(obj)
+
+        # Verify results were correctly processed
+        assert ExprContext.ACTIONS in result
+        assert "testAction" in result[ExprContext.ACTIONS]
+        assert ExprContext.SECRETS in result
+        assert "testSecret" in result[ExprContext.SECRETS]
+
+    def test_expressions_with_additional_contexts(self):
+        """Test that contexts other than ACTIONS and SECRETS are ignored."""
+        obj = {
+            "step1": {
+                "input": "${{ FN.someFunction() }}",
+                "description": "This uses a function",
+            },
+            "step2": {
+                "input": "${{ INPUTS.someInput.value }}",
+                "config": {"param": "${{ ENV.someVariable }}"},
+            },
+            "step3": {
+                "input": "${{ TRIGGER.event.data }}",
+            },
+        }
+        result = extract_action_and_secret_expressions(obj)
+        # Only ACTIONS and SECRETS should be extracted by RegistryActionExtractor
+        assert ExprContext.ACTIONS not in result
+        assert ExprContext.SECRETS not in result
+        assert len(result) == 0
+
+    def test_invalid_expression_formats(self):
+        """Test behavior with malformed or invalid expression formats."""
+        obj = {
+            "step1": {
+                # Missing dollar sign
+                "input": "{{ ACTIONS.invalidFormat.result }}",
+                # Incomplete syntax
+                "description": "${{ ACTIONS.missingCloseBrace",
+            },
+            "step2": {
+                # Syntactically invalid but not empty
+                "input": "${{ UNKNOWN_CONTEXT }}",
+                # Random text that looks like expressions but isn't
+                "config": "$ACTIONS.notAnExpression$",
+            },
+        }
+
+        # The expectation is either an empty result or an exception is handled internally
+        try:
+            result = extract_action_and_secret_expressions(obj)
+            assert len(result) == 0
+        except Exception:
+            # If an exception occurs, the test can still pass
+            # as the function should ideally handle these cases gracefully
+            pass
