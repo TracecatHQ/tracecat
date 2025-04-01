@@ -24,6 +24,12 @@ resource "aws_ecs_task_definition" "worker_task_definition" {
           hostPort      = 8001
           name          = "worker"
           appProtocol   = "http"
+        },
+        {
+          containerPort = 9000
+          hostPort      = 9000
+          name          = "metrics"
+          appProtocol   = "http"
         }
       ]
       logConfiguration = {
@@ -48,7 +54,7 @@ resource "aws_ecs_service" "tracecat_worker" {
   name                 = "tracecat-worker"
   cluster              = aws_ecs_cluster.tracecat_cluster.id
   task_definition      = aws_ecs_task_definition.worker_task_definition.arn
-  desired_count        = 4
+  desired_count        = 2
   force_new_deployment = var.force_new_deployment
 
   network_configuration {
@@ -56,12 +62,14 @@ resource "aws_ecs_service" "tracecat_worker" {
     security_groups = [
       aws_security_group.core.id,
       aws_security_group.core_db.id,
+      aws_security_group.caddy.id
     ]
   }
 
   service_connect_configuration {
     enabled   = true
     namespace = local.local_dns_namespace
+
     service {
       port_name      = "worker"
       discovery_name = "worker-service"
@@ -71,6 +79,18 @@ resource "aws_ecs_service" "tracecat_worker" {
       client_alias {
         port     = 8001
         dns_name = "worker-service"
+      }
+    }
+
+    service {
+      port_name      = "metrics"
+      discovery_name = "metrics-service"
+      timeout {
+        per_request_timeout_seconds = 120
+      }
+      client_alias {
+        port     = 9000
+        dns_name = "metrics-service"
       }
     }
 

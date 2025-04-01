@@ -146,9 +146,9 @@ class ExecutorClient:
             case _:
                 logger.debug("Looks like unknown error")
                 detail = e.response.text
-        logger.error("Executor returned an error")
+        logger.warning("Executor returned an error", error=detail)
         if e.response.status_code / 100 == 5:
-            logger.error("There was an error in the executor when calling action")
+            logger.warning("There was an error in the executor when calling action")
             raise ExecutorClientError(
                 f"There was an error in the executor when calling action {action_type!r}.\n\n{detail}"
             ) from e

@@ -77,7 +77,7 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "0.29.3"
+  default = "0.29.8"
 }
 
 variable "temporal_server_image" {
@@ -362,4 +362,33 @@ variable "rds_backup_retention_period" {
   type        = number
   description = "The number of days to retain backups for RDS instances"
   default     = 7
+}
+
+
+### Prometheus Metrics
+
+variable "metrics_auth_username" {
+  description = "Username for basic auth on metrics endpoints"
+  type        = string
+  default     = "metrics"
+}
+
+variable "metrics_auth_password_hash" {
+  description = "Bcrypt hash of the password for basic auth on metrics endpoints (required when enable_metrics_auth is true)"
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "enable_metrics" {
+  description = "Whether to expose metrics endpoints with basic auth protection"
+  type        = bool
+  default     = false
+}
+
+variable "sentry_dsn" {
+  description = "The Sentry DSN to use for error reporting"
+  type        = string
+  default     = null
+  sensitive   = true
 }

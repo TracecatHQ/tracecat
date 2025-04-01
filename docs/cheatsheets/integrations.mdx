@@ -11,13 +11,13 @@ Core action namespaces are prefixed with `core.`.
 
 | Namespace | Function | Secrets |
 | --- | --- | --- |
-| core | ai_action | `llm` |
 | core | http_poll | `ssl` |
 | core | http_request | `ssl` |
 | core | require | - |
 | core | send_email_smtp | `smtp` |
 | core.table | insert_row | - |
 | core.table | lookup | - |
+| core.table | lookup_many | - |
 | core.transform | apply | - |
 | core.transform | deduplicate | - |
 | core.transform | filter | - |
@@ -53,11 +53,16 @@ Integration namespaces are prefixed with `tools.`.
 | tools.jamf | get_access_token | `jamf` |
 | tools.jamf | list_computers | `jamf`, `ssl` |
 | tools.jamf | lock_device | `jamf`, `ssl` |
+| tools.jira | add_issue_comment | `jira`, `ssl` |
 | tools.jira | create_issue | `jira`, `ssl` |
 | tools.jira | get_fields | `jira`, `ssl` |
 | tools.jira | get_priorities | `jira`, `ssl` |
 | tools.jira | get_priority_schemes | `jira`, `ssl` |
 | tools.jira | get_projects | `jira`, `ssl` |
+| tools.jira | get_transitions | `jira`, `ssl` |
+| tools.jira | update_issue_description | `jira`, `ssl` |
+| tools.jira | update_issue_fields | `jira`, `ssl` |
+| tools.jira | update_issue_status | `jira`, `ssl` |
 | tools.ldap | add_entry | `ldap` |
 | tools.ldap | delete_entry | `ldap` |
 | tools.ldap | modify_entry | `ldap` |
@@ -75,9 +80,9 @@ Integration namespaces are prefixed with `tools.`.
 | tools.slack | post_update | `slack` |
 | tools.slack | revoke_sessions | `slack` |
 | tools.slack_blocks | format_choices | - |
+| tools.slack_blocks | format_fields | - |
+| tools.slack_blocks | format_fields_context | - |
 | tools.slack_blocks | format_links | - |
-| tools.slack_blocks | format_metadata | - |
-| tools.slack_blocks | format_metadata_context | - |
 | tools.slack_blocks | format_text_input | - |
 | tools.slack_elements | format_overflow_menu | - |
 | tools.slack_sdk | call_method | `slack` |
@@ -92,6 +97,9 @@ Integration namespaces are prefixed with `tools.`.
 | tools.virustotal | lookup_file_hash | `ssl`, `virustotal` |
 | tools.virustotal | lookup_ip_address | `ssl`, `virustotal` |
 | tools.virustotal | lookup_url | `ssl`, `virustotal` |
+| tools.wazuh | active_response | `ssl`, `wazuh_wui` |
+| tools.wazuh | get_access_token | `wazuh_wui` |
+| tools.wazuh | update_agents | `ssl`, `wazuh_wui` |
 | tools.wiz | get_access_token | `wiz` |
 
 ## Credentials
@@ -116,10 +124,11 @@ Find out more about how secrets work in Tracecat [here](/quickstart/secrets).
 | `jamf` | `JAMF_CLIENT_ID` `JAMF_CLIENT_SECRET` | - |
 | `jira` | `JIRA_API_TOKEN` `JIRA_USEREMAIL` | - |
 | `ldap` | `LDAP_HOST` `LDAP_PASSWORD` `LDAP_PORT` `LDAP_USER` | - |
-| `llm` | - | `OPENAI_API_KEY` |
 | `microsoft_graph` | `MICROSOFT_GRAPH_CLIENT_ID` `MICROSOFT_GRAPH_CLIENT_SECRET` | - |
 | `mongodb` | `MONGODB_CONNECTION_STRING` | - |
 | `okta` | `OKTA_API_TOKEN` | - |
+| `ollama` | - | `OLLAMA_API_URL` |
+| `openai` | `OPENAI_API_KEY` | - |
 | `sentinel_one` | `SENTINEL_ONE_API_TOKEN` | - |
 | `slack` | `SLACK_BOT_TOKEN` | - |
 | `smtp` | `SMTP_HOST` `SMTP_PASS` `SMTP_PORT` `SMTP_USER` | - |
@@ -128,4 +137,5 @@ Find out more about how secrets work in Tracecat [here](/quickstart/secrets).
 | `threatstream` | `ANOMALI_API_KEY` `ANOMALI_USERNAME` | - |
 | `urlscan` | `URLSCAN_API_KEY` | - |
 | `virustotal` | `VIRUSTOTAL_API_KEY` | - |
+| `wazuh_wui` | `WAZUH_WUI_PASSWORD` `WAZUH_WUI_USERNAME` | - |
 | `wiz` | `WIZ_CLIENT_ID` `WIZ_CLIENT_SECRET` | - |

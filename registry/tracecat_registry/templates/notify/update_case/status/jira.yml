@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Update issue status
+  description: Update the status of an issue.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-transitions-post
+  namespace: tools.jira
+  name: update_issue_status
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    issue_id_or_key:
+      type: str
+      description: ID or key of the issue to update.
+    transition_id:
+      type: str
+      description: ID of the transition to perform.
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
+  steps:
+    - ref: update_issue
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issue_id_or_key }}/transitions
+        method: POST
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+        payload:
+          transition:
+            id: ${{ inputs.transition_id }}
+  returns: ${{ steps.update_issue.result }}

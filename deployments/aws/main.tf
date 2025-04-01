@@ -114,4 +114,12 @@ module "ecs" {
   caddy_memory                = var.caddy_memory
   db_instance_class           = var.db_instance_class
   db_instance_size            = var.db_instance_size
+
+  # Metrics configuration
+  enable_metrics             = var.enable_metrics
+  metrics_auth_username      = var.metrics_auth_username
+  metrics_auth_password_hash = var.metrics_auth_password_hash
+
+  # Sentry configuration
+  sentry_dsn = var.sentry_dsn
 }

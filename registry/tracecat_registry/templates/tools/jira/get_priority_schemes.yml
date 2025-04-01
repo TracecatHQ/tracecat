@@ -23,8 +23,9 @@ definition:
       args:
         url: ${{ inputs.base_url }}/rest/api/3/priorityscheme
         method: GET
-        headers:
-          Authorization: Basic ${{ FN.to_base64(SECRETS.jira.JIRA_USEREMAIL + ":" + SECRETS.jira.JIRA_API_TOKEN) }}
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
         params:
           maxResults: ${{ inputs.limit }}
   returns: ${{ steps.get_priority_schemes.result.data.values }}
