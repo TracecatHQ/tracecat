@@ -81,6 +81,7 @@ dev = [
     "python-dotenv==1.0.1",
     "respx==0.22.0",
     "ruff==0.9.1",
+    "moto[server,s3]==5.1.2",
 ]
 
 [tool.hatch.version]
