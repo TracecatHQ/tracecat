@@ -201,13 +201,11 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
-    async def resolve_condition_activity(
-        input: ResolveConditionActivityInput,
-    ) -> bool:
+    async def resolve_condition_activity(input: ResolveConditionActivityInput) -> bool:
         """Resolve a condition expression. Throws an ApplicationError if the result
         cannot be converted to a boolean.
         """
-        logger.debug("Resolve condition", task_run_if=input.condition_expr)
+        logger.debug("Resolve condition", condition=input.condition_expr)
         # Don't block the main workflow thread
         result = await resolve_templated_object(input.condition_expr, input.context)
         try:
