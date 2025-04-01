@@ -100,6 +100,7 @@ import {
   TablesListRowsData,
   tablesListTables,
   TablesListTablesData,
+  tablesSetColumnAsNaturalKey,
   tablesUpdateColumn,
   TablesUpdateColumnData,
   tablesUpdateTable,
@@ -2278,4 +2279,64 @@ export function useImportCsv() {
     importCsvIsPending,
     importCsvError,
   }
+}
+
+export function useSetNaturalKey() {
+  const queryClient = useQueryClient();
+  const [isSettingNaturalKey, setIsSettingNaturalKey] = useState(false);
+
+  const setNaturalKey = async ({
+    tableId,
+    columnId,
+    workspaceId,
+  }: {
+    tableId: string;
+    columnId: string;
+    workspaceId?: string;
+  }) => {
+    setIsSettingNaturalKey(true);
+    try {
+      await tablesSetColumnAsNaturalKey({
+        tableId,
+        columnId,
+        workspaceId,
+      });
+
+      // Invalidate both table schema and rows data
+      queryClient.invalidateQueries({
+        queryKey: ["table", tableId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["rows", tableId],
+      });
+
+      toast({
+        title: "Natural key created",
+        description: "Column is now a natural key.",
+      });
+
+      return true;
+    } catch (error) {
+      if (error instanceof Error) {
+        if ('status' in error && error.status === 409) {
+          toast({
+            title: "Error creating natural key",
+            description: "Column contains duplicate values. All values must be unique.",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Error creating natural key",
+            description: error.message || "An unexpected error occurred",
+            variant: "destructive",
+          });
+        }
+      }
+      return false;
+    } finally {
+      setIsSettingNaturalKey(false);
+    }
+  };
+
+  return { setNaturalKey, isSettingNaturalKey };
 }

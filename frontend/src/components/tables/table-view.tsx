@@ -75,6 +75,9 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
             {column.name}
           </span>
           <span className="lowercase text-muted-foreground">{column.type}</span>
+          {column.isNaturalKey && (
+            <span className="text-green-500 text-xs">Natural Key</span>
+          )}
           <TableViewColumnMenu column={column} />
         </div>
       ),

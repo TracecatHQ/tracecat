@@ -2,13 +2,14 @@
 
 import { useState } from "react"
 import { useParams } from "next/navigation"
-import { ApiError, TableColumnRead } from "@/client"
+import { ApiError, TableColumnRead, tablesSetColumnAsNaturalKey } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   ChevronDownIcon,
   CopyIcon,
+  KeyIcon,
   Loader2,
   Pencil,
   Trash2Icon,
@@ -17,7 +18,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { userIsPrivileged } from "@/lib/auth"
-import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
+import { useDeleteColumn, useSetNaturalKey, useUpdateColumn } from "@/lib/hooks"
 import { SqlTypeEnum } from "@/lib/tables"
 import {
   AlertDialog,
@@ -64,7 +65,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 
-type TableViewColumnMenuType = "delete" | "edit" | null
+type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
 
 export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
   const { user } = useAuth()
@@ -109,6 +110,17 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 className="py-1 text-xs text-foreground/80"
                 onClick={(e) => {
                   e.stopPropagation()
+                  setActiveType("set-natural-key")
+                }}
+                disabled={column.isNaturalKey} // Disable if already a natural key
+              >
+                <KeyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
+                {column.isNaturalKey ? "Natural Key" : "Make Natural Key"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="py-1 text-xs text-foreground/80"
+                onClick={(e) => {
+                  e.stopPropagation()
                   setActiveType("edit")
                 }}
               >
@@ -139,6 +151,12 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
         tableId={tableId}
         column={column}
         open={activeType === "edit"}
+        onOpenChange={onOpenChange}
+      />
+      <TableColumnNaturalKeyDialog
+        tableId={tableId}
+        column={column}
+        open={activeType === "set-natural-key"}
         onOpenChange={onOpenChange}
       />
     </>
@@ -382,5 +400,75 @@ function TableColumnEditDialog({
         </Form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function TableColumnNaturalKeyDialog({
+  tableId,
+  column,
+  open,
+  onOpenChange,
+}: {
+  tableId?: string
+  column: TableColumnRead
+  open: boolean
+  onOpenChange: () => void
+}) {
+  const { workspaceId } = useWorkspace();
+  const { setNaturalKey, isSettingNaturalKey } = useSetNaturalKey();
+
+  if (!tableId || !workspaceId) {
+    return null
+  }
+
+  const handleSetNaturalKey = async () => {
+    const success = await setNaturalKey({
+      tableId,
+      columnId: column.id,
+      workspaceId,
+    });
+
+    if (success) {
+      onOpenChange();
+    }
+  };
+
+  return (
+    <AlertDialog open={open} onOpenChange={() => !isSettingNaturalKey && onOpenChange()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Create Natural Key</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to make column <b>{column.name}</b> a natural key?
+            This will create a unique index on the column, making it usable for upsert operations.
+            <br/><br/>
+            <strong>Requirements:</strong>
+            <ul className="list-disc pl-5 text-xs mt-2">
+              <li>All values in the column must be unique</li>
+              <li>This cannot be undone except by recreating the column</li>
+            </ul>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isSettingNaturalKey}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleSetNaturalKey}
+            disabled={isSettingNaturalKey}
+          >
+            {isSettingNaturalKey ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              <>
+                <KeyIcon className="mr-2 size-4" />
+                Create Natural Key
+              </>
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

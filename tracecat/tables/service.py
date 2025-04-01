@@ -8,6 +8,7 @@ from asyncpg.exceptions import (
     InvalidCachedStatementError,
     UndefinedTableError,
 )
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlmodel import select
@@ -97,7 +98,7 @@ class TablesService(BaseService):
         return result.all()
 
     async def get_table(self, table_id: TableID) -> Table:
-        """Get a lookup table by ID."""
+        """Get a lookup table by ID with natural key information."""
         ws_id = self._workspace_id()
         statement = select(Table).where(
             Table.owner_id == ws_id,
@@ -107,7 +108,53 @@ class TablesService(BaseService):
         table = result.first()
         if table is None:
             raise TracecatNotFoundError("Table not found")
+
+        # Store natural key info to be used in the response model
+        table._natural_key_columns = await self._enrich_columns_with_natural_key_info(
+            table
+        )
+
         return table
+
+    async def _enrich_columns_with_natural_key_info(
+        self, table: Table
+    ) -> dict[str, bool]:
+        """Check which columns are natural keys using pg_constraint and pg_attribute.
+
+        Returns a dictionary mapping column names to their natural key status.
+        """
+        schema_name = self._get_schema_name()
+        conn = await self.session.connection()
+
+        # Query using pg_constraint to find unique constraints
+        query = text(r"""
+            SELECT
+                a.attname as column_name
+            FROM
+                pg_constraint c
+            JOIN
+                pg_namespace n ON n.oid = c.connamespace
+            JOIN
+                pg_class t ON t.oid = c.conrelid
+            JOIN
+                pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+            WHERE
+                n.nspname = :schema AND
+                t.relname = :table AND
+                c.contype = 'u' AND
+                c.conname LIKE 'uq\_' || :table || '\_%'
+        """)
+
+        # Execute the query with named parameters
+        result = await conn.execute(query, {"schema": schema_name, "table": table.name})
+
+        # Get column names from the result
+        natural_key_columns = {row[0] for row in result.fetchall()}
+
+        # Return a dictionary mapping column names to their natural key status
+        return {
+            column.name: column.name in natural_key_columns for column in table.columns
+        }
 
     async def get_table_by_name(self, table_name: str) -> Table:
         """Get a lookup table by name.
@@ -379,6 +426,49 @@ class TablesService(BaseService):
         return column
 
     @require_access_level(AccessLevel.ADMIN)
+    async def create_unique_index(self, table: Table, column_names: list[str]) -> None:
+        """Create a unique index on specified columns."""
+        # Get the fully qualified table name with schema
+        full_table_name = self._full_table_name(table.name)
+
+        # Sanitize column names to prevent SQL injection
+        sanitized_columns = [self._sanitize_identifier(col) for col in column_names]
+
+        # Create a descriptive name for the index
+        # Format: uq_[table_name]_[col1]_[col2]_etc
+        index_name = f"uq_{table.name}_{'_'.join(sanitized_columns)}"
+
+        # Get database connection
+        conn = await self.session.connection()
+
+        # Execute the CREATE UNIQUE INDEX SQL command
+        await conn.execute(
+            sa.DDL(
+                "CREATE UNIQUE INDEX %s ON %s (%s)",
+                (
+                    index_name,  # Name of the index
+                    full_table_name,  # Table to create index on
+                    ", ".join(sanitized_columns),  # Column(s) to index
+                ),
+            )
+        )
+
+        # Commit the transaction
+        await self.session.commit()
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def set_column_as_natural_key(
+        self, table_id: TableID, column_id: TableColumnID
+    ) -> None:
+        """Make a column a natural key by creating a unique index on it."""
+        # Get the table and column
+        table = await self.get_table(table_id)
+        column = await self.get_column(table_id, column_id)
+
+        # Create a unique index on just this column
+        await self.create_unique_index(table, [column.name])
+
+    @require_access_level(AccessLevel.ADMIN)
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
         full_table_name = self._full_table_name(column.table.name)
@@ -443,6 +533,10 @@ class TablesService(BaseService):
 
         Returns:
             A mapping containing the inserted row data
+
+        Raises:
+            ValueError: If conflict keys are specified but not present in the data
+            DBAPIError: If there's no unique index on the specified conflict keys
         """
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
@@ -453,10 +547,6 @@ class TablesService(BaseService):
 
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
-
-        row_id = None
-        if "id" in row_data and upsert:
-            row_id = row_data.pop("id")
 
         for col, value in row_data.items():
             value_clauses[col] = to_sql_clause(value, col_map[col])
@@ -469,32 +559,57 @@ class TablesService(BaseService):
                 .returning(sa.text("*"))
             )
         else:
-            # For upsert, we need the row_id in the values to trigger the conflict
-            if row_id:
-                value_clauses["id"] = sa.bindparam(
-                    key="id", value=row_id, type_=sa.UUID
-                )
-                id_col = sa.column("id")
-                cols.append(id_col)
-
+            # For upsert operations
             table_obj = sa.table(table.name, *cols, schema=schema_name)
             pg_stmt = insert(table_obj)
             pg_stmt = pg_stmt.values(**value_clauses)
 
-            # Exclude id from updates
+            # Determine which columns to use for conflict resolution
+            natural_keys = getattr(params, "natural_keys", [])
+
+            # Ensure all conflict keys are actually in the data
+            if not all(key in value_clauses for key in natural_keys):
+                raise ValueError("All natural keys must be present in the data")
+
+            # Check if the conflict keys have corresponding columns defined
+            if not natural_keys:
+                raise ValueError("No natural keys specified for upsert")
+
+            # Define what gets updated on conflict
             update_dict = {
                 col: pg_stmt.excluded[col]
                 for col in value_clauses.keys()
-                if col != "id"
+                if col not in natural_keys  # Don't update the conflict keys
             }
 
             update_dict["updated_at"] = sa.text("CLOCK_TIMESTAMP()")
 
-            # Complete the statement with on_conflict_do_update
-            stmt = pg_stmt.on_conflict_do_update(
-                index_elements=["id"], set_=update_dict
-            ).returning(sa.text("*"))
+            try:
+                # Complete the statement with on_conflict_do_update
+                stmt = pg_stmt.on_conflict_do_update(
+                    index_elements=natural_keys, set_=update_dict
+                ).returning(sa.text("*"))
 
+                result = await conn.execute(stmt)
+                await self.session.commit()
+                row = result.mappings().one()
+                return dict(row)
+
+            except ProgrammingError as e:
+                # Check for specific error about missing unique constraint
+                if "there is no unique or exclusion constraint" in str(e):
+                    await self.session.rollback()
+                    logger.warning(
+                        "No unique index found for upsert conflict keys",
+                        natural_keys=natural_keys,
+                        table_name=table.name,
+                    )
+                    raise ValueError(
+                        "Cannot upsert on columns. Create a unique index first with create_unique_index()"
+                    ) from e
+                raise
+
+        # For non-upsert or if the exception handling for upsert didn't return
         result = await conn.execute(stmt)
         await self.session.commit()
         row = result.mappings().one()
