@@ -18,7 +18,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.validation import validate_trigger_inputs_activity
     from tracecat.dsl.workflow import DSLWorkflow
+    from tracecat.ee.store.service import ObjectStore
     from tracecat.logger import logger
+    from tracecat.service import get_activities
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
@@ -59,6 +61,7 @@ def all_activities() -> list[Callable]:
         *WorkflowSchedulesService.get_activities(),
         validate_trigger_inputs_activity,
         *WorkflowsManagementService.get_activities(),
+        *get_activities(ObjectStore),
     ]
 
 
