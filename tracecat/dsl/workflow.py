@@ -533,9 +533,11 @@ class DSLWorkflow:
                     )
                     action_result = await self._run_action(task)
             logger.trace("Action completed successfully", action_result=action_result)
-            task_result.update(
-                result=action_result, result_typename=type(action_result).__name__
-            )
+            # If the result is a blob, we need to store it in object storage
+            result_typename = type(action_result).__name__
+            if isinstance(action_result, Mapping) and as_object_ref(action_result):
+                result_typename = OBJECT_REF_RESULT_TYPE
+            task_result.update(result=action_result, result_typename=result_typename)
         # NOTE: By the time we receive an exception, we've exhausted all retry attempts
         # Note that execute_task is called by the scheduler, so we don't have to return ApplicationError
         except (ActivityError, ChildWorkflowError, FailureError) as e:
