@@ -77,21 +77,19 @@ def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResu
             logger.info("Storing action result in object store", result=result)
             # If the object exceeds the hard cap, we error out and do not store it
             result_bytes = orjson.dumps(result)
-            if (size := len(result_bytes)) > (
-                limit := config.TRACECAT__MAX_OBJECT_SIZE_BYTES
-            ):
-                raise ValueError(
-                    f"Object size {size} bytes exceeds maximum allowed size of {limit} bytes"
+            if len(result_bytes) > config.TRACECAT__MAX_OBJECT_SIZE_BYTES:
+                logger.warning(
+                    "Object size exceeds maximum allowed size",
+                    size=len(result_bytes),
+                    limit=config.TRACECAT__MAX_OBJECT_SIZE_BYTES,
                 )
+                raise ValueError(
+                    f"Object size {len(result_bytes)} bytes exceeds maximum allowed size of {config.TRACECAT__MAX_OBJECT_SIZE_BYTES} bytes"
+                )
+            logger.info("Storing action result in object store", result=result)
             # Store the result of the action and return the object ref
             store = ObjectStore.get()
-            obj_ref = loop.run_until_complete(store.put_object_bytes(result_bytes))
-            result = ObjectRef(
-                key=obj_ref.key,
-                size=obj_ref.size,
-                digest=obj_ref.digest,
-                metadata={"encoding": "json/plain"},
-            )
+            result = loop.run_until_complete(store.put_object_bytes(result_bytes))
         return result
     except Exception as e:
         # Raise the error proxy here
