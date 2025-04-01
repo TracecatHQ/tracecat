@@ -293,12 +293,12 @@ async def load_execution_context(input: RunActionInput) -> ExecutionContext:
     log = ctx_logger.get()
     context = input.exec_context.copy()
     if not config.TRACECAT__USE_OBJECT_STORE:
-        log.warning("Object store is disabled, skipping action result fetching")
+        log.debug("Object store is disabled, skipping action result fetching")
         return context
 
     # Actions
     # (1) Extract expressions: Grab the action refs that this action depends on
-    log.warning("Store backend, pulling action results into execution context")
+    log.debug("Store enabled, pulling action results into execution context")
 
     task = input.task
     store = ObjectStore.get()
