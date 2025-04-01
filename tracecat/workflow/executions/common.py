@@ -5,6 +5,13 @@ import temporalio.api.common.v1
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
+from tracecat.config import (
+    TRACECAT__MAX_OBJECT_DISPLAY_SIZE_BYTES,
+    TRACECAT__PUBLIC_API_URL,
+)
+from tracecat.dsl.action import DSLActivities
+from tracecat.ee.store.models import as_object_ref
+from tracecat.ee.store.service import ObjectStore
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.logger import logger
 from tracecat.workflow.executions.enums import (
@@ -102,7 +109,7 @@ def is_utility_activity(activity_name: str) -> bool:
     return activity_name in UTILITY_ACTIONS
 
 
-def get_result(event: HistoryEvent) -> Any:
+async def get_result(event: HistoryEvent) -> Any:
     match event.event_type:
         case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
             payload = event.workflow_execution_completed_event_attributes.result
@@ -114,7 +121,7 @@ def get_result(event: HistoryEvent) -> Any:
             payload = event.workflow_execution_update_completed_event_attributes.outcome.success
         case _:
             raise ValueError("Event is not a completed event")
-    return extract_first(payload)
+    return await resolve_first_task_result(payload)
 
 
 def get_source_event_id(event: HistoryEvent) -> int | None:
@@ -167,6 +174,26 @@ def extract_payload(payload: temporalio.api.common.v1.Payloads, index: int = 0) 
 def extract_first(input_or_result: temporalio.api.common.v1.Payloads) -> Any:
     """Extract the first payload from a workflow history event."""
     return extract_payload(input_or_result, index=0)
+
+
+async def resolve_first_task_result(
+    input_or_result: temporalio.api.common.v1.Payloads,
+) -> Any:
+    result = extract_first(input_or_result)
+
+    # It's an object ref, we need to resolve it
+    # Here, we also add the url to download the object if it's too big
+    obj_ref = as_object_ref(result)
+    if obj_ref is None:
+        return result
+    if obj_ref.size > TRACECAT__MAX_OBJECT_DISPLAY_SIZE_BYTES:
+        return {
+            "message": "This object is too large to display in the UI. Please download it from the object store.",
+            # TODO: Add an endpoint to download the object
+            "url": f"{TRACECAT__PUBLIC_API_URL}/objects/{obj_ref.key}",
+            "size": obj_ref.size,
+        }
+    return await ObjectStore.get().get_object(obj_ref)
 
 
 def build_query(
