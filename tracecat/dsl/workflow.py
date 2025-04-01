@@ -346,6 +346,7 @@ class DSLWorkflow:
             wf_exec_id=wf_info.workflow_id,
             wf_run_id=uuid.UUID(wf_info.run_id, version=4),
             environment=self.runtime_config.environment,
+            namespace=wf_info.namespace,
         )
         ctx_run.set(self.run_context)
 
