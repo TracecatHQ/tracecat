@@ -1,11 +1,13 @@
 import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger
+from tracecat.dsl.action import DSLActivities, ResolveConditionActivityInput
 from tracecat.dsl.common import AdjDst, DSLEdge, DSLInput, edge_components_from_dep
 from tracecat.dsl.enums import EdgeMarker, EdgeType, JoinStrategy, SkipStrategy
 from tracecat.dsl.models import (
@@ -15,7 +17,6 @@ from tracecat.dsl.models import (
     TaskExceptionInfo,
     TaskResult,
 )
-from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
 
@@ -228,7 +229,7 @@ class DSLScheduler:
 
             # 3) At this point the task is reachable and not force-skipped.
             # Check if the task should self-skip based on its `run_if` condition
-            if self._task_should_skip(task):
+            if await self._task_should_skip(task):
                 self.logger.info("Task should self-skip", ref=ref)
                 return await self._handle_skip_path(ref)
 
@@ -396,7 +397,7 @@ class DSLScheduler:
             for dep_ref in deps
         )
 
-    def _task_should_skip(self, task: ActionStatement) -> bool:
+    async def _task_should_skip(self, task: ActionStatement) -> bool:
         """Check if a task should be skipped based on its `run_if` condition.
 
         Args:
@@ -405,11 +406,13 @@ class DSLScheduler:
         Returns:
             bool: True if the task should be skipped, False otherwise
         """
+        if task.run_if is None:
+            return False
         # Evaluate the `run_if` condition
-        if task.run_if is not None:
-            expr = TemplateExpression(task.run_if, operand=self.context)
-            self.logger.debug("`run_if` condition", task_run_if=task.run_if)
-            if not bool(expr.result()):
-                self.logger.info("Task `run_if` condition was not met, skipped")
-                return True
-        return False
+        return await workflow.execute_activity(
+            DSLActivities.resolve_condition_activity,
+            arg=ResolveConditionActivityInput(
+                condition_expr=task.run_if, context=self.context
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+        )
