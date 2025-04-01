@@ -440,15 +440,10 @@ variable "metrics_auth_username" {
 }
 
 variable "metrics_auth_password_hash" {
-  description = "Bcrypt hash of the password for basic auth on metrics endpoints (required when enable_metrics is true)"
+  description = "Bcrypt hash of the password for basic auth on metrics endpoints"
   type        = string
   default     = null
   sensitive   = true
-
-  validation {
-    condition     = var.metrics_auth_password_hash != null || var.enable_metrics == false
-    error_message = "metrics_auth_password_hash must be set when enable_metrics is true."
-  }
 }
 
 variable "enable_metrics" {
