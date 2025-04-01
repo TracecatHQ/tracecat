@@ -1,18 +1,19 @@
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import aiobotocore.session
 import orjson
 import pytest
 from moto.server import ThreadedMotoServer
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from tracecat.dsl.action import DSLActivities, ResolveConditionActivityInput
 from tracecat.dsl.models import ExecutionContext
 from tracecat.ee.store.constants import OBJECT_REF_RESULT_TYPE
 from tracecat.ee.store.models import ObjectRef, StoreWorkflowResultActivityInput
 from tracecat.ee.store.service import ObjectStore, get_object, put_object
 from tracecat.expressions.common import ExprContext
-
-# Constants needed for testing
 
 
 @pytest.fixture(scope="module")
@@ -447,3 +448,106 @@ async def test_put_object_duplicate(s3_client, test_bucket: str):
         stored_data = await stream.read()
 
     assert stored_data == original_data  # Should still have original data
+
+
+class TestResolveConditionActivity:
+    """Tests for the resolve_condition_activity function."""
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "test_value,expected_result",
+        [
+            (True, True),  # Boolean true
+            (False, False),  # Boolean false
+            (42, True),  # Truthy number
+            (0, False),  # Falsy - zero
+            ("", False),  # Falsy - empty string
+            ([], False),  # Falsy - empty list
+            ({}, False),  # Falsy - empty dict
+            (None, False),  # Falsy - None
+        ],
+        ids=[
+            "true",
+            "false",
+            "truthy_number",
+            "zero",
+            "empty_str",
+            "empty_list",
+            "empty_dict",
+            "none",
+        ],
+    )
+    async def test_resolve_condition(
+        self, activity_env: ActivityEnvironment, test_value: Any, expected_result: bool
+    ):
+        """Test resolving conditions with various values.
+
+        NOTE: We mock the entire object store resolution, since this is tested elsewhere.
+        """
+        # Arrange
+        context = ExecutionContext(
+            {ExprContext.ACTIONS: {"test": {"result": test_value}}}
+        )
+        condition_expr = "${{ ACTIONS.test.result }}"
+        input_data = ResolveConditionActivityInput(
+            context=context,
+            condition_expr=condition_expr,
+        )
+
+        # Mock the ObjectStore resolution
+        mock_store = AsyncMock(spec=ObjectStore)
+        mock_store.resolve_object_refs = AsyncMock(return_value=context)
+
+        with patch.object(ObjectStore, "get", return_value=mock_store):
+            # Act
+            result = await activity_env.run(
+                DSLActivities.resolve_condition_activity, input_data
+            )
+
+            # Assert
+            assert result is expected_result
+            mock_store.resolve_object_refs.assert_awaited_once_with(
+                condition_expr, context
+            )
+
+    @pytest.mark.anyio
+    async def test_resolve_condition_raises_error(
+        self, activity_env: ActivityEnvironment
+    ):
+        """Test that an ApplicationError is raised when a value can't be converted to a boolean."""
+        # Arrange
+        context = ExecutionContext()
+        condition_expr = "${{ ACTIONS.test.result }}"
+        input_data = ResolveConditionActivityInput(
+            context=context,
+            condition_expr=condition_expr,
+        )
+
+        # Use a special mock that raises an error when bool() is called
+        class NonBooleanResult:
+            def __bool__(self):
+                raise ValueError("Cannot convert to boolean")
+
+        result_object = NonBooleanResult()
+
+        # Create a resolved context that will return our special object
+        resolved_context = ExecutionContext(
+            {ExprContext.ACTIONS: {"test": {"result": result_object}}}
+        )
+
+        # Mock the ObjectStore resolution
+        mock_store = AsyncMock(spec=ObjectStore)
+        mock_store.resolve_object_refs = AsyncMock(return_value=resolved_context)
+
+        with patch.object(ObjectStore, "get", return_value=mock_store):
+            # Act & Assert
+            with pytest.raises(ApplicationError) as exc_info:
+                await activity_env.run(
+                    DSLActivities.resolve_condition_activity, input_data
+                )
+
+            # Verify the error message
+            assert "Condition result could not be converted to a boolean" in str(
+                exc_info.value
+            )
+            assert exc_info.value.non_retryable is True
