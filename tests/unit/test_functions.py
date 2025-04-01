@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any, Literal
 
 import orjson
@@ -53,6 +53,7 @@ from tracecat.expressions.functions import (
     is_equal,
     is_in,
     is_null,
+    is_working_hours,
     iter_product,
     less_than,
     less_than_or_equal,
@@ -70,6 +71,7 @@ from tracecat.expressions.functions import (
     not_null,
     or_,
     parse_datetime,
+    parse_time,
     pow,
     prettify_json,
     regex_extract,
@@ -88,6 +90,7 @@ from tracecat.expressions.functions import (
     sum_,
     titleize,
     to_datetime,
+    to_time,
     to_timestamp,
     unset_timezone,
     uppercase,
@@ -1040,3 +1043,404 @@ def test_format_datetime(
     input_val: datetime | str, format_str: str, expected: str
 ) -> None:
     assert format_datetime(input_val, format_str) == expected
+
+
+@pytest.mark.parametrize(
+    "test_time,start_time,end_time,include_weekends,timezone,expected",
+    [
+        # Normal working hours (9 AM - 5 PM)
+        (
+            datetime(2024, 3, 18, 12, 0),
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            True,
+        ),  # Monday noon
+        (
+            datetime(2024, 3, 18, 8, 0),
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            False,
+        ),  # Monday before hours
+        (
+            datetime(2024, 3, 18, 18, 0),
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            False,
+        ),  # Monday after hours
+        # Weekend cases
+        (
+            datetime(2024, 3, 23, 12, 0),
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            False,
+        ),  # Saturday - excluded
+        (
+            datetime(2024, 3, 23, 12, 0),
+            "09:00:00",
+            "17:00:00",
+            True,
+            None,
+            True,
+        ),  # Saturday - included
+        (
+            datetime(2024, 3, 24, 12, 0),
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            False,
+        ),  # Sunday - excluded
+        (
+            datetime(2024, 3, 24, 12, 0),
+            "09:00:00",
+            "17:00:00",
+            True,
+            None,
+            True,
+        ),  # Sunday - included
+        # Edge cases
+        (
+            datetime(2024, 3, 18, 9, 0),
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            True,
+        ),  # Exactly at start time
+        (
+            datetime(2024, 3, 18, 17, 0),
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            True,
+        ),  # Exactly at end time
+        # Overnight shift (10 PM - 6 AM)
+        (
+            datetime(2024, 3, 18, 23, 0),
+            "22:00:00",
+            "06:00:00",
+            False,
+            None,
+            True,
+        ),  # During overnight (11 PM)
+        (
+            datetime(2024, 3, 18, 4, 0),
+            "22:00:00",
+            "06:00:00",
+            False,
+            None,
+            True,
+        ),  # During overnight (4 AM)
+        (
+            datetime(2024, 3, 18, 12, 0),
+            "22:00:00",
+            "06:00:00",
+            False,
+            None,
+            False,
+        ),  # Outside overnight (noon)
+        # String input without timezone
+        (
+            "2024-03-18T12:00:00",
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            True,
+        ),  # String input during hours
+        (
+            "2024-03-18T08:00:00",
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            False,
+        ),  # String input before hours
+        (
+            "2024-03-18T18:00:00",
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            False,
+        ),  # String input after hours
+        # String input with timezone in string
+        (
+            "2024-03-18T12:00:00Z",
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            True,
+        ),  # String with UTC timezone
+        (
+            "2024-03-18T12:00:00+00:00",
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            True,
+        ),  # String with explicit UTC offset
+        (
+            "2024-03-18T04:00:00-05:00",
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            False,
+        ),  # String with -5 offset (4am ET = 9am UTC)
+        (
+            "2024-03-18T10:00:00-05:00",
+            "09:00:00",
+            "17:00:00",
+            False,
+            None,
+            True,
+        ),  # String with -5 offset (10am ET = 3pm UTC)
+        # String input without timezone but with timezone parameter
+        (
+            "2024-03-18T12:00:00",
+            "09:00:00",
+            "17:00:00",
+            False,
+            "UTC",
+            True,
+        ),  # Noon UTC during hours
+        (
+            "2024-03-18T12:00:00",
+            "09:00:00",
+            "17:00:00",
+            False,
+            "America/New_York",
+            False,
+        ),  # Noon treated as EDT (8am EDT)
+        (
+            "2024-03-18T16:00:00",
+            "09:00:00",
+            "17:00:00",
+            False,
+            "America/New_York",
+            True,
+        ),  # 4pm treated as EDT (noon EDT)
+        # Different timezones
+        # 12 PM UTC = 8 AM EDT (outside working hours in US Eastern)
+        (
+            datetime(2024, 3, 18, 12, 0, tzinfo=UTC),
+            "09:00:00",
+            "17:00:00",
+            False,
+            "America/New_York",
+            False,
+        ),
+        # 18 PM UTC = 2 PM EDT (during working hours in US Eastern)
+        (
+            datetime(2024, 3, 18, 18, 0, tzinfo=UTC),
+            "09:00:00",
+            "17:00:00",
+            False,
+            "America/New_York",
+            True,
+        ),
+        # Weekend with timezone conversion
+        (
+            "2024-03-23T12:00:00",
+            "09:00:00",
+            "17:00:00",
+            False,
+            "UTC",
+            False,
+        ),  # Saturday UTC
+        (
+            "2024-03-22T23:00:00-05:00",
+            "09:00:00",
+            "17:00:00",
+            False,
+            "UTC",
+            False,
+        ),  # Friday 11pm ET = Saturday 4am UTC
+        (
+            "2024-03-22T23:00:00-05:00",
+            "09:00:00",
+            "17:00:00",
+            True,
+            "UTC",
+            False,
+        ),  # Outside of hours even with weekends
+        # HH:MM format test cases
+        (
+            datetime(2024, 3, 18, 12, 0),
+            "09:00",
+            "17:00",
+            False,
+            None,
+            True,
+        ),  # Basic HH:MM format
+        (
+            datetime(2024, 3, 18, 8, 0),
+            "09:00",
+            "17:00",
+            False,
+            None,
+            False,
+        ),  # Before hours with HH:MM
+        (
+            datetime(2024, 3, 18, 18, 0),
+            "09:00",
+            "17:00",
+            False,
+            None,
+            False,
+        ),  # After hours with HH:MM
+        # Mixed format test cases
+        (
+            datetime(2024, 3, 18, 12, 0),
+            "09:00:00",
+            "17:00",
+            False,
+            None,
+            True,
+        ),  # Mixed format HH:MM:SS and HH:MM
+        (
+            datetime(2024, 3, 18, 12, 0),
+            "09:00",
+            "17:00:00",
+            False,
+            None,
+            True,
+        ),  # Mixed format HH:MM and HH:MM:SS
+        # Overnight with HH:MM format
+        (
+            datetime(2024, 3, 18, 23, 0),
+            "22:00",
+            "06:00",
+            False,
+            None,
+            True,
+        ),  # During overnight with HH:MM
+        (
+            datetime(2024, 3, 18, 4, 0),
+            "22:00",
+            "06:00",
+            False,
+            None,
+            True,
+        ),  # During overnight with HH:MM
+        (
+            datetime(2024, 3, 18, 12, 0),
+            "22:00",
+            "06:00",
+            False,
+            None,
+            False,
+        ),  # Outside overnight with HH:MM
+    ],
+)
+def test_is_working_hours(
+    test_time: datetime | str,
+    start_time: str,
+    end_time: str,
+    include_weekends: bool,
+    timezone: str | None,
+    expected: bool,
+) -> None:
+    """Test is_working_hours with various scenarios including weekend handling and timezone conversion."""
+    assert (
+        is_working_hours(test_time, start_time, end_time, include_weekends, timezone)
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    "time_str,expected",
+    [
+        # HH:MM:SS format
+        ("12:34:56", time(12, 34, 56)),
+        ("00:00:00", time(0, 0, 0)),
+        ("23:59:59", time(23, 59, 59)),
+        # HH:MM format
+        ("12:34", time(12, 34, 0)),
+        ("00:00", time(0, 0, 0)),
+        ("23:59", time(23, 59, 0)),
+    ],
+)
+def test_parse_time(time_str: str, expected: time) -> None:
+    """Test that parse_time supports both HH:MM:SS and HH:MM formats."""
+    assert parse_time(time_str) == expected
+
+
+@pytest.mark.parametrize(
+    "invalid_time_str",
+    [
+        "25:00:00",  # Hour out of range
+        "12:60:00",  # Minute out of range
+        "12:00:60",  # Second out of range
+        "12.00.00",  # Invalid separators
+        "12-00-00",  # Invalid separators
+        "12:00",  # Invalid for HH:MM:SS format but valid for HH:MM format
+        "12",  # Missing components
+        "12:",  # Incomplete
+        ":30:00",  # Missing hour
+        "",  # Empty string
+    ],
+)
+def test_parse_time_invalid_input(invalid_time_str: str) -> None:
+    """Test that parse_time correctly handles invalid inputs."""
+    # Some of these might pass with the enhanced format support, so we need to adapt the test
+    if invalid_time_str == "12:00":
+        # This should now be valid with the HH:MM format support
+        assert parse_time(invalid_time_str) == time(12, 0, 0)
+    else:
+        # All other cases should still raise ValueError
+        with pytest.raises(ValueError):
+            parse_time(invalid_time_str)
+
+
+@pytest.mark.parametrize(
+    "input_val,expected",
+    [
+        # Datetime objects
+        (datetime(2024, 3, 18, 12, 34, 56), time(12, 34, 56)),
+        (datetime(2024, 3, 18, 0, 0, 0), time(0, 0, 0)),
+        (datetime(2024, 3, 18, 23, 59, 59), time(23, 59, 59)),
+        # Datetime strings in ISO format
+        ("2024-03-18T12:34:56", time(12, 34, 56)),
+        ("2024-03-18T00:00:00", time(0, 0, 0)),
+        ("2024-03-18T23:59:59", time(23, 59, 59)),
+        # Datetime strings with timezone information
+        ("2024-03-18T12:34:56Z", time(12, 34, 56)),
+        ("2024-03-18T12:34:56+00:00", time(12, 34, 56)),
+        # Converting from UTC to local time is handled in to_datetime, to_time just extracts the time component
+        # Edge cases
+        (datetime(2024, 2, 29, 12, 34, 56), time(12, 34, 56)),  # Leap year
+        (datetime(1970, 1, 1, 0, 0, 0), time(0, 0, 0)),  # Unix epoch
+    ],
+)
+def test_to_time(input_val: datetime | str, expected: time) -> None:
+    """Test that to_time correctly converts datetime objects and strings to time objects."""
+    assert to_time(input_val) == expected
+
+
+@pytest.mark.parametrize(
+    "input_val,expected_error",
+    [
+        ("invalid", ValueError),  # Not a valid datetime string
+        ("25:00:00", ValueError),  # Invalid time string (hours out of range)
+        ("12:60:00", ValueError),  # Invalid time string (minutes out of range)
+        ("12:00:60", ValueError),  # Invalid time string (seconds out of range)
+        (123, AttributeError),  # Integer (not string or datetime)
+        (None, AttributeError),  # None
+    ],
+)
+def test_to_time_errors(input_val: Any, expected_error: type[Exception]) -> None:
+    """Test that to_time raises appropriate errors for invalid inputs."""
+    with pytest.raises(expected_error):
+        to_time(input_val)

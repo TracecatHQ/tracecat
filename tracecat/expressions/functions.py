@@ -9,7 +9,7 @@ import re
 import urllib.parse
 import zoneinfo
 from collections.abc import Callable, Iterable, Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import wraps
 from html.parser import HTMLParser
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
@@ -459,6 +459,28 @@ def parse_datetime(x: str, format: str) -> datetime:
     return datetime.strptime(x, format)
 
 
+def parse_time(x: str) -> time:
+    """Parse HH:MM:SS or HH:MM formatted string to a time object."""
+    try:
+        # First try HH:MM:SS format
+        return datetime.strptime(x, "%H:%M:%S").time()
+    except ValueError:
+        # Then try HH:MM format
+        try:
+            return datetime.strptime(x, "%H:%M").time()
+        except ValueError as e:
+            raise ValueError(
+                f"Time string must be in HH:MM:SS or HH:MM format, got: {x}"
+            ) from e
+
+
+def to_time(x: datetime | str) -> time:
+    """Convert datetime to time."""
+    if isinstance(x, str):
+        x = to_datetime(x)
+    return x.time()
+
+
 def format_datetime(x: datetime | str, format: str) -> str:
     """Format datetime into specified format (e.g. '%Y-%m-%d %H:%M:%S')."""
     if isinstance(x, str):
@@ -498,6 +520,48 @@ def create_datetime(
 ) -> datetime:
     """Create datetime from year, month, day, hour, minute, and second."""
     return datetime(year, month, day, hour, minute, second)
+
+
+def is_working_hours(
+    x: datetime | str,
+    start: str,
+    end: str,
+    include_weekends: bool = False,
+    timezone: str | None = None,
+) -> bool:
+    """Check if datetime is between two times (HH:MM or HH:MM:SS strings)."""
+    # Convert string to datetime if needed
+    if isinstance(x, str):
+        dt = to_datetime(x)
+    else:
+        dt = x
+
+    # Handle timezone conversion
+    if timezone:
+        # If datetime has no timezone, assume UTC then convert
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        # Convert to target timezone
+        dt = set_timezone(dt, timezone)
+
+    # Check for weekends (0 = Monday, 6 = Sunday)
+    weekday = dt.weekday()
+    is_weekend = weekday >= 5  # 5 = Saturday, 6 = Sunday
+
+    if is_weekend and not include_weekends:
+        return False
+
+    # Convert time objects using parse_time directly
+    start_time = parse_time(start)
+    end_time = parse_time(end)
+    dt_time = dt.time()
+
+    # Normal case: start <= end (e.g., 9:00 to 17:00)
+    if start_time <= end_time:
+        return start_time <= dt_time <= end_time
+    # Overnight case: start > end (e.g., 22:00 to 6:00)
+    else:
+        return dt_time >= start_time or dt_time <= end_time
 
 
 def get_second(x: datetime | str) -> int:
@@ -885,15 +949,18 @@ _FUNCTION_MAPPING = {
     "get_year": get_year,
     "hours_between": hours_between,
     "hours": create_hours,
+    "is_working_hours": is_working_hours,
     "minutes_between": minutes_between,
     "minutes": create_minutes,
     "now": now,
     "parse_datetime": parse_datetime,
+    "parse_time": parse_time,
     "seconds_between": seconds_between,
     "seconds": create_seconds,
     "set_timezone": set_timezone,
     "to_datetime": to_datetime,
     "to_isoformat": to_isoformat,
+    "to_time": to_time,
     "to_timestamp": to_timestamp,
     "today": today,
     "unset_timezone": unset_timezone,
