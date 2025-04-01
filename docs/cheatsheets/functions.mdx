@@ -68,6 +68,8 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 | `not` | (x: bool) -> bool | Logical NOT operation. |
 | `serialize_json` | (x: Any) -> str | Convert object to JSON string. |
 | `deserialize_json` | (obj, /) | Deserialize JSON to Python objects. |
+| `serialize_yaml` | (x: Any) -> str | Serialize object to YAML string. |
+| `deserialize_yaml` | (x: str) -> Any | Deserialize YAML string to object. |
 | `prettify_json` | (x: Any) -> str | Convert object to formatted JSON string. |
 | `deserialize_ndjson` | (x: str) -> list[dict[str, Any]] | Parse newline-delimited JSON string into list of objects. |
 | `extract_text_from_html` | (input: str) -> list[str] | Extract text content from HTML string using HTMLToTextParser. |
@@ -85,15 +87,21 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 | `get_year` | (x: datetime \| str) -> int | Get year from datetime. |
 | `hours_between` | (start: datetime \| str, end: datetime \| str) -> float | Hours between two datetimes. |
 | `hours` | (x: int) -> timedelta | Create timedelta with specified hours. |
+| `is_working_hours` | (x: datetime \| str, start: str, end: str, include_weekends: bool = False, timezone: str \| None = None) -> bool | Check if datetime is between two times (HH:MM or HH:MM:SS strings). |
 | `minutes_between` | (start: datetime \| str, end: datetime \| str) -> float | Minutes between two datetimes. |
 | `minutes` | (x: int) -> timedelta | Create timedelta with specified minutes. |
 | `now` | () -> datetime | Return the current datetime. |
 | `parse_datetime` | (x: str, format: str) -> datetime | Parse string to datetime using specified format. |
+| `parse_time` | (x: str) -> time | Parse HH:MM:SS or HH:MM formatted string to a time object. |
 | `seconds_between` | (start: datetime \| str, end: datetime \| str) -> float | Seconds between two datetimes. |
 | `seconds` | (x: int) -> timedelta | Create timedelta with specified seconds. |
 | `set_timezone` | (x: datetime \| str, timezone: str) -> datetime | Convert datetime to different timezone. Timezone must be a valid IANA timezone name (e.g., "America/New_York"). |
-| `to_datetime` | (x: Any, timezone: str \| None = None) -> datetime | Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime. |
+| `to_datetime` | (x: Any, timezone: str \| None = None) -> datetime | Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime.
+
+    Supports timezone-aware datetime objects if IANA timezone is provided.
+     |
 | `to_isoformat` | (x: datetime \| str) -> str | Convert datetime to ISO format string. |
+| `to_time` | (x: datetime \| str) -> time | Convert datetime to time. |
 | `to_timestamp` | (x: datetime \| str, unit: str = s) -> int | Convert datetime to timestamp in milliseconds ('ms') or seconds ('s'). |
 | `today` | () -> date | Return the current date. |
 | `unset_timezone` | (x: datetime \| str) -> datetime | Remove timezone information from datetime without changing the time. |
