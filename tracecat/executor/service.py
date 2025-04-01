@@ -227,6 +227,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     task = input.task
     action_name = task.action
 
+    context = await load_execution_context(input)
     async with RegistryActionsService.with_session() as service:
         reg_action = await service.get_action(action_name)
         action_secrets = await service.fetch_all_action_secrets(reg_action)
@@ -271,7 +272,6 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         args=task.args,
     )
 
-    context = input.exec_context.copy()
     context.update(SECRETS=secrets)
 
     flattened_secrets = flatten_secrets(secrets)
@@ -284,6 +284,25 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
 
     log.trace("Result", result=result)
     return result
+
+
+async def load_execution_context(input: RunActionInput) -> ExecutionContext:
+    """Prepare the action context for running an action. If we're using the store pull from minio."""
+
+    log = ctx_logger.get()
+    context = input.exec_context.copy()
+    if not config.TRACECAT__USE_OBJECT_STORE:
+        log.warning("Object store is disabled, skipping action result fetching")
+        return context
+
+    # Actions
+    # (1) Extract expressions: Grab the action refs that this action depends on
+    log.warning("Store backend, pulling action results into execution context")
+
+    task = input.task
+    store = ObjectStore.get()
+    context = await store.resolve_object_refs(obj=task.args, context=context)
+    return context
 
 
 def get_runtime_env() -> str:
