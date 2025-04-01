@@ -32,8 +32,13 @@ class BaseService:
     @classmethod
     def get_activities(cls) -> list[Callable[..., Any]]:
         """Get all temporal activities in the class."""
-        return [
-            getattr(cls, method_name)
-            for method_name in dir(cls)
-            if hasattr(getattr(cls, method_name), "__temporal_activity_definition")
-        ]
+        return get_activities(cls)
+
+
+def get_activities(cls: Any) -> list[Callable[..., Any]]:
+    """Get all temporal activities in the class."""
+    return [
+        getattr(cls, method_name)
+        for method_name in dir(cls)
+        if hasattr(getattr(cls, method_name), "__temporal_activity_definition")
+    ]
