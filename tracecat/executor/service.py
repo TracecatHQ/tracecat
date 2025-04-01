@@ -68,7 +68,28 @@ def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResu
     async_engine = get_async_engine()
     try:
         coro = run_action_from_input(input=input, role=role)
-        return loop.run_until_complete(coro)
+        result = loop.run_until_complete(coro)
+
+        if config.TRACECAT__USE_OBJECT_STORE:
+            logger.info("Storing action result in object store", result=result)
+            # If the object exceeds the hard cap, we error out and do not store it
+            result_bytes = orjson.dumps(result)
+            if (size := len(result_bytes)) > (
+                limit := config.TRACECAT__MAX_OBJECT_SIZE_BYTES
+            ):
+                raise ValueError(
+                    f"Object size {size} bytes exceeds maximum allowed size of {limit} bytes"
+                )
+            # Store the result of the action and return the object ref
+            store = ObjectStore.get()
+            obj_ref = loop.run_until_complete(store.put_object_bytes(result_bytes))
+            result = ObjectRef(
+                key=obj_ref.key,
+                size=obj_ref.size,
+                digest=obj_ref.digest,
+                metadata={"encoding": "json/plain"},
+            )
+        return result
     except Exception as e:
         # Raise the error proxy here
         logger.info(
