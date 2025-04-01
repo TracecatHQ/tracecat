@@ -1,15 +1,25 @@
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from tracecat_registry import RegistrySecret
 
-from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.models import DispatchActionContext
+from tracecat import config
+from tracecat.dsl.models import (
+    ActionStatement,
+    ExecutionContext,
+    RunActionInput,
+    RunContext,
+)
+from tracecat.ee.store.constants import OBJECT_REF_RESULT_TYPE
+from tracecat.ee.store.models import ObjectRef
+from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorInfo
 from tracecat.executor.service import (
     _dispatch_action,
     dispatch_action_on_cluster,
+    load_execution_context,
     run_action_from_input,
+    sync_executor_entrypoint,
 )
 from tracecat.expressions.common import ExprContext
 from tracecat.git import GitUrl
@@ -88,6 +98,75 @@ def dispatch_context():
         ssh_command="ssh -i /tmp/key",
         git_url=GitUrl(host="github.com", org="org", repo="repo", ref="abc123"),
     )
+
+
+@pytest.fixture
+def mock_object_ref():
+    """Create a sample ObjectRef for testing."""
+    return ObjectRef(
+        key="blobs/default/test-digest",
+        size=100,
+        digest="test-digest",
+        metadata={"encoding": "json/plain"},
+    )
+
+
+@pytest.fixture
+def run_action_input_with_ref(mock_object_ref):
+    """Create a RunActionInput with an ObjectRef for testing."""
+    wf_id = WorkflowUUID.new_uuid4()
+    wf_exec_id = f"{wf_id.short()}/exec_test"
+    wf_run_id = uuid.uuid4()
+
+    # Create a test ObjectRef in the ACTIONS context
+    obj_ref_dict = mock_object_ref.model_dump()
+
+    return RunActionInput(
+        task=ActionStatement(
+            action="test_action",
+            args={"key": "${{ ACTIONS.previous_action.result }}"},
+            ref="test_ref",
+        ),
+        exec_context=ExecutionContext(
+            {
+                ExprContext.ACTIONS: {
+                    "previous_action": {
+                        "result": obj_ref_dict,
+                        "result_typename": "ObjectRef",
+                    }
+                },
+                ExprContext.ENV: {"env_var": "test_value"},
+            }
+        ),
+        run_context=RunContext(
+            wf_id=wf_id,
+            wf_exec_id=wf_exec_id,
+            wf_run_id=wf_run_id,
+            environment="test-env",
+        ),
+    )
+
+
+@pytest.fixture
+def mock_object_store():
+    """Create a mock ObjectStore."""
+    store = AsyncMock()
+
+    # Define the behavior for resolve_object_refs
+    async def mock_resolve(obj, context):
+        # Return a modified context with resolved references
+        # Important: we make a fresh copy to avoid modifying the original
+        resolved_context = context.copy()
+        if ExprContext.ACTIONS in resolved_context:
+            actions = resolved_context[ExprContext.ACTIONS]
+            if "previous_action" in actions:
+                actions["previous_action"] = actions["previous_action"].copy()
+                actions["previous_action"]["result"] = {"resolved": "data"}
+                actions["previous_action"]["result_typename"] = "dict"
+        return resolved_context
+
+    store.resolve_object_refs.side_effect = mock_resolve
+    return store
 
 
 @pytest.mark.anyio
@@ -256,3 +335,142 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
 
     # Verify environment parameter
     assert call_kwargs["environment"] == "test_env"
+
+
+@pytest.mark.anyio
+async def test_load_execution_context_no_object_store(
+    run_action_input_with_ref, monkeypatch
+):
+    """Test load_execution_context when object store is disabled."""
+    # Setup
+    original_context = run_action_input_with_ref.exec_context.copy()
+
+    monkeypatch.setattr(config, "TRACECAT__USE_OBJECT_STORE", False)
+
+    # Run the test function
+    result = await load_execution_context(input=run_action_input_with_ref)
+
+    # Verify the function returns a copy of the original context
+    assert result is not run_action_input_with_ref.exec_context  # Should be a copy
+    assert result == original_context  # But with same content
+
+
+@pytest.mark.anyio
+async def test_load_execution_context_with_object_store(
+    run_action_input_with_ref, mock_object_store, mock_object_ref, monkeypatch
+):
+    """Test load_execution_context when object store is enabled."""
+    monkeypatch.setattr(config, "TRACECAT__USE_OBJECT_STORE", True)
+    monkeypatch.setattr(
+        "tracecat.ee.store.service.ObjectStore.get", lambda: mock_object_store
+    )
+
+    # Create a fresh copy of the input with ObjectRef for this test
+    wf_id = WorkflowUUID.new_uuid4()
+    wf_exec_id = f"{wf_id.short()}/exec_test"
+    wf_run_id = uuid.uuid4()
+    obj_ref_dict = mock_object_ref.model_dump()
+
+    test_input = RunActionInput(
+        task=ActionStatement(
+            action="test_action",
+            args={"key": "${{ ACTIONS.previous_action.result }}"},
+            ref="test_ref",
+        ),
+        exec_context=ExecutionContext(
+            {
+                ExprContext.ACTIONS: {
+                    "previous_action": {
+                        # This object ref should be replaced
+                        "result": obj_ref_dict,
+                        "result_typename": OBJECT_REF_RESULT_TYPE,
+                    }
+                },
+                ExprContext.ENV: {"env_var": "test_value"},
+            }
+        ),
+        run_context=RunContext(
+            wf_id=wf_id,
+            wf_exec_id=wf_exec_id,
+            wf_run_id=wf_run_id,
+            environment="test-env",
+        ),
+    )
+
+    # Run the test function
+    result = await load_execution_context(input=test_input)
+
+    # Verify ObjectStore.resolve_object_refs was called
+    mock_object_store.resolve_object_refs.assert_awaited_once()
+
+    # Verify the ObjectRef was replaced with the actual result
+    assert result[ExprContext.ACTIONS]["previous_action"]["result"] == {
+        "resolved": "data"
+    }
+    assert result[ExprContext.ACTIONS]["previous_action"]["result_typename"] == "dict"
+
+    # Original context should still contain the ObjectRef
+    assert isinstance(
+        test_input.exec_context[ExprContext.ACTIONS]["previous_action"]["result"], dict
+    )
+    assert (
+        test_input.exec_context[ExprContext.ACTIONS]["previous_action"][
+            "result_typename"
+        ]
+        == "dict"
+    )
+
+
+def test_sync_executor_entrypoint_max_object_size(
+    basic_task_input, test_role, mock_object_ref, monkeypatch
+):
+    """Test that sync_executor_entrypoint return an error object when object exceeds max size."""
+
+    # Set small max object size
+    monkeypatch.setattr(config, "TRACECAT__MAX_OBJECT_SIZE_BYTES", 10)  # 10 bytes
+
+    # With object store, we should trigger the max size check
+    monkeypatch.setattr(config, "TRACECAT__USE_OBJECT_STORE", True)
+
+    # Mock ObjectStore.get to return a mock store
+    mock_store = MagicMock()
+    monkeypatch.setattr("tracecat.ee.store.service.ObjectStore.get", lambda: mock_store)
+
+    # Mock the put_object_bytes method to return a mock ObjectRef
+    async def mock_put_object_bytes(data_bytes):
+        return mock_object_ref
+
+    mock_store.put_object_bytes = mock_put_object_bytes
+
+    async def mock_action(*args, **kwargs):
+        return "data"
+
+    monkeypatch.setattr("tracecat.executor.service.run_action_from_input", mock_action)
+    result = sync_executor_entrypoint(basic_task_input, test_role)
+    assert isinstance(result, ObjectRef)
+    assert result.key == mock_object_ref.key
+    assert result.digest == mock_object_ref.digest
+
+
+def test_sync_executor_entrypoint_max_object_size_exceeds_limit(
+    basic_task_input, test_role, mock_object_ref, monkeypatch
+):
+    """Test that sync_executor_entrypoint raises an error when object exceeds max size."""
+    # Set small max object size
+    monkeypatch.setattr(config, "TRACECAT__MAX_OBJECT_SIZE_BYTES", 10)  # 10 bytes
+
+    # With object store, we should trigger the max size check
+    monkeypatch.setattr(config, "TRACECAT__USE_OBJECT_STORE", True)
+
+    async def mock_action(*args, **kwargs):
+        return "data" * 1000
+
+    monkeypatch.setattr("tracecat.executor.service.run_action_from_input", mock_action)
+    error_info = sync_executor_entrypoint(basic_task_input, test_role)
+    assert isinstance(error_info, ExecutorActionErrorInfo)
+    assert (
+        error_info.message
+        == "Object size 4002 bytes exceeds maximum allowed size of 10 bytes"
+    )
+    assert error_info.type == "ValueError"
+    assert error_info.action_name == "test_action"
