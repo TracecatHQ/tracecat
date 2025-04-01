@@ -7,12 +7,12 @@ from moto.server import ThreadedMotoServer
 from temporalio.testing import ActivityEnvironment
 
 from tracecat.dsl.models import ExecutionContext
+from tracecat.ee.store.constants import OBJECT_REF_RESULT_TYPE
 from tracecat.ee.store.models import ObjectRef, StoreWorkflowResultActivityInput
 from tracecat.ee.store.service import ObjectStore, get_object, put_object
 from tracecat.expressions.common import ExprContext
 
 # Constants needed for testing
-OBJECT_REF_RESULT_TYPE = "ObjectRef"
 
 
 @pytest.fixture(scope="module")
@@ -243,7 +243,7 @@ class TestObjectStore:
         )
 
         # Create a mock implementation that avoids the zip error
-        async def mock_resolve_object_refs(args, context):
+        async def mock_resolve_object_refs(obj, context):
             # Update the context with our test data
             if ExprContext.ACTIONS in context:
                 action_context = context[ExprContext.ACTIONS]
@@ -339,7 +339,7 @@ class TestStoreWorkflowResultActivity:
 
             # Verify the mocked methods were called correctly
             activity_mock_store.resolve_object_refs.assert_awaited_once_with(
-                args=input_data.args, context=input_data.context
+                obj=input_data.args, context=input_data.context
             )
             activity_mock_store.put_object.assert_awaited_once_with(
                 obj={"result": "value"}
