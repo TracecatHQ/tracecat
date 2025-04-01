@@ -1,4 +1,5 @@
 from typing import Annotated, Any
+from uuid import UUID
 
 from typing_extensions import Doc
 
@@ -98,3 +99,52 @@ async def insert_row(
         db_table = await service.get_table_by_name(table)
         row = await service.insert_row(table=db_table, params=params)
     return row
+
+
+@registry.register(
+    default_title="Update record",
+    description="Update a record in a table.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def update_row(
+    table: Annotated[
+        str,
+        Doc("The table to update the row in."),
+    ],
+    row_id: Annotated[
+        str,
+        Doc("The ID of the row to update."),
+    ],
+    row_data: Annotated[
+        dict[str, Any],
+        Doc("The new data for the row."),
+    ],
+) -> Any:
+    async with TablesService.with_session() as service:
+        db_table = await service.get_table_by_name(table)
+        row = await service.update_row(
+            table=db_table, row_id=UUID(row_id), data=row_data
+        )
+    return row
+
+
+@registry.register(
+    default_title="Delete record",
+    description="Delete a record from a table.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def delete_row(
+    table: Annotated[
+        str,
+        Doc("The table to delete the row from."),
+    ],
+    row_id: Annotated[
+        str,
+        Doc("The ID of the row to delete."),
+    ],
+) -> None:
+    async with TablesService.with_session() as service:
+        db_table = await service.get_table_by_name(table)
+        await service.delete_row(table=db_table, row_id=UUID(row_id))
