@@ -4,7 +4,7 @@ import asyncio
 import itertools
 import json
 import uuid
-from collections.abc import Generator, Iterable
+from collections.abc import Generator, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -25,11 +25,12 @@ with workflow.unsafe.imports_passed_through():
     import tracecat_registry  # noqa
     from pydantic import TypeAdapter, ValidationError
 
-    from tracecat import identifiers
+    from tracecat import config, identifiers
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.action import (
         DSLActivities,
+        ResolveConditionActivityInput,
         ValidateActionActivityInput,
     )
     from tracecat.dsl.common import (
@@ -64,6 +65,9 @@ with workflow.unsafe.imports_passed_through():
         InteractionState,
     )
     from tracecat.ee.interactions.service import InteractionManager
+    from tracecat.ee.store.constants import OBJECT_REF_RESULT_TYPE
+    from tracecat.ee.store.models import StoreWorkflowResultActivityInput, as_object_ref
+    from tracecat.ee.store.service import ObjectStore
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import eval_templated_object
@@ -390,7 +394,7 @@ class DSLWorkflow:
 
         try:
             self.logger.info("DSL workflow completed")
-            return self._handle_return()
+            return await self._handle_return()
         except TracecatExpressionError as e:
             raise ApplicationError(
                 f"Couldn't parse return value expression: {e}",
@@ -737,7 +741,7 @@ class DSLWorkflow:
             ]
             return result
 
-    def _handle_return(self) -> Any:
+    async def _handle_return(self) -> Any:
         self.logger.debug("Handling return", context=self.context)
         if self.dsl.returns is None:
             # Return the context
@@ -747,7 +751,20 @@ class DSLWorkflow:
             return self.context
         # Return some custom value that should be evaluated
         self.logger.trace("Returning value from expression")
-        return eval_templated_object(self.dsl.returns, operand=self.context)
+        if config.TRACECAT__USE_OBJECT_STORE:
+            self.logger.debug("Storing workflow result in object store")
+            result = await workflow.execute_activity(
+                ObjectStore.store_workflow_result_activity,
+                arg=StoreWorkflowResultActivityInput(
+                    args=self.dsl.returns, context=self.context
+                ),
+                start_to_close_timeout=self.start_to_close_timeout,
+                retry_policy=retry_policies["activity:fail_fast"],
+            )
+        else:
+            self.logger.debug("Evaluating workflow result")
+            result = eval_templated_object(self.dsl.returns, operand=self.context)
+        return result
 
     async def _resolve_workflow_alias(self, wf_alias: str) -> identifiers.WorkflowID:
         activity_inputs = ResolveWorkflowAliasActivityInputs(
