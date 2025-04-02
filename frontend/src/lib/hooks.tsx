@@ -2303,10 +2303,11 @@ export function useSetNaturalKey() {
       });
 
       // Invalidate both table schema and rows data
-      queryClient.invalidateQueries({
+      await queryClient.fetchQuery({
         queryKey: ["table", tableId],
       });
-      queryClient.invalidateQueries({
+
+      await queryClient.fetchQuery({
         queryKey: ["rows", tableId],
       });
 
