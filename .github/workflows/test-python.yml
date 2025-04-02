@@ -184,9 +184,9 @@ jobs:
           EOF
 
           # Create policy and user
-          ./mc admin policy add test-store testpolicy /tmp/policy.json
+          ./mc admin policy create test-store testpolicy /tmp/policy.json
           ./mc admin user add test-store $ACCESS_KEY $SECRET_KEY
-          ./mc admin policy set test-store testpolicy user=$ACCESS_KEY
+          ./mc admin policy attach test-store testpolicy user=$ACCESS_KEY
 
           # Output for later steps
           echo "access_key=$ACCESS_KEY" >> $GITHUB_OUTPUT
