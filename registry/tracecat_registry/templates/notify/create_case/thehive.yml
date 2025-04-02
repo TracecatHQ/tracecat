@@ -1,0 +1,74 @@
+type: action
+definition:
+  title: Create case
+  description: Create a new case in TheHive.
+  display_group: TheHive
+  doc_url: https://docs.strangebee.com/thehive/api-docs/#tag/Case/operation/Create%20Case
+  namespace: tools.thehive
+  name: create_case
+  secrets:
+    - name: thehive
+      keys: ["THEHIVE_API_KEY"]
+  expects:
+    summary:
+      type: str
+      description: Brief one-line summary of the incident.
+    description:
+      type: str
+      description: Detailed description of the incident.
+    severity:
+      type: str
+      description: Severity of the incident.
+    tags:
+      type: list[str]
+      description: Tags to categorize the incident.
+      default: []
+    fields:
+      type: list[dict[str, any]]
+      description: >-
+        List of fields to add to the case.
+        Each field is an object with the following keys:
+        - `key`: TheHive custom field ID.
+        - `value`: The field value.
+
+        For example:
+        ```
+        [
+          {"key": "property1", "value": "New value"},
+          {"key": "property2", "value": "Another value"}
+        ]
+        ```
+      default: []
+    org_id:
+      type: str
+      description: TheHive organization ID.
+    base_url:
+      type: str
+      description: TheHive base URL.
+    verify_ssl:
+      type: bool
+      description: Whether to verify the SSL certificate of the TheHive server.
+      default: true
+  steps:
+    # Format custom fields from list of dicts into dict of key-value pairs
+    - ref: fields
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.merge(inputs.fields) }}
+    # Create the case
+    - ref: create_case
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/case
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.thehive.THEHIVE_API_KEY }}
+          X-Organisation: ${{ inputs.org_id }}
+        payload:
+          title: ${{ inputs.summary }}
+          description: ${{ inputs.description }}
+          severity: ${{ inputs.severity }}
+          tags: ${{ inputs.tags }}
+          customFields: ${{ steps.fields.result }}
+  returns: ${{ steps.create_case.result }}

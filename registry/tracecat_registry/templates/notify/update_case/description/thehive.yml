@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Update case description
+  description: Update the description of an existing case in TheHive.
+  display_group: TheHive
+  doc_url: https://docs.strangebee.com/thehive/api-docs/#tag/Case/operation/Update%20case
+  namespace: tools.thehive
+  name: update_case_description
+  secrets:
+    - name: thehive
+      keys: ["THEHIVE_API_KEY"]
+  expects:
+    case_id:
+      type: str
+      description: ID of the case to update.
+    description:
+      type: str
+      description: New description for the case.
+    org_id:
+      type: str
+      description: TheHive organization ID.
+    base_url:
+      type: str
+      description: TheHive base URL.
+    verify_ssl:
+      type: bool
+      description: Whether to verify the SSL certificate of the TheHive server.
+      default: true
+  steps:
+    - ref: update_case
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/case/${{ inputs.case_id }}
+        method: PATCH
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.thehive.THEHIVE_API_KEY }}
+          X-Organisation: ${{ inputs.org_id }}
+        payload:
+          description: ${{ inputs.description }}
+  returns: ${{ steps.update_case.result }}

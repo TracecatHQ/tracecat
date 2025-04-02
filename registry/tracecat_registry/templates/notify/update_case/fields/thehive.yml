@@ -1,0 +1,60 @@
+type: action
+definition:
+  title: Update case fields
+  description: Update custom fields of an existing case in TheHive.
+  display_group: TheHive
+  doc_url: https://docs.strangebee.com/thehive/api-docs/#tag/Case/operation/Update%20case
+  namespace: tools.thehive
+  name: update_case_fields
+  secrets:
+    - name: thehive
+      keys: ["THEHIVE_API_KEY"]
+  expects:
+    case_id:
+      type: str
+      description: ID of the case to update.
+    fields:
+      type: list[dict[str, any]]
+      description: >-
+        List of fields to update in the case.
+        Each field is an object with the following keys:
+        - `key`: TheHive custom field ID.
+        - `value`: The field value.
+
+        For example:
+        ```
+        [
+          {"key": "property1", "value": "New value"},
+          {"key": "property2", "value": "Another value"}
+        ]
+        ```
+      default: []
+    org_id:
+      type: str
+      description: TheHive organization ID.
+    base_url:
+      type: str
+      description: TheHive base URL.
+    verify_ssl:
+      type: bool
+      description: Whether to verify the SSL certificate of the TheHive server.
+      default: true
+  steps:
+    # Format custom fields from list of dicts into dict of key-value pairs
+    - ref: fields
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.merge(inputs.fields) }}
+    # Update the case
+    - ref: update_case
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/case/${{ inputs.case_id }}
+        method: PATCH
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.thehive.THEHIVE_API_KEY }}
+          X-Organisation: ${{ inputs.org_id }}
+        payload:
+          customFields: ${{ steps.fields.result }}
+  returns: ${{ steps.update_case.result }}
