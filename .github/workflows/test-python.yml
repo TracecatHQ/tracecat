@@ -177,7 +177,7 @@ jobs:
               {
                 "Effect": "Allow",
                 "Action": ["s3:*"],
-                "Resource": ["arn:aws:s3:::test-bucket/*"]
+                "Resource": ["arn:aws:s3:::tracecat/*"]
               }
             ]
           }
