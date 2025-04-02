@@ -292,7 +292,7 @@ services:
       - NET_ADMIN
       - SYS_ADMIN
 
-  minio:
+  ee-minio:
     image: minio/minio:${MINIO__VERSION:-latest}
     container_name: minio
     restart: unless-stopped
