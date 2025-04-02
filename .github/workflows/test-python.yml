@@ -96,16 +96,17 @@ jobs:
   test-workflow-obj-store:
     runs-on: ubuntu-latest-4-cores
     timeout-minutes: 60
-    # Add this 'if' condition to run only when relevant files change
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.pull_request.labels.*.name, 'run-workflow-tests') ||
-      github.event_name == 'push' &&
-      (
-        contains(github.event.head_commit.modified, 'tracecat/dsl/') ||
-        contains(github.event.head_commit.modified, 'tracecat/ee/store/') ||
-        contains(github.event.head_commit.modified, 'tests/unit/test_workflows.py')
-      )
+    # # Add this 'if' condition to run only when relevant files change
+    # if: |
+    #   github.event_name == 'workflow_dispatch' ||
+    #   contains(github.event.pull_request.labels.*.name, 'run-workflow-tests') ||
+    #   github.event_name == 'push' &&
+    #   (
+    #     contains(github.event.head_commit.modified, 'tracecat/dsl/') ||
+    #     contains(github.event.head_commit.modified, 'tracecat/ee/store/') ||
+    #     contains(github.event.head_commit.modified, 'tests/unit/test_workflows.py') ||
+    #     contains(github.event.head_commit.modified, 'tests/unit/test_workflows.py')
+    #   )
     strategy:
       matrix:
         store_config:
