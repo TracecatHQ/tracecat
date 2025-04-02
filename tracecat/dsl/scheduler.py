@@ -406,7 +406,8 @@ class DSLScheduler:
         Returns:
             bool: True if the task should be skipped, False otherwise
         """
-        if task.run_if is None:
+        if not task.run_if:
+            # If `run_if` is falsy, the task must run
             return False
         # Evaluate the `run_if` condition
         return await workflow.execute_activity(
