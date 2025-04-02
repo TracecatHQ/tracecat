@@ -153,8 +153,6 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     )
     # Need this for local unit tests
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
-    monkeysession.setenv("TRACECAT__USE_OBJECT_STORE", "false")
-    monkeysession.setattr(config, "TRACECAT__USE_OBJECT_STORE", False)
 
     monkeysession.setenv(
         "TRACECAT__DB_URI",
@@ -176,6 +174,29 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
 
     # Ollama
     monkeysession.setattr(config, "OLLAMA__API_URL", "http://localhost:11434")
+
+    # Object store
+    use_object_store = os.getenv("TRACECAT__USE_OBJECT_STORE", "false").lower() in (
+        "true",
+        "1",
+    )
+    monkeysession.setattr(config, "TRACECAT__USE_OBJECT_STORE", use_object_store)
+
+    if use_object_store:
+        max_object_size_bytes = int(
+            os.getenv("TRACECAT__MAX_OBJECT_SIZE_BYTES", 1_000_000)
+        )
+        monkeysession.setattr(
+            config, "TRACECAT__MAX_OBJECT_SIZE_BYTES", max_object_size_bytes
+        )
+        monkeysession.setattr(config, "MINIO_ENDPOINT_URL", "http://minio:9000")
+        logger.info(
+            "Using object store",
+            use_object_store=use_object_store,
+            max_object_size_bytes=max_object_size_bytes,
+        )
+    else:
+        logger.info("Not using object store")
 
     yield
     logger.info("Environment variables cleaned up")

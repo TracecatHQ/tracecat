@@ -91,3 +91,110 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: uv run pytest tests/${{ matrix.test_group }} -m "not podman" -ra
+
+  # Add a new job for testing workflows with different object store configurations
+  test-workflow-obj-store:
+    runs-on: ubuntu-latest-4-cores
+    timeout-minutes: 60
+    # Add this 'if' condition to run only when relevant files change
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'run-workflow-tests') ||
+      github.event_name == 'push' &&
+      (
+        contains(github.event.head_commit.modified, 'tracecat/dsl/') ||
+        contains(github.event.head_commit.modified, 'tracecat/ee/store/') ||
+        contains(github.event.head_commit.modified, 'tests/unit/test_workflows.py')
+      )
+    strategy:
+      matrix:
+        store_config:
+          - name: all_payloads
+            use_store: "true"
+            max_size: "0" # Force all objects to be stored
+          # - name: some_payloads
+          #   use_store: "true"
+          #   max_size: "10000" # Only store objects larger than 10KB
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.20"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run environment setup script
+        run: |
+          echo "y
+          localhost
+          n" | bash env.sh
+
+      - name: Start core Docker services
+        env:
+          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
+        run: docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy minio
+
+      - name: Install dependencies
+        run: |
+          uv pip install ".[dev]"
+          uv pip install ./registry
+
+      - name: Create test bucket
+        id: minio-setup
+        run: |
+          # Install MinIO client
+          wget https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+
+          # Configure MinIO client with root credentials
+          # Root credentials are automatically set in docker-compose.dev.yml
+          ./mc alias set test-store http://localhost:9001 minio minio1234
+
+          # Create test bucket
+          ./mc mb test-store/tracecat
+          # Create access key for testing
+          ACCESS_KEY="testuser"
+          SECRET_KEY=$(openssl rand -hex 16)
+
+          # Create a policy file
+          cat > /tmp/policy.json << EOF
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": ["s3:*"],
+                "Resource": ["arn:aws:s3:::test-bucket/*"]
+              }
+            ]
+          }
+          EOF
+
+          # Create policy and user
+          ./mc admin policy add test-store testpolicy /tmp/policy.json
+          ./mc admin user add test-store $ACCESS_KEY $SECRET_KEY
+          ./mc admin policy set test-store testpolicy user=$ACCESS_KEY
+
+          # Output for later steps
+          echo "access_key=$ACCESS_KEY" >> $GITHUB_OUTPUT
+          echo "secret_key=$SECRET_KEY" >> $GITHUB_OUTPUT
+
+      - name: Run workflow tests
+        env:
+          TRACECAT__USE_OBJECT_STORE: ${{ matrix.store_config.use_store }}
+          TRACECAT__MAX_OBJECT_SIZE_BYTES: ${{ matrix.store_config.max_size }}
+          MINIO_ACCESS_KEY: ${{ steps.minio-setup.outputs.access_key }}
+          MINIO_SECRET_KEY: ${{ steps.minio-setup.outputs.secret_key }}
+        run: uv run pytest tests/unit/test_workflows.py -v -m "not podman" -ra
