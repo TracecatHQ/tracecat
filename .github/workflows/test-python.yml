@@ -161,7 +161,7 @@ jobs:
 
           # Configure MinIO client with root credentials
           # Root credentials are automatically set in docker-compose.dev.yml
-          ./mc alias set test-store http://localhost:9001 minio minio1234
+          ./mc alias set test-store http://localhost:9000 minio minio1234
 
           # Create test bucket
           ./mc mb test-store/tracecat
