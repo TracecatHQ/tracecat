@@ -104,17 +104,27 @@ class ObjectStore:
 
     """Put"""
 
-    async def put_object(self, obj: Any) -> ObjectRef:
+    async def put_object(
+        self, obj: Any, content_type: str = "application/json"
+    ) -> ObjectRef:
         """Insert a JSON object into the object store and return the object ref."""
         data = orjson.dumps(obj)
-        return await self.put_object_bytes(data)
+        return await self.put_object_bytes(data, content_type=content_type)
 
-    async def put_object_bytes(self, data: bytes) -> ObjectRef:
+    async def put_object_bytes(
+        self, data: bytes, content_type: str = "application/json"
+    ) -> ObjectRef:
         """Insert a bytes object into the object store and return the object ref."""
         digest = hashing.digest(data)
         key = self.make_key(namespace=self.namespace, digest=digest)
         async with self._client() as client:
-            await put_object(client=client, bucket=self.bucket_name, key=key, data=data)
+            await put_object(
+                client=client,
+                bucket=self.bucket_name,
+                key=key,
+                data=data,
+                content_type=content_type,
+            )
         return ObjectRef(
             key=key,
             size=len(data),
@@ -247,7 +257,12 @@ async def get_object(client: S3Client, *, bucket: str, key: str) -> bytes | None
 
 
 async def put_object(
-    client: S3Client, *, bucket: str, key: str, data: bytes
+    client: S3Client,
+    *,
+    bucket: str,
+    key: str,
+    data: bytes,
+    content_type: str = "application/json",
 ) -> PutObjectOutputTypeDef | None:
     """Put a bytes object into the object store.
 
@@ -259,6 +274,7 @@ async def put_object(
             Key=key,
             Body=data,
             IfNoneMatch="*",  # Don't overwrite existing objects
+            ContentType=content_type,
         )
         return response
     except botocore.exceptions.ClientError as e:
