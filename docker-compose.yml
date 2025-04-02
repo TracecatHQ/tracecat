@@ -286,7 +286,7 @@ services:
   #
   # ---------------------------------------------------------
   # ee-minio:
-  #   image: minio/minio:${MINIO__VERSION:-latest}
+  #   image: minio/minio:${MINIO__VERSION}
   #   container_name: minio
   #   restart: unless-stopped
   #   networks:
