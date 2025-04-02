@@ -32,6 +32,7 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import (
+    RETRY_POLICIES,
     DSLEntrypoint,
     DSLInput,
     DSLRunArgs,
@@ -44,7 +45,7 @@ from tracecat.dsl.models import (
     RunActionInput,
 )
 from tracecat.dsl.worker import all_activities, new_sandbox_runner
-from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.expressions.common import ExprContext
 from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID, WorkflowUUID
 from tracecat.logger import logger
@@ -438,7 +439,7 @@ async def test_workflow_set_environment_correct(test_role, temporal_client):
             run_args,
             id=wf_exec_id,
             task_queue=queue,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
     assert result == "__TEST_ENVIRONMENT__"
 
@@ -497,7 +498,7 @@ async def test_workflow_override_environment_correct(test_role, temporal_client)
             run_args,
             id=wf_exec_id,
             task_queue=queue,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
     assert result == "__CORRECT_ENVIRONMENT__"
 
@@ -554,7 +555,7 @@ async def test_workflow_default_environment_correct(test_role, temporal_client):
             run_args,
             id=wf_exec_id,
             task_queue=queue,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
     assert result == "default"
 
@@ -601,7 +602,7 @@ async def _run_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
             run_args,
             id=wf_exec_id,
             task_queue=queue,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
     return result
 

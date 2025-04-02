@@ -15,10 +15,13 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationError,
     field_validator,
     model_validator,
 )
 from pydantic_core import PydanticCustomError
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError, ChildWorkflowError, FailureError
 
 from tracecat.db.schemas import Action
 from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy
@@ -42,8 +45,48 @@ from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatDSLError
+from tracecat.types.exceptions import (
+    TracecatCredentialsError,
+    TracecatDSLError,
+    TracecatException,
+    TracecatExpressionError,
+    TracecatValidationError,
+)
 from tracecat.workflow.actions.models import ActionControlFlow
+
+NON_RETRYABLE_ERROR_TYPES = [
+    # General
+    Exception.__name__,
+    TypeError.__name__,
+    ValueError.__name__,
+    RuntimeError.__name__,
+    # Pydantic
+    ValidationError.__name__,
+    # Tracecat
+    TracecatException.__name__,
+    TracecatExpressionError.__name__,
+    TracecatValidationError.__name__,
+    TracecatDSLError.__name__,
+    TracecatCredentialsError.__name__,
+    # Temporal
+    ApplicationError.__name__,
+    ChildWorkflowError.__name__,
+    FailureError.__name__,
+]
+
+RETRY_POLICIES = {
+    "activity:fail_fast": RetryPolicy(
+        # XXX: Do not set max attempts to 0, it will default to unlimited
+        maximum_attempts=1,
+        non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
+    ),
+    "activity:fail_slow": RetryPolicy(maximum_attempts=6),
+    "workflow:fail_fast": RetryPolicy(
+        # XXX: Do not set max attempts to 0, it will default to unlimited
+        maximum_attempts=1,
+        non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
+    ),
+}
 
 
 class DSLEntrypoint(BaseModel):

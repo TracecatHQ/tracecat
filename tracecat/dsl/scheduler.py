@@ -8,7 +8,13 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger
 from tracecat.dsl.action import DSLActivities, ResolveConditionActivityInput
-from tracecat.dsl.common import AdjDst, DSLEdge, DSLInput, edge_components_from_dep
+from tracecat.dsl.common import (
+    RETRY_POLICIES,
+    AdjDst,
+    DSLEdge,
+    DSLInput,
+    edge_components_from_dep,
+)
 from tracecat.dsl.enums import EdgeMarker, EdgeType, JoinStrategy, SkipStrategy
 from tracecat.dsl.models import (
     ActionErrorInfo,
@@ -416,6 +422,7 @@ class DSLScheduler:
                 condition_expr=task.run_if, context=self.context
             ),
             start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         # If the condition is true, means we should run the task (not skip)
         return not result

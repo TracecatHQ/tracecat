@@ -34,6 +34,7 @@ with workflow.unsafe.imports_passed_through():
         ValidateActionActivityInput,
     )
     from tracecat.dsl.common import (
+        RETRY_POLICIES,
         ChildWorkflowMemo,
         DSLInput,
         DSLRunArgs,
@@ -74,8 +75,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
     from tracecat.logger import logger
     from tracecat.types.exceptions import (
-        TracecatCredentialsError,
-        TracecatDSLError,
         TracecatException,
         TracecatExpressionError,
         TracecatNotFoundError,
@@ -94,42 +93,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.workflow.schedules.models import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
-
-
-non_retryable_error_types = [
-    # General
-    Exception.__name__,
-    TypeError.__name__,
-    ValueError.__name__,
-    RuntimeError.__name__,
-    # Pydantic
-    ValidationError.__name__,
-    # Tracecat
-    TracecatException.__name__,
-    TracecatExpressionError.__name__,
-    TracecatValidationError.__name__,
-    TracecatDSLError.__name__,
-    TracecatCredentialsError.__name__,
-    # Temporal
-    ApplicationError.__name__,
-    ChildWorkflowError.__name__,
-    FailureError.__name__,
-]
-
-
-retry_policies = {
-    "activity:fail_fast": RetryPolicy(
-        # XXX: Do not set max attempts to 0, it will default to unlimited
-        maximum_attempts=1,
-        non_retryable_error_types=non_retryable_error_types,
-    ),
-    "activity:fail_slow": RetryPolicy(maximum_attempts=6),
-    "workflow:fail_fast": RetryPolicy(
-        # XXX: Do not set max attempts to 0, it will default to unlimited
-        maximum_attempts=1,
-        non_retryable_error_types=non_retryable_error_types,
-    ),
-}
 
 
 @workflow.defn
@@ -759,7 +722,7 @@ class DSLWorkflow:
                     args=self.dsl.returns, context=self.context
                 ),
                 start_to_close_timeout=self.start_to_close_timeout,
-                retry_policy=retry_policies["activity:fail_fast"],
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
         else:
             self.logger.debug("Evaluating workflow result")
@@ -774,7 +737,7 @@ class DSLWorkflow:
             WorkflowsManagementService.resolve_workflow_alias_activity,
             arg=activity_inputs,
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not wf_id:
             raise ValueError(f"Workflow alias {wf_alias} not found")
@@ -794,7 +757,7 @@ class DSLWorkflow:
             get_workflow_definition_activity,
             arg=activity_inputs,
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_slow"],
+            retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
 
     async def _validate_trigger_inputs(
@@ -815,7 +778,7 @@ class DSLWorkflow:
                 trigger_inputs=trigger_inputs,
             ),
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         return validation_result
 
@@ -840,7 +803,7 @@ class DSLWorkflow:
             WorkflowSchedulesService.get_schedule_activity,
             arg=activity_inputs,
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         return schedule_read.inputs
 
@@ -849,7 +812,7 @@ class DSLWorkflow:
             DSLActivities.validate_action_activity,
             arg=ValidateActionActivityInput(role=self.role, task=task),
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not result.ok:
             raise ApplicationError(
@@ -933,7 +896,7 @@ class DSLWorkflow:
             DSLWorkflow.run,
             run_args,
             id=wf_exec_id,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             # Propagate the parent workflow attributes to the child workflow
             task_queue=wf_info.task_queue,
             execution_timeout=wf_info.execution_timeout,
@@ -954,7 +917,7 @@ class DSLWorkflow:
             WorkflowsManagementService.get_error_handler_workflow_id,
             arg=GetErrorHandlerWorkflowIDActivityInputs(args=args, role=self.role),
             start_to_close_timeout=args.timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
 
     async def _prepare_error_handler_workflow(
@@ -1011,7 +974,7 @@ class DSLWorkflow:
             DSLWorkflow.run,
             args,
             id=wf_exec_id,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             # Propagate the parent workflow attributes to the child workflow
             task_queue=wf_info.task_queue,
             execution_timeout=wf_info.execution_timeout,
