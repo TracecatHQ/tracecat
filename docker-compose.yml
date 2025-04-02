@@ -61,6 +61,12 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+
+      # # Object store (This is an EE feature. uncomment to enable)
+      # TRACECAT__USE_OBJECT_STORE: ${TRACECAT__USE_OBJECT_STORE}
+      # MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL}
+      # MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      # MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
@@ -94,6 +100,12 @@ services:
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN}
+
+      # # Object store (This is an EE feature. uncomment to enable)
+      # TRACECAT__USE_OBJECT_STORE: ${TRACECAT__USE_OBJECT_STORE}
+      # MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL}
+      # MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      # MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "tracecat/dsl/worker.py"]
@@ -129,6 +141,12 @@ services:
       # Podman
       TRACECAT__PODMAN_URI: ${TRACECAT__PODMAN_URI}
       TRACECAT__TRUSTED_DOCKER_IMAGES: ${TRACECAT__TRUSTED_DOCKER_IMAGES}
+
+      # # Object store (This is an EE feature. uncomment to enable)
+      # TRACECAT__USE_OBJECT_STORE: ${TRACECAT__USE_OBJECT_STORE}
+      # MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL}
+      # MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      # MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:
@@ -258,10 +276,36 @@ services:
   #     - NET_ADMIN
   #     - SYS_ADMIN
 
+  # ---------------------------------------------------------
+  #
+  # NOTE: Only uncomment the `ee-minio` service
+  # if you have a Tracecat Enterprise license.
+  #
+  # To request an NFR license for evaluation, please contact us:
+  # at https://cal.com/team/tracecat or founders@tracecat.com.
+  #
+  # ---------------------------------------------------------
+  # ee-minio:
+  #   image: minio/minio:${MINIO__VERSION:-latest}
+  #   container_name: minio
+  #   restart: unless-stopped
+  #   networks:
+  #     - core
+  #   ports:
+  #     - 9000:9000 # API port
+  #     - 9001:9001 # Console port
+  #   environment:
+  #     MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+  #     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+  #   volumes:
+  #     - minio:/data
+  #   command: server /data --console-address ":9001"
+
 volumes:
   core-db:
   temporal-db:
   podman-storage:
+  # minio:
   # ollama:
   # containers:
 
