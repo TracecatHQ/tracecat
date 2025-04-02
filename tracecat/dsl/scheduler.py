@@ -410,10 +410,12 @@ class DSLScheduler:
             # If `run_if` is falsy, the task must run
             return False
         # Evaluate the `run_if` condition
-        return await workflow.execute_activity(
+        result = await workflow.execute_activity(
             DSLActivities.resolve_condition_activity,
             arg=ResolveConditionActivityInput(
                 condition_expr=task.run_if, context=self.context
             ),
             start_to_close_timeout=timedelta(seconds=30),
         )
+        # If the condition is true, means we should run the task (not skip)
+        return not result
