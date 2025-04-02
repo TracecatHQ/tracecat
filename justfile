@@ -57,3 +57,13 @@ gen-integrations: _check-cli
 
 gen-functions: _check-cli
 	tracecat dev gen-functions
+
+# Check temporal CLI is installed
+_check-temporal-cli:
+	#!/usr/bin/env sh
+	set -e
+	command -v temporal >/dev/null 2>&1 || { echo "Error: Temporal CLI is not installed" >&2; exit 1; }
+
+# Stop all running Temporal workflow executions
+temporal-stop-all: _check-temporal-cli
+	temporal workflow terminate --query "ExecutionStatus='Running'" --namespace default --yes
