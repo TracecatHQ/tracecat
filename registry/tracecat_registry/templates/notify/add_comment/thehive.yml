@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Add comment to case
+  description: Add a comment to a case in TheHive.
+  display_group: TheHive
+  doc_url: https://docs.strangebee.com/thehive/api-docs/#tag/Comment/operation/Create%20Comment%20in%20Case
+  namespace: tools.thehive
+  name: add_case_comment
+  secrets:
+    - name: thehive
+      keys: ["THEHIVE_API_KEY"]
+  expects:
+    case_id:
+      type: str
+      description: ID of the case to add a comment to.
+    comment:
+      type: str
+      description: Comment to add to the case.
+    base_url:
+      type: str
+      description: TheHive instance URL (e.g. https://thehive.example.com).
+    org_id:
+      type: str
+      description: TheHive organization ID.
+    verify_ssl:
+      type: bool
+      description: Whether to verify the SSL certificate of the TheHive server.
+      default: true
+  steps:
+    - ref: add_comment
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/case/${{ inputs.case_id }}/comment
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.thehive.THEHIVE_API_KEY }}
+          X-Organisation: ${{ inputs.org_id }}
+        payload:
+          message: ${{ inputs.comment }}
+  returns: ${{ steps.add_comment.result }}
