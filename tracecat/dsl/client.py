@@ -14,6 +14,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat import config
 from tracecat.config import (
     TEMPORAL__API_KEY__ARN,
     TEMPORAL__CLUSTER_NAMESPACE,
@@ -84,7 +85,12 @@ async def connect_to_temporal() -> Client:
         tls_config = True
         rpc_metadata["temporal-namespace"] = TEMPORAL__CLUSTER_NAMESPACE
 
-    runtime = init_runtime_with_prometheus(port=9000)
+    if config.TRACECAT__APP_ENV == "production":
+        runtime = init_runtime_with_prometheus(port=9000)
+    else:
+        # Unset as it clashes with the minio service in dev tests
+        runtime = None
+
     client = await Client.connect(
         target_host=TEMPORAL__CLUSTER_URL,
         namespace=TEMPORAL__CLUSTER_NAMESPACE,
