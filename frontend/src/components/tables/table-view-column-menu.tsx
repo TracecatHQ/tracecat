@@ -421,6 +421,24 @@ function TableColumnNaturalKeyDialog({
     return null
   }
 
+  if (column.isNaturalKey) {
+    return (
+      <AlertDialog open={open} onOpenChange={onOpenChange}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Column is already a Natural Key</AlertDialogTitle>
+            <AlertDialogDescription>
+              Column <b>{column.name}</b> is already a natural key with a unique index.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  }
+
   const handleSetNaturalKey = async () => {
     const success = await setNaturalKey({
       tableId,

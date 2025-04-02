@@ -330,6 +330,9 @@ async def set_column_as_natural_key(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot create natural key: column contains duplicate values",
             ) from e
+        elif "relation" in str(cause) and "already exists" in str(cause):
+            # This happens when the index already exists (column is already a natural key)
+            return  # Return 200 OK since the column is already a natural key
 
         # Handle other database errors
         raise HTTPException(

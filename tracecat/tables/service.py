@@ -119,42 +119,51 @@ class TablesService(BaseService):
     async def _enrich_columns_with_natural_key_info(
         self, table: Table
     ) -> dict[str, bool]:
-        """Check which columns are natural keys using pg_constraint and pg_attribute.
-
-        Returns a dictionary mapping column names to their natural key status.
-        """
+        """Check which columns are natural keys by directly querying PostgreSQL indexes."""
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        # Query using pg_constraint to find unique constraints
-        query = text(r"""
+        # Query directly from pg_indexes to find unique indexes
+        query = text("""
             SELECT
-                a.attname as column_name
+                i.indexname,
+                i.indexdef
             FROM
-                pg_constraint c
-            JOIN
-                pg_namespace n ON n.oid = c.connamespace
-            JOIN
-                pg_class t ON t.oid = c.conrelid
-            JOIN
-                pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+                pg_indexes i
             WHERE
-                n.nspname = :schema AND
-                t.relname = :table AND
-                c.contype = 'u' AND
-                c.conname LIKE 'uq\_' || :table || '\_%'
+                i.schemaname = :schema AND
+                i.tablename = :table AND
+                i.indexdef LIKE '%UNIQUE INDEX%'
         """)
 
         # Execute the query with named parameters
         result = await conn.execute(query, {"schema": schema_name, "table": table.name})
 
-        # Get column names from the result
-        natural_key_columns = {row[0] for row in result.fetchall()}
+        # Get index information
+        indexes = result.fetchall()
+
+        # Extract column names from index definitions
+        natural_key_columns = set()
+        for idx_name, idx_def in indexes:
+            # Check if this is a natural key index (follows our uq_table_column pattern)
+            if idx_name.startswith(f"uq_{table.name}_"):
+                # Extract column name from index definition
+                # Format is typically: CREATE UNIQUE INDEX uq_table_column ON schema.table (column)
+                import re
+
+                column_match = re.search(r"\(([^)]+)\)", idx_def)
+                if column_match:
+                    # Get the column names, handling potential multi-column indexes
+                    columns = [c.strip() for c in column_match.group(1).split(",")]
+                    if len(columns) == 1:  # Only single-column indexes are natural keys
+                        natural_key_columns.add(columns[0])
 
         # Return a dictionary mapping column names to their natural key status
-        return {
+        result_dict = {
             column.name: column.name in natural_key_columns for column in table.columns
         }
+
+        return result_dict
 
     async def get_table_by_name(self, table_name: str) -> Table:
         """Get a lookup table by name.
@@ -436,7 +445,12 @@ class TablesService(BaseService):
 
         # Create a descriptive name for the index
         # Format: uq_[table_name]_[col1]_[col2]_etc
-        index_name = f"uq_{table.name}_{'_'.join(sanitized_columns)}"
+        if len(sanitized_columns) == 1:
+            # This is the pattern expected by _enrich_columns_with_natural_key_info
+            index_name = f"uq_{table.name}_{sanitized_columns[0]}"
+        else:
+            # Use a different prefix for multi-column indexes
+            index_name = f"multiuq_{table.name}_{'_'.join(sanitized_columns)}"
 
         # Get database connection
         conn = await self.session.connection()
@@ -582,6 +596,7 @@ class TablesService(BaseService):
                 if col not in natural_keys  # Don't update the conflict keys
             }
 
+            table_name_for_logging = table.name
             update_dict["updated_at"] = sa.text("CLOCK_TIMESTAMP()")
 
             try:
@@ -602,7 +617,7 @@ class TablesService(BaseService):
                     logger.warning(
                         "No unique index found for upsert conflict keys",
                         natural_keys=natural_keys,
-                        table_name=table.name,
+                        table_name=table_name_for_logging,
                     )
                     raise ValueError(
                         "Cannot upsert on columns. Create a unique index first with create_unique_index()"

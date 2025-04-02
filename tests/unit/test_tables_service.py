@@ -300,7 +300,7 @@ class TestTableRows:
         assert "created_at" in retrieved
         assert "updated_at" in retrieved
 
-    async def test_single_column_unique_index(
+    async def test_upsert_single_column_unique_index(
         self, tables_service: TablesService, table: Table
     ) -> None:
         """Test upserting with a single column unique index."""
@@ -327,7 +327,9 @@ class TestTableRows:
         rows = await tables_service.list_rows(table)
         assert len(rows) == 1, "Only one row should exist after upsert"
 
-    async def test_compound_unique_index(self, tables_service: TablesService) -> None:
+    async def test_upsert_compound_unique_index(
+        self, tables_service: TablesService
+    ) -> None:
         """Test upserting with a compound unique index."""
         # Create a new table specifically for this test
         compound_table = await tables_service.create_table(
