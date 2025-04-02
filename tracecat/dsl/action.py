@@ -209,13 +209,7 @@ class DSLActivities:
         logger.debug("Resolve condition", condition=input.condition_expr)
         result = await resolve_templated_object(input.condition_expr, input.context)
         try:
-            conditional_result = bool(result)
-            logger.debug(
-                "Resolved condition",
-                result=result,
-                conditional_result=conditional_result,
-            )
-            return conditional_result
+            return bool(result)
         except Exception:
             raise ApplicationError(
                 "Condition result could not be converted to a boolean",
