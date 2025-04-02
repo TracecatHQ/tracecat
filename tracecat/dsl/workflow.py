@@ -467,17 +467,17 @@ class DSLWorkflow:
         retry_until = task.retry_policy.retry_until
         if retry_until is None:
             raise ValueError("Retry until is not set")
-        ctx = self.context.copy()
+        context = self.context.copy()
         result = None
         while True:
             # NOTE: This only works with successful results
             # TODO: Add support to pass in additional retry context
             result = await self._execute_task(task)
-            ctx[ExprContext.ACTIONS][task.ref] = result
+            context[ExprContext.ACTIONS][task.ref] = result
             condition_met = await workflow.execute_activity(
                 DSLActivities.resolve_condition_activity,
                 arg=ResolveConditionActivityInput(
-                    condition_expr=retry_until, context=ctx
+                    condition_expr=retry_until, context=context
                 ),
                 start_to_close_timeout=timedelta(seconds=10),
             )
