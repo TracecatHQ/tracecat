@@ -8,12 +8,22 @@ from moto.server import ThreadedMotoServer
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from tracecat import config
 from tracecat.dsl.action import DSLActivities, ResolveConditionActivityInput
 from tracecat.dsl.models import ExecutionContext
 from tracecat.ee.store.constants import OBJECT_REF_RESULT_TYPE
 from tracecat.ee.store.models import ObjectRef, StoreWorkflowResultActivityInput
 from tracecat.ee.store.service import ObjectStore, get_object, put_object
 from tracecat.expressions.common import ExprContext
+
+
+@pytest.fixture(scope="function", autouse=True)
+def use_object_store(monkeypatch: pytest.MonkeyPatch):
+    """Setup the environment for the tests."""
+
+    monkeypatch.setenv("TRACECAT__USE_OBJECT_STORE", "true")
+    monkeypatch.setattr(config, "TRACECAT__USE_OBJECT_STORE", True)
+    yield
 
 
 @pytest.fixture(scope="module")
