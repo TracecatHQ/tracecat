@@ -15,6 +15,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat import config
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.models import (
@@ -206,7 +207,6 @@ class DSLActivities:
         cannot be converted to a boolean.
         """
         logger.debug("Resolve condition", condition=input.condition_expr)
-        # Don't block the main workflow thread
         result = await resolve_templated_object(input.condition_expr, input.context)
         try:
             conditional_result = bool(result)
@@ -224,5 +224,8 @@ class DSLActivities:
 
 
 async def resolve_templated_object(obj: Any, context: ExecutionContext) -> Any:
-    resolved_context = await ObjectStore.get().resolve_object_refs(obj, context)
-    return await asyncio.to_thread(eval_templated_object, obj, operand=resolved_context)
+    if config.TRACECAT__USE_OBJECT_STORE:
+        logger.debug("Resolving object refs", obj=obj, context=context)
+        context = await ObjectStore.get().resolve_object_refs(obj, context)
+    # Don't block the main workflow thread
+    return await asyncio.to_thread(eval_templated_object, obj, operand=context)

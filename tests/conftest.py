@@ -153,6 +153,8 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     )
     # Need this for local unit tests
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
+    monkeysession.setenv("TRACECAT__USE_OBJECT_STORE", "false")
+    monkeysession.setattr(config, "TRACECAT__USE_OBJECT_STORE", False)
 
     monkeysession.setenv(
         "TRACECAT__DB_URI",
@@ -162,6 +164,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv("TRACECAT__API_URL", "http://api:8000")
     # Needed for local unit tests
     monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://executor:8000")
+    monkeysession.setenv("MINIO_ENDPOINT_URL", "http://minio:9000")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
