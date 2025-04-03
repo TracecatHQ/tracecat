@@ -14,7 +14,12 @@ import CreateNewRepoStep from "/snippets/create-new-repo-step.mdx";
 
 <Note>
   Git sync is the recommended way to sync custom integrations into Tracecat in production.
-  For development,
+
+  For local development, you can specify the environment variables:
+  - `TRACECAT__LOCAL_REPOSITORY_ENABLED` to `true`
+  - `TRACECAT__LOCAL_REPOSITORY_PATH` to the path of the local repository
+
+  This will hot reload changes from your custom integrations repository into Tracecat.
 </Note>
 
 By the end of this tutorial, you'll learn how to:
