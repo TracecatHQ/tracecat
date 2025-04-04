@@ -127,10 +127,12 @@ def fastapi_users_auth_exception_handler(request: Request, exc: FastAPIUsersExce
 
 
 def create_app(**kwargs) -> FastAPI:
-    if config.TRACECAT__ALLOW_ORIGINS is not None:
-        allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
-    else:
-        allow_origins = ["*"]
+    # Set default CORS origins to public app URL if no origins explicitly configured
+    allow_origins = []
+    if config.TRACECAT__ALLOW_ORIGINS:
+        allow_origins = [origin.strip() for origin in config.TRACECAT__ALLOW_ORIGINS.split(",")]
+    if not allow_origins and config.TRACECAT__PUBLIC_APP_URL:
+        allow_origins = [config.TRACECAT__PUBLIC_APP_URL]
     app = FastAPI(
         title="Tracecat API",
         description=(
