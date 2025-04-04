@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tracecat.identifiers import TableColumnID, TableID, TableRowID
 from tracecat.tables.enums import SqlType
-from tracecat.utils.case_converter import to_camel_case
 
 
 class TableColumnRead(BaseModel):
@@ -17,12 +16,7 @@ class TableColumnRead(BaseModel):
     type: SqlType
     nullable: bool = True
     default: Any | None = None
-    is_natural_key: bool = Field(default=False, alias="isNaturalKey")
-
-    model_config = ConfigDict(
-        populate_by_name=True,
-        alias_generator=to_camel_case,  # Use imported function
-    )
+    is_natural_key: bool = False
 
 
 class TableColumnCreate(BaseModel):
@@ -94,7 +88,10 @@ class TableRowInsert(BaseModel):
 
     data: dict[str, Any]
     upsert: bool = False
-    natural_keys: list[str] = []
+    natural_keys: list[str] = Field(
+        default_factory=list,
+        description="The columns of the table to use for upsert",
+    )
 
 
 class TableRowInsertBatch(BaseModel):

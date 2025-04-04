@@ -450,7 +450,7 @@ class TablesService(BaseService):
             index_name = f"uq_{table.name}_{sanitized_columns[0]}"
         else:
             # Use a different prefix for multi-column indexes
-            index_name = f"multiuq_{table.name}_{'_'.join(sanitized_columns)}"
+            index_name = "multiuq_{}_{}".format(table.name, "_".join(sanitized_columns))
 
         # Get database connection
         conn = await self.session.connection()
@@ -555,9 +555,9 @@ class TablesService(BaseService):
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        row_data = params.data.copy()
+        row_data = params.data
         col_map = {c.name: c for c in table.columns}
-        upsert = getattr(params, "upsert", False)
+        upsert = params.upsert
 
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
@@ -579,7 +579,7 @@ class TablesService(BaseService):
             pg_stmt = pg_stmt.values(**value_clauses)
 
             # Determine which columns to use for conflict resolution
-            natural_keys = getattr(params, "natural_keys", [])
+            natural_keys = params.natural_keys
 
             # Ensure all conflict keys are actually in the data
             if not all(key in value_clauses for key in natural_keys):
@@ -597,7 +597,6 @@ class TablesService(BaseService):
             }
 
             table_name_for_logging = table.name
-            update_dict["updated_at"] = sa.text("CLOCK_TIMESTAMP()")
 
             try:
                 # Complete the statement with on_conflict_do_update
@@ -609,8 +608,12 @@ class TablesService(BaseService):
                 await self.session.commit()
                 row = result.mappings().one()
                 return dict(row)
-
             except ProgrammingError as e:
+                # Drill down to the root cause
+                original_error = e
+                while (cause := e.__cause__) is not None:
+                    e = cause
+
                 # Check for specific error about missing unique constraint
                 if "there is no unique or exclusion constraint" in str(e):
                     await self.session.rollback()
@@ -621,7 +624,7 @@ class TablesService(BaseService):
                     )
                     raise ValueError(
                         "Cannot upsert on columns. Create a unique index first with create_unique_index()"
-                    ) from e
+                    ) from original_error
                 raise
 
         # For non-upsert or if the exception handling for upsert didn't return

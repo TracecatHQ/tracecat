@@ -327,6 +327,9 @@ class TestTableRows:
         rows = await tables_service.list_rows(table)
         assert len(rows) == 1, "Only one row should exist after upsert"
 
+        assert "updated_at" in upserted
+        assert isinstance(upserted["updated_at"], datetime)
+
     async def test_upsert_compound_unique_index(
         self, tables_service: TablesService
     ) -> None:
@@ -389,6 +392,9 @@ class TestTableRows:
         # Verify ages
         ages = sorted([row["age"] for row in rows])
         assert ages == [26, 30], "Only one row's age should be updated"
+
+        assert "updated_at" in updated
+        assert isinstance(updated["updated_at"], datetime)
 
     async def test_index_required_for_upsert(
         self, tables_service: TablesService, table: Table
