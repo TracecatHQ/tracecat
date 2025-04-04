@@ -193,8 +193,8 @@ class RegistryActionExtractor(ExprExtractor):
         self._results[ExprContext.SECRETS].add(secret)
 
 
-def extract_expressions(args: Mapping[str, Any]) -> Mapping[ExprContext, set[str]]:
+def extract_action_and_secret_expressions(obj: Any) -> Mapping[ExprContext, set[str]]:
     extractor = RegistryActionExtractor()
-    for expr_str in traverse_expressions(args):
+    for expr_str in traverse_expressions(obj):
         Expression(expr_str, visitor=extractor)()
     return extractor.results()

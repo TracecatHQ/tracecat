@@ -162,6 +162,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv("TRACECAT__API_URL", "http://api:8000")
     # Needed for local unit tests
     monkeysession.setenv("TRACECAT__EXECUTOR_URL", "http://executor:8000")
+    monkeysession.setenv("MINIO_ENDPOINT_URL", "http://minio:9000")
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
@@ -173,6 +174,31 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
 
     # Ollama
     monkeysession.setattr(config, "OLLAMA__API_URL", "http://localhost:11434")
+
+    # Object store
+    use_object_store = os.getenv("TRACECAT__USE_OBJECT_STORE", "false").lower() in (
+        "true",
+        "1",
+    )
+    monkeysession.setattr(config, "TRACECAT__USE_OBJECT_STORE", use_object_store)
+
+    if use_object_store:
+        # Force all objects to be stored by default
+        max_object_size_bytes = int(os.getenv("TRACECAT__MAX_OBJECT_SIZE_BYTES", 0))
+        monkeysession.setattr(
+            config, "TRACECAT__MAX_OBJECT_SIZE_BYTES", max_object_size_bytes
+        )
+        monkeysession.setattr(config, "MINIO_ENDPOINT_URL", "http://localhost:9000")
+        monkeysession.setattr(config, "MINIO_ACCESS_KEY", "testuser")
+        monkeysession.setattr(config, "MINIO_SECRET_KEY", "password1234")
+        monkeysession.setattr(config, "TRACECAT__BUCKET_NAME", "tracecat")
+        logger.warning(
+            "@@@@@@@@@@@@@@@ Using object store",
+            use_object_store=use_object_store,
+            max_object_size_bytes=max_object_size_bytes,
+        )
+    else:
+        logger.info("Not using object store")
 
     yield
     logger.info("Environment variables cleaned up")

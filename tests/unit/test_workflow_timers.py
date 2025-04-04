@@ -21,7 +21,7 @@ from tracecat.dsl._converter import pydantic_data_converter
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionRetryPolicy, ActionStatement, RunActionInput
-from tracecat.dsl.worker import get_activities, new_sandbox_runner
+from tracecat.dsl.worker import all_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
 from tracecat.types.auth import Role
@@ -73,7 +73,7 @@ async def test_workflow_wait_until_future(
         return input.task.args["value"]
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = all_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
@@ -142,7 +142,7 @@ async def test_workflow_retry_until_condition(
         return {"status": "success"}
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = all_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
@@ -205,7 +205,7 @@ async def test_workflow_can_reschedule_at_tomorrow_9am(
         return {"status": "success"}
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = all_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
@@ -306,7 +306,7 @@ async def test_workflow_waits_until_tomorrow_9am(
         return {"status": "success"}
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = all_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
@@ -392,7 +392,7 @@ async def test_workflow_retry_until_condition_with_wait_until(
         return {"status": "success"}
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = all_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
@@ -478,7 +478,7 @@ async def test_workflow_wait_until_past(
         env.client,
         task_queue="test-queue",
         workflows=[DSLWorkflow],
-        activities=get_activities(),
+        activities=all_activities(),
         workflow_runner=new_sandbox_runner(),
     ):
         await env.client.execute_workflow(
@@ -520,7 +520,7 @@ async def test_workflow_start_delay(env: WorkflowEnvironment, test_role: Role):
         return "test"
 
     # Mock out the activity to count executions
-    activities = get_activities()
+    activities = all_activities()
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 

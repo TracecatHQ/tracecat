@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Iterator
+from typing import Any, cast
 
 import dateparser
 from pydantic import BaseModel
@@ -16,8 +16,17 @@ from tenacity import (
 
 from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
+from tracecat.dsl.common import create_default_execution_context
+from tracecat.dsl.models import (
+    ActionErrorInfo,
+    ActionStatement,
+    ArgsT,
+    ExecutionContext,
+    RunActionInput,
+)
 from tracecat.executor.client import ExecutorClient
+from tracecat.expressions.common import ExprContext, IterableExpr
+from tracecat.expressions.eval import eval_templated_object
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
@@ -180,3 +189,46 @@ class DSLActivities:
             wait_until, settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True}
         )
         return dt.isoformat() if dt else None
+
+
+def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") -> None:
+    *stem, leaf = path.split(sep=sep)
+    for key in stem:
+        obj = obj.setdefault(key, {})
+    obj[leaf] = value
+
+
+def evaluate_templated_args(task: ActionStatement, context: ExecutionContext) -> ArgsT:
+    return cast(ArgsT, eval_templated_object(task.args, operand=context))
+
+
+def iter_for_each(
+    task: ActionStatement,
+    context: ExecutionContext,
+    iterators: list[IterableExpr[Any]],
+    *,
+    assign_context: ExprContext = ExprContext.LOCAL_VARS,
+    patch: bool = True,
+) -> Iterator[ArgsT]:
+    """Produce patched contexts for each loop iteration."""
+    # Patch the context with the loop item and evaluate the action-local expressions
+    # We're copying this so that we don't pollute the original context
+    # Currently, the only source of action-local expressions is the loop iteration
+    # In the future, we may have other sources of action-local expressions
+    # XXX: ENV is the only context that should be shared
+    patched_context = context.copy() if patch else create_default_execution_context()
+    logger.trace("Context before patch", patched_context=patched_context)
+
+    # Create a generator that zips the iterables together
+    for i, items in enumerate(zip(*iterators, strict=False)):
+        logger.trace("Loop iteration", iteration=i)
+        for iterator_path, iterator_value in items:
+            patch_object(
+                obj=patched_context,  # type: ignore
+                path=assign_context + iterator_path,
+                value=iterator_value,
+            )
+        logger.trace("Patched context", patched_context=patched_context)
+        patched_args = evaluate_templated_args(task=task, context=patched_context)
+        logger.trace("Patched args", patched_args=patched_args)
+        yield patched_args

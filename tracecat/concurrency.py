@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable
 from concurrent.futures import Future, ProcessPoolExecutor
 from typing import Any, TypeVar, override
 
@@ -10,7 +10,7 @@ from tracecat.logger import logger
 T = TypeVar("T")
 
 
-def apartial(coro: Coroutine[T], /, *bind_args, **bind_kwargs):
+def apartial(coro: Callable[..., Awaitable[T]], /, *bind_args, **bind_kwargs):
     async def wrapped(*args, **kwargs):
         keywords = {**bind_kwargs, **kwargs}
         return await coro(*bind_args, *args, **keywords)

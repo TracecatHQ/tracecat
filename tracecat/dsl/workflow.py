@@ -4,7 +4,7 @@ import asyncio
 import itertools
 import json
 import uuid
-from collections.abc import Generator, Iterable
+from collections.abc import Generator, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -25,14 +25,17 @@ with workflow.unsafe.imports_passed_through():
     import tracecat_registry  # noqa
     from pydantic import TypeAdapter, ValidationError
 
-    from tracecat import identifiers
+    from tracecat import config, identifiers
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.action import (
         DSLActivities,
         ValidateActionActivityInput,
+        evaluate_templated_args,
+        iter_for_each,
     )
     from tracecat.dsl.common import (
+        RETRY_POLICIES,
         ChildWorkflowMemo,
         DSLInput,
         DSLRunArgs,
@@ -64,14 +67,23 @@ with workflow.unsafe.imports_passed_through():
         InteractionState,
     )
     from tracecat.ee.interactions.service import InteractionManager
-    from tracecat.executor.service import evaluate_templated_args, iter_for_each
-    from tracecat.expressions.common import ExprContext
+    from tracecat.ee.store.constants import OBJECT_REF_RESULT_TYPE
+    from tracecat.ee.store.models import (
+        ResolveConditionActivityInput,
+        ResolveObjectActivityInput,
+        StoreWorkflowResultActivityInput,
+        as_object_ref,
+    )
+    from tracecat.ee.store.service import (
+        resolve_condition_activity,
+        resolve_for_each_activity,
+        store_workflow_result_activity,
+    )
+    from tracecat.expressions.common import ExprContext, IterableExpr
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
     from tracecat.logger import logger
     from tracecat.types.exceptions import (
-        TracecatCredentialsError,
-        TracecatDSLError,
         TracecatException,
         TracecatExpressionError,
         TracecatNotFoundError,
@@ -90,42 +102,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.workflow.schedules.models import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
-
-
-non_retryable_error_types = [
-    # General
-    Exception.__name__,
-    TypeError.__name__,
-    ValueError.__name__,
-    RuntimeError.__name__,
-    # Pydantic
-    ValidationError.__name__,
-    # Tracecat
-    TracecatException.__name__,
-    TracecatExpressionError.__name__,
-    TracecatValidationError.__name__,
-    TracecatDSLError.__name__,
-    TracecatCredentialsError.__name__,
-    # Temporal
-    ApplicationError.__name__,
-    ChildWorkflowError.__name__,
-    FailureError.__name__,
-]
-
-
-retry_policies = {
-    "activity:fail_fast": RetryPolicy(
-        # XXX: Do not set max attempts to 0, it will default to unlimited
-        maximum_attempts=1,
-        non_retryable_error_types=non_retryable_error_types,
-    ),
-    "activity:fail_slow": RetryPolicy(maximum_attempts=6),
-    "workflow:fail_fast": RetryPolicy(
-        # XXX: Do not set max attempts to 0, it will default to unlimited
-        maximum_attempts=1,
-        non_retryable_error_types=non_retryable_error_types,
-    ),
-}
 
 
 @workflow.defn
@@ -346,6 +322,7 @@ class DSLWorkflow:
             wf_exec_id=wf_info.workflow_id,
             wf_run_id=uuid.UUID(wf_info.run_id, version=4),
             environment=self.runtime_config.environment,
+            namespace=wf_info.namespace,
         )
         ctx_run.set(self.run_context)
 
@@ -358,7 +335,7 @@ class DSLWorkflow:
         )
 
         self.scheduler = DSLScheduler(
-            executor=self.execute_task,  # type: ignore
+            executor=self.execute_task,
             dsl=self.dsl,
             context=self.context,
         )
@@ -389,7 +366,7 @@ class DSLWorkflow:
 
         try:
             self.logger.info("DSL workflow completed")
-            return self._handle_return()
+            return await self._handle_return()
         except TracecatExpressionError as e:
             raise ApplicationError(
                 f"Couldn't parse return value expression: {e}",
@@ -451,7 +428,7 @@ class DSLWorkflow:
             # In Temporal 1.9.0+, we can use workflow.sleep() as well
             await asyncio.sleep(task.start_delay)
 
-    async def execute_task(self, task: ActionStatement) -> Any:
+    async def execute_task(self, task: ActionStatement) -> TaskResult:
         """Execute a task and manage the results."""
         if task.retry_policy.retry_until:
             return await self._execute_task_until_condition(task)
@@ -462,21 +439,21 @@ class DSLWorkflow:
         retry_until = task.retry_policy.retry_until
         if retry_until is None:
             raise ValueError("Retry until is not set")
-        ctx = self.context.copy()
+        context = self.context.copy()
         result = None
         while True:
             # NOTE: This only works with successful results
+            # TODO: Add support to pass in additional retry context
             result = await self._execute_task(task)
-            ctx[ExprContext.ACTIONS][task.ref] = result
-            retry_until_result = eval_templated_object(retry_until.strip(), operand=ctx)
-            if not isinstance(retry_until_result, bool):
-                try:
-                    retry_until_result = bool(retry_until_result)
-                except Exception:
-                    raise ApplicationError(
-                        "Retry until result is not a boolean", non_retryable=True
-                    ) from None
-            if retry_until_result:
+            context[ExprContext.ACTIONS][task.ref] = result
+            condition_met = await workflow.execute_activity(
+                resolve_condition_activity,
+                arg=ResolveConditionActivityInput(
+                    condition_expr=retry_until, context=context
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+            )
+            if condition_met:
                 break
         return result
 
@@ -532,9 +509,11 @@ class DSLWorkflow:
                     )
                     action_result = await self._run_action(task)
             logger.trace("Action completed successfully", action_result=action_result)
-            task_result.update(
-                result=action_result, result_typename=type(action_result).__name__
-            )
+            # If the result is a blob, we need to store it in object storage
+            result_typename = type(action_result).__name__
+            if isinstance(action_result, Mapping) and as_object_ref(action_result):
+                result_typename = OBJECT_REF_RESULT_TYPE
+            task_result.update(result=action_result, result_typename=result_typename)
         # NOTE: By the time we receive an exception, we've exhausted all retry attempts
         # Note that execute_task is called by the scheduler, so we don't have to return ApplicationError
         except (ActivityError, ChildWorkflowError, FailureError) as e:
@@ -570,10 +549,13 @@ class DSLWorkflow:
         except Exception as e:
             err_type = e.__class__.__name__
             msg = f"Task execution failed with unexpected error: {e}"
+            import traceback
+
             logger.error(
                 "Activity execution failed with unexpected error",
                 error=msg,
                 type=err_type,
+                tb=traceback.format_exc(),
             )
             task_result.update(error=msg, error_typename=err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
@@ -637,6 +619,12 @@ class DSLWorkflow:
         task: ActionStatement,
         child_run_args: DSLRunArgs,
     ) -> list[Any]:
+        if not task.for_each:
+            raise ApplicationError(
+                "No loop expression found",
+                non_retryable=True,
+                type=ApplicationError.__name__,
+            )
         loop_strategy = LoopStrategy(task.args.get("loop_strategy", LoopStrategy.BATCH))
         fail_strategy = FailStrategy(
             task.args.get("fail_strategy", FailStrategy.ISOLATED)
@@ -648,12 +636,19 @@ class DSLWorkflow:
             fail_strategy=fail_strategy,
         )
 
-        def iterator() -> Generator[ExecuteChildWorkflowArgs]:
-            for args in iter_for_each(task=task, context=self.context):
+        def child_wf_iterator(
+            iters: list[IterableExpr[Any]],
+        ) -> Generator[ExecuteChildWorkflowArgs, None, None]:
+            for args in iter_for_each(task=task, context=self.context, iterators=iters):
                 yield ExecuteChildWorkflowArgs(**args)
 
-        it = iterator()
-
+        iterators = await workflow.execute_activity(
+            resolve_for_each_activity,
+            ResolveObjectActivityInput(obj=task.for_each, context=self.context),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        it = child_wf_iterator(iterators)
         if loop_strategy == LoopStrategy.PARALLEL:
             return await self._execute_child_workflow_batch(
                 batch=it,
@@ -734,7 +729,7 @@ class DSLWorkflow:
             ]
             return result
 
-    def _handle_return(self) -> Any:
+    async def _handle_return(self) -> Any:
         self.logger.debug("Handling return", context=self.context)
         if self.dsl.returns is None:
             # Return the context
@@ -744,7 +739,20 @@ class DSLWorkflow:
             return self.context
         # Return some custom value that should be evaluated
         self.logger.trace("Returning value from expression")
-        return eval_templated_object(self.dsl.returns, operand=self.context)
+        if config.TRACECAT__USE_OBJECT_STORE:
+            self.logger.debug("Storing workflow result in object store")
+            result = await workflow.execute_activity(
+                store_workflow_result_activity,
+                arg=StoreWorkflowResultActivityInput(
+                    args=self.dsl.returns, context=self.context
+                ),
+                start_to_close_timeout=self.start_to_close_timeout,
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        else:
+            self.logger.debug("Evaluating workflow result")
+            result = eval_templated_object(self.dsl.returns, operand=self.context)
+        return result
 
     async def _resolve_workflow_alias(self, wf_alias: str) -> identifiers.WorkflowID:
         activity_inputs = ResolveWorkflowAliasActivityInputs(
@@ -754,7 +762,7 @@ class DSLWorkflow:
             WorkflowsManagementService.resolve_workflow_alias_activity,
             arg=activity_inputs,
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not wf_id:
             raise ValueError(f"Workflow alias {wf_alias} not found")
@@ -774,7 +782,7 @@ class DSLWorkflow:
             get_workflow_definition_activity,
             arg=activity_inputs,
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_slow"],
+            retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
 
     async def _validate_trigger_inputs(
@@ -795,7 +803,7 @@ class DSLWorkflow:
                 trigger_inputs=trigger_inputs,
             ),
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         return validation_result
 
@@ -820,7 +828,7 @@ class DSLWorkflow:
             WorkflowSchedulesService.get_schedule_activity,
             arg=activity_inputs,
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         return schedule_read.inputs
 
@@ -829,7 +837,7 @@ class DSLWorkflow:
             DSLActivities.validate_action_activity,
             arg=ValidateActionActivityInput(role=self.role, task=task),
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not result.ok:
             raise ApplicationError(
@@ -913,7 +921,7 @@ class DSLWorkflow:
             DSLWorkflow.run,
             run_args,
             id=wf_exec_id,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             # Propagate the parent workflow attributes to the child workflow
             task_queue=wf_info.task_queue,
             execution_timeout=wf_info.execution_timeout,
@@ -934,7 +942,7 @@ class DSLWorkflow:
             WorkflowsManagementService.get_error_handler_workflow_id,
             arg=GetErrorHandlerWorkflowIDActivityInputs(args=args, role=self.role),
             start_to_close_timeout=args.timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
 
     async def _prepare_error_handler_workflow(
@@ -991,7 +999,7 @@ class DSLWorkflow:
             DSLWorkflow.run,
             args,
             id=wf_exec_id,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             # Propagate the parent workflow attributes to the child workflow
             task_queue=wf_info.task_queue,
             execution_timeout=wf_info.execution_timeout,

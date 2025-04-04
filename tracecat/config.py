@@ -234,3 +234,18 @@ TRACECAT__TRUSTED_DOCKER_IMAGES = (
 """List of trusted docker images.
 If not provided, no images will be trusted.
 """
+# === Object storage config === #
+MINIO_ENDPOINT_URL = os.environ.get("MINIO_ENDPOINT_URL") or "http://minio:9000"
+MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY")
+MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY")
+MINIO_REGION = os.environ.get("MINIO_REGION", "us-east-1")
+TRACECAT__USE_OBJECT_STORE = os.environ.get(
+    "TRACECAT__USE_OBJECT_STORE", "false"
+).lower() in ("true", "1")
+TRACECAT__BUCKET_NAME = os.environ.get("TRACECAT__BUCKET_NAME", "tracecat")
+TRACECAT__MAX_OBJECT_DISPLAY_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_OBJECT_DISPLAY_SIZE_BYTES", 10)
+)
+TRACECAT__MAX_OBJECT_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_OBJECT_SIZE_BYTES", 10_000_000)
+)

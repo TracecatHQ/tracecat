@@ -18,7 +18,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.validation import validate_trigger_inputs_activity
     from tracecat.dsl.workflow import DSLWorkflow
+    from tracecat.ee.store import service as store_service
     from tracecat.logger import logger
+    from tracecat.service import get_activities
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
@@ -52,13 +54,14 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 interrupt_event = asyncio.Event()
 
 
-def get_activities() -> list[Callable]:
+def all_activities() -> list[Callable]:
     return [
         *DSLActivities.load(),
         get_workflow_definition_activity,
         *WorkflowSchedulesService.get_activities(),
         validate_trigger_inputs_activity,
         *WorkflowsManagementService.get_activities(),
+        *get_activities(store_service),
     ]
 
 
@@ -72,7 +75,7 @@ async def main() -> None:
         interceptors.append(SentryInterceptor())
 
     # Run a worker for the activities and workflow
-    activities = get_activities()
+    activities = all_activities()
     logger.debug(
         "Activities loaded",
         activities=[

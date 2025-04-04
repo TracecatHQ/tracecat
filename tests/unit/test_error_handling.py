@@ -8,10 +8,10 @@ from tests import shared
 from tracecat.contexts import ctx_role
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionStatement
 from tracecat.dsl.worker import new_sandbox_runner
-from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
 
 
@@ -34,7 +34,7 @@ async def test_execution_fails_fatal(test_role):
                 DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=shared.TEST_WF_ID),
                 id=wf_exec_id,
                 task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-                retry_policy=retry_policies["workflow:fail_fast"],
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             )
             assert "Couldn't resolve expression 'ACTIONS.a.result.invalid'" in str(e)
 
@@ -119,7 +119,7 @@ async def test_execution_fails_invalid_expressions(
                 DSLRunArgs(dsl=dsl, role=test_role, wf_id=shared.TEST_WF_ID),
                 id=wf_exec_id,
                 task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-                retry_policy=retry_policies["workflow:fail_fast"],
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             )
             logger.info(result)
 

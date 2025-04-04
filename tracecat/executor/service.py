@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import itertools
 import traceback
-from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -18,21 +17,24 @@ from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
 from tracecat.db.engine import get_async_engine
-from tracecat.dsl.common import context_locator, create_default_execution_context
+from tracecat.dsl.action import (
+    evaluate_templated_args,
+    patch_object,
+)
+from tracecat.dsl.common import context_locator
 from tracecat.dsl.models import (
-    ActionStatement,
+    ArgsT,
     ExecutionContext,
     RunActionInput,
     TaskResult,
 )
+from tracecat.ee.store import service
+from tracecat.ee.store.models import ObjectRef, ResolveObjectActivityInput
+from tracecat.ee.store.service import resolve_execution_context
 from tracecat.executor.engine import EXECUTION_TIMEOUT
 from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorInfo
 from tracecat.expressions.common import ExprContext, ExprOperand
-from tracecat.expressions.eval import (
-    eval_templated_object,
-    extract_templated_secrets,
-    get_iterables_from_expression,
-)
+from tracecat.expressions.eval import eval_templated_object, extract_templated_secrets
 from tracecat.git import prepare_git_url
 from tracecat.logger import logger
 from tracecat.parse import get_pyproject_toml_required_deps, traverse_leaves
@@ -52,8 +54,7 @@ from tracecat.types.exceptions import (
 """All these methods are used in the registry executor, not on the worker"""
 
 
-type ArgsT = Mapping[str, Any]
-type ExecutionResult = Any | ExecutorActionErrorInfo
+type ExecutionResult = Any | ExecutorActionErrorInfo | ObjectRef
 
 
 def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResult:
@@ -206,6 +207,8 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     task = input.task
     action_name = task.action
 
+    logger.error("RESOLVING EXEC CONTEXT")
+    context = await resolve_execution_context(input)
     async with RegistryActionsService.with_session() as service:
         reg_action = await service.get_action(action_name)
         action_secrets = await service.fetch_all_action_secrets(reg_action)
@@ -250,7 +253,6 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         args=task.args,
     )
 
-    context = input.exec_context.copy()
     context.update(SECRETS=secrets)
 
     flattened_secrets = flatten_secrets(secrets)
@@ -374,7 +376,7 @@ async def run_action_on_ray_cluster(
 async def dispatch_action_on_cluster(
     input: RunActionInput,
     session: AsyncSession,
-) -> Any:
+) -> Any | ObjectRef:
     """Schedule actions on the ray cluster.
 
     This function handles dispatching actions to be executed on a Ray cluster. It supports
@@ -420,7 +422,9 @@ async def _dispatch_action(
     base_context = input.exec_context
     # We have a list of iterators that give a variable assignment path ".path.to.value"
     # and a collection of values as a tuple.
-    iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
+    iterators = await service.resolve_for_each_activity(
+        ResolveObjectActivityInput(obj=task.for_each, context=base_context)
+    )
 
     async def iteration(patched_input: RunActionInput, i: int):
         return await run_action_on_ray_cluster(patched_input, ctx, iteration=i)
@@ -466,53 +470,6 @@ async def _dispatch_action(
 
 
 """Utilities"""
-
-
-def evaluate_templated_args(task: ActionStatement, context: ExecutionContext) -> ArgsT:
-    return cast(ArgsT, eval_templated_object(task.args, operand=context))
-
-
-def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") -> None:
-    *stem, leaf = path.split(sep=sep)
-    for key in stem:
-        obj = obj.setdefault(key, {})
-    obj[leaf] = value
-
-
-def iter_for_each(
-    task: ActionStatement,
-    context: ExecutionContext,
-    *,
-    assign_context: ExprContext = ExprContext.LOCAL_VARS,
-    patch: bool = True,
-) -> Iterator[ArgsT]:
-    """Yield patched contexts for each loop iteration."""
-    # Evaluate the loop expression
-    if not task.for_each:
-        raise ValueError("No loop expression found")
-    iterators = get_iterables_from_expression(expr=task.for_each, operand=context)
-
-    # Patch the context with the loop item and evaluate the action-local expressions
-    # We're copying this so that we don't pollute the original context
-    # Currently, the only source of action-local expressions is the loop iteration
-    # In the future, we may have other sources of action-local expressions
-    # XXX: ENV is the only context that should be shared
-    patched_context = context.copy() if patch else create_default_execution_context()
-    logger.trace("Context before patch", patched_context=patched_context)
-
-    # Create a generator that zips the iterables together
-    for i, items in enumerate(zip(*iterators, strict=False)):
-        logger.trace("Loop iteration", iteration=i)
-        for iterator_path, iterator_value in items:
-            patch_object(
-                obj=patched_context,  # type: ignore
-                path=assign_context + iterator_path,
-                value=iterator_value,
-            )
-        logger.trace("Patched context", patched_context=patched_context)
-        patched_args = evaluate_templated_args(task=task, context=patched_context)
-        logger.trace("Patched args", patched_args=patched_args)
-        yield patched_args
 
 
 def flatten_wrapped_exc_error_group(

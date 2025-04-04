@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 import httpx
 import yaml
 from slugify import slugify
 
+from tracecat.dsl.models import TaskResult
+from tracecat.ee.store.models import as_object_ref
+from tracecat.ee.store.object_store import ObjectStore
 from tracecat.identifiers.workflow import EXEC_ID_PREFIX, WorkflowUUID
 from tracecat.registry.actions.models import TemplateAction
 
@@ -39,3 +43,14 @@ def load_yaml_template_action(file_path: Path) -> TemplateAction:
 
     action = TemplateAction.model_validate(definition)
     return action
+
+
+async def resolve_task_result(task_result: TaskResult) -> Any:
+    """Resolve a task result to a value."""
+    match task_result:
+        case {"result_typename": "tracecat/object-ref", "result": result}:
+            if obj_ref := as_object_ref(result):
+                return await ObjectStore.get().get_object(obj_ref)
+            raise ValueError("Invalid object ref")
+        case _:
+            return task_result["result"]
