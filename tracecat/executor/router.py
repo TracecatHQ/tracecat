@@ -72,7 +72,7 @@ async def run_action(
         ) from e
     except PayloadSizeExceeded as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=str(e),
         ) from e
     except Exception as e:
