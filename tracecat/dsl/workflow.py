@@ -30,8 +30,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.action import (
         DSLActivities,
-        ResolveConditionActivityInput,
         ValidateActionActivityInput,
+        evaluate_templated_args,
+        iter_for_each,
     )
     from tracecat.dsl.common import (
         RETRY_POLICIES,
@@ -67,10 +68,18 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.ee.interactions.service import InteractionManager
     from tracecat.ee.store.constants import OBJECT_REF_RESULT_TYPE
-    from tracecat.ee.store.models import StoreWorkflowResultActivityInput, as_object_ref
-    from tracecat.ee.store.service import ObjectStore
-    from tracecat.executor.service import evaluate_templated_args, iter_for_each
-    from tracecat.expressions.common import ExprContext
+    from tracecat.ee.store.models import (
+        ResolveConditionActivityInput,
+        ResolveObjectActivityInput,
+        StoreWorkflowResultActivityInput,
+        as_object_ref,
+    )
+    from tracecat.ee.store.service import (
+        resolve_condition_activity,
+        resolve_for_each_activity,
+        store_workflow_result_activity,
+    )
+    from tracecat.expressions.common import ExprContext, IterableExpr
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
     from tracecat.logger import logger
@@ -438,7 +447,7 @@ class DSLWorkflow:
             result = await self._execute_task(task)
             context[ExprContext.ACTIONS][task.ref] = result
             condition_met = await workflow.execute_activity(
-                DSLActivities.resolve_condition_activity,
+                resolve_condition_activity,
                 arg=ResolveConditionActivityInput(
                     condition_expr=retry_until, context=context
                 ),
@@ -540,10 +549,13 @@ class DSLWorkflow:
         except Exception as e:
             err_type = e.__class__.__name__
             msg = f"Task execution failed with unexpected error: {e}"
+            import traceback
+
             logger.error(
                 "Activity execution failed with unexpected error",
                 error=msg,
                 type=err_type,
+                tb=traceback.format_exc(),
             )
             task_result.update(error=msg, error_typename=err_type)
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
@@ -607,6 +619,12 @@ class DSLWorkflow:
         task: ActionStatement,
         child_run_args: DSLRunArgs,
     ) -> list[Any]:
+        if not task.for_each:
+            raise ApplicationError(
+                "No loop expression found",
+                non_retryable=True,
+                type=ApplicationError.__name__,
+            )
         loop_strategy = LoopStrategy(task.args.get("loop_strategy", LoopStrategy.BATCH))
         fail_strategy = FailStrategy(
             task.args.get("fail_strategy", FailStrategy.ISOLATED)
@@ -618,12 +636,19 @@ class DSLWorkflow:
             fail_strategy=fail_strategy,
         )
 
-        def iterator() -> Generator[ExecuteChildWorkflowArgs]:
-            for args in iter_for_each(task=task, context=self.context):
+        def child_wf_iterator(
+            iters: list[IterableExpr[Any]],
+        ) -> Generator[ExecuteChildWorkflowArgs, None, None]:
+            for args in iter_for_each(task=task, context=self.context, iterators=iters):
                 yield ExecuteChildWorkflowArgs(**args)
 
-        it = iterator()
-
+        iterators = await workflow.execute_activity(
+            resolve_for_each_activity,
+            ResolveObjectActivityInput(obj=task.for_each, context=self.context),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        it = child_wf_iterator(iterators)
         if loop_strategy == LoopStrategy.PARALLEL:
             return await self._execute_child_workflow_batch(
                 batch=it,
@@ -717,7 +742,7 @@ class DSLWorkflow:
         if config.TRACECAT__USE_OBJECT_STORE:
             self.logger.debug("Storing workflow result in object store")
             result = await workflow.execute_activity(
-                ObjectStore.store_workflow_result_activity,
+                store_workflow_result_activity,
                 arg=StoreWorkflowResultActivityInput(
                     args=self.dsl.returns, context=self.context
                 ),

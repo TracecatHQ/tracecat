@@ -6,7 +6,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.dsl.models import ExecutionContext
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.store.models import ObjectRef, StoreWorkflowResultActivityInput
-from tracecat.ee.store.service import ObjectStore
+from tracecat.ee.store.object_store import ObjectStore
 from tracecat.expressions.common import ExprContext
 
 

@@ -11,7 +11,13 @@ from tracecat.config import (
 )
 from tracecat.dsl.action import DSLActivities
 from tracecat.ee.store.models import as_object_ref
-from tracecat.ee.store.service import ObjectStore
+from tracecat.ee.store.object_store import ObjectStore
+from tracecat.ee.store.service import (
+    resolve_condition_activity,
+    resolve_for_each_activity,
+    resolve_object_refs_activity,
+    store_workflow_result_activity,
+)
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.logger import logger
 from tracecat.workflow.executions.enums import (
@@ -81,11 +87,12 @@ UTILITY_ACTIONS = {
     "validate_trigger_inputs_activity",
     DSLActivities.validate_action_activity.__name__,
     DSLActivities.parse_wait_until_activity.__name__,
-    DSLActivities.resolve_condition_activity.__name__,
     WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
     WorkflowsManagementService.get_error_handler_workflow_id.__name__,
-    ObjectStore.store_workflow_result_activity.__name__,
-    ObjectStore.resolve_object_refs_activity.__name__,
+    resolve_condition_activity.__name__,
+    resolve_for_each_activity.__name__,
+    resolve_object_refs_activity.__name__,
+    store_workflow_result_activity.__name__,
 }
 
 

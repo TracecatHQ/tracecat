@@ -7,7 +7,6 @@ from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger
-from tracecat.dsl.action import DSLActivities, ResolveConditionActivityInput
 from tracecat.dsl.common import (
     RETRY_POLICIES,
     AdjDst,
@@ -23,6 +22,8 @@ from tracecat.dsl.models import (
     TaskExceptionInfo,
     TaskResult,
 )
+from tracecat.ee.store.models import ResolveConditionActivityInput
+from tracecat.ee.store.service import resolve_condition_activity
 from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
 
@@ -417,7 +418,7 @@ class DSLScheduler:
             return False
         # Evaluate the `run_if` condition
         result = await workflow.execute_activity(
-            DSLActivities.resolve_condition_activity,
+            resolve_condition_activity,
             arg=ResolveConditionActivityInput(
                 condition_expr=task.run_if, context=self.context
             ),

@@ -9,11 +9,15 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from tracecat import config
-from tracecat.dsl.action import DSLActivities, ResolveConditionActivityInput
 from tracecat.dsl.models import ExecutionContext
+from tracecat.ee.store import service
 from tracecat.ee.store.constants import OBJECT_REF_RESULT_TYPE
-from tracecat.ee.store.models import ObjectRef, StoreWorkflowResultActivityInput
-from tracecat.ee.store.service import ObjectStore, get_object, put_object
+from tracecat.ee.store.models import (
+    ObjectRef,
+    ResolveConditionActivityInput,
+    StoreWorkflowResultActivityInput,
+)
+from tracecat.ee.store.object_store import ObjectStore, get_object, put_object
 from tracecat.expressions.common import ExprContext
 
 
@@ -216,7 +220,7 @@ class TestObjectStore:
         context = ExecutionContext()
 
         # Act
-        result = await mock_store.resolve_object_refs(obj=args, context=context)
+        result = await service.resolve_object_refs(obj=args, context=context)
 
         # Assert
         assert result == context
@@ -266,7 +270,7 @@ class TestObjectStore:
         # Apply our mock implementation
         with patch.object(mock_store, "resolve_object_refs", mock_resolve_object_refs):
             # Act
-            result = await mock_store.resolve_object_refs(obj=args, context=context)
+            result = await service.resolve_object_refs(obj=args, context=context)
 
             # Assert
             action_context = result.get(ExprContext.ACTIONS, {})
@@ -339,7 +343,7 @@ class TestStoreWorkflowResultActivity:
 
             # Act
             result = await activity_env.run(
-                ObjectStore.store_workflow_result_activity, input_data
+                service.store_workflow_result_activity, input_data
             )
 
             # Assert
@@ -373,7 +377,7 @@ class TestStoreWorkflowResultActivity:
             # Act & Assert
             with pytest.raises(ValueError, match="Test error"):
                 await activity_env.run(
-                    ObjectStore.store_workflow_result_activity, input_data
+                    service.store_workflow_result_activity, input_data
                 )
 
 
@@ -511,7 +515,7 @@ class TestResolveConditionActivity:
         with patch.object(ObjectStore, "get", return_value=mock_store):
             # Act
             result = await activity_env.run(
-                DSLActivities.resolve_condition_activity, input_data
+                service.resolve_condition_activity, input_data
             )
 
             # Assert
@@ -552,9 +556,7 @@ class TestResolveConditionActivity:
         with patch.object(ObjectStore, "get", return_value=mock_store):
             # Act & Assert
             with pytest.raises(ApplicationError) as exc_info:
-                await activity_env.run(
-                    DSLActivities.resolve_condition_activity, input_data
-                )
+                await activity_env.run(service.resolve_condition_activity, input_data)
 
             # Verify the error message
             assert "Condition result could not be converted to a boolean" in str(

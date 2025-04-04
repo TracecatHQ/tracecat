@@ -1,11 +1,14 @@
 from typing import Any
 
+import orjson
 from fastapi import APIRouter, HTTPException, status
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.models import RunActionInput
+from tracecat.ee.store.object_store import ObjectStore
 from tracecat.executor.models import ExecutorActionErrorInfo
 from tracecat.executor.service import dispatch_action_on_cluster
 from tracecat.logger import logger
@@ -39,7 +42,25 @@ async def run_action(
     log.info("Starting action")
 
     try:
-        return await dispatch_action_on_cluster(input=action_input, session=session)
+        result = await dispatch_action_on_cluster(input=action_input, session=session)
+
+        if config.TRACECAT__USE_OBJECT_STORE:
+            logger.info("Storing action result in object store", result=result)
+            # If the object exceeds the hard cap, we error out and do not store it
+            result_bytes = orjson.dumps(result)
+            if len(result_bytes) > config.TRACECAT__MAX_OBJECT_SIZE_BYTES:
+                logger.warning(
+                    "Object size exceeds maximum allowed size",
+                    size=len(result_bytes),
+                    limit=config.TRACECAT__MAX_OBJECT_SIZE_BYTES,
+                )
+                raise ValueError(
+                    f"Object size {len(result_bytes)} bytes exceeds maximum allowed size of {config.TRACECAT__MAX_OBJECT_SIZE_BYTES} bytes"
+                )
+            logger.info("Storing action result in object store", result=result)
+            # Store the result of the action and return the object ref
+            result = await ObjectStore.get().put_object_bytes(result_bytes)
+        return result
     except TracecatSettingsError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

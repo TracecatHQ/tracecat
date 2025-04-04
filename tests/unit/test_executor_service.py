@@ -13,11 +13,11 @@ from tracecat.dsl.models import (
 )
 from tracecat.ee.store.constants import OBJECT_REF_RESULT_TYPE
 from tracecat.ee.store.models import ObjectRef
+from tracecat.ee.store.service import resolve_execution_context
 from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorInfo
 from tracecat.executor.service import (
     _dispatch_action,
     dispatch_action_on_cluster,
-    load_execution_context,
     run_action_from_input,
     sync_executor_entrypoint,
 )
@@ -348,7 +348,7 @@ async def test_load_execution_context_no_object_store(
     monkeypatch.setattr(config, "TRACECAT__USE_OBJECT_STORE", False)
 
     # Run the test function
-    result = await load_execution_context(input=run_action_input_with_ref)
+    result = await resolve_execution_context(input=run_action_input_with_ref)
 
     # Verify the function returns a copy of the original context
     assert result is not run_action_input_with_ref.exec_context  # Should be a copy
@@ -398,7 +398,7 @@ async def test_load_execution_context_with_object_store(
     )
 
     # Run the test function
-    result = await load_execution_context(input=test_input)
+    result = await resolve_execution_context(input=test_input)
 
     # Verify ObjectStore.resolve_object_refs was called
     mock_object_store.resolve_object_refs.assert_awaited_once()

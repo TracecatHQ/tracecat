@@ -7,6 +7,7 @@ from typing import cast as type_cast
 
 import jsonpath_ng.ext
 from jsonpath_ng.exceptions import JsonPathParserError
+from pydantic import TypeAdapter
 
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatExpressionError
@@ -92,6 +93,9 @@ class IterableExpr[T]:
     def __iter__(self) -> Iterator[tuple[str, T]]:
         for item in self.collection:
             yield self.iterator, item
+
+
+IterableExprAdapter = TypeAdapter(IterableExpr)
 
 
 K = TypeVar("K", str, StrEnum)

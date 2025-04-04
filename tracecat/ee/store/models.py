@@ -47,3 +47,23 @@ class ResolveObjectRefsActivityInput(BaseModel):
 
     context: ExecutionContext
     """The context of the workflow."""
+
+
+class ResolveConditionActivityInput(BaseModel):
+    """Input for the resolve run if activity."""
+
+    context: ExecutionContext
+    """The context of the workflow."""
+
+    condition_expr: str
+    """The condition expression to evaluate."""
+
+
+class ResolveObjectActivityInput(BaseModel):
+    """Input for the resolve run if activity."""
+
+    context: ExecutionContext
+    """The context of the workflow."""
+
+    obj: Any
+    """The object to resolve."""

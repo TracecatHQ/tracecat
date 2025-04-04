@@ -24,7 +24,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import Worker
 
-from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tests.shared import TEST_WF_ID, generate_test_exec_id, resolve_task_result
 from tracecat import config
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_role
@@ -46,6 +46,7 @@ from tracecat.dsl.models import (
 )
 from tracecat.dsl.worker import all_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.ee.store.service import resolve
 from tracecat.expressions.common import ExprContext
 from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID, WorkflowUUID
 from tracecat.logger import logger
@@ -161,13 +162,19 @@ async def test_workflow_can_run_from_yaml(dsl, test_role, temporal_client):
     assert len(result[ExprContext.ACTIONS]) == len(dsl.actions)
 
 
-def assert_respectful_exec_order(dsl: DSLInput, final_context: ExecutionContext):
+async def assert_respectful_exec_order(dsl: DSLInput, final_context: ExecutionContext):
     act_outputs = final_context[ExprContext.ACTIONS]
     for action in dsl.actions:
         target = action.ref
         for source in action.depends_on:
-            source_order = act_outputs[source]["result"]  # type: ignore
-            target_order = act_outputs[target]["result"]  # type: ignore
+            source_order = await resolve_task_result(act_outputs[source])
+            target_order = await resolve_task_result(act_outputs[target])
+            assert isinstance(source_order, int), (
+                f"Source order is not an int: {source_order}"
+            )
+            assert isinstance(target_order, int), (
+                f"Target order is not an int: {target_order}"
+            )
             assert source_order < target_order
 
 
@@ -204,7 +211,7 @@ async def test_workflow_ordering_is_correct(dsl, test_role, temporal_client):
     # and compare that in the topological ordering every LHS task in a pair executed before the RHS task
 
     # Check that the execution order respects the graph edges
-    assert_respectful_exec_order(dsl, result)
+    await assert_respectful_exec_order(dsl, result)
 
 
 @pytest.mark.parametrize(
@@ -260,7 +267,10 @@ async def test_workflow_completes_and_correct(
                 ],
             ),
         )
-    assert result == expected
+    # Resolve results
+
+    logger.warning("Before resolve result", result=result)
+    assert await resolve(result) == expected
 
 
 @pytest.mark.parametrize("dsl", ["stress_adder_tree"], indirect=True, ids=lambda x: x)
@@ -441,7 +451,10 @@ async def test_workflow_set_environment_correct(test_role, temporal_client):
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-    assert result == "__TEST_ENVIRONMENT__"
+    resolved = await resolve(result)
+
+    logger.warning("RESULT", result=result, resolved=resolved)
+    assert resolved == "__TEST_ENVIRONMENT__"
 
 
 @pytest.mark.anyio
@@ -500,7 +513,7 @@ async def test_workflow_override_environment_correct(test_role, temporal_client)
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-    assert result == "__CORRECT_ENVIRONMENT__"
+    assert await resolve(result) == "__CORRECT_ENVIRONMENT__"
 
 
 @pytest.mark.anyio
@@ -557,7 +570,7 @@ async def test_workflow_default_environment_correct(test_role, temporal_client):
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-    assert result == "default"
+    assert await resolve(result) == "default"
 
 
 """Child workflow"""
@@ -604,7 +617,7 @@ async def _run_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
             task_queue=queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
-    return result
+    return await resolve(result)
 
 
 @pytest.mark.anyio
@@ -685,7 +698,7 @@ async def test_child_workflow_success(test_role, temporal_client):
         "INPUTS": {"data": [1, 2, 3, 4, 5, 6, 7]},
         "TRIGGER": {},
     }
-    assert result == expected
+    assert await resolve(result) == expected
 
 
 @pytest.mark.anyio
@@ -802,7 +815,7 @@ async def test_child_workflow_context_passing(test_role, temporal_client):
         "INPUTS": {},
         "TRIGGER": {"data": "__EXPECTED_DATA__"},
     }
-    assert result == expected
+    assert await resolve(result) == expected
 
 
 @pytest.fixture
@@ -928,7 +941,7 @@ async def test_child_workflow_loop(
         "INPUTS": {},
         "TRIGGER": {"data": "__EXPECTED_DATA__"},
     }
-    assert result == expected
+    assert await resolve(result) == expected
 
 
 # Test workflow alias
@@ -1155,7 +1168,7 @@ async def test_single_child_workflow_override_environment_correct(
         "INPUTS": {},
         "TRIGGER": {},
     }
-    assert result == expected
+    assert await resolve(result) == expected
 
 
 @pytest.mark.anyio
@@ -1234,7 +1247,7 @@ async def test_multiple_child_workflow_override_environment_correct(
         "INPUTS": {},
         "TRIGGER": {},
     }
-    assert result == expected
+    assert await resolve(result) == expected
 
 
 @pytest.mark.anyio
@@ -1313,7 +1326,7 @@ async def test_single_child_workflow_environment_has_correct_default(
         "INPUTS": {},
         "TRIGGER": {},
     }
-    assert result == expected
+    assert await resolve(result) == expected
 
 
 @pytest.mark.anyio
@@ -1402,7 +1415,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
         "INPUTS": {},
         "TRIGGER": {},
     }
-    assert result == expected
+    assert await resolve(result) == expected
 
 
 @pytest.mark.anyio
@@ -1505,7 +1518,7 @@ async def test_single_child_workflow_get_correct_secret_environment(
         "INPUTS": {},
         "TRIGGER": {},
     }
-    assert result == expected
+    assert await resolve(result) == expected
 
 
 @pytest.mark.anyio
@@ -1638,20 +1651,21 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
 }
 
 
-def approximately_equal(result: Any, expected: Any) -> None:
+async def approximately_equal(result: Any, expected: Any) -> None:
     assert type(result) is type(expected)
 
     match result:
         case str():
-            assert result == expected or result.startswith(expected)
+            resolved = await resolve(result)
+            assert resolved == expected or resolved.startswith(expected)
         case dict():
             for key in result:
-                approximately_equal(result[key], expected[key])
+                await approximately_equal(result[key], expected[key])
         case list():
             for i in range(len(result)):
-                approximately_equal(result[i], expected[i])
+                await approximately_equal(result[i], expected[i])
         case _:
-            assert result == expected
+            assert await resolve(result) == expected
 
 
 def _get_test_id(test_case):
@@ -2081,7 +2095,7 @@ async def test_workflow_error_path(test_role, runtime_config, dsl_data, expected
                 ],
             ),
         )
-        approximately_equal(result, expected)
+        await approximately_equal(result, expected)
 
 
 @pytest.mark.anyio

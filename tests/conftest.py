@@ -183,15 +183,17 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__USE_OBJECT_STORE", use_object_store)
 
     if use_object_store:
-        max_object_size_bytes = int(
-            os.getenv("TRACECAT__MAX_OBJECT_SIZE_BYTES", 1_000_000)
-        )
+        # Force all objects to be stored by default
+        max_object_size_bytes = int(os.getenv("TRACECAT__MAX_OBJECT_SIZE_BYTES", 0))
         monkeysession.setattr(
             config, "TRACECAT__MAX_OBJECT_SIZE_BYTES", max_object_size_bytes
         )
-        monkeysession.setattr(config, "MINIO_ENDPOINT_URL", "http://minio:9000")
-        logger.info(
-            "Using object store",
+        monkeysession.setattr(config, "MINIO_ENDPOINT_URL", "http://localhost:9000")
+        monkeysession.setattr(config, "MINIO_ACCESS_KEY", "testuser")
+        monkeysession.setattr(config, "MINIO_SECRET_KEY", "password1234")
+        monkeysession.setattr(config, "TRACECAT__BUCKET_NAME", "tracecat")
+        logger.warning(
+            "@@@@@@@@@@@@@@@ Using object store",
             use_object_store=use_object_store,
             max_object_size_bytes=max_object_size_bytes,
         )

@@ -25,6 +25,8 @@ TriggerInputs = Any
 ExecutionContext = dict[ExprContext, Any]
 """Workflow execution context."""
 
+type ArgsT = Mapping[str, Any]
+
 
 class TaskResult(TypedDict, total=False):
     """Result of executing a DSL node."""
