@@ -42,6 +42,7 @@ class CasesService(BaseService):
             description=params.description,
             priority=params.priority,
             severity=params.severity,
+            status=params.status,
         )
         self.session.add(db_case)
         await self.session.commit()
