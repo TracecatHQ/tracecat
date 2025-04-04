@@ -13,6 +13,7 @@ from tracecat.cases.models import (
     CommentUpdate,
     EventActivity,
 )
+from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.types.auth import AccessLevel, Role
 
@@ -47,8 +48,11 @@ async def list_cases(
     session: AsyncDBSession,
 ) -> list[CaseReadMinimal]:
     """List all cases."""
-    # TODO: Implement
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED)
+    service = CasesService(session, role)
+    db_cases = await service.list_cases()
+    return [
+        CaseReadMinimal.model_validate(case, from_attributes=True) for case in db_cases
+    ]
 
 
 @router.get("/{case_id}")
