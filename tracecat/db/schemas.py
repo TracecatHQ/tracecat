@@ -658,12 +658,12 @@ class Case(Resource, table=True):
         index=True,
     )
     # Auto-incrementing case number for human readable IDs
-    case_number: int = Field(
-        default_factory=int,  # Appease type checker
+    case_number: int | None = Field(
+        default=None,  # Make optional in constructor, but DB will still require it
         sa_column=Column(
             "case_number",
             Integer,
-            Identity(start=0, increment=1),
+            Identity(start=1, increment=1),
             unique=True,
             nullable=False,
             index=True,
