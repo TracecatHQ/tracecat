@@ -175,3 +175,7 @@ class RateLimitExceeded(ExecutorClientError):
             message += f" Server suggests waiting {retry_after} seconds."
 
         return cls(message, detail, retry_after)
+
+
+class PayloadSizeExceeded(TracecatException):
+    """ERror raised when a payload exceeds a size limit."""
