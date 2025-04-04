@@ -1,11 +1,13 @@
 from typing import Any
 
+import orjson
 from fastapi import APIRouter, HTTPException, status
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.models import RunActionInput
+from tracecat.executor.constants import PAYLOAD_MAX_SIZE_BYTES
 from tracecat.executor.models import ExecutorActionErrorInfo
 from tracecat.executor.service import dispatch_action_on_cluster
 from tracecat.logger import logger
@@ -13,6 +15,7 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import (
     ExecutionError,
     LoopExecutionError,
+    PayloadSizeExceeded,
     TracecatSettingsError,
 )
 
@@ -39,7 +42,14 @@ async def run_action(
     log.info("Starting action")
 
     try:
-        return await dispatch_action_on_cluster(input=action_input, session=session)
+        result = await dispatch_action_on_cluster(input=action_input, session=session)
+        ser_size = len(orjson.dumps(result))
+        if ser_size > PAYLOAD_MAX_SIZE_BYTES:
+            raise PayloadSizeExceeded(
+                f"The action's return value exceeds the size limit of"
+                f" {PAYLOAD_MAX_SIZE_BYTES / 1000}KB"
+            )
+        return result
     except TracecatSettingsError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -59,6 +69,11 @@ async def run_action(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=err_info_list,
+        ) from e
+    except PayloadSizeExceeded as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
         ) from e
     except Exception as e:
         logger.warning("Unexpected error running action", exc_info=e)
