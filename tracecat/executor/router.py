@@ -2,6 +2,7 @@ from typing import Any
 
 import orjson
 from fastapi import APIRouter, HTTPException, status
+from pydantic_core import to_jsonable_python
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.contexts import ctx_logger
@@ -43,7 +44,9 @@ async def run_action(
 
     try:
         result = await dispatch_action_on_cluster(input=action_input, session=session)
-        ser_size = len(orjson.dumps(result))
+        serialized = orjson.dumps(result, default=to_jsonable_python)
+        logger.warning("Serialized result", serialized=serialized)
+        ser_size = len(serialized)
         if ser_size > PAYLOAD_MAX_SIZE_BYTES:
             raise PayloadSizeExceeded(
                 f"The action's return value exceeds the size limit of"
@@ -73,6 +76,11 @@ async def run_action(
     except PayloadSizeExceeded as e:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(e),
+        ) from e
+    except orjson.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         ) from e
     except Exception as e:
