@@ -659,6 +659,7 @@ class Case(Resource, table=True):
     )
     # Auto-incrementing case number for human readable IDs
     case_number: int = Field(
+        default_factory=int,  # Appease type checker
         sa_column=Column(
             "case_number",
             Integer,
