@@ -45,7 +45,6 @@ async def run_action(
     try:
         result = await dispatch_action_on_cluster(input=action_input, session=session)
         serialized = orjson.dumps(result, default=to_jsonable_python)
-        logger.warning("Serialized result", serialized=serialized)
         ser_size = len(serialized)
         if ser_size > PAYLOAD_MAX_SIZE_BYTES:
             raise PayloadSizeExceeded(
