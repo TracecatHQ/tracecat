@@ -112,10 +112,10 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                   e.stopPropagation()
                   setActiveType("set-natural-key")
                 }}
-                disabled={column.isNaturalKey} // Disable if already a natural key
+                disabled={column.is_natural_key}
               >
                 <KeyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-                {column.isNaturalKey ? "Natural Key" : "Make Natural Key"}
+                {column.is_natural_key ? "Natural Key" : "Make Natural Key"}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
@@ -415,13 +415,13 @@ function TableColumnNaturalKeyDialog({
   onOpenChange: () => void
 }) {
   const { workspaceId } = useWorkspace();
-  const { setNaturalKey, isSettingNaturalKey } = useSetNaturalKey();
+  const { setNaturalKey, isSettingNaturalKey, setNaturalKeyError } = useSetNaturalKey();
 
   if (!tableId || !workspaceId) {
     return null
   }
 
-  if (column.isNaturalKey) {
+  if (column.is_natural_key) {
     return (
       <AlertDialog open={open} onOpenChange={onOpenChange}>
         <AlertDialogContent>
@@ -440,14 +440,33 @@ function TableColumnNaturalKeyDialog({
   }
 
   const handleSetNaturalKey = async () => {
-    const success = await setNaturalKey({
-      tableId,
-      columnId: column.id,
-      workspaceId,
-    });
+    try {
+      await setNaturalKey({
+        tableId,
+        columnId: column.id,
+        workspaceId,
+      });
 
-    if (success) {
+      toast({
+        title: "Natural key created",
+        description: "Column is now a natural key.",
+      });
+
       onOpenChange();
+    } catch (error: any) {
+      if ('status' in error && error.status === 409) {
+        toast({
+          title: "Error creating natural key",
+          description: "Column contains duplicate values. All values must be unique.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error creating natural key",
+          description: error.message || "An unexpected error occurred",
+          variant: "destructive",
+        });
+      }
     }
   };
 
