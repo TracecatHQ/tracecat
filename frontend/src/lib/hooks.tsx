@@ -100,6 +100,7 @@ import {
   TablesListRowsData,
   tablesListTables,
   TablesListTablesData,
+  tablesSetColumnAsNaturalKey,
   tablesUpdateColumn,
   TablesUpdateColumnData,
   tablesUpdateTable,
@@ -2278,4 +2279,44 @@ export function useImportCsv() {
     importCsvIsPending,
     importCsvError,
   }
+}
+
+export function useSetNaturalKey() {
+  const queryClient = useQueryClient();
+
+  const {
+    mutateAsync: setNaturalKey,
+    isPending: isSettingNaturalKey,
+    error: setNaturalKeyError,
+  } = useMutation({
+    mutationFn: async ({
+      tableId,
+      columnId,
+      workspaceId,
+    }: {
+      tableId: string;
+      columnId: string;
+      workspaceId?: string;
+    }) => {
+      return await tablesSetColumnAsNaturalKey({
+        tableId,
+        columnId,
+        workspaceId,
+      });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["table", variables.tableId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["rows", variables.tableId],
+      });
+    }
+  });
+
+  return {
+    setNaturalKey,
+    isSettingNaturalKey,
+    setNaturalKeyError,
+  };
 }

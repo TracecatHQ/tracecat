@@ -16,6 +16,7 @@ class TableColumnRead(BaseModel):
     type: SqlType
     nullable: bool = True
     default: Any | None = None
+    is_natural_key: bool = False
 
 
 class TableColumnCreate(BaseModel):
@@ -86,6 +87,11 @@ class TableRowInsert(BaseModel):
     """Insert model for a table row."""
 
     data: dict[str, Any]
+    upsert: bool = False
+    natural_keys: list[str] = Field(
+        default_factory=list,
+        description="The columns of the table to use for upsert",
+    )
 
 
 class TableRowInsertBatch(BaseModel):

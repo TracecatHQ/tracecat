@@ -2,13 +2,14 @@
 
 import { useState } from "react"
 import { useParams } from "next/navigation"
-import { ApiError, TableColumnRead } from "@/client"
+import { ApiError, TableColumnRead, tablesSetColumnAsNaturalKey } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   ChevronDownIcon,
   CopyIcon,
+  KeyIcon,
   Loader2,
   Pencil,
   Trash2Icon,
@@ -17,7 +18,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { userIsPrivileged } from "@/lib/auth"
-import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
+import { useDeleteColumn, useSetNaturalKey, useUpdateColumn } from "@/lib/hooks"
 import { SqlTypeEnum } from "@/lib/tables"
 import {
   AlertDialog,
@@ -64,7 +65,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 
-type TableViewColumnMenuType = "delete" | "edit" | null
+type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
 
 export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
   const { user } = useAuth()
@@ -109,6 +110,17 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 className="py-1 text-xs text-foreground/80"
                 onClick={(e) => {
                   e.stopPropagation()
+                  setActiveType("set-natural-key")
+                }}
+                disabled={column.is_natural_key}
+              >
+                <KeyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
+                {column.is_natural_key ? "Natural Key" : "Make natural key"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="py-1 text-xs text-foreground/80"
+                onClick={(e) => {
+                  e.stopPropagation()
                   setActiveType("edit")
                 }}
               >
@@ -139,6 +151,12 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
         tableId={tableId}
         column={column}
         open={activeType === "edit"}
+        onOpenChange={onOpenChange}
+      />
+      <TableColumnNaturalKeyDialog
+        tableId={tableId}
+        column={column}
+        open={activeType === "set-natural-key"}
         onOpenChange={onOpenChange}
       />
     </>
@@ -382,5 +400,112 @@ function TableColumnEditDialog({
         </Form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function TableColumnNaturalKeyDialog({
+  tableId,
+  column,
+  open,
+  onOpenChange,
+}: {
+  tableId?: string
+  column: TableColumnRead
+  open: boolean
+  onOpenChange: () => void
+}) {
+  const { workspaceId } = useWorkspace();
+  const { setNaturalKey, isSettingNaturalKey, setNaturalKeyError } = useSetNaturalKey();
+
+  if (!tableId || !workspaceId) {
+    return null
+  }
+
+  if (column.is_natural_key) {
+    return (
+      <AlertDialog open={open} onOpenChange={onOpenChange}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Column is already a Natural Key</AlertDialogTitle>
+            <AlertDialogDescription>
+              Column <b>{column.name}</b> is already a natural key with a unique index.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  }
+
+  const handleSetNaturalKey = async () => {
+    try {
+      await setNaturalKey({
+        tableId,
+        columnId: column.id,
+        workspaceId,
+      });
+
+      toast({
+        title: "Natural key created",
+        description: "Column is now a natural key.",
+      });
+
+      onOpenChange();
+    } catch (error: any) {
+      if ('status' in error && error.status === 409) {
+        toast({
+          title: "Error creating natural key",
+          description: "Column contains duplicate values. All values must be unique.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error creating natural key",
+          description: error.message || "An unexpected error occurred",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  return (
+    <AlertDialog open={open} onOpenChange={() => !isSettingNaturalKey && onOpenChange()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Create Natural Key</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to make column <b>{column.name}</b> a natural key?
+            This will create a unique index on the column, making it usable for upsert operations.
+            <br/><br/>
+            <strong>Requirements:</strong>
+            <ul className="list-disc pl-5 text-xs mt-2">
+              <li>All values in the column must be unique</li>
+              <li>This cannot be undone except by recreating the column</li>
+            </ul>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isSettingNaturalKey}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleSetNaturalKey}
+            disabled={isSettingNaturalKey}
+          >
+            {isSettingNaturalKey ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              <>
+                <KeyIcon className="mr-2 size-4" />
+                Create Natural Key
+              </>
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

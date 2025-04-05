@@ -1234,6 +1234,7 @@ export type TableColumnRead = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  is_natural_key?: boolean
 }
 
 /**
@@ -1295,7 +1296,8 @@ export type TableReadMinimal = {
 export type TableRowInsert = {
   data: {
     [key: string]: unknown
-  }
+  },
+  upsert?: boolean
 }
 
 /**
