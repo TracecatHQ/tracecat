@@ -1,3 +1,4 @@
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import UUID
@@ -149,7 +150,6 @@ class TablesService(BaseService):
             if idx_name.startswith(f"uq_{table.name}_"):
                 # Extract column name from index definition
                 # Format is typically: CREATE UNIQUE INDEX uq_table_column ON schema.table (column)
-                import re
 
                 column_match = re.search(r"\(([^)]+)\)", idx_def)
                 if column_match:
