@@ -22,6 +22,7 @@ from tracecat_registry import RegistrySecret
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
+from tracecat.parse import resolve_jsonschema_refs
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.types.exceptions import (
     RegistryActionError,
@@ -87,13 +88,15 @@ class BoundRegistryAction(BaseModel):
                 self.template_action.definition.expects,
                 self.template_action.definition.action.replace(".", "__"),
             )
+            schema = expects.model_json_schema()
             return RegistryActionInterface(
-                expects=expects.model_json_schema(),
+                expects=resolve_jsonschema_refs(schema),
                 returns=self.template_action.definition.returns,
             )
         elif self.type == "udf":
+            schema = self.args_cls.model_json_schema()
             return RegistryActionInterface(
-                expects=self.args_cls.model_json_schema(),
+                expects=resolve_jsonschema_refs(schema),
                 returns=None
                 if not self.rtype_adapter
                 else self.rtype_adapter.json_schema(),
