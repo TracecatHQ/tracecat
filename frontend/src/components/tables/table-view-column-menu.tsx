@@ -115,7 +115,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 disabled={column.is_natural_key}
               >
                 <KeyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-                {column.is_natural_key ? "Natural Key" : "Make Natural Key"}
+                {column.is_natural_key ? "Natural Key" : "Make natural key"}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
