@@ -1,3 +1,4 @@
+import copy
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -97,3 +98,44 @@ def unescape_string(s: str) -> str:
         lambda m: {"n": "\n", "t": "\t", "r": "\r", "\\": "\\"}[m.group(1)],
         s,
     )
+
+
+def resolve_jsonschema_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    """
+    Resolve $ref references in the properties field of a JSON schema.
+
+    Args:
+        schema (dict): The JSON schema with references to resolve
+
+    Returns:
+        dict: A new schema with all references in properties resolved
+    """
+
+    # Create a deep copy to avoid modifying the original schema
+    resolved_schema = copy.deepcopy(schema)
+
+    # Extract the definitions from the schema
+    defs = resolved_schema.pop("$defs", {})
+
+    # Process each property that might contain a reference
+    for prop_name, prop_value in resolved_schema.get("properties", {}).items():
+        if "$ref" in prop_value:
+            # Extract the reference path
+            ref_path = prop_value["$ref"]
+
+            # Handle references to definitions within the same schema
+            if ref_path.startswith("#/$defs/"):
+                def_name = ref_path.split("/")[-1]
+                if def_name in defs:
+                    # Create a new property value with the definition content
+                    new_prop = copy.deepcopy(defs[def_name])
+
+                    # Preserve any additional fields from the original property
+                    for key, value in prop_value.items():
+                        if key != "$ref":
+                            new_prop[key] = value
+
+                    # Replace the reference with the resolved definition
+                    resolved_schema["properties"][prop_name] = new_prop
+
+    return resolved_schema
