@@ -225,9 +225,17 @@ class DSLWorkflow:
                 err_info_map = e.details[0]
                 self.logger.info("Raising error info", err_info_data=err_info_map)
                 ta = TypeAdapter(ActionErrorInfo)
-                errors = {
-                    ref: ta.validate_python(data) for ref, data in err_info_map.items()
-                }
+                errors = {}
+                for ref, data in err_info_map.items():
+                    if data:
+                        try:
+                            errors[ref] = ta.validate_python(data)
+                        except ValidationError as e:
+                            self.logger.error(
+                                "Failed to validate error info",
+                                data=data,
+                                err=str(e),
+                            )
             else:
                 errors = None
 
