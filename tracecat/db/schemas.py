@@ -14,7 +14,6 @@ from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 from tracecat import config
 from tracecat.auth.models import UserRole
 from tracecat.cases.enums import (
-    CaseEventType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -712,13 +711,6 @@ class Case(Resource, table=True):
         description="Current case status (open, closed, escalated)",
     )
     # Relationships
-    activities: list["CaseActivity"] = Relationship(
-        back_populates="case",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
-    )
     fields: CaseFields | None = Relationship(
         back_populates="case",
         sa_relationship_kwargs={
@@ -727,30 +719,3 @@ class Case(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
-
-
-class CaseActivity(Resource, table=True):
-    """Tracks activity and changes made to a case."""
-
-    __tablename__: str = "case_activity"
-
-    id: uuid.UUID = Field(
-        default_factory=uuid.uuid4,
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-    type: CaseEventType = Field(
-        ...,
-        description="Type of activity (e.g. status_change, comment, field_update)",
-    )
-    data: dict[str, Any] = Field(
-        default_factory=dict,
-        sa_column=Column(JSONB),
-        description="Data associated with the activity",
-    )
-    # Relationships
-    case_id: uuid.UUID = Field(
-        sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE")),
-    )
-    case: Case = Relationship(back_populates="activities")

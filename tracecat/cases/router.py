@@ -6,7 +6,6 @@ from sqlalchemy.exc import DBAPIError
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.cases.models import (
-    CaseActivityValidator,
     CaseCreate,
     CaseCustomFieldRead,
     CaseFieldCreate,
@@ -87,10 +86,6 @@ async def get_case(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
-    activities = [
-        CaseActivityValidator.validate_python(activity, from_attributes=True)
-        for activity in case.activities
-    ]
     fields = await service.fields.get_fields(case) or {}
     field_definitions = await service.fields.list_fields()
     final_fields = []
@@ -119,7 +114,6 @@ async def get_case(
         priority=case.priority,
         severity=case.severity,
         description=case.description,
-        activities=activities,
         fields=final_fields,
     )
 
