@@ -842,10 +842,70 @@ export const $CaseCreate = {
     severity: {
       $ref: "#/components/schemas/CaseSeverity",
     },
+    fields: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fields",
+    },
   },
   type: "object",
   required: ["summary", "description", "status", "priority", "severity"],
   title: "CaseCreate",
+} as const
+
+export const $CaseCustomFieldRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    type: {
+      $ref: "#/components/schemas/SqlType",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    nullable: {
+      type: "boolean",
+      title: "Nullable",
+    },
+    default: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+    },
+    reserved: {
+      type: "boolean",
+      title: "Reserved",
+    },
+    value: {
+      title: "Value",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "type",
+    "description",
+    "nullable",
+    "default",
+    "reserved",
+    "value",
+  ],
+  title: "CaseCustomFieldRead",
 } as const
 
 export const $CaseEvent = {
@@ -886,18 +946,136 @@ export const $CaseEvent = {
   },
 } as const
 
-export const $CaseEventType = {
-  type: "string",
-  enum: [
-    "status_update",
-    "priority_update",
-    "severity_update",
-    "field_update",
-    "comment_create",
-    "comment_update",
-    "comment_delete",
-  ],
-  title: "CaseEventType",
+export const $CaseFieldCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+      description: "The name of the column",
+    },
+    type: {
+      $ref: "#/components/schemas/SqlType",
+      maxLength: 100,
+      minLength: 1,
+      description: "The SQL type of the column",
+    },
+    nullable: {
+      type: "boolean",
+      title: "Nullable",
+      default: true,
+    },
+    default: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+    },
+  },
+  type: "object",
+  required: ["name", "type"],
+  title: "CaseFieldCreate",
+  description: "Create a new case field.",
+} as const
+
+export const $CaseFieldRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    type: {
+      $ref: "#/components/schemas/SqlType",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    nullable: {
+      type: "boolean",
+      title: "Nullable",
+    },
+    default: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+    },
+    reserved: {
+      type: "boolean",
+      title: "Reserved",
+    },
+  },
+  type: "object",
+  required: ["id", "type", "description", "nullable", "default", "reserved"],
+  title: "CaseFieldRead",
+  description: "Read model for a case field.",
+} as const
+
+export const $CaseFieldUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+      description: "The name of the column",
+    },
+    type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SqlType",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "The SQL type of the column",
+    },
+    nullable: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Nullable",
+      description: "Whether the column can be null",
+    },
+    default: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+      description: "The default value of the column",
+    },
+  },
+  type: "object",
+  title: "CaseFieldUpdate",
+  description: "Update a case field.",
 } as const
 
 export const $CasePriority = {
@@ -912,6 +1090,10 @@ export const $CaseRead = {
       type: "string",
       format: "uuid",
       title: "Id",
+    },
+    short_id: {
+      type: "string",
+      title: "Short Id",
     },
     created_at: {
       type: "string",
@@ -931,10 +1113,24 @@ export const $CaseRead = {
       $ref: "#/components/schemas/CaseStatus",
     },
     priority: {
-      $ref: "#/components/schemas/CasePriority",
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CasePriority",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     severity: {
-      $ref: "#/components/schemas/CaseSeverity",
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSeverity",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     description: {
       type: "string",
@@ -961,10 +1157,25 @@ export const $CaseRead = {
       type: "array",
       title: "Activities",
     },
+    fields: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseCustomFieldRead",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fields",
+    },
   },
   type: "object",
   required: [
     "id",
+    "short_id",
     "created_at",
     "updated_at",
     "summary",
@@ -984,6 +1195,10 @@ export const $CaseReadMinimal = {
       format: "uuid",
       title: "Id",
     },
+    short_id: {
+      type: "string",
+      title: "Short Id",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -1002,7 +1217,14 @@ export const $CaseReadMinimal = {
       $ref: "#/components/schemas/CaseStatus",
     },
     priority: {
-      $ref: "#/components/schemas/CasePriority",
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CasePriority",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     severity: {
       $ref: "#/components/schemas/CaseSeverity",
@@ -1011,6 +1233,7 @@ export const $CaseReadMinimal = {
   type: "object",
   required: [
     "id",
+    "short_id",
     "created_at",
     "updated_at",
     "summary",
@@ -1096,6 +1319,17 @@ export const $CaseUpdate = {
         },
       ],
     },
+    fields: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fields",
+    },
   },
   type: "object",
   title: "CaseUpdate",
@@ -1113,15 +1347,32 @@ export const $CommentActivity = {
       format: "date-time",
       title: "Created At",
     },
-    updated_at: {
+    user_id: {
       type: "string",
-      format: "date-time",
-      title: "Updated At",
+      format: "uuid",
+      title: "User Id",
     },
     type: {
       type: "string",
       const: "comment",
       title: "Type",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    parent_comment_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Comment Id",
     },
     content: {
       type: "string",
@@ -1129,7 +1380,7 @@ export const $CommentActivity = {
     },
   },
   type: "object",
-  required: ["id", "created_at", "updated_at", "type", "content"],
+  required: ["id", "created_at", "user_id", "type", "updated_at", "content"],
   title: "CommentActivity",
 } as const
 
@@ -1584,10 +1835,10 @@ export const $EventActivity = {
       format: "date-time",
       title: "Created At",
     },
-    updated_at: {
+    user_id: {
       type: "string",
-      format: "date-time",
-      title: "Updated At",
+      format: "uuid",
+      title: "User Id",
     },
     type: {
       type: "string",
@@ -1599,24 +1850,8 @@ export const $EventActivity = {
     },
   },
   type: "object",
-  required: ["id", "created_at", "updated_at", "type", "event"],
+  required: ["id", "created_at", "user_id", "type", "event"],
   title: "EventActivity",
-} as const
-
-export const $EventCreate = {
-  properties: {
-    type: {
-      $ref: "#/components/schemas/CaseEventType",
-    },
-    data: {
-      type: "object",
-      title: "Data",
-    },
-  },
-  type: "object",
-  required: ["type", "data"],
-  title: "EventCreate",
-  description: "When a user creates an event on a case.",
 } as const
 
 export const $EventFailure = {
