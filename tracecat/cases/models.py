@@ -28,7 +28,7 @@ class CaseReadMinimal(BaseModel):
     updated_at: datetime
     summary: str
     status: CaseStatus
-    priority: CasePriority | None
+    priority: CasePriority
     severity: CaseSeverity
 
 
@@ -39,8 +39,8 @@ class CaseRead(BaseModel):
     updated_at: datetime
     summary: str
     status: CaseStatus
-    priority: CasePriority | None
-    severity: CaseSeverity | None
+    priority: CasePriority
+    severity: CaseSeverity
     # Details
     description: str
     # Custom fields
