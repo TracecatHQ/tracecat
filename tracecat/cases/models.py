@@ -44,7 +44,7 @@ class CaseRead(BaseModel):
     # Details
     description: str
     # Custom fields
-    fields: list[CaseCustomFieldRead] | None = None
+    fields: list[CaseCustomFieldRead]
 
 
 class CaseCreate(BaseModel):

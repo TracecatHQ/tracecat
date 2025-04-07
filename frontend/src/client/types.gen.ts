@@ -355,7 +355,7 @@ export type CaseRead = {
   priority: CasePriority
   severity: CaseSeverity
   description: string
-  fields?: Array<CaseCustomFieldRead> | null
+  fields: Array<CaseCustomFieldRead>
 }
 
 export type CaseReadMinimal = {

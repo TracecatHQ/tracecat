@@ -1094,17 +1094,10 @@ export const $CaseRead = {
       title: "Description",
     },
     fields: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/CaseCustomFieldRead",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
+      items: {
+        $ref: "#/components/schemas/CaseCustomFieldRead",
+      },
+      type: "array",
       title: "Fields",
     },
   },
@@ -1119,6 +1112,7 @@ export const $CaseRead = {
     "priority",
     "severity",
     "description",
+    "fields",
   ],
   title: "CaseRead",
 } as const
