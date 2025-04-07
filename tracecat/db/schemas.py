@@ -648,8 +648,35 @@ class TableColumn(SQLModel, TimestampMixin, table=True):
     )
 
 
+class CaseFields(SQLModel, TimestampMixin, table=True):
+    """A table of fields for a case."""
+
+    __tablename__: str = "case_fields"
+    model_config = ConfigDict(extra="allow")  # type: ignore
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    # Add required foreign key to Case
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("cases.id", ondelete="CASCADE"),
+            unique=True,  # Ensures one-to-one
+            nullable=False,  # Ensures CaseFields must have a Case
+        )
+    )
+    case: "Case" = Relationship(back_populates="fields")
+
+
 class Case(Resource, table=True):
     """A case represents an incident or issue that needs to be tracked and resolved."""
+
+    __tablename__: str = "cases"
 
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -692,6 +719,14 @@ class Case(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
+    fields: CaseFields | None = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            "uselist": False,  # Make this a one-to-one relationship
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
 
 
 class CaseActivity(Resource, table=True):
@@ -716,6 +751,6 @@ class CaseActivity(Resource, table=True):
     )
     # Relationships
     case_id: uuid.UUID = Field(
-        sa_column=Column(UUID, ForeignKey("case.id", ondelete="CASCADE")),
+        sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE")),
     )
     case: Case = Relationship(back_populates="activities")
