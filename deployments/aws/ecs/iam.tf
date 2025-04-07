@@ -72,7 +72,6 @@ resource "aws_iam_policy" "task_secrets_access" {
         Action = ["secretsmanager:GetSecretValue"]
         Resource = compact([
           var.temporal_api_key_arn,
-          var.temporal_mtls_cert_arn,
         ])
       }
     ]

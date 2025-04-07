@@ -1,11 +1,9 @@
 import os
-from dataclasses import dataclass
 
 import aioboto3
 from temporalio.client import Client
 from temporalio.exceptions import TemporalError
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.service import TLSConfig
 from tenacity import (
     RetryError,
     retry,
@@ -20,31 +18,11 @@ from tracecat.config import (
     TEMPORAL__CLUSTER_URL,
     TEMPORAL__CONNECT_RETRIES,
     TEMPORAL__METRICS_PORT,
-    TEMPORAL__MTLS_CERT__ARN,
-    TEMPORAL__MTLS_ENABLED,
 )
 from tracecat.dsl._converter import pydantic_data_converter
 from tracecat.logger import logger
 
 _client: Client | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class TemporalClientCert:
-    cert: bytes
-    private_key: bytes
-
-
-async def _retrieve_temporal_client_cert(arn: str) -> TemporalClientCert:
-    """Retrieve the client certificate and private key from AWS Secrets Manager."""
-    session = aioboto3.Session()
-    async with session.client(service_name="secretsmanager") as client:
-        response = await client.get_secret_value(SecretId=arn)
-        secret = response["SecretString"]
-        return TemporalClientCert(
-            cert=secret["cert"].encode(),
-            private_key=secret["private_key"].encode(),
-        )
 
 
 async def _retrieve_temporal_api_key(arn: str) -> str:
@@ -66,17 +44,7 @@ async def connect_to_temporal() -> Client:
     tls_config = False
     rpc_metadata = {}
 
-    if TEMPORAL__MTLS_ENABLED:
-        if not TEMPORAL__MTLS_CERT__ARN:
-            raise ValueError(
-                "MTLS enabled for Temporal but `TEMPORAL__MTLS_CERT_ARN` is not set"
-            )
-        client_cert = await _retrieve_temporal_client_cert(arn=TEMPORAL__MTLS_CERT__ARN)
-        tls_config = TLSConfig(
-            client_cert=client_cert.cert,
-            client_private_key=client_cert.private_key,
-        )
-    elif TEMPORAL__API_KEY__ARN:
+    if TEMPORAL__API_KEY__ARN:
         api_key = await _retrieve_temporal_api_key(arn=TEMPORAL__API_KEY__ARN)
     elif os.environ.get("TEMPORAL__API_KEY"):
         api_key = os.environ.get("TEMPORAL__API_KEY")
