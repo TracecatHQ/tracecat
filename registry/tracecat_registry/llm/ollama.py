@@ -3,19 +3,7 @@ from typing import Annotated, Any
 from typing_extensions import Doc
 
 from tracecat.llm import async_ollama_call, OllamaModel, DEFAULT_OLLAMA_MODEL
-from tracecat_registry import RegistrySecret, registry, secrets
-
-ollama_secret = RegistrySecret(
-    name="ollama",
-    optional_keys=["OLLAMA_API_URL"],
-    optional=True,
-)
-"""Ollama secret.
-
-- name: `ollama`
-- keys:
-    - `OLLAMA_API_URL`
-"""
+from tracecat_registry import registry
 
 
 @registry.register(
@@ -23,10 +11,10 @@ ollama_secret = RegistrySecret(
     description="Call an LLM via OpenAI API",
     display_group="Ollama",
     namespace="llm.ollama",
-    secrets=[ollama_secret],
 )
 async def call(
     prompt: Annotated[str, Doc("Prompt to send to the LLM")],
+    base_url: Annotated[str, Doc("Base URL for the Ollama API")],
     model: Annotated[str, Doc("Model to use")] = DEFAULT_OLLAMA_MODEL.value,
     memory: Annotated[
         list[dict[str, Any]] | None, Doc("Past messages to include in the conversation")
@@ -45,6 +33,6 @@ async def call(
         memory=memory,
         system_prompt=system_prompt,
         format=format,
-        api_url=secrets.get("OLLAMA_API_URL", None),
+        base_url=base_url,
     )
     return response.model_dump()
