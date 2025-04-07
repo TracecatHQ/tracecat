@@ -127,16 +127,14 @@ TEMPORAL__CLUSTER_QUEUE = os.environ.get(
 )
 TEMPORAL__API_KEY__ARN = os.environ.get("TEMPORAL__API_KEY__ARN")
 TEMPORAL__API_KEY = os.environ.get("TEMPORAL__API_KEY")
-TEMPORAL__MTLS_ENABLED = os.environ.get("TEMPORAL__MTLS_ENABLED", "").lower() in (
-    "1",
-    "true",
-)
-TEMPORAL__MTLS_CERT__ARN = os.environ.get("TEMPORAL__MTLS_CERT__ARN")
 TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT")
 """RPC timeout for Temporal workflows in seconds."""
 
 TEMPORAL__TASK_TIMEOUT = os.environ.get("TEMPORAL__TASK_TIMEOUT")
 """Temporal workflow task timeout in seconds (default 10 seconds)."""
+
+TEMPORAL__METRICS_PORT = int(os.environ.get("TEMPORAL__METRICS_PORT", 9000))
+"""Port for the Temporal metrics server."""
 
 # Secrets manager config
 TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(

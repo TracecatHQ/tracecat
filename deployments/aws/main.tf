@@ -50,7 +50,6 @@ module "ecs" {
   # Temporal configuration
   disable_temporal_ui        = var.disable_temporal_ui
   disable_temporal_autosetup = var.disable_temporal_autosetup
-  temporal_mtls_enabled      = var.temporal_mtls_enabled
   temporal_cluster_url       = var.temporal_cluster_url
   temporal_cluster_queue     = var.temporal_cluster_queue
   temporal_namespace         = var.temporal_namespace
@@ -93,8 +92,7 @@ module "ecs" {
   temporal_auth_client_secret_arn = var.temporal_auth_client_secret_arn
 
   # Temporal client authentication
-  temporal_mtls_cert_arn = var.temporal_mtls_cert_arn
-  temporal_api_key_arn   = var.temporal_api_key_arn
+  temporal_api_key_arn = var.temporal_api_key_arn
 
   # Compute / memory
   api_cpu                     = var.api_cpu

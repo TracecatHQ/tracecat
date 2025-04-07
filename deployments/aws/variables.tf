@@ -132,12 +132,6 @@ variable "disable_temporal_autosetup" {
   default     = false
 }
 
-variable "temporal_mtls_enabled" {
-  type        = bool
-  description = "Whether to enable MTLS for the Temporal client"
-  default     = false
-}
-
 variable "temporal_cluster_url" {
   type        = string
   description = "Host and port of the Temporal server to connect to"
@@ -234,12 +228,6 @@ variable "temporal_auth_client_secret_arn" {
 }
 
 # Temporal client
-
-variable "temporal_mtls_cert_arn" {
-  type        = string
-  description = "The ARN of the secret containing the Temporal client certificate (optional)"
-  default     = null
-}
 
 variable "temporal_api_key_arn" {
   type        = string

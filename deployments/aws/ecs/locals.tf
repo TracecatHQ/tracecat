@@ -17,8 +17,7 @@ locals {
   allow_origins          = "${var.domain_name},http://ui-service:3000" # Allow api service and public app to access the API
 
   # Temporal client authentication
-  temporal_mtls_cert_arn = var.temporal_mtls_cert_arn
-  temporal_api_key_arn   = var.temporal_api_key_arn
+  temporal_api_key_arn = var.temporal_api_key_arn
 
   # Tracecat postgres env vars
   # See: https://github.com/TracecatHQ/tracecat/blob/abd5ff/tracecat/db/engine.py#L21
@@ -37,8 +36,6 @@ locals {
       TEMPORAL__CLUSTER_NAMESPACE                     = local.temporal_namespace
       TEMPORAL__CLUSTER_QUEUE                         = local.temporal_cluster_queue
       TEMPORAL__CLUSTER_URL                           = local.temporal_cluster_url
-      TEMPORAL__MTLS_ENABLED                          = var.temporal_mtls_enabled
-      TEMPORAL__MTLS_CERT__ARN                        = local.temporal_mtls_cert_arn
       TEMPORAL__API_KEY__ARN                          = local.temporal_api_key_arn
       TRACECAT__ALLOW_ORIGINS                         = local.allow_origins
       TRACECAT__API_ROOT_PATH                         = "/api"
@@ -66,8 +63,6 @@ locals {
       TEMPORAL__CLUSTER_NAMESPACE       = local.temporal_namespace
       TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
       TEMPORAL__CLUSTER_URL             = local.temporal_cluster_url
-      TEMPORAL__MTLS_ENABLED            = var.temporal_mtls_enabled
-      TEMPORAL__MTLS_CERT__ARN          = local.temporal_mtls_cert_arn
       TEMPORAL__API_KEY__ARN            = local.temporal_api_key_arn
       TRACECAT__API_ROOT_PATH           = "/api"
       TRACECAT__API_URL                 = local.internal_api_url
