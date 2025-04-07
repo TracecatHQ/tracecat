@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useParams } from "next/navigation"
-import { ApiError, TableColumnRead, tablesSetColumnAsNaturalKey } from "@/client"
+import { ApiError, TableColumnRead, tablesSetColumnAsIndex } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -18,7 +18,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { userIsPrivileged } from "@/lib/auth"
-import { useDeleteColumn, useSetNaturalKey, useUpdateColumn } from "@/lib/hooks"
+import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
 import { SqlTypeEnum } from "@/lib/tables"
 import {
   AlertDialog,
@@ -112,10 +112,10 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                   e.stopPropagation()
                   setActiveType("set-natural-key")
                 }}
-                disabled={column.is_natural_key}
+                disabled={column.is_index}
               >
                 <KeyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-                {column.is_natural_key ? "Natural Key" : "Make natural key"}
+                {column.is_index ? "Natural Key" : "Make natural key"}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
@@ -153,7 +153,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
         open={activeType === "edit"}
         onOpenChange={onOpenChange}
       />
-      <TableColumnNaturalKeyDialog
+      <TableColumnIndexDialog
         tableId={tableId}
         column={column}
         open={activeType === "set-natural-key"}
@@ -403,7 +403,7 @@ function TableColumnEditDialog({
   )
 }
 
-function TableColumnNaturalKeyDialog({
+function TableColumnIndexDialog({
   tableId,
   column,
   open,
@@ -415,13 +415,13 @@ function TableColumnNaturalKeyDialog({
   onOpenChange: () => void
 }) {
   const { workspaceId } = useWorkspace();
-  const { setNaturalKey, isSettingNaturalKey, setNaturalKeyError } = useSetNaturalKey();
+  const { updateColumn, updateColumnIsPending } = useUpdateColumn();
 
-  if (!tableId || !workspaceId) {
+  if (!tableId || !workspaceId || !column.is_index) {
     return null
   }
 
-  if (column.is_natural_key) {
+  if (column.is_index) {
     return (
       <AlertDialog open={open} onOpenChange={onOpenChange}>
         <AlertDialogContent>
@@ -439,12 +439,18 @@ function TableColumnNaturalKeyDialog({
     );
   }
 
-  const handleSetNaturalKey = async () => {
+  const handleSetIndex = async () => {
     try {
-      await setNaturalKey({
+
+      const updates = {
+        is_index: true
+      };
+
+      await updateColumn({
         tableId,
         columnId: column.id,
         workspaceId,
+        requestBody: updates
       });
 
       toast({
@@ -454,7 +460,7 @@ function TableColumnNaturalKeyDialog({
 
       onOpenChange();
     } catch (error: any) {
-      if ('status' in error && error.status === 409) {
+      if (error instanceof ApiError && error.status === 409) {
         toast({
           title: "Error creating natural key",
           description: "Column contains duplicate values. All values must be unique.",
@@ -471,7 +477,11 @@ function TableColumnNaturalKeyDialog({
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={() => !isSettingNaturalKey && onOpenChange()}>
+    <AlertDialog open={open} onOpenChange={() => {
+        if (!updateColumnIsPending) {
+          onOpenChange();
+        }
+      }}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Create Natural Key</AlertDialogTitle>
@@ -487,12 +497,12 @@ function TableColumnNaturalKeyDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={isSettingNaturalKey}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={updateColumnIsPending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={handleSetNaturalKey}
-            disabled={isSettingNaturalKey}
+            onClick={handleSetIndex}
+            disabled={updateColumnIsPending}
           >
-            {isSettingNaturalKey ? (
+            {updateColumnIsPending ? (
               <>
                 <Loader2 className="mr-2 size-4 animate-spin" />
                 Creating...

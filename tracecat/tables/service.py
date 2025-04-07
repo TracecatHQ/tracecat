@@ -9,9 +9,8 @@ from asyncpg.exceptions import (
     InvalidCachedStatementError,
     UndefinedTableError,
 )
-from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import DBAPIError, ProgrammingError
+from sqlalchemy.exc import DBAPIError, IntegrityError, ProgrammingError
 from sqlmodel import select
 from tenacity import (
     retry,
@@ -111,21 +110,17 @@ class TablesService(BaseService):
             raise TracecatNotFoundError("Table not found")
 
         # Store natural key info to be used in the response model
-        table._natural_key_columns = await self._enrich_columns_with_natural_key_info(
-            table
-        )
+        table._natural_key_columns = await self.get_index(table)
 
         return table
 
-    async def _enrich_columns_with_natural_key_info(
-        self, table: Table
-    ) -> dict[str, bool]:
+    async def get_index(self, table: Table) -> dict[str, bool]:
         """Check which columns are natural keys by directly querying PostgreSQL indexes."""
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
         # Query directly from pg_indexes to find unique indexes
-        query = text("""
+        query = sa.text("""
             SELECT
                 i.indexname,
                 i.indexdef
@@ -386,12 +381,15 @@ class TablesService(BaseService):
 
         Raises:
             ValueError: If the column type is invalid
-            ProgrammingError: If the database operation fails
+            ProgrammingError: If the database ope rration fails
         """
         set_fields = params.model_dump(exclude_unset=True)
         full_table_name = self._full_table_name(column.table.name)
         conn = await self.session.connection()
+        is_index = set_fields.pop("is_index", False)
 
+        if is_index:
+            await self.create_unique_index(column.table, [column.name])
         # Handle physical column changes if name or type is being updated
         if "name" in set_fields or "type" in set_fields:
             old_name = self._sanitize_identifier(column.name)
@@ -562,6 +560,8 @@ class TablesService(BaseService):
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
 
+        table_name_for_logging = table.name
+
         for col, value in row_data.items():
             value_clauses[col] = to_sql_clause(value, col_map[col])
             cols.append(sa.column(self._sanitize_identifier(col)))
@@ -596,8 +596,6 @@ class TablesService(BaseService):
                 if col not in natural_keys  # Don't update the conflict keys
             }
 
-            table_name_for_logging = table.name
-
             try:
                 # Complete the statement with on_conflict_do_update
                 stmt = pg_stmt.on_conflict_do_update(
@@ -625,13 +623,42 @@ class TablesService(BaseService):
                     raise ValueError(
                         "Cannot upsert on columns. Create a unique index first with create_unique_index()"
                     ) from original_error
+                elif "violates unique constraint" in str(e):
+                    await self.session.rollback()
+                    logger.warning(
+                        "Trying to insert duplicate values",
+                        natural_keys=natural_keys,
+                        table_name=table_name_for_logging,
+                    )
+                    raise ValueError(
+                        "Please check for duplicate values before inserting in key column"
+                    ) from original_error
                 raise
 
         # For non-upsert or if the exception handling for upsert didn't return
-        result = await conn.execute(stmt)
-        await self.session.commit()
-        row = result.mappings().one()
-        return dict(row)
+        try:
+            result = await conn.execute(stmt)
+            await self.session.flush()
+            row = result.mappings().one()
+            return dict(row)
+        except IntegrityError as e:
+            # Drill down to the root cause
+            original_error = e
+            while (cause := e.__cause__) is not None:
+                e = cause
+
+            await self.session.rollback()
+
+            # Check for unique constraint violations (which are the most common IntegrityErrors)
+            if "violates unique constraint" in str(e):
+                logger.warning(
+                    "Trying to insert duplicate values",
+                    table_name=table_name_for_logging,
+                )
+                raise ValueError(
+                    "Please check for duplicate values"
+                ) from original_error
+            raise
 
     async def update_row(
         self,

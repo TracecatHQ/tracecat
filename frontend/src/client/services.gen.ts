@@ -2692,7 +2692,7 @@ export const tablesUpdateColumn = (
  * @returns void
  * @throws ApiError
  */
-export const tablesSetColumnAsNaturalKey = (
+export const tablesSetColumnAsIndex = (
   data: {
     tableId: string;
     columnId: string;

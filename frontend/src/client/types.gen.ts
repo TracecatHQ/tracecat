@@ -1234,7 +1234,7 @@ export type TableColumnRead = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
-  is_natural_key?: boolean
+  is_index?: boolean
 }
 
 /**
@@ -1257,6 +1257,10 @@ export type TableColumnUpdate = {
    * The default value of the column
    */
   default?: unknown | null
+  /**
+   * Whether the column is an index
+   */
+  is_index?: boolean | null
 }
 
 /**

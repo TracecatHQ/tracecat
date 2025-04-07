@@ -70,25 +70,21 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
   const allColumns: ColumnDef<TableRowRead, TableColumnRead>[] = [
     ...columns.map((column) => ({
       accessorKey: column.name,
-      header: () => {
-        const is_natural_key = column.is_natural_key;
-
-        return (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-semibold text-foreground/90">
-              {column.name}
+      header: () => (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="font-semibold text-foreground/90">
+            {column.name}
+          </span>
+          <span className="lowercase text-muted-foreground">{column.type}</span>
+          {column.is_index && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+              <KeyIcon className="mr-1 h-3 w-3" />
+              Key
             </span>
-            <span className="lowercase text-muted-foreground">{column.type}</span>
-            {is_natural_key && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
-                <KeyIcon className="mr-1 h-3 w-3" />
-                Key
-              </span>
-            )}
-            <TableViewColumnMenu column={column} />
-          </div>
-        );
-      },
+          )}
+          <TableViewColumnMenu column={column} />
+        </div>
+      ),
       cell: ({ row }: CellT) => {
         const value = row.original[column.name as keyof TableRowRead];
         return (

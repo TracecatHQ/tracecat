@@ -16,7 +16,7 @@ class TableColumnRead(BaseModel):
     type: SqlType
     nullable: bool = True
     default: Any | None = None
-    is_natural_key: bool = False
+    is_index: bool = False
 
 
 class TableColumnCreate(BaseModel):
@@ -71,6 +71,10 @@ class TableColumnUpdate(BaseModel):
     default: Any | None = Field(
         default=None,
         description="The default value of the column",
+    )
+    is_index: bool | None = Field(
+        default=None,
+        description="Whether the column is an index",
     )
 
 

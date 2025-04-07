@@ -100,7 +100,7 @@ import {
   TablesListRowsData,
   tablesListTables,
   TablesListTablesData,
-  tablesSetColumnAsNaturalKey,
+  tablesSetColumnAsIndex,
   tablesUpdateColumn,
   TablesUpdateColumnData,
   tablesUpdateTable,
@@ -2122,17 +2122,45 @@ export function useUpdateColumn() {
         queryKey: ["table", variables.tableId],
       })
     },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 403:
+    onError: (error: TracecatApiError, variables) => {
+      // Check if this was a natural key operation
+      const isIndexOperation = variables.requestBody &&
+        'is_index' in variables.requestBody &&
+        variables.requestBody.is_index === true;
+
+      if (isIndexOperation) {
+        // Handle natural key specific errors
+        if (error.status === 409) {
           toast({
-            title: "Forbidden",
-            description: "You cannot perform this action",
-          })
-          break
-        default:
-          console.error("Error updating column", error)
-          break
+            title: "Error creating natural key",
+            description: "Column contains duplicate values. All values must be unique.",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Error creating natural key",
+            description: error.message || "An unexpected error occurred",
+            variant: "destructive",
+          });
+        }
+      } else {
+        // Handle regular column update errors
+        switch (error.status) {
+          case 403:
+            toast({
+              title: "Forbidden",
+              description: "You cannot perform this action",
+            });
+            break;
+          default:
+            console.error("Error updating column", error);
+            toast({
+              title: "Error updating column",
+              description: error.message || "An unexpected error occurred",
+              variant: "destructive",
+            });
+            break;
+        }
       }
     },
   })
@@ -2207,6 +2235,7 @@ export function useBatchInsertRows() {
 
 export function useInsertRow() {
   const queryClient = useQueryClient()
+
   const {
     mutateAsync: insertRow,
     isPending: insertRowIsPending,
@@ -2219,6 +2248,21 @@ export function useInsertRow() {
         queryKey: ["rows", variables.tableId],
       })
     },
+    onError: (error: TracecatApiError, variables) => {
+      if (error.status === 409) {
+        toast({
+          title: "Duplicate Value Error",
+          description: "Cannot insert duplicate values in a unique column. Please use unique values.",
+          variant: "destructive",
+        })
+      } else {
+        toast({
+          title: "Error inserting row",
+          description: error.message || "An unexpected error occurred",
+          variant: "destructive",
+        })
+      }
+    }
   })
 
   return {
@@ -2279,44 +2323,4 @@ export function useImportCsv() {
     importCsvIsPending,
     importCsvError,
   }
-}
-
-export function useSetNaturalKey() {
-  const queryClient = useQueryClient();
-
-  const {
-    mutateAsync: setNaturalKey,
-    isPending: isSettingNaturalKey,
-    error: setNaturalKeyError,
-  } = useMutation({
-    mutationFn: async ({
-      tableId,
-      columnId,
-      workspaceId,
-    }: {
-      tableId: string;
-      columnId: string;
-      workspaceId?: string;
-    }) => {
-      return await tablesSetColumnAsNaturalKey({
-        tableId,
-        columnId,
-        workspaceId,
-      });
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["table", variables.tableId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["rows", variables.tableId],
-      });
-    }
-  });
-
-  return {
-    setNaturalKey,
-    isSettingNaturalKey,
-    setNaturalKeyError,
-  };
 }
