@@ -4,8 +4,10 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
+import sqlalchemy as sa
 from pydantic import BaseModel, Field, TypeAdapter
 
+from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.enums import (
     CaseActivityType,
     CaseEventType,
@@ -13,31 +15,37 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
 )
+from tracecat.tables.enums import SqlType
+from tracecat.tables.models import TableColumnCreate, TableColumnUpdate
 
 # Case Management
 
 
 class CaseReadMinimal(BaseModel):
     id: uuid.UUID
+    short_id: str
     created_at: datetime
     updated_at: datetime
     summary: str
     status: CaseStatus
-    priority: CasePriority
+    priority: CasePriority | None
     severity: CaseSeverity
 
 
 class CaseRead(BaseModel):
     id: uuid.UUID
+    short_id: str
     created_at: datetime
     updated_at: datetime
     summary: str
     status: CaseStatus
-    priority: CasePriority
-    severity: CaseSeverity
+    priority: CasePriority | None
+    severity: CaseSeverity | None
     # Details
     description: str
     activities: list[CaseActivity]
+    # Custom fields
+    fields: list[CaseCustomFieldRead] | None = None
 
 
 class CaseCreate(BaseModel):
@@ -46,6 +54,7 @@ class CaseCreate(BaseModel):
     status: CaseStatus
     priority: CasePriority
     severity: CaseSeverity
+    fields: dict[str, Any] | None = None
 
 
 class CaseUpdate(BaseModel):
@@ -54,6 +63,7 @@ class CaseUpdate(BaseModel):
     status: CaseStatus | None = None
     priority: CasePriority | None = None
     severity: CaseSeverity | None = None
+    fields: dict[str, Any] | None = None
 
 
 # Case Category and Fields
@@ -162,41 +172,38 @@ type CaseEvent = Annotated[
 ]
 CaseEventValidator: TypeAdapter[EventActivity] = TypeAdapter(EventActivity)
 
-# if __name__ == "__main__":
-#     activity = CaseEventValidator.validate_python(
-#         {
-#             "id": uuid.uuid4(),
-#             "created_at": datetime.now(),
-#             "updated_at": datetime.now(),
-#             "type": CaseActivityType.COMMENT_CREATE,
-#             "content": "This is a test comment",
-#         }
-#     )
-#     print(activity, type(activity))
 
-#     # Test returning a CaseRead
-#     case_read = CaseRead(
-#         id=uuid.uuid4(),
-#         created_at=datetime.now(),
-#         updated_at=datetime.now(),
-#         summary="Test Case",
-#         status=CaseStatus.NEW,
-#         priority=CasePriority.LOW,
-#         severity=CaseSeverity.LOW,
-#         description="This is a test case",
-#         activities=[
-#             CommentCreateEvent(
-#                 id=uuid.uuid4(),
-#                 created_at=datetime.now(),
-#                 updated_at=datetime.now(),
-#                 content="This is a test comment",
-#             ),
-#             StatusUpdateEvent(
-#                 id=uuid.uuid4(),
-#                 created_at=datetime.now(),
-#                 updated_at=datetime.now(),
-#                 status=CaseStatus.IN_PROGRESS,
-#             ),
-#         ],
-#     )
-#     print(case_read, type(case_read))
+class CaseFieldRead(BaseModel):
+    """Read model for a case field."""
+
+    id: str
+    type: SqlType
+    description: str
+    nullable: bool
+    default: str | None
+    reserved: bool
+
+    @staticmethod
+    def from_sa(
+        column: sa.engine.interfaces.ReflectedColumn,
+    ) -> CaseFieldRead:
+        return CaseFieldRead(
+            id=column["name"],
+            type=SqlType(str(column["type"])),
+            description=column.get("comment") or "",
+            nullable=column["nullable"],
+            default=column.get("default"),
+            reserved=column["name"] in RESERVED_CASE_FIELDS,
+        )
+
+
+class CaseFieldCreate(TableColumnCreate):
+    """Create a new case field."""
+
+
+class CaseFieldUpdate(TableColumnUpdate):
+    """Update a case field."""
+
+
+class CaseCustomFieldRead(CaseFieldRead):
+    value: Any
