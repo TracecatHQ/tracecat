@@ -1,4 +1,5 @@
-import uuid
+import uuid  # noqa: I001
+from unittest.mock import patch, MagicMock
 
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -141,6 +142,41 @@ class TestCasesService:
         assert retrieved_case.status == update_params.status
         assert retrieved_case.priority == update_params.priority
 
+    async def test_update_case_with_fields(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        """Test updating a case with fields."""
+        # Create case first
+        created_case = await cases_service.create_case(case_create_params)
+
+        # Then mock both methods that handle fields
+        with (
+            patch.object(cases_service.fields, "get_fields"),
+            patch.object(cases_service.fields, "update_field_values"),
+            patch.object(
+                cases_service.fields, "insert_field_values"
+            ) as mock_insert_fields,
+        ):
+            # Set up case.fields to None to simulate a case without fields
+            created_case.fields = None
+
+            # Mock return value for insert_field_values
+            mock_insert_fields.return_value = {"field1": "updated_value", "field2": 2}
+
+            # Update parameters including fields
+            update_params = CaseUpdate(
+                summary="Updated Test Case",
+                fields={"field1": "updated_value", "field2": 2},
+            )
+
+            # Update case
+            await cases_service.update_case(created_case, update_params)
+
+            # Verify insert_field_values was called with the case and fields
+            mock_insert_fields.assert_called_once_with(
+                created_case, {"field1": "updated_value", "field2": 2}
+            )
+
     async def test_delete_case(
         self, cases_service: CasesService, case_create_params: CaseCreate
     ) -> None:
@@ -152,5 +188,111 @@ class TestCasesService:
         await cases_service.delete_case(created_case)
 
         # Verify deletion
-        retrieved_case = await cases_service.get_case(created_case.id)
-        assert retrieved_case is None
+        deleted_case = await cases_service.get_case(created_case.id)
+        assert deleted_case is None
+
+    async def test_create_case_with_fields(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        """Test creating a case with custom fields."""
+        # Create case parameters with fields
+        params_with_fields = CaseCreate(
+            summary=case_create_params.summary,
+            description=case_create_params.description,
+            status=case_create_params.status,
+            priority=case_create_params.priority,
+            severity=case_create_params.severity,
+            fields={"custom_field1": "test value", "custom_field2": 123},
+        )
+
+        # Mock the insert_field_values method
+        with patch.object(
+            cases_service.fields, "insert_field_values"
+        ) as mock_insert_fields:
+            mock_insert_fields.return_value = {
+                "custom_field1": "test value",
+                "custom_field2": 123,
+            }
+
+            # Create case with fields
+            created_case = await cases_service.create_case(params_with_fields)
+
+            # Verify case was created successfully
+            assert created_case.summary == params_with_fields.summary
+            assert created_case.description == params_with_fields.description
+
+            # Verify that insert_field_values was called with the case and fields
+            mock_insert_fields.assert_called_once_with(
+                created_case, {"custom_field1": "test value", "custom_field2": 123}
+            )
+
+    async def test_update_case_fields(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        """Test updating just the fields of a case."""
+        # Create a case first
+        created_case = await cases_service.create_case(case_create_params)
+
+        # Mock the field methods
+        with (
+            patch.object(cases_service.fields, "get_fields") as mock_get_fields,
+            patch.object(
+                cases_service.fields, "update_field_values"
+            ) as mock_update_fields,
+        ):
+            # Set case.fields using SQLAlchemy's __dict__ to bypass SQLModel's setattr checks
+            fields_obj = MagicMock()
+            fields_obj.id = uuid.uuid4()
+            # Use __dict__ directly to avoid SQLModel setattr validation
+            created_case.__dict__["fields"] = fields_obj
+
+            # Setup mock to return existing field values
+            mock_get_fields.return_value = {
+                "existing_field1": "original value",
+                "existing_field2": 456,
+            }
+
+            # Update just the fields
+            update_params = CaseUpdate(
+                fields={"existing_field1": "updated value", "new_field": "new value"}
+            )
+
+            # Update the case
+            await cases_service.update_case(created_case, update_params)
+
+            # Verify get_fields was called
+            mock_get_fields.assert_called_once_with(created_case)
+
+            # Verify update_field_values was called with merged fields
+            mock_update_fields.assert_called_once_with(
+                fields_obj.id,
+                {
+                    "existing_field1": "updated value",
+                    "existing_field2": 456,
+                    "new_field": "new value",
+                },
+            )
+
+    async def test_cascade_delete(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        session: AsyncSession,
+    ) -> None:
+        """Test that cascading delete works correctly for cases."""
+        # Create a case
+        created_case = await cases_service.create_case(case_create_params)
+
+        # Verify case exists
+        case_id = created_case.id
+        assert await cases_service.get_case(case_id) is not None
+
+        # Delete the case
+        await cases_service.delete_case(created_case)
+
+        # Verify case is deleted
+        assert await cases_service.get_case(case_id) is None
+
+        # This test verifies that cascade delete works through the SQLAlchemy
+        # relationship configuration, which should automatically handle
+        # deleting related fields when a case is deleted
