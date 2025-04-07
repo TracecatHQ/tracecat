@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
@@ -24,15 +24,17 @@ async def create(
         Doc("The description of the case."),
     ],
     priority: Annotated[
-        CasePriority,
+        Literal["low", "medium", "high", "critical"],
         Doc("The priority of the case."),
     ],
     severity: Annotated[
-        CaseSeverity,
+        Literal["low", "medium", "high", "critical"],
         Doc("The severity of the case."),
     ],
     status: Annotated[
-        CaseStatus,
+        Literal[
+            "unknown", "new", "in_progress", "on_hold", "resolved", "closed", "other"
+        ],
         Doc("The status of the case."),
     ],
     fields: Annotated[
@@ -45,9 +47,9 @@ async def create(
             CaseCreate(
                 summary=summary,
                 description=description,
-                priority=priority,
-                severity=severity,
-                status=status,
+                priority=CasePriority(priority),
+                severity=CaseSeverity(severity),
+                status=CaseStatus(status),
                 fields=fields,
             )
         )
