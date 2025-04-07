@@ -24,16 +24,38 @@ async def create(
         Doc("The description of the case."),
     ],
     priority: Annotated[
-        Literal["low", "medium", "high", "critical"],
+        Literal[
+            "unknown",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "other",
+        ],
         Doc("The priority of the case."),
     ],
     severity: Annotated[
-        Literal["low", "medium", "high", "critical"],
+        Literal[
+            "unknown",
+            "informational",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "fatal",
+            "other",
+        ],
         Doc("The severity of the case."),
     ],
     status: Annotated[
         Literal[
-            "unknown", "new", "in_progress", "on_hold", "resolved", "closed", "other"
+            "unknown",
+            "new",
+            "in_progress",
+            "on_hold",
+            "resolved",
+            "closed",
+            "other",
         ],
         Doc("The status of the case."),
     ],
