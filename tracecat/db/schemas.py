@@ -696,10 +696,10 @@ class Case(Resource, table=True):
         ),
         description="Auto-incrementing case number for human readable IDs like CASE-1234",
     )
-    summary: str = Field(..., max_length=200)
-    description: str = Field(..., max_length=1000)
-    priority: CasePriority | None = Field(
-        default=None,
+    summary: str = Field(..., description="Case summary", max_length=255)
+    description: str = Field(..., description="Case description", max_length=5000)
+    priority: CasePriority = Field(
+        ...,
         description="Case priority level",
     )
     severity: CaseSeverity = Field(
