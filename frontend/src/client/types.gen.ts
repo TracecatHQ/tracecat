@@ -261,6 +261,19 @@ export type CaseCreate = {
   status: CaseStatus
   priority: CasePriority
   severity: CaseSeverity
+  fields?: {
+    [key: string]: unknown
+  } | null
+}
+
+export type CaseCustomFieldRead = {
+  id: string
+  type: SqlType
+  description: string
+  nullable: boolean
+  default: string | null
+  reserved: boolean
+  value: unknown
 }
 
 export type CaseEvent =
@@ -272,36 +285,80 @@ export type CaseEvent =
   | SeverityUpdateEvent
   | FieldUpdateEvent
 
-export type CaseEventType =
-  | "status_update"
-  | "priority_update"
-  | "severity_update"
-  | "field_update"
-  | "comment_create"
-  | "comment_update"
-  | "comment_delete"
+/**
+ * Create a new case field.
+ */
+export type CaseFieldCreate = {
+  /**
+   * The name of the column
+   */
+  name: string
+  /**
+   * The SQL type of the column
+   */
+  type: SqlType
+  nullable?: boolean
+  default?: unknown | null
+}
+
+/**
+ * Read model for a case field.
+ */
+export type CaseFieldRead = {
+  id: string
+  type: SqlType
+  description: string
+  nullable: boolean
+  default: string | null
+  reserved: boolean
+}
+
+/**
+ * Update a case field.
+ */
+export type CaseFieldUpdate = {
+  /**
+   * The name of the column
+   */
+  name?: string | null
+  /**
+   * The SQL type of the column
+   */
+  type?: SqlType | null
+  /**
+   * Whether the column can be null
+   */
+  nullable?: boolean | null
+  /**
+   * The default value of the column
+   */
+  default?: unknown | null
+}
 
 export type CasePriority = "low" | "medium" | "high" | "critical"
 
 export type CaseRead = {
   id: string
+  short_id: string
   created_at: string
   updated_at: string
   summary: string
   status: CaseStatus
-  priority: CasePriority
-  severity: CaseSeverity
+  priority: CasePriority | null
+  severity: CaseSeverity | null
   description: string
   activities: Array<CommentActivity | EventActivity>
+  fields?: Array<CaseCustomFieldRead> | null
 }
 
 export type CaseReadMinimal = {
   id: string
+  short_id: string
   created_at: string
   updated_at: string
   summary: string
   status: CaseStatus
-  priority: CasePriority
+  priority: CasePriority | null
   severity: CaseSeverity
 }
 
@@ -325,13 +382,18 @@ export type CaseUpdate = {
   status?: CaseStatus | null
   priority?: CasePriority | null
   severity?: CaseSeverity | null
+  fields?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type CommentActivity = {
   id: string
   created_at: string
-  updated_at: string
+  user_id: string
   type: "comment"
+  updated_at: string
+  parent_comment_id?: string | null
   content: string
 }
 
@@ -515,19 +577,9 @@ export type ErrorModel = {
 export type EventActivity = {
   id: string
   created_at: string
-  updated_at: string
+  user_id: string
   type: "event"
   event: CaseEvent
-}
-
-/**
- * When a user creates an event on a case.
- */
-export type EventCreate = {
-  type: CaseEventType
-  data: {
-    [key: string]: unknown
-  }
 }
 
 export type EventFailure = {
@@ -2897,13 +2949,33 @@ export type CasesListEventsData = {
 
 export type CasesListEventsResponse = Array<EventActivity>
 
-export type CasesCreateEventData = {
-  caseId: string
-  requestBody: EventCreate
+export type CasesListFieldsData = {
   workspaceId: string
 }
 
-export type CasesCreateEventResponse = unknown
+export type CasesListFieldsResponse = Array<CaseFieldRead>
+
+export type CasesCreateFieldData = {
+  requestBody: CaseFieldCreate
+  workspaceId: string
+}
+
+export type CasesCreateFieldResponse = unknown
+
+export type CasesUpdateFieldData = {
+  fieldId: string
+  requestBody: CaseFieldUpdate
+  workspaceId: string
+}
+
+export type CasesUpdateFieldResponse = void
+
+export type CasesDeleteFieldData = {
+  fieldId: string
+  workspaceId: string
+}
+
+export type CasesDeleteFieldResponse = void
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -4564,13 +4636,56 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
+  }
+  "/case-fields": {
+    get: {
+      req: CasesListFieldsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseFieldRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     post: {
-      req: CasesCreateEventData
+      req: CasesCreateFieldData
       res: {
         /**
          * Successful Response
          */
         201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-fields/{field_id}": {
+    patch: {
+      req: CasesUpdateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

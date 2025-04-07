@@ -38,22 +38,28 @@ import type {
   CasesCreateCaseResponse,
   CasesCreateCommentData,
   CasesCreateCommentResponse,
-  CasesCreateEventData,
-  CasesCreateEventResponse,
+  CasesCreateFieldData,
+  CasesCreateFieldResponse,
   CasesDeleteCaseData,
   CasesDeleteCaseResponse,
   CasesDeleteCommentData,
   CasesDeleteCommentResponse,
+  CasesDeleteFieldData,
+  CasesDeleteFieldResponse,
   CasesGetCaseData,
   CasesGetCaseResponse,
   CasesListCasesData,
   CasesListCasesResponse,
   CasesListEventsData,
   CasesListEventsResponse,
+  CasesListFieldsData,
+  CasesListFieldsResponse,
   CasesUpdateCaseData,
   CasesUpdateCaseResponse,
   CasesUpdateCommentData,
   CasesUpdateCommentResponse,
+  CasesUpdateFieldData,
+  CasesUpdateFieldResponse,
   EditorListActionsData,
   EditorListActionsResponse,
   EditorListFunctionsData,
@@ -3165,29 +3171,105 @@ export const casesListEvents = (
 }
 
 /**
- * Create Event
- * Create a new case activity.
+ * List Fields
+ * List all case fields.
  * @param data The data for the request.
- * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseFieldRead Successful Response
+ * @throws ApiError
+ */
+export const casesListFields = (
+  data: CasesListFieldsData
+): CancelablePromise<CasesListFieldsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/case-fields",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Field
+ * Create a new case field.
+ * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
  * @returns unknown Successful Response
  * @throws ApiError
  */
-export const casesCreateEvent = (
-  data: CasesCreateEventData
-): CancelablePromise<CasesCreateEventResponse> => {
+export const casesCreateField = (
+  data: CasesCreateFieldData
+): CancelablePromise<CasesCreateFieldResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/cases/{case_id}/events",
+    url: "/case-fields",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Field
+ * Update a case field.
+ * @param data The data for the request.
+ * @param data.fieldId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const casesUpdateField = (
+  data: CasesUpdateFieldData
+): CancelablePromise<CasesUpdateFieldResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/case-fields/{field_id}",
     path: {
-      case_id: data.caseId,
+      field_id: data.fieldId,
     },
     query: {
       workspace_id: data.workspaceId,
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Field
+ * Delete a case field.
+ * @param data The data for the request.
+ * @param data.fieldId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const casesDeleteField = (
+  data: CasesDeleteFieldData
+): CancelablePromise<CasesDeleteFieldResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/case-fields/{field_id}",
+    path: {
+      field_id: data.fieldId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },
