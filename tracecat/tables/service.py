@@ -52,11 +52,7 @@ class BaseTablesService(BaseService):
 
     def _sanitize_identifier(self, identifier: str) -> str:
         """Sanitize table/column names to prevent SQL injection."""
-        # Remove any non-alphanumeric characters except underscores
-        sanitized = "".join(c for c in identifier if c.isalnum() or c == "_")
-        if not sanitized[0].isalpha():
-            raise ValueError("Identifier must start with a letter")
-        return sanitized.lower()
+        return sanitize_identifier(identifier)
 
     def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
@@ -687,3 +683,13 @@ class TablesService(BaseTablesService):
         result = await super().batch_insert_rows(table, rows, chunk_size=chunk_size)
         await self.session.commit()
         return result
+
+
+def sanitize_identifier(identifier: str) -> str:
+    """Sanitize table/column names to prevent SQL injection."""
+    # Remove any non-alphanumeric characters except underscores
+    sanitized = "".join(c for c in identifier if c.isalnum() or c == "_")
+    logger.info("Sanitized identifier", identifier=identifier, sanitized=sanitized)
+    if not sanitized[0].isalpha():
+        raise ValueError("Identifier must start with a letter")
+    return sanitized.lower()
