@@ -33,9 +33,17 @@ def upgrade() -> None:
         "OTHER",
         name="casestatus",
     ).create(op.get_bind())
-    sa.Enum("LOW", "MEDIUM", "HIGH", "CRITICAL", name="caseseverity").create(
-        op.get_bind()
-    )
+    sa.Enum(
+        "UNKNOWN",
+        "INFORMATIONAL",
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL",
+        "FATAL",
+        "OTHER",
+        name="caseseverity",
+    ).create(op.get_bind())
     sa.Enum("LOW", "MEDIUM", "HIGH", "CRITICAL", name="casepriority").create(
         op.get_bind()
     )
@@ -79,10 +87,14 @@ def upgrade() -> None:
         sa.Column(
             "severity",
             postgresql.ENUM(
+                "UNKNOWN",
+                "INFORMATIONAL",
                 "LOW",
                 "MEDIUM",
                 "HIGH",
                 "CRITICAL",
+                "FATAL",
+                "OTHER",
                 name="caseseverity",
                 create_type=False,
             ),
@@ -141,9 +153,17 @@ def downgrade() -> None:
     sa.Enum("LOW", "MEDIUM", "HIGH", "CRITICAL", name="casepriority").drop(
         op.get_bind()
     )
-    sa.Enum("LOW", "MEDIUM", "HIGH", "CRITICAL", name="caseseverity").drop(
-        op.get_bind()
-    )
+    sa.Enum(
+        "UNKNOWN",
+        "INFORMATIONAL",
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL",
+        "FATAL",
+        "OTHER",
+        name="caseseverity",
+    ).drop(op.get_bind())
     sa.Enum(
         "UNKNOWN",
         "NEW",
