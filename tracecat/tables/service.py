@@ -45,7 +45,7 @@ _RETRYABLE_DB_EXCEPTIONS = (
 )
 
 
-class TablesService(BaseService):
+class BaseTablesService(BaseService):
     """Service for managing user-defined tables."""
 
     service_name = "tables"
@@ -185,12 +185,11 @@ class TablesService(BaseService):
         await conn.run_sync(new_table.create)
 
         # Create metadata entry
-        metadata = Table(owner_id=ws_id, name=table_name)
-        self.session.add(metadata)
-        await self.session.commit()
-        await self.session.refresh(metadata)
+        table = Table(owner_id=ws_id, name=table_name)
+        self.session.add(table)
+        await self.session.flush()
 
-        return metadata
+        return table
 
     @require_access_level(AccessLevel.ADMIN)
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
@@ -219,8 +218,7 @@ class TablesService(BaseService):
         for key, value in set_fields.items():
             setattr(table, key, value)
 
-        await self.session.commit()
-        await self.session.refresh(table)
+        await self.session.flush()
         return table
 
     @require_access_level(AccessLevel.ADMIN)
@@ -233,7 +231,7 @@ class TablesService(BaseService):
         full_table_name = self._full_table_name(table.name)
         conn = await self.session.connection()
         await conn.execute(sa.DDL("DROP TABLE IF EXISTS %s", full_table_name))
-        await self.session.commit()
+        await self.session.flush()
 
     """Columns"""
 
@@ -307,9 +305,7 @@ class TablesService(BaseService):
             )
         )
 
-        await self.session.commit()
-        await self.session.refresh(column)
-        await self.session.refresh(table)
+        await self.session.flush()
         return column
 
     @require_access_level(AccessLevel.ADMIN)
@@ -373,8 +369,7 @@ class TablesService(BaseService):
         for key, value in set_fields.items():
             setattr(column, key, value)
 
-        await self.session.commit()
-        await self.session.refresh(column)
+        await self.session.flush()
         return column
 
     @require_access_level(AccessLevel.ADMIN)
@@ -395,7 +390,7 @@ class TablesService(BaseService):
             )
         )
 
-        await self.session.commit()
+        await self.session.flush()
 
     """Rows"""
 
@@ -433,7 +428,7 @@ class TablesService(BaseService):
         self,
         table: Table,
         params: TableRowInsert,
-    ) -> Mapping[str, Any] | None:
+    ) -> dict[str, Any]:
         """Insert a new row into the table.
 
         Args:
@@ -461,7 +456,7 @@ class TablesService(BaseService):
             .returning(sa.text("*"))
         )
         result = await conn.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         row = result.mappings().one()
         return dict(row)
 
@@ -470,7 +465,7 @@ class TablesService(BaseService):
         table: Table,
         row_id: UUID,
         data: dict[str, Any],
-    ) -> Mapping[str, Any]:
+    ) -> dict[str, Any]:
         """Update an existing row in the table.
 
         Args:
@@ -497,7 +492,7 @@ class TablesService(BaseService):
         )
 
         result = await conn.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
 
         try:
             row = result.mappings().one()
@@ -516,7 +511,7 @@ class TablesService(BaseService):
         table_clause = sa.table(table.name, schema=schema_name)
         stmt = sa.delete(table_clause).where(sa.column("id") == row_id)
         await conn.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
 
     "Lookups"
 
@@ -639,8 +634,56 @@ class TablesService(BaseService):
         try:
             # Execute insert and get rowcount directly
             result = await conn.execute(stmt)
-            await self.session.commit()
+            await self.session.flush()
             return result.rowcount
         except Exception as e:
             # Let the transaction context manager handle rollback
             raise DBAPIError("Failed to insert batch", str(e), e) from e
+
+
+class TablesService(BaseTablesService):
+    """Transactional tables service."""
+
+    async def insert_row(self, table: Table, params: TableRowInsert) -> dict[str, Any]:
+        result = await super().insert_row(table, params)
+        await self.session.commit()
+        return result
+
+    async def update_row(
+        self, table: Table, row_id: UUID, data: dict[str, Any]
+    ) -> dict[str, Any]:
+        result = await super().update_row(table, row_id, data)
+        await self.session.commit()
+        return result
+
+    async def delete_row(self, table: Table, row_id: UUID) -> None:
+        await super().delete_row(table, row_id)
+        await self.session.commit()
+
+    async def create_column(
+        self, table: Table, params: TableColumnCreate
+    ) -> TableColumn:
+        column = await super().create_column(table, params)
+        await self.session.commit()
+        await self.session.refresh(column)
+        await self.session.refresh(table)
+        return column
+
+    async def update_column(
+        self, column: TableColumn, params: TableColumnUpdate
+    ) -> TableColumn:
+        column = await super().update_column(column, params)
+        await self.session.commit()
+        await self.session.refresh(column)
+        return column
+
+    async def delete_column(self, column: TableColumn) -> None:
+        await super().delete_column(column)
+        await self.session.commit()
+
+    async def batch_insert_rows(
+        self, table: Table, rows: list[dict[str, Any]], *, chunk_size: int = 1000
+    ) -> int:
+        result = await super().batch_insert_rows(table, rows, chunk_size=chunk_size)
+        await self.session.commit()
+        return result

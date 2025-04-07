@@ -17,6 +17,7 @@ from tracecat.config import (
     TEMPORAL__CLUSTER_NAMESPACE,
     TEMPORAL__CLUSTER_URL,
     TEMPORAL__CONNECT_RETRIES,
+    TEMPORAL__METRICS_PORT,
 )
 from tracecat.dsl._converter import pydantic_data_converter
 from tracecat.logger import logger
@@ -52,7 +53,7 @@ async def connect_to_temporal() -> Client:
         tls_config = True
         rpc_metadata["temporal-namespace"] = TEMPORAL__CLUSTER_NAMESPACE
 
-    runtime = init_runtime_with_prometheus(port=9000)
+    runtime = init_runtime_with_prometheus(port=TEMPORAL__METRICS_PORT)
     client = await Client.connect(
         target_host=TEMPORAL__CLUSTER_URL,
         namespace=TEMPORAL__CLUSTER_NAMESPACE,
