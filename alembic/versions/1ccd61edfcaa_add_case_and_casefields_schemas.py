@@ -1,8 +1,8 @@
 """Add Case and CaseFields schemas
 
-Revision ID: 92bf89f5be18
+Revision ID: 1ccd61edfcaa
 Revises: 9039a443701d
-Create Date: 2025-04-07 12:59:07.227152
+Create Date: 2025-04-07 14:37:51.063412
 
 """
 
@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "92bf89f5be18"
+revision: str = "1ccd61edfcaa"
 down_revision: str | None = "9039a443701d"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -44,9 +44,9 @@ def upgrade() -> None:
         "OTHER",
         name="caseseverity",
     ).create(op.get_bind())
-    sa.Enum("LOW", "MEDIUM", "HIGH", "CRITICAL", name="casepriority").create(
-        op.get_bind()
-    )
+    sa.Enum(
+        "UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL", "OTHER", name="casepriority"
+    ).create(op.get_bind())
     op.create_table(
         "cases",
         sa.Column(
@@ -75,14 +75,16 @@ def upgrade() -> None:
         sa.Column(
             "priority",
             postgresql.ENUM(
+                "UNKNOWN",
                 "LOW",
                 "MEDIUM",
                 "HIGH",
                 "CRITICAL",
+                "OTHER",
                 name="casepriority",
                 create_type=False,
             ),
-            nullable=True,
+            nullable=False,
         ),
         sa.Column(
             "severity",
@@ -150,9 +152,9 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_cases_id"), table_name="cases")
     op.drop_index(op.f("ix_cases_case_number"), table_name="cases")
     op.drop_table("cases")
-    sa.Enum("LOW", "MEDIUM", "HIGH", "CRITICAL", name="casepriority").drop(
-        op.get_bind()
-    )
+    sa.Enum(
+        "UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL", "OTHER", name="casepriority"
+    ).drop(op.get_bind())
     sa.Enum(
         "UNKNOWN",
         "INFORMATIONAL",
