@@ -43,7 +43,6 @@ class CaseRead(BaseModel):
     severity: CaseSeverity | None
     # Details
     description: str
-    activities: list[CaseActivity]
     # Custom fields
     fields: list[CaseCustomFieldRead] | None = None
 
