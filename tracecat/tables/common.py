@@ -6,7 +6,6 @@ import orjson
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
-from tracecat.db.schemas import TableColumn
 from tracecat.tables.enums import SqlType
 
 
@@ -44,7 +43,7 @@ def handle_default_value(type: SqlType, default: Any) -> str:
     return default_value
 
 
-def to_sql_clause(value: Any, column: TableColumn) -> sa.BindParameter:
+def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
     """Convert a value to a SQL-compatible string based on type.
 
     Args:
@@ -57,8 +56,7 @@ def to_sql_clause(value: Any, column: TableColumn) -> sa.BindParameter:
     Raises:
         ValueError: If the SQL type is not supported
     """
-    name = column.name
-    match SqlType(column.type):
+    match sql_type:
         case SqlType.JSONB:
             return sa.bindparam(key=name, value=value, type_=JSONB)
         case SqlType.TEXT | SqlType.VARCHAR:
