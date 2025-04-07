@@ -276,15 +276,6 @@ export type CaseCustomFieldRead = {
   value: unknown
 }
 
-export type CaseEvent =
-  | CommentCreateEvent
-  | CommentUpdateEvent
-  | CommentDeleteEvent
-  | StatusUpdateEvent
-  | PriorityUpdateEvent
-  | SeverityUpdateEvent
-  | FieldUpdateEvent
-
 /**
  * Create a new case field.
  */
@@ -347,7 +338,6 @@ export type CaseRead = {
   priority: CasePriority | null
   severity: CaseSeverity | null
   description: string
-  activities: Array<CommentActivity | EventActivity>
   fields?: Array<CaseCustomFieldRead> | null
 }
 
@@ -387,44 +377,11 @@ export type CaseUpdate = {
   } | null
 }
 
-export type CommentActivity = {
-  id: string
-  created_at: string
-  user_id: string
-  type: "comment"
-  updated_at: string
-  parent_comment_id?: string | null
-  content: string
-}
-
 export type CommentCreate = {
   content: string
 }
 
-/**
- * When a user creates a comment on a case.
- */
-export type CommentCreateEvent = {
-  type: "comment_create"
-  content: string
-}
-
-/**
- * When a user deletes a comment on a case.
- */
-export type CommentDeleteEvent = {
-  type: "comment_delete"
-}
-
 export type CommentUpdate = {
-  content: string
-}
-
-/**
- * When a user updates a comment on a case.
- */
-export type CommentUpdateEvent = {
-  type: "comment_update"
   content: string
 }
 
@@ -574,14 +531,6 @@ export type ErrorModel = {
       }
 }
 
-export type EventActivity = {
-  id: string
-  created_at: string
-  user_id: string
-  type: "event"
-  event: CaseEvent
-}
-
 export type EventFailure = {
   message: string
   cause?: {
@@ -631,15 +580,6 @@ export type ExprContext =
   | "var"
   | "inputs"
   | "steps"
-
-/**
- * When a user updates a field on a case.
- */
-export type FieldUpdateEvent = {
-  type: "field_update"
-  field: string
-  value: unknown
-}
 
 export type GetWorkflowDefinitionActivityInputs = {
   role: Role
@@ -744,14 +684,6 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
-}
-
-/**
- * When a user updates the priority of a case.
- */
-export type PriorityUpdateEvent = {
-  type: "priority_update"
-  priority: CasePriority
 }
 
 export type ReceiveInteractionResponse = {
@@ -1388,14 +1320,6 @@ export type SessionRead = {
 }
 
 /**
- * When a user updates the severity of a case.
- */
-export type SeverityUpdateEvent = {
-  type: "severity_update"
-  severity: CaseSeverity
-}
-
-/**
  * A sentinel user ID that represents the current user.
  */
 export type SpecialUserID = "current"
@@ -1414,14 +1338,6 @@ export type SqlType =
   | "TIMESTAMPTZ"
   | "JSONB"
   | "UUID"
-
-/**
- * When a user updates the status of a case.
- */
-export type StatusUpdateEvent = {
-  type: "status_update"
-  status: CaseStatus
-}
 
 /**
  * Create model for a table column.
@@ -2941,13 +2857,6 @@ export type CasesDeleteCommentData = {
 }
 
 export type CasesDeleteCommentResponse = void
-
-export type CasesListEventsData = {
-  caseId: string
-  workspaceId: string
-}
-
-export type CasesListEventsResponse = Array<EventActivity>
 
 export type CasesListFieldsData = {
   workspaceId: string
@@ -4615,21 +4524,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/cases/{case_id}/events": {
-    get: {
-      req: CasesListEventsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<EventActivity>
         /**
          * Validation Error
          */
