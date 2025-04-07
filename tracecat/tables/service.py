@@ -443,7 +443,9 @@ class BaseTablesService(BaseService):
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
         for col, value in row_data.items():
-            value_clauses[col] = to_sql_clause(value, col_map[col])
+            value_clauses[col] = to_sql_clause(
+                value, col_map[col].name, SqlType(col_map[col].type)
+            )
             cols.append(sa.column(self._sanitize_identifier(col)))
 
         stmt = (
