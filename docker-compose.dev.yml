@@ -58,7 +58,6 @@ services:
       TRACECAT__REMOTE_REPOSITORY_URL: ${TRACECAT__REMOTE_REPOSITORY_URL}
       # AI
       TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
-      OLLAMA__API_URL: ${OLLAMA__API_URL}
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
@@ -129,9 +128,6 @@ services:
       TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
       # Email
       TRACECAT__ALLOWED_EMAIL_ATTRIBUTES: ${TRACECAT__ALLOWED_EMAIL_ATTRIBUTES}
-      # AI
-      TRACECAT__PRELOAD_OSS_MODELS: ${TRACECAT__PRELOAD_OSS_MODELS}
-      OLLAMA__API_URL: ${OLLAMA__API_URL}
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
@@ -236,16 +232,6 @@ services:
       - temporal
     attach: false
 
-  ollama:
-    container_name: ollama
-    tty: true
-    restart: unless-stopped
-    image: ollama/ollama:${OLLAMA__VERSION}
-    ports:
-      - 11434:11434
-    volumes:
-      - ollama:/root/.ollama
-
   ee-container-runner:
     image: quay.io/podman/stable
     container_name: container-runner
@@ -279,5 +265,4 @@ services:
 volumes:
   core-db:
   temporal-db:
-  ollama:
   containers:
