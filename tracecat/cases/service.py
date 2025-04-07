@@ -14,7 +14,6 @@ from tracecat.cases.models import (
 )
 from tracecat.db.schemas import Case, CaseFields
 from tracecat.service import BaseService
-from tracecat.tables.models import TableRowInsert
 from tracecat.tables.service import TableEditorService, TablesService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatAuthorizationError
@@ -72,7 +71,7 @@ class CasesService(BaseService):
 
         # If fields are provided, create the fields row
         if params.fields:
-            await self.fields.insert_field_values(case, params.fields)
+            await self.fields.create_field_values(case, params.fields)
 
         await self.session.commit()
         # Make sure to refresh the case to get the fields relationship loaded
@@ -116,7 +115,8 @@ class CasesService(BaseService):
                 existing_fields.update(fields)
                 await self.fields.update_field_values(case_fields.id, existing_fields)
             else:
-                await self.fields.insert_field_values(case, fields)
+                # Case has no fields row yet, create one
+                await self.fields.create_field_values(case, fields)
 
         # Handle the rest
         for key, value in set_fields.items():
@@ -210,7 +210,7 @@ class CaseFieldsService(BaseService):
             return None
         return await self.editor.get_row(case.fields.id)
 
-    async def insert_field_values(
+    async def create_field_values(
         self, case: Case, fields: dict[str, Any]
     ) -> dict[str, Any]:
         """Add fields to a case. Non-transactional.
@@ -219,10 +219,13 @@ class CaseFieldsService(BaseService):
             case: The case to add fields to
             fields: The fields to add
         """
-        # This will automatically set the foreign key to the case
-        res = await self.editor.insert_row(
-            TableRowInsert(data={"case_id": case.id, **fields})
-        )
+        # Create a new CaseFields record with case_id
+        case_fields = CaseFields(case_id=case.id)
+        self.session.add(case_fields)
+        await self.session.flush()  # Populate the ID
+
+        # This will use the created case_fields ID
+        res = await self.editor.update_row(row_id=case_fields.id, data=fields)
         await self.session.flush()
         return res
 

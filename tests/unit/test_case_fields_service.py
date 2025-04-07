@@ -206,7 +206,7 @@ class TestCaseFieldsService:
             mock_insert_row.return_value = mock_result
 
             # Insert field values
-            result = await case_fields_service.insert_field_values(
+            result = await case_fields_service.create_field_values(
                 test_case, fields_data
             )
 
