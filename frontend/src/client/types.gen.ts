@@ -255,6 +255,26 @@ export type Body_workflows_create_workflow = {
   file?: (Blob | File) | null
 }
 
+export type CaseCommentCreate = {
+  content: string
+  parent_id?: string | null
+}
+
+export type CaseCommentRead = {
+  id: string
+  created_at: string
+  updated_at: string
+  content: string
+  parent_id?: string | null
+  user?: UserRead | null
+  last_edited_at?: string | null
+}
+
+export type CaseCommentUpdate = {
+  content?: string | null
+  parent_id?: string | null
+}
+
 export type CaseCreate = {
   summary: string
   description: string
@@ -413,14 +433,6 @@ export type CaseUpdate = {
   fields?: {
     [key: string]: unknown
   } | null
-}
-
-export type CommentCreate = {
-  content: string
-}
-
-export type CommentUpdate = {
-  content: string
 }
 
 export type CreateWorkspaceMembershipParams = {
@@ -2871,9 +2883,16 @@ export type CasesDeleteCaseData = {
 
 export type CasesDeleteCaseResponse = void
 
+export type CasesListCommentsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListCommentsResponse = Array<CaseCommentRead>
+
 export type CasesCreateCommentData = {
   caseId: string
-  requestBody: CommentCreate
+  requestBody: CaseCommentCreate
   workspaceId: string
 }
 
@@ -2882,7 +2901,7 @@ export type CasesCreateCommentResponse = unknown
 export type CasesUpdateCommentData = {
   caseId: string
   commentId: string
-  requestBody: CommentUpdate
+  requestBody: CaseCommentUpdate
   workspaceId: string
 }
 
@@ -4527,6 +4546,19 @@ export type $OpenApiTs = {
     }
   }
   "/cases/{case_id}/comments": {
+    get: {
+      req: CasesListCommentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseCommentRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     post: {
       req: CasesCreateCommentData
       res: {
