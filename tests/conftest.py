@@ -171,9 +171,6 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv("TEMPORAL__CLUSTER_QUEUE", "test-tracecat-task-queue")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
 
-    # Ollama
-    monkeysession.setattr(config, "OLLAMA__API_URL", "http://localhost:11434")
-
     yield
     logger.info("Environment variables cleaned up")
 

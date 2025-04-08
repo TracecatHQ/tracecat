@@ -2,9 +2,7 @@ from fastapi import Request, status
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 
-from tracecat import config
 from tracecat.contexts import ctx_role
-from tracecat.llm import preload_ollama_models
 from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatException
@@ -56,15 +54,3 @@ def custom_generate_unique_id(route: APIRoute):
     if route.tags:
         return f"{route.tags[0]}-{route.name}"
     return route.name
-
-
-async def setup_oss_models():
-    if not (preload_models := config.TRACECAT__PRELOAD_OSS_MODELS):
-        return
-
-    logger.info(
-        f"Preloading {len(preload_models)} models",
-        models=preload_models,
-    )
-    await preload_ollama_models(preload_models)
-    logger.info("Preloaded models", models=preload_models)
