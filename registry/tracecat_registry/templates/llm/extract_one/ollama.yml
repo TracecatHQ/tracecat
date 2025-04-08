@@ -26,11 +26,16 @@ definition:
       type: str
       description: Model to use for extraction.
       default: gemma3:1b-it-q8_0
+    base_url:
+      type: str
+      description: Base URL for the Ollama API.
+      default: http://ollama:11434
   steps:
     - ref: extract_one
       action: llm.ollama.call
       args:
         model: ${{ inputs.model }}
+        base_url: ${{ inputs.base_url }}
         prompt: >
           <input_data>
           ${{ inputs.input }}
