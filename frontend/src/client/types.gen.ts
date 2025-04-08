@@ -255,6 +255,174 @@ export type Body_workflows_create_workflow = {
   file?: (Blob | File) | null
 }
 
+export type CaseCreate = {
+  summary: string
+  description: string
+  status: CaseStatus
+  priority: CasePriority
+  severity: CaseSeverity
+  fields?: {
+    [key: string]: unknown
+  } | null
+}
+
+export type CaseCustomFieldRead = {
+  id: string
+  type: SqlType
+  description: string
+  nullable: boolean
+  default: string | null
+  reserved: boolean
+  value: unknown
+}
+
+/**
+ * Create a new case field.
+ */
+export type CaseFieldCreate = {
+  /**
+   * The name of the column
+   */
+  name: string
+  /**
+   * The SQL type of the column
+   */
+  type: SqlType
+  nullable?: boolean
+  default?: unknown | null
+}
+
+/**
+ * Read model for a case field.
+ */
+export type CaseFieldRead = {
+  id: string
+  type: SqlType
+  description: string
+  nullable: boolean
+  default: string | null
+  reserved: boolean
+}
+
+/**
+ * Update a case field.
+ */
+export type CaseFieldUpdate = {
+  /**
+   * The name of the column
+   */
+  name?: string | null
+  /**
+   * The SQL type of the column
+   */
+  type?: SqlType | null
+  /**
+   * Whether the column can be null
+   */
+  nullable?: boolean | null
+  /**
+   * The default value of the column
+   */
+  default?: unknown | null
+}
+
+/**
+ * Case priority values aligned with urgency levels.
+ *
+ * Values:
+ * UNKNOWN (0): No priority is assigned
+ * LOW (1): Application or personal procedure is unusable, where a workaround is available or a repair is possible
+ * MEDIUM (2): Non-critical function or procedure is unusable or hard to use causing operational disruptions with no direct impact on a service's availability. A workaround is available
+ * HIGH (3): Critical functionality or network access is interrupted, degraded or unusable, having a severe impact on services availability. No acceptable alternative is possible
+ * CRITICAL (4): Interruption making a critical functionality inaccessible or a complete network interruption causing a severe impact on services availability. There is no possible alternative
+ * OTHER (99): The priority is not normalized
+ */
+export type CasePriority =
+  | "unknown"
+  | "low"
+  | "medium"
+  | "high"
+  | "critical"
+  | "other"
+
+export type CaseRead = {
+  id: string
+  short_id: string
+  created_at: string
+  updated_at: string
+  summary: string
+  status: CaseStatus
+  priority: CasePriority
+  severity: CaseSeverity
+  description: string
+  fields: Array<CaseCustomFieldRead>
+}
+
+export type CaseReadMinimal = {
+  id: string
+  short_id: string
+  created_at: string
+  updated_at: string
+  summary: string
+  status: CaseStatus
+  priority: CasePriority
+  severity: CaseSeverity
+}
+
+/**
+ * Case severity values aligned with OCSF severity values.
+ *
+ * Values:
+ * UNKNOWN (0): The event/finding severity is unknown
+ * INFORMATIONAL (1): Informational message. No action required
+ * LOW (2): The user decides if action is needed
+ * MEDIUM (3): Action is required but the situation is not serious at this time
+ * HIGH (4): Action is required immediately
+ * CRITICAL (5): Action is required immediately and the scope is broad
+ * FATAL (6): An error occurred but it is too late to take remedial action
+ * OTHER (99): The event/finding severity is not mapped
+ */
+export type CaseSeverity =
+  | "unknown"
+  | "informational"
+  | "low"
+  | "medium"
+  | "high"
+  | "critical"
+  | "fatal"
+  | "other"
+
+/**
+ * Case status values aligned with OCSF Incident Finding status.
+ */
+export type CaseStatus =
+  | "unknown"
+  | "new"
+  | "in_progress"
+  | "on_hold"
+  | "resolved"
+  | "closed"
+  | "other"
+
+export type CaseUpdate = {
+  summary?: string | null
+  description?: string | null
+  status?: CaseStatus | null
+  priority?: CasePriority | null
+  severity?: CaseSeverity | null
+  fields?: {
+    [key: string]: unknown
+  } | null
+}
+
+export type CommentCreate = {
+  content: string
+}
+
+export type CommentUpdate = {
+  content: string
+}
+
 export type CreateWorkspaceMembershipParams = {
   user_id: string
 }
@@ -2674,6 +2842,94 @@ export type TablesImportCsvData = {
 
 export type TablesImportCsvResponse = TableRowInsertBatchResponse
 
+export type CasesListCasesData = {
+  workspaceId: string
+}
+
+export type CasesListCasesResponse = Array<CaseReadMinimal>
+
+export type CasesCreateCaseData = {
+  requestBody: CaseCreate
+  workspaceId: string
+}
+
+export type CasesCreateCaseResponse = unknown
+
+export type CasesGetCaseData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesGetCaseResponse = CaseRead
+
+export type CasesUpdateCaseData = {
+  caseId: string
+  requestBody: CaseUpdate
+  workspaceId: string
+}
+
+export type CasesUpdateCaseResponse = void
+
+export type CasesDeleteCaseData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesDeleteCaseResponse = void
+
+export type CasesCreateCommentData = {
+  caseId: string
+  requestBody: CommentCreate
+  workspaceId: string
+}
+
+export type CasesCreateCommentResponse = unknown
+
+export type CasesUpdateCommentData = {
+  caseId: string
+  commentId: string
+  requestBody: CommentUpdate
+  workspaceId: string
+}
+
+export type CasesUpdateCommentResponse = void
+
+export type CasesDeleteCommentData = {
+  caseId: string
+  commentId: string
+  workspaceId: string
+}
+
+export type CasesDeleteCommentResponse = void
+
+export type CasesListFieldsData = {
+  workspaceId: string
+}
+
+export type CasesListFieldsResponse = Array<CaseFieldRead>
+
+export type CasesCreateFieldData = {
+  requestBody: CaseFieldCreate
+  workspaceId: string
+}
+
+export type CasesCreateFieldResponse = unknown
+
+export type CasesUpdateFieldData = {
+  fieldId: string
+  requestBody: CaseFieldUpdate
+  workspaceId: string
+}
+
+export type CasesUpdateFieldResponse = void
+
+export type CasesDeleteFieldData = {
+  fieldId: string
+  workspaceId: string
+}
+
+export type CasesDeleteFieldResponse = void
+
 export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
@@ -4200,6 +4456,174 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TableRowInsertBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases": {
+    get: {
+      req: CasesListCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesCreateCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}": {
+    get: {
+      req: CasesGetCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CasesUpdateCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/comments": {
+    post: {
+      req: CasesCreateCommentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/comments/{comment_id}": {
+    patch: {
+      req: CasesUpdateCommentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteCommentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-fields": {
+    get: {
+      req: CasesListFieldsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseFieldRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesCreateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/case-fields/{field_id}": {
+    patch: {
+      req: CasesUpdateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

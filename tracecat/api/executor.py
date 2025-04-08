@@ -8,7 +8,6 @@ from tracecat import config
 from tracecat.api.common import (
     custom_generate_unique_id,
     generic_exception_handler,
-    setup_oss_models,
     tracecat_exception_handler,
 )
 from tracecat.executor.engine import setup_ray
@@ -20,10 +19,6 @@ from tracecat.types.exceptions import TracecatException
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        await setup_oss_models()
-    except Exception as e:
-        logger.error("Failed to preload OSS models", error=e)
     with setup_ray():
         yield
 

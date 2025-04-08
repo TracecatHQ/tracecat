@@ -174,12 +174,6 @@ Deprecated: This config has been moved into the settings service
 TRACECAT__ALLOWED_EMAIL_ATTRIBUTES = os.environ.get(
     "TRACECAT__ALLOWED_EMAIL_ATTRIBUTES"
 )
-# === AI settings === #
-TRACECAT__PRELOAD_OSS_MODELS = (
-    (models := os.getenv("TRACECAT__PRELOAD_OSS_MODELS")) and models.split(",")
-) or []
-
-OLLAMA__API_URL = os.environ.get("OLLAMA__API_URL", "http://ollama:11434")
 
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(

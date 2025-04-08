@@ -823,6 +823,484 @@ export const $Body_workflows_create_workflow = {
   title: "Body_workflows-create_workflow",
 } as const
 
+export const $CaseCreate = {
+  properties: {
+    summary: {
+      type: "string",
+      title: "Summary",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    priority: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    severity: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+    fields: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fields",
+    },
+  },
+  type: "object",
+  required: ["summary", "description", "status", "priority", "severity"],
+  title: "CaseCreate",
+} as const
+
+export const $CaseCustomFieldRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    type: {
+      $ref: "#/components/schemas/SqlType",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    nullable: {
+      type: "boolean",
+      title: "Nullable",
+    },
+    default: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+    },
+    reserved: {
+      type: "boolean",
+      title: "Reserved",
+    },
+    value: {
+      title: "Value",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "type",
+    "description",
+    "nullable",
+    "default",
+    "reserved",
+    "value",
+  ],
+  title: "CaseCustomFieldRead",
+} as const
+
+export const $CaseFieldCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+      description: "The name of the column",
+    },
+    type: {
+      $ref: "#/components/schemas/SqlType",
+      maxLength: 100,
+      minLength: 1,
+      description: "The SQL type of the column",
+    },
+    nullable: {
+      type: "boolean",
+      title: "Nullable",
+      default: true,
+    },
+    default: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+    },
+  },
+  type: "object",
+  required: ["name", "type"],
+  title: "CaseFieldCreate",
+  description: "Create a new case field.",
+} as const
+
+export const $CaseFieldRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    type: {
+      $ref: "#/components/schemas/SqlType",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    nullable: {
+      type: "boolean",
+      title: "Nullable",
+    },
+    default: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+    },
+    reserved: {
+      type: "boolean",
+      title: "Reserved",
+    },
+  },
+  type: "object",
+  required: ["id", "type", "description", "nullable", "default", "reserved"],
+  title: "CaseFieldRead",
+  description: "Read model for a case field.",
+} as const
+
+export const $CaseFieldUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+      description: "The name of the column",
+    },
+    type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SqlType",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "The SQL type of the column",
+    },
+    nullable: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Nullable",
+      description: "Whether the column can be null",
+    },
+    default: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default",
+      description: "The default value of the column",
+    },
+  },
+  type: "object",
+  title: "CaseFieldUpdate",
+  description: "Update a case field.",
+} as const
+
+export const $CasePriority = {
+  type: "string",
+  enum: ["unknown", "low", "medium", "high", "critical", "other"],
+  title: "CasePriority",
+  description: `Case priority values aligned with urgency levels.
+
+Values:
+    UNKNOWN (0): No priority is assigned
+    LOW (1): Application or personal procedure is unusable, where a workaround is available or a repair is possible
+    MEDIUM (2): Non-critical function or procedure is unusable or hard to use causing operational disruptions with no direct impact on a service's availability. A workaround is available
+    HIGH (3): Critical functionality or network access is interrupted, degraded or unusable, having a severe impact on services availability. No acceptable alternative is possible
+    CRITICAL (4): Interruption making a critical functionality inaccessible or a complete network interruption causing a severe impact on services availability. There is no possible alternative
+    OTHER (99): The priority is not normalized`,
+} as const
+
+export const $CaseRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    short_id: {
+      type: "string",
+      title: "Short Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    summary: {
+      type: "string",
+      title: "Summary",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    priority: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    severity: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    fields: {
+      items: {
+        $ref: "#/components/schemas/CaseCustomFieldRead",
+      },
+      type: "array",
+      title: "Fields",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "short_id",
+    "created_at",
+    "updated_at",
+    "summary",
+    "status",
+    "priority",
+    "severity",
+    "description",
+    "fields",
+  ],
+  title: "CaseRead",
+} as const
+
+export const $CaseReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    short_id: {
+      type: "string",
+      title: "Short Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    summary: {
+      type: "string",
+      title: "Summary",
+    },
+    status: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    priority: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    severity: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "short_id",
+    "created_at",
+    "updated_at",
+    "summary",
+    "status",
+    "priority",
+    "severity",
+  ],
+  title: "CaseReadMinimal",
+} as const
+
+export const $CaseSeverity = {
+  type: "string",
+  enum: [
+    "unknown",
+    "informational",
+    "low",
+    "medium",
+    "high",
+    "critical",
+    "fatal",
+    "other",
+  ],
+  title: "CaseSeverity",
+  description: `Case severity values aligned with OCSF severity values.
+
+Values:
+    UNKNOWN (0): The event/finding severity is unknown
+    INFORMATIONAL (1): Informational message. No action required
+    LOW (2): The user decides if action is needed
+    MEDIUM (3): Action is required but the situation is not serious at this time
+    HIGH (4): Action is required immediately
+    CRITICAL (5): Action is required immediately and the scope is broad
+    FATAL (6): An error occurred but it is too late to take remedial action
+    OTHER (99): The event/finding severity is not mapped`,
+} as const
+
+export const $CaseStatus = {
+  type: "string",
+  enum: [
+    "unknown",
+    "new",
+    "in_progress",
+    "on_hold",
+    "resolved",
+    "closed",
+    "other",
+  ],
+  title: "CaseStatus",
+  description: "Case status values aligned with OCSF Incident Finding status.",
+} as const
+
+export const $CaseUpdate = {
+  properties: {
+    summary: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Summary",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    priority: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CasePriority",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    severity: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSeverity",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    fields: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fields",
+    },
+  },
+  type: "object",
+  title: "CaseUpdate",
+} as const
+
+export const $CommentCreate = {
+  properties: {
+    content: {
+      type: "string",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "CommentCreate",
+} as const
+
+export const $CommentUpdate = {
+  properties: {
+    content: {
+      type: "string",
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "CommentUpdate",
+} as const
+
 export const $CreateWorkspaceMembershipParams = {
   properties: {
     user_id: {
