@@ -140,13 +140,13 @@ class TestCaseCommentsService:
         assert len(comments) == 3
 
         # Check that all our comments are in the list
-        comment_ids = {comment.id for comment in comments}
+        comment_ids = {comment.id for comment, _ in comments}
         assert comment1.id in comment_ids
         assert comment2.id in comment_ids
         assert comment3.id in comment_ids
 
         # Check parent-child relationship
-        for comment in comments:
+        for comment, _ in comments:
             if comment.id == comment3.id:
                 assert comment.parent_id == comment1.id
 
