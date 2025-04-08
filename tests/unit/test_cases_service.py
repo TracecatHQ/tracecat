@@ -154,13 +154,13 @@ class TestCasesService:
             patch.object(cases_service.fields, "get_fields"),
             patch.object(cases_service.fields, "update_field_values"),
             patch.object(
-                cases_service.fields, "insert_field_values"
+                cases_service.fields, "create_field_values"
             ) as mock_insert_fields,
         ):
             # Set up case.fields to None to simulate a case without fields
             created_case.fields = None
 
-            # Mock return value for insert_field_values
+            # Mock return value for create_field_values
             mock_insert_fields.return_value = {"field1": "updated_value", "field2": 2}
 
             # Update parameters including fields
@@ -172,7 +172,7 @@ class TestCasesService:
             # Update case
             await cases_service.update_case(created_case, update_params)
 
-            # Verify insert_field_values was called with the case and fields
+            # Verify create_field_values was called with the case and fields
             mock_insert_fields.assert_called_once_with(
                 created_case, {"field1": "updated_value", "field2": 2}
             )
@@ -205,9 +205,9 @@ class TestCasesService:
             fields={"custom_field1": "test value", "custom_field2": 123},
         )
 
-        # Mock the insert_field_values method
+        # Mock the create_field_values method
         with patch.object(
-            cases_service.fields, "insert_field_values"
+            cases_service.fields, "create_field_values"
         ) as mock_insert_fields:
             mock_insert_fields.return_value = {
                 "custom_field1": "test value",
@@ -221,7 +221,7 @@ class TestCasesService:
             assert created_case.summary == params_with_fields.summary
             assert created_case.description == params_with_fields.description
 
-            # Verify that insert_field_values was called with the case and fields
+            # Verify that create_field_values was called with the case and fields
             mock_insert_fields.assert_called_once_with(
                 created_case, {"custom_field1": "test value", "custom_field2": 123}
             )
