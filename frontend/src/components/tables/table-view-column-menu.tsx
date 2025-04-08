@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useParams } from "next/navigation"
-import { ApiError, TableColumnRead, tablesSetColumnAsIndex } from "@/client"
+import { ApiError, TableColumnRead } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -64,6 +64,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { TracecatApiError } from "@/lib/errors"
 
 type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
 
@@ -459,7 +460,7 @@ function TableColumnIndexDialog({
       });
 
       onOpenChange();
-    } catch (error: any) {
+    } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         toast({
           title: "Error creating natural key",
@@ -469,7 +470,7 @@ function TableColumnIndexDialog({
       } else {
         toast({
           title: "Error creating natural key",
-          description: error.message || "An unexpected error occurred",
+          description: "An unexpected error occurred",
           variant: "destructive",
         });
       }
