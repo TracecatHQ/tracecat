@@ -5,26 +5,23 @@ import { useParams } from "next/navigation"
 import { TableColumnRead, TableRead, TableRowRead } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { CellContext, ColumnDef } from "@tanstack/react-table"
+import { KeyIcon } from "lucide-react"
 
 import { useListRows } from "@/lib/hooks"
+import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { DataTable } from "@/components/data-table"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
-import { KeyIcon } from "lucide-react"
-
-import { Button } from "@/components/ui/button"
 
 function CollapsibleText({ text }: { text: string }) {
-  const [isExpanded, setIsExpanded] = React.useState(false);
+  const [isExpanded, setIsExpanded] = React.useState(false)
 
   if (!isExpanded) {
     return (
       <div className="flex items-center">
-        <span className="text-xs truncate">
-          {text.substring(0, 25)}
-        </span>
+        <span className="truncate text-xs">{text.substring(0, 25)}</span>
         <Button
           variant="ghost"
           size="sm"
@@ -34,18 +31,18 @@ function CollapsibleText({ text }: { text: string }) {
           ...
         </Button>
       </div>
-    );
+    )
   }
 
   // Format the text into chunks when expanded
-  const chunks = [];
+  const chunks = []
   for (let i = 0; i < text.length; i += 25) {
-    chunks.push(text.substring(i, i + 25));
+    chunks.push(text.substring(i, i + 25))
   }
 
   return (
     <div className="space-y-1">
-      <pre className="text-xs whitespace-pre-wrap">{chunks.join('\n')}</pre>
+      <pre className="whitespace-pre-wrap text-xs">{chunks.join("\n")}</pre>
       <Button
         variant="ghost"
         size="sm"
@@ -55,7 +52,7 @@ function CollapsibleText({ text }: { text: string }) {
         Collapse
       </Button>
     </div>
-  );
+  )
 }
 
 export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
@@ -77,8 +74,8 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
           </span>
           <span className="lowercase text-muted-foreground">{column.type}</span>
           {column.is_index && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
-              <KeyIcon className="mr-1 h-3 w-3" />
+            <span className="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-100">
+              <KeyIcon className="mr-1 size-3" />
               Key
             </span>
           )}
@@ -86,15 +83,13 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
         </div>
       ),
       cell: ({ row }: CellT) => {
-        const value = row.original[column.name as keyof TableRowRead];
+        const value = row.original[column.name as keyof TableRowRead]
         return (
-          <div className="text-xs w-full">
+          <div className="w-full text-xs">
             {typeof value === "object" && value ? (
               <div onClick={(e) => e.stopPropagation()} className="w-full">
                 <TooltipProvider>
-                  <JsonViewWithControls
-                    src={value}
-                  />
+                  <JsonViewWithControls src={value} />
                 </TooltipProvider>
               </div>
             ) : typeof value === "string" && value.length > 25 ? (

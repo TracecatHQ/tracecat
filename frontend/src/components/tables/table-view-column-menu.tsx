@@ -64,7 +64,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import { TracecatApiError } from "@/lib/errors"
 
 type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
 
@@ -415,8 +414,8 @@ function TableColumnIndexDialog({
   open: boolean
   onOpenChange: () => void
 }) {
-  const { workspaceId } = useWorkspace();
-  const { updateColumn, updateColumnIsPending } = useUpdateColumn();
+  const { workspaceId } = useWorkspace()
+  const { updateColumn, updateColumnIsPending } = useUpdateColumn()
 
   if (!tableId || !workspaceId || !column.is_index) {
     return null
@@ -429,7 +428,8 @@ function TableColumnIndexDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Column is already a Natural Key</AlertDialogTitle>
             <AlertDialogDescription>
-              Column <b>{column.name}</b> is already a natural key with a unique index.
+              Column <b>{column.name}</b> is already a natural key with a unique
+              index.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -437,68 +437,75 @@ function TableColumnIndexDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    );
+    )
   }
 
   const handleSetIndex = async () => {
     try {
-
       const updates = {
-        is_index: true
-      };
+        is_index: true,
+      }
 
       await updateColumn({
         tableId,
         columnId: column.id,
         workspaceId,
-        requestBody: updates
-      });
+        requestBody: updates,
+      })
 
       toast({
         title: "Natural key created",
         description: "Column is now a natural key.",
-      });
+      })
 
-      onOpenChange();
+      onOpenChange()
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         toast({
           title: "Error creating natural key",
-          description: "Column contains duplicate values. All values must be unique.",
+          description:
+            "Column contains duplicate values. All values must be unique.",
           variant: "destructive",
-        });
+        })
       } else {
         toast({
           title: "Error creating natural key",
           description: "An unexpected error occurred",
           variant: "destructive",
-        });
+        })
       }
     }
-  };
+  }
 
   return (
-    <AlertDialog open={open} onOpenChange={() => {
+    <AlertDialog
+      open={open}
+      onOpenChange={() => {
         if (!updateColumnIsPending) {
-          onOpenChange();
+          onOpenChange()
         }
-      }}>
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Create Natural Key</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to make column <b>{column.name}</b> a natural key?
-            This will create a unique index on the column, making it usable for upsert operations.
-            <br/><br/>
+            Are you sure you want to make column <b>{column.name}</b> a natural
+            key? This will create a unique index on the column, making it usable
+            for upsert operations.
+            <br />
+            <br />
             <strong>Requirements:</strong>
-            <ul className="list-disc pl-5 text-xs mt-2">
+            <ul className="mt-2 list-disc pl-5 text-xs">
               <li>All values in the column must be unique</li>
               <li>This cannot be undone except by recreating the column</li>
             </ul>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={updateColumnIsPending}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={updateColumnIsPending}>
+            Cancel
+          </AlertDialogCancel>
           <AlertDialogAction
             onClick={handleSetIndex}
             disabled={updateColumnIsPending}

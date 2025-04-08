@@ -2692,13 +2692,11 @@ export const tablesUpdateColumn = (
  * @returns void
  * @throws ApiError
  */
-export const tablesSetColumnAsIndex = (
-  data: {
-    tableId: string;
-    columnId: string;
-    workspaceId?: string;
-  }
-): CancelablePromise<void> => {
+export const tablesSetColumnAsIndex = (data: {
+  tableId: string
+  columnId: string
+  workspaceId?: string
+}): CancelablePromise<void> => {
   return __request(OpenAPI, {
     method: "POST",
     url: "/tables/{table_id}/columns/{column_id}/natural-key",
@@ -2714,8 +2712,8 @@ export const tablesSetColumnAsIndex = (
       409: "Conflict - Column contains duplicate values",
       422: "Validation Error",
     },
-  });
-};
+  })
+}
 
 /**
  * Delete Column

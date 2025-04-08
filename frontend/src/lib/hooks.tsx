@@ -100,7 +100,6 @@ import {
   TablesListRowsData,
   tablesListTables,
   TablesListTablesData,
-  tablesSetColumnAsIndex,
   tablesUpdateColumn,
   TablesUpdateColumnData,
   tablesUpdateTable,
@@ -2124,24 +2123,26 @@ export function useUpdateColumn() {
     },
     onError: (error: TracecatApiError, variables) => {
       // Check if this was a natural key operation
-      const isIndexOperation = variables.requestBody &&
-        'is_index' in variables.requestBody &&
-        variables.requestBody.is_index === true;
+      const isIndexOperation =
+        variables.requestBody &&
+        "is_index" in variables.requestBody &&
+        variables.requestBody.is_index === true
 
       if (isIndexOperation) {
         // Handle natural key specific errors
         if (error.status === 409) {
           toast({
             title: "Error creating natural key",
-            description: "Column contains duplicate values. All values must be unique.",
+            description:
+              "Column contains duplicate values. All values must be unique.",
             variant: "destructive",
-          });
+          })
         } else {
           toast({
             title: "Error creating natural key",
             description: error.message || "An unexpected error occurred",
             variant: "destructive",
-          });
+          })
         }
       } else {
         // Handle regular column update errors
@@ -2150,16 +2151,16 @@ export function useUpdateColumn() {
             toast({
               title: "Forbidden",
               description: "You cannot perform this action",
-            });
-            break;
+            })
+            break
           default:
-            console.error("Error updating column", error);
+            console.error("Error updating column", error)
             toast({
               title: "Error updating column",
               description: error.message || "An unexpected error occurred",
               variant: "destructive",
-            });
-            break;
+            })
+            break
         }
       }
     },
@@ -2252,7 +2253,8 @@ export function useInsertRow() {
       if (error.status === 409) {
         toast({
           title: "Duplicate Value Error",
-          description: "Cannot insert duplicate values in a unique column. Please use unique values.",
+          description:
+            "Cannot insert duplicate values in a unique column. Please use unique values.",
           variant: "destructive",
         })
       } else {
@@ -2262,7 +2264,7 @@ export function useInsertRow() {
           variant: "destructive",
         })
       }
-    }
+    },
   })
 
   return {
