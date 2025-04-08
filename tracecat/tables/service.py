@@ -610,7 +610,7 @@ class BaseTablesService(BaseService):
                 # Check for specific error about missing unique constraint
                 if "there is no unique or exclusion constraint" in str(e):
                     await self.session.rollback()
-                    logger.warning(
+                    self.logger.warning(
                         "No unique index found for upsert conflict keys",
                         natural_keys=natural_keys,
                         table_name=table_name_for_logging,
@@ -620,7 +620,7 @@ class BaseTablesService(BaseService):
                     ) from original_error
                 elif "violates unique constraint" in str(e):
                     await self.session.rollback()
-                    logger.warning(
+                    self.logger.warning(
                         "Trying to insert duplicate values",
                         natural_keys=natural_keys,
                         table_name=table_name_for_logging,
@@ -646,7 +646,7 @@ class BaseTablesService(BaseService):
 
             # Check for unique constraint violations (which are the most common IntegrityErrors)
             if "violates unique constraint" in str(e):
-                logger.warning(
+                self.logger.warning(
                     "Trying to insert duplicate values",
                     table_name=table_name_for_logging,
                 )
