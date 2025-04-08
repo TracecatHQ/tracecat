@@ -188,7 +188,7 @@ class TestTableColumns:
         )
 
         # Attempt to insert a row with the same name, should fail with integrity error
-        with pytest.raises(DBAPIError) as exc_info:
+        with pytest.raises(ValueError) as exc_info:
             await tables_service.insert_row(
                 table, TableRowInsert(data={"name": "UniqueUser", "age": 30})
             )
@@ -239,7 +239,7 @@ class TestTableColumns:
         )
 
         # Same name AND email should fail due to unique constraint
-        with pytest.raises(DBAPIError) as exc_info:
+        with pytest.raises(ValueError) as exc_info:
             await tables_service.insert_row(
                 table,
                 TableRowInsert(
