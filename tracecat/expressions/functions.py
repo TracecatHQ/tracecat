@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import csv
 import ipaddress
 import itertools
 import json
@@ -11,7 +12,6 @@ import zoneinfo
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from functools import wraps
-from html.parser import HTMLParser
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Any, Literal, ParamSpec, TypeVar
 from uuid import uuid4
@@ -186,22 +186,12 @@ def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
     return [orjson.loads(line) for line in x.splitlines()]
 
 
-def extract_text_from_html(input: str) -> list[str]:
-    """Extract text content from HTML string using HTMLToTextParser."""
-    parser = HTMLToTextParser()
-    parser.feed(input)
-    parser.close()
-    return parser._output
+# I/O functions
 
 
-class HTMLToTextParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self._output = []
-        self.convert_charrefs = True
-
-    def handle_data(self, data):
-        self._output += [data.strip()]
+def parse_csv(x: str) -> list[dict[str, Any]]:
+    """Parse CSV string into list of objects."""
+    return [dict(row) for row in csv.DictReader(x.splitlines())]
 
 
 # IP address functions
@@ -870,6 +860,8 @@ def deserialize_yaml(x: str) -> Any:
 
 
 _FUNCTION_MAPPING = {
+    # IO
+    "parse_csv": parse_csv,
     # String transforms
     "capitalize": capitalize,
     "concat": concat_strings,
@@ -946,7 +938,6 @@ _FUNCTION_MAPPING = {
     "deserialize_yaml": deserialize_yaml,
     "prettify_json": prettify_json,
     "deserialize_ndjson": deserialize_ndjson,
-    "extract_text_from_html": extract_text_from_html,
     # Time related
     "datetime": create_datetime,
     "days_between": days_between,
