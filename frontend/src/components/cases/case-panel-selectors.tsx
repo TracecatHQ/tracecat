@@ -33,18 +33,15 @@ export function StatusSelect({ status, onValueChange }: StatusSelectProps) {
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectGroup>
-          <SelectLabel>Status</SelectLabel>
-          {STATUSES.map((props) => (
-            <SelectItem
-              key={props.value}
-              value={props.value}
-              className="flex w-full"
-            >
-              <CaseBadge {...props} />
-            </SelectItem>
-          ))}
-        </SelectGroup>
+        {STATUSES.map((props) => (
+          <SelectItem
+            key={props.value}
+            value={props.value}
+            className="flex w-full"
+          >
+            <CaseBadge {...props} />
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   )
@@ -65,18 +62,15 @@ export function PrioritySelect({
         <SelectValue />
       </SelectTrigger>
       <SelectContent className="flex w-full">
-        <SelectGroup>
-          <SelectLabel>Priority</SelectLabel>
-          {PRIORITIES.map((props) => (
-            <SelectItem
-              key={props.value}
-              value={props.value}
-              className="flex w-full"
-            >
-              <CaseBadge {...props} />
-            </SelectItem>
-          ))}
-        </SelectGroup>
+        {PRIORITIES.map((props) => (
+          <SelectItem
+            key={props.value}
+            value={props.value}
+            className="flex w-full"
+          >
+            <CaseBadge {...props} />
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   )
@@ -97,18 +91,15 @@ export function SeveritySelect({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectGroup>
-          <SelectLabel>Severity</SelectLabel>
-          {SEVERITIES.map((props) => (
-            <SelectItem
-              key={props.value}
-              value={props.value}
-              className="flex w-full"
-            >
-              <CaseBadge {...props} />
-            </SelectItem>
-          ))}
-        </SelectGroup>
+        {SEVERITIES.map((props) => (
+          <SelectItem
+            key={props.value}
+            value={props.value}
+            className="flex w-full"
+          >
+            <CaseBadge {...props} />
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   )
