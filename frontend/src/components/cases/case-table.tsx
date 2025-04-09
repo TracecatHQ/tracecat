@@ -8,7 +8,11 @@ import { type Row } from "@tanstack/react-table"
 
 import { useListCases } from "@/lib/hooks"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { PRIORITIES, STATUSES } from "@/components/cases/case-categories"
+import {
+  PRIORITIES,
+  SEVERITIES,
+  STATUSES,
+} from "@/components/cases/case-categories"
 import { columns } from "@/components/cases/case-table-columns"
 import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
 
@@ -53,6 +57,11 @@ const defaultToolbarProps: DataTableToolbarProps = {
       column: "priority",
       title: "Priority",
       options: PRIORITIES,
+    },
+    {
+      column: "severity",
+      title: "Severity",
+      options: SEVERITIES,
     },
   ],
 }

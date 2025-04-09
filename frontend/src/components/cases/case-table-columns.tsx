@@ -30,6 +30,9 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
     ),
     enableSorting: true,
     enableHiding: false,
+    filterFn: (row, id, value) => {
+      return value.includes(row.getValue<CaseReadMinimal["short_id"]>(id))
+    },
   },
   {
     accessorKey: "summary",
@@ -44,6 +47,9 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
           </span>
         </div>
       )
+    },
+    filterFn: (row, id, value) => {
+      return value.includes(row.getValue<CaseReadMinimal["summary"]>(id))
     },
   },
   {
