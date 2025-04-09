@@ -56,8 +56,7 @@
                   "self-hosting/authentication/saml-sso"
                 ]
               },
-              "self-hosting/updating",
-              "self-hosting/llms"
+              "self-hosting/updating"
             ]
           }
         ]

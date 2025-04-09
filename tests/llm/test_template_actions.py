@@ -6,7 +6,7 @@ from pathlib import Path
 import orjson
 import pytest
 
-from tests.shared import glob_file_paths, load_yaml_template_action
+from tests.shared import load_yaml_template_action
 from tracecat.executor import service
 from tracecat.llm import async_openai_call
 from tracecat.logger import logger
@@ -29,9 +29,8 @@ def llm_actions_repo():
         pytest.param(
             path,
             id=path.stem,
-            marks=[pytest.mark.ollama] if "ollama" in path.stem else [],
         )
-        for path in glob_file_paths(LLM_TEMPLATES_DIR / "extract_one", "yml")
+        for path in [LLM_TEMPLATES_DIR / "extract_one/openai.yml"]
     ],
 )
 def extract_one(request: pytest.FixtureRequest) -> TemplateAction:
@@ -44,9 +43,8 @@ def extract_one(request: pytest.FixtureRequest) -> TemplateAction:
         pytest.param(
             path,
             id=path.stem,
-            marks=[pytest.mark.ollama] if "ollama" in path.stem else [],
         )
-        for path in glob_file_paths(LLM_TEMPLATES_DIR / "extract_many", "yml")
+        for path in [LLM_TEMPLATES_DIR / "extract_many/openai.yml"]
     ],
 )
 def extract_many(request: pytest.FixtureRequest) -> TemplateAction:
@@ -59,9 +57,8 @@ def extract_many(request: pytest.FixtureRequest) -> TemplateAction:
         pytest.param(
             path,
             id=path.stem,
-            marks=[pytest.mark.ollama] if "ollama" in path.stem else [],
         )
-        for path in glob_file_paths(LLM_TEMPLATES_DIR / "summarize", "yml")
+        for path in [LLM_TEMPLATES_DIR / "summarize/openai.yml"]
     ],
 )
 def summarize(request: pytest.FixtureRequest) -> TemplateAction:
@@ -74,9 +71,8 @@ def summarize(request: pytest.FixtureRequest) -> TemplateAction:
         pytest.param(
             path,
             id=path.stem,
-            marks=[pytest.mark.ollama] if "ollama" in path.stem else [],
         )
-        for path in glob_file_paths(LLM_TEMPLATES_DIR / "title", "yml")
+        for path in [LLM_TEMPLATES_DIR / "title/openai.yml"]
     ],
 )
 def title(request: pytest.FixtureRequest) -> TemplateAction:
@@ -89,9 +85,8 @@ def title(request: pytest.FixtureRequest) -> TemplateAction:
         pytest.param(
             path,
             id=path.stem,
-            marks=[pytest.mark.ollama] if "ollama" in path.stem else [],
         )
-        for path in glob_file_paths(LLM_TEMPLATES_DIR / "extract_data", "yml")
+        for path in [LLM_TEMPLATES_DIR / "extract_data/openai.yml"]
     ],
 )
 def extract_data(request: pytest.FixtureRequest) -> TemplateAction:

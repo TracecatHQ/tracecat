@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -23,7 +24,6 @@ from tracecat.authz.controls import require_access_level
 from tracecat.db.schemas import Table, TableColumn
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
-from tracecat.logger import logger
 from tracecat.service import BaseService
 from tracecat.tables.common import (
     handle_default_value,
@@ -38,7 +38,7 @@ from tracecat.tables.models import (
     TableRowInsert,
     TableUpdate,
 )
-from tracecat.types.auth import AccessLevel
+from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 
 _RETRYABLE_DB_EXCEPTIONS = (
@@ -47,18 +47,14 @@ _RETRYABLE_DB_EXCEPTIONS = (
 )
 
 
-class TablesService(BaseService):
+class BaseTablesService(BaseService):
     """Service for managing user-defined tables."""
 
     service_name = "tables"
 
     def _sanitize_identifier(self, identifier: str) -> str:
         """Sanitize table/column names to prevent SQL injection."""
-        # Remove any non-alphanumeric characters except underscores
-        sanitized = "".join(c for c in identifier if c.isalnum() or c == "_")
-        if not sanitized[0].isalpha():
-            raise ValueError("Identifier must start with a letter")
-        return sanitized.lower()
+        return sanitize_identifier(identifier)
 
     def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
@@ -236,18 +232,19 @@ class TablesService(BaseService):
             schema=schema_name,
         )
 
-        logger.info("Creating table", table_name=table_name, schema_name=schema_name)
+        self.logger.info(
+            "Creating table", table_name=table_name, schema_name=schema_name
+        )
 
         # Create the physical table
         await conn.run_sync(new_table.create)
 
         # Create metadata entry
-        metadata = Table(owner_id=ws_id, name=table_name)
-        self.session.add(metadata)
-        await self.session.commit()
-        await self.session.refresh(metadata)
+        table = Table(owner_id=ws_id, name=table_name)
+        self.session.add(table)
+        await self.session.flush()
 
-        return metadata
+        return table
 
     @require_access_level(AccessLevel.ADMIN)
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
@@ -265,7 +262,7 @@ class TablesService(BaseService):
                     )
                 )
             except ProgrammingError as e:
-                logger.error(
+                self.logger.error(
                     "Error renaming table",
                     error=e,
                     table=table.name,
@@ -276,8 +273,7 @@ class TablesService(BaseService):
         for key, value in set_fields.items():
             setattr(table, key, value)
 
-        await self.session.commit()
-        await self.session.refresh(table)
+        await self.session.flush()
         return table
 
     @require_access_level(AccessLevel.ADMIN)
@@ -290,7 +286,7 @@ class TablesService(BaseService):
         full_table_name = self._full_table_name(table.name)
         conn = await self.session.connection()
         await conn.execute(sa.DDL("DROP TABLE IF EXISTS %s", full_table_name))
-        await self.session.commit()
+        await self.session.flush()
 
     """Columns"""
 
@@ -364,9 +360,7 @@ class TablesService(BaseService):
             )
         )
 
-        await self.session.commit()
-        await self.session.refresh(column)
-        await self.session.refresh(table)
+        await self.session.flush()
         return column
 
     @require_access_level(AccessLevel.ADMIN)
@@ -422,7 +416,7 @@ class TablesService(BaseService):
                     )
 
             # Execute all ALTER statements
-            logger.info("Updating column", stmts=alter_stmts)
+            self.logger.info("Updating column", stmts=alter_stmts)
             for stmt in alter_stmts:
                 await conn.execute(sa.DDL(f"ALTER TABLE {full_table_name} {stmt}"))
 
@@ -430,8 +424,7 @@ class TablesService(BaseService):
         for key, value in set_fields.items():
             setattr(column, key, value)
 
-        await self.session.commit()
-        await self.session.refresh(column)
+        await self.session.flush()
         return column
 
     @require_access_level(AccessLevel.ADMIN)
@@ -500,7 +493,7 @@ class TablesService(BaseService):
             )
         )
 
-        await self.session.commit()
+        await self.session.flush()
 
     """Rows"""
 
@@ -538,7 +531,7 @@ class TablesService(BaseService):
         self,
         table: Table,
         params: TableRowInsert,
-    ) -> Mapping[str, Any] | None:
+    ) -> dict[str, Any]:
         """Insert a new row into the table.
 
         Args:
@@ -563,7 +556,9 @@ class TablesService(BaseService):
         cols = []
 
         for col, value in row_data.items():
-            value_clauses[col] = to_sql_clause(value, col_map[col])
+            value_clauses[col] = to_sql_clause(
+                value, col_map[col].name, SqlType(col_map[col].type)
+            )
             cols.append(sa.column(self._sanitize_identifier(col)))
 
         if not upsert:
@@ -629,7 +624,7 @@ class TablesService(BaseService):
 
         # For non-upsert or if the exception handling for upsert didn't return
         result = await conn.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
         row = result.mappings().one()
         return dict(row)
 
@@ -638,7 +633,7 @@ class TablesService(BaseService):
         table: Table,
         row_id: UUID,
         data: dict[str, Any],
-    ) -> Mapping[str, Any]:
+    ) -> dict[str, Any]:
         """Update an existing row in the table.
 
         Args:
@@ -665,7 +660,7 @@ class TablesService(BaseService):
         )
 
         result = await conn.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
 
         try:
             row = result.mappings().one()
@@ -684,7 +679,7 @@ class TablesService(BaseService):
         table_clause = sa.table(table.name, schema=schema_name)
         stmt = sa.delete(table_clause).where(sa.column("id") == row_id)
         await conn.execute(stmt)
-        await self.session.commit()
+        await self.session.flush()
 
     "Lookups"
 
@@ -732,7 +727,7 @@ class TablesService(BaseService):
                 return [dict(row) for row in result.mappings().all()]
             except _RETRYABLE_DB_EXCEPTIONS as e:
                 # Log the error for debugging
-                logger.warning(
+                self.logger.warning(
                     "Retryable DB exception occurred",
                     kind=type(e).__name__,
                     error=str(e),
@@ -751,7 +746,7 @@ class TablesService(BaseService):
                     ) from e
                 raise ValueError(str(e)) from e
             except Exception as e:
-                logger.error(
+                self.logger.error(
                     "Unexpected DB exception occurred",
                     kind=type(e).__name__,
                     error=str(e),
@@ -807,8 +802,309 @@ class TablesService(BaseService):
         try:
             # Execute insert and get rowcount directly
             result = await conn.execute(stmt)
-            await self.session.commit()
+            await self.session.flush()
             return result.rowcount
         except Exception as e:
             # Let the transaction context manager handle rollback
             raise DBAPIError("Failed to insert batch", str(e), e) from e
+
+
+class TablesService(BaseTablesService):
+    """Transactional tables service."""
+
+    async def insert_row(self, table: Table, params: TableRowInsert) -> dict[str, Any]:
+        result = await super().insert_row(table, params)
+        await self.session.commit()
+        return result
+
+    async def update_row(
+        self, table: Table, row_id: UUID, data: dict[str, Any]
+    ) -> dict[str, Any]:
+        result = await super().update_row(table, row_id, data)
+        await self.session.commit()
+        return result
+
+    async def delete_row(self, table: Table, row_id: UUID) -> None:
+        await super().delete_row(table, row_id)
+        await self.session.commit()
+
+    async def create_column(
+        self, table: Table, params: TableColumnCreate
+    ) -> TableColumn:
+        column = await super().create_column(table, params)
+        await self.session.commit()
+        await self.session.refresh(column)
+        await self.session.refresh(table)
+        return column
+
+    async def update_column(
+        self, column: TableColumn, params: TableColumnUpdate
+    ) -> TableColumn:
+        column = await super().update_column(column, params)
+        await self.session.commit()
+        await self.session.refresh(column)
+        return column
+
+    async def delete_column(self, column: TableColumn) -> None:
+        await super().delete_column(column)
+        await self.session.commit()
+
+    async def batch_insert_rows(
+        self, table: Table, rows: list[dict[str, Any]], *, chunk_size: int = 1000
+    ) -> int:
+        result = await super().batch_insert_rows(table, rows, chunk_size=chunk_size)
+        await self.session.commit()
+        return result
+
+
+class TableEditorService(BaseService):
+    """Service for editing tables."""
+
+    service_name = "table_editor"
+
+    def __init__(
+        self,
+        *,
+        table_name: str,
+        schema_name: str,
+        session: AsyncSession,
+        role: Role | None = None,
+    ):
+        super().__init__(session, role)
+        self.table_name = table_name
+        self.schema_name = schema_name
+
+    def _full_table_name(self) -> str:
+        """Get the full table name for the current role."""
+        return f'"{self.schema_name}".{self.table_name}'
+
+    async def get_columns(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
+        """Get all columns for a table."""
+
+        def inspect_columns(
+            sync_conn: sa.Connection,
+        ) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
+            inspector = sa.inspect(sync_conn)
+            return inspector.get_columns(self.table_name, schema=self.schema_name)
+
+        conn = await self.session.connection()
+        columns = await conn.run_sync(inspect_columns)
+        return columns
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def create_column(self, params: TableColumnCreate) -> None:
+        """Add a new column to an existing table.
+
+        Args:
+            params: Parameters for the new column
+
+        Returns:
+            The created TableColumn metadata object
+
+        Raises:
+            ValueError: If the column type is invalid
+        """
+
+        # Validate SQL type first
+        if not is_valid_sql_type(params.type):
+            raise ValueError(f"Invalid type: {params.type}")
+
+        # Handle default value based on type
+        default_value = params.default
+        if default_value is not None:
+            default_value = handle_default_value(params.type, default_value)
+
+        # Build the column definition string
+        column_def = [f"{params.name} {params.type.value}"]
+        if not params.nullable:
+            column_def.append("NOT NULL")
+        if default_value is not None:
+            column_def.append(f"DEFAULT {default_value}")
+
+        column_def_str = " ".join(column_def)
+
+        # Add the column to the physical table
+        conn = await self.session.connection()
+        await conn.execute(
+            sa.DDL(
+                "ALTER TABLE %s ADD COLUMN %s",
+                (self._full_table_name(), column_def_str),
+            )
+        )
+
+        await self.session.flush()
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def update_column(self, column_name: str, params: TableColumnUpdate) -> None:
+        """Update a column in an existing table.
+
+        Args:
+            params: Parameters for updating the column
+
+        Returns:
+            The updated TableColumn metadata object
+
+        Raises:
+            ValueError: If the column type is invalid
+            ProgrammingError: If the database operation fails
+        """
+        set_fields = params.model_dump(exclude_unset=True)
+        conn = await self.session.connection()
+
+        statements = []
+        new_name = column_name
+        if "name" in set_fields:
+            new_name = sanitize_identifier(set_fields["name"])
+            statements.append(f"RENAME COLUMN {column_name} TO {new_name}")
+        if "type" in set_fields:
+            new_type = set_fields["type"]
+            statements.append(f"ALTER COLUMN {new_name} TYPE {new_type}")
+        if "nullable" in set_fields:
+            constraint = "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
+            statements.append(f'ALTER COLUMN "{new_name}" {constraint}')
+        if "default" in set_fields:
+            updated_default = set_fields["default"]
+            if updated_default is None:
+                statements.append(f'ALTER COLUMN "{new_name}" DROP DEFAULT')
+            else:
+                statements.append(
+                    f"ALTER COLUMN \"{new_name}\" SET DEFAULT '{updated_default}'"
+                )
+
+        # Execute all ALTER statements
+        self.logger.info("Updating column", stmts=statements)
+        full_table_name = self._full_table_name()
+        for stmt in statements:
+            await conn.execute(sa.DDL(f"ALTER TABLE {full_table_name} {stmt}"))
+
+        await self.session.flush()
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def delete_column(self, column_name: str) -> None:
+        """Remove a column from an existing table."""
+        sanitized_column = sanitize_identifier(column_name)
+
+        # Drop the column from the physical table using DDL
+        conn = await self.session.connection()
+        await conn.execute(
+            sa.DDL(
+                "ALTER TABLE %s DROP COLUMN %s",
+                (self._full_table_name(), sanitized_column),
+            )
+        )
+
+        await self.session.flush()
+
+    async def list_rows(
+        self, *, limit: int = 100, offset: int = 0
+    ) -> Sequence[Mapping[str, Any]]:
+        """List all rows in a table."""
+        conn = await self.session.connection()
+        stmt = (
+            sa.select("*")
+            .select_from(sa.table(self.table_name, schema=self.schema_name))
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await conn.execute(stmt)
+        return [dict(row) for row in result.mappings().all()]
+
+    async def get_row(self, row_id: UUID) -> dict[str, Any]:
+        """Get a row by ID."""
+        conn = await self.session.connection()
+        stmt = (
+            sa.select("*")
+            .select_from(sa.table(self.table_name, schema=self.schema_name))
+            .where(sa.column("id") == row_id)
+        )
+        result = await conn.execute(stmt)
+        row = result.mappings().first()
+        if row is None:
+            raise TracecatNotFoundError(
+                f"Row {row_id} not found in table {self.table_name}"
+            )
+        return dict(row)
+
+    async def insert_row(self, params: TableRowInsert) -> dict[str, Any]:
+        """Insert a new row into the table.
+
+        Args:
+            params: The row data to insert
+
+        Returns:
+            A mapping containing the inserted row data
+        """
+        conn = await self.session.connection()
+
+        row_data = params.data
+        col_map = {c["name"]: c for c in await self.get_columns()}
+
+        value_clauses: dict[str, sa.BindParameter] = {}
+        cols = []
+        for col, value in row_data.items():
+            value_clauses[col] = sa.bindparam(col, value, type_=col_map[col]["type"])
+            cols.append(sa.column(sanitize_identifier(col)))
+
+        stmt = (
+            sa.insert(sa.table(self.table_name, *cols, schema=self.schema_name))
+            .values(**value_clauses)
+            .returning(sa.text("*"))
+        )
+        result = await conn.execute(stmt)
+        await self.session.flush()
+        row = result.mappings().one()
+        return dict(row)
+
+    async def update_row(self, row_id: UUID, data: dict[str, Any]) -> dict[str, Any]:
+        """Update an existing row in the table.
+
+        Args:
+            row_id: The ID of the row to update
+            data: Dictionary of column names and values to update
+
+        Returns:
+            The updated row data
+
+        Raises:
+            TracecatNotFoundError: If the row does not exist
+        """
+        conn = await self.session.connection()
+
+        # Build update statement using SQLAlchemy
+        cols = [sa.column(sanitize_identifier(k)) for k in data.keys()]
+        stmt = (
+            sa.update(sa.table(self.table_name, *cols, schema=self.schema_name))
+            .where(sa.column("id") == row_id)
+            .values(**data)
+            .returning(sa.text("*"))
+        )
+
+        result = await conn.execute(stmt)
+        await self.session.flush()
+
+        try:
+            row = result.mappings().one()
+        except sa.exc.NoResultFound:
+            raise TracecatNotFoundError(
+                f"Row {row_id} not found in table {self.table_name}"
+            ) from None
+
+        return dict(row)
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def delete_row(self, row_id: UUID) -> None:
+        """Delete a row from the table."""
+        conn = await self.session.connection()
+        table_clause = sa.table(self.table_name, schema=self.schema_name)
+        stmt = sa.delete(table_clause).where(sa.column("id") == row_id)
+        await conn.execute(stmt)
+        await self.session.flush()
+
+
+def sanitize_identifier(identifier: str) -> str:
+    """Sanitize table/column names to prevent SQL injection."""
+    # Remove any non-alphanumeric characters except underscores
+    sanitized = "".join(c for c in identifier if c.isalnum() or c == "_")
+    if not sanitized[0].isalpha():
+        raise ValueError("Identifier must start with a letter")
+    return sanitized.lower()

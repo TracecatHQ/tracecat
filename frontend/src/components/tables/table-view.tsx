@@ -7,6 +7,7 @@ import { useWorkspace } from "@/providers/workspace"
 import { CellContext, ColumnDef } from "@tanstack/react-table"
 
 import { useListRows } from "@/lib/hooks"
+import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { DataTable } from "@/components/data-table"
 import { JsonViewWithControls } from "@/components/json-viewer"
@@ -56,6 +57,46 @@ function CollapsibleText({ text }: { text: string }) {
       </Button>
     </div>
   );
+}
+
+function CollapsibleText({ text }: { text: string }) {
+  const [isExpanded, setIsExpanded] = React.useState(false)
+
+  if (!isExpanded) {
+    return (
+      <div className="flex items-center">
+        <span className="truncate text-xs">{text.substring(0, 25)}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setIsExpanded(true)}
+          className="h-6 px-1 text-xs text-muted-foreground hover:bg-transparent"
+        >
+          ...
+        </Button>
+      </div>
+    )
+  }
+
+  // Format the text into chunks when expanded
+  const chunks = []
+  for (let i = 0; i < text.length; i += 25) {
+    chunks.push(text.substring(i, i + 25))
+  }
+
+  return (
+    <div className="space-y-1">
+      <pre className="whitespace-pre-wrap text-xs">{chunks.join("\n")}</pre>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setIsExpanded(false)}
+        className="h-6 px-2 text-xs text-muted-foreground"
+      >
+        Collapse
+      </Button>
+    </div>
+  )
 }
 
 export function DatabaseTable({ table: { columns } }: { table: TableRead }) {

@@ -7,37 +7,13 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-import httpx
 import orjson
 import pytest
 from openai.types.responses import Response
 
-from tracecat.llm import (
-    async_ollama_call,
-    async_openai_call,
-)
-from tracecat.llm.ollama import ChatResponse
-from tracecat.logger import logger
+from tracecat.llm import async_openai_call
 
 pytestmark = pytest.mark.llm
-
-OLLAMA_URL = "http://localhost:11434"
-
-
-def is_ollama_available() -> bool:
-    """Check if Ollama is available by making a request to its version endpoint.
-
-    Returns:
-        bool: True if Ollama is available and responding, False otherwise
-    """
-    try:
-        with httpx.Client() as client:
-            response = client.get(f"{OLLAMA_URL}/api/version")
-            response.raise_for_status()
-            return True
-    except httpx.RequestError:
-        logger.warning("Ollama is not available")
-        return False
 
 
 def load_api_kwargs(provider: str) -> dict[str, Any]:
@@ -45,10 +21,6 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
         case "openai":
             api_key = os.environ["OPENAI_API_KEY"]
             kwargs = {"api_key": api_key}
-        case "ollama":
-            # Requires docker-compose.dev.yml stack
-            # with ollama service exposed on port 11434
-            kwargs = {"api_url": OLLAMA_URL}
         case _:
             pytest.fail(f"API key for LLM provider {provider!r} not found")
     return kwargs
@@ -57,16 +29,6 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
 @pytest.fixture(
     scope="function",
     params=[
-        pytest.param(
-            ("ollama", async_ollama_call),
-            marks=[
-                pytest.mark.skipif(
-                    not is_ollama_available(),
-                    reason="Skip Ollama tests when service is not available",
-                ),
-                pytest.mark.llm,
-            ],
-        ),
         pytest.param(
             ("openai", async_openai_call),
             marks=[
@@ -78,7 +40,7 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
             ],
         ),
     ],
-    ids=["ollama", "openai"],
+    ids=["openai"],
 )
 def call_llm_params(request: pytest.FixtureRequest) -> tuple[str, Callable]:
     return request.param
@@ -98,8 +60,6 @@ async def test_user_prompt(call_llm_params: tuple[str, Callable]):
     match response:
         case Response():
             assert "paris" in response.output_text.lower()
-        case ChatResponse():
-            assert "paris" in response.message.content.lower()  # type: ignore
         case _:
             pytest.fail(f"Unexpected response type: {type(response)}")
 
@@ -130,9 +90,6 @@ async def test_memory(call_llm_params: tuple[str, Callable]):
         # OpenAI
         case Response():
             response_content = response.output_text
-        # Ollama
-        case ChatResponse():
-            response_content = response.message.content
         case _:
             pytest.fail(f"Unexpected response type: {type(response)}")
 

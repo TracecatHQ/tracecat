@@ -6,8 +6,8 @@ icon: user-lock
 
 ## Supported Identity Providers
 
-- Okta
-- Microsoft Entra ID
+- [Okta](#okta)
+- [Microsoft Entra ID](#microsoft-entra-id)
 
 ## Configuration
 
@@ -20,16 +20,23 @@ TRACECAT__SETTING_OVERRIDE_SAML_ENABLED=true
 
 ## Instructions
 
+### Okta
+
 <Steps>
     <Step title="Create an SAML app">
         Go to **Applications** and select **Add Application**.
         Select **SAML 2.0** and click on **Create**.
     </Step>
-    <Step title="Configure ACS endpoint">
-        Set the **Single sign-on URL** to `https://<your-tracecat-instance>/auth/saml/acs`.
+    <Step title="Configure SAML settings">
+        - Set the **Single sign-on URL**, **Recipient URL**, and **Destination URL** to `https://<your-tracecat-instance>/auth/saml/acs`.
+        - Set the **Audience Restriction** to `https://<your-tracecat-instance>`.
+
+        ![Okta SAML](/img/self-hosting/okta-saml.png)
     </Step>
-    <Step title="Configure Audience Restriction">
-        Set the **Audience Restriction** to `https://<your-tracecat-instance>`.
+    <Step title="Configure attribute statements">
+        Map `email` to `user.email`
+
+        ![Okta attribute statements](/img/self-hosting/okta-saml-attributes.png)
     </Step>
     <Step title="Configure SAML settings in environment variables">
         Set the following environment variables in your `.env` file:
@@ -41,5 +48,25 @@ TRACECAT__SETTING_OVERRIDE_SAML_ENABLED=true
     <Step title="Test SSO configuration">
         Navigate to your Tracecat instance and click on the **Login** button.
         You should be redirected to Okta for authentication.
+    </Step>
+</Steps>
+
+
+### Microsoft Entra ID
+
+<Steps>
+    <Step title="Create an SAML app">
+        Go to **Enterprise applications** and select the **New application** button.
+        Find and select the **Microsoft Entra SAML toolkit** app.
+    </Step>
+    <Step title="Configure SAML settings">
+        - Set the **Reply URL** and **Sign on URL** to `https://<your-tracecat-instance>/auth/saml/acs`.
+        - Set **Identifier** to `https://<your-tracecat-instance>/api`.
+        - Set **Relay State** to `https://<your-tracecat-instance>`.
+
+        ![Microsoft Entra SAML](/img/self-hosting/entra-saml.png)
+    </Step>
+    <Step title="Configure attribute and claims">
+        Map `email` to `user.mail`
     </Step>
 </Steps>

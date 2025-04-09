@@ -45,7 +45,6 @@ jobs:
         test_group:
           - unit
           - registry
-          # - llm
           - integration
     steps:
       - uses: actions/checkout@v4
@@ -78,16 +77,10 @@ jobs:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
         run: docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy
 
-      - name: Start ollama service (llm tests only)
-        if: matrix.test_group == 'llm'
-        run: docker compose -f docker-compose.dev.yml up -d ollama
-
       - name: Install dependencies
         run: |
           uv pip install ".[dev]"
           uv pip install ./registry
 
       - name: Run tests
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: uv run pytest tests/${{ matrix.test_group }} -m "not podman" -ra
