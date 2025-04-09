@@ -20,7 +20,7 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case SqlType.JSONB:
             # For JSONB, ensure default is properly quoted and cast
             default_value = f"'{default}'::jsonb"
-        case SqlType.TEXT | SqlType.VARCHAR:
+        case SqlType.TEXT:
             # For string types, ensure proper quoting
             default_value = f"'{default}'"
         case SqlType.TIMESTAMP:
@@ -32,7 +32,7 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case SqlType.BOOLEAN:
             # For boolean, convert to lowercase string representation
             default_value = str(bool(default)).lower()
-        case SqlType.INTEGER | SqlType.BIGINT | SqlType.DECIMAL:
+        case SqlType.INTEGER | SqlType.DECIMAL:
             # For numeric types, use the value directly
             default_value = str(default)
         case SqlType.UUID:
@@ -59,7 +59,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
     match sql_type:
         case SqlType.JSONB:
             return sa.bindparam(key=name, value=value, type_=JSONB)
-        case SqlType.TEXT | SqlType.VARCHAR:
+        case SqlType.TEXT:
             return sa.bindparam(key=name, value=str(value), type_=sa.String)
         case SqlType.TIMESTAMP:
             return sa.bindparam(key=name, value=value, type_=sa.TIMESTAMP)
@@ -81,8 +81,6 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
             return sa.bindparam(key=name, value=bool_value, type_=sa.Boolean)
         case SqlType.INTEGER:
             return sa.bindparam(key=name, value=value, type_=sa.Integer)
-        case SqlType.BIGINT:
-            return sa.bindparam(key=name, value=value, type_=sa.BigInteger)
         case SqlType.DECIMAL:
             return sa.bindparam(key=name, value=value, type_=sa.Numeric)
         case SqlType.UUID:
@@ -94,7 +92,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
 def convert_value(value: str, type: SqlType) -> Any:
     try:
         match type:
-            case SqlType.INTEGER | SqlType.BIGINT:
+            case SqlType.INTEGER:
                 return int(value)
             case SqlType.DECIMAL:
                 return float(value)
@@ -108,7 +106,7 @@ def convert_value(value: str, type: SqlType) -> Any:
                         raise ValueError(f"Invalid boolean value: {value}")
             case SqlType.JSONB:
                 return orjson.loads(value)
-            case SqlType.TEXT | SqlType.VARCHAR:
+            case SqlType.TEXT:
                 return str(value)
             case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
                 return datetime.fromisoformat(value)

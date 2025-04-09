@@ -249,7 +249,7 @@ function TableColumnEditDialog({
     resolver: zodResolver(updateColumnSchema),
     defaultValues: {
       name: column.name,
-      type: column.type,
+      type: column.type as (typeof SqlTypeEnum)[number],
       nullable: column.nullable,
     },
   })
