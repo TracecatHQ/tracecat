@@ -4288,7 +4288,6 @@ export const $SqlType = {
   type: "string",
   enum: [
     "TEXT",
-    "VARCHAR",
     "INTEGER",
     "BIGINT",
     "DECIMAL",

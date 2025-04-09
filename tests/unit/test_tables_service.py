@@ -421,7 +421,6 @@ class TestTableDataTypes:
         # Create columns for each SQL type
         columns = [
             TableColumnCreate(name="text_col", type=SqlType.TEXT),
-            TableColumnCreate(name="varchar_col", type=SqlType.VARCHAR),
             TableColumnCreate(name="int_col", type=SqlType.INTEGER),
             TableColumnCreate(name="bigint_col", type=SqlType.BIGINT),
             TableColumnCreate(name="decimal_col", type=SqlType.DECIMAL),
@@ -451,7 +450,6 @@ class TestTableDataTypes:
         # Create test data covering all types
         test_data = {
             "text_col": "Hello, World!",
-            "varchar_col": "Variable length text",
             "int_col": 42,
             "bigint_col": 9223372036854775807,  # max int64
             "decimal_col": Decimal("3.14159"),
@@ -473,7 +471,6 @@ class TestTableDataTypes:
 
         # Verify each column type and value
         assert retrieved["text_col"] == "Hello, World!"
-        assert retrieved["varchar_col"] == "Variable length text"
         assert retrieved["int_col"] == 42
         assert retrieved["bigint_col"] == 9223372036854775807
         assert retrieved["decimal_col"] == Decimal("3.14159")
@@ -572,7 +569,6 @@ class TestTableDataTypes:
         """Test edge cases for each data type."""
         edge_cases = {
             "text_col": "",  # Empty string
-            "varchar_col": "a" * 1000,  # Long string
             "int_col": 0,  # Zero
             "bigint_col": -9223372036854775808,  # min int64
             "decimal_col": Decimal("0.0"),  # Zero decimal
@@ -598,7 +594,6 @@ class TestTableDataTypes:
 
         # Verify each edge case
         assert retrieved["text_col"] == ""
-        assert retrieved["varchar_col"] == "a" * 1000
         assert retrieved["int_col"] == 0
         assert retrieved["bigint_col"] == -9223372036854775808
         assert retrieved["decimal_col"] == Decimal("0.0")

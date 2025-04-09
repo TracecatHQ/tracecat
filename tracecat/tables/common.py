@@ -20,7 +20,7 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case SqlType.JSONB:
             # For JSONB, ensure default is properly quoted and cast
             default_value = f"'{default}'::jsonb"
-        case SqlType.TEXT | SqlType.VARCHAR:
+        case SqlType.TEXT:
             # For string types, ensure proper quoting
             default_value = f"'{default}'"
         case SqlType.TIMESTAMP:
@@ -59,7 +59,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
     match sql_type:
         case SqlType.JSONB:
             return sa.bindparam(key=name, value=value, type_=JSONB)
-        case SqlType.TEXT | SqlType.VARCHAR:
+        case SqlType.TEXT:
             return sa.bindparam(key=name, value=str(value), type_=sa.String)
         case SqlType.TIMESTAMP:
             return sa.bindparam(key=name, value=value, type_=sa.TIMESTAMP)
@@ -108,7 +108,7 @@ def convert_value(value: str, type: SqlType) -> Any:
                         raise ValueError(f"Invalid boolean value: {value}")
             case SqlType.JSONB:
                 return orjson.loads(value)
-            case SqlType.TEXT | SqlType.VARCHAR:
+            case SqlType.TEXT:
                 return str(value)
             case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
                 return datetime.fromisoformat(value)
