@@ -8,6 +8,24 @@ import {
   ApiError,
   AppSettingsRead,
   AuthSettingsRead,
+  CaseCommentCreate,
+  CaseCommentRead,
+  CaseCommentUpdate,
+  CaseFieldRead,
+  CaseRead,
+  CaseReadMinimal,
+  casesCreateComment,
+  casesDeleteComment,
+  casesGetCase,
+  CasesGetCaseData,
+  casesListCases,
+  CasesListCasesData,
+  casesListComments,
+  CasesListCommentsData,
+  casesListFields,
+  casesUpdateCase,
+  casesUpdateComment,
+  CaseUpdate,
   CreateWorkspaceParams,
   GitSettingsRead,
   OAuthSettingsRead,
@@ -2036,6 +2054,26 @@ export function useDeleteTable() {
         queryKey: ["table", variables.tableId],
       })
     },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+        case 400:
+          return toast({
+            title: "Bad Request",
+            description: String(error.body.detail),
+          })
+        default:
+          console.error("Error deleting table", error)
+          return toast({
+            title: "Error deleting table",
+            description: `An error occurred while deleting the table: ${error.body.detail}`,
+          })
+      }
+    },
   })
 
   return {
@@ -2321,5 +2359,252 @@ export function useImportCsv() {
     importCsv,
     importCsvIsPending,
     importCsvError,
+  }
+}
+
+export function useListCases({ workspaceId }: CasesListCasesData) {
+  const {
+    data: cases,
+    isLoading: casesIsLoading,
+    error: casesError,
+  } = useQuery<CaseReadMinimal[], TracecatApiError>({
+    queryKey: ["cases", workspaceId],
+    queryFn: async () => await casesListCases({ workspaceId }),
+  })
+
+  return {
+    cases,
+    casesIsLoading,
+    casesError,
+  }
+}
+
+export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
+  const {
+    data: caseData,
+    isLoading: caseDataIsLoading,
+    error: caseDataError,
+  } = useQuery<CaseRead, TracecatApiError>({
+    queryKey: ["case", caseId],
+    queryFn: async () => await casesGetCase({ caseId, workspaceId }),
+  })
+
+  return {
+    caseData,
+    caseDataIsLoading,
+    caseDataError,
+  }
+}
+
+export function useUpdateCase({
+  workspaceId,
+  caseId,
+}: {
+  workspaceId: string
+  caseId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: updateCase,
+    isPending: updateCaseIsPending,
+    error: updateCaseError,
+  } = useMutation({
+    mutationFn: async (params: CaseUpdate) =>
+      await casesUpdateCase({ caseId, workspaceId, requestBody: params }),
+
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["cases", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case", caseId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+        default:
+          console.error("Error updating case", error)
+          return toast({
+            title: "Error updating case",
+            description: `An error occurred while updating the case: ${error.body.detail}`,
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
+  return {
+    updateCase,
+    updateCaseIsPending,
+    updateCaseError,
+  }
+}
+
+export function useCaseFields(workspaceId: string) {
+  const {
+    data: caseFields,
+    isLoading: caseFieldsIsLoading,
+    error: caseFieldsError,
+  } = useQuery<CaseFieldRead[], TracecatApiError>({
+    queryKey: ["case-fields", workspaceId],
+    queryFn: async () => await casesListFields({ workspaceId }),
+  })
+
+  return {
+    caseFields,
+    caseFieldsIsLoading,
+    caseFieldsError,
+  }
+}
+export function useCaseComments({
+  caseId,
+  workspaceId,
+}: CasesListCommentsData) {
+  const {
+    data: caseComments,
+    isLoading: caseCommentsIsLoading,
+    error: caseCommentsError,
+  } = useQuery<CaseCommentRead[], TracecatApiError>({
+    queryKey: ["case-comments", caseId, workspaceId],
+    queryFn: async () => await casesListComments({ caseId, workspaceId }),
+  })
+
+  return {
+    caseComments,
+    caseCommentsIsLoading,
+    caseCommentsError,
+  }
+}
+
+export function useCreateCaseComment({
+  caseId,
+  workspaceId,
+}: CasesListCommentsData) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutate: createComment,
+    isPending: createCommentIsPending,
+    error: createCommentError,
+  } = useMutation({
+    mutationFn: async (params: CaseCommentCreate) =>
+      await casesCreateComment({
+        caseId,
+        workspaceId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-comments", caseId, workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Error creating comment", error)
+      toast({
+        title: "Error creating comment",
+        description: `An error occurred while creating the comment: ${error.body.detail}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    createComment,
+    createCommentIsPending,
+    createCommentError,
+  }
+}
+
+export function useUpdateCaseComment({
+  caseId,
+  workspaceId,
+  commentId,
+}: {
+  caseId: string
+  workspaceId: string
+  commentId: string
+}) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutate: updateComment,
+    isPending: updateCommentIsPending,
+    error: updateCommentError,
+  } = useMutation({
+    mutationFn: async (params: CaseCommentUpdate) =>
+      await casesUpdateComment({
+        caseId,
+        workspaceId,
+        commentId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-comments", caseId, workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Error updating comment", error)
+      toast({
+        title: "Error updating comment",
+        description: `An error occurred while updating the comment: ${error.body.detail}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    updateComment,
+    updateCommentIsPending,
+    updateCommentError,
+  }
+}
+
+export function useDeleteCaseComment({
+  caseId,
+  workspaceId,
+  commentId,
+}: {
+  caseId: string
+  workspaceId: string
+  commentId: string
+}) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutate: deleteComment,
+    isPending: deleteCommentIsPending,
+    error: deleteCommentError,
+  } = useMutation({
+    mutationFn: async () =>
+      await casesDeleteComment({
+        caseId,
+        workspaceId,
+        commentId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-comments", caseId, workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Error deleting comment", error)
+      toast({
+        title: "Error deleting comment",
+        description: `An error occurred while deleting the comment: ${error.body.detail}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    deleteComment,
+    deleteCommentIsPending,
+    deleteCommentError,
   }
 }

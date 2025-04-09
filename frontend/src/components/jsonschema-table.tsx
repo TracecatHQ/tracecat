@@ -36,7 +36,7 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
       <TableBody>
         {rows.map((row, idx) => (
           <HoverCard openDelay={100} closeDelay={100} key={idx}>
-            <HoverCardTrigger asChild className="hover:border-none">
+            <HoverCardTrigger asChild>
               <TableRow
                 key={idx}
                 className="font-mono text-xs tracking-tight text-muted-foreground"

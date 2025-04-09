@@ -1,0 +1,142 @@
+type: action
+definition:
+  title: Extract important fields
+  description: Extract and analyze important fields from an alert.
+  display_group: Agents
+  namespace: agentic
+  name: extract_fields
+  expects:
+    alert:
+      type: dict[str, any]
+      description: Alert to extract important fields from.
+    alert_context:
+      type: str
+      description: What are the alerts about? Where did they come from?
+    analyst_context:
+      type: str
+      description: >
+        Who is the analyst examining these alerts?
+        What is their role? For what organization?
+    example_response:
+      type: dict[str, any] | None
+      description: >
+        An example response from the model to improve the quality of the output.
+        Must fit the structured output schema. See `one_shot` step for an example.
+      default: null
+  steps:
+    - ref: one_shot
+      action: core.transform.reshape
+      args:
+        value: {
+          "thoughts": [
+            "Initial observation: According to the alert summary, this is a login attempt from an unusual IP address",
+            "The alert context includes information that this user is a high-value target"
+          ],
+          "important_fields": [
+            {
+              "name": "source_ip",
+              "value": "192.168.1.1",
+              "description": "IP address where the login attempt originated",
+              "information_type": "where",
+              "is_potential_ioc": true,
+              "requires_enrichment": true,
+              "needs_organization_context": false,
+              "reasoning": "This IP is from a different country than the user normally accesses from"
+            }
+          ]
+        }
+    - ref: structured_output
+      action: core.transform.reshape
+      args:
+        value:
+          type: json_schema
+          name: important_fields
+          strict: true
+          schema:
+            type: object
+            required:
+              - thoughts
+              - important_fields
+            additionalProperties: false
+            properties:
+              thoughts:
+                type: array
+                items:
+                  type: string
+              important_fields:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - name
+                    - value
+                    - description
+                    - information_type
+                    - is_potential_ioc
+                    - requires_enrichment
+                    - needs_organization_context
+                    - thoughts
+                  additionalProperties: false
+                  properties:
+                    name:
+                      type: string
+                    value:
+                      type: string
+                    description:
+                      type: string
+                    information_type:
+                      type: string
+                      enum:
+                        - who
+                        - what
+                        - when
+                        - where
+                        - why
+                        - how
+                    is_potential_ioc:
+                      type: boolean
+                    requires_enrichment:
+                      type: boolean
+                    needs_organization_context:
+                      type: boolean
+                    reasoning:
+                      type: string
+    - ref: extract_fields
+      action: llm.openai.call
+      args:
+        prompt: >
+          <alert>
+          ${{ inputs.alert }}
+          </alert>
+        instructions: >
+          <alert_context>
+          ${{ inputs.alert_context }}
+          </alert_context>
+
+          <analyst_context>
+          ${{ inputs.analyst_context }}
+          </analyst_context>
+
+          <analysis_process>
+          Approach this analysis systematically:
+          1. First review the entire alert to understand the full context
+          2. Identify fields that could indicate malicious activity
+          3. Look for relationships between fields
+          4. Consider what additional context might be needed
+          </analysis_process>
+
+          <guidance>
+          - You must extract specific, actual values from the alert
+          - You must think critically about the alert and the context provided
+          - Your output must be formatted as JSON.
+          </guidance>
+
+          <example_response>
+          ${{ inputs.example_response || steps.one_shot.result }}
+          </example_response>
+
+          <task>
+          Extract and analyze important fields from the alert.
+          </task>
+        text_format: ${{ steps.structured_output.result }}
+  returns: ${{ FN.deserialize_json(steps.extract_fields.result.output_text) }}
