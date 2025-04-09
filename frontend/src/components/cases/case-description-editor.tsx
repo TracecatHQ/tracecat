@@ -9,17 +9,29 @@ import * as Select from "@/components/ui/select"
 
 import "@blocknote/core/fonts/inter.css"
 
-import { useCreateBlockNote } from "@blocknote/react"
+import {
+  DefaultReactSuggestionItem,
+  getDefaultReactSlashMenuItems,
+  SuggestionMenuController,
+  useCreateBlockNote,
+} from "@blocknote/react"
 import { BlockNoteView } from "@blocknote/shadcn"
 
 import "@blocknote/shadcn/style.css"
 import "./editor.css"
 
 import { useEffect } from "react"
+import { BlockNoteEditor, filterSuggestionItems } from "@blocknote/core"
 
 import { getSpacedBlocks } from "@/lib/rich-text-editor"
 import { cn } from "@/lib/utils"
 
+const getCustomSlashMenuItems = (
+  editor: BlockNoteEditor
+): DefaultReactSuggestionItem[] =>
+  getDefaultReactSlashMenuItems(editor).filter(
+    (item) => item.group?.toLowerCase() !== "media"
+  )
 interface CaseDescriptionEditorProps {
   initialContent?: string
   onChange?: (value: string) => void
@@ -67,6 +79,7 @@ export function CaseDescriptionEditor({
         editor={editor}
         onChange={handleEditorChange}
         theme="light"
+        slashMenu={false}
         shadCNComponents={{
           Button,
           Input,
@@ -78,7 +91,15 @@ export function CaseDescriptionEditor({
         style={{
           height: "100%",
         }}
-      />
+      >
+        <SuggestionMenuController
+          triggerCharacter={"/"}
+          // Replaces the default Slash Menu items with our custom ones.
+          getItems={async (query) =>
+            filterSuggestionItems(getCustomSlashMenuItems(editor), query)
+          }
+        />
+      </BlockNoteView>
     </div>
   )
 }
