@@ -3,6 +3,7 @@
 import React from "react"
 import { CasePriority, CaseSeverity, CaseStatus, CaseUpdate } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
+import { format, formatDistanceToNow } from "date-fns"
 
 import { useGetCase, useUpdateCase } from "@/lib/hooks"
 import { Badge } from "@/components/ui/badge"
@@ -71,10 +72,20 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   return (
     <div className="flex h-full flex-col overflow-auto px-6">
       <div className="flex items-center justify-between border-b p-4">
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-4">
           <Badge variant="outline" className="text-xs font-medium">
             {caseData.short_id}
           </Badge>
+          <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+            <span>Created {format(new Date(caseData.created_at), "PPpp")}</span>
+            <span>•</span>
+            <span>
+              Updated{" "}
+              {formatDistanceToNow(new Date(caseData.updated_at), {
+                addSuffix: true,
+              })}
+            </span>
+          </div>
         </div>
       </div>
 
