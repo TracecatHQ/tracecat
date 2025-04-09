@@ -1,12 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import {
-  CaseFieldCreate,
-  CaseFieldRead,
-  casesCreateField,
-  casesDeleteField,
-} from "@/client"
+import { CaseFieldCreate, casesCreateField, casesDeleteField } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
