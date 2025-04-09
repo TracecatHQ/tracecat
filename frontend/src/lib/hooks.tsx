@@ -2123,10 +2123,7 @@ export function useUpdateColumn() {
     },
     onError: (error: TracecatApiError, variables) => {
       // Check if this was a natural key operation
-      const isIndexOperation =
-        variables.requestBody &&
-        "is_index" in variables.requestBody &&
-        variables.requestBody.is_index === true
+      const isIndexOperation = !!variables.requestBody?.is_index
 
       if (isIndexOperation) {
         // Handle natural key specific errors

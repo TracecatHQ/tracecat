@@ -417,7 +417,7 @@ function TableColumnIndexDialog({
   const { workspaceId } = useWorkspace()
   const { updateColumn, updateColumnIsPending } = useUpdateColumn()
 
-  if (!tableId || !workspaceId || !column.is_index) {
+  if (!tableId || !workspaceId) {
     return null
   }
 

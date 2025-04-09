@@ -94,7 +94,7 @@ class BaseTablesService(BaseService):
         return result.all()
 
     async def get_table(self, table_id: TableID) -> Table:
-        """Get a lookup table by ID with natural key information."""
+        """Get a lookup table by ID."""
         ws_id = self._workspace_id()
         statement = select(Table).where(
             Table.owner_id == ws_id,
@@ -104,9 +104,6 @@ class BaseTablesService(BaseService):
         table = result.first()
         if table is None:
             raise TracecatNotFoundError("Table not found")
-
-        # Store natural key info to be used in the response model
-        table._natural_key_columns = await self.get_index(table)
 
         return table
 
@@ -375,7 +372,7 @@ class BaseTablesService(BaseService):
 
         Raises:
             ValueError: If the column type is invalid
-            ProgrammingError: If the database ope rration fails
+            ProgrammingError: If the database operation fails
         """
         set_fields = params.model_dump(exclude_unset=True)
         full_table_name = self._full_table_name(column.table.name)
@@ -460,18 +457,6 @@ class BaseTablesService(BaseService):
 
         # Commit the transaction
         await self.session.commit()
-
-    @require_access_level(AccessLevel.ADMIN)
-    async def set_column_as_natural_key(
-        self, table_id: TableID, column_id: TableColumnID
-    ) -> None:
-        """Make a column a natural key by creating a unique index on it."""
-        # Get the table and column
-        table = await self.get_table(table_id)
-        column = await self.get_column(table_id, column_id)
-
-        # Create a unique index on just this column
-        await self.create_unique_index(table, [column.name])
 
     @require_access_level(AccessLevel.ADMIN)
     async def delete_column(self, column: TableColumn) -> None:
@@ -598,7 +583,7 @@ class BaseTablesService(BaseService):
                 ).returning(sa.text("*"))
 
                 result = await conn.execute(stmt)
-                await self.session.commit()
+                await self.session.flush()
                 row = result.mappings().one()
                 return dict(row)
             except ProgrammingError as e:
@@ -609,7 +594,6 @@ class BaseTablesService(BaseService):
 
                 # Check for specific error about missing unique constraint
                 if "there is no unique or exclusion constraint" in str(e):
-                    await self.session.rollback()
                     self.logger.warning(
                         "No unique index found for upsert conflict keys",
                         natural_keys=natural_keys,
