@@ -6,7 +6,6 @@ import {
   CaseFieldRead,
   casesCreateField,
   casesDeleteField,
-  SqlType,
 } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -16,6 +15,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { useCaseFields } from "@/lib/hooks"
+import { SqlTypeEnum } from "@/lib/tables"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,17 +67,7 @@ const caseFieldFormSchema = z.object({
       (value) => /^[a-zA-Z][a-zA-Z0-9_]*$/.test(value),
       "Field name must start with a letter and contain only letters, numbers, and underscores"
     ),
-  type: z.enum([
-    "TEXT",
-    "INTEGER",
-    "BIGINT",
-    "DECIMAL",
-    "BOOLEAN",
-    "TIMESTAMP",
-    "TIMESTAMPTZ",
-    "JSONB",
-    "UUID",
-  ] as [SqlType, ...SqlType[]]),
+  type: z.enum(SqlTypeEnum),
   nullable: z.boolean().default(true),
   default: z.string().nullable().optional(),
 })
