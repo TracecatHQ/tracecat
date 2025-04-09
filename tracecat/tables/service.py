@@ -456,7 +456,7 @@ class BaseTablesService(BaseService):
         )
 
         # Commit the transaction
-        await self.session.commit()
+        await self.session.flush()
 
     @require_access_level(AccessLevel.ADMIN)
     async def delete_column(self, column: TableColumn) -> None:
