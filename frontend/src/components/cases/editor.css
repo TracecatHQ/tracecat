@@ -1,0 +1,51 @@
+/* BlockNote Editor font size customization */
+:root {
+  /* Set base font size */
+  --bn-font-size-base: 0.875rem; /* Base size - 14px to match text-sm */
+  --bn-font-size-h1: 1.375rem; /* h1 size */
+  --bn-font-size-h2: 1.25rem; /* h2 size */
+  --bn-font-size-h3: 1.125rem; /* h3 size */
+}
+
+/* Custom alignment for editor - allow side buttons to extend into margin */
+.bn-editor {
+  position: relative;
+  margin-left: 0;
+  padding-inline: 0 !important; /* Override default padding */
+  outline: none;
+}
+
+/* Apply custom font sizes to BlockNote elements */
+.bn-container,
+.bn-block-content,
+.bn-inline-content {
+  font-size: var(--bn-font-size-base);
+}
+
+/* Directly override the background-color property from BlockNote styles */
+/* .bn-shadcn .bn-editor {
+  background-color: transparent !important;
+} */
+
+/* Target headings based on actual DOM structure */
+.bn-block-content[data-content-type="heading"] h1 {
+  font-size: var(--bn-font-size-h1);
+}
+
+.bn-block-content[data-content-type="heading"] h2 {
+  font-size: var(--bn-font-size-h2);
+}
+
+.bn-block-content[data-content-type="heading"] h3 {
+  font-size: var(--bn-font-size-h3);
+}
+
+/* Ensure all other elements use the base font size */
+.bn-editor,
+.bn-block-content,
+.bn-inline-content,
+.bn-container [data-content-type="paragraph"],
+.bn-container [data-content-type="bulletListItem"],
+.bn-container [data-content-type="numberedListItem"] {
+  font-size: var(--bn-font-size-base);
+}

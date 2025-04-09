@@ -21,6 +21,9 @@
     "upgrade:next": "pnpm add next@14 react@18 react-dom@18 && pnpm add -D eslint-config-next@14 eslint@8"
   },
   "dependencies": {
+    "@blocknote/core": "^0.28.0",
+    "@blocknote/react": "^0.28.0",
+    "@blocknote/shadcn": "^0.28.0",
     "@dagrejs/dagre": "^1.1.4",
     "@hookform/resolvers": "^3.10.0",
     "@monaco-editor/react": "^4.7.0",
@@ -52,6 +55,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^0.2.1",
+    "date-fns": "^4.1.0",
     "emblor": "^1.4.7",
     "fuzzysort": "^3.1.0",
     "js-cookie": "^3.0.5",

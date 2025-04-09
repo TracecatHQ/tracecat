@@ -1,9 +1,6 @@
 import { JSONSchema7 } from "json-schema"
 
-import {
-  generateSchemaDefault,
-  transformJsonSchemaToTableRows,
-} from "@/lib/jsonschema"
+import { getType, transformJsonSchemaToTableRows } from "@/lib/jsonschema"
 
 const jsonSchema: JSONSchema7 = {
   properties: {
@@ -62,11 +59,12 @@ describe("transformJsonSchemaToTableRows", () => {
     const rows = transformJsonSchemaToTableRows(jsonSchema)
     expect(rows).toEqual([
       {
-        parameter: "url *",
+        parameter: "url",
         type: "string",
         default: "-",
         description: "The destination of the HTTP request",
         constraints: "format: uri\nmaxLength: 100\nminLength: 1",
+        required: true,
       },
       {
         parameter: "headers",
@@ -74,6 +72,7 @@ describe("transformJsonSchemaToTableRows", () => {
         default: "-",
         description: "HTTP request headers",
         constraints: "additionalProperties: string",
+        required: false,
       },
       {
         parameter: "payload",
@@ -81,6 +80,7 @@ describe("transformJsonSchemaToTableRows", () => {
         default: "-",
         description: "HTTP request payload",
         constraints: "",
+        required: false,
       },
       {
         parameter: "params",
@@ -88,28 +88,111 @@ describe("transformJsonSchemaToTableRows", () => {
         default: "-",
         description: "URL query parameters",
         constraints: "",
+        required: false,
       },
       {
         parameter: "method",
-        type: "string",
-        default: "GET",
+        type: '"GET" | "POST" | "PUT" | "DELETE"',
+        default: '"GET"',
         description: "HTTP reqest method",
-        constraints: "enum: [GET, POST, PUT, DELETE]",
+        constraints: 'enum: ["GET", "POST", "PUT", "DELETE"]',
+        required: false,
       },
     ])
   })
 })
 
-describe("generateDefaultObject", () => {
-  it("should generate a default object from a JSON schema", () => {
-    const obj = generateSchemaDefault(jsonSchema)
-    console.warn(obj)
-    expect(obj).toEqual({
-      url: "",
-      headers: {},
-      payload: {},
-      params: {},
-      method: "GET",
-    })
+describe("getType", () => {
+  it("should handle anyOf with enum values and null type (Python's Literal | None)", () => {
+    const schema: JSONSchema7 = {
+      anyOf: [
+        {
+          enum: ["a", "b", "c"],
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+    }
+
+    expect(getType(schema)).toBe('"a" | "b" | "c" | null')
+  })
+
+  it("should handle regular enum types", () => {
+    const schema: JSONSchema7 = {
+      enum: ["GET", "POST", "PUT", "DELETE"],
+      type: "string",
+    }
+
+    expect(getType(schema)).toBe('"GET" | "POST" | "PUT" | "DELETE"')
+  })
+
+  it("should handle regular primitive types", () => {
+    const schema: JSONSchema7 = {
+      type: "string",
+    }
+
+    expect(getType(schema)).toBe("string")
+  })
+
+  it("should handle nested anyOf structures", () => {
+    const schema: JSONSchema7 = {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          anyOf: [
+            {
+              type: "number",
+            },
+            {
+              type: "null",
+            },
+          ],
+        },
+      ],
+    }
+
+    expect(getType(schema)).toBe("string | number | null")
+  })
+
+  it("should handle oneOf structures", () => {
+    const schema: JSONSchema7 = {
+      oneOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "number",
+        },
+      ],
+    }
+
+    expect(getType(schema)).toBe("string | number")
+  })
+
+  it("should handle allOf structures", () => {
+    const schema: JSONSchema7 = {
+      allOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "object",
+        },
+      ],
+    }
+
+    expect(getType(schema)).toBe("object & object")
+  })
+
+  it("should handle type as array", () => {
+    const schema: JSONSchema7 = {
+      type: ["string", "number", "null"],
+    }
+
+    expect(getType(schema)).toBe("string | number | null")
   })
 })

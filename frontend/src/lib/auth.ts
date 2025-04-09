@@ -3,6 +3,15 @@ import { AxiosError } from "axios"
 
 import { client } from "@/lib/api"
 
+export const SYSTEM_USER: UserRead = {
+  id: "system",
+  email: "system@tracecat.com",
+  role: "admin",
+  first_name: "System",
+  last_name: "",
+  settings: {},
+}
+
 export async function getCurrentUser(): Promise<UserRead | null> {
   try {
     const response = await client.get("/users/me")
@@ -24,4 +33,14 @@ export function userIsPrivileged(user: UserRead | null): boolean {
     return false
   }
   return user.is_superuser || user.role === "admin"
+}
+
+export function getDisplayName(user: UserRead) {
+  if (!user.first_name) {
+    return user.email.split("@")[0]
+  } else if (user.last_name) {
+    return `${user.first_name} ${user.last_name}`
+  } else {
+    return user.first_name
+  }
 }

@@ -7,9 +7,12 @@ import {
   Globe,
   ListChecks,
   Mail,
+  MessageCircleMore,
+  MessageCirclePlus,
   RefreshCcw,
   Send,
   ShieldAlert,
+  ShieldPlus,
   Sparkles,
   Table,
   WandSparkles,
@@ -242,9 +245,25 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Blend {...rest} />
       </div>
     ),
-    "core.open_case": ({ className, ...rest }) => (
+    "core.cases": ({ className, ...rest }) => (
       <div className={cn(basicIconsCommon, "bg-rose-100", className)}>
         <ShieldAlert {...rest} />
+      </div>
+    ),
+
+    "core.cases.update": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-rose-100", className)}>
+        <ShieldPlus {...rest} />
+      </div>
+    ),
+    "core.cases.create_comment": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-rose-100", className)}>
+        <MessageCircleMore {...rest} />
+      </div>
+    ),
+    "core.cases.update_comment": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-rose-100", className)}>
+        <MessageCirclePlus {...rest} />
       </div>
     ),
     "core.receive_email": ({ className, ...rest }) => (
