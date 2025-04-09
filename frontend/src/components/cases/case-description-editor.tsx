@@ -23,12 +23,14 @@ interface CaseDescriptionEditorProps {
   initialContent?: string
   onChange?: (value: string) => void
   className?: string
+  onBlur?: () => void
 }
 
 export function CaseDescriptionEditor({
   initialContent,
   onChange,
   className,
+  onBlur,
 }: CaseDescriptionEditorProps) {
   // Creates a new editor instance.
   const editor = useCreateBlockNote({
@@ -39,7 +41,8 @@ export function CaseDescriptionEditor({
   const handleEditorChange = async () => {
     if (onChange) {
       // Convert the blocks back to markdown
-      const markdown = await editor.blocksToMarkdownLossy(editor.document)
+      const blocks = editor.document
+      const markdown = await editor.blocksToMarkdownLossy(blocks)
       onChange(markdown)
     }
   }
@@ -57,7 +60,7 @@ export function CaseDescriptionEditor({
 
   // Renders the editor instance using a React component.
   return (
-    <div className={cn("mx-0  py-2", className)}>
+    <div className={cn("mx-0  py-2", className)} onBlur={onBlur}>
       <BlockNoteView
         editor={editor}
         onChange={handleEditorChange}
@@ -66,14 +69,13 @@ export function CaseDescriptionEditor({
           Button,
           Input,
           Popover,
-          DropdownMenu, // This is used
+          DropdownMenu, // This is used for the drag handle dropdown menu
           Select,
           Card,
         }}
         style={{
           height: "100%",
         }}
-        sideMenu={true}
       />
     </div>
   )

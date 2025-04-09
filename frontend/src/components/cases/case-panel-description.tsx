@@ -122,15 +122,13 @@ export function CasePanelDescription({
             render={() => (
               <FormItem className="relative">
                 <FormControl>
-                  <div onBlur={handleBlur}>
-                    <CaseDescriptionEditor
-                      className="min-h-[250px]"
-                      initialContent={caseData.description}
-                      onChange={handleContentChange}
-                    />
-                  </div>
+                  <CaseDescriptionEditor
+                    className="min-h-[250px]"
+                    initialContent={caseData.description}
+                    onChange={handleContentChange}
+                    onBlur={handleBlur}
+                  />
                 </FormControl>
-                <FormMessage />
                 <div
                   className={cn(
                     "absolute bottom-4 right-4 z-10 flex items-center justify-end space-x-2",
