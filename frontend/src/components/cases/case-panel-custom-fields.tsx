@@ -148,28 +148,6 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
           )}
         />
       )
-    case "TIMESTAMP":
-    case "TIMESTAMPTZ":
-      return (
-        <FormField
-          control={form.control}
-          name="value"
-          render={({ field }) => (
-            <FormItem>
-              <FormControl>
-                <Input
-                  type="datetime-local"
-                  {...field}
-                  value={String(field.value || "")}
-                  variant="flat"
-                  onBlur={() => onBlur && onBlur(customField.id, field.value)}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      )
     case "JSONB":
       return (
         <FormField
