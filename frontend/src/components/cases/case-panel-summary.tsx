@@ -61,7 +61,7 @@ export function CasePanelSummary({
                   {...field}
                   value={field.value || ""}
                   variant="flat"
-                  className="w-full px-1 text-xl font-semibold"
+                  className="-mx-1 w-full px-1 text-xl font-semibold"
                   onBlur={() => handleSummarySubmit(form.getValues())}
                   onKeyDown={handleKeyDown}
                 />
