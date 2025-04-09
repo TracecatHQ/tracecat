@@ -24,7 +24,7 @@ export const selectTriggerVariants = cva(
     variants: {
       variant: {
         default: "",
-        flat: "group w-full rounded border-transparent bg-transparent shadow-none hover:cursor-pointer hover:bg-muted-foreground/10 focus:ring-0 data-[state=open]:rounded-md data-[state=open]:border-input data-[state=open]:bg-background data-[state=open]:shadow-sm",
+        flat: "group w-full rounded border-transparent bg-transparent shadow-none hover:cursor-pointer hover:bg-muted-foreground/10 focus:ring-0 data-[state=open]:rounded-md data-[state=open]:border-input data-[state=open]:bg-background data-[state=open]:shadow-sm transition-colors",
       },
     },
     defaultVariants: {
