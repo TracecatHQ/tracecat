@@ -19,7 +19,6 @@ import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 
-// Form schemas
 interface CasePanelContentProps {
   caseId: string
 }
