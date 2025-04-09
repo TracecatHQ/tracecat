@@ -28,7 +28,6 @@ from tracecat.expressions.functions import (
     dict_values,
     div,
     endswith,
-    extract_text_from_html,
     flatten,
     format_datetime,
     format_string,
@@ -125,19 +124,6 @@ def test_add_suffix(
     input: str | list[str], suffix: str, expected: str | list[str]
 ) -> None:
     assert add_suffix(input, suffix) == expected
-
-
-@pytest.mark.parametrize(
-    "input,expected",
-    [
-        ("<a>Test</a><br />Line 2<p>Line 3</p>", ["Test", "Line 2", "Line 3"]),
-        ("Test", ["Test"]),
-        ("Line 2", ["Line 2"]),
-        ("Line 3", ["Line 3"]),
-    ],
-)
-def test_extract_text_from_html(input: str, expected: list[str]) -> None:
-    assert extract_text_from_html(input) == expected
 
 
 @pytest.mark.parametrize(

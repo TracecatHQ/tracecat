@@ -7,12 +7,17 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, func
+from sqlalchemy import TIMESTAMP, Column, ForeignKey, Identity, Integer, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
 from tracecat.auth.models import UserRole
+from tracecat.cases.enums import (
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.db.adapter import (
     SQLModelBaseAccessToken,
     SQLModelBaseOAuthAccount,
@@ -640,3 +645,119 @@ class TableColumn(SQLModel, TimestampMixin, table=True):
         back_populates="columns",
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
+
+
+class CaseFields(SQLModel, TimestampMixin, table=True):
+    """A table of fields for a case."""
+
+    __tablename__: str = "case_fields"
+    model_config = ConfigDict(extra="allow")  # type: ignore
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    # Add required foreign key to Case
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("cases.id", ondelete="CASCADE"),
+            unique=True,  # Ensures one-to-one
+            nullable=False,  # Ensures CaseFields must have a Case
+        )
+    )
+    case: "Case" = Relationship(back_populates="fields")
+
+
+class Case(Resource, table=True):
+    """A case represents an incident or issue that needs to be tracked and resolved."""
+
+    __tablename__: str = "cases"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    # Auto-incrementing case number for human readable IDs
+    case_number: int | None = Field(
+        default=None,  # Make optional in constructor, but DB will still require it
+        sa_column=Column(
+            "case_number",
+            Integer,
+            Identity(start=1, increment=1),
+            unique=True,
+            nullable=False,
+            index=True,
+        ),
+        description="Auto-incrementing case number for human readable IDs like CASE-1234",
+    )
+    summary: str = Field(..., description="Case summary", max_length=255)
+    description: str = Field(..., description="Case description", max_length=5000)
+    priority: CasePriority = Field(
+        ...,
+        description="Case priority level",
+    )
+    severity: CaseSeverity = Field(
+        ...,
+        description="Case severity level",
+    )
+    status: CaseStatus = Field(
+        default=CaseStatus.NEW,
+        description="Current case status (open, closed, escalated)",
+    )
+    # Relationships
+    fields: CaseFields | None = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            "uselist": False,  # Make this a one-to-one relationship
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+    comments: list["CaseComment"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+
+class CaseComment(Resource, table=True):
+    """A comment on a case."""
+
+    __tablename__: str = "case_comments"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    content: str = Field(..., max_length=5000)
+    user_id: uuid.UUID | None = Field(
+        default=None,
+        description="The ID of the user who made the comment. If null, the comment is system generated.",
+    )
+    parent_id: uuid.UUID | None = Field(
+        default=None,
+        description="The ID of the parent comment. If null, the comment is a top-level comment.",
+    )
+    last_edited_at: datetime | None = Field(
+        default=None,
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+    )
+    # Relationships
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("cases.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    case: Case = Relationship(back_populates="comments")

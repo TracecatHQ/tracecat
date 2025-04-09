@@ -1,5 +1,5 @@
-# Datafiles
-.data/
+# Tracecat-related files
+.tracecat/
 
 # UV
 uv.lock
