@@ -69,7 +69,6 @@ const caseFieldFormSchema = z.object({
     ),
   type: z.enum([
     "TEXT",
-    "VARCHAR",
     "INTEGER",
     "BIGINT",
     "DECIMAL",
