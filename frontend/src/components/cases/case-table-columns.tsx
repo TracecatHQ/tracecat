@@ -119,10 +119,10 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       return (
         <Tooltip>
           <TooltipTrigger>
-            <span className="truncate text-xs">{timeAgo}</span>
+            <span className="truncate text-xs">{fullDateTime}</span>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{fullDateTime}</p>
+            <p>{timeAgo}</p>
           </TooltipContent>
         </Tooltip>
       )
@@ -146,10 +146,10 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       return (
         <Tooltip>
           <TooltipTrigger>
-            <span className="truncate text-xs">{timeAgo}</span>
+            <span className="truncate text-xs">{fullDateTime}</span>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{fullDateTime}</p>
+            <p>{timeAgo}</p>
           </TooltipContent>
         </Tooltip>
       )
