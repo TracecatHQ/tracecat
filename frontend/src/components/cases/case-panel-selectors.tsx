@@ -29,25 +29,19 @@ interface StatusSelectProps {
 export function StatusSelect({ status, onValueChange }: StatusSelectProps) {
   return (
     <Select defaultValue={status} onValueChange={onValueChange}>
-      <SelectTrigger
-        className={cn(
-          "w-full focus:ring-0",
-          inputVariants({ variant: "flat" })
-        )}
-      >
+      <SelectTrigger variant="flat">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
           <SelectLabel>Status</SelectLabel>
-          {STATUSES.map((status) => (
-            <SelectItem key={status.value} value={status.value}>
-              <span className="flex items-center text-xs">
-                {status.icon && (
-                  <status.icon className="mr-2 size-4 text-muted-foreground" />
-                )}
-                {status.label}
-              </span>
+          {STATUSES.map((props) => (
+            <SelectItem
+              key={props.value}
+              value={props.value}
+              className="flex w-full"
+            >
+              <CaseBadge {...props} />
             </SelectItem>
           ))}
         </SelectGroup>
@@ -67,25 +61,19 @@ export function PrioritySelect({
 }: PrioritySelectProps) {
   return (
     <Select defaultValue={priority} onValueChange={onValueChange}>
-      <SelectTrigger
-        className={cn(
-          "w-full focus:ring-0",
-          inputVariants({ variant: "flat" })
-        )}
-      >
+      <SelectTrigger variant="flat">
         <SelectValue />
       </SelectTrigger>
       <SelectContent className="flex w-full">
         <SelectGroup>
           <SelectLabel>Priority</SelectLabel>
-          {PRIORITIES.map(({ label, value, icon: Icon }) => (
-            <SelectItem key={value} value={value} className="flex w-full">
-              <CaseBadge
-                label={label}
-                icon={Icon}
-                value={value}
-                className="inline-flex w-full border-none"
-              />
+          {PRIORITIES.map((props) => (
+            <SelectItem
+              key={props.value}
+              value={props.value}
+              className="flex w-full"
+            >
+              <CaseBadge {...props} />
             </SelectItem>
           ))}
         </SelectGroup>
@@ -105,25 +93,19 @@ export function SeveritySelect({
 }: SeveritySelectProps) {
   return (
     <Select defaultValue={severity} onValueChange={onValueChange}>
-      <SelectTrigger
-        className={cn(
-          "w-full focus:ring-0",
-          inputVariants({ variant: "flat" })
-        )}
-      >
+      <SelectTrigger variant="flat">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
           <SelectLabel>Severity</SelectLabel>
-          {SEVERITIES.map(({ label, value, icon: Icon }) => (
-            <SelectItem key={value} value={value} className="flex w-full">
-              <CaseBadge
-                label={label}
-                value={value}
-                icon={Icon}
-                className="inline-flex w-full border-none"
-              />
+          {SEVERITIES.map((props) => (
+            <SelectItem
+              key={props.value}
+              value={props.value}
+              className="flex w-full"
+            >
+              <CaseBadge {...props} />
             </SelectItem>
           ))}
         </SelectGroup>

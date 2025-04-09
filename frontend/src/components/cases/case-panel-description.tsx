@@ -8,7 +8,7 @@ import {
   SaveIcon,
 } from "lucide-react"
 import { useForm } from "react-hook-form"
-import * as z from "zod"
+import { z } from "zod"
 
 import { cn } from "@/lib/utils"
 import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
