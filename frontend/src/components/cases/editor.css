@@ -11,7 +11,7 @@
 .bn-editor {
   position: relative;
   margin-left: 0;
-  padding-inline: 0 !important; /* Override default padding */
+  padding-inline: 0 !important;
   outline: none;
 }
 
@@ -23,9 +23,9 @@
 }
 
 /* Directly override the background-color property from BlockNote styles */
-/* .bn-shadcn .bn-editor {
+.bn-shadcn .bn-editor {
   background-color: transparent !important;
-} */
+}
 
 /* Target headings based on actual DOM structure */
 .bn-block-content[data-content-type="heading"] h1 {

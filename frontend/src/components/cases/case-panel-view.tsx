@@ -88,12 +88,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
           {/* Description */}
           <div className="space-y-2">
-            <div className="space-y-2">
-              <CasePanelDescription
-                caseData={caseData}
-                updateCase={updateCase}
-              />
-            </div>
+            <CasePanelDescription caseData={caseData} updateCase={updateCase} />
           </div>
 
           <CommentSection caseId={caseId} workspaceId={workspaceId} />
