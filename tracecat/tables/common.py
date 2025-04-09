@@ -32,7 +32,7 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case SqlType.BOOLEAN:
             # For boolean, convert to lowercase string representation
             default_value = str(bool(default)).lower()
-        case SqlType.INTEGER | SqlType.BIGINT | SqlType.DECIMAL:
+        case SqlType.INTEGER | SqlType.DECIMAL:
             # For numeric types, use the value directly
             default_value = str(default)
         case SqlType.UUID:
@@ -81,8 +81,6 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
             return sa.bindparam(key=name, value=bool_value, type_=sa.Boolean)
         case SqlType.INTEGER:
             return sa.bindparam(key=name, value=value, type_=sa.Integer)
-        case SqlType.BIGINT:
-            return sa.bindparam(key=name, value=value, type_=sa.BigInteger)
         case SqlType.DECIMAL:
             return sa.bindparam(key=name, value=value, type_=sa.Numeric)
         case SqlType.UUID:
@@ -94,7 +92,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
 def convert_value(value: str, type: SqlType) -> Any:
     try:
         match type:
-            case SqlType.INTEGER | SqlType.BIGINT:
+            case SqlType.INTEGER:
                 return int(value)
             case SqlType.DECIMAL:
                 return float(value)

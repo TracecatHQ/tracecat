@@ -422,7 +422,6 @@ class TestTableDataTypes:
         columns = [
             TableColumnCreate(name="text_col", type=SqlType.TEXT),
             TableColumnCreate(name="int_col", type=SqlType.INTEGER),
-            TableColumnCreate(name="bigint_col", type=SqlType.BIGINT),
             TableColumnCreate(name="decimal_col", type=SqlType.DECIMAL),
             TableColumnCreate(name="bool_col", type=SqlType.BOOLEAN),
             TableColumnCreate(name="json_col", type=SqlType.JSONB),
@@ -451,7 +450,6 @@ class TestTableDataTypes:
         test_data = {
             "text_col": "Hello, World!",
             "int_col": 42,
-            "bigint_col": 9223372036854775807,  # max int64
             "decimal_col": Decimal("3.14159"),
             "bool_col": True,
             "json_col": test_json,
@@ -472,7 +470,6 @@ class TestTableDataTypes:
         # Verify each column type and value
         assert retrieved["text_col"] == "Hello, World!"
         assert retrieved["int_col"] == 42
-        assert retrieved["bigint_col"] == 9223372036854775807
         assert retrieved["decimal_col"] == Decimal("3.14159")
         assert retrieved["bool_col"] is True
         assert retrieved["json_col"] == test_json
@@ -570,7 +567,6 @@ class TestTableDataTypes:
         edge_cases = {
             "text_col": "",  # Empty string
             "int_col": 0,  # Zero
-            "bigint_col": -9223372036854775808,  # min int64
             "decimal_col": Decimal("0.0"),  # Zero decimal
             "bool_col": False,  # False boolean
             "json_col": {},  # Empty JSON
@@ -595,7 +591,6 @@ class TestTableDataTypes:
         # Verify each edge case
         assert retrieved["text_col"] == ""
         assert retrieved["int_col"] == 0
-        assert retrieved["bigint_col"] == -9223372036854775808
         assert retrieved["decimal_col"] == Decimal("0.0")
         assert retrieved["bool_col"] is False
         assert retrieved["json_col"] == {}
