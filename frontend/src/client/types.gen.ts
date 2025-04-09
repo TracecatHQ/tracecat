@@ -1380,7 +1380,6 @@ export type SpecialUserID = "current"
 export type SqlType =
   | "TEXT"
   | "INTEGER"
-  | "BIGINT"
   | "DECIMAL"
   | "BOOLEAN"
   | "TIMESTAMP"

@@ -4289,7 +4289,6 @@ export const $SqlType = {
   enum: [
     "TEXT",
     "INTEGER",
-    "BIGINT",
     "DECIMAL",
     "BOOLEAN",
     "TIMESTAMP",
