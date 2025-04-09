@@ -50,6 +50,8 @@ import type {
   CasesGetCaseResponse,
   CasesListCasesData,
   CasesListCasesResponse,
+  CasesListCommentsData,
+  CasesListCommentsResponse,
   CasesListFieldsData,
   CasesListFieldsResponse,
   CasesUpdateCaseData,
@@ -3071,6 +3073,33 @@ export const casesDeleteCase = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/cases/{case_id}",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Comments
+ * List all comments for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseCommentRead Successful Response
+ * @throws ApiError
+ */
+export const casesListComments = (
+  data: CasesListCommentsData
+): CancelablePromise<CasesListCommentsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/comments",
     path: {
       case_id: data.caseId,
     },

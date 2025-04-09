@@ -5,7 +5,11 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import DBAPIError
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.models import UserRead
 from tracecat.cases.models import (
+    CaseCommentCreate,
+    CaseCommentRead,
+    CaseCommentUpdate,
     CaseCreate,
     CaseCustomFieldRead,
     CaseFieldCreate,
@@ -14,11 +18,9 @@ from tracecat.cases.models import (
     CaseRead,
     CaseReadMinimal,
     CaseUpdate,
-    CommentCreate,
-    CommentUpdate,
     EventActivity,
 )
-from tracecat.cases.service import CaseFieldsService, CasesService
+from tracecat.cases.service import CaseCommentsService, CaseFieldsService, CasesService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.types.auth import AccessLevel, Role
 
@@ -175,12 +177,34 @@ async def delete_case(
     await service.delete_case(case)
 
 
-# Case Fields
-
-
 # Case Comments
 # Support comments as a first class activity type.
 # We anticipate having other complex comment functionality in the future.
+@cases_router.get("/{case_id}/comments", status_code=status.HTTP_200_OK)
+async def list_comments(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+) -> list[CaseCommentRead]:
+    """List all comments for a case."""
+    # Get the case first
+    service = CasesService(session, role)
+    case = await service.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+    # Execute join query directly in the endpoint
+    comments_svc = CaseCommentsService(session, role)
+    res = []
+    for comment, user in await comments_svc.list_comments(case):
+        comment_data = CaseCommentRead.model_validate(comment, from_attributes=True)
+        if user:
+            comment_data.user = UserRead.model_validate(user, from_attributes=True)
+        res.append(comment_data)
+    return res
 
 
 @cases_router.post("/{case_id}/comments", status_code=status.HTTP_201_CREATED)
@@ -189,11 +213,18 @@ async def create_comment(
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: uuid.UUID,
-    params: CommentCreate,
+    params: CaseCommentCreate,
 ) -> None:
     """Create a new comment on a case."""
-    # TODO: Implement by constructing a CaseCommentCreate and storing it
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED)
+    cases_svc = CasesService(session, role)
+    case = await cases_svc.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+    comments_svc = CaseCommentsService(session, role)
+    await comments_svc.create_comment(case, params)
 
 
 @cases_router.patch(
@@ -206,11 +237,24 @@ async def update_comment(
     session: AsyncDBSession,
     case_id: uuid.UUID,
     comment_id: uuid.UUID,
-    params: CommentUpdate,
+    params: CaseCommentUpdate,
 ) -> None:
     """Update an existing comment."""
-    # TODO: Implement by finding the comment and creating a CaseCommentUpdate
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED)
+    cases_svc = CasesService(session, role)
+    case = await cases_svc.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+    comments_svc = CaseCommentsService(session, role)
+    comment = await comments_svc.get_comment(comment_id)
+    if comment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Comment with ID {comment_id} not found",
+        )
+    await comments_svc.update_comment(comment, params)
 
 
 @cases_router.delete(
@@ -224,8 +268,21 @@ async def delete_comment(
     comment_id: uuid.UUID,
 ) -> None:
     """Delete a comment."""
-    # TODO: Implement by finding the comment and creating a CaseCommentDelete
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED)
+    cases_svc = CasesService(session, role)
+    case = await cases_svc.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+    comments_svc = CaseCommentsService(session, role)
+    comment = await comments_svc.get_comment(comment_id)
+    if comment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Comment with ID {comment_id} not found",
+        )
+    await comments_svc.delete_comment(comment)
 
 
 # Case Fields

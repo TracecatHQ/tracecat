@@ -823,6 +823,125 @@ export const $Body_workflows_create_workflow = {
   title: "Body_workflows-create_workflow",
 } as const
 
+export const $CaseCommentCreate = {
+  properties: {
+    content: {
+      type: "string",
+      maxLength: 5000,
+      minLength: 1,
+      title: "Content",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "CaseCommentCreate",
+} as const
+
+export const $CaseCommentRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    user: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    last_edited_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Edited At",
+    },
+  },
+  type: "object",
+  required: ["id", "created_at", "updated_at", "content"],
+  title: "CaseCommentRead",
+} as const
+
+export const $CaseCommentUpdate = {
+  properties: {
+    content: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 5000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+  },
+  type: "object",
+  title: "CaseCommentUpdate",
+} as const
+
 export const $CaseCreate = {
   properties: {
     summary: {
@@ -1275,30 +1394,6 @@ export const $CaseUpdate = {
   },
   type: "object",
   title: "CaseUpdate",
-} as const
-
-export const $CommentCreate = {
-  properties: {
-    content: {
-      type: "string",
-      title: "Content",
-    },
-  },
-  type: "object",
-  required: ["content"],
-  title: "CommentCreate",
-} as const
-
-export const $CommentUpdate = {
-  properties: {
-    content: {
-      type: "string",
-      title: "Content",
-    },
-  },
-  type: "object",
-  required: ["content"],
-  title: "CommentUpdate",
 } as const
 
 export const $CreateWorkspaceMembershipParams = {

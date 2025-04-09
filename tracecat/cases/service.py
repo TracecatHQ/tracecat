@@ -1,18 +1,21 @@
 import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 import sqlalchemy as sa
-from sqlmodel import select
+from sqlmodel import cast, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.cases.models import (
+    CaseCommentCreate,
+    CaseCommentUpdate,
     CaseCreate,
     CaseFieldCreate,
     CaseFieldUpdate,
     CaseUpdate,
 )
-from tracecat.db.schemas import Case, CaseFields
+from tracecat.db.schemas import Case, CaseComment, CaseFields, User
 from tracecat.service import BaseService
 from tracecat.tables.service import TableEditorService, TablesService
 from tracecat.types.auth import Role
@@ -76,7 +79,6 @@ class CasesService(BaseService):
         await self.session.commit()
         # Make sure to refresh the case to get the fields relationship loaded
         await self.session.refresh(case)
-        self.logger.warning("Created case", case=case, fields=case.fields)
         return case
 
     async def update_case(self, case: Case, params: CaseUpdate) -> Case:
@@ -237,3 +239,142 @@ class CaseFieldsService(BaseService):
             fields: The fields to update
         """
         await self.editor.update_row(id, fields)
+
+
+class CaseCommentsService(BaseService):
+    """Service for managing case comments."""
+
+    service_name = "case_comments"
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role)
+        if self.role.workspace_id is None:
+            raise TracecatAuthorizationError("Case comments service requires workspace")
+        self.workspace_id = self.role.workspace_id
+
+    async def get_comment(self, comment_id: uuid.UUID) -> CaseComment | None:
+        """Get a comment by ID.
+
+        Args:
+            case: The case to get the comment for
+            comment_id: The ID of the comment to get
+
+        Returns:
+            The comment if found, None otherwise
+        """
+        statement = select(CaseComment).where(
+            CaseComment.owner_id == self.workspace_id,
+            CaseComment.id == comment_id,
+        )
+
+        result = await self.session.exec(statement)
+        return result.first()
+
+    async def list_comments(
+        self, case: Case, *, with_users: bool = True
+    ) -> list[tuple[CaseComment, User | None]]:
+        """List all comments for a case with optional user information.
+
+        Args:
+            case: The case to get comments for
+            with_users: Whether to include user information (default: True)
+
+        Returns:
+            A list of tuples containing comments and their associated users (or None if no user)
+        """
+
+        if with_users:
+            statement = (
+                select(CaseComment, User)
+                .outerjoin(User, cast(CaseComment.user_id, sa.UUID) == User.id)
+                .where(CaseComment.case_id == case.id)
+                .order_by(cast(CaseComment.created_at, sa.DateTime))
+            )
+            result = await self.session.exec(statement)
+            return list(result.all())
+        else:
+            statement = (
+                select(CaseComment)
+                .where(CaseComment.case_id == case.id)
+                .order_by(cast(CaseComment.created_at, sa.DateTime))
+            )
+            result = await self.session.exec(statement)
+            # Return in the same format as the join query for consistency
+            return [(comment, None) for comment in result.all()]
+
+    async def create_comment(
+        self, case: Case, params: CaseCommentCreate
+    ) -> CaseComment:
+        """Create a new comment on a case.
+
+        Args:
+            case: The case to comment on
+            params: The comment parameters
+
+        Returns:
+            The created comment
+        """
+        comment = CaseComment(
+            owner_id=self.workspace_id,
+            case_id=case.id,
+            content=params.content,
+            parent_id=params.parent_id,
+            user_id=self.role.user_id,
+        )
+
+        self.session.add(comment)
+        await self.session.commit()
+        await self.session.refresh(comment)
+
+        return comment
+
+    async def update_comment(
+        self, comment: CaseComment, params: CaseCommentUpdate
+    ) -> CaseComment:
+        """Update an existing comment.
+
+        Args:
+            comment: The comment to update
+            params: The updated comment parameters
+
+        Returns:
+            The updated comment
+
+        Raises:
+            TracecatNotFoundError: If the comment doesn't exist
+            TracecatAuthorizationError: If the user doesn't own the comment
+        """
+        # Check if the user owns the comment
+        if comment.user_id != self.role.user_id:
+            raise TracecatAuthorizationError("You cannot update this comment")
+
+        set_fields = params.model_dump(exclude_unset=True)
+        for key, value in set_fields.items():
+            setattr(comment, key, value)
+
+        # Set last_edited_at
+        comment.last_edited_at = datetime.now(UTC)
+
+        await self.session.commit()
+        await self.session.refresh(comment)
+
+        return comment
+
+    async def delete_comment(self, comment: CaseComment) -> None:
+        """Delete a comment.
+
+        Args:
+            case: The case the comment belongs to
+            comment_id: The ID of the comment to delete
+
+        Raises:
+            TracecatNotFoundError: If the comment doesn't exist
+            TracecatAuthorizationError: If the user doesn't own the comment
+        """
+
+        # Check if the user owns the comment
+        if comment.user_id != self.role.user_id:
+            raise TracecatAuthorizationError("You can only delete your own comments")
+
+        await self.session.delete(comment)
+        await self.session.commit()
