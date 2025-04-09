@@ -2,8 +2,13 @@
 
 import { CaseReadMinimal } from "@/client"
 import { ColumnDef } from "@tanstack/react-table"
+import { format, formatDistanceToNow } from "date-fns"
 
-import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { CaseBadge } from "@/components/cases/case-badge"
 import {
   PRIORITIES,
@@ -13,31 +18,6 @@ import {
 import { DataTableColumnHeader } from "@/components/data-table"
 
 export const columns: ColumnDef<CaseReadMinimal>[] = [
-  {
-    id: "select",
-    header: ({ table }) => (
-      <Checkbox
-        checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && "indeterminate")
-        }
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all"
-        className="translate-y-[2px] border border-muted-foreground/80"
-      />
-    ),
-    cell: ({ row }) => (
-      <Checkbox
-        onClick={(e) => e.stopPropagation()}
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label="Select row"
-        className="translate-y-[2px] border border-muted-foreground/80"
-      />
-    ),
-    enableSorting: false,
-    enableHiding: false,
-  },
   {
     accessorKey: "short_id",
     header: ({ column }) => (
@@ -133,8 +113,46 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       const dt = new Date(
         row.getValue<CaseReadMinimal["created_at"]>("created_at")
       )
-      const strDt = `${dt.toLocaleDateString()}, ${dt.toLocaleTimeString()}`
-      return <span className="truncate text-xs">{strDt}</span>
+      const timeAgo = formatDistanceToNow(dt, { addSuffix: true })
+      const fullDateTime = format(dt, "PPpp") // e.g. "Apr 13, 2024, 2:30 PM EDT"
+
+      return (
+        <Tooltip>
+          <TooltipTrigger>
+            <span className="truncate text-xs">{timeAgo}</span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{fullDateTime}</p>
+          </TooltipContent>
+        </Tooltip>
+      )
+    },
+    filterFn: (row, id, value) => {
+      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+    },
+  },
+  {
+    accessorKey: "updated_at",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Updated At" />
+    ),
+    cell: ({ row }) => {
+      const dt = new Date(
+        row.getValue<CaseReadMinimal["updated_at"]>("updated_at")
+      )
+      const timeAgo = formatDistanceToNow(dt, { addSuffix: true })
+      const fullDateTime = format(dt, "PPpp") // e.g. "Apr 13, 2024, 2:30 PM EDT"
+
+      return (
+        <Tooltip>
+          <TooltipTrigger>
+            <span className="truncate text-xs">{timeAgo}</span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{fullDateTime}</p>
+          </TooltipContent>
+        </Tooltip>
+      )
     },
     filterFn: (row, id, value) => {
       return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
