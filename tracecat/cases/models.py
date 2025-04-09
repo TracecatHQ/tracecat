@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 import sqlalchemy as sa
 from pydantic import BaseModel, Field, TypeAdapter
 
+from tracecat.auth.models import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.enums import (
     CaseActivityType,
@@ -94,16 +95,6 @@ CaseActivity = Annotated[
 ]
 CaseActivityValidator: TypeAdapter[CaseActivity] = TypeAdapter(CaseActivity)
 
-# Case Comments
-
-
-class CommentCreate(BaseModel):
-    content: str
-
-
-class CommentUpdate(BaseModel):
-    content: str
-
 
 # Events
 # We'll use these models to enforce frontend types
@@ -171,6 +162,8 @@ type CaseEvent = Annotated[
 ]
 CaseEventValidator: TypeAdapter[EventActivity] = TypeAdapter(EventActivity)
 
+# Case Fields
+
 
 class CaseFieldRead(BaseModel):
     """Read model for a case field."""
@@ -206,3 +199,26 @@ class CaseFieldUpdate(TableColumnUpdate):
 
 class CaseCustomFieldRead(CaseFieldRead):
     value: Any
+
+
+# Case Comments
+
+
+class CaseCommentRead(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    content: str
+    parent_id: uuid.UUID | None = None
+    user: UserRead | None = None
+    last_edited_at: datetime | None = None
+
+
+class CaseCommentCreate(BaseModel):
+    content: str = Field(..., min_length=1, max_length=5_000)
+    parent_id: uuid.UUID | None = Field(default=None)
+
+
+class CaseCommentUpdate(BaseModel):
+    content: str | None = Field(default=None, min_length=1, max_length=5_000)
+    parent_id: uuid.UUID | None = Field(default=None)
