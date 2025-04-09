@@ -1,10 +1,11 @@
 """Generic interface for Slack SDK."""
 
 from itertools import zip_longest
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
+from slack_sdk.web.async_slack_response import AsyncSlackResponse
 from slugify import slugify
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -42,15 +43,16 @@ async def call_method(
     bot_token = secrets.get("SLACK_BOT_TOKEN")
     client = AsyncWebClient(token=bot_token)
     params = params or {}
-    result = await getattr(client, sdk_method)(**params)
-    return result
+    result: AsyncSlackResponse = await getattr(client, sdk_method)(**params)
+    data = result.data
+    return cast(dict[str, Any], data)
 
 
 @registry.register(
     default_title="Call paginated method",
     description="Instantiate a Slack client and call a paginated Slack SDK method.",
     display_group="Slack SDK",
-    doc_url="https://api.slack.com/methods",
+    doc_url="https://api.slack.com/apis/pagination#methods",
     namespace="tools.slack_sdk",
     secrets=[slack_secret],
 )
@@ -76,16 +78,11 @@ async def call_paginated_method(
 ) -> list[dict[str, Any]]:
     bot_token = secrets.get("SLACK_BOT_TOKEN")
     client = AsyncWebClient(token=bot_token)
-    cursor = None
-    items = []
+    members = []
     params = params or {}
-    while True:
-        result = await getattr(client, sdk_method)(**params, cursor=cursor, limit=limit)
-        items.extend(result["items"])
-        cursor = result.get("response_metadata", {}).get("next_cursor")
-        if not cursor:
-            break
-    return items
+    async for page in await getattr(client, sdk_method)(**params, limit=limit):
+        members.extend(page.data.get("members", []))
+    return members
 
 
 ### Block utilities

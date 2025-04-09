@@ -80,7 +80,6 @@ interface CustomFieldProps {
 export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
   const form = useFormContext<CustomFieldFormSchema>()
   switch (customField.type) {
-    case "VARCHAR":
     case "TEXT":
       return (
         <FormField

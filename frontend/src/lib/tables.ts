@@ -1,7 +1,12 @@
-import { $SqlType } from "@/client"
 import Papa from "papaparse"
 
-export const SqlTypeEnum = $SqlType.enum
+export const SqlTypeEnum = [
+  "TEXT",
+  "INTEGER",
+  "DECIMAL",
+  "BOOLEAN",
+  "JSONB",
+] as const
 
 export interface CsvPreviewData {
   headers: string[]
