@@ -86,6 +86,7 @@ class TestCSVImporter:
     def test_convert_value_text(self, csv_importer: CSVImporter) -> None:
         """Test convert_value with text values."""
         assert csv_importer.convert_value("hello", SqlType.TEXT) == "hello"
+        assert csv_importer.convert_value("world", SqlType.VARCHAR) == "world"
 
     def test_convert_value_integer(self, csv_importer: CSVImporter) -> None:
         """Test convert_value with integer values."""
