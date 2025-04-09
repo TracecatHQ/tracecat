@@ -1377,17 +1377,7 @@ export type SpecialUserID = "current"
 /**
  * Supported SQL types.
  */
-export type SqlType =
-  | "TEXT"
-  | "VARCHAR"
-  | "INTEGER"
-  | "BIGINT"
-  | "DECIMAL"
-  | "BOOLEAN"
-  | "TIMESTAMP"
-  | "TIMESTAMPTZ"
-  | "JSONB"
-  | "UUID"
+export type SqlType = "TEXT" | "INTEGER" | "DECIMAL" | "BOOLEAN" | "JSONB"
 
 /**
  * Create model for a table column.

@@ -1,6 +1,6 @@
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from sqlalchemy.exc import DBAPIError, StatementError
@@ -421,15 +421,10 @@ class TestTableDataTypes:
         # Create columns for each SQL type
         columns = [
             TableColumnCreate(name="text_col", type=SqlType.TEXT),
-            TableColumnCreate(name="varchar_col", type=SqlType.VARCHAR),
             TableColumnCreate(name="int_col", type=SqlType.INTEGER),
-            TableColumnCreate(name="bigint_col", type=SqlType.BIGINT),
             TableColumnCreate(name="decimal_col", type=SqlType.DECIMAL),
             TableColumnCreate(name="bool_col", type=SqlType.BOOLEAN),
             TableColumnCreate(name="json_col", type=SqlType.JSONB),
-            TableColumnCreate(name="timestamp_col", type=SqlType.TIMESTAMP),
-            TableColumnCreate(name="timestamptz_col", type=SqlType.TIMESTAMPTZ),
-            TableColumnCreate(name="uuid_col", type=SqlType.UUID),
         ]
 
         for column in columns:
@@ -443,23 +438,15 @@ class TestTableDataTypes:
     ) -> None:
         """Test inserting and retrieving values of all supported SQL types."""
         # Test data for each type
-        test_uuid = uuid4()
-        test_timestamp = datetime(2024, 2, 24, 12, 0)
-        test_datetime_tz = datetime(2024, 2, 24, 12, 0, tzinfo=UTC)
         test_json = {"key": "value", "nested": {"list": [1, 2, 3]}}
 
         # Create test data covering all types
         test_data = {
             "text_col": "Hello, World!",
-            "varchar_col": "Variable length text",
             "int_col": 42,
-            "bigint_col": 9223372036854775807,  # max int64
             "decimal_col": Decimal("3.14159"),
             "bool_col": True,
             "json_col": test_json,
-            "timestamp_col": test_timestamp,
-            "timestamptz_col": test_datetime_tz,
-            "uuid_col": test_uuid,
         }
 
         # Insert the test data
@@ -473,23 +460,10 @@ class TestTableDataTypes:
 
         # Verify each column type and value
         assert retrieved["text_col"] == "Hello, World!"
-        assert retrieved["varchar_col"] == "Variable length text"
         assert retrieved["int_col"] == 42
-        assert retrieved["bigint_col"] == 9223372036854775807
         assert retrieved["decimal_col"] == Decimal("3.14159")
         assert retrieved["bool_col"] is True
         assert retrieved["json_col"] == test_json
-
-        # DateTime comparisons
-        retrieved_timestamp = retrieved["timestamp_col"]
-        retrieved_timestamptz = retrieved["timestamptz_col"]
-        assert isinstance(retrieved_timestamp, datetime)
-        assert isinstance(retrieved_timestamptz, datetime)
-        assert retrieved_timestamp == test_timestamp
-        assert retrieved_timestamptz == test_datetime_tz
-
-        # UUID comparison
-        assert str(retrieved["uuid_col"]) == str(test_uuid)
 
     @pytest.mark.usefixtures("db")
     @pytest.mark.parametrize(
@@ -507,23 +481,11 @@ class TestTableDataTypes:
                 "Expected bool or 0/1, got str",
                 id="invalid_boolean",
             ),
-            # Test invalid UUID
-            pytest.param(
-                {"uuid_col": "not-a-uuid"},
-                "invalid UUID",
-                id="invalid_uuid",
-            ),
             # Test invalid JSON - this raises TypeError directly
             pytest.param(
                 {"json_col": object()},
                 "Object of type object is not JSON serializable",
                 id="invalid_json",
-            ),
-            # Test invalid timestamp
-            pytest.param(
-                {"timestamp_col": "not-a-timestamp"},
-                "expected a datetime.date or datetime.datetime instance",
-                id="invalid_timestamp",
             ),
         ],
         scope="function",
@@ -572,19 +534,10 @@ class TestTableDataTypes:
         """Test edge cases for each data type."""
         edge_cases = {
             "text_col": "",  # Empty string
-            "varchar_col": "a" * 1000,  # Long string
             "int_col": 0,  # Zero
-            "bigint_col": -9223372036854775808,  # min int64
             "decimal_col": Decimal("0.0"),  # Zero decimal
             "bool_col": False,  # False boolean
             "json_col": {},  # Empty JSON
-            "timestamp_col": datetime(
-                1, 1, 1, 0, 0
-            ),  # Minimum datetime without timezone
-            "timestamptz_col": datetime(
-                2025, 3, 15, 12, 0, 0, 0, tzinfo=UTC
-            ),  # Maximum datetime
-            "uuid_col": UUID("00000000-0000-0000-0000-000000000000"),  # Nil UUID
         }
 
         # Insert edge cases
@@ -598,29 +551,7 @@ class TestTableDataTypes:
 
         # Verify each edge case
         assert retrieved["text_col"] == ""
-        assert retrieved["varchar_col"] == "a" * 1000
         assert retrieved["int_col"] == 0
-        assert retrieved["bigint_col"] == -9223372036854775808
         assert retrieved["decimal_col"] == Decimal("0.0")
         assert retrieved["bool_col"] is False
         assert retrieved["json_col"] == {}
-
-        # DateTime comparisons - fix the timezone comparison issue
-        assert (
-            retrieved["timestamp_col"].replace(tzinfo=None)
-            == edge_cases["timestamp_col"]
-        )
-
-        # For timestamptz, we need to handle the timezone comparison
-        # The database might return a datetime with a different timezone representation
-        # but equivalent time
-        retrieved_timestamptz = retrieved["timestamptz_col"]
-        expected_timestamptz = edge_cases["timestamptz_col"]
-
-        # Compare the UTC timestamps instead of the datetime objects directly
-        assert retrieved_timestamptz.astimezone(UTC).replace(
-            tzinfo=None
-        ) == expected_timestamptz.astimezone(UTC).replace(tzinfo=None)
-
-        # UUID comparison using string representation
-        assert str(retrieved["uuid_col"]) == str(edge_cases["uuid_col"])
