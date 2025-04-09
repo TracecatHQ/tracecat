@@ -78,7 +78,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-8 gap-6 overflow-auto p-6">
+      <div className="grid grid-cols-8 gap-6 overflow-visible p-6">
         {/* Left column - Summary & Description */}
         <div className="col-span-5 space-y-6">
           {/* Summary */}
