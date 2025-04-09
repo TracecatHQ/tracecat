@@ -79,7 +79,6 @@ class CasesService(BaseService):
         await self.session.commit()
         # Make sure to refresh the case to get the fields relationship loaded
         await self.session.refresh(case)
-        self.logger.warning("Created case", case=case, fields=case.fields)
         return case
 
     async def update_case(self, case: Case, params: CaseUpdate) -> Case:
