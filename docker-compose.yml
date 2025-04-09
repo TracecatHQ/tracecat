@@ -226,7 +226,7 @@ services:
     container_name: container-runner
     restart: unless-stopped
     networks:
-      - core
+      - temporal
     ports:
       - 8080:8080
     environment:
