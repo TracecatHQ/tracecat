@@ -460,20 +460,7 @@ function TableColumnIndexDialog({
 
       onOpenChange()
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        toast({
-          title: "Error creating natural key",
-          description:
-            "Column contains duplicate values. All values must be unique.",
-          variant: "destructive",
-        })
-      } else {
-        toast({
-          title: "Error creating natural key",
-          description: "An unexpected error occurred",
-          variant: "destructive",
-        })
-      }
+      console.error("Error creating natural key:", error)
     }
   }
 

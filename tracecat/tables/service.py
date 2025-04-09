@@ -603,7 +603,6 @@ class BaseTablesService(BaseService):
                         "Cannot upsert on columns. Create a unique index first with create_unique_index()"
                     ) from original_error
                 elif "violates unique constraint" in str(e):
-                    await self.session.rollback()
                     self.logger.warning(
                         "Trying to insert duplicate values",
                         natural_keys=natural_keys,
@@ -625,8 +624,6 @@ class BaseTablesService(BaseService):
             original_error = e
             while (cause := e.__cause__) is not None:
                 e = cause
-
-            await self.session.rollback()
 
             # Check for unique constraint violations (which are the most common IntegrityErrors)
             if "violates unique constraint" in str(e):
@@ -806,7 +803,6 @@ class BaseTablesService(BaseService):
         # Start transaction
         conn = await self.session.connection()
 
-        # Build multi-row insert
         # Build multi-row insert statement without returning clause
         stmt = sa.insert(sa.table(table.name, *cols, schema=schema_name)).values(rows)
 
@@ -816,7 +812,6 @@ class BaseTablesService(BaseService):
             await self.session.flush()
             return result.rowcount
         except Exception as e:
-            # Let the transaction context manager handle rollback
             raise DBAPIError("Failed to insert batch", str(e), e) from e
 
 
