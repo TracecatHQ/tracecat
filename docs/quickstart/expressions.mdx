@@ -241,9 +241,6 @@ result: >-
 # Extract text using regex
 result: ${{ FN.regex_extract("<timestamp>(.*?)</timestamp>", ACTIONS.get_alert.result.alert.raw_logs) }}
 
-# Extract text from HTML
-result: ${{ FN.extract_text_from_html(ACTIONS.get_webpage.result.html_content) }}
-
 # Transform text
 result: ${{ FN.uppercase(ACTIONS.get_alert.result.alert.title) }}
 
