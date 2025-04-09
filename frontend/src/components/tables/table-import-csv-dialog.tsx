@@ -287,7 +287,7 @@ function CsvPreview({ csvData }: CsvPreviewProps) {
   return (
     <div className="space-y-4">
       <div className="text-sm font-medium">Preview (first 5 rows)</div>
-      <div className="max-h-60 overflow-auto rounded border">
+      <div className="max-h-60 overflow-auto overflow-x-auto rounded border">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50">
@@ -302,9 +302,11 @@ function CsvPreview({ csvData }: CsvPreviewProps) {
             {csvData.preview.map((row, i) => (
               <tr key={i} className="border-b">
                 {csvData.headers.map((header) => (
-                  <td key={header} className="p-2">
-                    {row[header]}
-                  </td>
+                  <td key={header} className="p-2 max-w-xs truncate" title={row[header]}>
+                  {typeof row[header] === 'string' && row[header].length > 100
+                    ? row[header].substring(0, 100) + "..."
+                    : row[header]}
+                </td>
                 ))}
               </tr>
             ))}

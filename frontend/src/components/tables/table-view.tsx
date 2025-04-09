@@ -16,11 +16,30 @@ import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
 
 function CollapsibleText({ text }: { text: string }) {
   const [isExpanded, setIsExpanded] = React.useState(false)
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [containerWidth, setContainerWidth] = React.useState(0)
+
+  // Measure container width on mount and when window resizes
+  React.useEffect(() => {
+    const updateWidth = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.clientWidth)
+      }
+    }
+
+    updateWidth()
+    window.addEventListener('resize', updateWidth)
+    return () => window.removeEventListener('resize', updateWidth)
+  }, [])
+
+  // Estimate characters per line based on container width (assumes monospace font)
+  // Adjust the divisor based on your font metrics
+  const charsPerLine = Math.max(25, Math.floor(containerWidth / 7))
 
   if (!isExpanded) {
     return (
-      <div className="flex items-center">
-        <span className="truncate text-xs">{text.substring(0, 25)}</span>
+      <div ref={containerRef} className="flex items-center">
+        <span className="truncate text-xs">{text.substring(0, charsPerLine)}</span>
         <Button
           variant="ghost"
           size="sm"
@@ -33,14 +52,14 @@ function CollapsibleText({ text }: { text: string }) {
     )
   }
 
-  // Format the text into chunks when expanded
+  // Format the text into chunks based on available width
   const chunks = []
-  for (let i = 0; i < text.length; i += 25) {
-    chunks.push(text.substring(i, i + 25))
+  for (let i = 0; i < text.length; i += charsPerLine) {
+    chunks.push(text.substring(i, i + charsPerLine))
   }
 
   return (
-    <div className="space-y-1">
+    <div ref={containerRef} className="space-y-1">
       <pre className="whitespace-pre-wrap text-xs">{chunks.join("\n")}</pre>
       <Button
         variant="ghost"
