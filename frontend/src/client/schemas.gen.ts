@@ -4286,7 +4286,18 @@ export const $SpecialUserID = {
 
 export const $SqlType = {
   type: "string",
-  enum: ["TEXT", "INTEGER", "DECIMAL", "BOOLEAN", "JSONB"],
+  enum: [
+    "TEXT",
+    "VARCHAR",
+    "INTEGER",
+    "BIGINT",
+    "DECIMAL",
+    "BOOLEAN",
+    "TIMESTAMP",
+    "TIMESTAMPTZ",
+    "JSONB",
+    "UUID",
+  ],
   title: "SqlType",
   description: "Supported SQL types.",
 } as const
