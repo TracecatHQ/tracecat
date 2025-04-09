@@ -17,6 +17,7 @@ import "./editor.css"
 
 import { useEffect } from "react"
 
+import { getSpacedBlocks } from "@/lib/rich-text-editor"
 import { cn } from "@/lib/utils"
 
 interface CaseDescriptionEditorProps {
@@ -51,7 +52,8 @@ export function CaseDescriptionEditor({
     const loadInitialContent = async () => {
       if (initialContent) {
         const blocks = await editor.tryParseMarkdownToBlocks(initialContent)
-        editor.replaceBlocks(editor.document, blocks)
+        const spacedBlocks = getSpacedBlocks(blocks)
+        editor.replaceBlocks(editor.document, spacedBlocks)
       }
     }
 
