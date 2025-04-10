@@ -21,6 +21,7 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
+from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import CSVImporter
 from tracecat.tables.models import (
     TableColumnCreate,
@@ -143,7 +144,7 @@ async def get_table(
             TableColumnRead(
                 id=column.id,
                 name=column.name,
-                type=column.type,
+                type=SqlType(column.type),
                 nullable=column.nullable,
                 default=column.default,
                 is_index=natural_key_info.get(column.name, False),
