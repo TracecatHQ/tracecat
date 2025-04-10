@@ -644,6 +644,22 @@ class BaseTablesService(BaseService):
 class TablesService(BaseTablesService):
     """Transactional tables service."""
 
+    async def create_table(self, params: TableCreate) -> Table:
+        result = await super().create_table(params)
+        await self.session.commit()
+        await self.session.refresh(result)
+        return result
+
+    async def update_table(self, table: Table, params: TableUpdate) -> Table:
+        result = await super().update_table(table, params)
+        await self.session.commit()
+        await self.session.refresh(result)
+        return result
+
+    async def delete_table(self, table: Table) -> None:
+        await super().delete_table(table)
+        await self.session.commit()
+
     async def insert_row(self, table: Table, params: TableRowInsert) -> dict[str, Any]:
         result = await super().insert_row(table, params)
         await self.session.commit()
