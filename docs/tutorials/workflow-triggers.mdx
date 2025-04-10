@@ -11,13 +11,6 @@ icon: bolt
   - If you're running Tracecat on AWS Fargate, Tracecat is automatically exposed to the public internet via an Application Load Balancer.
 </Note>
 
-<Info>
-  Use the `${{ TRIGGER }}` expression context to reference data passed via webhooks.
-  A child workflow also receives input data via `${{ TRIGGER }}` context.
-
-  Learn more in the [child workflows](/tutorials/child-workflows) and [expressions](/quickstart/expressions#trigger-context) docs.
-</Info>
-
 By the end of this tutorial, you'll learn how to create two types of workflows:
 
 - A webhook workflow that receives a JSON string and decodes it using the `FN.deserialize_json` function.
@@ -31,6 +24,15 @@ Click on the `Trigger` action to activate the webhooks and schedules configurati
 
 ![Trigger action](/img/tutorials/triggers/trigger-action.png)
 
+## Reference data from a webhook
+
+Use the `${{ TRIGGER }}` expression context to reference data passed via webhooks.
+A child workflow also receives input data via `${{ TRIGGER }}` context.
+
+![Trigger expression](/img/tutorials/triggers/trigger-expression.png)
+
+Learn more in the [child workflows](/tutorials/child-workflows) and [expressions](/quickstart/expressions#trigger-context) docs.
+
 ## Webhook workflow
 
 <Warning>
@@ -42,19 +44,26 @@ Webhooks are disabled by default. To activate a workflow's webhook, click on the
 Webhook URLs are formatted as:
 
 ```bash
-https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-secret>
+WEBHOOK_URL=https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-secret>
 ```
 
-Use the `${{ TRIGGER }}` expression context to reference data from the webhook payload.
-
-![Trigger expression](/img/tutorials/triggers/trigger-expression.png)
-
 <Note>
+  Some servers require a response after the webhook payload is received.
+  For example, Slack event subscriptions require a `200` response along with a challenge token contained in the webhook payload.
+
+  Add the query parameter `echo=true` to the webhook URL to echo the webhook payload back to the server.
+
+  ```bash
+  https://${WEBHOOK_URL}?echo=true
+  ```
+</Note>
+
+<Info>
   Webhooks currently support the following content types:
   - `application/json`
   - `application/x-ndjson`
   - `application/www-form-urlencoded`
-</Note>
+</Info>
 
 <Steps>
   <Step title="Deserialize JSON action">
@@ -96,19 +105,6 @@ Use the `${{ TRIGGER }}` expression context to reference data from the webhook p
     ![Deserialize JSON result](/img/tutorials/triggers/deserialize-json-result.png)
   </Step>
 </Steps>
-
-<Note>
-  Some servers require a response after the webhook payload is received.
-  For example, Slack event subscriptions require a `200` response along with a challenge token contained in the webhook payload.
-
-  You can echo the webhook payload back to the server by adding the query parameter `echo=true` to the webhook URL.
-  For example:
-
-  ```bash
-  https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-secret>?echo=true
-  ```
-
-</Note>
 
 ## Scheduled workflow
 
