@@ -3,7 +3,16 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Annotated, Any, Generic, Literal, TypedDict, TypeVar, cast
+from typing import (
+    Annotated,
+    Any,
+    Generic,
+    Literal,
+    NotRequired,
+    TypedDict,
+    TypeVar,
+    cast,
+)
 
 import orjson
 import temporalio.api.common.v1
@@ -441,6 +450,8 @@ class WorkflowExecutionCreateResponse(TypedDict):
     message: str
     wf_id: WorkflowID
     wf_exec_id: WorkflowExecutionID
+    payload: NotRequired[Any]
+    """The HTTP request body of the request that triggered the workflow."""
 
 
 class WorkflowDispatchResponse(TypedDict):
