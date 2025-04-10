@@ -53,7 +53,8 @@ async def connect_to_temporal() -> Client:
         tls_config = True
         rpc_metadata["temporal-namespace"] = TEMPORAL__CLUSTER_NAMESPACE
 
-    runtime = init_runtime_with_prometheus(port=TEMPORAL__METRICS_PORT)
+    if TEMPORAL__METRICS_PORT:
+        runtime = init_runtime_with_prometheus(port=TEMPORAL__METRICS_PORT)
     client = await Client.connect(
         target_host=TEMPORAL__CLUSTER_URL,
         namespace=TEMPORAL__CLUSTER_NAMESPACE,
