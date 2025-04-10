@@ -1,4 +1,4 @@
-name: Lint Python
+name: Lint python
 
 on:
   pull_request:
