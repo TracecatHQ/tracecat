@@ -1820,6 +1820,7 @@ export type WorkflowExecutionCreateResponse = {
   message: string
   wf_id: string
   wf_exec_id: string
+  payload?: unknown
 }
 
 export type WorkflowExecutionEvent = {
@@ -2130,6 +2131,10 @@ export type login = {
 
 export type PublicIncomingWebhookData = {
   contentType?: string | null
+  /**
+   * Echo the request payload back to the caller
+   */
+  echo?: boolean
   secret: string
   workflowId: string
 }

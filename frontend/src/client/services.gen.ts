@@ -270,6 +270,7 @@ import type {
  * @param data The data for the request.
  * @param data.secret
  * @param data.workflowId
+ * @param data.echo Echo the request payload back to the caller
  * @param data.contentType
  * @returns WorkflowExecutionCreateResponse Successful Response
  * @throws ApiError
@@ -286,6 +287,9 @@ export const publicIncomingWebhook = (
     },
     headers: {
       "content-type": data.contentType,
+    },
+    query: {
+      echo: data.echo,
     },
     errors: {
       422: "Validation Error",

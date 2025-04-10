@@ -5563,6 +5563,9 @@ export const $WorkflowExecutionCreateResponse = {
         "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
       title: "Wf Exec Id",
     },
+    payload: {
+      title: "Payload",
+    },
   },
   type: "object",
   required: ["message", "wf_id", "wf_exec_id"],

@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from temporalio.service import RPCError
 
 from tracecat.contexts import ctx_role
@@ -33,9 +33,14 @@ router = APIRouter(
 
 @router.post("")
 async def incoming_webhook(
+    *,
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
     payload: PayloadDep,
+    echo: bool = Query(
+        default=False, description="Echo the request payload back to the caller"
+    ),
+    request: Request,
 ) -> WorkflowExecutionCreateResponse:
     """Webhook endpoint to trigger a workflow.
 
@@ -53,6 +58,12 @@ async def incoming_webhook(
         payload=payload,
         trigger_type=TriggerType.WEBHOOK,
     )
+    if echo:
+        try:
+            response["payload"] = await request.json()
+        except Exception as e:
+            logger.warning("Failed to echo request payload body", error=str(e))
+            response["payload"] = None
     return response
 
 
