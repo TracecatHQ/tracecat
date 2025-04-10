@@ -143,17 +143,10 @@ async def update(
         if status is not None:
             params["status"] = CaseStatus(status)
         if fields is not None:
-            # Cases:
-            # - Since None == unset in the context of the udf, we consider empty dict as removing all fields
-            # We consider empty dict as removing all fields
-            # However the service expects unset fields to be omitted
-            if fields:
-                # We got a dict with some fields, keep them
-                params["fields"] = fields
-            else:
-                # We got an empty dict, remove all fields
-                params["fields"] = None
-        # In the service, we expect
+            # Empty dict or None means fields are not updated
+            # You must explicitly set fields to None to remove their values
+            # If we don't pass fields, the service will not try to update the fields
+            params["fields"] = fields
         updated_case = await service.update_case(case, CaseUpdate(**params))
     return updated_case.model_dump()
 
