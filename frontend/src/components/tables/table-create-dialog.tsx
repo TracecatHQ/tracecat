@@ -45,12 +45,14 @@ const createTableSchema = z.object({
       /^[a-zA-Z0-9_]+$/,
       "Name must contain only letters, numbers, and underscores"
     ),
-  columns: z.array(
-    z.object({
-      name: z.string().min(1, "Column name is required"),
-      type: z.enum(SqlTypeEnum),
-    })
-  ),
+  columns: z
+    .array(
+      z.object({
+        name: z.string().min(1, "Column name is required"),
+        type: z.enum(SqlTypeEnum),
+      })
+    )
+    .min(1, "At least one column is required"),
 })
 
 type CreateTableSchema = z.infer<typeof createTableSchema>
@@ -74,8 +76,9 @@ export function CreateTableDialog({
     resolver: zodResolver(createTableSchema),
     defaultValues: {
       name: "",
-      columns: [],
+      columns: [{ name: "", type: SqlTypeEnum[0] }],
     },
+    mode: "onSubmit",
   })
   const { fields, append, remove } = useFieldArray<CreateTableSchema>({
     control: form.control,
@@ -84,6 +87,14 @@ export function CreateTableDialog({
 
   const onSubmit = async (data: CreateTableSchema) => {
     try {
+      if (data.columns.length === 0) {
+        form.setError("columns", {
+          type: "manual",
+          message: "At least one column is required",
+        })
+        return
+      }
+
       await createTable({
         requestBody: {
           name: data.name,
@@ -160,45 +171,51 @@ export function CreateTableDialog({
                       Define the columns of the table.
                     </FormDescription>
                     {fields.map((field, index) => (
-                      <div key={field.id} className="flex items-center">
+                      <div key={field.id} className="mb-2 flex items-start">
                         <div className="grid flex-1 grid-cols-3 gap-2">
                           <FormField
                             control={form.control}
                             name={`columns.${index}.name`}
                             render={({ field }) => (
-                              <FormControl className="col-span-2">
-                                <Input
-                                  placeholder="Enter column name..."
-                                  {...field}
-                                  value={field.value ?? ""}
-                                />
-                              </FormControl>
+                              <FormItem className="col-span-2">
+                                <FormControl>
+                                  <Input
+                                    placeholder="Enter column name..."
+                                    {...field}
+                                    value={field.value ?? ""}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
                             )}
                           />
                           <FormField
                             control={form.control}
                             name={`columns.${index}.type`}
                             render={({ field }) => (
-                              <FormControl className="col-span-1">
-                                <Select
-                                  value={field.value}
-                                  onValueChange={field.onChange}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue
-                                      placeholder="Select column type"
-                                      className="w-full"
-                                    />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {SqlTypeEnum.map((type) => (
-                                      <SelectItem key={type} value={type}>
-                                        {type}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </FormControl>
+                              <FormItem className="col-span-1">
+                                <FormControl>
+                                  <Select
+                                    value={field.value}
+                                    onValueChange={field.onChange}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue
+                                        placeholder="Select column type"
+                                        className="w-full"
+                                      />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {SqlTypeEnum.map((type) => (
+                                        <SelectItem key={type} value={type}>
+                                          {type}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
                             )}
                           />
                         </div>
@@ -206,14 +223,18 @@ export function CreateTableDialog({
                           type="button"
                           variant="ghost"
                           className="ml-2"
-                          onClick={() => remove(index)}
+                          onClick={() => {
+                            if (fields.length > 1) {
+                              remove(index)
+                            }
+                          }}
+                          disabled={fields.length <= 1}
                           aria-label="Remove column"
                         >
                           <Trash2Icon className="size-3.5" />
                         </Button>
                       </div>
                     ))}
-                    <FormMessage />
                   </FormItem>
                 )}
               />

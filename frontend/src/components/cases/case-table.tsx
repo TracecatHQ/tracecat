@@ -7,7 +7,12 @@ import { useWorkspace } from "@/providers/workspace"
 import { type Row } from "@tanstack/react-table"
 
 import { useListCases } from "@/lib/hooks"
-import { PRIORITIES, STATUSES } from "@/components/cases/case-categories"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import {
+  PRIORITIES,
+  SEVERITIES,
+  STATUSES,
+} from "@/components/cases/case-categories"
 import { columns } from "@/components/cases/case-table-columns"
 import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
 
@@ -27,12 +32,14 @@ export default function CaseTable() {
     }
   }
   return (
-    <DataTable
-      data={cases}
-      columns={memoizedColumns}
-      onClickRow={handleClickRow}
-      toolbarProps={defaultToolbarProps}
-    />
+    <TooltipProvider>
+      <DataTable
+        data={cases}
+        columns={memoizedColumns}
+        onClickRow={handleClickRow}
+        toolbarProps={defaultToolbarProps}
+      />
+    </TooltipProvider>
   )
 }
 const defaultToolbarProps: DataTableToolbarProps = {
@@ -50,6 +57,11 @@ const defaultToolbarProps: DataTableToolbarProps = {
       column: "priority",
       title: "Priority",
       options: PRIORITIES,
+    },
+    {
+      column: "severity",
+      title: "Severity",
+      options: SEVERITIES,
     },
   ],
 }

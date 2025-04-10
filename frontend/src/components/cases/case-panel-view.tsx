@@ -3,6 +3,7 @@
 import React from "react"
 import { CasePriority, CaseSeverity, CaseStatus, CaseUpdate } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
+import { format, formatDistanceToNow } from "date-fns"
 
 import { useGetCase, useUpdateCase } from "@/lib/hooks"
 import { Badge } from "@/components/ui/badge"
@@ -18,7 +19,6 @@ import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 
-// Form schemas
 interface CasePanelContentProps {
   caseId: string
 }
@@ -71,14 +71,24 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   return (
     <div className="flex h-full flex-col overflow-auto px-6">
       <div className="flex items-center justify-between border-b p-4">
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-4">
           <Badge variant="outline" className="text-xs font-medium">
             {caseData.short_id}
           </Badge>
+          <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+            <span>Created {format(new Date(caseData.created_at), "PPpp")}</span>
+            <span>•</span>
+            <span>
+              Updated{" "}
+              {formatDistanceToNow(new Date(caseData.updated_at), {
+                addSuffix: true,
+              })}
+            </span>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-8 gap-6 overflow-auto p-6">
+      <div className="grid grid-cols-8 gap-6 overflow-visible p-6">
         {/* Left column - Summary & Description */}
         <div className="col-span-5 space-y-6">
           {/* Summary */}
@@ -88,12 +98,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
           {/* Description */}
           <div className="space-y-2">
-            <div className="space-y-2">
-              <CasePanelDescription
-                caseData={caseData}
-                updateCase={updateCase}
-              />
-            </div>
+            <CasePanelDescription caseData={caseData} updateCase={updateCase} />
           </div>
 
           <CommentSection caseId={caseId} workspaceId={workspaceId} />

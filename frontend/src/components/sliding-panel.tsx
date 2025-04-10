@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 
 interface SlidingPanelProps
   extends React.PropsWithChildren<React.HTMLAttributes<HTMLDivElement>> {
@@ -16,6 +16,7 @@ export function SlidingPanel({
 }: SlidingPanelProps) {
   return (
     <Sheet modal={false} open={isOpen} onOpenChange={setIsOpen}>
+      <SheetTitle className="sr-only">Sliding Panel</SheetTitle>
       <SheetContent
         className={className}
         onOpenAutoFocus={(e) => {

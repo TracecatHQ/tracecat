@@ -9,26 +9,46 @@ import * as Select from "@/components/ui/select"
 
 import "@blocknote/core/fonts/inter.css"
 
-import { useCreateBlockNote } from "@blocknote/react"
+import {
+  DefaultReactSuggestionItem,
+  DragHandleMenu,
+  getDefaultReactSlashMenuItems,
+  RemoveBlockItem,
+  SideMenu,
+  SideMenuController,
+  SuggestionMenuController,
+  useCreateBlockNote,
+} from "@blocknote/react"
 import { BlockNoteView } from "@blocknote/shadcn"
 
 import "@blocknote/shadcn/style.css"
 import "./editor.css"
 
 import { useEffect } from "react"
+import { BlockNoteEditor, filterSuggestionItems } from "@blocknote/core"
+import { Trash2Icon } from "lucide-react"
 
+import { getSpacedBlocks } from "@/lib/rich-text-editor"
 import { cn } from "@/lib/utils"
 
+const getCustomSlashMenuItems = (
+  editor: BlockNoteEditor
+): DefaultReactSuggestionItem[] =>
+  getDefaultReactSlashMenuItems(editor).filter(
+    (item) => item.group?.toLowerCase() !== "media"
+  )
 interface CaseDescriptionEditorProps {
   initialContent?: string
   onChange?: (value: string) => void
   className?: string
+  onBlur?: () => void
 }
 
 export function CaseDescriptionEditor({
   initialContent,
   onChange,
   className,
+  onBlur,
 }: CaseDescriptionEditorProps) {
   // Creates a new editor instance.
   const editor = useCreateBlockNote({
@@ -39,7 +59,8 @@ export function CaseDescriptionEditor({
   const handleEditorChange = async () => {
     if (onChange) {
       // Convert the blocks back to markdown
-      const markdown = await editor.blocksToMarkdownLossy(editor.document)
+      const blocks = editor.document
+      const markdown = await editor.blocksToMarkdownLossy(blocks)
       onChange(markdown)
     }
   }
@@ -48,7 +69,8 @@ export function CaseDescriptionEditor({
     const loadInitialContent = async () => {
       if (initialContent) {
         const blocks = await editor.tryParseMarkdownToBlocks(initialContent)
-        editor.replaceBlocks(editor.document, blocks)
+        const spacedBlocks = getSpacedBlocks(blocks)
+        editor.replaceBlocks(editor.document, spacedBlocks)
       }
     }
 
@@ -57,24 +79,49 @@ export function CaseDescriptionEditor({
 
   // Renders the editor instance using a React component.
   return (
-    <div className={cn("mx-0  py-2", className)}>
+    <div className={cn("mx-0  py-2", className)} onBlur={onBlur}>
       <BlockNoteView
         editor={editor}
         onChange={handleEditorChange}
         theme="light"
+        slashMenu={false}
         shadCNComponents={{
           Button,
           Input,
           Popover,
-          DropdownMenu, // This is used
+          DropdownMenu, // This is used for the drag handle dropdown menu
           Select,
           Card,
         }}
         style={{
           height: "100%",
         }}
-        sideMenu={true}
-      />
+      >
+        <SuggestionMenuController
+          triggerCharacter={"/"}
+          // Replaces the default Slash Menu items with our custom ones.
+          getItems={async (query) =>
+            filterSuggestionItems(getCustomSlashMenuItems(editor), query)
+          }
+        />
+        <SideMenuController
+          sideMenu={(props) => (
+            <SideMenu
+              {...props}
+              dragHandleMenu={(props) => (
+                <DragHandleMenu {...props}>
+                  <RemoveBlockItem {...props}>
+                    <div className="group flex w-full items-center">
+                      <Trash2Icon className="mr-1 size-3 group-hover:text-red-500" />
+                      <span className="group-hover:text-red-500">Delete</span>
+                    </div>
+                  </RemoveBlockItem>
+                </DragHandleMenu>
+              )}
+            />
+          )}
+        />
+      </BlockNoteView>
     </div>
   )
 }

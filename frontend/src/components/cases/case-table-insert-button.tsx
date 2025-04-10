@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
-import { ChevronDownIcon, FileUpIcon } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useWorkspace } from "@/providers/workspace"
+import { ChevronDownIcon, KeyRoundIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -11,10 +12,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-type DialogType = "field" | null
-
 export function CaseTableInsertButton() {
-  const [activeDialog, setActiveDialog] = useState<DialogType>(null)
+  const router = useRouter()
+  const { workspaceId } = useWorkspace()
 
   return (
     <>
@@ -25,29 +25,26 @@ export function CaseTableInsertButton() {
             className="h-7 items-center space-x-1 bg-emerald-500/80 px-3 py-1 text-xs text-white shadow-sm hover:border-emerald-500 hover:bg-emerald-400/80"
           >
             <ChevronDownIcon className="size-3" />
-            <span>Insert</span>
+            <span>Manage</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
           <DropdownMenuItem
             className="flex items-center gap-2"
-            onSelect={() => setActiveDialog("field")}
+            onSelect={() =>
+              router.push(`/workspaces/${workspaceId}/cases/fields`)
+            }
           >
-            <FileUpIcon className="size-4 text-foreground/80" />
+            <KeyRoundIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Add field</span>
+              <span>Case Fields</span>
               <span className="text-xs text-muted-foreground">
-                Add a new field to the case schema
+                Manage case fields schema
               </span>
             </div>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-
-      {/* <TableInsertColumnDialog
-        open={activeDialog === "field"}
-        onOpenChange={() => setActiveDialog(null)}
-      /> */}
     </>
   )
 }

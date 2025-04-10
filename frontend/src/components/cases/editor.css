@@ -5,13 +5,14 @@
   --bn-font-size-h1: 1.375rem; /* h1 size */
   --bn-font-size-h2: 1.25rem; /* h2 size */
   --bn-font-size-h3: 1.125rem; /* h3 size */
+  --bn-font-size-sm: 0.75rem; /* Small text size for labels and descriptions */
 }
 
 /* Custom alignment for editor - allow side buttons to extend into margin */
 .bn-editor {
   position: relative;
   margin-left: 0;
-  padding-inline: 0 !important; /* Override default padding */
+  padding-inline: 0 !important;
   outline: none;
 }
 
@@ -23,9 +24,9 @@
 }
 
 /* Directly override the background-color property from BlockNote styles */
-/* .bn-shadcn .bn-editor {
+.bn-shadcn .bn-editor {
   background-color: transparent !important;
-} */
+}
 
 /* Target headings based on actual DOM structure */
 .bn-block-content[data-content-type="heading"] h1 {
@@ -48,4 +49,29 @@
 .bn-container [data-content-type="bulletListItem"],
 .bn-container [data-content-type="numberedListItem"] {
   font-size: var(--bn-font-size-base);
+}
+
+/* Suggestion menu font size customization */
+.bn-suggestion-menu-label {
+  font-size: var(--bn-font-size-sm) !important;
+}
+
+.bn-suggestion-menu-item .bn-text-base {
+  font-size: var(--bn-font-size-base) !important;
+}
+
+.bn-suggestion-menu-item .bn-text-xs {
+  font-size: var(--bn-font-size-sm) !important;
+}
+
+/* Customize suggestion menu hover/focus styles */
+.bn-suggestion-menu-item:hover,
+.bn-suggestion-menu-item:focus,
+.bn-suggestion-menu-item[aria-selected="true"] {
+  background-color: hsl(var(--muted-foreground) / 0.1) !important;
+}
+
+/* Override all bn-text-gray-* classes with text-muted-foreground */
+[class*="bn-text-gray"]:hover {
+  background-color: hsl(var(--muted-foreground) / 0.1) !important;
 }

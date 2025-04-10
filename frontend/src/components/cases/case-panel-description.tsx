@@ -8,16 +8,10 @@ import {
   SaveIcon,
 } from "lucide-react"
 import { useForm } from "react-hook-form"
-import * as z from "zod"
+import { z } from "zod"
 
 import { cn } from "@/lib/utils"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormMessage,
-} from "@/components/ui/form"
+import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
 
 const descriptionFormSchema = z.object({
@@ -122,15 +116,13 @@ export function CasePanelDescription({
             render={() => (
               <FormItem className="relative">
                 <FormControl>
-                  <div onBlur={handleBlur}>
-                    <CaseDescriptionEditor
-                      className="min-h-[250px]"
-                      initialContent={caseData.description}
-                      onChange={handleContentChange}
-                    />
-                  </div>
+                  <CaseDescriptionEditor
+                    className="min-h-[250px]"
+                    initialContent={caseData.description}
+                    onChange={handleContentChange}
+                    onBlur={handleBlur}
+                  />
                 </FormControl>
-                <FormMessage />
                 <div
                   className={cn(
                     "absolute bottom-4 right-4 z-10 flex items-center justify-end space-x-2",
