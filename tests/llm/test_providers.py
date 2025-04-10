@@ -9,9 +9,10 @@ from typing import Any
 
 import orjson
 import pytest
+from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.responses import Response
 
-from tracecat.llm import async_openai_call
+from tracecat.llm import async_openai_call, async_openai_chat_completion
 
 pytestmark = pytest.mark.llm
 
@@ -31,6 +32,16 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
     params=[
         pytest.param(
             ("openai", async_openai_call),
+            marks=[
+                pytest.mark.skipif(
+                    os.getenv("OPENAI_API_KEY") is None,
+                    reason="Skip OpenAI tests when API key is not available",
+                ),
+                pytest.mark.llm,
+            ],
+        ),
+        pytest.param(
+            ("openai", async_openai_chat_completion),
             marks=[
                 pytest.mark.skipif(
                     os.getenv("OPENAI_API_KEY") is None,
@@ -60,6 +71,8 @@ async def test_user_prompt(call_llm_params: tuple[str, Callable]):
     match response:
         case Response():
             assert "paris" in response.output_text.lower()
+        case ChatCompletion():
+            assert "paris" in response.choices[0].message.content.lower()  # type: ignore
         case _:
             pytest.fail(f"Unexpected response type: {type(response)}")
 
@@ -90,6 +103,8 @@ async def test_memory(call_llm_params: tuple[str, Callable]):
         # OpenAI
         case Response():
             response_content = response.output_text
+        case ChatCompletion():
+            response_content = response.choices[0].message.content  # type: ignore
         case _:
             pytest.fail(f"Unexpected response type: {type(response)}")
 
