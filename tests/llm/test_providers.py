@@ -51,7 +51,7 @@ def load_api_kwargs(provider: str) -> dict[str, Any]:
             ],
         ),
     ],
-    ids=["openai"],
+    ids=["openai_responses", "openai_chat_completion"],
 )
 def call_llm_params(request: pytest.FixtureRequest) -> tuple[str, Callable]:
     return request.param
