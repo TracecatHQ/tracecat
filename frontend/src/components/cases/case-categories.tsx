@@ -4,6 +4,7 @@ import {
   CheckCircleIcon,
   CircleHelpIcon,
   CircleIcon,
+  CirclePauseIcon,
   FlagTriangleRightIcon,
   InfoIcon,
   SignalHighIcon,
@@ -64,7 +65,7 @@ export const STATUSES: CaseBadgeProps<CaseStatus>[] = [
   {
     value: "on_hold",
     label: "On Hold",
-    icon: CircleIcon,
+    icon: CirclePauseIcon,
     color: palette.orange,
   },
 ]
