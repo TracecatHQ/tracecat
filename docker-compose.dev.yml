@@ -4,7 +4,7 @@ services:
     container_name: caddy
     restart: unless-stopped
     ports:
-      - ${PUBLIC_APP_PORT}:80
+      - ${PUBLIC_APP_PORT}:${PUBLIC_APP_PORT}
     environment:
       - BASE_DOMAIN=${BASE_DOMAIN}
       - ADDRESS=${ADDRESS}
@@ -234,8 +234,6 @@ services:
     image: quay.io/podman/stable
     container_name: container-runner
     restart: unless-stopped
-    ports:
-      - 8080:8080
     environment:
       LOG_LEVEL: debug
     user: podman
