@@ -3,14 +3,10 @@
 import React from "react"
 import { CasePriority, CaseSeverity, CaseStatus } from "@/client"
 
-import { cn } from "@/lib/utils"
-import { inputVariants } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
