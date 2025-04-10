@@ -18,7 +18,6 @@ from tracecat.cases.models import (
     CaseRead,
     CaseReadMinimal,
     CaseUpdate,
-    EventActivity,
 )
 from tracecat.cases.service import CaseCommentsService, CaseFieldsService, CasesService
 from tracecat.db.dependencies import AsyncDBSession
@@ -335,21 +334,3 @@ async def delete_field(
     """Delete a case field."""
     service = CaseFieldsService(session, role)
     await service.delete_field(field_id)
-
-
-# Case Activity
-# This is append-only. Once created, a case activity cannot be updated or deleted.
-
-
-@cases_router.get(
-    "/{case_id}/events", status_code=status.HTTP_200_OK, include_in_schema=False
-)
-async def list_events(
-    *,
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    case_id: uuid.UUID,
-) -> list[EventActivity]:
-    """List all events for a case."""
-    # TODO: Implement
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED)
