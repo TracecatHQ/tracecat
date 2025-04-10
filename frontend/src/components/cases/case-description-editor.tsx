@@ -11,7 +11,11 @@ import "@blocknote/core/fonts/inter.css"
 
 import {
   DefaultReactSuggestionItem,
+  DragHandleMenu,
   getDefaultReactSlashMenuItems,
+  RemoveBlockItem,
+  SideMenu,
+  SideMenuController,
   SuggestionMenuController,
   useCreateBlockNote,
 } from "@blocknote/react"
@@ -22,6 +26,7 @@ import "./editor.css"
 
 import { useEffect } from "react"
 import { BlockNoteEditor, filterSuggestionItems } from "@blocknote/core"
+import { Trash2Icon } from "lucide-react"
 
 import { getSpacedBlocks } from "@/lib/rich-text-editor"
 import { cn } from "@/lib/utils"
@@ -98,6 +103,23 @@ export function CaseDescriptionEditor({
           getItems={async (query) =>
             filterSuggestionItems(getCustomSlashMenuItems(editor), query)
           }
+        />
+        <SideMenuController
+          sideMenu={(props) => (
+            <SideMenu
+              {...props}
+              dragHandleMenu={(props) => (
+                <DragHandleMenu {...props}>
+                  <RemoveBlockItem {...props}>
+                    <div className="group flex w-full items-center">
+                      <Trash2Icon className="mr-1 size-3 group-hover:text-red-500" />
+                      <span className="group-hover:text-red-500">Delete</span>
+                    </div>
+                  </RemoveBlockItem>
+                </DragHandleMenu>
+              )}
+            />
+          )}
         />
       </BlockNoteView>
     </div>
