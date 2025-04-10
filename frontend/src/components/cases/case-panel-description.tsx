@@ -43,10 +43,14 @@ export function CasePanelDescription({
     defaultValues: {
       description: caseData?.description || "",
     },
-    values: {
-      description: caseData?.description || "",
-    },
   })
+
+  // Reset form when caseData changes to avoid false dirty states
+  useEffect(() => {
+    form.reset({
+      description: caseData?.description || "",
+    })
+  }, [caseData, form])
 
   // Update save state when form state changes
   useEffect(() => {
@@ -78,14 +82,6 @@ export function CasePanelDescription({
     [updateCase, caseData, form]
   )
 
-  // Handle content change from editor
-  const handleContentChange = useCallback(
-    (markdown: string) => {
-      form.setValue("description", markdown, { shouldDirty: true })
-    },
-    [form]
-  )
-
   // Save on blur
   const handleBlur = () => {
     if (form.formState.isDirty) {
@@ -113,13 +109,15 @@ export function CasePanelDescription({
           <FormField
             control={form.control}
             name="description"
-            render={() => (
+            render={({ field }) => (
               <FormItem className="relative">
                 <FormControl>
                   <CaseDescriptionEditor
                     className="min-h-[250px]"
                     initialContent={caseData.description}
-                    onChange={handleContentChange}
+                    onChange={(content) => {
+                      field.onChange(content)
+                    }}
                     onBlur={handleBlur}
                   />
                 </FormControl>
