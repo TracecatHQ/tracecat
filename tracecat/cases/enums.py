@@ -55,18 +55,3 @@ class CaseStatus(StrEnum):
     RESOLVED = "resolved"
     CLOSED = "closed"
     OTHER = "other"
-
-
-class CaseActivityType(StrEnum):
-    COMMENT = "comment"
-    EVENT = "event"
-
-
-class CaseEventType(StrEnum):
-    STATUS_UPDATE = "status_update"
-    PRIORITY_UPDATE = "priority_update"
-    SEVERITY_UPDATE = "severity_update"
-    FIELD_UPDATE = "field_update"
-    COMMENT_CREATE = "comment_create"
-    COMMENT_UPDATE = "comment_update"
-    COMMENT_DELETE = "comment_delete"
