@@ -88,6 +88,11 @@ curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat
 
 ## Start Tracecat
 
+<Note>
+  If you want to expose Tracecat on a custom port (default is `80`), you can set `PUBLIC_APP_PORT` in the `.env` file.
+  For example, to expose Tracecat UI at `http://localhost:8080`, set `PUBLIC_APP_PORT=8080` in the `.env` file.
+</Note>
+
 Run the command below to start Tracecat and all related services.
 Make sure your `docker-compose.yml` and generated `.env` files are in the same directory.
 
@@ -95,14 +100,14 @@ Make sure your `docker-compose.yml` and generated `.env` files are in the same d
 docker compose up
 ```
 
-Your Tracecat instance should now be running on `http://localhost`.
-To access the Tracecat GUI, visit `http://localhost`.
+Your Tracecat instance should now be running on `http://localhost:${PUBLIC_APP_PORT}`.
+To access the Tracecat GUI, visit `http://localhost:${PUBLIC_APP_PORT}`.
 
 ![welcome-page](/img/self-hosting/welcome-page.png)
 
 <Tip>
   Tracecat comes with a REST API, you can visit the live API docs at
-  `http://localhost/api/docs`.
+  `http://localhost:${PUBLIC_APP_PORT}/api/docs`.
 </Tip>
 
 ## Login
