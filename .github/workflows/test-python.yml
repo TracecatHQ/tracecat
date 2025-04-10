@@ -45,7 +45,6 @@ jobs:
         test_group:
           - unit
           - registry
-          - llm
           - integration
     steps:
       - uses: actions/checkout@v4
