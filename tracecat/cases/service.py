@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import sqlalchemy as sa
+from asyncpg import UndefinedColumnError
+from sqlalchemy.exc import ProgrammingError
 from sqlmodel import cast, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -19,7 +21,7 @@ from tracecat.db.schemas import Case, CaseComment, CaseFields, User
 from tracecat.service import BaseService
 from tracecat.tables.service import TableEditorService, TablesService
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatAuthorizationError
+from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
 
 
 class CasesService(BaseService):
@@ -109,11 +111,6 @@ class CasesService(BaseService):
             if case_fields := case.fields:
                 # Merge existing fields with new fields
                 existing_fields = await self.fields.get_fields(case) or {}
-                self.logger.info(
-                    "Existing fields",
-                    existing_fields=existing_fields,
-                    fields=fields,
-                )
                 existing_fields.update(fields)
                 await self.fields.update_field_values(case_fields.id, existing_fields)
             else:
@@ -227,9 +224,21 @@ class CaseFieldsService(BaseService):
         await self.session.flush()  # Populate the ID
 
         # This will use the created case_fields ID
-        res = await self.editor.update_row(row_id=case_fields.id, data=fields)
-        await self.session.flush()
-        return res
+        try:
+            res = await self.editor.update_row(row_id=case_fields.id, data=fields)
+            await self.session.flush()
+            return res
+        except ProgrammingError as e:
+            while cause := e.__cause__:
+                e = cause
+            if isinstance(e, UndefinedColumnError):
+                raise TracecatException(
+                    f"Failed to create case fields. {str(e).replace('relation', 'table').capitalize()}."
+                    " Please ensure these fields have been created and try again."
+                ) from e
+            raise TracecatException(
+                f"Unexpected error creating case fields: {e}"
+            ) from e
 
     async def update_field_values(self, id: uuid.UUID, fields: dict[str, Any]) -> None:
         """Update a case field value. Non-transactional.
@@ -238,7 +247,19 @@ class CaseFieldsService(BaseService):
             id: The id of the case field to update
             fields: The fields to update
         """
-        await self.editor.update_row(id, fields)
+        try:
+            await self.editor.update_row(id, fields)
+        except ProgrammingError as e:
+            while cause := e.__cause__:
+                e = cause
+            if isinstance(e, UndefinedColumnError):
+                raise TracecatException(
+                    f"Failed to update case fields. {str(e).replace('relation', 'table').capitalize()}."
+                    " Please ensure these fields have been created and try again."
+                ) from e
+            raise TracecatException(
+                f"Unexpected error updating case fields: {e}"
+            ) from e
 
 
 class CaseCommentsService(BaseService):

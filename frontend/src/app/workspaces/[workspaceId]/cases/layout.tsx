@@ -13,7 +13,7 @@ import {
   BreadcrumbList,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { CaseTableInsertButton } from "@/components/cases/case-table-insert-button"
+import { CaseTableInsertButton } from "@/components/cases/case-table-manage-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
 
 function BreadcrumbNavigation() {

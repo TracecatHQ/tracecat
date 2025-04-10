@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useWorkspace } from "@/providers/workspace"
-import { ChevronDownIcon, KeyRoundIcon } from "lucide-react"
+import { BracesIcon, ChevronDownIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -35,11 +35,11 @@ export function CaseTableInsertButton() {
               router.push(`/workspaces/${workspaceId}/cases/fields`)
             }
           >
-            <KeyRoundIcon className="size-4 text-foreground/80" />
+            <BracesIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Case Fields</span>
+              <span>Custom Fields</span>
               <span className="text-xs text-muted-foreground">
-                Manage case fields schema
+                Manage custom fields
               </span>
             </div>
           </DropdownMenuItem>
