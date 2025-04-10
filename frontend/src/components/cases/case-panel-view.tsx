@@ -7,6 +7,7 @@ import { format, formatDistanceToNow } from "date-fns"
 
 import { useGetCase, useUpdateCase } from "@/lib/hooks"
 import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
@@ -16,7 +17,6 @@ import {
   StatusSelect,
 } from "@/components/cases/case-panel-selectors"
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
-import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 
 interface CasePanelContentProps {
@@ -35,7 +35,26 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   })
 
   if (caseDataIsLoading) {
-    return <CenteredSpinner />
+    return (
+      <div className="flex h-full flex-col space-y-4 p-4">
+        <div className="flex items-center justify-between border-b p-4">
+          <div className="flex items-center space-x-4">
+            <Skeleton className="h-6 w-20" />
+            <div className="flex items-center space-x-2">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-4 w-40" />
+            </div>
+          </div>
+        </div>
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-[250px] w-full" />
+        <div className="flex space-x-4">
+          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-8 w-24" />
+        </div>
+      </div>
+    )
   }
   if (caseDataError || !caseData) {
     return (
