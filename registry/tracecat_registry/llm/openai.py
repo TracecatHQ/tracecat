@@ -105,7 +105,7 @@ async def chat_completion(
         model=model,
         memory=memory,  # type: ignore
         system_prompt=system_prompt,
-        response_format=response_format,
+        response_format=response_format,  # type: ignore
         api_key=secrets.get("OPENAI_API_KEY"),
         base_url=base_url,
     )
