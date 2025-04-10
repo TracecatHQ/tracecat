@@ -133,53 +133,38 @@ def format_fields_context(
         list[dict[str, Any]],
         Field(
             ...,
-            description='Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`)',
+            description=(
+                'Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`).'
+                'Include an `image_url` key per field to display an image (e.g. `[{"status": "critical", "image_url": "https://example.com/image.png"}]`).'
+            ),
         ),
     ],
-    images: Annotated[
-        list[str] | None,
-        Field(..., description="List of image URLs to display alongside the fields."),
-    ] = None,
     block_id: Annotated[
         str | None,
         Field(..., description="Block ID. If None, defaults to `tc-links`."),
     ] = None,
 ) -> dict[str, Any]:
     block_id = block_id or "tc_fields_context"
-    fields_pairs = [d.popitem() for d in fields]
-    if images:
-        elements = []
-        for image_url, fields_item in zip_longest(images, fields_pairs):
-            k, v = fields_item
-            text = f"{k}: *{v}*"
-            if image_url:
-                elements.append(
-                    {
-                        "type": "image",
-                        "image_url": image_url,
-                        "alt_text": text,
-                    }
-                )
+    elements = []
+    for field in fields:
+        image_url = field.pop("image_url", None)
+        k, v = field.popitem()
+        text = f"{k}: *{v}*"
+        if image_url:
             elements.append(
                 {
-                    "type": "mrkdwn",
-                    "text": text,
+                    "type": "image",
+                    "image_url": image_url,
+                    "alt_text": text,
                 }
             )
-    else:
-        elements = [
+        elements.append(
             {
                 "type": "mrkdwn",
-                "text": f"{k}: *{v}*",
+                "text": text,
             }
-            for k, v in fields_pairs
-        ]
-
-    block = {
-        "type": "context",
-        "elements": elements,
-        "block_id": block_id,
-    }
+        )
+    block = {"type": "context", "elements": elements, "block_id": block_id}
     return block
 
 

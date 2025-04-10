@@ -16,12 +16,8 @@ definition:
     fields:
       type: list[dict[str, any]]
       description: >-
-        List of fields to display in the notification
-        (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
-    images:
-      type: list[str] | None
-      description: List of image URLs (e.g. user profile images) to display per metadata field.
-      default: null
+        List of fields to display in the update (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
+        Include an `image_url` key per field to display an image (e.g. `[{"user": "chris@tracecat.com", "image_url": "https://example.com/image.png"}]`).
     channel:
       type: str
       description: ID that represents a channel, private group, or IM channel.
@@ -34,7 +30,6 @@ definition:
       action: tools.slack_blocks.format_fields_context
       args:
         fields: ${{ inputs.fields }}
-        images: ${{ inputs.field_images }}
     - ref: blocks
       action: core.transform.reshape
       args:
