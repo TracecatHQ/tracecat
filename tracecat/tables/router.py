@@ -132,11 +132,22 @@ async def get_table(
             detail=str(e),
         ) from e
 
+    # Get natural key info or default to empty dict if not present
+    natural_key_info = await service.get_index(table)
+
+    # Convert to response model (includes is_index field)
     return TableRead(
         id=table.id,
         name=table.name,
         columns=[
-            TableColumnRead.model_validate(column, from_attributes=True)
+            TableColumnRead(
+                id=column.id,
+                name=column.name,
+                type=column.type,
+                nullable=column.nullable,
+                default=column.default,
+                is_index=natural_key_info.get(column.name, False),
+            )
             for column in table.columns
         ],
     )
@@ -339,12 +350,23 @@ async def insert_row(
     service = TablesService(session, role=role)
     try:
         table = await service.get_table(table_id)
+        await service.insert_row(table, params)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    await service.insert_row(table, params)
+    except ValueError as e:
+        if "duplicate values" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Duplicate value detected in a unique column. Please use a different value.",
+            ) from e
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            ) from e
 
 
 @router.delete("/{table_id}/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT)

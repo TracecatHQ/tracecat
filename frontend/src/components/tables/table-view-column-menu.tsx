@@ -9,6 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   ChevronDownIcon,
   CopyIcon,
+  KeyIcon,
   Loader2,
   Pencil,
   Trash2Icon,
@@ -64,7 +65,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 
-type TableViewColumnMenuType = "delete" | "edit" | null
+type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
 
 export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
   const { user } = useAuth()
@@ -109,6 +110,17 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 className="py-1 text-xs text-foreground/80"
                 onClick={(e) => {
                   e.stopPropagation()
+                  setActiveType("set-natural-key")
+                }}
+                disabled={column.is_index}
+              >
+                <KeyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
+                {column.is_index ? "Natural Key" : "Make natural key"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="py-1 text-xs text-foreground/80"
+                onClick={(e) => {
+                  e.stopPropagation()
                   setActiveType("edit")
                 }}
               >
@@ -139,6 +151,12 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
         tableId={tableId}
         column={column}
         open={activeType === "edit"}
+        onOpenChange={onOpenChange}
+      />
+      <TableColumnIndexDialog
+        tableId={tableId}
+        column={column}
+        open={activeType === "set-natural-key"}
         onOpenChange={onOpenChange}
       />
     </>
@@ -382,5 +400,117 @@ function TableColumnEditDialog({
         </Form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function TableColumnIndexDialog({
+  tableId,
+  column,
+  open,
+  onOpenChange,
+}: {
+  tableId?: string
+  column: TableColumnRead
+  open: boolean
+  onOpenChange: () => void
+}) {
+  const { workspaceId } = useWorkspace()
+  const { updateColumn, updateColumnIsPending } = useUpdateColumn()
+
+  if (!tableId || !workspaceId) {
+    return null
+  }
+
+  if (column.is_index) {
+    return (
+      <AlertDialog open={open} onOpenChange={onOpenChange}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Column is already a Natural Key</AlertDialogTitle>
+            <AlertDialogDescription>
+              Column <b>{column.name}</b> is already a natural key with a unique
+              index.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    )
+  }
+
+  const handleSetIndex = async () => {
+    try {
+      const updates = {
+        is_index: true,
+      }
+
+      await updateColumn({
+        tableId,
+        columnId: column.id,
+        workspaceId,
+        requestBody: updates,
+      })
+
+      toast({
+        title: "Natural key created",
+        description: "Column is now a natural key.",
+      })
+
+      onOpenChange()
+    } catch (error) {
+      console.error("Error creating natural key:", error)
+    }
+  }
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={() => {
+        if (!updateColumnIsPending) {
+          onOpenChange()
+        }
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Create Natural Key</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to make column <b>{column.name}</b> a natural
+            key? This will create a unique index on the column, making it usable
+            for upsert operations.
+            <br />
+            <br />
+            <strong>Requirements:</strong>
+            <ul className="mt-2 list-disc pl-5 text-xs">
+              <li>All values in the column must be unique</li>
+              <li>This cannot be undone except by recreating the column</li>
+            </ul>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={updateColumnIsPending}>
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleSetIndex}
+            disabled={updateColumnIsPending}
+          >
+            {updateColumnIsPending ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              <>
+                <KeyIcon className="mr-2 size-4" />
+                Create Natural Key
+              </>
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

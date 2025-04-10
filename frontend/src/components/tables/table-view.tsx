@@ -5,6 +5,7 @@ import { useParams } from "next/navigation"
 import { TableColumnRead, TableRead, TableRowRead } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { CellContext, ColumnDef } from "@tanstack/react-table"
+import { KeyIcon } from "lucide-react"
 
 import { useListRows } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
@@ -72,6 +73,12 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
             {column.name}
           </span>
           <span className="lowercase text-muted-foreground">{column.type}</span>
+          {column.is_index && (
+            <span className="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-100">
+              <KeyIcon className="mr-1 size-3" />
+              Key
+            </span>
+          )}
           <TableViewColumnMenu column={column} />
         </div>
       ),

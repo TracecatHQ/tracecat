@@ -2159,17 +2159,44 @@ export function useUpdateColumn() {
         queryKey: ["table", variables.tableId],
       })
     },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 403:
+    onError: (error: TracecatApiError, variables) => {
+      // Check if this was a natural key operation
+      const isIndexOperation = !!variables.requestBody?.is_index
+
+      if (isIndexOperation) {
+        // Handle natural key specific errors
+        if (error.status === 409) {
           toast({
-            title: "Forbidden",
-            description: "You cannot perform this action",
+            title: "Error creating natural key",
+            description:
+              "Column contains duplicate values. All values must be unique.",
+            variant: "destructive",
           })
-          break
-        default:
-          console.error("Error updating column", error)
-          break
+        } else {
+          toast({
+            title: "Error creating natural key",
+            description: error.message || "An unexpected error occurred",
+            variant: "destructive",
+          })
+        }
+      } else {
+        // Handle regular column update errors
+        switch (error.status) {
+          case 403:
+            toast({
+              title: "Forbidden",
+              description: "You cannot perform this action",
+            })
+            break
+          default:
+            console.error("Error updating column", error)
+            toast({
+              title: "Error updating column",
+              description: error.message || "An unexpected error occurred",
+              variant: "destructive",
+            })
+            break
+        }
       }
     },
   })
@@ -2244,6 +2271,7 @@ export function useBatchInsertRows() {
 
 export function useInsertRow() {
   const queryClient = useQueryClient()
+
   const {
     mutateAsync: insertRow,
     isPending: insertRowIsPending,
@@ -2255,6 +2283,22 @@ export function useInsertRow() {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
+    },
+    onError: (error: TracecatApiError, variables) => {
+      if (error.status === 409) {
+        toast({
+          title: "Duplicate Value Error",
+          description:
+            "Cannot insert duplicate values in a unique column. Please use unique values.",
+          variant: "destructive",
+        })
+      } else {
+        toast({
+          title: "Error inserting row",
+          description: error.message || "An unexpected error occurred",
+          variant: "destructive",
+        })
+      }
     },
   })
 

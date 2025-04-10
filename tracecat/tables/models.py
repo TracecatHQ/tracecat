@@ -16,6 +16,7 @@ class TableColumnRead(BaseModel):
     type: SqlType
     nullable: bool = True
     default: Any | None = None
+    is_index: bool = False
 
 
 class TableColumnCreate(BaseModel):
@@ -71,6 +72,10 @@ class TableColumnUpdate(BaseModel):
         default=None,
         description="The default value of the column",
     )
+    is_index: bool | None = Field(
+        default=None,
+        description="Whether the column is an index",
+    )
 
 
 class TableRowRead(BaseModel):
@@ -86,6 +91,11 @@ class TableRowInsert(BaseModel):
     """Insert model for a table row."""
 
     data: dict[str, Any]
+    upsert: bool = False
+    natural_keys: list[str] = Field(
+        default_factory=list,
+        description="The columns of the table to use for upsert",
+    )
 
 
 class TableRowInsertBatch(BaseModel):
