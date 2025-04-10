@@ -29,8 +29,8 @@ function CollapsibleText({ text }: { text: string }) {
     }
 
     updateWidth()
-    window.addEventListener('resize', updateWidth)
-    return () => window.removeEventListener('resize', updateWidth)
+    window.addEventListener("resize", updateWidth)
+    return () => window.removeEventListener("resize", updateWidth)
   }, [])
 
   // Estimate characters per line based on container width (assumes monospace font)
@@ -40,7 +40,9 @@ function CollapsibleText({ text }: { text: string }) {
   if (!isExpanded) {
     return (
       <div ref={containerRef} className="flex items-center">
-        <span className="truncate text-xs">{text.substring(0, charsPerLine)}</span>
+        <span className="truncate text-xs">
+          {text.substring(0, charsPerLine)}
+        </span>
         <Button
           variant="ghost"
           size="sm"
