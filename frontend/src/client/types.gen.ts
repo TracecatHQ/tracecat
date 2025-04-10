@@ -344,6 +344,10 @@ export type CaseFieldUpdate = {
    * The default value of the column
    */
   default?: unknown | null
+  /**
+   * Whether the column is an index
+   */
+  is_index?: boolean | null
 }
 
 /**
@@ -1480,6 +1484,10 @@ export type TableRowInsert = {
     [key: string]: unknown
   }
   upsert?: boolean
+  /**
+   * The columns of the table to use for upsert
+   */
+  natural_keys?: Array<string>
 }
 
 /**

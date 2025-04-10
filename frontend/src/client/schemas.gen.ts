@@ -1153,6 +1153,18 @@ export const $CaseFieldUpdate = {
       title: "Default",
       description: "The default value of the column",
     },
+    is_index: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Index",
+      description: "Whether the column is an index",
+    },
   },
   type: "object",
   title: "CaseFieldUpdate",
@@ -4364,6 +4376,11 @@ export const $TableColumnRead = {
       ],
       title: "Default",
     },
+    is_index: {
+      type: "boolean",
+      title: "Is Index",
+      default: false,
+    },
   },
   type: "object",
   required: ["id", "name", "type"],
@@ -4421,6 +4438,18 @@ export const $TableColumnUpdate = {
       ],
       title: "Default",
       description: "The default value of the column",
+    },
+    is_index: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Index",
+      description: "Whether the column is an index",
     },
   },
   type: "object",
@@ -4500,6 +4529,19 @@ export const $TableRowInsert = {
     data: {
       type: "object",
       title: "Data",
+    },
+    upsert: {
+      type: "boolean",
+      title: "Upsert",
+      default: false,
+    },
+    natural_keys: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Natural Keys",
+      description: "The columns of the table to use for upsert",
     },
   },
   type: "object",
