@@ -8,6 +8,7 @@ icon: user-lock
 
 - [Okta](#okta)
 - [Microsoft Entra ID](#microsoft-entra-id)
+- [Authentik](#authentik)
 
 ## Configuration
 
@@ -68,5 +69,54 @@ TRACECAT__SETTING_OVERRIDE_SAML_ENABLED=true
     </Step>
     <Step title="Configure attribute and claims">
         Map `email` to `user.mail`
+    </Step>
+</Steps>
+
+### Authentik
+
+<Steps>
+    <Step title="Create a provider">
+        Go to **Providers** and select the **Create** button.
+        Choose **SAML Provider** and select the **Next** button.
+    </Step>
+    <Step title="Configure the provider">
+        - Enter a name and choose an authorization flow
+        - Set the **ACS URL** to `https://<your-tracecat-instance>/auth/saml/acs`.
+        - Set the **Audience** to `https://<your-tracecat-instance>/api`.
+
+        ![Authentik Provider](/img/self-hosting/authentik-provider.png)
+    </Step>
+    <Step title="Configure assertion signing">
+        - Expand the **Advanced protocol settings** section.
+        - Select a **Signing Certificate** and ensure **Sign assertions** is enabled.
+
+        ![Authentik Provider](/img/self-hosting/authentik-assertion-signing.png)
+    </Step>
+    <Step title="Configure property mapping">
+        - Select **authentik default SAML Mapping: Name** in **Selected User Property Mappings**.
+        - Click the **&lt;** button to deselect it.
+        - Select the **Finish** button.
+
+        ![Authentik Provider](/img/self-hosting/authentik-property-mapping.png)
+    </Step>
+    <Step title="Create an Application">
+        Go to **Applications** and select the **Create** button.
+        Fill in the details as desired.
+    </Step>
+    <Step title="Find metadata URL">
+        - Select the provider you created previously.
+        - Select the **Metadata** tab.
+        - Select the **Copy download URL** button.
+    </Step>
+    <Step title="Configure SAML settings in environment variables">
+        Set the following environment variables in your `.env` file:
+        - `SAML_IDP_METADATA_URL`: Metadata download URL
+    </Step>
+    <Step title="Restart Tracecat instance">
+        Restart Tracecat to apply the changes.
+    </Step>
+    <Step title="Test SSO configuration">
+        Navigate to your Tracecat instance and click on the **Login** button.
+        You should be redirected to Authentik for authentication.
     </Step>
 </Steps>
