@@ -1,7 +1,6 @@
 import contextlib
 import json
-import os
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator
 from typing import Literal
 
 import boto3
@@ -9,7 +8,6 @@ from botocore.exceptions import ClientError
 from loguru import logger
 from sqlalchemy import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-from sqlmodel import Session, create_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
@@ -39,7 +37,7 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
     if config.TRACECAT__DB_USER and config.TRACECAT__DB_PASS__ARN:
         logger.info("Retrieving database password from AWS Secrets Manager...")
         try:
-            session = boto3.session.Session()
+            session = boto3.session.Session()  # type: ignore
             client = session.client(service_name="secretsmanager")
             response = client.get_secret_value(SecretId=config.TRACECAT__DB_PASS__ARN)
             password = json.loads(response["SecretString"])["password"]
@@ -88,46 +86,16 @@ def _get_db_uri(driver: Literal["psycopg", "asyncpg"] = "psycopg") -> str:
     return uri
 
 
-def _create_db_engine() -> Engine:
-    if config.TRACECAT__APP_ENV == "production":
-        # Postgres
-        sslmode = os.getenv("TRACECAT__DB_SSLMODE", "require")
-        engine_kwargs = {
-            "pool_timeout": 30,
-            "pool_recycle": 3600,
-            "connect_args": {"sslmode": sslmode},
-        }
-    else:
-        # Postgres as default
-        engine_kwargs = {
-            "pool_timeout": 30,
-            "pool_recycle": 3600,
-            "connect_args": {"sslmode": "disable"},
-        }
-
-    uri = _get_db_uri(driver="psycopg")
-    return create_engine(uri, **engine_kwargs)
-
-
 def _create_async_db_engine() -> AsyncEngine:
     # Postgres as default
     engine_kwargs = {
-        "pool_size": 100,
-        "max_overflow": 100,
-        "pool_recycle": 1000,  # Recycle connections after 30 mins
+        "max_overflow": config.TRACECAT__DB_MAX_OVERFLOW,
+        "pool_recycle": config.TRACECAT__DB_POOL_RECYCLE,
+        "pool_size": config.TRACECAT__DB_POOL_SIZE,
         "pool_use_lifo": True,  # Better for burst workloads
     }
-
     uri = _get_db_uri(driver="asyncpg")
     return create_async_engine(uri, **engine_kwargs)
-
-
-def get_engine() -> Engine:
-    """Get the db sync connection pool."""
-    global _engine
-    if _engine is None:
-        _engine = _create_db_engine()
-    return _engine
 
 
 def get_async_engine() -> AsyncEngine:
@@ -138,19 +106,10 @@ def get_async_engine() -> AsyncEngine:
     return _async_engine
 
 
-def get_session() -> Generator[Session, None, None]:
-    with Session(get_engine()) as session:
-        yield session
-
-
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async_engine = get_async_engine()
     async with AsyncSession(async_engine, expire_on_commit=False) as async_session:
         yield async_session
-
-
-def get_session_context_manager() -> contextlib.AbstractContextManager[Session]:
-    return contextlib.contextmanager(get_session)()
 
 
 def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManager[
