@@ -5,9 +5,9 @@ import orjson
 import pytest
 from fastapi import HTTPException
 
+from tracecat.config import EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.constants import PAYLOAD_MAX_SIZE_BYTES
 from tracecat.executor.router import run_action
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.types.auth import Role
@@ -79,11 +79,11 @@ async def test_run_action_payload_too_large(
 
     # Create a payload that exceeds the size limit when serialized
     # Generate a large string to create a serialized result > PAYLOAD_MAX_SIZE_BYTES
-    large_data = "x" * (PAYLOAD_MAX_SIZE_BYTES + 1000)
+    large_data = "x" * (EXECUTOR_PAYLOAD_MAX_SIZE_BYTES + 1000)
     large_result = {"result": large_data}
 
     # Ensure it actually exceeds the limit when serialized
-    assert len(orjson.dumps(large_result)) > PAYLOAD_MAX_SIZE_BYTES
+    assert len(orjson.dumps(large_result)) > EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
 
     # Mock the dispatch function to return the large result
     with patch("tracecat.executor.router.dispatch_action_on_cluster") as mock_dispatch:
@@ -102,7 +102,7 @@ async def test_run_action_payload_too_large(
         assert exc_info.value.status_code == 413
         # Verify the exception has the correct detail
         assert (
-            f"exceeds the size limit of {PAYLOAD_MAX_SIZE_BYTES / 1000}KB"
+            f"exceeds the size limit of {EXECUTOR_PAYLOAD_MAX_SIZE_BYTES / 1000}KB"
             in exc_info.value.detail
         )
 
@@ -119,12 +119,12 @@ async def test_run_action_payload_exactly_at_limit(
     template_overhead = len(orjson.dumps(result_template))
 
     # Calculate how many characters we can add to hit the exact limit
-    chars_to_add = PAYLOAD_MAX_SIZE_BYTES - template_overhead
+    chars_to_add = EXECUTOR_PAYLOAD_MAX_SIZE_BYTES - template_overhead
     exact_sized_result = {"result": "x" * chars_to_add}
 
     # Confirm it's exactly at the limit
     serialized = orjson.dumps(exact_sized_result)
-    assert len(serialized) == PAYLOAD_MAX_SIZE_BYTES
+    assert len(serialized) == EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
 
     # Mock the dispatch function
     with patch("tracecat.executor.router.dispatch_action_on_cluster") as mock_dispatch:
@@ -153,13 +153,15 @@ async def test_run_action_payload_size_just_over_limit(
     template_overhead = len(orjson.dumps(result_template))
 
     # Calculate how many characters we need to exceed the limit by 1 byte
-    chars_to_add = PAYLOAD_MAX_SIZE_BYTES - template_overhead + 1
+    chars_to_add = EXECUTOR_PAYLOAD_MAX_SIZE_BYTES - template_overhead + 1
     slightly_oversized_result = {"result": "x" * chars_to_add}
 
     # Confirm it exceeds the limit by a small amount
     serialized = orjson.dumps(slightly_oversized_result)
-    assert len(serialized) > PAYLOAD_MAX_SIZE_BYTES
-    assert len(serialized) <= PAYLOAD_MAX_SIZE_BYTES + 10  # Should be just over
+    assert len(serialized) > EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
+    assert (
+        len(serialized) <= EXECUTOR_PAYLOAD_MAX_SIZE_BYTES + 10
+    )  # Should be just over
 
     # Mock the dispatch function
     with patch("tracecat.executor.router.dispatch_action_on_cluster") as mock_dispatch:

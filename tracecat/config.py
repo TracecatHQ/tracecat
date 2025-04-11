@@ -234,3 +234,4 @@ TRACECAT__TRUSTED_DOCKER_IMAGES = (
 """List of trusted docker images.
 If not provided, no images will be trusted.
 """
+EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = 128_000
