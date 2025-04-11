@@ -4,6 +4,7 @@ import React from "react"
 import { CasePriority, CaseSeverity, CaseStatus, CaseUpdate } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { format, formatDistanceToNow } from "date-fns"
+import { Braces, List, PlayCircle } from "lucide-react"
 
 import { useGetCase, useUpdateCase } from "@/lib/hooks"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +18,7 @@ import {
   StatusSelect,
 } from "@/components/cases/case-panel-selectors"
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
+import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
 
 interface CasePanelContentProps {
@@ -126,7 +128,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
         {/* Right column - Details & Custom Fields */}
         <div className="col-span-3 space-y-6">
           <div className="bg-card p-4">
-            <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
+            <h3 className="mb-3 flex items-center text-sm font-semibold text-muted-foreground">
+              <List className="mr-2 size-4" />
               Details
             </h3>
             <div className="space-y-4">
@@ -173,7 +176,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
           {/* Custom Fields */}
           <div className="bg-card p-4">
-            <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
+            <h3 className="mb-3 flex items-center text-sm font-semibold text-muted-foreground">
+              <Braces className="mr-2 size-4" strokeWidth={1.5} />
               Custom Fields
             </h3>
             {customFields.length === 0 ? (
@@ -181,7 +185,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 No custom fields have been added yet
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="min-h-20 space-y-4">
                 {customFields.map((field) => (
                   <div key={field.id} className="grid grid-cols-3 items-center">
                     <span className="text-sm font-medium text-muted-foreground">
@@ -194,6 +198,15 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Workflow Trigger */}
+          <div className="bg-card p-4">
+            <h3 className="mb-3 flex items-center text-sm font-semibold text-muted-foreground">
+              <PlayCircle className="mr-2 size-4" />
+              Trigger Workflow
+            </h3>
+            <CaseWorkflowTrigger caseData={caseData} />
           </div>
         </div>
       </div>

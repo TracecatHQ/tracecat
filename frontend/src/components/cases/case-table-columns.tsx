@@ -3,6 +3,7 @@
 import { CaseReadMinimal } from "@/client"
 import { ColumnDef } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
+import fuzzysort from "fuzzysort"
 
 import {
   Tooltip,
@@ -49,7 +50,8 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       )
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["summary"]>(id))
+      const rowValue = String(row.getValue<CaseReadMinimal["summary"]>(id))
+      return fuzzysort.single(String(value), rowValue) !== null
     },
   },
   {

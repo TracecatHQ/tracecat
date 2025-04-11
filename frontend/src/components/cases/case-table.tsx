@@ -44,7 +44,7 @@ export default function CaseTable() {
 }
 const defaultToolbarProps: DataTableToolbarProps = {
   filterProps: {
-    placeholder: "Filter cases...",
+    placeholder: "Filter cases by summary...",
     column: "summary",
   },
   fields: [
