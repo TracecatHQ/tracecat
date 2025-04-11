@@ -234,3 +234,7 @@ TRACECAT__TRUSTED_DOCKER_IMAGES = (
 """List of trusted docker images.
 If not provided, no images will be trusted.
 """
+TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES", 128_000)
+)
+"""The maximum size of a payload in bytes the executor can return."""

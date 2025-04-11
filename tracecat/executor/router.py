@@ -5,10 +5,10 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic_core import to_jsonable_python
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.config import TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
 from tracecat.contexts import ctx_logger
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.models import RunActionInput
-from tracecat.executor.constants import PAYLOAD_MAX_SIZE_BYTES
 from tracecat.executor.models import ExecutorActionErrorInfo
 from tracecat.executor.service import dispatch_action_on_cluster
 from tracecat.logger import logger
@@ -46,10 +46,10 @@ async def run_action(
         result = await dispatch_action_on_cluster(input=action_input, session=session)
         serialized = orjson.dumps(result, default=to_jsonable_python)
         ser_size = len(serialized)
-        if ser_size > PAYLOAD_MAX_SIZE_BYTES:
+        if ser_size > TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES:
             raise PayloadSizeExceeded(
                 f"The action's return value exceeds the size limit of"
-                f" {PAYLOAD_MAX_SIZE_BYTES / 1000}KB"
+                f" {TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES / 1000}KB"
             )
         return result
     except TracecatSettingsError as e:
