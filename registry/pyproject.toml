@@ -21,9 +21,6 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
-    "adbc-driver-postgresql==1.0.0",
-    "adbc-driver-snowflake==1.0.0",
-    "adbc-driver-sqlite==1.0.0",
     "ansible==11.1.0",
     "ansible-runner==2.4.0",
     "aioboto3==13.0.1",
