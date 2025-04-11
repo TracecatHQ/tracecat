@@ -76,15 +76,23 @@ function flattenObject(
     return acc
   }, {})
 }
+
+type JsonViewWithControlsTabs = "flat" | "nested"
+interface JsonViewWithControlsProps {
+  src: unknown
+  defaultExpanded?: boolean
+  defaultTab?: JsonViewWithControlsTabs
+  showControls?: boolean
+  copyPrefix?: string
+}
+
 export function JsonViewWithControls({
   src,
   defaultExpanded = false,
+  defaultTab = "flat",
+  showControls = true,
   copyPrefix,
-}: {
-  src: unknown
-  defaultExpanded?: boolean
-  copyPrefix?: string
-}): JSX.Element {
+}: JsonViewWithControlsProps): JSX.Element {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
 
   // Memoize the source data to prevent unnecessary re-renders
@@ -105,17 +113,18 @@ export function JsonViewWithControls({
   const { isCollapsible, flattenedSrc, originalSrc } = memoizedSrc
 
   const tabItems = React.useMemo(
-    () => [
-      { value: "flat", label: "Flat", src: flattenedSrc },
-      { value: "nested", label: "Nested", src: originalSrc },
-    ],
+    () =>
+      [
+        { value: "flat", label: "Flat", src: flattenedSrc },
+        { value: "nested", label: "Nested", src: originalSrc },
+      ] as { value: JsonViewWithControlsTabs; label: string; src: unknown }[],
     [flattenedSrc, originalSrc]
   )
 
   return (
     <div className="w-full space-y-2 overflow-x-auto">
-      <Tabs defaultValue="flat">
-        {isCollapsible && (
+      <Tabs defaultValue={defaultTab}>
+        {showControls && isCollapsible && (
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
