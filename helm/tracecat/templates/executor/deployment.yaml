@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracecat-executor
+  namespace: {{ .Release.Namespace }}
+{{- if .Values.executor.deployment.annotations }}
+  annotations:
+    {{- range $key, $value := .Values.executor.deployment.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+  labels:
+    app: tracecat
+    chart: "{{ template "chart.fullname" . }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+    app.kubernetes.io/component: executor
+    app.kubernetes.io/name: "{{ .Chart.Name }}"
+    app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.executor.deployment.labels }}
+    {{- range $key, $value := .Values.executor.deployment.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+spec:
+  replicas: {{ .Values.executor.replicaCount }}
+  strategy:
+    type: {{ .Values.executor.strategyType }}
+  selector:
+    matchLabels:
+      app: tracecat
+      app.kubernetes.io/component: executor
+  template:
+    metadata:
+{{- if .Values.executor.pods.annotations }}
+      annotations:
+        {{- range $key, $value := .Values.executor.pods.annotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+{{- end }}
+      labels:
+        app: tracecat
+        app.kubernetes.io/component: executor
+        app.kubernetes.io/name: "{{ .Chart.Name }}"
+        app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.executor.pods.labels }}
+        {{- range $key, $value := .Values.executor.pods.labels}}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+{{- end }}
+    spec:
+      containers:
+        - name: "tracecat-executor"
+          image: "{{ include "tracecat.image" .Values.executor }}"
+          imagePullPolicy: "{{ ((.Values.executor.image).pullPolicy) | default "Always" }}"
+          command: ["python", "-m", "uvicorn", "tracecat.api.executor:app", "--host", "0.0.0.0", "--port", "{{ .Values.executor.service.port }}"]
+{{- if .Values.executor.resources }}
+          resources:
+{{ toYaml .Values.executor.resources | indent 10 }}
+{{- end }}
+          env:
+            - name: LOG_LEVEL
+              value: "{{ .Values.global.log_level }}"
+            - name: TRACECAT__APP_ENV
+              value: "{{ .Values.global.app_env }}"
+            - name: TRACECAT__DB_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: databaseEncryptionKey
+            - name: TRACECAT__DB_SSLMODE
+              value: "{{ .Values.database.db_sslmode }}"
+            - name: TRACECAT__DB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: databaseUri
+            - name: TRACECAT__SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: serviceKey
+            # Remote registry
+            - name: TRACECAT__ALLOWED_GIT_DOMAINS
+              value: "{{ join "," .Values.remote_repository.allowed_domains }}"
+{{- if (ne .Values.remote_repository.url "") }}
+            - name: TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME
+              value: "{{ .Values.remote_repository.url }}"
+{{- end }}
+{{- if (ne .Values.remote_repository.package_name "") }}
+            - name: TRACECAT__REMOTE_REPOSITORY_URL
+              value: "{{ .Values.remote_repository.package_name }}"
+{{- end }}
+            # Email
+            - name: TRACECAT__ALLOWED_EMAIL_ATTRIBUTES
+              value: "{{ join "," .Values.email.allowed_attributes }}"
+          ports:
+            - containerPort: {{ .Values.executor.service.port }}

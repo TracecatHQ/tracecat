@@ -65,7 +65,50 @@ terraform apply
 
 ### Run Tracecat on Kubernetes
 
-Coming soon.
+#### Helm Chart
+
+There is a community contributed helm chart available in this git repo. This chart will deploy Tracecat pods, as well
+as a Temporal pod, but will not deploy Postgres. You can optionally disable the Temporal pod and point to an existing
+Temporal cluster if desired. You can deploy the chart by cloning this repo and running `helm install`:
+
+```bash
+git clone https://github.com/TracecatHQ/tracecat.git
+helm install tracecat ./helm/tracecat
+```
+
+You'll also need to create a kubernetes Secret to contain sensitive values. By default, the chart expects this secret
+to be called `tracecat-envvars`. You'll need to fill in all of the applicable values:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tracecat-envvars
+  namespace: ""
+type: Opaque
+stringData:
+  # Used to encrypt/decrypt sensitive keys in the database
+  # Can be generated using `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+  databaseEncryptionKey: "your-tracecat-db-fernet-key"
+  # Used to authenticate with Tracecat services
+  # Can be generated using `openssl rand -hex 32`
+  serviceKey: "your-tracecat-service-key"
+  # Used to generate private webhook URLs
+  # Can be generated using `openssl rand -hex 32`
+  signingSecret: ""
+  # URI used for Tracecat database. NOTE: The helm chart assumes this database already exists!
+  databaseUri: "postgresql+psycopg://your-tracecat-postgres-user:your-tracecat-postgres-password@postgres_host:5432/database"
+  # Password used by Temporal to connect to its database. NOTE: this is just the password, not a full URI
+  temporalDatabasePassword: "temporal"
+  # Google OAuth settings
+  oauthClientId: ""
+  oauthClientSecret: ""
+  userAuthSecret: "your-auth-secret"
+```
+
+Refer to [values.yaml](helm/chart/values.yaml) for the full list of default values.
+
+> NOTE: The versioning scheme of the helm chart differs from the versioning scheme of Tracecat itself.
 
 ## Community
 

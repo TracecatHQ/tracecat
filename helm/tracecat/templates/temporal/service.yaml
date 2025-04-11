@@ -1,0 +1,36 @@
+{{- if .Values.temporal.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: "{{ .Values.temporal.service.name }}"
+  namespace: {{ .Release.Namespace }}
+{{- if .Values.temporal.service.annotations }}
+  annotations:
+    {{- range $key, $value := .Values.temporal.service.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+  labels:
+    app: tracecat
+    chart: "{{ template "chart.fullname" . }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+    app.kubernetes.io/component: temporal
+    app.kubernetes.io/name: "{{ .Chart.Name }}"
+    app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.temporal.service.labels }}
+    {{- range $key, $value := .Values.temporal.service.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+spec:
+  selector:
+    app: tracecat
+    app.kubernetes.io/component: temporal
+  type: ClusterIP
+  ports:
+    - name: tracecat-temporal
+      port: {{ .Values.temporal.service.port }}
+      protocol: TCP
+      targetPort: 7233
+{{- end -}}
