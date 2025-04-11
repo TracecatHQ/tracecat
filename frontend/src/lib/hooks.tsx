@@ -625,8 +625,12 @@ export function useManualWorkflowExecution(
           requestBody: params,
         })
       },
-      onSuccess: async ({ wf_exec_id }) => {
+      onSuccess: ({ wf_exec_id, message }) => {
         // Immediately update the last-manual-execution query cache with the new execution
+        toast({
+          title: `Workflow run started`,
+          description: `${wf_exec_id} ${message}`,
+        })
         queryClient.setQueryData<WorkflowExecutionReadMinimal>(
           ["last-manual-execution", workflowId],
           {
@@ -641,10 +645,10 @@ export function useManualWorkflowExecution(
         )
 
         // Then trigger a background refetch to get the complete data
-        await queryClient.refetchQueries({
+        queryClient.refetchQueries({
           queryKey: ["last-manual-execution"],
         })
-        await queryClient.refetchQueries({
+        queryClient.refetchQueries({
           queryKey: ["last-manual-execution", workflowId],
         })
       },
@@ -2606,5 +2610,28 @@ export function useDeleteCaseComment({
     deleteComment,
     deleteCommentIsPending,
     deleteCommentError,
+  }
+}
+
+/**
+ * Hook to fetch all workflows for a given workspace.
+ * @param workspaceId The ID of the workspace.
+ * @returns Query result for the list of workflows.
+ */
+export function useGetWorkflows(workspaceId: string) {
+  const {
+    data: workflows,
+    isLoading: workflowsLoading,
+    error: workflowsError,
+  } = useQuery<WorkflowReadMinimal[], ApiError>({
+    queryKey: ["workflows", workspaceId],
+    queryFn: async () => await workflowsListWorkflows({ workspaceId }),
+    retry: retryHandler,
+  })
+
+  return {
+    workflows,
+    workflowsLoading,
+    workflowsError,
   }
 }
