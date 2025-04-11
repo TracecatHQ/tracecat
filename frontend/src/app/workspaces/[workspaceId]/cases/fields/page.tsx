@@ -315,11 +315,13 @@ export default function CasesFieldsPage() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {SqlTypeEnum.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {type}
-                        </SelectItem>
-                      ))}
+                      {SqlTypeEnum.filter((type) => type !== "JSONB").map(
+                        (type) => (
+                          <SelectItem key={type} value={type}>
+                            {type}
+                          </SelectItem>
+                        )
+                      )}
                     </SelectContent>
                   </Select>
                   <FormDescription>
