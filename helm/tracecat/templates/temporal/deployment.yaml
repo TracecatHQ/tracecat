@@ -1,0 +1,96 @@
+{{- if .Values.temporal.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracecat-temporal
+  namespace: {{ .Release.Namespace }}
+{{- if .Values.temporal.deployment.annotations }}
+  annotations:
+    {{- range $key, $value := .Values.temporal.deployment.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+  labels:
+    app: tracecat
+    chart: "{{ template "chart.fullname" . }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+    app.kubernetes.io/component: temporal
+    app.kubernetes.io/name: "{{ .Chart.Name }}"
+    app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.temporal.deployment.labels }}
+    {{- range $key, $value := .Values.temporal.deployment.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+spec:
+  replicas: {{ .Values.temporal.replicaCount }}
+  strategy:
+    type: {{ .Values.temporal.strategyType }}
+  selector:
+    matchLabels:
+      app: tracecat
+      app.kubernetes.io/component: temporal
+  template:
+    metadata:
+{{- if .Values.temporal.pods.annotations }}
+      annotations:
+        {{- range $key, $value := .Values.temporal.pods.annotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+{{- end }}
+      labels:
+        app: tracecat
+        app.kubernetes.io/component: temporal
+        app.kubernetes.io/name: "{{ .Chart.Name }}"
+        app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.temporal.pods.labels }}
+        {{- range $key, $value := .Values.temporal.pods.labels}}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+{{- end }}
+    spec:
+      containers:
+        - name: "tracecat-temporal"
+          image: "{{ .Values.temporal.image.repository }}:{{ .Values.temporal.image.tag }}"
+          imagePullPolicy: "{{ .Values.temporal.image.pullPolicy }}"
+{{- if .Values.temporal.resources }}
+          resources:
+{{ toYaml .Values.temporal.resources | indent 10 }}
+{{- end }}
+          env:
+            - name: DB
+              value: "{{ .Values.temporal.database.driver }}"
+{{- if not .Values.temporal.database.create_database }}
+            - name: SKIP_DB_CREATE
+              value: "true"
+{{- end }}
+{{- if not .Values.temporal.database.apply_schema }}
+            - name: SKIP_SCHEMA_SETUP
+              value: "true"
+{{- end }}
+            - name: DB_PORT
+              value: "{{ .Values.temporal.database.port }}"
+            - name: POSTGRES_USER
+              value: "{{ .Values.temporal.database.user }}"
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: temporalDatabasePassword
+            - name: POSTGRES_SEEDS
+              value: "{{ .Values.temporal.database.host }}"
+            - name: LOG_LEVEL
+              value: "{{ .Values.global.log_level }}"
+          ports:
+            - containerPort: 7233
+        - name: "tracecat-temporal-ui"
+          image: temporalio/ui:latest
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: "{{ template "tracecat.services.temporal" . }}"
+            - name: TEMPORAL_CORS_ORIGINS
+              value: "http://{{ .Values.temporal.service.name }}:8080"
+          ports:
+            - containerPort: 8080
+{{- end -}}
