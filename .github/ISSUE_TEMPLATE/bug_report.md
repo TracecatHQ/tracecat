@@ -39,7 +39,7 @@ If applicable, add screenshots to help explain your problem.
 
 **Environment (please complete the following information):**
 
-- Tracecat version (e.g. `0.31.2`)
+- Tracecat version (e.g. `0.31.3`)
 - OS (e.g. Ubuntu 20.03 on WSL2)
 - Where did you deploy Tracecat? (VM, AWS EC2, etc.)
 - CPU architecture
