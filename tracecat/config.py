@@ -17,10 +17,6 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
 
-TRACECAT__DB_URI = os.environ.get(
-    "TRACECAT__DB_URI",
-    "postgresql+psycopg://postgres:postgres@postgres_db:5432/postgres",
-)
 TRACECAT__EXECUTOR_URL = os.environ.get(
     "TRACECAT__EXECUTOR_URL", "http://executor:8000"
 )
@@ -33,13 +29,6 @@ The `httpx.Client` default is 5s, which doesn't work for long-running actions.
 """
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE", 64))
 """Maximum number of parallel requests to the worker service."""
-
-TRACECAT__DB_NAME = os.environ.get("TRACECAT__DB_NAME")
-TRACECAT__DB_USER = os.environ.get("TRACECAT__DB_USER")
-TRACECAT__DB_PASS = os.environ.get("TRACECAT__DB_PASS")
-TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
-TRACECAT__DB_ENDPOINT = os.environ.get("TRACECAT__DB_ENDPOINT")
-TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
 
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [
@@ -57,10 +46,29 @@ TRACECAT__DB_URI = os.environ.get(
     "postgresql+psycopg://postgres:postgres@postgres_db:5432/postgres",
 )
 TRACECAT__DB_NAME = os.environ.get("TRACECAT__DB_NAME")
+"""The name of the database to connect to."""
 TRACECAT__DB_USER = os.environ.get("TRACECAT__DB_USER")
+"""The user to connect to the database with."""
 TRACECAT__DB_PASS = os.environ.get("TRACECAT__DB_PASS")
+"""The password to connect to the database with."""
 TRACECAT__DB_ENDPOINT = os.environ.get("TRACECAT__DB_ENDPOINT")
+"""The endpoint to connect to the database on."""
 TRACECAT__DB_PORT = os.environ.get("TRACECAT__DB_PORT")
+"""The port to connect to the database on."""
+TRACECAT__DB_SSLMODE = os.environ.get("TRACECAT__DB_SSLMODE", "require")
+"""The SSL mode to connect to the database with."""
+
+TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
+"""(AWS only) ARN of the secret to connect to the database with."""
+
+TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW", 30))
+"""The maximum number of connections to allow in the pool."""
+TRACECAT__DB_POOL_SIZE = int(os.environ.get("TRACECAT__DB_POOL_SIZE", 30))
+"""The size of the connection pool."""
+TRACECAT__DB_POOL_TIMEOUT = int(os.environ.get("TRACECAT__DB_POOL_TIMEOUT", 30))
+"""The timeout for the connection pool."""
+TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE", 1800))
+"""The time to recycle the connection pool."""
 
 # === Auth config === #
 # Infrastructure config
