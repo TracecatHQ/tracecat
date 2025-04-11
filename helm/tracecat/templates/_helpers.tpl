@@ -19,7 +19,7 @@ We change "+" with "_" for OCI compatibility
 {{- end }}
 
 {{- define "tracecat.image" -}}
-{{ (.image).repository | default "ghcr.io/tracecathq/tracecat" }}:{{ (.image).tag | default "0.31.3" }}
+{{ (.image).repository | default "ghcr.io/tracecathq/tracecat" }}:{{ (.image).tag | default "0.31.4" }}
 {{- end }}
 
 {{- define "tracecat.auth.types" -}}

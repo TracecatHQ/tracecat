@@ -2,4 +2,4 @@ apiVersion: v2
 name: tracecat
 type: application
 version: 0.1.0
-appVersion: "0.31.3"
+appVersion: "0.31.4"
