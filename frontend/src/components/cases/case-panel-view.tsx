@@ -192,7 +192,10 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                       {field.id}
                     </span>
                     <div className="col-span-2">
-                      <CustomField customField={field} />
+                      <CustomField
+                        customField={field}
+                        updateCase={updateCase}
+                      />
                     </div>
                   </div>
                 ))}

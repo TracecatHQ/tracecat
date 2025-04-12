@@ -9,15 +9,15 @@ import React, {
   useEffect,
   useState,
 } from "react"
-import { CaseReadMinimal } from "@/client"
+import { useRouter, useSearchParams } from "next/navigation"
 
 import { cn } from "@/lib/utils"
 import { CasePanelView } from "@/components/cases/case-panel-view"
 import { SlidingPanel } from "@/components/sliding-panel"
 
 interface CasePanelContextType {
-  panelCase: CaseReadMinimal | null
-  setPanelCase: Dispatch<SetStateAction<CaseReadMinimal | null>>
+  caseId?: string
+  setCaseId: (caseId?: string) => void
   isOpen: boolean
   setIsOpen: Dispatch<SetStateAction<boolean>>
 }
@@ -30,18 +30,30 @@ export default function CasePanelProvider({
   children,
   className,
 }: PropsWithChildren<React.HTMLAttributes<HTMLDivElement>>) {
-  const [selectedCase, setSelectedCase] = useState<CaseReadMinimal | null>(null)
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const caseId = searchParams.get("caseId") || undefined
   const [isOpen, setIsOpen] = useState(false)
 
   useEffect(() => {
-    setIsOpen(selectedCase !== null)
-  }, [selectedCase])
+    setIsOpen(!!caseId)
+  }, [caseId])
+
+  const setCaseId = (caseId?: string) => {
+    const searchParams = new URLSearchParams(window.location.search)
+    if (caseId) {
+      searchParams.set("caseId", caseId)
+    } else {
+      searchParams.delete("caseId")
+    }
+    router.push(`?${searchParams.toString()}`)
+  }
 
   return (
     <CasePanelContext.Provider
       value={{
-        panelCase: selectedCase,
-        setPanelCase: setSelectedCase,
+        caseId,
+        setCaseId,
         isOpen,
         setIsOpen,
       }}
@@ -49,10 +61,17 @@ export default function CasePanelProvider({
       {children}
       <SlidingPanel
         className={cn("py-0 sm:w-4/5 md:w-4/5 lg:w-4/5", className)}
-        isOpen={isOpen}
-        setIsOpen={setIsOpen}
+        isOpen={!!caseId}
+        setIsOpen={(isOpen) => {
+          if (!isOpen) {
+            const searchParams = new URLSearchParams(window.location.search)
+            searchParams.delete("caseId")
+            router.push(`?${searchParams.toString()}`)
+          }
+          setIsOpen(isOpen)
+        }}
       >
-        {selectedCase && isOpen && <CasePanelView caseId={selectedCase.id} />}
+        {caseId && <CasePanelView caseId={caseId} />}
       </SlidingPanel>
     </CasePanelContext.Provider>
   )

@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import { cn } from "@/lib/utils"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 
 interface SlidingPanelProps
@@ -18,7 +19,7 @@ export function SlidingPanel({
     <Sheet modal={false} open={isOpen} onOpenChange={setIsOpen}>
       <SheetTitle className="sr-only">Sliding Panel</SheetTitle>
       <SheetContent
-        className={className}
+        className={cn("!animate-none !transition-none !duration-0", className)}
         onOpenAutoFocus={(e) => {
           e.preventDefault()
         }} // Prevents the first focusable element from being focused on open
