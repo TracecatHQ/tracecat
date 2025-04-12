@@ -55,6 +55,10 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
       ),
     [caseData]
   )
+  const triggerInputs = {
+    case_id: caseData.id,
+    case_fields: customFieldsObj,
+  }
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
 
   // Fetch workflows
@@ -64,9 +68,9 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
     if (!selectedWorkflowId) return
     await createExecution({
       workflow_id: selectedWorkflowId,
-      inputs: customFieldsObj,
+      inputs: triggerInputs,
     })
-  }, [createExecution, selectedWorkflowId, customFieldsObj])
+  }, [createExecution, selectedWorkflowId, triggerInputs])
 
   // Loading state
   if (workflowsLoading) {
@@ -138,12 +142,12 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
             <AlertDialogDescription>
               Are you sure you want to trigger the workflow &quot;
               <span className="font-semibold">{selectedWorkflow?.title}</span>
-              &quot; with the current case fields?
+              &quot; with the following trigger inputs?
               <br />
               <br />
               <TooltipProvider>
                 <JsonViewWithControls
-                  src={customFieldsObj}
+                  src={triggerInputs}
                   showControls={false}
                   defaultTab="nested"
                   defaultExpanded
