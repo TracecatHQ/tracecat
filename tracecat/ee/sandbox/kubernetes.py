@@ -15,6 +15,7 @@ References
 """
 
 import base64
+from typing import Any
 
 from kubernetes import client, config
 from kubernetes.client.models import V1Container, V1Pod, V1PodList, V1PodSpec
@@ -266,7 +267,7 @@ def exec_kubernetes_pod(
     kubeconfig_base64: str,
     container: str | None = None,
     timeout: int = 60,
-) -> KubernetesResult:
+) -> dict[str, Any]:
     """Execute a command in a Kubernetes pod.
 
     Args:
@@ -367,7 +368,7 @@ def exec_kubernetes_pod(
             command=command,
             stdout=stdout,
             stderr=stderr,
-        )
+        ).model_dump()
 
     except Exception as e:
         logger.warning(

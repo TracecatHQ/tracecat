@@ -79,4 +79,4 @@ def execute_command(
         timeout=timeout,
         kubeconfig_base64=kubeconfig_base64,
     )
-    return result.model_dump()
+    return result
