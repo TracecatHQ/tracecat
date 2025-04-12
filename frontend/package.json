@@ -21,6 +21,7 @@
     "upgrade:next": "pnpm add next@14 react@18 react-dom@18 && pnpm add -D eslint-config-next@14 eslint@8"
   },
   "dependencies": {
+    "@blocknote/code-block": "^0.28.0",
     "@blocknote/core": "^0.28.0",
     "@blocknote/react": "^0.28.0",
     "@blocknote/shadcn": "^0.28.0",
