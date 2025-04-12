@@ -20,37 +20,9 @@ from typing import Any
 from kubernetes import client, config
 from kubernetes.client.models import V1Container, V1Pod, V1PodList, V1PodSpec
 from kubernetes.stream import stream
-from pydantic import BaseModel
 from yaml import safe_load
 
 from tracecat.logger import logger
-
-
-class KubernetesResult(BaseModel):
-    """Result from running a command in a Kubernetes pod.
-
-    Parameters
-    ----------
-    pod: str
-        Pod name that was used.
-    container: str
-        Container name that was used.
-    namespace: str
-        Namespace that the pod is in.
-    command: list[str]
-        Command that was executed.
-    stdout: list[str]
-        Standard output lines from the container.
-    stderr: list[str]
-        Standard error lines from the container.
-    """
-
-    pod: str
-    container: str
-    namespace: str
-    command: list[str]
-    stdout: list[str] | None = None
-    stderr: list[str] | None = None
 
 
 def _get_k8s_client(kubeconfig_base64: str) -> client.CoreV1Api:
@@ -361,14 +333,14 @@ def exec_kubernetes_pod(
             security_event="pod_exec_success",
         )
 
-        return KubernetesResult(
-            pod=pod,
-            container=container,
-            namespace=namespace,
-            command=command,
-            stdout=stdout,
-            stderr=stderr,
-        ).model_dump()
+        return {
+            "pod": pod,
+            "container": container,
+            "namespace": namespace,
+            "command": command,
+            "stdout": stdout,
+            "stderr": stderr,
+        }
 
     except Exception as e:
         logger.warning(
