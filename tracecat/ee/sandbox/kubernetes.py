@@ -156,9 +156,7 @@ def exec_kubernetes_pod(
                 command=command,
                 stderr=stderr,
             )
-            raise RuntimeError(
-                "Unexpected stderr output from Kubernetes pod exec: {stderr!r}"
-            )
+            raise RuntimeError("Got stderr from Kubernetes pod exec: {stderr!r}")
 
         return KubernetesResult(
             pod=pod,
@@ -171,12 +169,10 @@ def exec_kubernetes_pod(
 
     except Exception as e:
         logger.warning(
-            "Failed to execute Kubernetes command",
+            "Unexpected error executing Kubernetes command",
             pod=pod,
             container=container,
             namespace=namespace,
             command=command,
         )
-        raise RuntimeError(
-            f"Failed to execute command in pod {namespace}/{pod}/{container}: {str(e)}"
-        ) from e
+        raise e
