@@ -96,7 +96,7 @@ def list_kubernetes_containers(pod: str, namespace: str = "default") -> list[str
 
 def exec_kubernetes_pod(
     pod: str,
-    command: list[str],
+    command: str | list[str],
     container: str | None = None,
     namespace: str = "default",
     timeout: int = 60,
@@ -106,7 +106,7 @@ def exec_kubernetes_pod(
     Args:
         pod : str
             Name of the pod to execute command in.
-        command : list[str]
+        command : str | list[str]
             Command to execute in the pod.
         container : str | None, default=None
             Name of the container to execute command in. If None, uses the first container.
@@ -123,6 +123,9 @@ def exec_kubernetes_pod(
     """
     config.load_kube_config()
     client = CoreV1Api()
+
+    if isinstance(command, str):
+        command = [command]
 
     if container is None:
         containers = list_kubernetes_containers(pod, namespace)
