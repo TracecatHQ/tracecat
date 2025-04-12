@@ -130,7 +130,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
         <AlertDialogTrigger asChild>
           <Button
             size="sm"
-            disabled={!selectedWorkflowId}
+            disabled={!selectedWorkflowId || createExecutionIsPending}
             className="bg-emerald-400 hover:bg-emerald-400/80 hover:text-white"
           >
             <PlayIcon className="size-3 fill-white stroke-white" />

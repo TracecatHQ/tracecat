@@ -21,15 +21,12 @@ export default function CaseTable() {
   const { cases } = useListCases({
     workspaceId,
   })
-  const { setPanelCase, setIsOpen } = useCasePanelContext()
+  const { setCaseId } = useCasePanelContext()
 
   const memoizedColumns = useMemo(() => columns, [])
 
   function handleClickRow(row: Row<CaseReadMinimal>) {
-    return () => {
-      setPanelCase(row.original)
-      setIsOpen(true)
-    }
+    return () => setCaseId(row.original.id)
   }
   return (
     <TooltipProvider>

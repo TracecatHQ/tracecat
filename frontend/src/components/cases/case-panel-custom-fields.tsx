@@ -1,10 +1,7 @@
 import { CaseCustomFieldRead, CaseUpdate } from "@/client"
-import { useCasePanelContext } from "@/providers/case-panel"
-import { useWorkspace } from "@/providers/workspace"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 
-import { useUpdateCase } from "@/lib/hooks"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   FormControl,
@@ -23,15 +20,11 @@ type CustomFieldFormSchema = z.infer<typeof customFieldFormSchema>
 
 export function CustomField({
   customField,
+  updateCase,
 }: {
   customField: CaseCustomFieldRead
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
 }) {
-  const { workspaceId } = useWorkspace()
-  const { panelCase } = useCasePanelContext()
-  const { updateCase } = useUpdateCase({
-    caseId: panelCase?.id ?? "",
-    workspaceId: workspaceId,
-  })
   const form = useForm<CustomFieldFormSchema>({
     defaultValues: {
       id: customField.id,
@@ -39,9 +32,6 @@ export function CustomField({
     },
   })
   const onSubmit = async (data: CustomFieldFormSchema) => {
-    if (!panelCase) {
-      return
-    }
     const caseUpdate: Partial<CaseUpdate> = {
       fields: {
         [customField.id]: data.value,
