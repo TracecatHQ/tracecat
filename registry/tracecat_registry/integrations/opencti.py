@@ -78,7 +78,7 @@ def call_api(
     entity_name: Annotated[str, Doc("Entity type to call method for.")],
     method_name: Annotated[str, Doc("Method to call.")],
     params: Annotated[dict[str, Any], Doc("Parameters to pass to the method.")],
-    base_url: Annotated[[str, Any], Doc("Base URL to OpenCTI API.")],
+    base_url: Annotated[str, Doc("Base URL to OpenCTI API.")],
     ssl_verify: Annotated[bool, Doc("Whether to verify SSL certificates.")] = True,
 ) -> list[dict[str, Any]]:
     """Call a method on an entity type."""
