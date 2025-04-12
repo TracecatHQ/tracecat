@@ -2,6 +2,7 @@
 
 import { useMemo } from "react"
 import { CaseReadMinimal } from "@/client"
+import { useAuth } from "@/providers/auth"
 import { useCasePanelContext } from "@/providers/case-panel"
 import { useWorkspace } from "@/providers/workspace"
 import { type Row } from "@tanstack/react-table"
@@ -17,6 +18,7 @@ import { columns } from "@/components/cases/case-table-columns"
 import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
 
 export default function CaseTable() {
+  const { user } = useAuth()
   const { workspaceId } = useWorkspace()
   const { cases } = useListCases({
     workspaceId,
@@ -35,6 +37,7 @@ export default function CaseTable() {
         columns={memoizedColumns}
         onClickRow={handleClickRow}
         toolbarProps={defaultToolbarProps}
+        tableId={`${user?.id}-${workspaceId}-cases`}
       />
     </TooltipProvider>
   )
