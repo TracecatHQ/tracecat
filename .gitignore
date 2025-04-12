@@ -1,3 +1,6 @@
+# Kubernetes
+*.kube
+
 # Tracecat-related files
 .tracecat/
 

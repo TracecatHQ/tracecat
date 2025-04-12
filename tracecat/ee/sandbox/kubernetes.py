@@ -17,57 +17,44 @@ References
 
 import base64
 import os
+import pathlib
+import shlex
+import subprocess
+import tempfile
+from typing import overload
 
 from kubernetes import client, config
 from kubernetes.client.models import V1Container, V1Pod, V1PodList, V1PodSpec
-from kubernetes.stream import stream
-from pydantic import BaseModel
-from yaml import safe_load
+from yaml import safe_dump, safe_load
 
 from tracecat.logger import logger
 
 
-class KubernetesResult(BaseModel):
-    """Result from running a command in a Kubernetes pod.
-
-    Parameters
-    ----------
-    pod: str
-        Pod name that was used.
-    container: str
-        Container name that was used.
-    namespace: str
-        Namespace that the pod is in.
-    command: list[str]
-        Command that was executed.
-    stdout: list[str]
-        Standard output lines from the container.
-    stderr: list[str]
-        Standard error lines from the container.
-    """
-
-    pod: str
-    container: str
-    namespace: str
-    command: list[str]
-    stdout: list[str] | None = None
-    stderr: list[str] | None = None
+@overload
+def _decode_kubeconfig(kubeconfig_base64: str) -> dict: ...
 
 
-def _decode_kubeconfig(kubeconfig_base64: str) -> dict:
+@overload
+def _decode_kubeconfig(kubeconfig_base64: str, as_yaml: bool = True) -> str: ...
+
+
+def _decode_kubeconfig(kubeconfig_base64: str, as_yaml: bool = False) -> dict | str:
     """Decode base64 kubeconfig YAML file.
 
     Args:
         kubeconfig_base64: Base64 encoded kubeconfig YAML file.
+        as_yaml: If True, return the decoded kubeconfig YAML file as bytes.
 
     Returns:
         dict: Decoded kubeconfig YAML file.
+        str: Decoded kubeconfig YAML file as string.
 
     Raises:
         ValueError: If kubeconfig is invalid
     """
     # Decode base64 kubeconfig YAML file
-    kubeconfig_dict = safe_load(base64.b64decode(kubeconfig_base64 + "=="))
+    kubeconfig_yaml = base64.b64decode(kubeconfig_base64 + "==")
+    kubeconfig_dict = safe_load(kubeconfig_yaml)
     logger.info(
         "Loaded kubeconfig YAML into JSON with fields", fields=kubeconfig_dict.keys()
     )
@@ -93,6 +80,10 @@ def _decode_kubeconfig(kubeconfig_base64: str) -> dict:
                 context_name=context.get("name"),
             )
             raise ValueError("kubeconfig cannot contain default namespace")
+
+    if as_yaml:
+        kubeconfig_yaml_str = safe_dump(kubeconfig_dict)
+        return kubeconfig_yaml_str
     return kubeconfig_dict
 
 
@@ -257,8 +248,7 @@ def exec_kubernetes_pod(
     namespace: str,
     kubeconfig_base64: str,
     container: str | None = None,
-    timeout: int = 60,
-) -> KubernetesResult:
+) -> str:
     """Execute a command in a Kubernetes pod.
 
     Args:
@@ -272,11 +262,9 @@ def exec_kubernetes_pod(
             Base64 encoded kubeconfig YAML file. Required for security isolation.
         container : str | None, default=None
             Name of the container to execute command in. If None, uses the first container.
-        timeout : int, default=60
-            Timeout in seconds for the command execution.
 
     Returns:
-        KubernetesResult: Object containing stdout and stderr from the command.
+        output: Output from the command execution.
 
     Raises:
         PermissionError: If trying to access current namespace
@@ -292,9 +280,7 @@ def exec_kubernetes_pod(
 
     # Convert string command to list
     if isinstance(command, str):
-        command = [command]
-
-    client = _get_kubernetes_client(kubeconfig_base64)
+        command = shlex.split(command)
 
     if container is None:
         containers = list_kubernetes_containers(pod, namespace, kubeconfig_base64)
@@ -303,60 +289,45 @@ def exec_kubernetes_pod(
             "Using first container", pod=pod, namespace=namespace, container=container
         )
 
+    # Blocked by Python client websocket upgrade error:
+    # https://github.com/kubernetes-client/python/issues/2355
+
+    # Use subprocess with kubectl to execute command
+    # We create a kubeconfig file in a temporary directory and pass it to kubectl
     try:
-        resp = stream(
-            client.connect_get_namespaced_pod_exec(
-                name=pod,
-                namespace=namespace,
-                command=command,
-                container=container,
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
-                _preload_content=False,
-                _request_timeout=timeout,
+        kubeconfig_yaml = _decode_kubeconfig(kubeconfig_base64, as_yaml=True)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            kubeconfig_path = pathlib.Path(temp_dir) / "kubeconfig.yaml"
+            with open(kubeconfig_path, "w") as f:
+                f.write(kubeconfig_yaml)
+            output = subprocess.run(
+                [
+                    "kubectl",
+                    "exec",
+                    pod,
+                    "-n",
+                    namespace,
+                    "-c",
+                    container,
+                    "--kubeconfig",
+                    kubeconfig_path,
+                    "--",
+                    *cmd,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                # Explicitly set shell=False to avoid shell injection
+                shell=False,
             )
-        )
-        # Split output into lines
-        stdout = resp.read_stdout().splitlines() if resp.peek_stdout() else []
-        stderr = resp.read_stderr().splitlines() if resp.peek_stderr() else []
-
-        if stderr:
-            logger.warning(
-                "Unexpected stderr output from Kubernetes pod exec",
-                pod=pod,
-                container=container,
-                namespace=namespace,
-                command=command,
-                stderr=stderr,
-            )
-            raise RuntimeError(f"Got stderr from Kubernetes pod exec: {stderr!r}")
-
-        logger.info(
-            "Successfully executed command",
-            pod=pod,
-            namespace=namespace,
-            container=container,
-            stdout_lines=len(stdout),
-        )
-
-        return KubernetesResult(
-            pod=pod,
-            container=container,
-            namespace=namespace,
-            command=command,
-            stdout=stdout,
-            stderr=stderr,
-        )
-
+        return output.stdout
     except Exception as e:
-        logger.warning(
-            "Unexpected error executing Kubernetes command",
+        logger.error(
+            "Unexpected error executing kubectl command using subprocess",
             pod=pod,
-            container=container,
             namespace=namespace,
-            command=command,
-            error=str(e),
+            container=container,
+            command=cmd,
+            error=e,
         )
-        raise e
+        raise RuntimeError("Unexpected error executing kubectl command") from e

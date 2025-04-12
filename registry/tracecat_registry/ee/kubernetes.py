@@ -2,12 +2,11 @@ from tracecat.ee.sandbox.kubernetes import (
     list_kubernetes_pods,
     list_kubernetes_containers,
     exec_kubernetes_pod,
-    KubernetesResult,
 )
 
 from tracecat_registry import registry, RegistrySecret, secrets
 
-from typing import Annotated, Any
+from typing import Annotated
 from typing_extensions import Doc
 
 
@@ -53,7 +52,7 @@ def list_containers(
 
 @registry.register(
     default_title="Execute command in pod",
-    description="Execute commands in a Kubernetes pod.",
+    description="Execute commands in a Kubernetes pod using kubectl.",
     display_group="Kubernetes",
     doc_url="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.25/#exec-options",
     namespace="ee.kubernetes",
@@ -69,15 +68,13 @@ def execute_command(
         ),
     ] = None,
     namespace: Annotated[str, Doc("Namespace to execute command in.")] = "default",
-    timeout: Annotated[int, Doc("Timeout for the command to execute.")] = 60,
-) -> dict[str, Any]:
+) -> str:
     kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
-    result: KubernetesResult = exec_kubernetes_pod(
+    output = exec_kubernetes_pod(
         pod=pod,
         command=command,
         container=container,
         namespace=namespace,
-        timeout=timeout,
         kubeconfig_base64=kubeconfig_base64,
     )
-    return result.model_dump()
+    return output
