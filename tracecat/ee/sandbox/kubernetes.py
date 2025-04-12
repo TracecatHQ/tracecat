@@ -2,8 +2,9 @@
 
 Security hardening:
 - Do not allow default namespace in kubeconfig contexts and functions
-- Do not allow access to the current namespace
+- Do not allow access to the current namespace (if running in a pod)
 - Must be provided with kubeconfig as a secret (cannot be loaded from environment or default locations)
+- Assumes that the pod has service account token and namespace file mounted (i.e. automountServiceAccountToken: True in the pod spec)
 
 References
 ----------
@@ -15,6 +16,7 @@ References
 """
 
 import base64
+import os
 
 from kubernetes import client, config
 from kubernetes.client.models import V1Container, V1Pod, V1PodList, V1PodSpec
@@ -52,7 +54,7 @@ class KubernetesResult(BaseModel):
     stderr: list[str] | None = None
 
 
-def _get_k8s_client(kubeconfig_base64: str) -> client.CoreV1Api:
+def _get_kubernetes_client(kubeconfig_base64: str) -> client.CoreV1Api:
     """Get Kubernetes client with explicit configuration.
 
     Args:
@@ -71,7 +73,7 @@ def _get_k8s_client(kubeconfig_base64: str) -> client.CoreV1Api:
         raise ValueError("kubeconfig cannot be empty")
 
     # Decode base64 kubeconfig YAML file
-    kubeconfig_dict = safe_load(base64.b64decode(kubeconfig_base64))
+    kubeconfig_dict = safe_load(base64.b64decode(kubeconfig_base64 + "=="))
     if not kubeconfig_dict:
         logger.warning(
             "Empty kubeconfig dictionary after decoding",
@@ -122,21 +124,10 @@ def _validate_access_allowed(namespace: str) -> None:
         namespace=namespace,
         security_event="namespace_validation",
     )
-
-    try:
-        with open("/var/run/secrets/kubernetes.io/serviceaccount/namespace") as f:
-            current_namespace = f.read().strip()
-    except FileNotFoundError as e:
-        logger.warning(
-            "Kubernetes service account namespace file not found",
-            security_event="missing_namespace_file",
-        )
-        raise FileNotFoundError(
-            "Kubernetes service account namespace file not found"
-        ) from e
+    current_namespace = None
 
     # Cannot be default namespace
-    if current_namespace == "default":
+    if namespace == "default":
         logger.warning(
             "Attempted operation on default namespace",
             security_event="default_namespace_operation",
@@ -145,16 +136,31 @@ def _validate_access_allowed(namespace: str) -> None:
             "Tracecat does not allow Kubernetes operations on the default namespace"
         )
 
-    # Check if current namespace is the same as the provided namespace
-    if current_namespace == namespace:
-        logger.warning(
-            "Attempted operation on current namespace",
-            current_namespace=current_namespace,
-            security_event="current_namespace_operation",
-        )
-        raise PermissionError(
-            f"Tracecat does not allow Kubernetes operations on the current namespace {current_namespace!r}"
-        )
+    # If running in a pod, check if current namespace is the
+    # same as the provided namespace
+    if "KUBERNETES_SERVICE_HOST" in os.environ:
+        try:
+            with open("/var/run/secrets/kubernetes.io/serviceaccount/namespace") as f:
+                current_namespace = f.read().strip()
+        except FileNotFoundError as e:
+            logger.warning(
+                "Kubernetes service account namespace file not found",
+                security_event="missing_namespace_file",
+            )
+            raise FileNotFoundError(
+                "Kubernetes service account namespace file not found"
+            ) from e
+
+        # Check if current namespace is the same as the provided namespace
+        if current_namespace == namespace:
+            logger.warning(
+                "Attempted operation on current namespace",
+                current_namespace=current_namespace,
+                security_event="current_namespace_operation",
+            )
+            raise PermissionError(
+                f"Tracecat does not allow Kubernetes operations on the current namespace {current_namespace!r}"
+            )
 
     logger.info(
         "Namespace access validated",
@@ -184,7 +190,7 @@ def list_kubernetes_pods(namespace: str, kubeconfig_base64: str) -> list[str]:
         "Listing kubernetes pods", namespace=namespace, security_event="list_pods"
     )
     _validate_access_allowed(namespace)
-    client = _get_k8s_client(kubeconfig_base64)
+    client = _get_kubernetes_client(kubeconfig_base64)
 
     pods: V1PodList = client.list_namespaced_pod(namespace=namespace)
     if pods.items is None:
@@ -229,7 +235,7 @@ def list_kubernetes_containers(
         security_event="list_containers",
     )
     _validate_access_allowed(namespace)
-    client = _get_k8s_client(kubeconfig_base64)
+    client = _get_kubernetes_client(kubeconfig_base64)
 
     pod_info: V1Pod = client.read_namespaced_pod(
         name=pod,
@@ -307,7 +313,7 @@ def exec_kubernetes_pod(
     if isinstance(command, str):
         command = [command]
 
-    client = _get_k8s_client(kubeconfig_base64)
+    client = _get_kubernetes_client(kubeconfig_base64)
 
     if container is None:
         containers = list_kubernetes_containers(pod, namespace, kubeconfig_base64)
