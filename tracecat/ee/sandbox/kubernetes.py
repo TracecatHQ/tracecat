@@ -148,6 +148,14 @@ def exec_kubernetes_pod(
         stderr = resp.read_stderr().splitlines() if resp.peek_stderr() else []
 
         if stderr:
+            logger.warning(
+                "Unexpected stderr output from Kubernetes pod exec",
+                pod=pod,
+                container=container,
+                namespace=namespace,
+                command=command,
+                stderr=stderr,
+            )
             raise RuntimeError(
                 "Unexpected stderr output from Kubernetes pod exec: {stderr!r}"
             )
