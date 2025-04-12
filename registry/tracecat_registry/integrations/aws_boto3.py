@@ -53,7 +53,7 @@ async def get_temporary_credentials(
 
 
 async def get_session():
-    if secrets.get("AWS_ROLE_ARN"):
+    if secrets.get("AWS_ROLE_ARN") and secrets.get("AWS_ROLE_SESSION_NAME"):
         role_arn = secrets.get("AWS_ROLE_ARN")
         role_session_name = secrets.get("AWS_ROLE_SESSION_NAME")
         creds = await get_temporary_credentials(role_arn, role_session_name)
@@ -76,6 +76,8 @@ async def get_session():
             region_name=secrets.get("AWS_REGION"),
         )
     else:
+        # NOTE: This is critical. We must not allow Boto3's default behavior of
+        # using the AWS credentials from the environment.
         raise ValueError("No AWS credentials found.")
 
     return session
