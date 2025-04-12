@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
@@ -35,8 +35,24 @@ class CasesService(BaseService):
         self.tables = TablesService(session=self.session, role=self.role)
         self.fields = CaseFieldsService(session=self.session, role=self.role)
 
-    async def list_cases(self) -> Sequence[Case]:
+    async def list_cases(
+        self,
+        limit: int | None = None,
+        order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
+        | None = None,
+        sort: Literal["asc", "desc"] | None = None,
+    ) -> Sequence[Case]:
         statement = select(Case).where(Case.owner_id == self.workspace_id)
+        if limit is not None:
+            statement = statement.limit(limit)
+        if order_by is not None:
+            attr = getattr(Case, order_by)
+            if sort == "asc":
+                statement = statement.order_by(attr.asc())
+            elif sort == "desc":
+                statement = statement.order_by(attr.desc())
+            else:
+                statement = statement.order_by(attr)
         result = await self.session.exec(statement)
         return result.all()
 
