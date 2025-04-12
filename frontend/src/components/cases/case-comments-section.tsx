@@ -72,11 +72,10 @@ export function CommentSection({
   caseId: string
   workspaceId: string
 }) {
-  const { caseComments, caseCommentsIsLoading, caseCommentsError } =
-    useCaseComments({
-      caseId,
-      workspaceId,
-    })
+  const { caseComments, caseCommentsIsLoading } = useCaseComments({
+    caseId,
+    workspaceId,
+  })
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
 
