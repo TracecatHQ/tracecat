@@ -14,11 +14,13 @@ import {
   getSortedRowModel,
   Row,
   SortingState,
+  TableState,
   useReactTable,
   VisibilityState,
 } from "@tanstack/react-table"
 import { AlertTriangleIcon } from "lucide-react"
 
+import { useLocalStorage } from "@/lib/hooks"
 import {
   Table,
   TableBody,
@@ -51,6 +53,7 @@ interface DataTableProps<TData, TValue> {
   errorMessage?: string
   showSelectedRows?: boolean
   initialSortingState?: SortingState
+  tableId?: string
 }
 
 export function DataTable<TData, TValue>({
@@ -65,14 +68,36 @@ export function DataTable<TData, TValue>({
   errorMessage,
   showSelectedRows = false,
   initialSortingState: initialSorting = [],
+  tableId = "default-table",
 }: DataTableProps<TData, TValue>) {
-  const [rowSelection, setRowSelection] = React.useState({})
-  const [columnVisibility, setColumnVisibility] =
-    React.useState<VisibilityState>({})
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
-    []
+  const [tableState, setTableState] = useLocalStorage<Partial<TableState>>(
+    `table-state:${tableId}`,
+    {
+      sorting: initialSorting,
+    }
   )
-  const [sorting, setSorting] = React.useState<SortingState>(initialSorting)
+
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
+    tableState.columnFilters ?? []
+  )
+  const [rowSelection, setRowSelection] = React.useState(
+    tableState.rowSelection ?? {}
+  )
+  const [columnVisibility, setColumnVisibility] =
+    React.useState<VisibilityState>(tableState.columnVisibility ?? {})
+  const [sorting, setSorting] = React.useState<SortingState>(
+    tableState.sorting ?? []
+  )
+
+  React.useEffect(() => {
+    setTableState({
+      ...tableState,
+      columnFilters,
+      sorting,
+      rowSelection,
+      columnVisibility,
+    })
+  }, [columnFilters, sorting, rowSelection, columnVisibility])
 
   const table = useReactTable({
     data: data || [],
