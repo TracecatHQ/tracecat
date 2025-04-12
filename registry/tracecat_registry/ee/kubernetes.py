@@ -4,10 +4,19 @@ from tracecat.ee.sandbox.kubernetes import (
     exec_kubernetes_pod,
 )
 
-from tracecat_registry import registry
+from tracecat_registry import registry, RegistrySecret, secrets
 
 from typing import Annotated, Any
 from typing_extensions import Doc
+
+
+kubernetes_secret = RegistrySecret(name="kubernetes", keys=["KUBECONFIG_BASE64"])
+"""Kubernetes credentials.
+
+- name: `kubernetes`
+- keys:
+    - `KUBECONFIG_BASE64`: Base64 encoded kubeconfig YAML file.
+"""
 
 
 @registry.register(
@@ -16,11 +25,13 @@ from typing_extensions import Doc
     display_group="Kubernetes",
     doc_url="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.25/#list-pod-v1",
     namespace="ee.kubernetes",
+    secrets=[kubernetes_secret],
 )
 def list_pods(
     namespace: Annotated[str, Doc("Namespace to list pods from.")],
 ) -> list[str]:
-    return list_kubernetes_pods(namespace)
+    kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
+    return list_kubernetes_pods(namespace, kubeconfig_base64)
 
 
 @registry.register(
@@ -29,12 +40,14 @@ def list_pods(
     display_group="Kubernetes",
     doc_url="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.25/#list-pod-v1",
     namespace="ee.kubernetes",
+    secrets=[kubernetes_secret],
 )
 def list_containers(
     pod: Annotated[str, Doc("Pod to list containers from.")],
     namespace: Annotated[str, Doc("Namespace to list containers from.")],
 ) -> list[str]:
-    return list_kubernetes_containers(pod, namespace)
+    kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
+    return list_kubernetes_containers(pod, namespace, kubeconfig_base64)
 
 
 @registry.register(
@@ -43,6 +56,7 @@ def list_containers(
     display_group="Kubernetes",
     doc_url="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.25/#exec-options",
     namespace="ee.kubernetes",
+    secrets=[kubernetes_secret],
 )
 def execute_command(
     pod: Annotated[str, Doc("Pod to execute command in.")],
@@ -56,11 +70,13 @@ def execute_command(
     namespace: Annotated[str, Doc("Namespace to execute command in.")] = "default",
     timeout: Annotated[int, Doc("Timeout for the command to execute.")] = 60,
 ) -> dict[str, Any]:
+    kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
     result = exec_kubernetes_pod(
         pod=pod,
         command=command,
         container=container,
         namespace=namespace,
         timeout=timeout,
+        kubeconfig_base64=kubeconfig_base64,
     )
     return result.model_dump()
