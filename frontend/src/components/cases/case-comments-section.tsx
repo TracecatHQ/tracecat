@@ -63,6 +63,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 
 export function CommentSection({
   caseId,
@@ -188,7 +189,7 @@ export function CommentSection({
                     onStopEditing={() => setEditingCommentId(null)}
                   />
                 ) : (
-                  <p className="text-sm">{comment.content}</p>
+                  <CaseCommentViewer content={comment.content} />
                 )}
               </div>
             </div>

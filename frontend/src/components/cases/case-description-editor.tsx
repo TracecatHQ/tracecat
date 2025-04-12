@@ -1,14 +1,6 @@
 "use client"
 
-import * as Button from "@/components/ui/button"
-import * as Card from "@/components/ui/card"
-import * as DropdownMenu from "@/components/ui/dropdown-menu"
-import * as Input from "@/components/ui/input"
-import * as Popover from "@/components/ui/popover"
-import * as Select from "@/components/ui/select"
-
-import "@blocknote/core/fonts/inter.css"
-
+import { codeBlock } from "@blocknote/code-block"
 import {
   DefaultReactSuggestionItem,
   DragHandleMenu,
@@ -21,6 +13,14 @@ import {
 } from "@blocknote/react"
 import { BlockNoteView } from "@blocknote/shadcn"
 
+import * as Button from "@/components/ui/button"
+import * as Card from "@/components/ui/card"
+import * as DropdownMenu from "@/components/ui/dropdown-menu"
+import * as Input from "@/components/ui/input"
+import * as Popover from "@/components/ui/popover"
+import * as Select from "@/components/ui/select"
+
+import "@blocknote/core/fonts/inter.css"
 import "@blocknote/shadcn/style.css"
 import "./editor.css"
 
@@ -53,6 +53,7 @@ export function CaseDescriptionEditor({
   // Creates a new editor instance.
   const editor = useCreateBlockNote({
     animations: false,
+    codeBlock,
   })
 
   // Handle changes in the editor content
@@ -66,15 +67,9 @@ export function CaseDescriptionEditor({
   }
 
   useEffect(() => {
-    const loadInitialContent = async () => {
-      if (initialContent) {
-        const blocks = await editor.tryParseMarkdownToBlocks(initialContent)
-        const spacedBlocks = getSpacedBlocks(blocks)
-        editor.replaceBlocks(editor.document, spacedBlocks)
-      }
+    if (initialContent) {
+      loadInitialContent(editor, initialContent)
     }
-
-    loadInitialContent()
   }, [initialContent, editor])
 
   // Renders the editor instance using a React component.
@@ -124,4 +119,53 @@ export function CaseDescriptionEditor({
       </BlockNoteView>
     </div>
   )
+}
+
+export function CaseCommentViewer({
+  content,
+  className,
+}: {
+  content: string
+  className?: string
+}) {
+  // Creates a new editor instance.
+  const editor = useCreateBlockNote({
+    animations: false,
+    codeBlock,
+  })
+
+  useEffect(() => {
+    if (content) {
+      loadInitialContent(editor, content)
+    }
+  }, [content, editor])
+
+  // Renders the editor instance using a React component.
+  return (
+    <div className={cn("mx-0 py-2  text-sm", className)}>
+      <BlockNoteView
+        editor={editor}
+        theme="light"
+        editable={false}
+        slashMenu={false}
+        shadCNComponents={{
+          Button,
+          Input,
+          Popover,
+          DropdownMenu, // This is used for the drag handle dropdown menu
+          Select,
+          Card,
+        }}
+        style={{
+          height: "100%",
+        }}
+      />
+    </div>
+  )
+}
+
+async function loadInitialContent(editor: BlockNoteEditor, content: string) {
+  const blocks = await editor.tryParseMarkdownToBlocks(content)
+  const spacedBlocks = getSpacedBlocks(blocks)
+  editor.replaceBlocks(editor.document, spacedBlocks)
 }
