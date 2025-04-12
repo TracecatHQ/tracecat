@@ -2,6 +2,7 @@ from tracecat.ee.sandbox.kubernetes import (
     list_kubernetes_pods,
     list_kubernetes_containers,
     exec_kubernetes_pod,
+    KubernetesResult,
 )
 
 from tracecat_registry import registry, RegistrySecret, secrets
@@ -71,7 +72,7 @@ def execute_command(
     timeout: Annotated[int, Doc("Timeout for the command to execute.")] = 60,
 ) -> dict[str, Any]:
     kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
-    result = exec_kubernetes_pod(
+    result: KubernetesResult = exec_kubernetes_pod(
         pod=pod,
         command=command,
         container=container,
@@ -79,4 +80,4 @@ def execute_command(
         timeout=timeout,
         kubeconfig_base64=kubeconfig_base64,
     )
-    return result
+    return result.model_dump()
