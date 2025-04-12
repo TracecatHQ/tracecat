@@ -221,3 +221,47 @@ async def update_comment(
             comment, CaseCommentUpdate(**params)
         )
     return updated_comment.model_dump()
+
+
+@registry.register(
+    default_title="Get Case",
+    display_group="Cases",
+    description="Get details of a specific case by ID.",
+    namespace="core.cases",
+)
+async def get_case(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to retrieve."),
+    ],
+) -> dict[str, Any]:
+    async with CasesService.with_session() as service:
+        case = await service.get_case(UUID(case_id))
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+    return case.model_dump()
+
+
+@registry.register(
+    default_title="List Cases",
+    display_group="Cases",
+    description="List all cases.",
+    namespace="core.cases",
+)
+async def list_cases(
+    limit: Annotated[
+        int | None,
+        Doc("Maximum number of cases to return."),
+    ] = None,
+    order_by: Annotated[
+        Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
+        Doc("The field to order the cases by."),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc("The direction to order the cases by."),
+    ] = None,
+) -> list[dict[str, Any]]:
+    async with CasesService.with_session() as service:
+        cases = await service.list_cases(limit=limit, order_by=order_by, sort=sort)
+        return [case.model_dump() for case in cases]
