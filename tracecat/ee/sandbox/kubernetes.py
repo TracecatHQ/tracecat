@@ -54,6 +54,48 @@ class KubernetesResult(BaseModel):
     stderr: list[str] | None = None
 
 
+def _decode_kubeconfig(kubeconfig_base64: str) -> dict:
+    """Decode base64 kubeconfig YAML file.
+
+    Args:
+        kubeconfig_base64: Base64 encoded kubeconfig YAML file.
+
+    Returns:
+        dict: Decoded kubeconfig YAML file.
+
+    Raises:
+        ValueError: If kubeconfig is invalid
+    """
+    # Decode base64 kubeconfig YAML file
+    kubeconfig_dict = safe_load(base64.b64decode(kubeconfig_base64 + "=="))
+    logger.info(
+        "Loaded kubeconfig YAML into JSON with fields", fields=kubeconfig_dict.keys()
+    )
+
+    if not isinstance(kubeconfig_dict, dict):
+        logger.warning("kubeconfig is not a dictionary")
+        raise ValueError("kubeconfig must be a dictionary")
+
+    if not kubeconfig_dict:
+        logger.warning("Empty kubeconfig dictionary after decoding")
+        raise ValueError("kubeconfig cannot be empty")
+
+    contexts = kubeconfig_dict.get("contexts", [])
+    if not contexts:
+        logger.warning("Kubeconfig contains no contexts")
+        raise ValueError("kubeconfig must contain at least one context")
+
+    # Cannot contain default namespace
+    for context in contexts:
+        if context.get("namespace") == "default":
+            logger.warning(
+                "Kubeconfig contains default namespace",
+                context_name=context.get("name"),
+            )
+            raise ValueError("kubeconfig cannot contain default namespace")
+    return kubeconfig_dict
+
+
 def _get_kubernetes_client(kubeconfig_base64: str) -> client.CoreV1Api:
     """Get Kubernetes client with explicit configuration.
 
@@ -69,43 +111,16 @@ def _get_kubernetes_client(kubeconfig_base64: str) -> client.CoreV1Api:
 
     # kubeconfig must be provided
     if not kubeconfig_base64:
-        logger.warning("Empty kubeconfig provided", security_event="empty_kubeconfig")
+        logger.warning("Empty kubeconfig provided")
         raise ValueError("kubeconfig cannot be empty")
-
-    # Decode base64 kubeconfig YAML file
-    kubeconfig_dict = safe_load(base64.b64decode(kubeconfig_base64 + "=="))
-    if not kubeconfig_dict:
-        logger.warning(
-            "Empty kubeconfig dictionary after decoding",
-            security_event="invalid_kubeconfig",
-        )
-        raise ValueError("kubeconfig cannot be empty")
-
-    contexts = kubeconfig_dict.get("contexts", [])
-    if not contexts:
-        logger.warning("Kubeconfig contains no contexts", security_event="no_contexts")
-        raise ValueError("kubeconfig must contain at least one context")
-
-    # Cannot contain default namespace
-    for context in contexts:
-        if context.get("namespace") == "default":
-            logger.warning(
-                "Kubeconfig contains default namespace",
-                security_event="default_namespace_in_context",
-                context_name=context.get("name"),
-            )
-            raise ValueError("kubeconfig cannot contain default namespace")
 
     # Load from explicit file, never from environment or default locations
     # NOTE: This is critical. We must not allow Kubernetes' default behavior of
     # using the kubeconfig from the environment.
+    kubeconfig_dict = _decode_kubeconfig(kubeconfig_base64)
     config.load_kube_config_from_dict(config_dict=kubeconfig_dict)
 
-    logger.info(
-        "Successfully validated and loaded kubeconfig",
-        security_event="kubeconfig_loaded",
-        contexts_count=len(contexts),
-    )
+    logger.info("Successfully validated and loaded kubeconfig")
     return client.CoreV1Api()
 
 
@@ -119,34 +134,23 @@ def _validate_access_allowed(namespace: str) -> None:
         PermissionError: If access to the namespace is not allowed
     """
 
-    logger.info(
-        "Validating namespace access permissions",
-        namespace=namespace,
-        security_event="namespace_validation",
-    )
+    logger.info("Validating namespace access permissions", namespace=namespace)
     current_namespace = None
 
     # Cannot be default namespace
     if namespace == "default":
-        logger.warning(
-            "Attempted operation on default namespace",
-            security_event="default_namespace_operation",
-        )
+        logger.warning("Attempted operation on default namespace")
         raise PermissionError(
             "Tracecat does not allow Kubernetes operations on the default namespace"
         )
 
-    # If running in a pod, check if current namespace is the
-    # same as the provided namespace
+    # Check if current namespace is the same as the provided namespace
     if "KUBERNETES_SERVICE_HOST" in os.environ:
         try:
             with open("/var/run/secrets/kubernetes.io/serviceaccount/namespace") as f:
                 current_namespace = f.read().strip()
         except FileNotFoundError as e:
-            logger.warning(
-                "Kubernetes service account namespace file not found",
-                security_event="missing_namespace_file",
-            )
+            logger.warning("Kubernetes service account namespace file not found")
             raise FileNotFoundError(
                 "Kubernetes service account namespace file not found"
             ) from e
@@ -156,7 +160,6 @@ def _validate_access_allowed(namespace: str) -> None:
             logger.warning(
                 "Attempted operation on current namespace",
                 current_namespace=current_namespace,
-                security_event="current_namespace_operation",
             )
             raise PermissionError(
                 f"Tracecat does not allow Kubernetes operations on the current namespace {current_namespace!r}"
@@ -166,7 +169,6 @@ def _validate_access_allowed(namespace: str) -> None:
         "Namespace access validated",
         namespace=namespace,
         current_namespace=current_namespace,
-        security_event="namespace_access_granted",
     )
 
 
@@ -186,9 +188,7 @@ def list_kubernetes_pods(namespace: str, kubeconfig_base64: str) -> list[str]:
         PermissionError: If trying to access current namespace
         ValueError: If no pods found or invalid arguments
     """
-    logger.info(
-        "Listing kubernetes pods", namespace=namespace, security_event="list_pods"
-    )
+    logger.info("Listing kubernetes pods", namespace=namespace)
     _validate_access_allowed(namespace)
     client = _get_kubernetes_client(kubeconfig_base64)
 
@@ -200,10 +200,7 @@ def list_kubernetes_pods(namespace: str, kubeconfig_base64: str) -> list[str]:
     pod_names = [pod.metadata.name for pod in items]  # type: ignore
 
     logger.info(
-        "Successfully listed pods",
-        namespace=namespace,
-        pod_count=len(pod_names),
-        security_event="pods_listed",
+        "Successfully listed pods", namespace=namespace, pod_count=len(pod_names)
     )
     return pod_names
 
@@ -228,12 +225,7 @@ def list_kubernetes_containers(
         PermissionError: If trying to access current namespace
         ValueError: If invalid pod or no containers found
     """
-    logger.info(
-        "Listing kubernetes containers",
-        pod=pod,
-        namespace=namespace,
-        security_event="list_containers",
-    )
+    logger.info("Listing kubernetes containers", pod=pod, namespace=namespace)
     _validate_access_allowed(namespace)
     client = _get_kubernetes_client(kubeconfig_base64)
 
@@ -255,13 +247,7 @@ def list_kubernetes_containers(
         str(container.name) for container in containers if container.name is not None
     ]
 
-    logger.info(
-        "Successfully listed containers",
-        pod=pod,
-        namespace=namespace,
-        container_count=len(container_names),
-        security_event="containers_listed",
-    )
+    logger.info("Successfully listed containers", pod=pod, namespace=namespace)
     return container_names
 
 
@@ -299,12 +285,7 @@ def exec_kubernetes_pod(
     """
     cmd = command if isinstance(command, list) else [command]
     logger.info(
-        "Executing command in kubernetes pod",
-        pod=pod,
-        namespace=namespace,
-        command=cmd,
-        container=container,
-        security_event="pod_exec",
+        "Executing command in kubernetes pod", pod=pod, namespace=namespace, command=cmd
     )
 
     _validate_access_allowed(namespace)
@@ -319,11 +300,7 @@ def exec_kubernetes_pod(
         containers = list_kubernetes_containers(pod, namespace, kubeconfig_base64)
         container = containers[0]
         logger.info(
-            "Using first container",
-            pod=pod,
-            namespace=namespace,
-            container=container,
-            security_event="default_container",
+            "Using first container", pod=pod, namespace=namespace, container=container
         )
 
     try:
@@ -353,7 +330,6 @@ def exec_kubernetes_pod(
                 namespace=namespace,
                 command=command,
                 stderr=stderr,
-                security_event="pod_exec_stderr",
             )
             raise RuntimeError(f"Got stderr from Kubernetes pod exec: {stderr!r}")
 
@@ -363,7 +339,6 @@ def exec_kubernetes_pod(
             namespace=namespace,
             container=container,
             stdout_lines=len(stdout),
-            security_event="pod_exec_success",
         )
 
         return KubernetesResult(
@@ -383,6 +358,5 @@ def exec_kubernetes_pod(
             namespace=namespace,
             command=command,
             error=str(e),
-            security_event="pod_exec_error",
         )
         raise e
