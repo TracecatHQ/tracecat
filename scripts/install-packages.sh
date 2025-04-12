@@ -14,7 +14,8 @@ apt-get update
 apt-get install -y \
   acl \
   git \
-  xmlsec1
+  xmlsec1 \
+  libmagic1
 
 # Apply security updates
 apt-get -y upgrade
