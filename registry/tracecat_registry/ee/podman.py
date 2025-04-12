@@ -16,8 +16,8 @@ from tracecat_registry import registry
     default_title="Run a container",
     description="Run a container using rootless Podman.",
     display_group="Podman",
-    namespace="ee.podman",
     doc_url="https://podman-py.readthedocs.io/en/latest/podman.domain.containers_create.html",
+    namespace="ee.podman",
 )
 def run_container(
     image: Annotated[str, Doc("Image to run.")],
@@ -55,8 +55,8 @@ def run_container(
     default_title="List volumes",
     description="List all volumes from the Podman service.",
     display_group="Podman",
-    namespace="ee.podman",
     doc_url="https://podman-py.readthedocs.io/en/latest/podman.domain.volumes.html",
+    namespace="ee.podman",
 )
 def list_volumes() -> list[str]:
     return list_podman_volumes()
