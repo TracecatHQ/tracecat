@@ -9,6 +9,7 @@ from tracecat.cases.models import (
     CaseCustomFieldRead,
     CaseFieldRead,
     CaseRead,
+    CaseReadMinimal,
     CaseUpdate,
     CaseCommentCreate,
     CaseCommentUpdate,
@@ -301,4 +302,16 @@ async def list_cases(
 ) -> list[dict[str, Any]]:
     async with CasesService.with_session() as service:
         cases = await service.list_cases(limit=limit, order_by=order_by, sort=sort)
-        return [case.model_dump() for case in cases]
+    return [
+        CaseReadMinimal(
+            id=case.id,
+            created_at=case.created_at,
+            updated_at=case.updated_at,
+            short_id=f"CASE-{case.case_number:04d}",
+            summary=case.summary,
+            status=case.status,
+            priority=case.priority,
+            severity=case.severity,
+        ).model_dump(mode="json")
+        for case in cases
+    ]

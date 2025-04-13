@@ -709,8 +709,19 @@ class TestCoreListCases:
             limit=None, order_by=None, sort=None
         )
 
-        # Verify the result
-        assert result == [mock_case.model_dump.return_value]
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check that the required fields are present
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert "created_at" in case_result
+        assert "updated_at" in case_result
+        assert case_result["status"] == mock_case.status.value
+        assert case_result["priority"] == mock_case.priority.value
+        assert case_result["severity"] == mock_case.severity.value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_list_cases_with_limit(self, mock_with_session, mock_case):
@@ -732,8 +743,14 @@ class TestCoreListCases:
             limit=5, order_by=None, sort=None
         )
 
-        # Verify the result
-        assert result == [mock_case.model_dump.return_value]
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check key values
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_list_cases_with_ordering(self, mock_with_session, mock_case):
@@ -755,8 +772,14 @@ class TestCoreListCases:
             limit=None, order_by="created_at", sort="desc"
         )
 
-        # Verify the result
-        assert result == [mock_case.model_dump.return_value]
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check key values match expected
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["status"] == mock_case.status.value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_list_cases_empty_result(self, mock_with_session):
