@@ -61,13 +61,13 @@ def list_containers(
 def execute_command(
     pod: Annotated[str, Doc("Pod to execute command in.")],
     command: Annotated[str | list[str], Doc("Command to execute.")],
+    namespace: Annotated[str, Doc("Namespace to execute command in.")],
     container: Annotated[
         str | None,
         Doc(
             "Container to execute command in. If not provided, the first container will be used."
         ),
     ] = None,
-    namespace: Annotated[str, Doc("Namespace to execute command in.")] = "default",
 ) -> str:
     kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
     output = exec_kubernetes_pod(
