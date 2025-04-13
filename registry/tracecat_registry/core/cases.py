@@ -50,7 +50,7 @@ StatusType = Literal[
     description="Create a new case.",
     namespace="core.cases",
 )
-async def create(
+async def create_case(
     summary: Annotated[
         str,
         Doc("The summary of the case."),
@@ -96,7 +96,7 @@ async def create(
     description="Update an existing case.",
     namespace="core.cases",
 )
-async def update(
+async def update_case(
     case_id: Annotated[
         str,
         Doc("The ID of the case to update."),

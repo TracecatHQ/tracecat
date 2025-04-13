@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from tracecat_registry.core.cases import (
-    create,
+    create_case,
     create_comment,
-    update,
+    update_case,
     update_comment,
 )
 
@@ -82,7 +82,7 @@ class TestCoreCreate:
         mock_with_session.return_value = mock_ctx
 
         # Call the create function
-        result = await create(
+        result = await create_case(
             summary="Test Case",
             description="Test Description",
             priority="medium",
@@ -118,7 +118,7 @@ class TestCoreCreate:
         mock_with_session.return_value = mock_ctx
 
         # Call the create function without fields
-        result = await create(
+        result = await create_case(
             summary="Test Case",
             description="Test Description",
             priority="medium",
@@ -155,7 +155,7 @@ class TestCoreUpdate:
         # Call the update function and expect an error
         case_id = str(uuid.uuid4())
         with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
-            await update(case_id=case_id, summary="New Summary")
+            await update_case(case_id=case_id, summary="New Summary")
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_update_all_fields(self, mock_with_session, mock_case):
@@ -186,7 +186,7 @@ class TestCoreUpdate:
         mock_with_session.return_value = mock_ctx
 
         # Call the update function
-        result = await update(
+        result = await update_case(
             case_id=str(mock_case.id),
             summary="Updated Summary",
             description="Updated Description",
@@ -236,7 +236,7 @@ class TestCoreUpdate:
         mock_with_session.return_value = mock_ctx
 
         # Call the update function with only some fields
-        result = await update(
+        result = await update_case(
             case_id=str(mock_case.id),
             summary="Updated Summary",
             priority="high",
@@ -299,7 +299,7 @@ class TestCoreUpdate:
         mock_with_session.return_value = mock_ctx
 
         # Call the update function with only field data
-        result = await update(
+        result = await update_case(
             case_id=str(mock_case.id),
             fields={"field1": "new_value"},  # Only update field1
         )
@@ -352,7 +352,7 @@ class TestCoreUpdate:
         mock_with_session.return_value = mock_ctx
 
         # Call the update function with field1=None
-        result = await update(
+        result = await update_case(
             case_id=str(mock_case.id),
             fields={"field1": None},  # Zero out field1
         )
@@ -392,7 +392,7 @@ class TestCoreUpdate:
         mock_with_session.return_value = mock_ctx
 
         # Call the update function with empty fields dict
-        result = await update(
+        result = await update_case(
             case_id=str(mock_case.id),
             fields={},  # Empty dict - service will not try to update fields
         )
@@ -432,7 +432,7 @@ class TestCoreUpdate:
         mock_with_session.return_value = mock_ctx
 
         # Call the update function with description=None
-        result = await update(
+        result = await update_case(
             case_id=str(mock_case.id),
             description=None,
         )
