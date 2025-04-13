@@ -1,6 +1,7 @@
 """Tests for core.cases UDFs in the registry."""
 
 import uuid
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -34,6 +35,10 @@ def mock_case():
     case.status = CaseStatus.NEW
     case.fields = MagicMock()
     case.fields.id = uuid.uuid4()
+    # Add attributes needed for the updated get_case function
+    case.created_at = datetime.now()
+    case.updated_at = datetime.now()
+    case.case_number = 1234
 
     # Set up model_dump to return a dict representation
     case.model_dump.return_value = {
@@ -43,6 +48,8 @@ def mock_case():
         "priority": case.priority.value,
         "severity": case.severity.value,
         "status": case.status.value,
+        "created_at": case.created_at,
+        "updated_at": case.updated_at,
         "fields": {"field1": "value1", "field2": "value2"},
     }
 
@@ -596,6 +603,33 @@ class TestCoreGetCase:
         mock_service = AsyncMock()
         mock_service.get_case.return_value = mock_case
 
+        # Import SqlType for the test
+
+        # Mock the fields service
+        mock_service.fields = AsyncMock()
+        # Mock get_fields to return some field values
+        mock_service.fields.get_fields.return_value = {
+            "field1": "value1",
+            "field2": "value2",
+        }
+
+        # Mock list_fields to return field definitions
+        field_def1 = {
+            "name": "field1",
+            "type": "TEXT",
+            "nullable": True,
+            "default": None,
+            "comment": "Field 1",
+        }
+        field_def2 = {
+            "name": "field2",
+            "type": "TEXT",
+            "nullable": True,
+            "default": None,
+            "comment": "Field 2",
+        }
+        mock_service.fields.list_fields.return_value = [field_def1, field_def2]
+
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__.return_value = mock_service
@@ -607,8 +641,31 @@ class TestCoreGetCase:
         # Assert get_case was called with expected parameters
         mock_service.get_case.assert_called_once_with(mock_case.id)
 
-        # Verify the result
-        assert result == mock_case.model_dump.return_value
+        # Assert fields methods were called
+        mock_service.fields.get_fields.assert_called_once_with(mock_case)
+        mock_service.fields.list_fields.assert_called_once()
+
+        # Verify the core structure of the result
+        assert result["id"] == str(mock_case.id)
+        assert result["summary"] == mock_case.summary
+        assert result["description"] == mock_case.description
+        assert result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+
+        # Dates are returned as ISO strings when using model_dump(mode="json")
+        assert "created_at" in result
+        assert "updated_at" in result
+
+        # Check status, priority, and severity are returned as string values
+        assert result["status"] == mock_case.status.value
+        assert result["priority"] == mock_case.priority.value
+        assert result["severity"] == mock_case.severity.value
+
+        # Check the fields array in the result
+        assert len(result["fields"]) == 2
+        assert result["fields"][0]["id"] == "field1"
+        assert result["fields"][0]["value"] == "value1"
+        assert result["fields"][1]["id"] == "field2"
+        assert result["fields"][1]["value"] == "value2"
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
     async def test_get_case_not_found(self, mock_with_session):

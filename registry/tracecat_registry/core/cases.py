@@ -6,6 +6,9 @@ from typing_extensions import Doc
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     CaseCreate,
+    CaseCustomFieldRead,
+    CaseFieldRead,
+    CaseRead,
     CaseUpdate,
     CaseCommentCreate,
     CaseCommentUpdate,
@@ -239,7 +242,41 @@ async def get_case(
         case = await service.get_case(UUID(case_id))
         if not case:
             raise ValueError(f"Case with ID {case_id} not found")
-    return case.model_dump()
+
+        fields = await service.fields.get_fields(case) or {}
+        field_definitions = await service.fields.list_fields()
+
+    final_fields = []
+    for defn in field_definitions:
+        f = CaseFieldRead.from_sa(defn)
+        final_fields.append(
+            CaseCustomFieldRead(
+                id=f.id,
+                type=f.type,
+                description=f.description,
+                nullable=f.nullable,
+                default=f.default,
+                reserved=f.reserved,
+                value=fields.get(f.id),
+            )
+        )
+
+    # Convert any UUID to string before serializing
+    case_read = CaseRead(
+        id=case.id,  # Use UUID directly
+        short_id=f"CASE-{case.case_number:04d}",
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+        summary=case.summary,
+        status=case.status,
+        priority=case.priority,
+        severity=case.severity,
+        description=case.description,
+        fields=final_fields,
+    )
+
+    # Use model_dump(mode="json") to ensure UUIDs are converted to strings
+    return case_read.model_dump(mode="json")
 
 
 @registry.register(
