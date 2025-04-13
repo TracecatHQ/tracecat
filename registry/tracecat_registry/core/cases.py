@@ -6,11 +6,16 @@ from typing_extensions import Doc
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     CaseCreate,
+    CaseCustomFieldRead,
+    CaseFieldRead,
+    CaseRead,
+    CaseReadMinimal,
     CaseUpdate,
     CaseCommentCreate,
     CaseCommentUpdate,
 )
 from tracecat.cases.service import CasesService, CaseCommentsService
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat_registry import registry
 
 PriorityType = Literal[
@@ -221,3 +226,123 @@ async def update_comment(
             comment, CaseCommentUpdate(**params)
         )
     return updated_comment.model_dump()
+
+
+@registry.register(
+    default_title="Get Case",
+    display_group="Cases",
+    description="Get details of a specific case by ID.",
+    namespace="core.cases",
+)
+async def get_case(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to retrieve."),
+    ],
+) -> dict[str, Any]:
+    async with CasesService.with_session() as service:
+        case = await service.get_case(UUID(case_id))
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        fields = await service.fields.get_fields(case) or {}
+        field_definitions = await service.fields.list_fields()
+
+    final_fields = []
+    for defn in field_definitions:
+        f = CaseFieldRead.from_sa(defn)
+        final_fields.append(
+            CaseCustomFieldRead(
+                id=f.id,
+                type=f.type,
+                description=f.description,
+                nullable=f.nullable,
+                default=f.default,
+                reserved=f.reserved,
+                value=fields.get(f.id),
+            )
+        )
+
+    # Convert any UUID to string before serializing
+    case_read = CaseRead(
+        id=case.id,  # Use UUID directly
+        short_id=f"CASE-{case.case_number:04d}",
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+        summary=case.summary,
+        status=case.status,
+        priority=case.priority,
+        severity=case.severity,
+        description=case.description,
+        fields=final_fields,
+    )
+
+    # Use model_dump(mode="json") to ensure UUIDs are converted to strings
+    return case_read.model_dump(mode="json")
+
+
+@registry.register(
+    default_title="List Cases",
+    display_group="Cases",
+    description="List all cases.",
+    namespace="core.cases",
+)
+async def list_cases(
+    limit: Annotated[
+        int | None,
+        Doc("Maximum number of cases to return."),
+    ] = None,
+    order_by: Annotated[
+        Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
+        Doc("The field to order the cases by."),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc("The direction to order the cases by."),
+    ] = None,
+) -> list[dict[str, Any]]:
+    async with CasesService.with_session() as service:
+        cases = await service.list_cases(limit=limit, order_by=order_by, sort=sort)
+    return [
+        CaseReadMinimal(
+            id=case.id,
+            created_at=case.created_at,
+            updated_at=case.updated_at,
+            short_id=f"CASE-{case.case_number:04d}",
+            summary=case.summary,
+            status=case.status,
+            priority=case.priority,
+            severity=case.severity,
+        ).model_dump(mode="json")
+        for case in cases
+    ]
+
+
+@registry.register(
+    default_title="List Case Comments",
+    display_group="Cases",
+    description="List all comments for a case.",
+    namespace="core.cases",
+)
+async def list_comments(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to get comments for."),
+    ],
+) -> list[dict[str, Any]]:
+    async with get_async_session_context_manager() as session:
+        case_service = CasesService(session)
+        case = await case_service.get_case(UUID(case_id))
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        comments_service = CaseCommentsService(session)
+        comment_user_pairs = await comments_service.list_comments(case)
+
+    result = []
+    for comment, user in comment_user_pairs:
+        comment_data = comment.model_dump()
+        comment_data["user"] = user.model_dump() if user else None
+        result.append(comment_data)
+
+    return result

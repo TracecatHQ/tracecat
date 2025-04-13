@@ -1,4 +1,5 @@
 import uuid  # noqa: I001
+import asyncio
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -111,6 +112,221 @@ class TestCasesService:
         case_ids = {case.id for case in cases}
         assert case1.id in case_ids
         assert case2.id in case_ids
+
+    async def test_list_cases_with_limit(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        """Test listing cases with a limit."""
+        # Create multiple cases
+        for i in range(3):
+            await cases_service.create_case(
+                CaseCreate(
+                    summary=f"Test Case {i}",
+                    description=f"Description for test case {i}",
+                    status=CaseStatus.NEW,
+                    priority=CasePriority.MEDIUM,
+                    severity=CaseSeverity.LOW,
+                )
+            )
+
+        # List cases with limit
+        cases = await cases_service.list_cases(limit=2)
+        assert len(cases) == 2
+
+    async def test_list_cases_with_order_by(self, cases_service: CasesService) -> None:
+        """Test listing cases with order_by parameter."""
+        # Create cases with different priorities to test ordering
+        low_priority_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Low Priority Case",
+                description="This is a low priority case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.LOW,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        high_priority_case = await cases_service.create_case(
+            CaseCreate(
+                summary="High Priority Case",
+                description="This is a high priority case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.HIGH,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        # Test ordering by priority (default ascending)
+        cases = await cases_service.list_cases(order_by="priority")
+
+        # Verify cases are ordered correctly (low priority should come first)
+        # Find the indices of our test cases
+        low_idx = next(
+            (i for i, case in enumerate(cases) if case.id == low_priority_case.id), None
+        )
+        high_idx = next(
+            (i for i, case in enumerate(cases) if case.id == high_priority_case.id),
+            None,
+        )
+
+        # Both cases should be found
+        assert low_idx is not None
+        assert high_idx is not None
+
+        # Low priority should come before high priority in ascending order
+        assert low_idx < high_idx
+
+    async def test_list_cases_with_ascending_sort(
+        self, cases_service: CasesService
+    ) -> None:
+        """Test listing cases with ascending sort order."""
+        # Create cases with different severities to test ordering
+        low_severity_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Low Severity Case",
+                description="This is a low severity case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        high_severity_case = await cases_service.create_case(
+            CaseCreate(
+                summary="High Severity Case",
+                description="This is a high severity case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.HIGH,
+            )
+        )
+
+        # Test explicit ascending ordering by severity
+        cases = await cases_service.list_cases(order_by="severity", sort="asc")
+
+        # Find the indices of our test cases
+        low_idx = next(
+            (i for i, case in enumerate(cases) if case.id == low_severity_case.id), None
+        )
+        high_idx = next(
+            (i for i, case in enumerate(cases) if case.id == high_severity_case.id),
+            None,
+        )
+
+        # Both cases should be found
+        assert low_idx is not None
+        assert high_idx is not None
+
+        # Low severity should come before high severity in ascending order
+        assert low_idx < high_idx
+
+    async def test_list_cases_with_descending_sort(
+        self, cases_service: CasesService
+    ) -> None:
+        """Test listing cases with descending sort order."""
+        # Create cases with different statuses to test ordering
+        new_case = await cases_service.create_case(
+            CaseCreate(
+                summary="New Case",
+                description="This is a new case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.MEDIUM,
+            )
+        )
+
+        resolved_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Resolved Case",
+                description="This is a resolved case",
+                status=CaseStatus.RESOLVED,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.MEDIUM,
+            )
+        )
+
+        # Test descending ordering by status
+        cases = await cases_service.list_cases(order_by="status", sort="desc")
+
+        # Find the indices of our test cases
+        new_idx = next(
+            (i for i, case in enumerate(cases) if case.id == new_case.id), None
+        )
+        resolved_idx = next(
+            (i for i, case in enumerate(cases) if case.id == resolved_case.id), None
+        )
+
+        # Both cases should be found
+        assert new_idx is not None
+        assert resolved_idx is not None
+
+        # Resolved status should come before new status in descending order
+        # because RESOLVED enum value is higher than NEW
+        assert resolved_idx < new_idx
+
+    async def test_list_cases_with_created_at_ordering(
+        self, cases_service: CasesService
+    ) -> None:
+        """Test listing cases ordered by creation time."""
+        # Create cases in sequence to ensure different created_at timestamps
+        first_case = await cases_service.create_case(
+            CaseCreate(
+                summary="First Case",
+                description="This is the first created case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.MEDIUM,
+            )
+        )
+
+        # Small delay to ensure different timestamps
+        await asyncio.sleep(0.01)
+
+        second_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Second Case",
+                description="This is the second created case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.MEDIUM,
+            )
+        )
+
+        # Test ascending order (oldest first)
+        asc_cases = await cases_service.list_cases(order_by="created_at", sort="asc")
+
+        # Find the indices of our test cases
+        first_idx_asc = next(
+            (i for i, case in enumerate(asc_cases) if case.id == first_case.id), None
+        )
+        second_idx_asc = next(
+            (i for i, case in enumerate(asc_cases) if case.id == second_case.id), None
+        )
+
+        # Both cases should be found
+        assert first_idx_asc is not None
+        assert second_idx_asc is not None
+
+        # First created case should come before second created case in ascending order
+        assert first_idx_asc < second_idx_asc
+
+        # Test descending order (newest first)
+        desc_cases = await cases_service.list_cases(order_by="created_at", sort="desc")
+
+        # Find the indices of our test cases
+        first_idx_desc = next(
+            (i for i, case in enumerate(desc_cases) if case.id == first_case.id), None
+        )
+        second_idx_desc = next(
+            (i for i, case in enumerate(desc_cases) if case.id == second_case.id), None
+        )
+
+        # Both cases should be found
+        assert first_idx_desc is not None
+        assert second_idx_desc is not None
+
+        # Second created case should come before first created case in descending order
+        assert second_idx_desc < first_idx_desc
 
     async def test_update_case(
         self, cases_service: CasesService, case_create_params: CaseCreate
