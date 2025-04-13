@@ -248,7 +248,7 @@ def exec_kubernetes_pod(
     namespace: str,
     kubeconfig_base64: str,
     container: str | None = None,
-) -> str:
+) -> dict[str, str | int] | None:
     """Execute a command in a Kubernetes pod.
 
     Args:
@@ -264,7 +264,7 @@ def exec_kubernetes_pod(
             Name of the container to execute command in. If None, uses the first container.
 
     Returns:
-        output: Output from the command execution.
+        dict[str, str | int]: Output from the command execution.
 
     Raises:
         PermissionError: If trying to access current namespace
@@ -314,13 +314,17 @@ def exec_kubernetes_pod(
                     "--",
                     *cmd,
                 ],
-                check=True,
+                check=False,
                 capture_output=True,
                 text=True,
                 # Explicitly set shell=False to avoid shell injection
                 shell=False,
             )
-        return output.stdout
+        return {
+            "stdout": output.stdout,
+            "stderr": output.stderr,
+            "returncode": output.returncode,
+        }
     except Exception as e:
         logger.error(
             "Unexpected error executing kubectl command using subprocess",
@@ -330,4 +334,4 @@ def exec_kubernetes_pod(
             command=cmd,
             error=e,
         )
-        raise RuntimeError("Unexpected error executing kubectl command") from e
+        raise e
