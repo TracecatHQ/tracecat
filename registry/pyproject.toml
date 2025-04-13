@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling >= 1.13.0"]
+requires = ["hatchling >= 1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -29,6 +29,7 @@ dependencies = [
     "dnspython==2.6.1",
     "docker==7.1.0",
     "grpcio==1.68.0",
+    "hatchling==1.27.0",
     "httpx>=0.27.2",
     "ldap3==2.9.1",
     "nh3==0.2.18",

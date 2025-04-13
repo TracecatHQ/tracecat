@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling >= 1.13.0"]
+requires = ["hatchling >= 1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -35,6 +35,7 @@ dependencies = [
     "fastapi==0.111.0",
     "google-auth==2.37.0",
     "greenlet==3.0.3",
+    "hatchling==1.27.0",
     "httpx==0.27.2",
     "jsonpath_ng>=1.7.0,<1.8.0",
     "kubernetes==32.0.1",
