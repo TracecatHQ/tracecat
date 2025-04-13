@@ -57,7 +57,7 @@ if ! git --version &> /dev/null; then
 fi
 
 # Check if kubectl is installed by checking the version
-if ! kubectl --version &> /dev/null; then
+if ! kubectl version --client &> /dev/null; then
     echo "ERROR: Failed to install kubectl"
     exit 1
 fi
