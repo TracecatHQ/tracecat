@@ -15,6 +15,7 @@ from tracecat.cases.models import (
     CaseCommentUpdate,
 )
 from tracecat.cases.service import CasesService, CaseCommentsService
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat_registry import registry
 
 PriorityType = Literal[
@@ -315,3 +316,33 @@ async def list_cases(
         ).model_dump(mode="json")
         for case in cases
     ]
+
+
+@registry.register(
+    default_title="List Case Comments",
+    display_group="Cases",
+    description="List all comments for a case.",
+    namespace="core.cases",
+)
+async def list_comments(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to get comments for."),
+    ],
+) -> list[dict[str, Any]]:
+    async with get_async_session_context_manager() as session:
+        case_service = CasesService(session)
+        case = await case_service.get_case(UUID(case_id))
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        comments_service = CaseCommentsService(session)
+        comment_user_pairs = await comments_service.list_comments(case)
+
+    result = []
+    for comment, user in comment_user_pairs:
+        comment_data = comment.model_dump()
+        comment_data["user"] = user.model_dump() if user else None
+        result.append(comment_data)
+
+    return result

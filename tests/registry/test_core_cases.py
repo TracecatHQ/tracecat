@@ -10,6 +10,7 @@ from tracecat_registry.core.cases import (
     create_comment,
     get_case,
     list_cases,
+    list_comments,
     update_case,
     update_comment,
 )
@@ -803,3 +804,130 @@ class TestCoreListCases:
 
         # Verify the result is an empty list
         assert result == []
+
+
+@pytest.mark.anyio
+class TestCoreListComments:
+    """Test cases for the list_comments UDF."""
+
+    @patch("tracecat_registry.core.cases.get_async_session_context_manager")
+    async def test_list_comments_success(
+        self,
+        mock_get_session,
+        mock_case,
+    ):
+        """Test successful retrieval of comments for a case."""
+        # Set up the mock session context manager
+        mock_session = AsyncMock()
+
+        # Set up the case service with the session
+        mock_case_service = AsyncMock()
+        mock_case_service.get_case.return_value = mock_case
+
+        # Set up the comments service with the session
+        mock_comments_service = AsyncMock()
+
+        # Create mock comments with users
+        mock_comment1 = MagicMock()
+        mock_comment1.model_dump.return_value = {
+            "id": str(uuid.uuid4()),
+            "content": "Comment 1",
+            "parent_id": None,
+        }
+
+        mock_comment2 = MagicMock()
+        mock_comment2.model_dump.return_value = {
+            "id": str(uuid.uuid4()),
+            "content": "Comment 2",
+            "parent_id": None,
+        }
+
+        mock_user1 = MagicMock()
+        mock_user1.model_dump.return_value = {
+            "id": str(uuid.uuid4()),
+            "username": "user1",
+        }
+
+        mock_user2 = None  # Anonymous comment
+
+        # Set up return value for list_comments
+        mock_comments_service.list_comments.return_value = [
+            (mock_comment1, mock_user1),
+            (mock_comment2, mock_user2),
+        ]
+
+        # Create mock constructors
+        mock_cases_service_class = MagicMock()
+        mock_cases_service_class.return_value = mock_case_service
+
+        mock_comments_service_class = MagicMock()
+        mock_comments_service_class.return_value = mock_comments_service
+
+        # Mock the CasesService and CaseCommentsService constructors
+        with patch(
+            "tracecat_registry.core.cases.CasesService", mock_cases_service_class
+        ):
+            with patch(
+                "tracecat_registry.core.cases.CaseCommentsService",
+                mock_comments_service_class,
+            ):
+                # Set up the context manager's __aenter__ to return the mock session
+                mock_ctx = AsyncMock()
+                mock_ctx.__aenter__.return_value = mock_session
+                mock_get_session.return_value = mock_ctx
+
+                # Call the list_comments function
+                result = await list_comments(
+                    case_id=str(mock_case.id),
+                )
+
+                # Assert services were initialized with session
+                mock_cases_service_class.assert_called_once_with(mock_session)
+                mock_comments_service_class.assert_called_once_with(mock_session)
+
+                # Assert get_case was called for the case
+                mock_case_service.get_case.assert_called_once_with(mock_case.id)
+
+                # Assert list_comments was called with the case
+                mock_comments_service.list_comments.assert_called_once_with(mock_case)
+
+                # Verify the result
+                assert len(result) == 2
+
+                # First comment should have user info
+                assert result[0]["content"] == "Comment 1"
+                assert "user" in result[0]
+                assert result[0]["user"]["username"] == "user1"
+
+                # Second comment should have user as None
+                assert result[1]["content"] == "Comment 2"
+                assert "user" in result[1]
+                assert result[1]["user"] is None
+
+    @patch("tracecat_registry.core.cases.get_async_session_context_manager")
+    async def test_list_comments_case_not_found(self, mock_get_session):
+        """Test list_comments when case is not found."""
+        # Set up the mock session
+        mock_session = AsyncMock()
+
+        # Set up the case service that returns None for get_case
+        mock_case_service = AsyncMock()
+        mock_case_service.get_case.return_value = None
+
+        # Create mock constructor
+        mock_cases_service_class = MagicMock()
+        mock_cases_service_class.return_value = mock_case_service
+
+        # Mock the CasesService constructor
+        with patch(
+            "tracecat_registry.core.cases.CasesService", mock_cases_service_class
+        ):
+            # Set up the context manager's __aenter__ to return the mock session
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__.return_value = mock_session
+            mock_get_session.return_value = mock_ctx
+
+            # Call the list_comments function and expect an error
+            case_id = str(uuid.uuid4())
+            with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
+                await list_comments(case_id=case_id)
