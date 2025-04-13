@@ -67,8 +67,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=ghcr.io/tracecathq/tracecat,push-by-digest=true,name-canonical=true,push=true
-          # cache-from: type=gha,scope=build-${{ matrix.platform_tag }}
-          # cache-to: type=gha,scope=build-${{ matrix.platform_tag }},mode=max
+          cache-from: type=gha,scope=build-${{ matrix.platform_tag }}
+          cache-to: type=gha,scope=build-${{ matrix.platform_tag }},mode=max
 
       - name: Export digest
         run: |
