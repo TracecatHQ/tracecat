@@ -193,9 +193,9 @@ export const WorkflowCanvas = React.forwardRef<
         setNodes((currNodes) => [...currNodes, ...layoutNodes])
         setEdges((currEdges) => [...currEdges, ...layoutEdges])
         setViewport({
-          x: graph.viewport.x,
-          y: graph.viewport.y,
-          zoom: graph.viewport.zoom,
+          x: graph.viewport?.x ?? 0,
+          y: graph.viewport?.y ?? 0,
+          zoom: graph.viewport?.zoom ?? 1,
         })
       } catch (error) {
         console.error("Failed to fetch workflow data:", error)
