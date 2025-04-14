@@ -265,6 +265,13 @@ export function WorkbenchNav() {
   )
 }
 
+const isErrorDetailEmpty = (detail: unknown): boolean => {
+  if (detail === null || detail === undefined) return true
+  if (typeof detail === "object" && Object.keys(detail).length === 0)
+    return true
+  return false
+}
+
 function ErrorMessage({
   message,
   detail,
@@ -277,17 +284,16 @@ function ErrorMessage({
       <br />
     </React.Fragment>
   ))
-  const formattedDetail = detail ? YAML.stringify(detail, null, 2) : null
 
   return (
     <pre
       className={cn("overflow-auto whitespace-pre-wrap text-wrap", className)}
     >
       {formattedMessage}
-      {formattedDetail && (
+      {!isErrorDetailEmpty(detail) && (
         <React.Fragment>
           <br />
-          {formattedDetail}
+          {YAML.stringify(detail, null, 2)}
         </React.Fragment>
       )}
     </pre>
