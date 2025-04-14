@@ -18,10 +18,7 @@ let PHProvider: PHProviderType | undefined = undefined
 
 if (process.env.NEXT_PUBLIC_APP_ENV === "production") {
   PostHogPageView = dynamic(
-    () => import("@/components/analytics/PostHogPageView"),
-    {
-      ssr: false,
-    }
+    () => import("@/components/analytics/PostHogPageView")
   )
   // Remark: Is there a more elegant way to do this?
   // eslint-disable-next-line @typescript-eslint/no-var-requires

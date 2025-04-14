@@ -20,7 +20,7 @@ import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
 export default function CaseTable() {
   const { user } = useAuth()
   const { workspaceId } = useWorkspace()
-  const { cases } = useListCases({
+  const { cases, casesIsLoading, casesError } = useListCases({
     workspaceId,
   })
   const { setCaseId } = useCasePanelContext()
@@ -30,10 +30,13 @@ export default function CaseTable() {
   function handleClickRow(row: Row<CaseReadMinimal>) {
     return () => setCaseId(row.original.id)
   }
+
   return (
     <TooltipProvider>
       <DataTable
-        data={cases}
+        data={cases || []}
+        isLoading={casesIsLoading}
+        error={(casesError as Error) || undefined}
         columns={memoizedColumns}
         onClickRow={handleClickRow}
         toolbarProps={defaultToolbarProps}
@@ -42,6 +45,7 @@ export default function CaseTable() {
     </TooltipProvider>
   )
 }
+
 const defaultToolbarProps: DataTableToolbarProps = {
   filterProps: {
     placeholder: "Filter cases by summary...",

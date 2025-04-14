@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import React, { useEffect } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -11,14 +11,26 @@ import TracecatIcon from "public/icon.png"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import PrivacyPolicy from "@/components/privacy-policy"
 
 export default function HomePage() {
-  const { user } = useAuth()
+  const { user, userIsLoading } = useAuth()
   const router = useRouter()
-  if (user) {
-    return router.push("/workspaces")
+
+  useEffect(() => {
+    if (userIsLoading) {
+      return
+    }
+    if (user) {
+      router.push("/workspaces")
+    }
+  }, [user, router, userIsLoading])
+
+  if (userIsLoading) {
+    return <CenteredSpinner />
   }
+
   return (
     <>
       <div className="container relative hidden h-full select-none flex-col items-center justify-center md:grid lg:max-w-none lg:grid-cols-2 lg:px-0">

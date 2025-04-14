@@ -102,7 +102,6 @@ export default React.memo(function TriggerNode({
           </div>
         </div>
       </div>
-      <Separator />
       <TriggerSourceHandle />
     </Card>
   )

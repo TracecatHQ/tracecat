@@ -1,8 +1,10 @@
 "use client"
 
+import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 
 import { useWorkspaceManager } from "@/lib/hooks"
+import { CenteredSpinner } from "@/components/loading/spinner"
 
 export default function WorkspacesPage() {
   const { workspaces, createWorkspace, getLastWorkspaceId } =
@@ -10,33 +12,33 @@ export default function WorkspacesPage() {
   const lastWorkspaceId = getLastWorkspaceId()
   const router = useRouter()
 
-  // Redirect to the last viewed workspace
-  if (lastWorkspaceId) {
-    // This only works if you're the same user.
-    console.log("Redirecting to last workspace", lastWorkspaceId)
-    router.replace(`/workspaces/${lastWorkspaceId}/workflows`)
-  }
-  // Redirect to the first workspace
-  if (workspaces) {
-    console.log("Redirecting to first workspace")
-    if (workspaces.length === 0) {
-      // XXX: This is defensive code. We should never reach this point.
-      // On server side we prevent deletion of the last workspace.
-      // We create a default workspace on first login.
-      console.log("Creating a new workspace")
-      createWorkspace({ name: "New Workspace" })
-        .then((workspace) =>
-          router.replace(`/workspaces/${workspace.id}/workflows`)
-        )
-        .catch((error) => {
-          console.error("Error creating workspace", error)
-          throw new Error("Could not create workspace")
-        })
-    } else {
-      router.replace(`/workspaces/${workspaces[0].id}/workflows`)
+  useEffect(() => {
+    // Redirect to the last viewed workspace
+    if (lastWorkspaceId) {
+      console.log("Redirecting to last workspace", lastWorkspaceId)
+      router.replace(`/workspaces/${lastWorkspaceId}/workflows`)
+      return
     }
-  } else {
-    // Some error occurred
-    throw new Error("Could not load workspaces")
-  }
+
+    // Redirect to the first workspace
+    if (workspaces) {
+      console.log("Redirecting to first workspace")
+      if (workspaces.length === 0) {
+        // Create a default workspace on first login
+        console.log("Creating a new workspace")
+        createWorkspace({ name: "New Workspace" })
+          .then((workspace) =>
+            router.replace(`/workspaces/${workspace.id}/workflows`)
+          )
+          .catch((error) => {
+            console.error("Error creating workspace", error)
+          })
+      } else {
+        router.replace(`/workspaces/${workspaces[0].id}/workflows`)
+      }
+    }
+  }, [lastWorkspaceId, workspaces, router, createWorkspace])
+
+  // Return a loading indicator while waiting for redirection
+  return <CenteredSpinner />
 }
