@@ -47,7 +47,6 @@ dependencies = [
     "orjson==3.10.3",
     "paramiko==3.5.0",
     "phonenumbers==8.13.55",
-    "podman==5.4.0.1",
     "psycopg[binary]==3.1.19",
     "pyarrow==16.1.0",
     "pydantic-extra-types==2.10.2",
@@ -127,7 +126,6 @@ markers = [
     "dbtest: marks tests that make database calls",
     "disable_fixture: marks tests that disable fixtures",
     "integration: marks tests that perform live network calls and container operations",
-    "podman: marks tests that use the Podman container runner",
     "llm: marks tests that perform LLM calls",
     "ollama: mark tests that require Ollama",
 ]

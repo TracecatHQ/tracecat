@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.31.6}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.32.0}
     container_name: api
     restart: unless-stopped
     networks:
@@ -64,7 +64,7 @@ services:
       - executor
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.31.6}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.32.0}
     restart: unless-stopped
     networks:
       - core
@@ -98,7 +98,7 @@ services:
     command: ["python", "tracecat/dsl/worker.py"]
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.31.6}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.32.0}
     restart: unless-stopped
     networks:
       - core-db
@@ -122,9 +122,6 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
-      # Podman
-      TRACECAT__PODMAN_URI: ${TRACECAT__PODMAN_URI}
-      TRACECAT__TRUSTED_DOCKER_IMAGES: ${TRACECAT__TRUSTED_DOCKER_IMAGES}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:
@@ -139,7 +136,7 @@ services:
         "8000",
       ]
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.31.6}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.32.0}
     container_name: ui
     restart: unless-stopped
     networks:
@@ -213,42 +210,9 @@ services:
       - temporal
     attach: false
 
-  # ---------------------------------------------------------
-
-  # A Tracecat enterprise licensed is required to use
-  # the `ee-container-runner` service
-
-  # To request an NFR license for evaluation, please contact us:
-  # at https://cal.com/team/tracecat or founders@tracecat.com.
-
-  # ---------------------------------------------------------
-
-  ee-container-runner:
-    image: quay.io/podman/stable
-    container_name: container-runner
-    restart: unless-stopped
-    networks:
-      - temporal
-    environment:
-      LOG_LEVEL: debug
-    user: podman
-    command: ["podman", "system", "service", "--time=0", "--log-level=info", "tcp://0.0.0.0:8090"]
-    volumes:
-      - containers:/var/lib/containers
-      - /etc/localtime:/etc/localtime:ro
-    security_opt:
-      - label=disable
-    devices:
-      - /dev/fuse:/dev/fuse
-      - /dev/net/tun:/dev/net/tun
-    cap_add:
-      - NET_ADMIN
-      - SYS_ADMIN
-
 volumes:
   core-db:
   temporal-db:
-  containers:
 
 networks:
   core:
