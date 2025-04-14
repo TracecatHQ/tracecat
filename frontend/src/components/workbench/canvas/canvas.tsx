@@ -504,7 +504,7 @@ export const WorkflowCanvas = React.forwardRef<
         // onContextMenu={onPaneContextMenu}
         onPaneContextMenu={onPaneContextMenu}
       >
-        <Background />
+        <Background bgColor="#fcfcfc" />
         <Controls className="rounded-sm" fitViewOptions={fitViewOptions} />
         <Panel position="bottom-right" className="flex items-center gap-1">
           <Badge
