@@ -53,8 +53,15 @@ async def connect_to_temporal() -> Client:
         tls_config = True
         rpc_metadata["temporal-namespace"] = TEMPORAL__CLUSTER_NAMESPACE
 
+    runtime = None
+    # TODO: fix https://github.com/prometheus/client_python/issues/155
     if TEMPORAL__METRICS_PORT:
-        runtime = init_runtime_with_prometheus(port=TEMPORAL__METRICS_PORT)
+        try:
+            runtime = init_runtime_with_prometheus(port=int(TEMPORAL__METRICS_PORT))
+        except Exception as e:
+            logger.warning(
+                "Failed to initialize Prometheus runtime: %s", e, exc_info=True
+            )
     client = await Client.connect(
         target_host=TEMPORAL__CLUSTER_URL,
         namespace=TEMPORAL__CLUSTER_NAMESPACE,

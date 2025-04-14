@@ -58,7 +58,6 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
-      TEMPORAL__METRICS_PORT: null
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
@@ -93,7 +92,7 @@ services:
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN}
       # Metrics
-      TEMPORAL__METRICS_PORT: null
+      TEMPORAL__METRICS_PORT: 9000
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "tracecat/dsl/worker.py"]
