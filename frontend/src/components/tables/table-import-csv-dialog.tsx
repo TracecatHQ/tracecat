@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { Spinner } from "@/components/loading/spinner"
+import { Table, TableCell, TableBody, TableHead, TableHeader, TableRow } from "../ui/table"
 
 const BYTES_PER_MB = 1024 * 1024
 const FILE_SIZE_LIMIT_MB = 5
@@ -284,38 +285,56 @@ interface CsvPreviewProps {
 }
 
 function CsvPreview({ csvData }: CsvPreviewProps) {
+  console.log("CSV Data:", csvData);
+
   return (
     <div className="space-y-4">
       <div className="text-sm font-medium">Preview (first 5 rows)</div>
-      <div className="max-h-60 overflow-auto rounded border">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50">
-              {csvData.headers.map((header) => (
-                <th key={header} className="p-2 text-left">
+      <div className="rounded border max-h-60 overflow-auto">
+        <Table className="min-w-full table-fixed">
+          <TableHeader>
+            <TableRow>
+              {csvData.headers.map((header) => {
+                console.log(`Header: ${header}`);
+                return (
+                <TableHead
+                  key={header}
+                  className="whitespace-nowrap sticky top-0 bg-muted/50 min-w-[160px]"
+                >
                   {header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {csvData.preview.map((row, i) => (
-              <tr key={i} className="border-b">
-                {csvData.headers.map((header) => (
-                  <td
+                </TableHead>
+              )})}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {csvData.preview.map((row, i) => {
+              console.log(`Row ${i}:`, row);
+              return (
+              <TableRow key={i}>
+                {csvData.headers.map((header) => {
+                  const cellValue = row[header];
+                  const isObject = typeof cellValue === 'object' && cellValue !== null;
+                  const displayValue = isObject
+                    ? JSON.stringify(cellValue).length > 30
+                      ? JSON.stringify(cellValue).substring(0, 27) + "..."
+                      : JSON.stringify(cellValue)
+                    : String(cellValue || '');
+
+                  console.log(`Cell [${i}][${header}]:`, cellValue, `Display: ${displayValue}`);
+
+                  return (
+                  <TableCell
                     key={header}
-                    className="max-w-xs truncate p-2"
-                    title={row[header]}
+                    className="truncate min-w-[160px]"
+                    title={isObject ? JSON.stringify(cellValue) : String(cellValue || '')}
                   >
-                    {typeof row[header] === "string" && row[header].length > 100
-                      ? row[header].substring(0, 100) + "..."
-                      : row[header]}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    {displayValue}
+                  </TableCell>
+                )})}
+              </TableRow>
+            )})}
+          </TableBody>
+        </Table>
       </div>
     </div>
   )
