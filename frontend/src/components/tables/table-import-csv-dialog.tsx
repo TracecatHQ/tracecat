@@ -285,7 +285,6 @@ interface CsvPreviewProps {
 }
 
 function CsvPreview({ csvData }: CsvPreviewProps) {
-  console.log("CSV Data:", csvData);
 
   return (
     <div className="space-y-4">
@@ -295,7 +294,6 @@ function CsvPreview({ csvData }: CsvPreviewProps) {
           <TableHeader>
             <TableRow>
               {csvData.headers.map((header) => {
-                console.log(`Header: ${header}`);
                 return (
                 <TableHead
                   key={header}
@@ -308,7 +306,6 @@ function CsvPreview({ csvData }: CsvPreviewProps) {
           </TableHeader>
           <TableBody>
             {csvData.preview.map((row, i) => {
-              console.log(`Row ${i}:`, row);
               return (
               <TableRow key={i}>
                 {csvData.headers.map((header) => {
@@ -320,7 +317,6 @@ function CsvPreview({ csvData }: CsvPreviewProps) {
                       : JSON.stringify(cellValue)
                     : String(cellValue || '');
 
-                  console.log(`Cell [${i}][${header}]:`, cellValue, `Display: ${displayValue}`);
 
                   return (
                   <TableCell
