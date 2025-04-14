@@ -119,7 +119,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
       >
         {/* Webhooks */}
         <AccordionItem value="trigger-webhooks">
-          <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+          <AccordionTrigger className="px-4 text-xs font-bold">
             <div className="flex items-center">
               <WebhookIcon className="mr-3 size-4" />
               <span>Webhook</span>
@@ -137,7 +137,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
 
         {/* Schedules */}
         <AccordionItem value="trigger-schedules">
-          <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+          <AccordionTrigger className="px-4 text-xs font-bold">
             <div className="flex items-center">
               <CalendarClockIcon className="mr-3 size-4" />
               <span>Schedules</span>

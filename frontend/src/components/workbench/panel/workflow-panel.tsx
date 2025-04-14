@@ -227,7 +227,7 @@ export function WorkflowPanel({
             className="flex flex-col overflow-auto"
           >
             <div className="w-full min-w-[30rem]">
-              <div className="mt-2 flex items-center justify-start">
+              <div className="mt-0.5 flex items-center justify-start">
                 <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
                   <TabsTrigger
                     className="flex h-full min-w-28 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -260,7 +260,7 @@ export function WorkflowPanel({
                     defaultValue={["workflow-settings", "workflow-config"]}
                   >
                     <AccordionItem value="workflow-settings">
-                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                      <AccordionTrigger className="px-4 text-xs font-bold">
                         <div className="flex items-center">
                           <Settings2Icon className="mr-3 size-4" />
                           <span>Workflow</span>
@@ -442,7 +442,7 @@ export function WorkflowPanel({
                       </AccordionContent>
                     </AccordionItem>
                     <AccordionItem value="workflow-config">
-                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                      <AccordionTrigger className="px-4 text-xs font-bold">
                         <div className="flex items-center">
                           <FileSliders className="mr-3 size-4" />
                           <span>Configuration</span>
@@ -541,7 +541,7 @@ export function WorkflowPanel({
                     defaultValue={["workflow-expects", "workflow-returns"]}
                   >
                     <AccordionItem value="workflow-expects">
-                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                      <AccordionTrigger className="px-4 text-xs font-bold">
                         <div className="flex items-center">
                           <Redo2Icon className="mr-3 size-4" />
                           <span className="capitalize">Input schema</span>
@@ -596,7 +596,7 @@ export function WorkflowPanel({
                       </AccordionContent>
                     </AccordionItem>
                     <AccordionItem value="workflow-returns">
-                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                      <AccordionTrigger className="px-4 text-xs font-bold">
                         <div className="flex items-center">
                           <Undo2Icon className="mr-3 size-4" />
                           <span className="capitalize">Output Schema</span>
@@ -658,7 +658,7 @@ export function WorkflowPanel({
                     defaultValue={["workflow-static-inputs"]}
                   >
                     <AccordionItem value="workflow-static-inputs">
-                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                      <AccordionTrigger className="px-4 text-xs font-bold">
                         <div className="flex items-center">
                           <FileInputIcon className="mr-3 size-4" />
                           <span>Static Inputs</span>

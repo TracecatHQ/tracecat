@@ -3,7 +3,7 @@
 import { ApiError, TableReadMinimal } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Loader2, PlusCircle } from "lucide-react"
+import { PlusCircle } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
@@ -27,6 +27,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Spinner } from "@/components/loading/spinner"
 
 const updateTableSchema = z.object({
   name: z
@@ -111,7 +112,7 @@ export function TableEditDialog({
             <DialogFooter>
               <Button type="submit" disabled={updateTableIsPending}>
                 {updateTableIsPending ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  <Spinner />
                 ) : (
                   <PlusCircle className="mr-2 size-4" />
                 )}

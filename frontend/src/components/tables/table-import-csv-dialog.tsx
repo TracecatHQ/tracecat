@@ -6,7 +6,6 @@ import { ApiError, TableRead } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogProps } from "@radix-ui/react-dialog"
-import { Loader2 } from "lucide-react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 
@@ -38,6 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { Spinner } from "@/components/loading/spinner"
 
 const BYTES_PER_MB = 1024 * 1024
 const FILE_SIZE_LIMIT_MB = 5
@@ -206,7 +206,7 @@ export function TableImportCsvDialog({
                     >
                       {importCsvIsPending ? (
                         <>
-                          <Loader2 className="mr-2 size-4 animate-spin" />
+                          <Spinner className="mr-2 size-4" />
                           Importing...
                         </>
                       ) : (
@@ -268,7 +268,7 @@ function CsvUploadForm({ isUploading, nextPage }: CsvUploadFormProps) {
       >
         {isUploading ? (
           <>
-            <Loader2 className="mr-2 size-4 animate-spin" />
+            <Spinner className="mr-2" />
             Uploading...
           </>
         ) : (

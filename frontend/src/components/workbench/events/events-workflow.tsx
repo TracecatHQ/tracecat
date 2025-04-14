@@ -21,7 +21,6 @@ import {
   CirclePlayIcon,
   CircleX,
   EyeOffIcon,
-  Loader2,
   LoaderIcon,
   ScanEyeIcon,
   SquareArrowOutUpRightIcon,
@@ -53,6 +52,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { getExecutionStatusIcon } from "@/components/executions/nav"
+import { Spinner } from "@/components/loading/spinner"
 
 export function WorkflowEventsHeader({
   execution,
@@ -361,9 +361,7 @@ export function getWorkflowEventIcon(
         />
       )
     case "STARTED":
-      return (
-        <Loader2 className={cn("animate-spin stroke-blue-500/50", className)} />
-      )
+      return <Spinner className={className} />
     case "COMPLETED":
       return (
         <CircleCheck

@@ -61,7 +61,7 @@ export function WorkflowExecutionEventDetailView({
       >
         {/* General */}
         <AccordionItem value="general">
-          <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+          <AccordionTrigger className="px-4 text-xs font-bold">
             <div className="flex items-center">
               <InfoIcon
                 className="mr-2 size-5 fill-sky-500 stroke-white"
@@ -78,7 +78,7 @@ export function WorkflowExecutionEventDetailView({
         {/* Urgent */}
         {failure && (
           <AccordionItem value="failure">
-            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+            <AccordionTrigger className="px-4 text-xs font-bold">
               <div className="flex items-end">
                 <TriangleAlert
                   className="mr-2 size-5 fill-rose-500 stroke-white"
@@ -98,7 +98,7 @@ export function WorkflowExecutionEventDetailView({
         {/* Action details */}
         {(result as Record<string, unknown>) && (
           <AccordionItem value="result">
-            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+            <AccordionTrigger className="px-4 text-xs font-bold">
               <div className="flex items-end">
                 <span>Event Result</span>
               </div>
@@ -113,7 +113,7 @@ export function WorkflowExecutionEventDetailView({
 
         {isDSLRunArgs(action_input) && (
           <AccordionItem value="result">
-            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+            <AccordionTrigger className="px-4 text-xs font-bold">
               <div className="flex items-end">
                 <span>Child Workflow Input</span>
               </div>
@@ -128,7 +128,7 @@ export function WorkflowExecutionEventDetailView({
 
         {isRunActionInput(action_input) && (
           <AccordionItem value="result">
-            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+            <AccordionTrigger className="px-4 text-xs font-bold">
               <div className="flex items-end">
                 <span>Action Input</span>
               </div>
@@ -143,7 +143,7 @@ export function WorkflowExecutionEventDetailView({
 
         {isInteractionInput(action_input) && (
           <AccordionItem value="result">
-            <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+            <AccordionTrigger className="px-4 text-xs font-bold">
               <div className="flex items-end">
                 <span>Received Input</span>
               </div>

@@ -12,7 +12,6 @@ import {
   CircleMinusIcon,
   CircleX,
   CircleXIcon,
-  Loader2,
 } from "lucide-react"
 
 import { cn, undoSlugify } from "@/lib/utils"
@@ -40,6 +39,7 @@ import { TriangleRightIcon } from "@radix-ui/react-icons"
 import { parseExecutionId } from "@/lib/event-history"
 import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
+import { Spinner } from "@/components/loading/spinner"
 
 /**
  * The top-level view of workflow executions (shows each execution and its status)
@@ -217,9 +217,7 @@ export function getExecutionStatusIcon(
 ) {
   switch (status) {
     case "RUNNING":
-      return (
-        <Loader2 className={cn("animate-spin stroke-blue-500/50", className)} />
-      )
+      return <Spinner className={className} />
     case "COMPLETED":
       return (
         <CircleCheck

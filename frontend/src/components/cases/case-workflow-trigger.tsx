@@ -46,19 +46,17 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
   )
   const { createExecution, createExecutionIsPending } =
     useManualWorkflowExecution(selectedWorkflowId || "")
-  const customFieldsObj = useMemo(
-    () =>
-      Object.fromEntries(
+  const triggerInputs = useMemo(
+    () => ({
+      case_id: caseData.id,
+      case_fields: Object.fromEntries(
         caseData.fields
           .filter((field) => !field.reserved)
           .map((field) => [field.id, field.value])
       ),
+    }),
     [caseData]
   )
-  const triggerInputs = {
-    case_id: caseData.id,
-    case_fields: customFieldsObj,
-  }
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
 
   // Fetch workflows

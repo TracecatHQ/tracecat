@@ -10,7 +10,6 @@ import {
   ChevronDownIcon,
   CopyIcon,
   KeyIcon,
-  Loader2,
   Pencil,
   Trash2Icon,
 } from "lucide-react"
@@ -64,6 +63,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { Spinner } from "@/components/loading/spinner"
 
 type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
 
@@ -389,7 +389,7 @@ function TableColumnEditDialog({
             <DialogFooter>
               <Button type="submit" disabled={updateColumnIsPending}>
                 {updateColumnIsPending ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  <Spinner />
                 ) : (
                   <Pencil className="mr-2 size-4" />
                 )}
@@ -499,7 +499,7 @@ function TableColumnIndexDialog({
           >
             {updateColumnIsPending ? (
               <>
-                <Loader2 className="mr-2 size-4 animate-spin" />
+                <Spinner />
                 Creating...
               </>
             ) : (

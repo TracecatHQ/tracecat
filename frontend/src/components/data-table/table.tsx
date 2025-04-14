@@ -68,7 +68,7 @@ export function DataTable<TData, TValue>({
   errorMessage,
   showSelectedRows = false,
   initialSortingState: initialSorting = [],
-  tableId = "default-table",
+  tableId,
 }: DataTableProps<TData, TValue>) {
   const [tableState, setTableState] = useLocalStorage<Partial<TableState>>(
     `table-state:${tableId}`,
@@ -90,13 +90,15 @@ export function DataTable<TData, TValue>({
   )
 
   React.useEffect(() => {
-    setTableState({
-      ...tableState,
-      columnFilters,
-      sorting,
-      rowSelection,
-      columnVisibility,
-    })
+    if (tableId) {
+      setTableState({
+        ...tableState,
+        columnFilters,
+        sorting,
+        rowSelection,
+        columnVisibility,
+      })
+    }
   }, [columnFilters, sorting, rowSelection, columnVisibility])
 
   const table = useReactTable({

@@ -1091,24 +1091,7 @@ export function useGetRegistryAction(actionName?: string) {
       })
     },
     retry: retryHandler,
-  })
-
-  return { registryAction, registryActionIsLoading, registryActionError }
-}
-
-// This is for the action panel in the workbench
-export function useRegistryAction(key: string, version: string) {
-  const {
-    data: registryAction,
-    isLoading: registryActionIsLoading,
-    error: registryActionError,
-  } = useQuery<RegistryActionRead>({
-    queryKey: ["registry_action", key, version],
-    queryFn: async ({ queryKey }) => {
-      return await registryActionsGetRegistryAction({
-        actionName: queryKey[1] as string,
-      })
-    },
+    enabled: !!actionName,
   })
 
   return { registryAction, registryActionIsLoading, registryActionError }

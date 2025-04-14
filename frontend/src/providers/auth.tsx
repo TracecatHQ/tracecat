@@ -17,10 +17,10 @@ import { MutateFunction, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { authConfig } from "@/config/auth"
 import { getCurrentUser } from "@/lib/auth"
-import { CenteredSpinner } from "@/components/loading/spinner"
 
 type AuthContextType = {
   user: UserRead | null
+  userIsLoading: boolean
   login: MutateFunction<
     AuthAuthDatabaseLoginResponse,
     unknown,
@@ -74,14 +74,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user, userIsLoading, userError])
 
-  if (userIsLoading) {
-    return <CenteredSpinner />
-  }
-
   return (
     <AuthContext.Provider
       value={{
         user: user ?? null,
+        userIsLoading,
         login,
         logout,
         register: authRegisterRegister,

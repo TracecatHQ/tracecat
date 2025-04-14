@@ -178,7 +178,7 @@ export function WorkbenchNav() {
                   </span>
                   <div className="mt-1 space-y-1">
                     {validationErrors.map((error, index) => (
-                      <div className="space-y-2">
+                      <div className="space-y-2" key={index}>
                         <Separator className="bg-rose-400" />
                         <ErrorMessage
                           key={index}

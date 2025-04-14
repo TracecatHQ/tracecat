@@ -5,7 +5,7 @@ import { TableColumnRead, TableRead } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Checkbox } from "@radix-ui/react-checkbox"
-import { Loader2, PlusCircle } from "lucide-react"
+import { PlusCircle } from "lucide-react"
 import { ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 
@@ -28,6 +28,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Spinner } from "@/components/loading/spinner"
 
 // Update the schema to be dynamic based on table columns
 const createInsertTableRowSchema = (table: TableRead) => {
@@ -165,7 +166,7 @@ export function TableInsertRowDialog({
             <DialogFooter>
               <Button type="submit" disabled={insertRowIsPending}>
                 {insertRowIsPending ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  <Spinner className="mr-2 size-4" />
                 ) : (
                   <PlusCircle className="mr-2 size-4" />
                 )}
