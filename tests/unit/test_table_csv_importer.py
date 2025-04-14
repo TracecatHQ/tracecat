@@ -9,6 +9,7 @@ from tracecat.db.schemas import Table, TableColumn
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import ColumnInfo, CSVImporter
 from tracecat.tables.service import TablesService
+from tracecat.types.exceptions import TracecatImportError
 
 
 @pytest.fixture
@@ -48,6 +49,14 @@ def table_columns() -> list[TableColumn]:
             nullable=True,
             default=None,
         ),
+        TableColumn(
+            id=uuid4(),
+            table_id=table_id,
+            name="data",
+            type=SqlType.JSONB,
+            nullable=True,
+            default=None,
+        ),
     ]
 
 
@@ -66,7 +75,7 @@ class TestCSVImporter:
 
         assert importer.chunk_size == 1000
         assert importer.total_rows_inserted == 0
-        assert len(importer.columns) == 4
+        assert len(importer.columns) == 5
 
         # Verify column info mappings
         assert all(
@@ -92,7 +101,7 @@ class TestCSVImporter:
         assert csv_importer.convert_value("123", SqlType.INTEGER) == 123
         assert csv_importer.convert_value("-456", SqlType.INTEGER) == -456
         with pytest.raises(
-            TypeError, match="Cannot convert value '12.34' to SqlType INTEGER"
+            TracecatImportError, match="Cannot convert value '12.34' to SqlType INTEGER"
         ):
             csv_importer.convert_value("12.34", SqlType.INTEGER)
 
@@ -101,7 +110,7 @@ class TestCSVImporter:
         assert csv_importer.convert_value("123.45", SqlType.DECIMAL) == 123.45
         assert csv_importer.convert_value("-456.78", SqlType.DECIMAL) == -456.78
         with pytest.raises(
-            TypeError, match="Cannot convert value 'abc' to SqlType DECIMAL"
+            TracecatImportError, match="Cannot convert value 'abc' to SqlType DECIMAL"
         ):
             csv_importer.convert_value("abc", SqlType.DECIMAL)
 
@@ -112,9 +121,39 @@ class TestCSVImporter:
         assert csv_importer.convert_value("1", SqlType.BOOLEAN) is True
         assert csv_importer.convert_value("0", SqlType.BOOLEAN) is False
         with pytest.raises(
-            TypeError, match="Cannot convert value 'invalid' to SqlType BOOLEAN"
+            TracecatImportError,
+            match="Cannot convert value 'invalid' to SqlType BOOLEAN",
         ):
             csv_importer.convert_value("invalid", SqlType.BOOLEAN)
+
+    def test_convert_value_jsonb(self, csv_importer: CSVImporter) -> None:
+        """Test convert_value with JSONB values."""
+        # Valid JSON string
+        assert (
+            csv_importer.convert_value('{"key": "value"}', SqlType.JSONB)
+            == '{"key": "value"}'
+        )
+
+        # Python dict that gets converted to JSON string
+        assert (
+            csv_importer.convert_value({"key": "value"}, SqlType.JSONB)
+            == '{"key": "value"}'
+        )
+
+        # Empty values
+        assert csv_importer.convert_value("", SqlType.JSONB) == ""
+        assert csv_importer.convert_value(None, SqlType.JSONB) is None
+
+        # Invalid JSON string
+        with pytest.raises(TracecatImportError, match="Invalid JSON format"):
+            csv_importer.convert_value("{invalid_json}", SqlType.JSONB)
+
+        # Unconvertible object (like a custom class)
+        class CustomClass:
+            pass
+
+        with pytest.raises(TracecatImportError, match="Cannot convert value to JSON"):
+            csv_importer.convert_value(CustomClass(), SqlType.JSONB)
 
     def test_map_row(self, csv_importer: CSVImporter) -> None:
         """Test mapping CSV rows to table columns."""
