@@ -48,6 +48,7 @@ dependencies = [
     "paramiko==3.5.0",
     "phonenumbers==8.13.55",
     "podman==5.4.0.1",
+    "polars-lts-cpu==1.27.0",
     "psycopg[binary]==3.1.19",
     "pyarrow==16.1.0",
     "pydantic-extra-types==2.10.2",
