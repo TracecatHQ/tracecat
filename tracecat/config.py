@@ -141,7 +141,7 @@ TEMPORAL__CLIENT_RPC_TIMEOUT = os.environ.get("TEMPORAL__CLIENT_RPC_TIMEOUT")
 TEMPORAL__TASK_TIMEOUT = os.environ.get("TEMPORAL__TASK_TIMEOUT")
 """Temporal workflow task timeout in seconds (default 10 seconds)."""
 
-TEMPORAL__METRICS_PORT = int(os.environ.get("TEMPORAL__METRICS_PORT", 9000))
+TEMPORAL__METRICS_PORT = os.environ.get("TEMPORAL__METRICS_PORT")
 """Port for the Temporal metrics server."""
 
 # Secrets manager config
