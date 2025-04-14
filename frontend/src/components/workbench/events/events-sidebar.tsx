@@ -181,7 +181,7 @@ function WorkbenchSidebarEventsList({
         }}
         className="flex size-full flex-col"
       >
-        <div className="sticky top-0 z-10 mt-2 bg-background">
+        <div className="sticky top-0 z-10 mt-0.5 bg-background">
           <ScrollArea className="w-full whitespace-nowrap rounded-md">
             <TabsList className="inline-flex h-8 w-full items-center justify-start bg-transparent p-0">
               {tabItems.map((tab) => (
