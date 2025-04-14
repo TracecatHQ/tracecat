@@ -6,6 +6,7 @@ from fastapi.responses import ORJSONResponse
 
 from tracecat import config
 from tracecat.api.common import (
+    add_temporal_search_attributes,
     custom_generate_unique_id,
     generic_exception_handler,
     tracecat_exception_handler,
@@ -19,6 +20,10 @@ from tracecat.types.exceptions import TracecatException
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Temporal
+    await add_temporal_search_attributes()
+
+    # App
     with setup_ray():
         yield
 

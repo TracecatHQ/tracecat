@@ -13,6 +13,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
 from tracecat.api.common import (
+    add_temporal_search_attributes,
     bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
@@ -62,6 +63,10 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Temporal
+    await add_temporal_search_attributes()
+
+    # App
     role = bootstrap_role()
     async with get_async_session_context_manager() as session:
         # Org
