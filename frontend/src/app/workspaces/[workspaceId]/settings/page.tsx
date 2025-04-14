@@ -3,7 +3,8 @@ import { redirect } from "next/navigation"
 export default async function SettingsPage({
   params,
 }: {
-  params: { workspaceId: string }
+  params: Promise<{ workspaceId: string }>
 }) {
-  return redirect(`/workspaces/${params.workspaceId}/settings/general`)
+  const { workspaceId } = await params
+  return redirect(`/workspaces/${workspaceId}/settings/general`)
 }
