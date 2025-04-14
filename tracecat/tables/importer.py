@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any
 
 import polars as pl
@@ -8,6 +9,8 @@ from tracecat.db.schemas import Table, TableColumn
 from tracecat.tables.enums import SqlType
 from tracecat.tables.service import TablesService
 from tracecat.types.exceptions import TracecatImportError
+
+logger = logging.getLogger(__name__)
 
 
 class ColumnInfo(BaseModel):
@@ -35,6 +38,49 @@ class CSVImporter:
             SqlType.JSONB: pl.Utf8,  # Store JSONB as strings
         }
 
+    def convert_value(self, value: Any, sql_type: SqlType) -> Any:
+        """Convert a value to the appropriate type based on SQL type."""
+        try:
+            if sql_type == SqlType.INTEGER and value != "":
+                return int(value)
+            elif sql_type == SqlType.DECIMAL and value != "":
+                return float(value)
+            elif sql_type == SqlType.BOOLEAN and value != "":
+                if isinstance(value, str):
+                    lowercase_value = value.lower()
+                    if lowercase_value in ("true", "yes", "1", "t", "y"):
+                        return True
+                    elif lowercase_value in ("false", "no", "0", "f", "n"):
+                        return False
+                    else:
+                        raise ValueError(f"Invalid boolean value: {value}")
+                return bool(value)
+            elif sql_type == SqlType.JSONB:
+                if value:
+                    if not isinstance(value, str):
+                        # Object to JSON string
+                        try:
+                            return json.dumps(value)
+                        except (TypeError, ValueError) as e:
+                            raise TracecatImportError(
+                                f"Cannot convert value to JSON: {e}"
+                            ) from e
+                    else:
+                        # Validate it's a proper JSON string
+                        try:
+                            # Parse and re-stringify to ensure valid JSON format
+                            json.loads(value)
+                            return value
+                        except json.JSONDecodeError as e:
+                            raise TracecatImportError(
+                                f"Invalid JSON format: {e}"
+                            ) from e
+            return value
+        except (ValueError, TypeError) as e:
+            raise TracecatImportError(
+                f"Cannot convert value '{value}' to SqlType {sql_type}: {e}"
+            ) from e
+
     def map_row(
         self, row: dict[str, Any], column_mapping: dict[str, str]
     ) -> dict[str, Any]:
@@ -45,43 +91,16 @@ class CSVImporter:
             if not table_col or table_col == "skip" or csv_col not in row:
                 continue
 
-            value = row[csv_col]
-            col_info = self.columns.get(table_col)
-
-            if col_info:
-                # Simple type conversion based on SQL type
+            # Skip columns that don't exist in the table schema
+            if col_info := self.columns.get(table_col):
+                value = row[csv_col]
                 try:
-                    if col_info.type == SqlType.INTEGER and value != "":
-                        value = int(value)
-                    elif col_info.type == SqlType.DECIMAL and value != "":
-                        value = float(value)
-                    elif col_info.type == SqlType.BOOLEAN and value != "":
-                        if isinstance(value, str):
-                            value = value.lower() in ("true", "yes", "1", "t", "y")
-                    elif col_info.type == SqlType.JSONB:
-                        # Handle JSON data - convert to string if needed
-                        if value:
-                            if not isinstance(value, str):
-                                # Object to JSON string
-                                try:
-                                    value = json.dumps(value)
-                                except (TypeError, ValueError) as e:
-                                    raise TracecatImportError(
-                                        f"Cannot convert value to JSON: {e}"
-                                    ) from e
-                            else:
-                                # Validate it's a proper JSON string
-                                try:
-                                    # Parse and re-stringify to ensure valid JSON format
-                                    json.loads(value)
-                                except json.JSONDecodeError as e:
-                                    raise TracecatImportError(
-                                        f"Invalid JSON format: {e}"
-                                    ) from e
-                except (ValueError, TypeError) as e:
-                    raise TracecatImportError(f"Failed to convert value: {e}") from e
-
-            mapped_row[table_col] = value
+                    mapped_row[table_col] = self.convert_value(value, col_info.type)
+                except Exception as e:
+                    logger.warning(f"Failed to convert {csv_col} to {table_col}: {e}")
+                    raise TracecatImportError(
+                        f"Cannot convert value '{value}' in column '{table_col}' to SQL type {col_info.type}"
+                    ) from e
 
         return mapped_row
 
@@ -106,7 +125,7 @@ class CSVImporter:
                     if col_info.type == SqlType.JSONB:
                         try:
                             # Ensure JSON values are proper strings
-                            df = df.with_column(
+                            df = df.with_columns(
                                 pl.col(col_name).map_elements(
                                     lambda x: json.dumps(x)
                                     if not isinstance(x, str)
@@ -115,15 +134,21 @@ class CSVImporter:
                                 )
                             )
                         except Exception as e:
+                            logger.warning(
+                                f"Failed to convert column '{col_name}': {e}"
+                            )
                             raise TracecatImportError(
                                 f"Failed to convert column '{col_name}': {e}"
                             ) from e
                     elif pl_type:
                         try:
-                            df = df.with_column(
+                            df = df.with_columns(
                                 pl.col(col_name).cast(pl_type, strict=False)
                             )
                         except Exception as e:
+                            logger.warning(
+                                f"Failed to cast column '{col_name}' to {pl_type}: {e}"
+                            )
                             raise TracecatImportError(
                                 f"Failed to cast column '{col_name}' to {pl_type}: {e}"
                             ) from e
@@ -135,4 +160,5 @@ class CSVImporter:
             count = await service.batch_insert_rows(table, rows)
             self.total_rows_inserted += count
         except Exception as e:
+            logger.error(f"Error processing chunk: {e}")
             raise TracecatImportError(f"Error processing chunk: {str(e)}") from e
