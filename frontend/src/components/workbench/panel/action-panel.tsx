@@ -520,7 +520,7 @@ export function ActionPanel({
                     className="pb-10"
                   >
                     <AccordionItem value="action-settings">
-                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                      <AccordionTrigger className="px-4 text-xs font-bold">
                         <div className="flex items-center">
                           <SettingsIcon className="mr-3 size-4" />
                           <span>General</span>
@@ -589,7 +589,7 @@ export function ActionPanel({
                     {/* Interaction */}
                     {appSettings?.app_interactions_enabled && (
                       <AccordionItem value="action-interaction">
-                        <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                        <AccordionTrigger className="px-4 text-xs font-bold">
                           <div className="flex items-center">
                             <MessagesSquare className="mr-3 size-4" />
                             <span>Interaction</span>
@@ -736,7 +736,7 @@ export function ActionPanel({
 
                     {/* Schema */}
                     <AccordionItem value="action-schema">
-                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                      <AccordionTrigger className="px-4 text-xs font-bold">
                         <div className="flex items-center">
                           <ShapesIcon className="mr-3 size-4" />
                           <span>Input schema</span>
@@ -813,7 +813,7 @@ export function ActionPanel({
 
                     {/* Inputs */}
                     <AccordionItem value="action-inputs">
-                      <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                      <AccordionTrigger className="px-4 text-xs font-bold">
                         <div className="flex items-center">
                           <LayoutListIcon className="mr-3 size-4" />
                           <span>Inputs</span>
@@ -1073,7 +1073,7 @@ export function ActionPanel({
                       className="pb-10"
                     >
                       <AccordionItem value="action-template">
-                        <AccordionTrigger className="px-4 text-xs font-bold tracking-wide">
+                        <AccordionTrigger className="px-4 text-xs font-bold">
                           <div className="flex items-center">
                             <FileTextIcon className="mr-3 size-4" />
                             <span>Template Definition</span>
@@ -1223,7 +1223,7 @@ export function ActionPanelNotFound({
       {...props}
     >
       <div className="flex flex-col items-center gap-4 p-6 text-center">
-        <div className="rounded-full bg-muted p-3 font-semibold">?</div>
+        <div className="size-12 rounded-full bg-muted p-3 font-semibold">?</div>
         <div className="space-y-1">
           <h4 className="text-sm font-semibold">{title}</h4>
           {description}
