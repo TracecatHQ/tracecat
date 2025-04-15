@@ -522,7 +522,7 @@ export const WorkflowCanvas = React.forwardRef<
         <Panel position="bottom-right" className="flex items-center gap-1">
           <Badge
             variant="outline"
-            className="select-none bg-background text-xs font-extralight hover:cursor-default"
+            className="select-none bg-background text-xs font-normal hover:cursor-default"
           >
             Layout
           </Badge>
