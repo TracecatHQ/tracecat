@@ -50,7 +50,7 @@ definition:
         value: ${{ steps.post_search_job.result.data }}
         # e.g. <response><sid>mysearch_02151949</sid></response>
         python_lambda: >
-          lambda x: x.split('<sid>')[1].split('</sid>')[0]
+          lambda x: x[x.find('<sid>') + 5:x.find('</sid>')]
     # https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTsearch#search.2Fjobs.2F.7Bsearch_id.7D
     - ref: get_search_status
       action: core.http_poll
