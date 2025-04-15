@@ -506,7 +506,7 @@ export const WorkflowCanvas = React.forwardRef<
         defaultEdgeOptions={defaultEdgeOptions}
         nodeTypes={nodeTypes}
         proOptions={{ hideAttribution: true }}
-        deleteKeyCode={[]}
+        deleteKeyCode={["Backspace", "Delete"]}
         fitView
         fitViewOptions={fitViewOptions}
         nodeDragThreshold={4}
