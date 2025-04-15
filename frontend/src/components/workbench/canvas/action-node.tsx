@@ -1,6 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import React, {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import Link from "next/link"
+import { ActionRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { QuestionMarkIcon } from "@radix-ui/react-icons"
 import {
   NodeToolbar,
   Position,
@@ -12,6 +21,7 @@ import {
 import {
   AlertTriangleIcon,
   CircleCheckBigIcon,
+  CircleHelp,
   CopyIcon,
   LayoutListIcon,
   MessagesSquare,
@@ -19,7 +29,7 @@ import {
   SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from "lucide-react"
-import { useForm } from "react-hook-form"
+import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import YAML from "yaml"
 
 import {
@@ -31,24 +41,38 @@ import { cn, slugify } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
 import { useActionNodeZoomBreakpoint } from "@/hooks/canvas"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
   Card,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
+import {
+  Command,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@/components/ui/command"
+import { FormControl, FormField, FormItem } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useToast } from "@/components/ui/use-toast"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { toast, useToast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
-import { AlertNotification } from "@/components/notifications"
 import {
   ActionSoruceSuccessHandle,
   ActionSourceErrorHandle,
   ActionTargetHandle,
 } from "@/components/workbench/canvas/custom-handle"
+import { DeleteActionNodeDialog } from "@/components/workbench/canvas/delete-node-dialog"
+import { nodeStyles } from "@/components/workbench/canvas/node-styles"
+import { EventsSidebarRef } from "@/components/workbench/events/events-sidebar"
 
 export type ActionNodeData = {
   id: string
@@ -63,6 +87,13 @@ export type ActionNodeData = {
 
 export type ActionNodeType = Node<ActionNodeData, "udf">
 
+type ChildWorkflowInfo = {
+  isChildWorkflow: boolean
+  childWorkflowId?: string
+  childWorkflowAlias?: string
+  childIdFromAlias?: string
+}
+
 export default React.memo(function ActionNode({
   selected,
   id,
@@ -76,6 +107,7 @@ export default React.memo(function ActionNode({
     sidebarRef,
     setSelectedActionEventRef,
   } = useWorkflowBuilder()
+
   const { toast } = useToast()
   // SAFETY: Node only exists if it's in the workflow
   const { action, actionIsLoading, updateAction } = useAction(
@@ -90,6 +122,7 @@ export default React.memo(function ActionNode({
   const nodeRef = useRef<HTMLDivElement>(null)
   const hideTimeoutRef = useRef<number>()
   const { breakpoint, style } = useActionNodeZoomBreakpoint()
+
   // Clear timeout on unmount
   useEffect(() => {
     return () => {
@@ -173,8 +206,6 @@ export default React.memo(function ActionNode({
   // Add this to track incoming edges
   const edges = useEdges()
   const incomingEdges = edges.filter((edge) => edge.target === id)
-  const isChildWorkflow = action?.type === CHILD_WORKFLOW_ACTION_TYPE
-  const isInteractive = useMemo(() => Boolean(action?.is_interactive), [action])
 
   const actionInputsObj = useMemo(() => {
     try {
@@ -211,12 +242,6 @@ export default React.memo(function ActionNode({
       return {}
     }
   }, [action, toast])
-  const childWorkflowId = actionInputsObj?.workflow_id
-    ? String(actionInputsObj?.workflow_id)
-    : undefined
-  const childWorkflowAlias = actionInputsObj?.workflow_alias
-    ? String(actionInputsObj?.workflow_alias)
-    : undefined
 
   const Icon = useMemo(
     () =>
@@ -226,89 +251,6 @@ export default React.memo(function ActionNode({
     [action?.type]
   )
 
-  // Create a skeleton loading state within the card frame
-  const renderContent = useCallback(() => {
-    if (actionIsLoading) {
-      return (
-        <>
-          <CardHeader className={cn(breakpoint !== "large" ? "p-4" : "p-0")}>
-            <div className="flex w-full items-center space-x-4">
-              <Skeleton className="size-10 rounded-full" />
-              <div className="flex w-full flex-1 justify-between space-x-12">
-                <div className="flex flex-col space-y-2">
-                  <Skeleton className="h-4 w-32" />
-                  <Skeleton className="h-3 w-24" />
-                </div>
-                <Skeleton className="size-6" />
-              </div>
-            </div>
-          </CardHeader>
-        </>
-      )
-    }
-
-    if (!action) {
-      return (
-        <div className="p-4">
-          <AlertNotification
-            variant="warning"
-            title="Could not load action"
-            message="Please try again."
-          />
-        </div>
-      )
-    }
-    return (
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)}>
-          <CardHeader className="p-4" onBlur={form.handleSubmit(onSubmit)}>
-            <div className="flex w-full items-center space-x-4">
-              {Icon}
-              <div className="flex w-full flex-1 justify-between space-x-12">
-                <div className="flex flex-col space-y-1">
-                  <CardTitle className="flex items-center justify-start space-x-2 font-medium leading-none">
-                    <FormField
-                      control={form.control}
-                      name="title"
-                      render={({ field }) => (
-                        <FormItem className="!w-auto">
-                          <FormControl className="!w-auto">
-                            <div className="!w-auto">
-                              <Input
-                                type="text"
-                                {...field}
-                                className={cn(
-                                  "m-0 h-5 shrink-0 border-none bg-transparent p-0",
-                                  "font-medium leading-none",
-                                  "shadow-none outline-none",
-                                  "hover:cursor-pointer hover:bg-muted-foreground/10",
-                                  "focus:ring-0 focus:ring-offset-0",
-                                  "focus-visible:bg-muted-foreground/10 focus-visible:ring-0 focus-visible:ring-offset-0",
-                                  "overflow-hidden text-ellipsis transition-all",
-                                  style.fontSize,
-                                  breakpoint === "large" && "h-7"
-                                )}
-                              />
-                            </div>
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                  </CardTitle>
-                  {style.showContent && (
-                    <CardDescription className="mt-2 text-xs text-muted-foreground">
-                      {action.type}
-                    </CardDescription>
-                  )}
-                </div>
-              </div>
-            </div>
-          </CardHeader>
-        </form>
-      </Form>
-    )
-  }, [action, actionIsLoading, form, onSubmit, style])
-
   const handleNodeMouseEnter = useCallback(() => {
     setIsMouseOverNode(true)
   }, [])
@@ -317,204 +259,421 @@ export default React.memo(function ActionNode({
     setIsMouseOverNode(false)
   }, [])
 
+  const isChildWorkflow = action?.type === CHILD_WORKFLOW_ACTION_TYPE
+  const childWorkflowId = actionInputsObj?.workflow_id
+    ? String(actionInputsObj?.workflow_id)
+    : undefined
+  const childWorkflowAlias = actionInputsObj?.workflow_alias
+    ? String(actionInputsObj?.workflow_alias)
+    : undefined
+  const { workflows } = useWorkflowManager()
+  const childIdFromAlias = useMemo(
+    () => workflows?.find((w) => w.alias === childWorkflowAlias)?.id,
+    [workflows, childWorkflowAlias]
+  )
+
+  const childWorkflowInfo: ChildWorkflowInfo = {
+    isChildWorkflow,
+    childIdFromAlias,
+    childWorkflowAlias,
+    childWorkflowId,
+  }
+
+  return (
+    <TooltipProvider>
+      <FormProvider {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)}>
+          <Card
+            ref={nodeRef}
+            className={cn(
+              "w-64",
+              nodeStyles.common,
+              selected ? nodeStyles.selected : nodeStyles.hover
+            )}
+            onMouseEnter={handleNodeMouseEnter}
+            onMouseLeave={handleNodeMouseLeave}
+          >
+            <ActionNodeContent
+              workspaceId={workspaceId}
+              actionType={action?.type}
+              actionInputs={actionInputsObj}
+              actionIsLoading={actionIsLoading}
+              actionIsInteractive={action?.is_interactive}
+              submitHandler={form.handleSubmit(onSubmit)}
+              style={style}
+              breakpoint={breakpoint}
+              Icon={Icon}
+              childWorkflowInfo={childWorkflowInfo}
+            />
+            <ActionTargetHandle
+              action={action}
+              indegree={incomingEdges.length}
+            />
+            <ActionSoruceSuccessHandle type="source" />
+            <ActionSourceErrorHandle type="source" />
+            {action && (
+              <ActionNodeToolbar
+                action={action}
+                childWorkflowInfo={childWorkflowInfo}
+                showToolbar={showToolbar}
+                selected={selected}
+                sidebarRef={sidebarRef}
+                setSelectedActionEventRef={setSelectedActionEventRef}
+                setIsMouseOverToolbar={setIsMouseOverToolbar}
+                handleDeleteNode={handleDeleteNode}
+              />
+            )}
+          </Card>
+        </form>
+      </FormProvider>
+    </TooltipProvider>
+  )
+})
+function ActionNodeContent({
+  actionType,
+  actionInputs,
+  actionIsInteractive = false,
+  actionIsLoading,
+  submitHandler,
+  style,
+  breakpoint,
+  Icon,
+  workspaceId,
+  childWorkflowInfo,
+}: {
+  actionType?: string
+  actionInputs?: Record<string, unknown>
+  actionIsLoading: boolean
+  actionIsInteractive?: boolean
+  submitHandler: () => void
+  style: { fontSize: string; showContent: boolean }
+  breakpoint: "small" | "large" | "medium"
+  Icon: React.ReactNode
+  workspaceId: string
+  childWorkflowInfo: ChildWorkflowInfo
+}) {
+  const form = useFormContext()
+
+  if (actionIsLoading) {
+    return (
+      <CardHeader className="p-4">
+        <div className="flex w-full items-center space-x-4">
+          <div className="flex size-10 items-center justify-center rounded-full">
+            <Skeleton className="size-10 rounded-full" />
+          </div>
+          <div className="flex w-full flex-1 justify-between">
+            <div className="flex flex-col space-y-1">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+    )
+  }
+
+  if (!actionType) {
+    return (
+      <CardHeader className="p-4">
+        <div className="flex w-full items-center space-x-4">
+          <div className="flex size-10 items-center justify-center rounded-full bg-muted-foreground/10">
+            <QuestionMarkIcon className="size-6 text-muted-foreground" />
+          </div>
+          <div className="flex w-full flex-1 justify-between">
+            <div className="flex flex-col space-y-1">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Unknown Action
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Action type not found
+              </CardDescription>
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+    )
+  }
+  return (
+    <CardHeader className="p-4" onBlur={submitHandler}>
+      <div className="flex w-full items-center space-x-4">
+        {/* Icon */}
+        {Icon}
+        <div className="flex w-full flex-1 justify-between">
+          <div className="flex flex-col space-y-1">
+            {/* Title */}
+            <CardTitle className="flex items-center justify-start space-x-2 font-medium leading-none">
+              <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem className="!w-auto">
+                    <FormControl className="!w-auto">
+                      <div className="!w-auto">
+                        <Input
+                          type="text"
+                          {...field}
+                          className={cn(
+                            "m-0 h-5 shrink-0 border-none bg-transparent p-0",
+                            "font-medium leading-none",
+                            "shadow-none outline-none",
+                            "hover:cursor-pointer hover:bg-muted-foreground/10",
+                            "focus:ring-0 focus:ring-offset-0",
+                            "focus-visible:bg-muted-foreground/10 focus-visible:ring-0 focus-visible:ring-offset-0",
+                            "overflow-hidden text-ellipsis transition-all",
+                            style.fontSize,
+                            breakpoint === "large" && "h-7"
+                          )}
+                        />
+                      </div>
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </CardTitle>
+            {/* Action type */}
+            {style.showContent && (
+              <CardDescription className="mt-2 text-xs text-muted-foreground">
+                {actionType}
+              </CardDescription>
+            )}
+          </div>
+          {/* Child workflow */}
+
+          <div className="flex items-start gap-1">
+            {childWorkflowInfo.isChildWorkflow && (
+              <ChildWorkflowLink
+                workspaceId={workspaceId}
+                childWorkflowInfo={childWorkflowInfo}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    </CardHeader>
+  )
+}
+
+const COMMAND_VALUE_UNSET = "__UNSET__"
+
+function ActionNodeToolbar({
+  action,
+  childWorkflowInfo,
+  showToolbar,
+  selected,
+  sidebarRef,
+  setSelectedActionEventRef,
+  setIsMouseOverToolbar,
+  handleDeleteNode,
+}: {
+  action: ActionRead
+  childWorkflowInfo: ChildWorkflowInfo
+  showToolbar: boolean
+  selected: boolean
+  sidebarRef: React.RefObject<EventsSidebarRef>
+  setSelectedActionEventRef: (ref: string) => void
+  setIsMouseOverToolbar: (isMouseOver: boolean) => void
+  handleDeleteNode: () => void
+}) {
+  const form = useFormContext()
+  const { workspaceId } = useWorkflowBuilder()
+  const { isChildWorkflow, childWorkflowAlias, childIdFromAlias } =
+    childWorkflowInfo
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [commandValue, setCommandValue] = useState<string>(COMMAND_VALUE_UNSET)
   const handleToolbarMouseEnter = useCallback(() => {
     setIsMouseOverToolbar(true)
   }, [])
 
   const handleToolbarMouseLeave = useCallback(() => {
     setIsMouseOverToolbar(false)
+    setCommandValue(COMMAND_VALUE_UNSET)
   }, [])
 
   return (
-    <Card
-      ref={nodeRef}
-      className={cn(
-        "w-72 border-foreground/10",
-        selected && "shadow-xl drop-shadow-xl"
-      )}
-      onMouseEnter={handleNodeMouseEnter}
-      onMouseLeave={handleNodeMouseLeave}
+    <NodeToolbar
+      isVisible={showToolbar || selected}
+      position={Position.Right}
+      align="start"
+      onMouseEnter={handleToolbarMouseEnter}
+      onMouseLeave={handleToolbarMouseLeave}
     >
-      {renderContent()}
-      <ActionTargetHandle
-        join_strategy={action?.control_flow?.join_strategy}
-        indegree={incomingEdges.length}
-      />
-      <ActionSoruceSuccessHandle type="source" />
-      <ActionSourceErrorHandle type="source" />
-      {action && (
-        <NodeToolbar
-          isVisible={showToolbar || selected}
-          position={Position.Right}
-          align="start"
-          onMouseEnter={handleToolbarMouseEnter}
-          onMouseLeave={handleToolbarMouseLeave}
-          className={cn(
-            `
-            [&>button]:variant-ghost
-            flex min-w-16 flex-col
-            rounded-lg border bg-background p-0.5 shadow-md
-            [&>button]:h-7
-            [&>button]:justify-start
-            [&>button]:px-2
-            [&>button]:py-1
-            [&>button]:text-foreground/70
-            [&>button_span]:text-[0.75rem]
-            [&>button_svg]:mr-1
-            [&>button_svg]:size-3
-          `,
-            selected && "shadow-xl drop-shadow-xl"
-          )}
-        >
-          <Button
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation()
-              navigator.clipboard.writeText(
-                `ACTIONS.${slugify(action?.title)}.result`
-              )
-              toast({
-                title: "Copied action reference",
-                description: (
-                  <Badge
-                    variant="secondary"
-                    className="bg-muted-foreground/10 font-mono text-xs font-normal tracking-tight"
-                  >
-                    {`ACTIONS.${slugify(action.title)}.result`}
-                  </Badge>
-                ),
-              })
-            }}
-          >
-            <CopyIcon />
-            <span className="text-xs">Copy Reference</span>
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation()
-              form.setFocus("title")
-            }}
-          >
-            <PencilIcon />
-            <span className="text-xs">Rename</span>
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation()
-              sidebarRef.current?.setOpen(true)
-              sidebarRef.current?.setActiveTab("action-input")
-              setSelectedActionEventRef(slugify(action.title))
-            }}
-          >
-            <LayoutListIcon />
-            <span className="text-xs">View Last Input</span>
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation()
-              sidebarRef.current?.setOpen(true)
-              sidebarRef.current?.setActiveTab("action-result")
-              setSelectedActionEventRef(slugify(action.title))
-            }}
-          >
-            <CircleCheckBigIcon />
-            <span className="text-xs">View Last Result</span>
-          </Button>
-          {action?.is_interactive && (
-            <Button
-              variant="ghost"
-              onClick={(e) => {
-                e.stopPropagation()
+      <Command
+        value={commandValue}
+        onValueChange={setCommandValue}
+        className="min-w-[100px] rounded-lg border text-sm shadow-md [&_[cmdk-item]]:text-foreground/90 [&_[cmdk-item]]:hover:cursor-pointer"
+        defaultValue={COMMAND_VALUE_UNSET}
+      >
+        <CommandList>
+          {/* Actions */}
+          <CommandGroup>
+            <CommandItem
+              value={`ACTIONS.${slugify(action.title)}.result`}
+              onSelect={(value) => {
+                navigator.clipboard.writeText(value)
+                toast({
+                  title: "Copied action reference",
+                  description: (
+                    <Badge
+                      variant="secondary"
+                      className="bg-muted-foreground/10 font-mono text-xs font-normal tracking-tight"
+                    >
+                      {value}
+                    </Badge>
+                  ),
+                })
+              }}
+            >
+              <CopyIcon className="mr-2 size-3" />
+              <span>Copy Reference</span>
+            </CommandItem>
+            <CommandItem onSelect={() => form.setFocus("title")}>
+              <PencilIcon className="mr-2 size-3" />
+              <span>Rename</span>
+            </CommandItem>
+            <CommandItem
+              onSelect={() => {
                 sidebarRef.current?.setOpen(true)
-                sidebarRef.current?.setActiveTab("action-interaction")
+                sidebarRef.current?.setActiveTab("action-input")
                 setSelectedActionEventRef(slugify(action.title))
               }}
             >
-              <MessagesSquare />
-              <span className="text-xs">View Last Interaction</span>
-            </Button>
+              <LayoutListIcon className="mr-2 size-3" />
+              <span>View Last Input</span>
+            </CommandItem>
+            <CommandItem
+              onSelect={() => {
+                sidebarRef.current?.setOpen(true)
+                sidebarRef.current?.setActiveTab("action-result")
+                setSelectedActionEventRef(slugify(action.title))
+              }}
+            >
+              <CircleCheckBigIcon className="mr-2 size-3" />
+              <span>View Last Result</span>
+            </CommandItem>
+            {action?.is_interactive && (
+              <CommandItem
+                onSelect={() => {
+                  sidebarRef.current?.setOpen(true)
+                  sidebarRef.current?.setActiveTab("action-interaction")
+                  setSelectedActionEventRef(slugify(action.title))
+                }}
+              >
+                <MessagesSquare className="mr-2 size-3" />
+                <span>View Last Interaction</span>
+              </CommandItem>
+            )}
+
+            <CommandItem
+              className="group !text-red-600"
+              onSelect={() => setShowDeleteDialog(true)}
+            >
+              <Trash2Icon className="mr-2 size-3 group-hover:text-red-600" />
+              <span className="group-hover:text-red-600">Delete</span>
+            </CommandItem>
+            <DeleteActionNodeDialog
+              open={showDeleteDialog}
+              onOpenChange={setShowDeleteDialog}
+              onDelete={handleDeleteNode}
+            />
+          </CommandGroup>
+          {/* Child workflow */}
+          {isChildWorkflow && (
+            <Fragment>
+              <CommandSeparator />
+              <CommandGroup heading="Subflow">
+                <CommandItem disabled={!childWorkflowAlias}>
+                  <Link
+                    href={`/workspaces/${workspaceId}/workflows/${childIdFromAlias}`}
+                    className={!childWorkflowAlias ? "pointer-events-none" : ""}
+                  >
+                    <div className="flex items-center">
+                      <SquareArrowOutUpRightIcon className="mr-2 size-3" />
+                      <span>Open subflow</span>
+                    </div>
+                  </Link>
+                </CommandItem>
+              </CommandGroup>
+            </Fragment>
           )}
-          <Button variant="ghost" onClick={handleDeleteNode}>
-            <Trash2Icon className="size-3 text-red-600" />
-            <span className="text-xs text-red-600">Delete</span>
-          </Button>
-        </NodeToolbar>
-      )}
-    </Card>
+        </CommandList>
+      </Command>
+    </NodeToolbar>
   )
-})
+}
 
 function ChildWorkflowLink({
   workspaceId,
-  childWorkflowId,
-  childWorkflowAlias,
+  childWorkflowInfo,
 }: {
   workspaceId: string
-  childWorkflowId?: string
-  childWorkflowAlias?: string
+  childWorkflowInfo: ChildWorkflowInfo
 }) {
-  const { workflows } = useWorkflowManager()
+  const { childWorkflowId, childWorkflowAlias, childIdFromAlias } =
+    childWorkflowInfo
   const { setSelectedNodeId } = useWorkflowBuilder()
-  const childIdFromAlias = workflows?.find(
-    (w) => w.alias === childWorkflowAlias
-  )?.id
 
   const handleClearSelection = () => {
     setSelectedNodeId(null)
   }
 
-  const inner = () => {
-    if (childWorkflowId) {
+  if (childWorkflowId) {
+    return (
+      <Link
+        href={`/workspaces/${workspaceId}/workflows/${childWorkflowId}`}
+        onClick={handleClearSelection}
+      >
+        <span className="font-normal">Open workflow</span>
+        <SquareArrowOutUpRightIcon className="size-3" />
+      </Link>
+    )
+  }
+  if (childWorkflowAlias) {
+    if (!childIdFromAlias) {
       return (
-        <Link
-          href={`/workspaces/${workspaceId}/workflows/${childWorkflowId}`}
-          onClick={handleClearSelection}
-        >
-          <div className="flex items-center gap-1">
-            <span className="font-normal">Open workflow</span>
-            <SquareArrowOutUpRightIcon className="size-3" />
-          </div>
-        </Link>
+        <Tooltip>
+          <TooltipTrigger>
+            <AlertTriangleIcon className="size-4 fill-red-500 stroke-white" />
+          </TooltipTrigger>
+          <TooltipContent alignOffset={30}>
+            <p>The subflow action is missing an alias.</p>
+          </TooltipContent>
+        </Tooltip>
       )
     }
-    if (childWorkflowAlias) {
-      if (!childIdFromAlias) {
-        return (
-          <div className="flex items-center gap-1">
-            <span className="font-normal">Cannot find workflow by alias</span>
-            <AlertTriangleIcon className="size-3 text-red-500" />
-          </div>
-        )
-      }
-      return (
-        <div className="flex items-center gap-1">
-          <Link
-            href={`/workspaces/${workspaceId}/workflows/${childIdFromAlias}`}
-            onClick={handleClearSelection}
-          >
-            <div className="flex items-center gap-1">
-              <span className="font-mono font-normal tracking-tighter text-foreground/80">
-                {childWorkflowAlias}
+    return (
+      <Link
+        href={`/workspaces/${workspaceId}/workflows/${childIdFromAlias}`}
+        onClick={handleClearSelection}
+      >
+        <div className="flex flex-col items-center gap-1">
+          <Tooltip delayDuration={100}>
+            <TooltipTrigger>
+              <div className="rounded-sm border bg-muted-foreground/10 p-0.5">
+                <SquareArrowOutUpRightIcon className="size-3 text-foreground/70" />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={20}>
+              <span>
+                Open the{" "}
+                <span className="m-0.5 rounded-sm bg-muted-foreground/70 p-0.5 font-mono tracking-tighter">
+                  {childWorkflowAlias}
+                </span>{" "}
+                subflow
               </span>
-              <SquareArrowOutUpRightIcon className="size-3" />
-            </div>
-          </Link>
+            </TooltipContent>
+          </Tooltip>
         </div>
-      )
-    }
-    return <span className="font-normal">Missing identifier</span>
+      </Link>
+    )
   }
   return (
-    <div className="flex justify-end">
-      <Badge
-        variant="outline"
-        className="text-foreground/70 hover:cursor-pointer hover:bg-muted-foreground/5"
-      >
-        {inner()}
-      </Badge>
-    </div>
+    <Tooltip>
+      <TooltipTrigger>
+        <CircleHelp className="size-4 text-muted-foreground" strokeWidth={2} />
+      </TooltipTrigger>
+      <TooltipContent sideOffset={20}>
+        <p>The subflow action is missing an alias.</p>
+      </TooltipContent>
+    </Tooltip>
   )
 }

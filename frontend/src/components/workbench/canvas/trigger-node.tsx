@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table"
 import { getIcon } from "@/components/icons"
 import { TriggerSourceHandle } from "@/components/workbench/canvas/custom-handle"
+import { nodeStyles } from "@/components/workbench/canvas/node-styles"
 
 export type TriggerNodeData = {
   type: "trigger"
@@ -55,7 +56,13 @@ export default React.memo(function TriggerNode({
   }
 
   return (
-    <Card className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}>
+    <Card
+      className={cn(
+        "w-64",
+        nodeStyles.common,
+        selected ? nodeStyles.selected : nodeStyles.hover
+      )}
+    >
       <CardHeader className="p-4">
         <div className="flex w-full items-center space-x-4">
           {getIcon(type, {
