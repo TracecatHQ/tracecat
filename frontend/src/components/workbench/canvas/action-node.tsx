@@ -629,13 +629,17 @@ function ChildWorkflowLink({
   }
   if (childWorkflowAlias) {
     if (!childIdFromAlias) {
+      // Cannot get child wf ID from alias
       return (
         <Tooltip>
           <TooltipTrigger>
-            <AlertTriangleIcon className="size-4 fill-red-500 stroke-white" />
+            <AlertTriangleIcon className="size-4 fill-red-500 stroke-white outline-red-500" />
           </TooltipTrigger>
-          <TooltipContent alignOffset={30}>
-            <p>The subflow action is missing an alias.</p>
+          <TooltipContent sideOffset={20}>
+            <span>
+              No matching workflow found for alias{" "}
+              <TooltipCode value={childWorkflowAlias} />
+            </span>
           </TooltipContent>
         </Tooltip>
       )
@@ -654,10 +658,7 @@ function ChildWorkflowLink({
             </TooltipTrigger>
             <TooltipContent sideOffset={20}>
               <span>
-                Open the{" "}
-                <span className="m-0.5 rounded-sm bg-muted-foreground/70 p-0.5 font-mono tracking-tighter">
-                  {childWorkflowAlias}
-                </span>{" "}
+                Open the <TooltipCode value={childWorkflowAlias} />
                 subflow
               </span>
             </TooltipContent>
@@ -672,8 +673,18 @@ function ChildWorkflowLink({
         <CircleHelp className="size-4 text-muted-foreground" strokeWidth={2} />
       </TooltipTrigger>
       <TooltipContent sideOffset={20}>
-        <p>The subflow action is missing an alias.</p>
+        <span>
+          Missing <TooltipCode value="workflow_alias" />
+        </span>
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+function TooltipCode({ value }: { value: string }) {
+  return (
+    <span className="m-0.5 rounded-sm border border-muted-foreground/40 bg-muted-foreground/70 p-0.5 font-mono tracking-tighter">
+      {value}
+    </span>
   )
 }
