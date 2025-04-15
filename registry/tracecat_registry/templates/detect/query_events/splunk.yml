@@ -36,6 +36,7 @@ definition:
       args:
         url: ${{ inputs.base_url }}/services/search/jobs
         method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
         form_data:
@@ -56,6 +57,7 @@ definition:
       args:
         url: ${{ inputs.base_url }}/services/search/jobs/${{ steps.search_id.result }}
         method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
         poll_condition: >
@@ -66,6 +68,7 @@ definition:
       args:
         url: ${{ inputs.base_url }}/services/search/v2/jobs/${{ steps.search_id.result }}/results
         method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
         headers:
           Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
         params:
