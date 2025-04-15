@@ -6,7 +6,7 @@ import { ReactFlowState, useStore } from "@xyflow/react"
 
 type ZoomBreakpoint = "large" | "medium" | "small"
 
-const zoomBreakpointSelector = (state: ReactFlowState): ZoomBreakpoint => {
+function zoomBreakpointSelector(state: ReactFlowState): ZoomBreakpoint {
   const zoom = state.transform[2]
   if (zoom <= 0.25) {
     return "large"
