@@ -304,6 +304,7 @@ export default React.memo(function ActionNode({
               breakpoint={breakpoint}
               Icon={Icon}
               childWorkflowInfo={childWorkflowInfo}
+              error={error}
             />
             <ActionTargetHandle
               action={action}
@@ -340,6 +341,7 @@ function ActionNodeContent({
   Icon,
   workspaceId,
   childWorkflowInfo,
+  error,
 }: {
   actionType?: string
   actionInputs?: Record<string, unknown>
@@ -351,6 +353,7 @@ function ActionNodeContent({
   Icon: React.ReactNode
   workspaceId: string
   childWorkflowInfo: ChildWorkflowInfo
+  error: string | null
 }) {
   const form = useFormContext()
 
@@ -449,6 +452,18 @@ function ActionNodeContent({
           </div>
         </div>
       </div>
+      {error ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="absolute -right-2 -top-4 z-10">
+              <AlertTriangleIcon className="size-5 bg-transparent fill-yellow-200 stroke-yellow-500 drop-shadow-md" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" align="center" sideOffset={5}>
+            <p>{error}</p>
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
     </CardHeader>
   )
 }
