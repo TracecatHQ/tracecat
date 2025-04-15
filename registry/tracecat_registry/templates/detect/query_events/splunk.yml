@@ -74,3 +74,4 @@ definition:
         params:
           count: ${{ inputs.limit }}
           output_mode: json
+  returns: ${{ steps.get_search_results.result }}
