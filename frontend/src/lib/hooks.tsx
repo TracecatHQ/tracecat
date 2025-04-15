@@ -214,7 +214,7 @@ export function useLocalStorage<T>(
 export function useAction(
   actionId: string,
   workspaceId: string,
-  workflowId: string
+  workflowId: string | null
 ) {
   const [isSaving, setIsSaving] = useState(false)
   const queryClient = useQueryClient()
@@ -223,6 +223,7 @@ export function useAction(
     isLoading: actionIsLoading,
     error: actionError,
   } = useQuery<ActionRead, Error>({
+    enabled: !!workflowId,
     queryKey: ["action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
       const [, actionId, workflowId] = queryKey as [string, string, string]

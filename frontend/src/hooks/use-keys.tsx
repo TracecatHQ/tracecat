@@ -9,7 +9,7 @@ export function useDeleteKey({
 }) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      let shouldDelete = predicate?.() ?? true
+      const shouldDelete = predicate?.() ?? true
       if ((e.key === "Delete" || e.key === "Backspace") && shouldDelete) {
         onDelete()
       }
