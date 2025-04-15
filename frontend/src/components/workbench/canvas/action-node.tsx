@@ -27,20 +27,19 @@ import {
   useGetRegistryAction,
   useWorkflowManager,
 } from "@/lib/hooks"
-import { cn, isEmptyObjectOrNullish, slugify } from "@/lib/utils"
+import { cn, slugify } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
+import { useActionNodeZoomBreakpoint } from "@/hooks/canvas"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
 import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import { getIcon } from "@/components/icons"
@@ -82,16 +81,15 @@ export default React.memo(function ActionNode({
   const { action, actionIsLoading, updateAction } = useAction(
     id,
     workspaceId,
-    workflowId!
+    workflowId
   )
   const { registryAction } = useGetRegistryAction(action?.type)
-  const isConfigured = !isEmptyObjectOrNullish(action?.inputs)
   const [showToolbar, setShowToolbar] = useState(false)
   const [isMouseOverNode, setIsMouseOverNode] = useState(false)
   const [isMouseOverToolbar, setIsMouseOverToolbar] = useState(false)
   const nodeRef = useRef<HTMLDivElement>(null)
   const hideTimeoutRef = useRef<number>()
-
+  const { breakpoint, style } = useActionNodeZoomBreakpoint()
   // Clear timeout on unmount
   useEffect(() => {
     return () => {
@@ -229,11 +227,11 @@ export default React.memo(function ActionNode({
   )
 
   // Create a skeleton loading state within the card frame
-  const renderContent = () => {
+  const renderContent = useCallback(() => {
     if (actionIsLoading) {
       return (
         <>
-          <CardHeader className="p-4">
+          <CardHeader className={cn(breakpoint !== "large" ? "p-4" : "p-0")}>
             <div className="flex w-full items-center space-x-4">
               <Skeleton className="size-10 rounded-full" />
               <div className="flex w-full flex-1 justify-between space-x-12">
@@ -245,15 +243,6 @@ export default React.memo(function ActionNode({
               </div>
             </div>
           </CardHeader>
-          <Separator />
-          <CardContent className="p-4 py-2">
-            <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
-              <div className="flex items-center space-x-2">
-                <Skeleton className="size-4" />
-                <Skeleton className="h-3 w-16" />
-              </div>
-            </div>
-          </CardContent>
         </>
       )
     }
@@ -269,7 +258,6 @@ export default React.memo(function ActionNode({
         </div>
       )
     }
-
     return (
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -277,8 +265,8 @@ export default React.memo(function ActionNode({
             <div className="flex w-full items-center space-x-4">
               {Icon}
               <div className="flex w-full flex-1 justify-between space-x-12">
-                <div className="flex flex-col">
-                  <CardTitle className="flex items-center justify-start space-x-2 text-xs font-medium leading-none">
+                <div className="flex flex-col space-y-1">
+                  <CardTitle className="flex items-center justify-start space-x-2 font-medium leading-none">
                     <FormField
                       control={form.control}
                       name="title"
@@ -291,11 +279,14 @@ export default React.memo(function ActionNode({
                                 {...field}
                                 className={cn(
                                   "m-0 h-5 shrink-0 border-none bg-transparent p-0",
-                                  "text-xs font-medium leading-none",
+                                  "font-medium leading-none",
                                   "shadow-none outline-none",
                                   "hover:cursor-pointer hover:bg-muted-foreground/10",
                                   "focus:ring-0 focus:ring-offset-0",
-                                  "focus-visible:bg-muted-foreground/10 focus-visible:ring-0 focus-visible:ring-offset-0"
+                                  "focus-visible:bg-muted-foreground/10 focus-visible:ring-0 focus-visible:ring-offset-0",
+                                  "overflow-hidden text-ellipsis transition-all",
+                                  style.fontSize,
+                                  breakpoint === "large" && "h-7"
                                 )}
                               />
                             </div>
@@ -304,62 +295,19 @@ export default React.memo(function ActionNode({
                       )}
                     />
                   </CardTitle>
-                  <CardDescription className="mt-2 text-xs text-muted-foreground">
-                    {action.type}
-                  </CardDescription>
+                  {style.showContent && (
+                    <CardDescription className="mt-2 text-xs text-muted-foreground">
+                      {action.type}
+                    </CardDescription>
+                  )}
                 </div>
               </div>
             </div>
           </CardHeader>
-          <Separator />
-          <CardContent className="p-4 py-2">
-            <div className="grid grid-cols-2 space-x-4 text-xs text-muted-foreground">
-              <div className="flex items-center space-x-2">
-                {error ? (
-                  <div className="flex items-center space-x-1">
-                    <AlertTriangleIcon className="size-4 fill-yellow-500 stroke-white" />
-                    <span className="text-xs capitalize">{error}</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center space-x-1">
-                    {isConfigured ? (
-                      <CircleCheckBigIcon className="size-4 text-emerald-500" />
-                    ) : (
-                      <LayoutListIcon className="size-4 text-gray-400" />
-                    )}
-                    <span className="text-xs capitalize">
-                      {isConfigured ? "Ready" : "Missing inputs"}
-                    </span>
-                  </div>
-                )}
-              </div>
-              {isChildWorkflow && (
-                <ChildWorkflowLink
-                  workspaceId={workspaceId}
-                  childWorkflowId={childWorkflowId}
-                  childWorkflowAlias={childWorkflowAlias}
-                />
-              )}
-              {isInteractive && (
-                <div className="flex justify-end">
-                  <Badge
-                    variant="secondary"
-                    className="bg-sky-300/30 text-foreground/60 hover:cursor-pointer hover:bg-muted-foreground/5"
-                  >
-                    <MessagesSquare
-                      className="mr-2 size-3 text-foreground/60"
-                      strokeWidth={3}
-                    />
-                    <span>Interactive</span>
-                  </Badge>
-                </div>
-              )}
-            </div>
-          </CardContent>
         </form>
       </Form>
     )
-  }
+  }, [action, actionIsLoading, form, onSubmit, style])
 
   const handleNodeMouseEnter = useCallback(() => {
     setIsMouseOverNode(true)
@@ -380,7 +328,10 @@ export default React.memo(function ActionNode({
   return (
     <Card
       ref={nodeRef}
-      className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}
+      className={cn(
+        "w-72 border-foreground/10",
+        selected && "shadow-xl drop-shadow-xl"
+      )}
       onMouseEnter={handleNodeMouseEnter}
       onMouseLeave={handleNodeMouseLeave}
     >
