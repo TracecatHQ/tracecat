@@ -61,7 +61,7 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
         poll_condition: >
-          lambda x: '<s:key name="dispatchState">DONE</s:key>' in x
+          lambda x: '<s:key name="dispatchState">DONE</s:key>' in x.get('data')
     # https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTsearch#search.2Fv2.2Fjobs.2F.7Bsearch_id.7D.2Fresults
     - ref: get_search_results
       action: core.http_request
