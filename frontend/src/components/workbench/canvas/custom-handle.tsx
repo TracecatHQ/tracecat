@@ -1,5 +1,5 @@
 import React, { useMemo } from "react"
-import { ActionRead, JoinStrategy } from "@/client"
+import { ActionRead } from "@/client"
 import {
   Edge,
   getConnectedEdges,
@@ -172,10 +172,7 @@ export function ActionTargetHandle({
           <div className="flex items-center space-x-2">
             {hasJoin && (
               <span className="flex items-center space-x-1">
-                <Merge
-                  className="size-3 rotate-180 transform"
-                  strokeWidth={2.5}
-                />
+                <Merge className="size-3 rotate-180" strokeWidth={2.5} />
                 <span>{joinStrategy?.toLocaleUpperCase() || "ALL"}</span>
               </span>
             )}
