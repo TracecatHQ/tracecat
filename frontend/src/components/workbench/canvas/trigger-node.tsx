@@ -12,6 +12,7 @@ import {
 import { useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
 import { cn } from "@/lib/utils"
+import { useTriggerNodeZoomBreakpoint } from "@/hooks/canvas"
 import {
   Card,
   CardDescription,
@@ -30,6 +31,7 @@ import {
 } from "@/components/ui/table"
 import { getIcon } from "@/components/icons"
 import { TriggerSourceHandle } from "@/components/workbench/canvas/custom-handle"
+import { nodeStyles } from "@/components/workbench/canvas/node-styles"
 
 export type TriggerNodeData = {
   type: "trigger"
@@ -48,13 +50,19 @@ export default React.memo(function TriggerNode({
   selected,
 }: NodeProps<TriggerNodeType>) {
   const { workflow } = useWorkflow()
-
+  const { breakpoint, style } = useTriggerNodeZoomBreakpoint()
   if (!workflow) {
     return null
   }
 
   return (
-    <Card className={cn("min-w-72", selected && "shadow-xl drop-shadow-xl")}>
+    <Card
+      className={cn(
+        "w-64",
+        nodeStyles.common,
+        selected ? nodeStyles.selected : nodeStyles.hover
+      )}
+    >
       <CardHeader className="p-4">
         <div className="flex w-full items-center space-x-4">
           {getIcon(type, {
@@ -64,44 +72,57 @@ export default React.memo(function TriggerNode({
           <div className="flex w-full flex-1 justify-between space-x-12">
             <div className="flex flex-col">
               <CardTitle className="flex w-full items-center justify-between text-xs font-medium leading-none">
-                <div className="flex w-full">{title}</div>
+                <div
+                  className={cn(
+                    style.fontSize,
+                    breakpoint !== "large" && "w-full"
+                  )}
+                >
+                  {title}
+                </div>
               </CardTitle>
-              <CardDescription className="mt-2 text-xs text-muted-foreground">
-                Workflow triggers
-              </CardDescription>
+              {style.showContent && (
+                <CardDescription className="mt-2 text-xs text-muted-foreground">
+                  Workflow trigger
+                </CardDescription>
+              )}
             </div>
           </div>
         </div>
       </CardHeader>
-      <Separator />
-      <div className="p-4">
-        <div className="space-y-4">
-          {/* Webhook status */}
-          <div
-            className={cn(
-              "flex h-8 items-center justify-center gap-1 rounded-lg border text-xs text-muted-foreground",
-              workflow?.webhook.status === "offline"
-                ? "bg-muted-foreground/5 text-muted-foreground/50"
-                : "bg-background text-emerald-500"
-            )}
-          >
-            <WebhookIcon className="size-3" />
-            <span>Webhook</span>
-            <span
-              className={cn(
-                "ml-2 inline-block size-2 rounded-full ",
-                workflow.webhook.status === "online"
-                  ? "bg-emerald-500"
-                  : "bg-gray-300"
-              )}
-            />
+      {style.showContent && (
+        <>
+          <Separator />
+          <div className="p-4">
+            <div className="space-y-4">
+              {/* Webhook status */}
+              <div
+                className={cn(
+                  "flex h-8 items-center justify-center gap-1 rounded-lg border text-xs text-muted-foreground",
+                  workflow?.webhook.status === "offline"
+                    ? "bg-muted-foreground/5 text-muted-foreground/50"
+                    : "bg-background text-emerald-500"
+                )}
+              >
+                <WebhookIcon className="size-3" />
+                <span>Webhook</span>
+                <span
+                  className={cn(
+                    "ml-2 inline-block size-2 rounded-full ",
+                    workflow.webhook.status === "online"
+                      ? "bg-emerald-500"
+                      : "bg-gray-300"
+                  )}
+                />
+              </div>
+              {/* Schedule table */}
+              <div className="rounded-lg border">
+                <TriggerNodeSchedulesTable workflowId={workflow.id} />
+              </div>
+            </div>
           </div>
-          {/* Schedule table */}
-          <div className="rounded-lg border">
-            <TriggerNodeSchedulesTable workflowId={workflow.id} />
-          </div>
-        </div>
-      </div>
+        </>
+      )}
       <TriggerSourceHandle />
     </Card>
   )
