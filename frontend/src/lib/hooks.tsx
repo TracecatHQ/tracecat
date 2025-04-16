@@ -101,6 +101,8 @@ import {
   TablesCreateColumnData,
   tablesCreateTable,
   TablesCreateTableData,
+  tablesCreateTableFromCsv,
+  TablesCreateTableFromCsvData,
   TablesCreateTableResponse,
   tablesDeleteColumn,
   TablesDeleteColumnData,
@@ -112,6 +114,8 @@ import {
   TablesGetTableData,
   tablesImportCsv,
   TablesImportCsvData,
+  tablesInferColumnsFromCSV,
+  TablesInferColumnsFromCSVData,
   tablesInsertRow,
   TablesInsertRowData,
   tablesListRows,
@@ -2346,6 +2350,66 @@ export function useImportCsv() {
     importCsv,
     importCsvIsPending,
     importCsvError,
+  }
+}
+
+export function useInferColumnsFromCSV() {
+  const {
+    mutateAsync: inferColumns,
+    isPending: inferColumnsPending,
+    error: inferColumnsError,
+  } = useMutation({
+    mutationFn: async (params: TablesInferColumnsFromCSVData) =>
+      await tablesInferColumnsFromCSV(params),
+    onError: (error) => {
+      console.error("Error inferring column types:", error);
+      toast({
+        title: "Error",
+        description: "Failed to infer column types",
+        variant: "destructive",
+      });
+    },
+  });
+
+  return {
+    inferColumns,
+    inferColumnsPending,
+    inferColumnsError,
+  };
+}
+
+export function useCreateTableFromCsv() {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: createTableFromCsv,
+    isPending: createTableFromCsvIsPending,
+    error: createTableFromCsvError,
+  } = useMutation({
+    mutationFn: async (params: TablesCreateTableFromCsvData) => {
+      const formData = new FormData()
+      formData.append('table_name', params.tableName)
+      formData.append('columns', JSON.stringify(params.columns))
+      formData.append('file', params.file)
+
+      return await tablesCreateTableFromCsv({
+        formData,
+        workspaceId: params.workspaceId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tables'] })
+      toast({
+        title: "Table created successfully",
+        description: "The table has been created and data imported.",
+      })
+    },
+  })
+
+  return {
+    createTableFromCsv,
+    createTableFromCsvIsPending,
+    createTableFromCsvError,
   }
 }
 

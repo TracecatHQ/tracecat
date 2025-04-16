@@ -21,6 +21,7 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
+from tracecat.tables.csv_table import InferredColumn, SchemaInferenceService
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import CSVImporter
 from tracecat.tables.models import (
@@ -115,6 +116,155 @@ async def create_table(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Unexpected error occurred: {e}",
             ) from e
+
+
+@router.post("/importer/get-types", status_code=status.HTTP_200_OK)
+async def get_column_types(
+    role: WorkspaceUser,
+    sample_data: dict[str, Any],
+) -> list[InferredColumn]:
+    """
+    Infer column types from sample data.
+
+    Args:
+        sample_data: Dictionary containing column names as keys and sample values
+
+    Returns:
+        List of inferred columns with their types
+    """
+    inference_service = SchemaInferenceService(sample_data)
+    return inference_service.get_inferred_columns()
+
+
+@router.post("/importer/create-table", status_code=status.HTTP_201_CREATED)
+async def create_table_from_schema(
+    role: WorkspaceAdminUser,
+    session: AsyncDBSession,
+    table_name: str = Form(...),
+    columns: str = Form(...),
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """
+    Create a new table based on inferred schema and import data from CSV.
+    """
+    try:
+        columns_data = orjson.loads(columns)
+    except orjson.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON format for columns",
+        ) from e
+
+    service = TablesService(session, role=role)
+    table = None
+
+    try:
+        table_create = TableCreate(name=table_name, columns=[])
+        table = await service.create_table(table_create)  # Commits inside
+
+        for col_data in columns_data:
+            column_create = TableColumnCreate(
+                name=col_data["name"], type=SqlType(col_data["type"]), nullable=True
+            )
+            await service.create_column(table, column_create)  # Commits inside
+
+        await session.commit()
+        await session.refresh(table, attribute_names=["columns"])
+
+        if not table.columns or len(table.columns) != len(columns_data):
+            raise Exception("Failed to correctly load table columns after creation.")
+
+    except Exception as schema_error:
+        if table and table.id:
+            try:
+                async with AsyncDBSession(expire_on_commit=False) as cleanup_session:
+                    cleanup_service = TablesService(cleanup_session, role=role)
+                    table_to_delete = await cleanup_service.get_table(table.id)
+                    await cleanup_service.delete_table(table_to_delete)
+            except Exception as cleanup_err:
+                logger.error(
+                    f"Schema error cleanup FAILED for {table.name}: {cleanup_err}"
+                )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create table schema: {schema_error}"
+        ) from schema_error
+
+    csv_file = None
+    total_rows_imported = 0
+    try:
+        contents = await file.read()
+        file_content = contents.decode()
+        csv_file = StringIO(file_content)
+
+        # Get actual CSV headers for case-insensitive mapping
+        temp_reader = csv.reader(csv_file)
+        try:
+            actual_csv_headers = next(temp_reader)
+        except StopIteration as err:
+            raise HTTPException(
+                status_code=400, detail="CSV file appears to be empty or has no header."
+            ) from err
+        del temp_reader
+        csv_file.seek(0)  # Reset for DictReader
+
+        # Create mapping: CSV Header Case -> DB Column Case (likely lowercase)
+        table_columns_dict = {c.name.lower(): c.name for c in table.columns}
+        column_mapping = {}
+        for csv_header in actual_csv_headers:
+            matched_table_col = table_columns_dict.get(csv_header.lower())
+            if matched_table_col:
+                column_mapping[csv_header] = matched_table_col
+
+        if not column_mapping:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not map any CSV headers to table columns.",
+            )
+
+        # Initialize importer with the refreshed (likely lowercase) table columns
+        importer = CSVImporter(table.columns)
+
+        # Process CSV file with DictReader
+        csv_reader = csv.DictReader(csv_file)
+        current_chunk: list[dict[str, Any]] = []
+
+        for row in csv_reader:
+            try:
+                mapped_row = importer.map_row(row, column_mapping)
+                if mapped_row:  # Only append if mapping was successful
+                    current_chunk.append(mapped_row)
+            except TracecatImportError as map_err:
+                # Log and skip rows that fail mapping/conversion
+                logger.warning(f"Skipping row due to map/convert error: {map_err}")
+                continue
+
+            if len(current_chunk) >= importer.chunk_size:
+                batch_count = await service.batch_insert_rows(table, current_chunk)
+                total_rows_imported += batch_count
+                current_chunk = []
+
+        # Process final chunk
+        if current_chunk:
+            batch_count = await service.batch_insert_rows(table, current_chunk)
+            total_rows_imported += batch_count
+
+        return {
+            "status": "success",
+            "table_id": str(table.id),
+            "table_name": table.name,
+            "columns_count": len(table.columns),
+            "rows_imported": total_rows_imported,
+        }
+
+    except Exception as import_error:
+        # Consider deleting the table if import fails, depending on desired behavior
+        raise HTTPException(
+            status_code=500, detail=f"Failed during CSV data import: {import_error}"
+        ) from import_error
+
+    finally:
+        if csv_file:
+            csv_file.close()
 
 
 @router.get("/{table_id}", response_model=TableRead)
