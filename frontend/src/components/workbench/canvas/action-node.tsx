@@ -286,7 +286,7 @@ export default React.memo(function ActionNode({
           <Card
             ref={nodeRef}
             className={cn(
-              "w-64",
+              "min-w-64",
               nodeStyles.common,
               selected ? nodeStyles.selected : nodeStyles.hover
             )}
