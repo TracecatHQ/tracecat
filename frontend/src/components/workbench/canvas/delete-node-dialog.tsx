@@ -13,11 +13,11 @@ import {
 } from "@/components/ui/alert-dialog"
 
 interface DeleteNodeDialogProps extends PropsWithoutRef<AlertDialogProps> {
-  onDelete: () => void
+  onConfirm: () => void
 }
 
 export function DeleteActionNodeDialog({
-  onDelete,
+  onConfirm,
   ...rest
 }: DeleteNodeDialogProps) {
   return (
@@ -35,7 +35,7 @@ export function DeleteActionNodeDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={onDelete}>
+          <AlertDialogAction variant="destructive" onClick={onConfirm}>
             Delete
           </AlertDialogAction>
         </AlertDialogFooter>

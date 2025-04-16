@@ -70,7 +70,6 @@ import {
   ActionSourceErrorHandle,
   ActionTargetHandle,
 } from "@/components/workbench/canvas/custom-handle"
-import { DeleteActionNodeDialog } from "@/components/workbench/canvas/delete-node-dialog"
 import { nodeStyles } from "@/components/workbench/canvas/node-styles"
 import { EventsSidebarRef } from "@/components/workbench/events/events-sidebar"
 
@@ -580,16 +579,11 @@ function ActionNodeToolbar({
 
             <CommandItem
               className="group !text-red-600"
-              onSelect={() => setShowDeleteDialog(true)}
+              onSelect={() => handleDeleteNode()}
             >
               <Trash2Icon className="mr-2 size-3 group-hover:text-red-600" />
               <span className="group-hover:text-red-600">Delete</span>
             </CommandItem>
-            <DeleteActionNodeDialog
-              open={showDeleteDialog}
-              onOpenChange={setShowDeleteDialog}
-              onDelete={handleDeleteNode}
-            />
           </CommandGroup>
           {/* Child workflow */}
           {isChildWorkflow && (

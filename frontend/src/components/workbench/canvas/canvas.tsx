@@ -7,14 +7,18 @@ import React, {
 } from "react"
 import {
   addEdge,
+  applyNodeChanges,
   Background,
   Connection,
   ConnectionLineType,
   Controls,
   Edge,
+  EdgeChange,
+  EdgeRemoveChange,
   FitViewOptions,
   MarkerType,
   NodeChange,
+  NodeRemoveChange,
   OnConnectStartParams,
   Panel,
   Position,
@@ -37,7 +41,6 @@ import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 
 import { pruneGraphObject } from "@/lib/workflow"
-import { useDeleteKey } from "@/hooks/use-keys"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
@@ -173,7 +176,11 @@ export const WorkflowCanvas = React.forwardRef<
   const [silhouettePosition, setSilhouettePosition] =
     useState<XYPosition | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
-
+  const [pendingDeleteNodes, setPendingDeleteNodes] = useState<
+    NodeRemoveChange[]
+  >([])
+  const [pendingDeleteEdges, setPendingDeleteEdges] = useState<EdgeChange[]>([])
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   /**
    * Load the saved workflow
    */
@@ -317,31 +324,41 @@ export const WorkflowCanvas = React.forwardRef<
     event.dataTransfer.dropEffect = "move"
   }, [])
 
-  const onNodesDelete = async (nodesToDelete: Node[]) => {
-    if (!workflowId || !reactFlowInstance) {
-      return
-    }
-    const filteredNodes = nodesToDelete.filter((node) => !isInvincible(node))
-    if (filteredNodes.length === 0) {
-      toast({
-        title: "Invalid action",
-        description: "Cannot delete invincible node",
-      })
-      return
-    }
+  useEffect(() => {
+    setShowDeleteDialog(pendingDeleteNodes.length > 0)
+  }, [pendingDeleteNodes])
+
+  // Handle confirmed deletion
+  const handleConfirmedDeletion = useCallback(async () => {
+    if (!workflowId || !reactFlowInstance) return
+    console.log("HANDLE CONFIRMED DELETION", {
+      pendingDeleteNodes,
+      pendingDeleteEdges,
+    })
+
     try {
       await Promise.all(
-        filteredNodes.map((node) =>
+        pendingDeleteNodes.map((node) =>
           actionsDeleteAction({ actionId: node.id, workspaceId })
         )
       )
-      setNodes((nds) =>
-        nds.filter((n) => !nodesToDelete.map((nd) => nd.id).includes(n.id))
+
+      // If the above succeeds, we can remove the nodes from state
+      // For all nodes, we need to remove all their edges
+      // WE need to compute all the edges that need to be removed based on the pending node deletions
+      setNodes((nodes) => applyNodeChanges(pendingDeleteNodes, nodes))
+      const nodeIds = new Set(pendingDeleteNodes.map((n) => n.id))
+      setEdges((edges) =>
+        edges.filter(
+          (edge) => !nodeIds.has(edge.source) && !nodeIds.has(edge.target)
+        )
       )
+
       await updateWorkflow({
         object: pruneGraphObject(reactFlowInstance),
       })
-      console.log("Nodes deleted successfully")
+
+      console.log("Workflow updated successfully")
     } catch (error) {
       console.error("An error occurred while deleting Action nodes:", error)
       toast({
@@ -349,65 +366,87 @@ export const WorkflowCanvas = React.forwardRef<
         description:
           "Could not delete nodes. Please check the console logs for more information.",
       })
+    } finally {
+      setShowDeleteDialog(false)
+      setPendingDeleteNodes([])
+      setPendingDeleteEdges([])
     }
-  }
+  }, [
+    pendingDeleteNodes,
+    pendingDeleteEdges,
+    workflowId,
+    reactFlowInstance,
+    workspaceId,
+    setNodes,
+    updateWorkflow,
+    toast,
+  ])
 
-  const onEdgesDelete = useCallback(
-    async (edgesToDelete: Edge[]) => {
-      edgesToDelete.forEach(async (params: Edge) => {
-        if (params.source?.startsWith("trigger")) {
-          // 1. Find the trigger node
-          const triggerNode = nodes.find(
-            (node) => node.type === "trigger"
-          ) as TriggerNodeType
-          // 2. Find the entrypoint node
-          const entrypointNode = getNode(
-            params.target! /* Target is non-null as we are in a connect callback */
-          )
-          if (!triggerNode || !entrypointNode) {
-            console.warn("Could not find trigger or entrypoint node")
-            // Delete the edge anyways
-            setEdges((eds) => eds.filter((ed) => ed.id !== params.id))
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      const pendingDeletes: EdgeRemoveChange[] = []
+      const nextChanges = changes.reduce((acc, change) => {
+        if (change.type === "remove") {
+          // Add pending deletes
+          const edge = reactFlowInstance?.getEdge(change.id)
+          if (!edge) {
+            console.warn("Couldn't load edge, skipping")
+            return acc
           }
-
-          // 3. Update the trigger node UI state with the entrypoint id
-          // We'll persist this through the trigger panel
-          await updateWorkflow({ entrypoint: null })
+          // Only delete the edge if it was selected
+          if (edge.selected) {
+            return [...acc, change]
+          }
+          // Intercept the edge removal
+          return acc
         }
-      })
-      setEdges((eds) =>
-        eds.filter((e) => !edgesToDelete.map((ed) => ed.id).includes(e.id))
-      )
+        return [...acc, change]
+      }, [] as EdgeChange[])
+      if (pendingDeletes.length > 0) {
+        console.log("Pending delete edges:", pendingDeletes)
+        setPendingDeleteEdges(pendingDeletes)
+      }
+      onEdgesChange(nextChanges)
     },
-    [edges, setEdges, getNode, setNodes] // eslint-disable-line react-hooks/exhaustive-deps
+    [edges, setEdges, pendingDeleteEdges]
   )
-
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      const pendingDeletes: NodeRemoveChange[] = []
       const nextChanges = changes.reduce((acc, change) => {
         // if this change is supposed to remove a node we want to validate it first
         if (change.type === "remove") {
           const node = getNode(change.id)
-
-          // if the node can be removed, keep the change, otherwise we skip the change and keep the node
-          if (node && !isInvincible(node)) {
-            console.log("Node is not invincible, removing it")
-            return [...acc, change]
+          if (!node) {
+            console.warn("Couldn't load node, skipping")
+            return acc
           }
 
-          // change is skipped, node is kept
-          console.log("Node is invincible, keeping it")
+          if (isInvincible(node)) {
+            // Node is invincible, skip deletion
+            return acc
+          }
+          if (isEphemeral(node)) {
+            // Node is ephemeral, apply deletion
+            return [...acc, change]
+          }
+          // All other nodes should be deleted
+          pendingDeletes.push(change)
           return acc
         }
 
-        // all other change types are just put into the next changes arr
+        // all other change types are just put into the next changes array
         return [...acc, change]
       }, [] as NodeChange[])
 
+      if (pendingDeletes.length > 0) {
+        console.log("Pending delete nodes:", pendingDeletes)
+        setPendingDeleteNodes(pendingDeletes)
+      }
       // apply the changes we kept
       onNodesChange(nextChanges)
     },
-    [nodes, setNodes] // eslint-disable-line react-hooks/exhaustive-deps
+    [nodes, setNodes, pendingDeleteNodes]
   )
 
   const onLayout = useCallback(
@@ -476,17 +515,6 @@ export const WorkflowCanvas = React.forwardRef<
     [reactFlowInstance] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
-  const [targetDeleteNode, setTargetDeleteNode] = useState<Node | null>(null)
-  useDeleteKey({
-    onDelete: () => {
-      // Get the selected node
-      const selectedNode = reactFlowInstance?.getNodes().find((n) => n.selected)
-      if (selectedNode) {
-        setTargetDeleteNode(selectedNode)
-      }
-    },
-  })
-
   return (
     <div ref={containerRef} style={{ height: "100%", width: "100%" }}>
       <ReactFlow
@@ -497,11 +525,9 @@ export const WorkflowCanvas = React.forwardRef<
         onConnectEnd={onConnectEnd}
         onPaneMouseMove={onPaneMouseMove}
         onDragOver={onDragOver}
-        onEdgesChange={onEdgesChange}
-        onEdgesDelete={onEdgesDelete}
         onInit={setReactFlowInstance}
         onNodesChange={handleNodesChange}
-        onNodesDelete={onNodesDelete}
+        onEdgesChange={handleEdgesChange}
         onNodeDragStop={onNodesDragStop}
         defaultEdgeOptions={defaultEdgeOptions}
         nodeTypes={nodeTypes}
@@ -514,7 +540,6 @@ export const WorkflowCanvas = React.forwardRef<
         minZoom={0.25}
         panOnScroll
         connectionLineType={ConnectionLineType.SmoothStep}
-        // onContextMenu={onPaneContextMenu}
         onPaneContextMenu={onPaneContextMenu}
       >
         <Background bgColor="#fcfcfc" />
@@ -547,13 +572,14 @@ export const WorkflowCanvas = React.forwardRef<
           isConnecting={isConnecting}
         />
         <DeleteActionNodeDialog
-          open={!!targetDeleteNode}
-          onOpenChange={() => setTargetDeleteNode(null)}
-          onDelete={() => {
-            if (targetDeleteNode) {
-              onNodesDelete([targetDeleteNode])
+          open={showDeleteDialog}
+          onOpenChange={(open) => {
+            if (!open) {
+              setPendingDeleteNodes([])
+              setPendingDeleteEdges([])
             }
           }}
+          onConfirm={handleConfirmedDeletion}
         />
       </ReactFlow>
     </div>
