@@ -38,10 +38,6 @@ const settingsNavItems: NavItem[] = [
 
 const secretNavItems: NavItem[] = [
   {
-    title: "Credentials",
-    href: "/organization/credentials",
-  },
-  {
     title: "SSH keys",
     href: "/organization/ssh-keys",
   },
