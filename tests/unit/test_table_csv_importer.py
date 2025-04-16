@@ -3,11 +3,15 @@
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
+import polars as pl
 import pytest
 
 from tracecat.db.schemas import Table, TableColumn
+
+# Import the new classes
+from tracecat.tables.csv_table import SchemaInferenceService
 from tracecat.tables.enums import SqlType
-from tracecat.tables.importer import ColumnInfo, CSVImporter
+from tracecat.tables.importer import ColumnInfo, CSVImporter, TracecatImportError
 from tracecat.tables.service import TablesService
 
 
@@ -92,7 +96,7 @@ class TestCSVImporter:
         assert csv_importer.convert_value("123", SqlType.INTEGER) == 123
         assert csv_importer.convert_value("-456", SqlType.INTEGER) == -456
         with pytest.raises(
-            TypeError, match="Cannot convert value '12.34' to SqlType INTEGER"
+            TracecatImportError, match="Cannot convert value '12.34' to SqlType INTEGER"
         ):
             csv_importer.convert_value("12.34", SqlType.INTEGER)
 
@@ -101,7 +105,7 @@ class TestCSVImporter:
         assert csv_importer.convert_value("123.45", SqlType.DECIMAL) == 123.45
         assert csv_importer.convert_value("-456.78", SqlType.DECIMAL) == -456.78
         with pytest.raises(
-            TypeError, match="Cannot convert value 'abc' to SqlType DECIMAL"
+            TracecatImportError, match="Cannot convert value 'abc' to SqlType DECIMAL"
         ):
             csv_importer.convert_value("abc", SqlType.DECIMAL)
 
@@ -112,7 +116,8 @@ class TestCSVImporter:
         assert csv_importer.convert_value("1", SqlType.BOOLEAN) is True
         assert csv_importer.convert_value("0", SqlType.BOOLEAN) is False
         with pytest.raises(
-            TypeError, match="Cannot convert value 'invalid' to SqlType BOOLEAN"
+            TracecatImportError,
+            match="Cannot convert value 'invalid' to SqlType BOOLEAN",
         ):
             csv_importer.convert_value("invalid", SqlType.BOOLEAN)
 
@@ -206,3 +211,152 @@ class TestCSVImporter:
 
         mock_service.batch_insert_rows.assert_not_called()
         assert csv_importer.total_rows_inserted == 0
+
+
+@pytest.fixture
+def sample_row_data():
+    """Fixture to provide sample row data for testing schema inference."""
+    return {
+        "text_col": "sample text",
+        "int_col": 42,
+        "float_col": 3.14,
+        "bool_col": True,
+        "null_col": None,
+        "json_col": {"key": "value"},
+    }
+
+
+class TestSchemaInferenceService:
+    """Test suite for SchemaInferenceService class."""
+
+    def test_init_with_data(self, sample_row_data):
+        """Test initialization with sample data."""
+        service = SchemaInferenceService(sample_row_data)
+
+        assert service.sample_data == sample_row_data
+        assert service._inferred_columns is not None
+
+        # Verify that schema was inferred
+        inferred = service.get_inferred_columns()
+        assert (
+            len(inferred) == 6
+        )  # Should match the number of columns in sample_row_data
+
+        # Check if columns were correctly identified
+        column_types = {col.name: col.type for col in inferred}
+        assert column_types["text_col"] == SqlType.TEXT
+        assert column_types["int_col"] == SqlType.INTEGER
+        assert column_types["float_col"] == SqlType.DECIMAL
+        assert column_types["bool_col"] == SqlType.BOOLEAN
+        assert column_types["null_col"] == SqlType.TEXT  # Null defaults to TEXT
+        assert column_types["json_col"] == SqlType.JSONB
+
+    def test_init_without_data(self):
+        """Test initialization without sample data."""
+        service = SchemaInferenceService()
+
+        assert service.sample_data is None
+        assert service._inferred_columns is None
+
+        # Verify empty results when no data provided
+        assert service.get_inferred_columns() == []
+
+    def test_map_polars_types(self):
+        """Test mapping of Polars types to SQL types."""
+        service = SchemaInferenceService()
+
+        # Test direct mappings
+        assert service._map_polars_type(pl.Utf8()) == SqlType.TEXT
+        assert service._map_polars_type(pl.Int64()) == SqlType.INTEGER
+        assert service._map_polars_type(pl.Float64()) == SqlType.DECIMAL
+        assert service._map_polars_type(pl.Boolean()) == SqlType.BOOLEAN
+
+        # Test other numeric types
+        assert service._map_polars_type(pl.Int32()) == SqlType.INTEGER
+        assert service._map_polars_type(pl.Int16()) == SqlType.INTEGER
+        assert service._map_polars_type(pl.Int8()) == SqlType.INTEGER
+        assert service._map_polars_type(pl.UInt64()) == SqlType.INTEGER
+        assert service._map_polars_type(pl.Float32()) == SqlType.DECIMAL
+
+        # Test default fallback
+        class UnknownType:
+            pass
+
+        assert service._map_polars_type(UnknownType()) == SqlType.TEXT
+
+    def test_fallback_type_inference(self):
+        """Test fallback type inference when Polars fails."""
+        service = SchemaInferenceService()
+        service.sample_data = {
+            "text": "sample text",
+            "integer": 42,
+            "decimal": 3.14,
+            "boolean": True,
+            "null": None,
+            "list": [1, 2, 3],
+            "dict": {"key": "value"},
+        }
+
+        inferred = service._fallback_type_inference()
+
+        # Verify correct types were inferred
+        column_types = {col.name: col.type for col in inferred}
+        assert column_types["text"] == SqlType.TEXT
+        assert column_types["integer"] == SqlType.INTEGER
+        assert column_types["decimal"] == SqlType.DECIMAL
+        assert column_types["boolean"] == SqlType.BOOLEAN
+        assert column_types["null"] == SqlType.TEXT
+        assert column_types["list"] == SqlType.JSONB
+        assert column_types["dict"] == SqlType.JSONB
+
+    def test_get_inferred_columns_triggers_inference(self):
+        """Test that get_inferred_columns triggers inference if needed."""
+        service = SchemaInferenceService()
+        service.sample_data = {"text": "sample"}
+        service._inferred_columns = None
+
+        # Should trigger _infer_schema
+        columns = service.get_inferred_columns()
+
+        assert len(columns) == 1
+        assert columns[0].name == "text"
+        assert columns[0].type == SqlType.TEXT
+        assert columns[0].sample_value == "sample"
+
+    def test_complex_data_inference(self):
+        """Test inference with more complex data types."""
+        data = {
+            "date_string": "2023-01-01",  # Should be TEXT, not date
+            "mixed_numbers": "123.45abc",  # Should be TEXT, not number
+            "large_int": 9223372036854775807,  # Max int64
+            "scientific": 1.23e10,  # Scientific notation float
+            "empty_string": "",
+        }
+
+        service = SchemaInferenceService(data)
+        inferred = service.get_inferred_columns()
+
+        column_types = {col.name: col.type for col in inferred}
+        assert column_types["date_string"] == SqlType.TEXT
+        assert column_types["mixed_numbers"] == SqlType.TEXT
+        assert column_types["large_int"] == SqlType.INTEGER
+        assert column_types["scientific"] == SqlType.DECIMAL
+        assert column_types["empty_string"] == SqlType.TEXT
+
+    def test_polars_inference_error_handling(self, monkeypatch):
+        """Test handling of errors during Polars inference."""
+
+        # Mock pl.DataFrame to raise an exception
+        def mock_dataframe(*args, **kwargs):
+            raise ValueError("Simulated Polars error")
+
+        monkeypatch.setattr(pl, "DataFrame", mock_dataframe)
+
+        # Service should fall back to basic inference
+        service = SchemaInferenceService({"name": "test", "age": 30})
+        inferred = service.get_inferred_columns()
+
+        assert len(inferred) == 2
+        column_types = {col.name: col.type for col in inferred}
+        assert column_types["name"] == SqlType.TEXT
+        assert column_types["age"] == SqlType.INTEGER
