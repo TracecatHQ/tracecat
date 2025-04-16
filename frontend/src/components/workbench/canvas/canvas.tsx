@@ -332,11 +332,11 @@ export const WorkflowCanvas = React.forwardRef<
 
   // Handle confirmed deletion
   const handleConfirmedDeletion = useCallback(async () => {
+    if (!workflowId || !reactFlowInstance) return
     console.log("HANDLE CONFIRMED DELETION", {
       pendingDeleteNodes,
       pendingDeleteEdges,
     })
-    if (!workflowId || !reactFlowInstance) return
 
     try {
       await Promise.all(
