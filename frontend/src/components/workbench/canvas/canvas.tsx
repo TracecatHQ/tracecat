@@ -37,6 +37,7 @@ import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 
 import { pruneGraphObject } from "@/lib/workflow"
+import { useDeleteKey } from "@/hooks/use-keys"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
@@ -44,6 +45,7 @@ import actionNode, {
   ActionNodeData,
   ActionNodeType,
 } from "@/components/workbench/canvas/action-node"
+import { DeleteActionNodeDialog } from "@/components/workbench/canvas/delete-node-dialog"
 import selectorNode, {
   SelectorNodeData,
   SelectorNodeType,
@@ -474,6 +476,17 @@ export const WorkflowCanvas = React.forwardRef<
     [reactFlowInstance] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
+  const [targetDeleteNode, setTargetDeleteNode] = useState<Node | null>(null)
+  useDeleteKey({
+    onDelete: () => {
+      // Get the selected node
+      const selectedNode = reactFlowInstance?.getNodes().find((n) => n.selected)
+      if (selectedNode) {
+        setTargetDeleteNode(selectedNode)
+      }
+    },
+  })
+
   return (
     <div ref={containerRef} style={{ height: "100%", width: "100%" }}>
       <ReactFlow
@@ -509,7 +522,7 @@ export const WorkflowCanvas = React.forwardRef<
         <Panel position="bottom-right" className="flex items-center gap-1">
           <Badge
             variant="outline"
-            className="select-none bg-background text-xs font-extralight hover:cursor-default"
+            className="select-none bg-background text-xs font-normal hover:cursor-default"
           >
             Layout
           </Badge>
@@ -532,6 +545,15 @@ export const WorkflowCanvas = React.forwardRef<
         <NodeSilhouette
           position={silhouettePosition}
           isConnecting={isConnecting}
+        />
+        <DeleteActionNodeDialog
+          open={!!targetDeleteNode}
+          onOpenChange={() => setTargetDeleteNode(null)}
+          onDelete={() => {
+            if (targetDeleteNode) {
+              onNodesDelete([targetDeleteNode])
+            }
+          }}
         />
       </ReactFlow>
     </div>

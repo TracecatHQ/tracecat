@@ -205,7 +205,7 @@ export function WorkspaceSecretsTable() {
     </DeleteSecretAlertDialog>
   )
 }
-const defaultToolbarProps: DataTableToolbarProps = {
+const defaultToolbarProps: DataTableToolbarProps<SecretReadMinimal> = {
   filterProps: {
     placeholder: "Filter secrets by name...",
     column: "name",

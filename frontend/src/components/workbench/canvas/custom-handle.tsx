@@ -1,5 +1,5 @@
 import React, { useMemo } from "react"
-import { JoinStrategy } from "@/client"
+import { ActionRead } from "@/client"
 import {
   Edge,
   getConnectedEdges,
@@ -10,6 +10,7 @@ import {
   useStore,
   type HandleProps,
 } from "@xyflow/react"
+import { GitBranch, Merge, Repeat } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -118,46 +119,76 @@ export function TriggerSourceHandle({
 }
 
 export function ActionTargetHandle({
-  className,
-  join_strategy,
+  action,
   indegree,
-}: React.HTMLProps<HTMLDivElement> & {
-  join_strategy?: JoinStrategy
+}: {
+  action?: ActionRead
   indegree?: number
 }) {
+  const {
+    join_strategy: joinStrategy,
+    for_each: forEach,
+    run_if: runIf,
+  } = action?.control_flow || {}
+  const hasJoin = indegree && indegree > 1
+  const hasForEach = !!forEach || (Array.isArray(forEach) && forEach.length > 0)
+  const hasRunIf = !!runIf
+
+  // Determine if there are no effects based on the conditions
+  const hasEffects = hasForEach || hasRunIf || hasJoin
   return (
     <Handle
       type="target"
       position={Position.Top}
-      className={cn(
-        "group !-top-8 left-1/2 !size-8 !-translate-x-1/2 !border-none !bg-transparent",
-        className
-      )}
+      draggable={false}
+      className={
+        "group !-top-8 left-1/2 !size-8 !-translate-x-1/2 !border-none !bg-transparent"
+      }
     >
-      <div className="relative size-full">
+      <div className="relative size-full group-hover:cursor-default">
         {/* Base dot that fades out */}
         <div
           className={cn(
             "pointer-events-none absolute left-1/2 top-1/2 rounded-full transition-all duration-200",
             "size-2 -translate-x-1/2 -translate-y-1/2 bg-muted-foreground/50",
             "group-hover:size-4 group-hover:bg-emerald-400 group-hover:shadow-lg",
-            indegree && indegree > 1 && "opacity-0"
+            hasEffects && "opacity-0"
           )}
         />
 
-        {/* Badge that fades in */}
+        {/* Badge that fades in. This will contain all the other effects. */}
         <Badge
           className={cn(
             "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-lg px-2 text-xs",
             "transition-all duration-200",
-            !indegree || indegree <= 1
-              ? "scale-75 opacity-0"
-              : "scale-100 opacity-100",
-            join_strategy === "all" && "bg-blue-500/80 hover:bg-blue-600/80",
-            join_strategy === "any" && "bg-amber-500/80 hover:bg-amber-600/80"
+            "group-hover:cursor-pointer",
+            hasEffects ? "scale-100 opacity-100" : "scale-75 opacity-0",
+            joinStrategy === "all" && "bg-blue-500/80 hover:bg-blue-600/80",
+            joinStrategy === "any" && "bg-amber-500/80 hover:bg-amber-600/80",
+            forEach && "bg-indigo-400/80 hover:bg-indigo-500/80",
+            runIf && "bg-rose-500/80 hover:bg-rose-600/80"
           )}
         >
-          {join_strategy?.toLocaleUpperCase() || "ALL"}
+          <div className="flex items-center space-x-2">
+            {hasJoin && (
+              <span className="flex items-center space-x-1">
+                <Merge className="size-3 rotate-180" strokeWidth={2.5} />
+                <span>{joinStrategy?.toLocaleUpperCase() || "ALL"}</span>
+              </span>
+            )}
+            {forEach && (
+              <span className="flex items-center space-x-1">
+                <Repeat className="size-3" strokeWidth={2.5} />
+                <span>LOOP</span>
+              </span>
+            )}
+            {runIf && (
+              <span className="flex items-center space-x-1">
+                <GitBranch className="size-3" strokeWidth={2.5} />
+                <pre className="text-xs">{runIf.slice(3, -2).trim()}</pre>
+              </span>
+            )}
+          </div>
         </Badge>
       </div>
     </Handle>

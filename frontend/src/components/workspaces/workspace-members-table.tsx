@@ -305,7 +305,7 @@ function ChangeUserRoleDialog({
   )
 }
 
-const defaultToolbarProps: DataTableToolbarProps = {
+const defaultToolbarProps: DataTableToolbarProps<WorkspaceMember> = {
   filterProps: {
     placeholder: "Filter users by email...",
     column: "email",

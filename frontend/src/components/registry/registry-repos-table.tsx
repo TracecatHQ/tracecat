@@ -481,9 +481,10 @@ export function RegistryRepositoriesTable() {
     </TooltipProvider>
   )
 }
-const defaultToolbarProps: DataTableToolbarProps = {
-  filterProps: {
-    placeholder: "Search repositories...",
-    column: "origin",
-  },
-}
+const defaultToolbarProps: DataTableToolbarProps<RegistryRepositoryReadMinimal> =
+  {
+    filterProps: {
+      placeholder: "Search repositories...",
+      column: "origin",
+    },
+  }

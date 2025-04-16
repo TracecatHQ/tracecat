@@ -176,7 +176,7 @@ export function OrgSessionsTable() {
   )
 }
 
-const defaultToolbarProps: DataTableToolbarProps = {
+const defaultToolbarProps: DataTableToolbarProps<SessionRead> = {
   filterProps: {
     placeholder: "Filter sessions by user email...",
     column: "user_email",

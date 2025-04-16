@@ -1,14 +1,15 @@
 "use client"
 
-import { useMemo } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { CaseReadMinimal } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useCasePanelContext } from "@/providers/case-panel"
 import { useWorkspace } from "@/providers/workspace"
 import { type Row } from "@tanstack/react-table"
 
-import { useListCases } from "@/lib/hooks"
+import { useDeleteCase, useListCases } from "@/lib/hooks"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { useToast } from "@/components/ui/use-toast"
 import {
   PRIORITIES,
   SEVERITIES,
@@ -24,6 +25,11 @@ export default function CaseTable() {
     workspaceId,
   })
   const { setCaseId } = useCasePanelContext()
+  const { toast } = useToast()
+  const [isDeleting, setIsDeleting] = useState(false)
+  const { deleteCase } = useDeleteCase({
+    workspaceId,
+  })
 
   const memoizedColumns = useMemo(() => columns, [])
 
@@ -31,14 +37,43 @@ export default function CaseTable() {
     return () => setCaseId(row.original.id)
   }
 
+  const handleDeleteRows = useCallback(
+    async (selectedRows: Row<CaseReadMinimal>[]) => {
+      if (selectedRows.length === 0) return
+
+      try {
+        setIsDeleting(true)
+        // Get IDs of selected cases
+        const caseIds = selectedRows.map((row) => row.original.id)
+
+        // Call the delete operation
+        await Promise.all(caseIds.map((caseId) => deleteCase(caseId)))
+
+        // Show success toast
+        toast({
+          title: `${caseIds.length} case(s) deleted`,
+          description: "The selected cases have been deleted successfully.",
+        })
+
+        // Refresh the cases list
+      } catch (error) {
+        console.error("Failed to delete cases:", error)
+      } finally {
+        setIsDeleting(false)
+      }
+    },
+    [deleteCase, toast, setIsDeleting]
+  )
+
   return (
     <TooltipProvider>
       <DataTable
         data={cases || []}
-        isLoading={casesIsLoading}
+        isLoading={casesIsLoading || isDeleting}
         error={(casesError as Error) || undefined}
         columns={memoizedColumns}
         onClickRow={handleClickRow}
+        onDeleteRows={handleDeleteRows}
         toolbarProps={defaultToolbarProps}
         tableId={`${user?.id}-${workspaceId}-cases`}
       />
@@ -46,7 +81,7 @@ export default function CaseTable() {
   )
 }
 
-const defaultToolbarProps: DataTableToolbarProps = {
+const defaultToolbarProps: DataTableToolbarProps<CaseReadMinimal> = {
   filterProps: {
     placeholder: "Filter cases by summary...",
     column: "summary",

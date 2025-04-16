@@ -45,7 +45,7 @@ interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
   data?: TData[]
   onClickRow?: (row: Row<TData>) => () => void
-  toolbarProps?: DataTableToolbarProps
+  toolbarProps?: DataTableToolbarProps<TData>
   tableHeaderAuxOptions?: AuxClickMenuOptionProps<TableCol<TData>>[]
   isLoading?: boolean
   error?: Error
@@ -54,6 +54,7 @@ interface DataTableProps<TData, TValue> {
   showSelectedRows?: boolean
   initialSortingState?: SortingState
   tableId?: string
+  onDeleteRows?: (selectedRows: Row<TData>[]) => void
 }
 
 export function DataTable<TData, TValue>({
@@ -69,6 +70,7 @@ export function DataTable<TData, TValue>({
   showSelectedRows = false,
   initialSortingState: initialSorting = [],
   tableId,
+  onDeleteRows,
 }: DataTableProps<TData, TValue>) {
   const [tableState, setTableState] = useLocalStorage<Partial<TableState>>(
     `table-state:${tableId}`,
@@ -126,7 +128,13 @@ export function DataTable<TData, TValue>({
   return (
     <div>
       <div className="space-y-4">
-        {toolbarProps && <DataTableToolbar table={table} {...toolbarProps} />}
+        {toolbarProps && (
+          <DataTableToolbar
+            table={table}
+            {...toolbarProps}
+            onDeleteRows={onDeleteRows}
+          />
+        )}
         <div className="rounded-md border">
           <Table>
             <TableHeader>
