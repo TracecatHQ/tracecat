@@ -163,6 +163,9 @@ def _validate_access_allowed(namespace: str) -> None:
     )
 
 
+### Pods
+
+
 def list_kubernetes_pods(namespace: str, kubeconfig_base64: str) -> list[str]:
     """List all pods in the given namespace.
 
@@ -242,96 +245,38 @@ def list_kubernetes_containers(
     return container_names
 
 
-def exec_kubernetes_pod(
-    pod: str,
+def run_kubectl_command(
     command: str | list[str],
     namespace: str,
     kubeconfig_base64: str,
-    container: str | None = None,
-) -> dict[str, str | int] | None:
-    """Execute a command in a Kubernetes pod.
-
-    Args:
-        pod : str
-            Name of the pod to execute command in.
-        command : str | list[str]
-            Command to execute in the pod.
-        namespace : str
-            Namespace where the pod is located. Must not be the current namespace.
-        kubeconfig_base64 : str
-            Base64 encoded kubeconfig YAML file. Required for security isolation.
-        container : str | None, default=None
-            Name of the container to execute command in. If None, uses the first container.
-
-    Returns:
-        dict[str, str | int]: Output from the command execution.
-
-    Raises:
-        PermissionError: If trying to access current namespace
-        RuntimeError: If the command execution fails
-        ValueError: If invalid arguments provided
-    """
-    cmd = command if isinstance(command, list) else [command]
-    logger.info(
-        "Executing command in kubernetes pod", pod=pod, namespace=namespace, command=cmd
-    )
-
+) -> dict[str, str | int]:
+    """Run a kubectl command."""
     _validate_access_allowed(namespace)
 
     # Convert string command to list
     if isinstance(command, str):
         command = shlex.split(command)
 
-    if container is None:
-        containers = list_kubernetes_containers(pod, namespace, kubeconfig_base64)
-        container = containers[0]
-        logger.info(
-            "Using first container", pod=pod, namespace=namespace, container=container
+    kubeconfig_yaml = _decode_kubeconfig(kubeconfig_base64, as_yaml=True)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        kubeconfig_path = pathlib.Path(temp_dir) / "kubeconfig.yaml"
+        with open(kubeconfig_path, "w") as f:
+            f.write(kubeconfig_yaml)
+
+        output = subprocess.run(
+            [
+                "kubectl",
+                "--kubeconfig",
+                kubeconfig_path,
+                *command,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            shell=False,
         )
-
-    # Blocked by Python client websocket upgrade error:
-    # https://github.com/kubernetes-client/python/issues/2355
-
-    # Use subprocess with kubectl to execute command
-    # We create a kubeconfig file in a temporary directory and pass it to kubectl
-    try:
-        kubeconfig_yaml = _decode_kubeconfig(kubeconfig_base64, as_yaml=True)
-        with tempfile.TemporaryDirectory() as temp_dir:
-            kubeconfig_path = pathlib.Path(temp_dir) / "kubeconfig.yaml"
-            with open(kubeconfig_path, "w") as f:
-                f.write(kubeconfig_yaml)
-            output = subprocess.run(
-                [
-                    "kubectl",
-                    "exec",
-                    pod,
-                    "-n",
-                    namespace,
-                    "-c",
-                    container,
-                    "--kubeconfig",
-                    kubeconfig_path,
-                    "--",
-                    *cmd,
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                # Explicitly set shell=False to avoid shell injection
-                shell=False,
-            )
         return {
             "stdout": output.stdout,
             "stderr": output.stderr,
             "returncode": output.returncode,
         }
-    except Exception as e:
-        logger.error(
-            "Unexpected error executing kubectl command using subprocess",
-            pod=pod,
-            namespace=namespace,
-            container=container,
-            command=cmd,
-            error=e,
-        )
-        raise e

@@ -1,7 +1,7 @@
 from tracecat.ee.sandbox.kubernetes import (
     list_kubernetes_pods,
     list_kubernetes_containers,
-    exec_kubernetes_pod,
+    run_kubectl_command,
 )
 
 from tracecat_registry import registry, RegistrySecret, secrets
@@ -51,30 +51,16 @@ def list_containers(
 
 
 @registry.register(
-    default_title="Execute command in pod",
-    description="Execute commands in a Kubernetes pod using kubectl.",
+    default_title="Run kubectl command",
+    description="Run a kubectl command on a Kubernetes cluster.",
     display_group="Kubernetes",
-    doc_url="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.25/#exec-options",
-    namespace="ee.kubernetes",
+    doc_url="https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands",
+    namespace="ee.kubectl",
     secrets=[kubernetes_secret],
 )
-def execute_command(
-    pod: Annotated[str, Doc("Pod to execute command in.")],
-    command: Annotated[str | list[str], Doc("Command to execute.")],
-    namespace: Annotated[str, Doc("Namespace to execute command in.")],
-    container: Annotated[
-        str | None,
-        Doc(
-            "Container to execute command in. If not provided, the first container will be used."
-        ),
-    ] = None,
-) -> str:
+def run_command(
+    command: Annotated[str | list[str], Doc("Command to run.")],
+    namespace: Annotated[str, Doc("Namespace to run the command in.")],
+) -> dict[str, str | int]:
     kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
-    output = exec_kubernetes_pod(
-        pod=pod,
-        command=command,
-        container=container,
-        namespace=namespace,
-        kubeconfig_base64=kubeconfig_base64,
-    )
-    return output
+    return run_kubectl_command(command, namespace, kubeconfig_base64)
