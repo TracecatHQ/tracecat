@@ -15,6 +15,7 @@ import {
   CaseRead,
   CaseReadMinimal,
   casesCreateComment,
+  casesDeleteCase,
   casesDeleteComment,
   casesGetCase,
   CasesGetCaseData,
@@ -2430,6 +2431,45 @@ export function useUpdateCase({
     updateCase,
     updateCaseIsPending,
     updateCaseError,
+  }
+}
+
+export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: deleteCase,
+    isPending: deleteCaseIsPending,
+    error: deleteCaseError,
+  } = useMutation({
+    mutationFn: async (caseId: string) =>
+      await casesDeleteCase({ workspaceId, caseId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["cases", workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+        default:
+          console.error("Error deleting case", error)
+          return toast({
+            title: "Error deleting case",
+            description: `An error occurred while deleting the case: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    deleteCase,
+    deleteCaseIsPending,
+    deleteCaseError,
   }
 }
 
