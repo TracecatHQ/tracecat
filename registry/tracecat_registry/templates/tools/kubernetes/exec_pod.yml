@@ -34,5 +34,4 @@ definition:
           - --
           - ${{ inputs.command }}
         namespace: ${{ inputs.namespace }}
-        kubeconfig_base64: ${{ secrets.kubernetes.KUBECONFIG_BASE64 }}
   returns: ${{ steps.exec_command.result }}
