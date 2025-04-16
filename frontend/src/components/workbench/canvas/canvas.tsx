@@ -1,5 +1,4 @@
 import React, {
-  PropsWithoutRef,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -39,7 +38,6 @@ import "@xyflow/react/dist/style.css"
 import { actionsDeleteAction } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import Dagre from "@dagrejs/dagre"
-import { AlertDialogProps } from "@radix-ui/react-alert-dialog"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 
 import { pruneGraphObject } from "@/lib/workflow"
