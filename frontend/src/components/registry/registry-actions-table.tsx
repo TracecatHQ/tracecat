@@ -32,58 +32,59 @@ export function RegistryActionsTable() {
     useState<RegistryActionReadMinimal | null>(null)
 
   // Create a memoized version of the toolbar props
-  const toolbarProps: DataTableToolbarProps = useMemo(() => {
-    // Extract unique namespace values from the data
-    const namespaceOptions = Array.from(
-      new Set(registryActions?.map((action) => action.namespace))
-    )
-      .sort() // Sort namespaces alphabetically
-      .map((namespace) => ({
-        label: namespace,
-        value: namespace,
-      }))
-    const typeOptions = Array.from(
-      new Set(registryActions?.map((action) => action.type))
-    )
-      .sort() // Sort types alphabetically
-      .map((type) => ({
-        label: type,
-        value: type,
-      }))
+  const toolbarProps: DataTableToolbarProps<RegistryActionReadMinimal> =
+    useMemo(() => {
+      // Extract unique namespace values from the data
+      const namespaceOptions = Array.from(
+        new Set(registryActions?.map((action) => action.namespace))
+      )
+        .sort() // Sort namespaces alphabetically
+        .map((namespace) => ({
+          label: namespace,
+          value: namespace,
+        }))
+      const typeOptions = Array.from(
+        new Set(registryActions?.map((action) => action.type))
+      )
+        .sort() // Sort types alphabetically
+        .map((type) => ({
+          label: type,
+          value: type,
+        }))
 
-    const originOptions = Array.from(
-      new Set(registryActions?.map((action) => action.origin))
-    )
-      .sort() // Sort types alphabetically
-      .map((origin) => ({
-        label: origin,
-        value: origin,
-      }))
+      const originOptions = Array.from(
+        new Set(registryActions?.map((action) => action.origin))
+      )
+        .sort() // Sort types alphabetically
+        .map((origin) => ({
+          label: origin,
+          value: origin,
+        }))
 
-    return {
-      filterProps: {
-        placeholder: "Search actions...",
-        column: "default_title",
-      },
-      fields: [
-        {
-          column: "type",
-          title: "Type",
-          options: typeOptions,
+      return {
+        filterProps: {
+          placeholder: "Search actions...",
+          column: "default_title",
         },
-        {
-          column: "namespace",
-          title: "Namespace",
-          options: namespaceOptions,
-        },
-        {
-          column: "origin",
-          title: "Origin",
-          options: originOptions,
-        },
-      ],
-    }
-  }, [registryActions])
+        fields: [
+          {
+            column: "type",
+            title: "Type",
+            options: typeOptions,
+          },
+          {
+            column: "namespace",
+            title: "Namespace",
+            options: namespaceOptions,
+          },
+          {
+            column: "origin",
+            title: "Origin",
+            options: originOptions,
+          },
+        ],
+      }
+    }, [registryActions])
 
   const handleOnClickRow = (row: Row<RegistryActionReadMinimal>) => () => {
     // Link to workflow detail page

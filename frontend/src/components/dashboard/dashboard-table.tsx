@@ -370,7 +370,7 @@ export function WorkflowsDashboardTable() {
     </DeleteWorkflowAlertDialog>
   )
 }
-const defaultToolbarProps: DataTableToolbarProps = {
+const defaultToolbarProps: DataTableToolbarProps<WorkflowReadMinimal> = {
   filterProps: {
     placeholder: "Search workflows...",
     column: "title",

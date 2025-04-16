@@ -5,6 +5,7 @@ import { ColumnDef } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import fuzzysort from "fuzzysort"
 
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Tooltip,
   TooltipContent,
@@ -19,6 +20,33 @@ import {
 import { DataTableColumnHeader } from "@/components/data-table"
 
 export const columns: ColumnDef<CaseReadMinimal>[] = [
+  {
+    id: "select",
+    header: ({ table }) => (
+      <Checkbox
+        className="border-foreground/50"
+        checked={
+          table.getIsAllPageRowsSelected() ||
+          (table.getIsSomePageRowsSelected() && "indeterminate")
+        }
+        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+        aria-label="Select all"
+      />
+    ),
+    cell: ({ row }) => (
+      <div onClick={(e) => e.stopPropagation()}>
+        <Checkbox
+          className="border-foreground/50"
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label="Select row"
+        />
+      </div>
+    ),
+    enableSorting: false,
+    enableHiding: false,
+  },
+
   {
     accessorKey: "short_id",
     header: ({ column }) => (
