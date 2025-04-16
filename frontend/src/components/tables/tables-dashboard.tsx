@@ -58,7 +58,7 @@ export function TablesDashboard() {
   )
 }
 
-const defaultToolbarProps: DataTableToolbarProps = {
+const defaultToolbarProps: DataTableToolbarProps<TableReadMinimal> = {
   filterProps: {
     placeholder: "Search tables...",
     column: "name",
