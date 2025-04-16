@@ -37,7 +37,6 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { Spinner } from "@/components/loading/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { tablesCreateTableFromCsv } from "@/client"
 
 const BYTES_PER_MB = 1024 * 1024
 const FILE_SIZE_LIMIT_MB = 5
