@@ -182,28 +182,16 @@ export function TableCreateFromCsvDialog({
         return
       }
 
-      // Create columns array from the inferred types
       const columns = csvPreview.headers.map(header => ({
         name: header,
-        type: data.columnTypes[header]
+        type: data.columnTypes[header] as typeof SqlTypeEnum[number]
       }))
 
-      // IMPORTANT: Use the original file object
-      // Don't modify or process it further
-      const formData = new FormData()
-      formData.append('table_name', data.tableName)
-      formData.append('columns', JSON.stringify(columns))
-      formData.append('file', data.file)  // This ensures the file is sent correctly
-
-      // Use the API function directly as shown in import-csv-dialog
-      const response = await tablesCreateTableFromCsv({
-        formData: formData,
+      await createTableFromCsv({
+        tableName: data.tableName,
+        columns: columns,
+        file: data.file,
         workspaceId: workspaceId,
-      })
-
-      toast({
-        title: "Table created successfully",
-        description: `${response.rows_imported} rows imported`,
       })
 
       onOpenChange?.(false)
