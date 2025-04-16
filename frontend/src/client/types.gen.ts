@@ -2865,6 +2865,37 @@ export type TablesImportCsvData = {
 
 export type TablesImportCsvResponse = TableRowInsertBatchResponse
 
+export type InferredColumn = {
+  name: string
+  type: SqlType
+  sample_value?: any
+}
+
+export type TablesInferColumnsFromCSVData = {
+  requestBody: Record<string, any>
+  workspaceId: string
+}
+
+export type TablesInferColumnsFromCSVResponse = InferredColumn[]
+
+export type TablesCreateTableFromCsvData = {
+  tableName: string
+  columns: {
+    name: string
+    type: SqlType
+  }[]
+  file: File
+  workspaceId: string
+}
+
+export type TablesCreateTableFromCsvResponse = {
+  status: string
+  table_id: string
+  table_name: string
+  columns_count: number
+  rows_imported: number
+}
+
 export type CasesListCasesData = {
   workspaceId: string
 }

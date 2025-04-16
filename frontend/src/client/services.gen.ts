@@ -167,6 +167,8 @@ import type {
   TablesGetTableResponse,
   TablesImportCsvData,
   TablesImportCsvResponse,
+  TablesInferColumnsFromCSVResponse,
+  TablesInferColumnsFromCSVData,
   TablesInsertRowData,
   TablesInsertRowResponse,
   TablesListRowsData,
@@ -259,6 +261,7 @@ import type {
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
   WorkspacesUpdateWorkspaceResponse,
+  TablesCreateTableFromCsvResponse,
 } from "./types.gen"
 
 /**
@@ -2922,6 +2925,57 @@ export const tablesImportCsv = (
     },
   })
 }
+
+/**
+ * Infer Column Types
+ * Infer column types from sample data.
+ * @param data The data for the request.
+ * @param data.requestBody Sample data to infer types from
+ * @returns InferredColumn[] Successful Response
+ * @throws ApiError
+ */
+export const tablesInferColumnsFromCSV = (
+  data: TablesInferColumnsFromCSVData
+): CancelablePromise<TablesInferColumnsFromCSVResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/importer/get-types",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  });
+};
+
+/**
+ * Create Table From CSV
+ * Create a new table from CSV data with inferred schema.
+ * @param data The data for the request.
+ * @returns TablesCreateTableFromCsvResponse Successful Response
+ * @throws ApiError
+ */
+export const tablesCreateTableFromCsv = (
+  data: {
+    formData: FormData,
+    workspaceId: string
+  }
+): CancelablePromise<TablesCreateTableFromCsvResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/importer/create-table",
+    query: {
+      workspace_id: data.workspaceId
+    },
+    body: data.formData,
+    errors: {
+      422: "Validation Error",
+    },
+  });
+};
 
 /**
  * List Cases
