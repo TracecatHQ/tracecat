@@ -80,7 +80,7 @@ export function TableCreateFromCsvDialog({
   const [currentStep, setCurrentStep] = useState<'upload' | 'preview'>('upload')
   const [isUploading, setIsUploading] = useState(false)
   const [csvPreview, setCsvPreview] = useState<CsvPreviewData | null>(null)
-  const [inferredColumns, setInferredColumns] = useState<any[]>([])
+  const [inferredColumns, setInferredColumns] = useState<Array<{name: string; type: string; sample_value?: unknown}>>([])
   const { createTableFromCsv, createTableFromCsvIsPending, createTableFromCsvError } = useCreateTableFromCsv()
   const form = useForm<CsvCreateTableFormValues>({
     resolver: zodResolver(csvCreateTableSchema),
@@ -153,8 +153,8 @@ export function TableCreateFromCsvDialog({
 
         // Set default column types based on inference
         const columnTypes = {} as Record<string, typeof SqlTypeEnum[number]>
-        inferred.forEach((col: any) => {
-          columnTypes[col.name] = col.type
+        inferred.forEach((col: {name: string; type: string; sample_value?: unknown}) => {
+            columnTypes[col.name] = col.type as typeof SqlTypeEnum[number]
         })
         form.setValue('columnTypes', columnTypes)
       }
@@ -353,14 +353,14 @@ function CsvPreview({ csvData }: CsvPreviewProps) {
   return (
     <div className="space-y-4">
       <div className="text-sm font-medium">Preview (first 5 rows)</div>
-      <div className="rounded border max-h-60 overflow-auto">
+      <div className="max-h-60 overflow-auto rounded border">
         <Table className="min-w-full table-fixed">
           <TableHeader>
             <TableRow>
               {csvData.headers.map((header) => (
                 <TableHead
                   key={header}
-                  className="whitespace-nowrap sticky top-0 bg-muted/50 min-w-[160px]"
+                  className="sticky top-0 min-w-[160px] whitespace-nowrap bg-muted/50"
                 >
                   {header}
                 </TableHead>
@@ -382,7 +382,7 @@ function CsvPreview({ csvData }: CsvPreviewProps) {
                   return (
                     <TableCell
                       key={header}
-                      className="truncate min-w-[160px]"
+                      className="min-w-[160px] truncate"
                       title={isObject ? JSON.stringify(cellValue) : String(cellValue || '')}
                     >
                       {displayValue}
@@ -398,8 +398,8 @@ function CsvPreview({ csvData }: CsvPreviewProps) {
 }
 
 interface ColumnTypeMappingProps {
-  csvHeaders: string[]
-  inferredColumns: any[]
+    csvHeaders: string[]
+    inferredColumns: Array<{name: string; type: string; sample_value?: unknown}>
 }
 
 function ColumnTypeMapping({ csvHeaders, inferredColumns }: ColumnTypeMappingProps) {
