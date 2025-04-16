@@ -2399,8 +2399,8 @@ export function useCreateTableFromCsv() {
         workspaceId: params.workspaceId,
       })
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tables'] })
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['tables', variables.workspaceId] })
       toast({
         title: "Table created successfully",
         description: "The table has been created and data imported.",
