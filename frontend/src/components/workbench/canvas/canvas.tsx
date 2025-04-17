@@ -40,6 +40,7 @@ import { useWorkflow } from "@/providers/workflow"
 import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 
+import { useDeleteAction } from "@/lib/hooks"
 import { pruneGraphObject } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -181,6 +182,7 @@ export const WorkflowCanvas = React.forwardRef<
   >([])
   const [pendingDeleteEdges, setPendingDeleteEdges] = useState<EdgeChange[]>([])
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const { deleteAction } = useDeleteAction()
   /**
    * Load the saved workflow
    */
@@ -339,7 +341,7 @@ export const WorkflowCanvas = React.forwardRef<
     try {
       await Promise.all(
         pendingDeleteNodes.map((node) =>
-          actionsDeleteAction({ actionId: node.id, workspaceId })
+          deleteAction({ actionId: node.id, workspaceId })
         )
       )
 
