@@ -39,6 +39,7 @@ dependencies = [
     "pytenable==1.6.0",
     "slack-sdk==3.28.0",
     "tenacity==8.3.0",
+    "marshmallow==3.26.1",
     "types-aioboto3[guardduty,s3]==13.0.1",
 ]
 dynamic = ["version"]
