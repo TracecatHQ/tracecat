@@ -3,7 +3,6 @@
 Docs: https://docs.anthropic.com/claude/reference/bedrock-python-sdk
 """
 
-from typing import Any, overload
 
 from anthropic import AsyncAnthropicBedrock
 from anthropic.types import Message, MessageParam
