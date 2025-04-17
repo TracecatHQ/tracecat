@@ -35,7 +35,6 @@ import { v4 as uuid4 } from "uuid"
 
 import "@xyflow/react/dist/style.css"
 
-import { actionsDeleteAction } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
