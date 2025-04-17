@@ -2,6 +2,8 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   ActionRead,
+  actionsDeleteAction,
+  ActionsDeleteActionData,
   actionsGetAction,
   actionsUpdateAction,
   ActionUpdate,
@@ -264,6 +266,24 @@ export function useAction(
     updateAction,
     isSaving,
   }
+}
+
+export function useDeleteAction() {
+  const queryClient = useQueryClient()
+  const { mutateAsync: deleteAction } = useMutation({
+    mutationFn: async (params: ActionsDeleteActionData) =>
+      await actionsDeleteAction(params),
+    onSuccess: (_, variables) => {
+      const { actionId, workspaceId } = variables
+      queryClient.invalidateQueries({
+        queryKey: ["actions", actionId, workspaceId],
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to delete action:", error)
+    },
+  })
+  return { deleteAction }
 }
 
 export function useUpdateWebhook(workspaceId: string, workflowId: string) {
