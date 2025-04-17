@@ -36,7 +36,6 @@ dependencies = [
     "fpdf2==2.8.2",
     "pycti==6.6.3",
     "pymongo==4.8.0",
-    "pytenable==1.6.0",
     "slack-sdk==3.28.0",
     "tenacity==8.3.0",
     "marshmallow==3.26.1",
