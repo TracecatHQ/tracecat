@@ -62,19 +62,20 @@ async def async_ollama_call(
         messages.extend(memory)
     messages.append({"role": "user", "content": prompt})
 
-    logger.debug(
-        "🧠 Calling LLM chat completion",
-        provider="ollama",
-        model=model,
-        prompt=prompt,
-    )
-
     kwargs = {"model": model, "messages": messages}
     if format:
         if isinstance(format, BaseModel):
             kwargs["format"] = format.model_json_schema()
         else:
             kwargs["format"] = format
+
+    logger.debug(
+        "🧠 Calling LLM chat completion",
+        provider="ollama",
+        model=model,
+        prompt=prompt,
+        system=system_prompt,
+    )
 
     response = await client.chat(**kwargs)
     return response
