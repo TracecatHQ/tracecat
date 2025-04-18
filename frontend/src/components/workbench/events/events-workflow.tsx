@@ -16,11 +16,13 @@ import {
   CalendarIcon,
   CalendarSearchIcon,
   CircleCheck,
+  CircleCheckBigIcon,
   CircleDot,
   CircleMinusIcon,
   CirclePlayIcon,
   CircleX,
   EyeOffIcon,
+  LayoutListIcon,
   LoaderIcon,
   ScanEyeIcon,
   SquareArrowOutUpRightIcon,
@@ -194,6 +196,7 @@ export function WorkflowEvents({
     setSelectedActionEventRef,
     setNodes,
     canvasRef,
+    sidebarRef,
   } = useWorkflowBuilder()
   const { workflow } = useWorkflow()
 
@@ -288,7 +291,33 @@ export function WorkflowEvents({
                           <DotsHorizontalIcon className="size-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent>
+                      <DropdownMenuContent className="[&_[data-radix-collection-item]]:flex [&_[data-radix-collection-item]]:items-center [&_[data-radix-collection-item]]:gap-2 [&_[data-radix-collection-item]]:text-xs">
+                        <DropdownMenuItem
+                          // Disable if the action reference is not present in the current workflow
+                          disabled={!isActionRefValid(event.action_ref)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            sidebarRef.current?.setOpen(true)
+                            sidebarRef.current?.setActiveTab("action-input")
+                            setSelectedActionEventRef(slugify(event.action_ref))
+                          }}
+                        >
+                          <LayoutListIcon className="size-3" />
+                          <span>View last input</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          // Disable if the action reference is not present in the current workflow
+                          disabled={!isActionRefValid(event.action_ref)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            sidebarRef.current?.setOpen(true)
+                            sidebarRef.current?.setActiveTab("action-result")
+                            setSelectedActionEventRef(slugify(event.action_ref))
+                          }}
+                        >
+                          <CircleCheckBigIcon className="size-3" />
+                          <span>View last result</span>
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           // Disable if the action reference is not present in the current workflow
                           disabled={!isActionRefValid(event.action_ref)}
@@ -296,12 +325,11 @@ export function WorkflowEvents({
                             e.stopPropagation()
                             centerNode(event.action_ref)
                           }}
-                          className="flex items-center gap-2 text-xs"
                         >
                           {!isActionRefValid(event.action_ref) ? (
-                            <EyeOffIcon className="size-4" />
+                            <EyeOffIcon className="size-3" />
                           ) : (
-                            <ScanEyeIcon className="size-4" />
+                            <ScanEyeIcon className="size-3" />
                           )}
                           <span>Focus action</span>
                         </DropdownMenuItem>
