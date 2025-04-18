@@ -23,7 +23,7 @@ import { z } from "zod"
 
 import { TracecatApiError } from "@/lib/errors"
 import { exportWorkflow, handleExportError } from "@/lib/export"
-import { useManualWorkflowExecution } from "@/lib/hooks"
+import { useCreateManualWorkflowExecution } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -73,6 +73,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
+import { Spinner } from "@/components/loading/spinner"
 
 export function WorkbenchNav() {
   const {
@@ -362,8 +363,10 @@ function WorkflowManualTrigger({
   disabled: boolean
   workflowId: string
 }) {
-  const { expandSidebarAndFocusEvents } = useWorkflowBuilder()
-  const { createExecution } = useManualWorkflowExecution(workflowId)
+  const { expandSidebarAndFocusEvents, setCurrentExecutionId } =
+    useWorkflowBuilder()
+  const { createExecution, createExecutionIsPending } =
+    useCreateManualWorkflowExecution(workflowId)
   const [open, setOpen] = React.useState(false)
   const { workspaceId } = useWorkspace()
   const [lastTriggerInput, setLastTriggerInput] = React.useState<string | null>(
@@ -386,17 +389,21 @@ function WorkflowManualTrigger({
     setLastTriggerInput(payload)
     setManualTriggerErrors(null)
     try {
-      const response = await createExecution({
+      const result = await createExecution({
         workflow_id: workflowId,
         inputs: payload ? JSON.parse(payload) : undefined,
       })
-      // Maybe add setting to control this behavior
+
+      // Store the execution ID directly
+      if (result && result.wf_exec_id) {
+        setCurrentExecutionId(result.wf_exec_id)
+      }
+
+      // Close the popover before expanding the sidebar
+      setOpen(false)
+
+      // Expand sidebar immediately - no need for delay since we use direct execution ID
       expandSidebarAndFocusEvents()
-      console.log("Workflow started", response)
-      toast({
-        title: `Workflow run started`,
-        description: `${response.wf_exec_id} ${response.message}`,
-      })
     } catch (error) {
       if (error instanceof ApiError) {
         const tracecatError = error as TracecatApiError
@@ -451,15 +458,19 @@ function WorkflowManualTrigger({
                     manualTriggerErrors &&
                       "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
                   )}
-                  disabled={disabled}
+                  disabled={disabled || createExecutionIsPending}
                   onClick={() => !disabled && setOpen(true)}
                 >
-                  {manualTriggerErrors ? (
+                  {createExecutionIsPending ? (
+                    <Spinner className="mr-2 size-3" />
+                  ) : manualTriggerErrors ? (
                     <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
                   ) : (
                     <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
                   )}
-                  <span>Run</span>
+                  <span>
+                    {createExecutionIsPending ? "Starting..." : "Run"}
+                  </span>
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-fit p-3">
@@ -490,10 +501,17 @@ function WorkflowManualTrigger({
                     <Button
                       type="submit"
                       variant="default"
+                      disabled={createExecutionIsPending}
                       className="group mt-2 flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
                     >
-                      <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
-                      <span>Run</span>
+                      {createExecutionIsPending ? (
+                        <Spinner className="mr-2 size-3" />
+                      ) : (
+                        <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
+                      )}
+                      <span>
+                        {createExecutionIsPending ? "Starting..." : "Run"}
+                      </span>
                     </Button>
                   </div>
                 </form>
@@ -521,6 +539,8 @@ function WorkflowManualTrigger({
             </div>
           ) : disabled ? (
             "Please save changes to enable manual trigger."
+          ) : createExecutionIsPending ? (
+            "Starting workflow execution..."
           ) : (
             "Run the workflow manually without a webhook. Click to configure inputs."
           )}

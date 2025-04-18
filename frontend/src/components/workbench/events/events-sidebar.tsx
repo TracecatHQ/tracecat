@@ -13,13 +13,13 @@ import { ImperativePanelHandle } from "react-resizable-panels"
 
 import {
   useCompactWorkflowExecution,
-  useManualWorkflowExecution,
+  useLastManualExecution,
   useOrgAppSettings,
 } from "@/lib/hooks"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { ActionEvent } from "@/components/workbench/events/events-selected-action"
 import { EventsSidebarEmpty } from "@/components/workbench/events/events-sidebar-empty"
@@ -49,11 +49,30 @@ export interface EventsSidebarRef extends ImperativePanelHandle {
 }
 
 export function WorkbenchSidebarEvents() {
-  const { sidebarRef } = useWorkflowBuilder()
+  const { workflowId } = useWorkflow()
+  const { sidebarRef, currentExecutionId } = useWorkflowBuilder()
   const [activeTab, setActiveTab] =
     useState<EventsSidebarTabs>("workflow-events")
   const [open, setOpen] = useState(false)
-  const { workflow, isLoading } = useWorkflow()
+
+  // Only fetch last execution if we don't have a current execution ID
+  const { lastExecution, lastExecutionIsLoading, lastExecutionError } =
+    useLastManualExecution(
+      // Pass undefined if currentExecutionId exists, otherwise pass workflowId if it exists
+      currentExecutionId ? undefined : workflowId || undefined
+    )
+
+  // Determine which execution ID to use
+  // Prefer currentExecutionId (from direct trigger) over lastExecution.id (from query)
+  const executionId = currentExecutionId || lastExecution?.id
+
+  console.log({
+    currentExecId: currentExecutionId,
+    lastExecId: lastExecution?.id,
+    executionIdUsed: executionId,
+    lastExecIsLoading: lastExecutionIsLoading,
+    lastExecError: lastExecutionError,
+  })
 
   // Set up the ref methods
   useEffect(() => {
@@ -71,59 +90,29 @@ export function WorkbenchSidebarEvents() {
     }
   }, [sidebarRef, activeTab, setOpen, open])
 
-  if (isLoading) return <CenteredSpinner />
-  if (!workflow)
+  // If we have a direct execution ID, we can skip the loading state for last execution
+  if (!currentExecutionId && lastExecutionIsLoading) {
     return (
-      <div className="flex items-center justify-center text-muted-foreground">
-        No workflow in context
+      <div className="flex h-full flex-col items-center justify-center space-y-2">
+        <span className="text-xs text-muted-foreground">
+          Fetching last execution...
+        </span>
+        <Spinner className="size-6" />
       </div>
     )
-
-  return (
-    <WorkbenchSidebarEventsList
-      workflowId={workflow.id}
-      activeTab={activeTab}
-    />
-  )
-}
-
-function WorkbenchSidebarEventsList({
-  workflowId,
-  activeTab,
-}: {
-  workflowId: string
-  activeTab: EventsSidebarTabs
-}) {
-  const { appSettings } = useOrgAppSettings()
-  const { sidebarRef } = useWorkflowBuilder()
-  const { lastExecution, lastExecutionIsLoading, lastExecutionError } =
-    useManualWorkflowExecution(workflowId)
-
-  // Pre-fetch and create query observer even if we don't have an ID yet
-  const { execution, executionIsLoading, executionError } =
-    useCompactWorkflowExecution(lastExecution?.id)
-
-  // Show loading state if either query is loading
-  if (lastExecutionIsLoading || (lastExecution?.id && executionIsLoading)) {
-    return <CenteredSpinner />
   }
 
-  // Only show error if we have a real error (not just missing execution)
-  if (lastExecutionError || (lastExecution?.id && executionError)) {
+  if (!currentExecutionId && lastExecutionError) {
     return (
       <AlertNotification
         level="error"
-        message={`Error loading execution: ${
-          lastExecutionError?.message ||
-          executionError?.message ||
-          "Error loading last execution"
-        }`}
+        message={`Error loading last execution: ${lastExecutionError.message}`}
       />
     )
   }
 
-  // Show empty state if we have no execution data
-  if (!lastExecution || !execution) {
+  // If we have no execution ID (neither current nor last), show the empty state
+  if (!executionId) {
     return (
       <EventsSidebarEmpty
         title="No workflow runs"
@@ -133,6 +122,60 @@ function WorkbenchSidebarEventsList({
     )
   }
 
+  // We have an execution ID to use
+  return (
+    <WorkbenchSidebarEventsList
+      activeTab={activeTab}
+      executionId={executionId}
+    />
+  )
+}
+
+function WorkbenchSidebarEventsList({
+  activeTab,
+  executionId,
+}: {
+  activeTab: EventsSidebarTabs
+  executionId: string
+}) {
+  const { appSettings } = useOrgAppSettings()
+  const { sidebarRef } = useWorkflowBuilder()
+
+  const { execution, executionIsLoading, executionError } =
+    useCompactWorkflowExecution(executionId)
+
+  console.log({
+    execId: execution?.id,
+    execIsLoading: executionIsLoading,
+    execError: executionError,
+  })
+
+  if (executionIsLoading) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center space-y-2">
+        <span className="text-xs text-muted-foreground">
+          Fetching events...
+        </span>
+        <Spinner className="size-6" />
+      </div>
+    )
+  }
+  if (executionError) {
+    return (
+      <AlertNotification
+        level="error"
+        message={`Error loading execution: ${executionError.message}`}
+      />
+    )
+  }
+  if (!execution) {
+    return (
+      <EventsSidebarEmpty
+        title="Could not find execution"
+        description="Please refresh the page and try again"
+      />
+    )
+  }
   const tabItems = [
     {
       value: "workflow-events",
