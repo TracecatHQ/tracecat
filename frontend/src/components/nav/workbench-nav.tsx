@@ -392,11 +392,6 @@ function WorkflowManualTrigger({
       })
       // Maybe add setting to control this behavior
       expandSidebarAndFocusEvents()
-      console.log("Workflow started", response)
-      toast({
-        title: `Workflow run started`,
-        description: `${response.wf_exec_id} ${response.message}`,
-      })
     } catch (error) {
       if (error instanceof ApiError) {
         const tracecatError = error as TracecatApiError
