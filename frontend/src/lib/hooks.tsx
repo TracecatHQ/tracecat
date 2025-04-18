@@ -687,15 +687,8 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
   }
 }
 
-export function useLastManualExecution(
-  workflowId?: string
-  // options?: {
-  //   refetchInterval?: number
-  //   retries?: number
-  // }
-) {
+export function useLastManualExecution(workflowId?: string) {
   const { workspaceId } = useWorkspace()
-  // Last execution
   const {
     data: lastExecution,
     isLoading: lastExecutionIsLoading,
@@ -714,16 +707,6 @@ export function useLastManualExecution(
 
       return executions.length > 0 ? executions[0] : null
     },
-    // // Add more aggressive retry logic for high-latency environments
-    // retry: options?.retries ?? 10,
-    // retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
-    // // Ensure we don't cache stale data
-    // staleTime: 0,
-    // // Add polling interval with a default if not provided
-    // refetchInterval: options?.refetchInterval ?? 2000,
-    // // Polling will continue for a short time even when component is not focused
-    // refetchIntervalInBackground: true,
-    // ...options,
   })
 
   return {
