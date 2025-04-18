@@ -604,6 +604,7 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
     isLoading: executionIsLoading,
     error: executionError,
   } = useQuery<WorkflowExecutionReadCompact | null, ApiError>({
+    enabled: !!workflowExecutionId,
     queryKey: ["compact-workflow-execution", workflowExecutionId],
     queryFn: async () => {
       if (!workflowExecutionId) return null
@@ -612,8 +613,6 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
         executionId: encodeURIComponent(workflowExecutionId),
       })
     },
-    retry: retryHandler,
-    staleTime: 0,
     refetchInterval(query) {
       switch (query.state.data?.status) {
         case "RUNNING":
@@ -630,58 +629,83 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
   }
 }
 
-export function useManualWorkflowExecution(
-  workflowId: string,
+export function useManualWorkflowExecution(workflowId: string) {
+  const queryClient = useQueryClient()
+  const { workspaceId } = useWorkspace()
+
+  const {
+    mutateAsync: createExecution,
+    isPending: createExecutionIsPending,
+    error: createExecutionError,
+  } = useMutation({
+    mutationFn: async (params: WorkflowExecutionCreate) => {
+      return await workflowExecutionsCreateWorkflowExecution({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: ({ wf_exec_id, message }) => {
+      // Immediately update the last-manual-execution query cache with the new execution
+      toast({
+        title: `Workflow run started`,
+        description: `${wf_exec_id} ${message}`,
+      })
+      const common = {
+        id: wf_exec_id,
+        run_id: "pending",
+        start_time: new Date().toISOString(),
+        status: "RUNNING",
+        workflow_type: "DSLWorkflow",
+        task_queue: "default",
+        history_length: 0,
+      }
+      queryClient.invalidateQueries({
+        queryKey: ["last-manual-execution"],
+      })
+      queryClient.setQueryData<WorkflowExecutionReadMinimal>(
+        ["last-manual-execution", workflowId],
+        common as WorkflowExecutionReadMinimal
+      )
+      queryClient.refetchQueries({
+        queryKey: ["last-manual-execution", workflowId],
+      })
+
+      queryClient.invalidateQueries({
+        queryKey: ["compact-workflow-execution"],
+      })
+      queryClient.setQueryData<WorkflowExecutionReadCompact>(
+        ["compact-workflow-execution", wf_exec_id],
+        {
+          ...(common as Omit<WorkflowExecutionReadCompact, "events">),
+          events: [],
+        }
+      )
+      queryClient.refetchQueries({
+        queryKey: ["compact-workflow-execution", wf_exec_id],
+      })
+    },
+  })
+
+  return {
+    createExecution,
+    createExecutionIsPending,
+    createExecutionError,
+  }
+}
+export function useLastManualExecution(
+  workflowId?: string,
   options?: {
     refetchInterval?: number
   }
 ) {
-  const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
-
-  const { mutateAsync: createExecution, isPending: createExecutionIsPending } =
-    useMutation({
-      mutationFn: async (params: WorkflowExecutionCreate) => {
-        return await workflowExecutionsCreateWorkflowExecution({
-          workspaceId,
-          requestBody: params,
-        })
-      },
-      onSuccess: ({ wf_exec_id, message }) => {
-        // Immediately update the last-manual-execution query cache with the new execution
-        toast({
-          title: `Workflow run started`,
-          description: `${wf_exec_id} ${message}`,
-        })
-        queryClient.setQueryData<WorkflowExecutionReadMinimal>(
-          ["last-manual-execution", workflowId],
-          {
-            id: wf_exec_id,
-            run_id: "pending",
-            start_time: new Date().toISOString(),
-            status: "RUNNING",
-            workflow_type: "DSLWorkflow",
-            task_queue: "default",
-            history_length: 0,
-          }
-        )
-
-        // Then trigger a background refetch to get the complete data
-        queryClient.refetchQueries({
-          queryKey: ["last-manual-execution"],
-        })
-        queryClient.refetchQueries({
-          queryKey: ["last-manual-execution", workflowId],
-        })
-      },
-    })
-
   // Last execution
   const {
     data: lastExecution,
     isLoading: lastExecutionIsLoading,
     error: lastExecutionError,
   } = useQuery<WorkflowExecutionReadMinimal | null, Error>({
+    enabled: !!workflowId,
     queryKey: ["last-manual-execution", workflowId],
     queryFn: async () => {
       const executions = await workflowExecutionsListWorkflowExecutions({
@@ -694,7 +718,6 @@ export function useManualWorkflowExecution(
 
       return executions.length > 0 ? executions[0] : null
     },
-    staleTime: 0,
     ...options,
   })
 
@@ -702,8 +725,6 @@ export function useManualWorkflowExecution(
     lastExecution,
     lastExecutionIsLoading,
     lastExecutionError,
-    createExecution,
-    createExecutionIsPending,
   }
 }
 export function useSchedules(workflowId: string) {
