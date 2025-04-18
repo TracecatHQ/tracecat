@@ -644,43 +644,21 @@ export function useManualWorkflowExecution(workflowId: string) {
         requestBody: params,
       })
     },
-    onSuccess: ({ wf_exec_id, message }) => {
-      // Immediately update the last-manual-execution query cache with the new execution
+    onSuccess: async ({ wf_exec_id, message }) => {
       toast({
         title: `Workflow run started`,
         description: `${wf_exec_id} ${message}`,
       })
-      const common = {
-        id: wf_exec_id,
-        run_id: "pending",
-        start_time: new Date().toISOString(),
-        status: "RUNNING",
-        workflow_type: "DSLWorkflow",
-        task_queue: "default",
-        history_length: 0,
-      }
-      queryClient.invalidateQueries({
+      await queryClient.refetchQueries({
         queryKey: ["last-manual-execution"],
       })
-      queryClient.setQueryData<WorkflowExecutionReadMinimal>(
-        ["last-manual-execution", workflowId],
-        common as WorkflowExecutionReadMinimal
-      )
-      queryClient.refetchQueries({
+      await queryClient.refetchQueries({
         queryKey: ["last-manual-execution", workflowId],
       })
-
-      queryClient.invalidateQueries({
+      await queryClient.refetchQueries({
         queryKey: ["compact-workflow-execution"],
       })
-      queryClient.setQueryData<WorkflowExecutionReadCompact>(
-        ["compact-workflow-execution", wf_exec_id],
-        {
-          ...(common as Omit<WorkflowExecutionReadCompact, "events">),
-          events: [],
-        }
-      )
-      queryClient.refetchQueries({
+      await queryClient.refetchQueries({
         queryKey: ["compact-workflow-execution", wf_exec_id],
       })
     },
@@ -692,6 +670,7 @@ export function useManualWorkflowExecution(workflowId: string) {
     createExecutionError,
   }
 }
+
 export function useLastManualExecution(
   workflowId?: string,
   options?: {
@@ -704,7 +683,7 @@ export function useLastManualExecution(
     data: lastExecution,
     isLoading: lastExecutionIsLoading,
     error: lastExecutionError,
-  } = useQuery<WorkflowExecutionReadMinimal | null, Error>({
+  } = useQuery<WorkflowExecutionReadMinimal | null, TracecatApiError>({
     enabled: !!workflowId,
     queryKey: ["last-manual-execution", workflowId],
     queryFn: async () => {
@@ -718,6 +697,8 @@ export function useLastManualExecution(
 
       return executions.length > 0 ? executions[0] : null
     },
+    // NOTE: We must let this retry, otherwise the last execution will not be
+    // updated if Temporal hasn't created the execution yet.
     ...options,
   })
 

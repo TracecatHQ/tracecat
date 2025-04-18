@@ -19,7 +19,7 @@ import {
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
+import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { ActionEvent } from "@/components/workbench/events/events-selected-action"
 import { EventsSidebarEmpty } from "@/components/workbench/events/events-sidebar-empty"
@@ -49,11 +49,13 @@ export interface EventsSidebarRef extends ImperativePanelHandle {
 }
 
 export function WorkbenchSidebarEvents() {
+  const { workflowId } = useWorkflow()
   const { sidebarRef } = useWorkflowBuilder()
   const [activeTab, setActiveTab] =
     useState<EventsSidebarTabs>("workflow-events")
   const [open, setOpen] = useState(false)
-  const { workflow, isLoading } = useWorkflow()
+  const { lastExecution, lastExecutionIsLoading, lastExecutionError } =
+    useLastManualExecution(workflowId ?? undefined)
 
   // Set up the ref methods
   useEffect(() => {
@@ -71,45 +73,16 @@ export function WorkbenchSidebarEvents() {
     }
   }, [sidebarRef, activeTab, setOpen, open])
 
-  const { lastExecution, lastExecutionIsLoading, lastExecutionError } =
-    useLastManualExecution(workflow?.id)
-
-  // Pre-fetch and create query observer even if we don't have an ID yet
-  const { execution, executionIsLoading, executionError } =
-    useCompactWorkflowExecution(lastExecution?.id)
-  console.log({
-    workflowId: workflow?.id,
-    lastExecution,
-    lastExecutionIsLoading,
-    lastExecutionError,
-    execution,
-    executionIsLoading,
-    executionError,
-  })
-
-  if (isLoading) {
-    return <CenteredSpinner />
-  }
-
   if (lastExecutionIsLoading) {
     return (
-      <div className="flex h-full flex-col items-center justify-center">
-        <p className="text-sm text-muted-foreground">
-          Loading last execution...
-        </p>
-        <CenteredSpinner />
+      <div className="flex h-full flex-col items-center justify-center space-y-2">
+        <span className="text-xs text-muted-foreground">
+          Fetching last execution...
+        </span>
+        <Spinner className="size-6" />
       </div>
     )
   }
-
-  if (!workflow) {
-    return (
-      <div className="flex items-center justify-center text-muted-foreground">
-        No workflow in context
-      </div>
-    )
-  }
-
   if (lastExecutionError) {
     return (
       <AlertNotification
@@ -145,20 +118,13 @@ function WorkbenchSidebarEventsList({
   const { appSettings } = useOrgAppSettings()
   const { sidebarRef } = useWorkflowBuilder()
 
-  // Pre-fetch and create query observer even if we don't have an ID yet
   const { execution, executionIsLoading, executionError } =
     useCompactWorkflowExecution(lastExecutionId)
 
-  console.log({
-    execution,
-    executionIsLoading,
-    executionError,
-  })
-
   if (executionIsLoading) {
     return (
-      <div className="flex size-full flex-col items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading events...</p>
+      <div className="flex h-full flex-col items-center justify-center space-y-2">
+        <span className="text-xs text-muted-foreground">Loading events...</span>
         <Spinner className="size-6" />
       </div>
     )
