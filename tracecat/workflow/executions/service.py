@@ -608,14 +608,19 @@ class WorkflowExecutionsService:
 
         Note: This method schedules the workflow execution and returns immediately.
         """
+        wf_exec_id = generate_exec_id(wf_id)
         coro = self.create_workflow_execution(
-            dsl=dsl, wf_id=wf_id, payload=payload, trigger_type=trigger_type
+            dsl=dsl,
+            wf_id=wf_id,
+            payload=payload,
+            trigger_type=trigger_type,
+            wf_exec_id=wf_exec_id,
         )
         _ = asyncio.create_task(coro)
         return WorkflowExecutionCreateResponse(
             message="Workflow execution started",
             wf_id=wf_id,
-            wf_exec_id=generate_exec_id(wf_id),
+            wf_exec_id=wf_exec_id,
         )
 
     async def create_workflow_execution(
@@ -625,6 +630,7 @@ class WorkflowExecutionsService:
         wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
+        wf_exec_id: WorkflowExecutionID | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new workflow execution.
 
@@ -636,11 +642,13 @@ class WorkflowExecutionsService:
             raise TracecatValidationError(
                 validation_result.msg, detail=validation_result.detail
             )
+        if wf_exec_id is None:
+            wf_exec_id = generate_exec_id(wf_id)
 
         return await self._dispatch_workflow(
             dsl=dsl,
             wf_id=wf_id,
-            wf_exec_id=generate_exec_id(wf_id),
+            wf_exec_id=wf_exec_id,
             trigger_inputs=payload,
             trigger_type=trigger_type,
         )
