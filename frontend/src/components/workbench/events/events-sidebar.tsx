@@ -145,7 +145,6 @@ function WorkbenchSidebarEventsList({
     useCompactWorkflowExecution(executionId)
 
   console.log({
-    test: "CAN you see this",
     execId: execution?.id,
     execIsLoading: executionIsLoading,
     execError: executionError,
@@ -155,7 +154,7 @@ function WorkbenchSidebarEventsList({
     return (
       <div className="flex h-full flex-col items-center justify-center space-y-2">
         <span className="text-xs text-muted-foreground">
-          Workflow is starting...
+          Fetching events...
         </span>
         <Spinner className="size-6" />
       </div>
