@@ -23,7 +23,7 @@ import { z } from "zod"
 
 import { TracecatApiError } from "@/lib/errors"
 import { exportWorkflow, handleExportError } from "@/lib/export"
-import { useManualWorkflowExecution } from "@/lib/hooks"
+import { useCreateManualWorkflowExecution } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -363,7 +363,7 @@ function WorkflowManualTrigger({
   workflowId: string
 }) {
   const { expandSidebarAndFocusEvents } = useWorkflowBuilder()
-  const { createExecution } = useManualWorkflowExecution(workflowId)
+  const { createExecution } = useCreateManualWorkflowExecution(workflowId)
   const [open, setOpen] = React.useState(false)
   const { workspaceId } = useWorkspace()
   const [lastTriggerInput, setLastTriggerInput] = React.useState<string | null>(

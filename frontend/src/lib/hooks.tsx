@@ -629,7 +629,7 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
   }
 }
 
-export function useManualWorkflowExecution(workflowId: string) {
+export function useCreateManualWorkflowExecution(workflowId: string) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
 

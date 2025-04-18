@@ -6,7 +6,10 @@ import { CaseRead, WorkflowReadMinimal } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { PlayIcon, SquareArrowOutUpRightIcon } from "lucide-react"
 
-import { useManualWorkflowExecution, useWorkflowManager } from "@/lib/hooks"
+import {
+  useCreateManualWorkflowExecution,
+  useWorkflowManager,
+} from "@/lib/hooks"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,7 +52,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
     null
   )
   const { createExecution, createExecutionIsPending } =
-    useManualWorkflowExecution(selectedWorkflowId || "")
+    useCreateManualWorkflowExecution(selectedWorkflowId || "")
   const triggerInputs = useMemo(
     () => ({
       case_id: caseData.id,
