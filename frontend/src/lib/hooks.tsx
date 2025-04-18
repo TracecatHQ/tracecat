@@ -614,8 +614,8 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
       })
     },
     // Add retry logic for potential 404s when the execution hasn't been fully registered
-    // retry: 5,
-    // retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
+    retry: (failureCount, error) => error?.status === 404 && failureCount < 10,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
     // Use more dynamic polling interval based on execution status
     refetchInterval: (query) => {
       // If we don't have data yet, poll more frequently
@@ -715,15 +715,15 @@ export function useLastManualExecution(
       return executions.length > 0 ? executions[0] : null
     },
     // // Add more aggressive retry logic for high-latency environments
-    // retry: options?.retries ?? 5,
-    // retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
+    // retry: options?.retries ?? 10,
+    // retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
     // // Ensure we don't cache stale data
     // staleTime: 0,
     // // Add polling interval with a default if not provided
     // refetchInterval: options?.refetchInterval ?? 2000,
     // // Polling will continue for a short time even when component is not focused
     // refetchIntervalInBackground: true,
-    // ... other options
+    // ...options,
   })
 
   return {

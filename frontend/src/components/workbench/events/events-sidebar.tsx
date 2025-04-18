@@ -60,10 +60,6 @@ export function WorkbenchSidebarEvents() {
     useLastManualExecution(
       // Pass undefined if currentExecutionId exists, otherwise pass workflowId if it exists
       currentExecutionId ? undefined : workflowId || undefined
-      // {
-      //   refetchInterval: 2000,
-      //   retries: 5,
-      // }
     )
 
   // Determine which execution ID to use
@@ -158,7 +154,9 @@ function WorkbenchSidebarEventsList({
   if (executionIsLoading) {
     return (
       <div className="flex h-full flex-col items-center justify-center space-y-2">
-        <span className="text-xs text-muted-foreground">Loading events...</span>
+        <span className="text-xs text-muted-foreground">
+          Workflow is starting...
+        </span>
         <Spinner className="size-6" />
       </div>
     )
