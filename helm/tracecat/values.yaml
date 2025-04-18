@@ -1,0 +1,158 @@
+global:
+  app_env: production
+  log_level: INFO
+  secretName: "tracecat-envvars"
+
+ingress:
+  annotations: []
+  hostname: ""
+  labels: []
+  tls: []
+
+api:
+  allowed_origins: []
+  deployment:
+    annotations: []
+    labels: []
+  image:
+    repository:
+    tag:
+    pullPolicy:
+  pods:
+    annotations: []
+    labels: []
+  resources: {}
+  root_path: /api
+  replicaCount: 1
+  run_migrations: true
+  service:
+    annotations: []
+    labels: []
+    name: tracecat-api
+    port: 8000
+  strategyType: RollingUpdate
+
+auth:
+  allowed_domains: []
+  min_password_length: 12
+  basic:
+    enabled: true
+  google_oauth:
+    enabled: false
+    secretName: ""
+  saml:
+    enabled: false
+    idp_metadata_url:
+    force_saml_enabled: false
+
+database:
+  db_sslmode: false
+
+email:
+  allowed_attributes: []
+
+executor:
+  deployment:
+    annotations: []
+    labels: []
+  image:
+    repository:
+    tag:
+    pullPolicy:
+  pods:
+    annotations: []
+    labels: []
+  replicaCount: 1
+  resources: {}
+  service:
+    annotations: []
+    labels: []
+    name: tracecat-executor
+    port: 8000
+  strategyType: RollingUpdate
+
+remote_repository:
+  allowed_domains:
+    - github.com
+    - gitlab.com
+    - bitbucket.org
+  url: 
+  package_name: 
+
+temporal:
+  # NOTE: Temporal is required by Tracecat. Disabling it here only prevents the helm chart from deploying it, NOT from
+  # Tracecat needing Temporal. You'll still have to configure the cluster_queue, cluster_namespace, and cluster_url
+  # values.
+  enabled: true
+  cluster_address:  # Only used if temporal is not deployed by this chart.
+  cluster_queue: tracecat-task-queue
+  cluster_namespace: default
+  database:
+    driver: postgres12
+    host: ""
+    port: 5432
+    user: ""
+    create_database: false
+    apply_schema: true
+  deployment:
+    annotations: []
+    labels: []
+  image:
+    repository: temporalio/auto-setup
+    tag: 1.27.1
+    pullPolicy: Always
+  pods:
+    annotations: []
+    labels: []
+  replicaCount: 1
+  resources: {}
+  strategyType: RollingUpdate
+  service:
+    annotations: []
+    labels: []
+    name: tracecat-temporal
+    port: 7233
+  task_timeout: 120
+
+trusted_docker_images: []
+
+ui:
+  deployment:
+    annotations: []
+    labels: []
+  image:
+    repository: ghcr.io/tracecathq/tracecat-ui
+    tag:
+    pullPolicy:
+  pods:
+    annotations: []
+    labels: []
+  replicaCount: 1
+  resources: {}
+  strategyType: RollingUpdate
+  service:
+    annotations: []
+    labels: []
+    name: tracecat-ui
+    port: 3000
+
+worker:
+  deployment:
+    annotations: []
+    labels: []
+  image:
+    repository:
+    tag:
+    pullPolicy:
+  pods:
+    annotations: []
+    labels: []
+  replicaCount: 1
+  resources: {}
+  service:
+    annotations: []
+    labels: []
+    metricsPort: 9000
+    name: tracecat-worker
+    port: 8001
+  strategyType: RollingUpdate
