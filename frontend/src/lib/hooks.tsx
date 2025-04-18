@@ -613,15 +613,29 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
         executionId: encodeURIComponent(workflowExecutionId),
       })
     },
-    refetchInterval(query) {
+    // Add retry logic for potential 404s when the execution hasn't been fully registered
+    // retry: 5,
+    // retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
+    // Use more dynamic polling interval based on execution status
+    refetchInterval: (query) => {
+      // If we don't have data yet, poll more frequently
+      // if (!query.state.data) {
+      //   return 1000
+      // }
+
+      // Adjust polling based on workflow status
       switch (query.state.data?.status) {
         case "RUNNING":
+          console.log("Running, polling every 1000ms")
           return 1000
         default:
           return false
       }
     },
+    // Don't cache stale data in this context
+    // staleTime: 0,
   })
+
   return {
     execution,
     executionIsLoading,
@@ -649,6 +663,8 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
         title: `Workflow run started`,
         description: `${wf_exec_id} ${message}`,
       })
+
+      // Still invalidate queries for compatibility with other components
       await queryClient.refetchQueries({
         queryKey: ["last-manual-execution"],
       })
@@ -672,10 +688,11 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
 }
 
 export function useLastManualExecution(
-  workflowId?: string,
-  options?: {
-    refetchInterval?: number
-  }
+  workflowId?: string
+  // options?: {
+  //   refetchInterval?: number
+  //   retries?: number
+  // }
 ) {
   const { workspaceId } = useWorkspace()
   // Last execution
@@ -697,9 +714,16 @@ export function useLastManualExecution(
 
       return executions.length > 0 ? executions[0] : null
     },
-    // NOTE: We must let this retry, otherwise the last execution will not be
-    // updated if Temporal hasn't created the execution yet.
-    ...options,
+    // // Add more aggressive retry logic for high-latency environments
+    // retry: options?.retries ?? 5,
+    // retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
+    // // Ensure we don't cache stale data
+    // staleTime: 0,
+    // // Add polling interval with a default if not provided
+    // refetchInterval: options?.refetchInterval ?? 2000,
+    // // Polling will continue for a short time even when component is not focused
+    // refetchIntervalInBackground: true,
+    // ... other options
   })
 
   return {
@@ -708,6 +732,7 @@ export function useLastManualExecution(
     lastExecutionError,
   }
 }
+
 export function useSchedules(workflowId: string) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
