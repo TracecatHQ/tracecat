@@ -425,7 +425,6 @@ function WorkflowManualTrigger({
     try {
       const result = await createExecution({
         workflow_id: workflowId,
-        inputs: lastTriggerInput ? JSON.parse(lastTriggerInput) : undefined,
       })
 
       // Store the execution ID directly
