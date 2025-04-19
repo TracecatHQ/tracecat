@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Create resource
+  description: Create a resource in a Kubernetes cluster.
+  display_group: Kubernetes
+  doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#create
+  namespace: ee.kubernetes
+  name: create
+  expects:
+    manifest:
+      type: dict[str, Any]
+      description: Kubernetes manifest to create.
+    namespace:
+      type: str
+      description: Namespace to create the resource in.
+    dry_run:
+      type: bool
+      description: Whether to dry run the create client-side.
+      default: false
+  steps:
+    - ref: create_resource
+      action: ee.kubernetes.run_command
+      args:
+        command:
+          - create
+          - -f
+          - -
+        namespace: ${{ inputs.namespace }}
+        dry_run: ${{ inputs.dry_run }}
+        stdin: ${{ FN.serialize_json(inputs.manifest) }}
+  returns: ${{ steps.create_resource.result }}

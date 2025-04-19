@@ -5,7 +5,7 @@ definition:
   display_group: Kubernetes
   doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#exec
   namespace: ee.kubernetes
-  name: exec_pod
+  name: exec
   expects:
     pod:
       type: str
