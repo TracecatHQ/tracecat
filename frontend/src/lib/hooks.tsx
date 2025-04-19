@@ -678,6 +678,22 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
         queryKey: ["compact-workflow-execution", wf_exec_id],
       })
     },
+    onError: (error: TracecatApiError<Record<string, string>>) => {
+      switch (error.status) {
+        case 400:
+          console.error("Invalid workflow trigger inputs", error)
+          return toast({
+            title: "Invalid workflow trigger inputs",
+            description: "Please hover over the run button for details.",
+          })
+        default:
+          console.error("Unexpected error starting workflow", error)
+          return toast({
+            title: "Unexpected error starting workflow",
+            description: "Please check the run logs for more information",
+          })
+      }
+    },
   })
 
   return {

@@ -385,9 +385,8 @@ function WorkflowManualTrigger({
     },
   })
 
-  const handleSubmit = async (values: TWorkflowControlsForm) => {
+  const handleSubmit = async ({ payload }: TWorkflowControlsForm) => {
     // Make the API call to start the workflow
-    const { payload } = values
     setLastTriggerInput(payload)
     setManualTriggerErrors(null)
     try {
@@ -410,34 +409,9 @@ function WorkflowManualTrigger({
       expandSidebarAndFocusEvents()
     } catch (error) {
       if (error instanceof ApiError) {
-        const tracecatError = error as TracecatApiError
+        const tracecatError = error as TracecatApiError<Record<string, string>>
         console.error("Error details", tracecatError.body.detail)
-        switch (tracecatError.status) {
-          case 400:
-            toast({
-              title: "Invalid workflow trigger inputs",
-              description: "Please hover over the run button for details.",
-              variant: "destructive",
-            })
-            setManualTriggerErrors(
-              tracecatError.body.detail as Record<string, string>
-            )
-            break
-          default:
-            console.error("Unexpected error starting workflow", error)
-            toast({
-              title: "Unexpected error starting workflow",
-              description: "Please check the run logs for more information",
-              variant: "destructive",
-            })
-        }
-      } else {
-        console.error("Unexpected error starting workflow", error)
-        toast({
-          title: "Unexpected error starting workflow",
-          description: "Please check the run logs for more information",
-          variant: "destructive",
-        })
+        setManualTriggerErrors(tracecatError.body.detail)
       }
     } finally {
       setOpen(false)
@@ -463,34 +437,9 @@ function WorkflowManualTrigger({
       expandSidebarAndFocusEvents()
     } catch (error) {
       if (error instanceof ApiError) {
-        const tracecatError = error as TracecatApiError
+        const tracecatError = error as TracecatApiError<Record<string, string>>
         console.error("Error details", tracecatError.body.detail)
-        switch (tracecatError.status) {
-          case 400:
-            toast({
-              title: "Invalid workflow trigger inputs",
-              description: "Please hover over the run button for details.",
-              variant: "destructive",
-            })
-            setManualTriggerErrors(
-              tracecatError.body.detail as Record<string, string>
-            )
-            break
-          default:
-            console.error("Unexpected error starting workflow", error)
-            toast({
-              title: "Unexpected error starting workflow",
-              description: "Please check the run logs for more information",
-              variant: "destructive",
-            })
-        }
-      } else {
-        console.error("Unexpected error starting workflow", error)
-        toast({
-          title: "Unexpected error starting workflow",
-          description: "Please check the run logs for more information",
-          variant: "destructive",
-        })
+        setManualTriggerErrors(tracecatError.body.detail)
       }
     }
   }
