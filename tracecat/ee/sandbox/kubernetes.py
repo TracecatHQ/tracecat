@@ -163,7 +163,7 @@ def _validate_access_allowed(namespace: str) -> None:
     )
 
 
-### Pods
+### List operations
 
 
 def list_kubernetes_pods(namespace: str, kubeconfig_base64: str) -> list[str]:
@@ -245,6 +245,87 @@ def list_kubernetes_containers(
     return container_names
 
 
+def list_kubernetes_pvc(namespace: str, kubeconfig_base64: str) -> list[str]:
+    """List all persistent volume claims in a given namespace.
+
+    Args:
+        namespace : str
+            Namespace to list persistent volume claims from.
+        kubeconfig_base64 : str
+            Base64 encoded kubeconfig YAML file. Required for security isolation.
+
+    Returns:
+        list[str]: List of persistent volume claim names in the namespace.
+
+    Raises:
+        PermissionError: If trying to access current namespace
+        ValueError: If no persistent volume claims found or invalid arguments
+    """
+    logger.info("Listing kubernetes persistent volume claims", namespace=namespace)
+    _validate_access_allowed(namespace)
+    client = _get_kubernetes_client(kubeconfig_base64)
+
+    pvcs = client.list_namespaced_persistent_volume_claim(namespace=namespace)
+    if pvcs.items is None:
+        logger.warning(
+            "No persistent volume claims found in namespace", namespace=namespace
+        )
+        raise ValueError(f"No persistent volume claims found in namespace {namespace}")
+
+    pvc_names = [
+        pvc.metadata.name for pvc in pvcs.items if pvc.metadata and pvc.metadata.name
+    ]
+
+    logger.info(
+        "Successfully listed persistent volume claims",
+        namespace=namespace,
+        pvc_count=len(pvc_names),
+    )
+    return pvc_names
+
+
+def list_kubernetes_secrets(namespace: str, kubeconfig_base64: str) -> list[str]:
+    """List all secrets in a given namespace.
+
+    Args:
+        namespace : str
+            Namespace to list secrets from.
+        kubeconfig_base64 : str
+            Base64 encoded kubeconfig YAML file. Required for security isolation.
+
+    Returns:
+        list[str]: List of secret names in the namespace.
+
+    Raises:
+        PermissionError: If trying to access current namespace
+        ValueError: If no secrets found or invalid arguments
+    """
+    logger.info("Listing kubernetes secrets", namespace=namespace)
+    _validate_access_allowed(namespace)
+    client = _get_kubernetes_client(kubeconfig_base64)
+
+    secrets = client.list_namespaced_secret(namespace=namespace)
+    if secrets.items is None:
+        logger.warning("No secrets found in namespace", namespace=namespace)
+        raise ValueError(f"No secrets found in namespace {namespace}")
+
+    secret_names = [
+        secret.metadata.name
+        for secret in secrets.items
+        if secret.metadata and secret.metadata.name
+    ]
+
+    logger.info(
+        "Successfully listed secrets",
+        namespace=namespace,
+        secret_count=len(secret_names),
+    )
+    return secret_names
+
+
+### Run operations
+
+
 def run_kubectl_command(
     command: str | list[str],
     namespace: str,
@@ -268,6 +349,9 @@ def run_kubectl_command(
         args = ["kubectl", "--kubeconfig", kubeconfig_path]
         if dry_run:
             args.append("--dry-run=client")
+        # Add namespace to command
+        args.extend(["--namespace", namespace])
+        # Add command
         args.extend(command)
 
         output = subprocess.run(
