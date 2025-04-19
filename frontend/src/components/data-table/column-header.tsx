@@ -72,6 +72,7 @@ export function DataTableColumnHeader<TData, TValue>({
           <DropdownMenuItem
             onClick={() => column.toggleVisibility(false)}
             className="text-xs"
+            disabled={!column.getCanHide()}
           >
             <EyeNoneIcon className="mr-2 size-3.5 text-muted-foreground/70" />
             Hide
