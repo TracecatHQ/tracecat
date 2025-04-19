@@ -1,10 +1,11 @@
 type: action
 definition:
+  title: Apply resource
   description: Create or update a Kubernetes resource using a JSON specification.
   display_group: Kubernetes
-  name: apply
+  doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#apply
   namespace: ee.kubernetes
-  title: Apply Kubernetes Resource
+  name: apply
   expects:
     spec:
       type: dict[str, Any]
