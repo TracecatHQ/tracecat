@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useState } from "react"
 import Link from "next/link"
 import {
   WorkflowExecutionEventCompact,
@@ -41,14 +41,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -73,7 +65,7 @@ export function WorkflowEventsHeader({
           <span>Status</span>
         </div>
         <div className="ml-auto">
-          <Tooltip>
+          <Tooltip delayDuration={500}>
             <TooltipTrigger>
               <Badge
                 variant="secondary"
@@ -199,6 +191,7 @@ export function WorkflowEvents({
     sidebarRef,
   } = useWorkflowBuilder()
   const { workflow } = useWorkflow()
+  const [isOpen, setIsOpen] = useState(true)
 
   const centerNode = useCallback(
     (actionRef: string) => {
@@ -218,6 +211,7 @@ export function WorkflowEvents({
     },
     [workflow?.actions, setNodes, canvasRef]
   )
+
   const handleRowClick = useCallback(
     (actionRef: string) => {
       if (selectedActionEventRef === actionRef) {
@@ -241,119 +235,129 @@ export function WorkflowEvents({
 
   return (
     <ScrollArea className="p-4 pt-0">
-      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-        <CalendarSearchIcon className="size-3" />
-        <span>Events</span>
+      <div className="pointer-events-none mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <CalendarSearchIcon className="size-3" />
+          <span>Events</span>
+        </div>
       </div>
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="h-8 text-xs">Status</TableHead>
-              <TableHead className="h-8 truncate text-xs">Action</TableHead>
-              <TableHead className="h-8 text-xs">Start time</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+
+      {isOpen && (
+        <div className="overflow-hidden rounded-md border">
+          <div className="relative">
+            {/* Vertical timeline line */}
+            {events.length > 0 && (
+              <div className="absolute inset-y-5 left-5 w-px bg-muted-foreground/30" />
+            )}
+
             {events.length > 0 ? (
               events.map((event) => (
-                <TableRow
+                <div
                   key={event.source_event_id}
                   className={cn(
-                    "cursor-pointer hover:bg-muted/50",
+                    "group flex h-9 cursor-pointer items-center border-b border-muted/30 p-3 text-xs transition-all last:border-b-0 hover:bg-muted/50",
                     selectedActionEventRef === event.action_ref &&
                       "bg-muted-foreground/10"
                   )}
                   onClick={() => handleRowClick(event.action_ref)}
                 >
-                  <TableCell className="p-0 text-xs font-medium">
-                    <div className="flex size-full items-center justify-start pl-4">
-                      <WorkflowEventStatusIcon status={event.status} />
+                  <div className="relative z-10 mr-3 rounded-full bg-background transition-all group-hover:bg-muted/50">
+                    <WorkflowEventStatusIcon status={event.status} />
+                  </div>
+
+                  <div className="flex flex-1 items-center justify-between">
+                    <div className="max-w-28 truncate text-foreground/70">
+                      {event.action_ref}
                     </div>
-                  </TableCell>
-                  <TableCell className="max-w-28 text-xs text-foreground/70">
-                    <div className="truncate">{event.action_ref}</div>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-xs">
-                    <Badge
-                      variant="secondary"
-                      className="font-normal text-foreground/70"
-                    >
-                      {event.start_time
-                        ? new Date(event.start_time).toLocaleTimeString()
-                        : "-"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="max-w-12 text-xs">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button className="size-4 p-0" variant="ghost">
-                          <DotsHorizontalIcon className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent className="[&_[data-radix-collection-item]]:flex [&_[data-radix-collection-item]]:items-center [&_[data-radix-collection-item]]:gap-2 [&_[data-radix-collection-item]]:text-xs">
-                        <DropdownMenuItem
-                          // Disable if the action reference is not present in the current workflow
-                          disabled={!isActionRefValid(event.action_ref)}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            sidebarRef.current?.setOpen(true)
-                            sidebarRef.current?.setActiveTab("action-input")
-                            setSelectedActionEventRef(slugify(event.action_ref))
-                          }}
-                        >
-                          <LayoutListIcon className="size-3" />
-                          <span>View last input</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          // Disable if the action reference is not present in the current workflow
-                          disabled={!isActionRefValid(event.action_ref)}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            sidebarRef.current?.setOpen(true)
-                            sidebarRef.current?.setActiveTab("action-result")
-                            setSelectedActionEventRef(slugify(event.action_ref))
-                          }}
-                        >
-                          <CircleCheckBigIcon className="size-3" />
-                          <span>View last result</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          // Disable if the action reference is not present in the current workflow
-                          disabled={!isActionRefValid(event.action_ref)}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            centerNode(event.action_ref)
-                          }}
-                        >
-                          {!isActionRefValid(event.action_ref) ? (
-                            <EyeOffIcon className="size-3" />
-                          ) : (
-                            <ScanEyeIcon className="size-3" />
+
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant="secondary"
+                        className="whitespace-nowrap font-normal text-foreground/70"
+                      >
+                        {event.start_time
+                          ? new Date(event.start_time).toLocaleTimeString()
+                          : "-"}
+                      </Badge>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            className="size-4 p-0  focus-visible:ring-0"
+                            variant="ghost"
+                          >
+                            <DotsHorizontalIcon className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          className={cn(
+                            "flex flex-col",
+                            "[&_[data-radix-collection-item]]:flex",
+                            "[&_[data-radix-collection-item]]:items-center",
+                            "[&_[data-radix-collection-item]]:gap-2",
+                            "[&_[data-radix-collection-item]]:text-xs",
+                            "[&_[data-radix-collection-item]]:text-foreground/80"
                           )}
-                          <span>Focus action</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
+                        >
+                          <DropdownMenuItem
+                            disabled={!isActionRefValid(event.action_ref)}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              sidebarRef.current?.setOpen(true)
+                              sidebarRef.current?.setActiveTab("action-input")
+                              setSelectedActionEventRef(
+                                slugify(event.action_ref)
+                              )
+                            }}
+                          >
+                            <LayoutListIcon className="size-3" />
+                            <span>View last input</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!isActionRefValid(event.action_ref)}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              sidebarRef.current?.setOpen(true)
+                              sidebarRef.current?.setActiveTab("action-result")
+                              setSelectedActionEventRef(
+                                slugify(event.action_ref)
+                              )
+                            }}
+                          >
+                            <CircleCheckBigIcon className="size-3" />
+                            <span>View last result</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!isActionRefValid(event.action_ref)}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              centerNode(event.action_ref)
+                            }}
+                          >
+                            {!isActionRefValid(event.action_ref) ? (
+                              <EyeOffIcon className="size-3" />
+                            ) : (
+                              <ScanEyeIcon className="size-3" />
+                            )}
+                            <span>Focus action</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+                </div>
               ))
             ) : (
-              <TableRow className="justify-center text-xs text-muted-foreground">
-                <TableCell
-                  className="h-16 items-center justify-center bg-muted-foreground/5 text-center"
-                  colSpan={3}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
-                    <span>Waiting for events...</span>
-                  </div>
-                </TableCell>
-              </TableRow>
+              <div className="flex h-16 items-center justify-center bg-muted-foreground/5 p-3 text-center text-xs text-muted-foreground">
+                <div className="flex items-center justify-center gap-2">
+                  <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+                  <span>Waiting for events...</span>
+                </div>
+              </div>
             )}
-          </TableBody>
-        </Table>
-      </div>
+          </div>
+        </div>
+      )}
     </ScrollArea>
   )
 }
