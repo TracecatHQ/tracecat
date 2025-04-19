@@ -93,15 +93,6 @@ async def validate_workflow_definition(
                 " Please commit your changes to the workflow and try again.",
             )
 
-        # Check if the workflow is active
-
-        if defn.workflow.status == "offline":
-            logger.info("Workflow is offline")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Workflow is offline",
-            )
-
         # If we are here, all checks have passed
         validated_defn = WorkflowDefinition.model_validate(defn)
         return validated_defn
