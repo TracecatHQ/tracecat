@@ -385,46 +385,15 @@ function WorkflowManualTrigger({
     },
   })
 
-  const handleSubmit = async ({ payload }: TWorkflowControlsForm) => {
-    // Make the API call to start the workflow
-    setLastTriggerInput(payload)
+  const runWorkflow = async ({ payload }: Partial<TWorkflowControlsForm>) => {
+    if (disabled || createExecutionIsPending) return
+    setIsTriggering(true)
+    setTimeout(() => setIsTriggering(false), 1000)
     setManualTriggerErrors(null)
     try {
-      setIsTriggering(true)
-      setTimeout(() => setIsTriggering(false), 1000)
       const result = await createExecution({
         workflow_id: workflowId,
         inputs: payload ? JSON.parse(payload) : undefined,
-      })
-
-      // Store the execution ID directly
-      if (result && result.wf_exec_id) {
-        setCurrentExecutionId(result.wf_exec_id)
-      }
-
-      // Close the popover before expanding the sidebar
-      setOpen(false)
-
-      // Expand sidebar immediately - no need for delay since we use direct execution ID
-      expandSidebarAndFocusEvents()
-    } catch (error) {
-      if (error instanceof ApiError) {
-        const tracecatError = error as TracecatApiError<Record<string, string>>
-        console.error("Error details", tracecatError.body.detail)
-        setManualTriggerErrors(tracecatError.body.detail)
-      }
-    } finally {
-      setOpen(false)
-    }
-  }
-
-  const runWithDefaultValues = async () => {
-    if (disabled || createExecutionIsPending) return
-
-    setManualTriggerErrors(null)
-    try {
-      const result = await createExecution({
-        workflow_id: workflowId,
       })
 
       // Store the execution ID directly
@@ -443,6 +412,16 @@ function WorkflowManualTrigger({
     }
   }
 
+  const runWithPayload = async ({ payload }: TWorkflowControlsForm) => {
+    // Make the API call to start the workflow
+    setLastTriggerInput(payload)
+    try {
+      await runWorkflow({ payload })
+    } finally {
+      setOpen(false)
+    }
+  }
+
   const executionPending = createExecutionIsPending || isTriggering
   return (
     <Form {...form}>
@@ -458,11 +437,7 @@ function WorkflowManualTrigger({
               : "bg-emerald-500 text-white hover:bg-emerald-400 hover:text-white"
           )}
           disabled={disabled || executionPending}
-          onClick={() => {
-            setIsTriggering(true)
-            setTimeout(() => setIsTriggering(false), 1000)
-            runWithDefaultValues()
-          }}
+          onClick={() => runWorkflow({ payload: undefined })}
         >
           {executionPending ? (
             <Spinner className="size-3" segmentColor="#fff" />
@@ -497,7 +472,7 @@ function WorkflowManualTrigger({
               </PopoverTrigger>
             </TooltipTrigger>
             <PopoverContent className="w-fit p-3">
-              <form onSubmit={form.handleSubmit(handleSubmit)}>
+              <form onSubmit={form.handleSubmit(runWithPayload)}>
                 <div className="flex h-fit flex-col">
                   <span className="mb-2 text-xs text-muted-foreground">
                     Edit the JSON payload below.
