@@ -4,9 +4,7 @@ import React, {
   createContext,
   ReactNode,
   SetStateAction,
-  useCallback,
   useContext,
-  useEffect,
   useState,
 } from "react"
 import {
@@ -36,8 +34,6 @@ type WorkflowContextType = {
   workflowId: string | null
   isLoading: boolean
   error: Error | null
-  isOnline: boolean
-  setIsOnline: (isOnline: boolean) => void
   commitWorkflow: MutateFunction<
     WorkflowCommitResponse,
     ApiError,
@@ -170,29 +166,6 @@ export function WorkflowProvider({
     },
   })
 
-  // Other state
-  const [isOnlineVisual, setIsOnlineVisual] = useState<boolean>(
-    workflow?.status === "online"
-  )
-  useEffect(() => {
-    if (workflow?.status) {
-      setIsOnlineVisual(workflow.status === "online")
-    }
-  }, [workflow?.status])
-
-  const setIsOnline = useCallback(
-    async (isOnline: boolean) => {
-      await workflowsUpdateWorkflow({
-        workspaceId,
-        workflowId,
-        requestBody: {
-          status: isOnline ? "online" : "offline",
-        },
-      }),
-        setIsOnlineVisual(isOnline)
-    },
-    [workflowId]
-  )
   return (
     <WorkflowContext.Provider
       value={{
@@ -201,8 +174,6 @@ export function WorkflowProvider({
         workflowId,
         isLoading,
         error,
-        isOnline: isOnlineVisual,
-        setIsOnline,
         commitWorkflow,
         updateWorkflow,
         validationErrors,

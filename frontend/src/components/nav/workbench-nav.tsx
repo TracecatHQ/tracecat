@@ -26,17 +26,6 @@ import { TracecatApiError } from "@/lib/errors"
 import { exportWorkflow, handleExportError } from "@/lib/export"
 import { useCreateManualWorkflowExecution } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -80,8 +69,6 @@ export function WorkbenchNav() {
   const {
     workflow,
     isLoading: workflowLoading,
-    isOnline,
-    setIsOnline,
     commitWorkflow,
     validationErrors,
     setValidationErrors,
@@ -209,53 +196,6 @@ export function WorkbenchNav() {
             {workflow.version ? `v${workflow.version}` : "Draft"}
           </Badge>
         </div>
-
-        {/* Workflow status */}
-        <Tooltip>
-          <AlertDialog>
-            <TooltipTrigger asChild>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "h-7 text-xs font-bold",
-                    isOnline
-                      ? "text-rose-400 hover:text-rose-500"
-                      : "bg-emerald-500 text-white hover:bg-emerald-400 hover:text-white"
-                  )}
-                >
-                  {isOnline ? "Disable workflow" : "Enable workflow"}
-                </Button>
-              </AlertDialogTrigger>
-            </TooltipTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  {isOnline ? "Disable workflow?" : "Enable workflow?"}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  {isOnline
-                    ? "Are you sure you want to disable the workflow? This will pause all schedules and block webhook events."
-                    : "Are you sure you want to enable the workflow? This will resume all schedules and allow webhook events."}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => setIsOnline(!isOnline)}>
-                  Confirm
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-          <TooltipContent
-            side="bottom"
-            className="w-72 border bg-background text-xs text-muted-foreground shadow-lg"
-          >
-            {isOnline
-              ? "Disable the workflow to pause all schedules and block webhook events."
-              : "Enable the workflow to resume all schedules and allow webhook events."}
-          </TooltipContent>
-        </Tooltip>
 
         {/* Workflow options */}
         <WorkbenchNavOptions
