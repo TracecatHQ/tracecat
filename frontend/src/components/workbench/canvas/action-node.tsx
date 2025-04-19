@@ -492,7 +492,6 @@ function ActionNodeToolbar({
   const { workspaceId } = useWorkflowBuilder()
   const { isChildWorkflow, childWorkflowAlias, childIdFromAlias } =
     childWorkflowInfo
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [commandValue, setCommandValue] = useState<string>(COMMAND_VALUE_UNSET)
   const handleToolbarMouseEnter = useCallback(() => {
     setIsMouseOverToolbar(true)
@@ -538,7 +537,7 @@ function ActionNodeToolbar({
               }}
             >
               <CopyIcon className="mr-2 size-3" />
-              <span>Copy Reference</span>
+              <span>Copy reference</span>
             </CommandItem>
             <CommandItem onSelect={() => form.setFocus("title")}>
               <PencilIcon className="mr-2 size-3" />
@@ -552,7 +551,7 @@ function ActionNodeToolbar({
               }}
             >
               <LayoutListIcon className="mr-2 size-3" />
-              <span>View Last Input</span>
+              <span>View last input</span>
             </CommandItem>
             <CommandItem
               onSelect={() => {
@@ -562,7 +561,7 @@ function ActionNodeToolbar({
               }}
             >
               <CircleCheckBigIcon className="mr-2 size-3" />
-              <span>View Last Result</span>
+              <span>View last result</span>
             </CommandItem>
             {action?.is_interactive && (
               <CommandItem
@@ -573,7 +572,7 @@ function ActionNodeToolbar({
                 }}
               >
                 <MessagesSquare className="mr-2 size-3" />
-                <span>View Last Interaction</span>
+                <span>View last interaction</span>
               </CommandItem>
             )}
 
