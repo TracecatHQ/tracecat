@@ -83,6 +83,7 @@ async def validate_workflow_definition(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == workflow_id)
             .order_by(col(WorkflowDefinition.version).desc())
+            .limit(1)
         )
         defn = result.first()
         if not defn:
