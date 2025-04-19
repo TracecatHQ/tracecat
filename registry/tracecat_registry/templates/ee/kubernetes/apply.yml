@@ -1,0 +1,32 @@
+type: action
+definition:
+  description: Create or update a Kubernetes resource using a JSON specification.
+  display_group: Kubernetes
+  name: apply
+  namespace: ee.kubernetes
+  title: Apply Kubernetes Resource
+  expects:
+    spec:
+      type: dict[str, Any]
+      description: JSON object containing the Kubernetes resource specification.
+    namespace:
+      type: str
+      description: Namespace to apply the resource in.
+    dry_run:
+      type: bool
+      description: Whether to dry run the apply client-side.
+      default: false
+  steps:
+    - ref: apply_resource
+      action: ee.kubernetes.run_command
+      args:
+        command:
+          - apply
+          - -f
+          - -
+          - -n
+          - ${{ inputs.namespace }}
+        namespace: ${{ inputs.namespace }}
+        dry_run: ${{ inputs.dry_run }}
+        stdin: ${{ FN.serialize_json(inputs.spec) }}
+  returns: ${{ steps.apply_resource.result }}

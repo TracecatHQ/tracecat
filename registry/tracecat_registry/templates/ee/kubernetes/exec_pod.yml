@@ -2,7 +2,8 @@ type: action
 definition:
   title: Execute command in pod
   description: Execute commands in a pod.
-  namespace: tools.kubernetes
+  display_group: Kubernetes
+  namespace: ee.kubernetes
   name: exec_pod
   expects:
     pod:
