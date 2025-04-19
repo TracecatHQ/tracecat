@@ -10,6 +10,7 @@ import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
+  ChevronDownIcon,
   DownloadIcon,
   MoreHorizontal,
   PlayIcon,
@@ -220,7 +221,7 @@ export function WorkbenchNav() {
                     "h-7 text-xs font-bold",
                     isOnline
                       ? "text-rose-400 hover:text-rose-500"
-                      : "bg-emerald-500 text-white hover:bg-emerald-500/80 hover:text-white"
+                      : "bg-emerald-500 text-white hover:bg-emerald-400 hover:text-white"
                   )}
                 >
                   {isOnline ? "Disable workflow" : "Enable workflow"}
@@ -376,6 +377,7 @@ function WorkflowManualTrigger({
     string,
     string
   > | null>(null)
+  const [isTriggering, setIsTriggering] = React.useState(false)
   const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
     defaultValues: {
@@ -389,6 +391,8 @@ function WorkflowManualTrigger({
     setLastTriggerInput(payload)
     setManualTriggerErrors(null)
     try {
+      setIsTriggering(true)
+      setTimeout(() => setIsTriggering(false), 1000)
       const result = await createExecution({
         workflow_id: workflowId,
         inputs: payload ? JSON.parse(payload) : undefined,
@@ -440,112 +444,177 @@ function WorkflowManualTrigger({
     }
   }
 
+  const runWithDefaultValues = async () => {
+    if (disabled || createExecutionIsPending) return
+
+    setManualTriggerErrors(null)
+    try {
+      const result = await createExecution({
+        workflow_id: workflowId,
+        inputs: lastTriggerInput ? JSON.parse(lastTriggerInput) : undefined,
+      })
+
+      // Store the execution ID directly
+      if (result && result.wf_exec_id) {
+        setCurrentExecutionId(result.wf_exec_id)
+      }
+
+      // Expand sidebar immediately
+      expandSidebarAndFocusEvents()
+    } catch (error) {
+      if (error instanceof ApiError) {
+        const tracecatError = error as TracecatApiError
+        console.error("Error details", tracecatError.body.detail)
+        switch (tracecatError.status) {
+          case 400:
+            toast({
+              title: "Invalid workflow trigger inputs",
+              description: "Please hover over the run button for details.",
+              variant: "destructive",
+            })
+            setManualTriggerErrors(
+              tracecatError.body.detail as Record<string, string>
+            )
+            break
+          default:
+            console.error("Unexpected error starting workflow", error)
+            toast({
+              title: "Unexpected error starting workflow",
+              description: "Please check the run logs for more information",
+              variant: "destructive",
+            })
+        }
+      } else {
+        console.error("Unexpected error starting workflow", error)
+        toast({
+          title: "Unexpected error starting workflow",
+          description: "Please check the run logs for more information",
+          variant: "destructive",
+        })
+      }
+    }
+  }
+
+  const executionPending = createExecutionIsPending || isTriggering
   return (
     <Form {...form}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span>
-            <Popover
-              open={open && !disabled}
-              onOpenChange={(newOpen) => !disabled && setOpen(newOpen)}
-            >
+      <div className="flex h-7 gap-px rounded-lg border border-input bg-emerald-400">
+        {/* Main Button */}
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            "h-full gap-2 rounded-r-none border-none px-3 py-0 text-xs font-bold",
+            manualTriggerErrors
+              ? "text-rose-400 hover:text-rose-500"
+              : "bg-emerald-500 text-white hover:bg-emerald-400 hover:text-white"
+          )}
+          disabled={disabled || executionPending}
+          onClick={() => {
+            setIsTriggering(true)
+            setTimeout(() => setIsTriggering(false), 1000)
+            runWithDefaultValues()
+          }}
+        >
+          {executionPending ? (
+            <Spinner className="size-3" segmentColor="#fff" />
+          ) : manualTriggerErrors ? (
+            <AlertTriangleIcon className="size-3 fill-red-500 stroke-white" />
+          ) : (
+            <PlayIcon className="size-3 fill-white stroke-white" />
+          )}
+          <span>Run</span>
+        </Button>
+        {/* Dropdown Button */}
+        <Tooltip delayDuration={500}>
+          <Popover
+            open={open && !disabled}
+            onOpenChange={(newOpen) => !disabled && setOpen(newOpen)}
+          >
+            <TooltipTrigger asChild>
               <PopoverTrigger asChild>
                 <Button
                   type="button"
                   variant="outline"
                   className={cn(
-                    "group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white disabled:pointer-events-none",
-                    manualTriggerErrors &&
-                      "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
+                    "h-full w-7 rounded-l-none border-none px-1 py-0 text-xs font-bold",
+                    manualTriggerErrors
+                      ? "text-rose-400 hover:text-rose-500"
+                      : "bg-emerald-500 text-white hover:bg-emerald-400 hover:text-white"
                   )}
-                  disabled={disabled || createExecutionIsPending}
-                  onClick={() => !disabled && setOpen(true)}
+                  disabled={disabled || executionPending}
                 >
-                  {createExecutionIsPending ? (
-                    <Spinner className="mr-2 size-3" />
-                  ) : manualTriggerErrors ? (
-                    <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
-                  ) : (
-                    <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
-                  )}
-                  <span>
-                    {createExecutionIsPending ? "Starting..." : "Run"}
-                  </span>
+                  <ChevronDownIcon className="size-3" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-fit p-3">
-                <form onSubmit={form.handleSubmit(handleSubmit)}>
-                  <div className="flex h-fit flex-col">
-                    <span className="mb-2 text-xs text-muted-foreground">
-                      Edit the JSON payload below.
-                    </span>
-                    <FormField
-                      control={form.control}
-                      name="payload"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <DynamicCustomEditor
-                              className="max-h-[50rem] min-h-60 min-w-[30rem] max-w-[50rem] resize overflow-auto"
-                              defaultLanguage="yaml-extended"
-                              value={field.value}
-                              onChange={field.onChange}
-                              workspaceId={workspaceId}
-                              workflowId={workflowId}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button
-                      type="submit"
-                      variant="default"
-                      disabled={createExecutionIsPending}
-                      className="group mt-2 flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
-                    >
-                      {createExecutionIsPending ? (
-                        <Spinner className="mr-2 size-3" />
-                      ) : (
-                        <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
-                      )}
-                      <span>
-                        {createExecutionIsPending ? "Starting..." : "Run"}
-                      </span>
-                    </Button>
-                  </div>
-                </form>
-              </PopoverContent>
-            </Popover>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent
-          side="bottom"
-          className={cn(
-            "w-96 border bg-background text-xs text-muted-foreground shadow-lg",
-            manualTriggerErrors && "p-0"
-          )}
-        >
-          {manualTriggerErrors ? (
-            <div className="space-y-2 overflow-auto rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
-              <span className="text-xs font-bold text-rose-500">
-                Trigger Validation Errors
-              </span>
-              <div className="mt-1 space-y-1">
-                <pre className="text-wrap text-rose-500">
-                  {YAML.stringify(manualTriggerErrors)}
-                </pre>
+            </TooltipTrigger>
+            <PopoverContent className="w-fit p-3">
+              <form onSubmit={form.handleSubmit(handleSubmit)}>
+                <div className="flex h-fit flex-col">
+                  <span className="mb-2 text-xs text-muted-foreground">
+                    Edit the JSON payload below.
+                  </span>
+                  <FormField
+                    control={form.control}
+                    name="payload"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <DynamicCustomEditor
+                            className="max-h-[50rem] min-h-60 min-w-[30rem] max-w-[50rem] resize overflow-auto"
+                            defaultLanguage="yaml-extended"
+                            value={field.value}
+                            onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="submit"
+                    variant="default"
+                    disabled={executionPending}
+                    className="group mt-2 flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
+                  >
+                    {executionPending ? (
+                      <Spinner className="mr-2 size-3" />
+                    ) : (
+                      <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
+                    )}
+                    <span>{executionPending ? "Starting..." : "Run"}</span>
+                  </Button>
+                </div>
+              </form>
+            </PopoverContent>
+          </Popover>
+          <TooltipContent
+            side="bottom"
+            className={cn("text-xs shadow-lg", manualTriggerErrors && "p-0")}
+          >
+            {manualTriggerErrors ? (
+              <div className="space-y-2 overflow-auto rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
+                <span className="text-xs font-bold text-rose-500">
+                  Trigger Validation Errors
+                </span>
+                <div className="mt-1 space-y-1">
+                  <pre className="text-wrap text-rose-500">
+                    {YAML.stringify(manualTriggerErrors)}
+                  </pre>
+                </div>
               </div>
-            </div>
-          ) : disabled ? (
-            "Please save changes to enable manual trigger."
-          ) : createExecutionIsPending ? (
-            "Starting workflow execution..."
-          ) : (
-            "Run the workflow manually without a webhook. Click to configure inputs."
-          )}
-        </TooltipContent>
-      </Tooltip>
+            ) : disabled ? (
+              "Please save changes to enable manual trigger."
+            ) : executionPending ? (
+              "Starting workflow execution..."
+            ) : (
+              "Run the workflow with trigger inputs."
+            )}
+          </TooltipContent>
+        </Tooltip>
+      </div>
     </Form>
   )
 }
