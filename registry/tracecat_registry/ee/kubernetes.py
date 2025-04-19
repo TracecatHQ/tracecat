@@ -1,6 +1,8 @@
 from tracecat.ee.sandbox.kubernetes import (
     list_kubernetes_pods,
     list_kubernetes_containers,
+    list_kubernetes_pvc,
+    list_kubernetes_secrets,
     run_kubectl_command,
 )
 
@@ -48,6 +50,36 @@ def list_containers(
 ) -> list[str]:
     kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
     return list_kubernetes_containers(pod, namespace, kubeconfig_base64)
+
+
+@registry.register(
+    default_title="List pvc",
+    description="List all persistent volume claims in a given namespace.",
+    display_group="Kubernetes",
+    doc_url="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.25/#list-persistentvolumeclaim-v1",
+    namespace="ee.kubernetes",
+    secrets=[kubernetes_secret],
+)
+def list_pvc(
+    namespace: Annotated[str, Doc("Namespace to list persistent volume claims from.")],
+) -> list[str]:
+    kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
+    return list_kubernetes_pvc(namespace, kubeconfig_base64)
+
+
+@registry.register(
+    default_title="List secrets",
+    description="List all secrets in a given namespace.",
+    display_group="Kubernetes",
+    doc_url="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.25/#list-secret-v1",
+    namespace="ee.kubernetes",
+    secrets=[kubernetes_secret],
+)
+def list_secrets(
+    namespace: Annotated[str, Doc("Namespace to list secrets from.")],
+) -> list[str]:
+    kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
+    return list_kubernetes_secrets(namespace, kubeconfig_base64)
 
 
 @registry.register(
