@@ -1,0 +1,77 @@
+type: action
+definition:
+  title: Search events
+  description: Search events from Splunk. Uses bearer token authentication.
+  display_group: Splunk
+  doc_url: https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTsearch#search.2Fjobs
+  name: search_events
+  namespace: tools.splunk
+  secrets:
+    - name: splunk
+      keys:
+        - SPLUNK_API_KEY
+  expects:
+    query:
+      type: str
+      description: Splunk (Splunk Query Language) search query.
+    start_time:
+      type: datetime
+      description: Start time for the search.
+    end_time:
+      type: datetime
+      description: End time for the search.
+    limit:
+      type: int
+      description: Maximum number of events to return.
+    base_url:
+      type: str
+      description: Splunk base URL (e.g. https://localhost:8089).
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: post_search_job
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/services/search/jobs
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+        form_data:
+          search: ${{ inputs.query }}
+          earliest_time: ${{ inputs.start_time }}
+          latest_time: ${{ inputs.end_time }}
+          max_count: ${{ inputs.limit }}
+    - ref: search_id
+      action: core.transform.apply
+      args:
+        value: ${{ steps.post_search_job.result.data }}
+        # e.g. <response><sid>mysearch_02151949</sid></response>
+        python_lambda: >
+          lambda x: x[x.find('<sid>') + 5:x.find('</sid>')]
+    # https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTsearch#search.2Fjobs.2F.7Bsearch_id.7D
+    - ref: get_search_status
+      action: core.http_poll
+      args:
+        url: ${{ inputs.base_url }}/services/search/jobs/${{ steps.search_id.result }}
+        method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+        poll_condition: >
+          lambda x: '<s:key name="dispatchState">DONE</s:key>' in x.get('data')
+    # https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTsearch#search.2Fv2.2Fjobs.2F.7Bsearch_id.7D.2Fresults
+    - ref: get_search_results
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/services/search/v2/jobs/${{ steps.search_id.result }}/results
+        method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+        params:
+          count: ${{ inputs.limit }}
+          output_mode: json
+  returns: ${{ steps.get_search_results.result }}
