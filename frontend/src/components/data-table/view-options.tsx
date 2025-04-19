@@ -41,7 +41,6 @@ export function DataTableViewOptions<TData>({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-[150px]">
-        <DropdownMenuSeparator />
         {filterCols.map((column) => {
           return (
             <DropdownMenuCheckboxItem
