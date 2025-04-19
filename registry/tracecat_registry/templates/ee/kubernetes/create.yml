@@ -8,7 +8,7 @@ definition:
   name: create
   expects:
     manifest:
-      type: dict[str, Any]
+      type: dict[str, any]
       description: Kubernetes manifest to create.
     namespace:
       type: str
