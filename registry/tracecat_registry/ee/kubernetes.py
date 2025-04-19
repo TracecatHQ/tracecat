@@ -55,12 +55,20 @@ def list_containers(
     description="Run a kubectl command on a Kubernetes cluster.",
     display_group="Kubernetes",
     doc_url="https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands",
-    namespace="ee.kubectl",
+    namespace="ee.kubernetes",
     secrets=[kubernetes_secret],
 )
 def run_command(
     command: Annotated[str | list[str], Doc("Command to run.")],
     namespace: Annotated[str, Doc("Namespace to run the command in.")],
+    dry_run: Annotated[
+        bool, Doc("Whether to dry run the command client-side.")
+    ] = False,
+    stdin: Annotated[
+        str | None, Doc("Optional string to pass to the command's standard input.")
+    ] = None,
 ) -> dict[str, str | int]:
     kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
-    return run_kubectl_command(command, namespace, kubeconfig_base64)
+    return run_kubectl_command(
+        command, namespace, kubeconfig_base64, dry_run=dry_run, stdin=stdin
+    )

@@ -249,6 +249,8 @@ def run_kubectl_command(
     command: str | list[str],
     namespace: str,
     kubeconfig_base64: str,
+    dry_run: bool = False,
+    stdin: str | None = None,
 ) -> dict[str, str | int]:
     """Run a kubectl command."""
     _validate_access_allowed(namespace)
@@ -263,17 +265,18 @@ def run_kubectl_command(
         with open(kubeconfig_path, "w") as f:
             f.write(kubeconfig_yaml)
 
+        args = ["kubectl", "--kubeconfig", kubeconfig_path]
+        if dry_run:
+            args.append("--dry-run=client")
+        args.extend(command)
+
         output = subprocess.run(
-            [
-                "kubectl",
-                "--kubeconfig",
-                kubeconfig_path,
-                *command,
-            ],
+            args,
             check=False,
             capture_output=True,
             text=True,
             shell=False,
+            input=stdin,
         )
         return {
             "stdout": output.stdout,
