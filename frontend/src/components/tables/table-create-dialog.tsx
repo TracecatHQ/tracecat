@@ -7,6 +7,9 @@ import { PlusCircle, Trash2Icon } from "lucide-react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 
+import { useState } from "react"
+import { TableCreateFromCsvDialog } from "./table-create-from-csv-dialog"
+
 import { useCreateTable } from "@/lib/hooks"
 import { SqlTypeEnum } from "@/lib/tables"
 import { Button } from "@/components/ui/button"
@@ -71,6 +74,7 @@ export function CreateTableDialog({
 }) {
   const { workspaceId } = useWorkspace()
   const { createTable, createTableIsPending } = useCreateTable()
+  const [csvDialogOpen, setCsvDialogOpen] = useState(false)
 
   const form = useForm<CreateTableSchema>({
     resolver: zodResolver(createTableSchema),
@@ -130,9 +134,10 @@ export function CreateTableDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[625px]">
-        <DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[625px]">
+          <DialogHeader>
           <DialogTitle>Create new table</DialogTitle>
           <DialogDescription>
             Define your table structure by adding columns and their data types.
@@ -249,7 +254,14 @@ export function CreateTableDialog({
                 Add Column
               </Button>
             </div>
-            <DialogFooter>
+            <DialogFooter className="flex justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCsvDialogOpen(true)}
+              >
+                Import from CSV
+              </Button>
               <Button type="submit" disabled={createTableIsPending}>
                 Create Table
               </Button>
@@ -258,5 +270,14 @@ export function CreateTableDialog({
         </Form>
       </DialogContent>
     </Dialog>
+    <TableCreateFromCsvDialog
+      open={csvDialogOpen}
+      onOpenChange={setCsvDialogOpen}
+      onTableCreated={() => {
+        // Close the main dialog when a table is created via CSV
+        onOpenChange(false)
+      }}
+    />
+  </>
   )
 }

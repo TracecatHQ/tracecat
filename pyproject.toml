@@ -49,6 +49,7 @@ dependencies = [
     "phonenumbers==8.13.55",
     "psycopg[binary]==3.1.19",
     "pyarrow==16.1.0",
+    "polars-lts-cpu==1.27.0",
     "pydantic-extra-types==2.10.2",
     "pydantic==2.10.6",
     "pysaml2==7.5.0",
