@@ -384,14 +384,7 @@ export function getWorkflowEventIcon(
 ) {
   switch (status) {
     case "SCHEDULED":
-      return (
-        <LoaderIcon
-          className={cn(
-            "animate-spin stroke-orange-500/50 [animation-duration:4s]",
-            className
-          )}
-        />
-      )
+      return <Spinner className={cn("!size-3", className)} />
     case "STARTED":
       return <Spinner className={className} />
     case "COMPLETED":
@@ -420,7 +413,7 @@ export function getWorkflowEventIcon(
     case "TIMED_OUT":
       return (
         <AlarmClockOffIcon
-          className={cn("stroke-rose-500", className)}
+          className={cn("!size-3 stroke-rose-500", className)}
           strokeWidth={2.5}
         />
       )
