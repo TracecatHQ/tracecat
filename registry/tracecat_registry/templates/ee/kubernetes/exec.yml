@@ -27,13 +27,11 @@ definition:
       action: ee.kubernetes.run_command
       args:
         command:
-          - exec
+          - "exec"
           - ${{ inputs.pod }}
-          - -c
+          - "-c"
           - ${{ inputs.container || "" }}
-          - -n
-          - ${{ inputs.namespace }}
-          - --
-          - ${{ inputs.command }}
+          - "--"
         namespace: ${{ inputs.namespace }}
+        stdin: ${{ inputs.command }}
   returns: ${{ steps.exec_command.result }}
