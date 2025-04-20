@@ -13,6 +13,12 @@ definition:
     namespace:
       type: str
       description: Namespace of the pod.
+    container:
+      type: str | None
+      description: >
+        Name of the container to get logs from.
+        If not provided, the first container in the pod will be used.
+      default: null
   steps:
     - ref: get_logs
       action: ee.kubernetes.run_command
@@ -21,5 +27,7 @@ definition:
           - kubectl
           - logs
           - ${{ inputs.pod }}
+          - "-c"
+          - ${{ inputs.container || "" }}
         namespace: ${{ inputs.namespace }}
   returns: ${{ steps.get_logs.result }}
