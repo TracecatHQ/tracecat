@@ -509,6 +509,7 @@ function ActionNodeToolbar({
       align="start"
       onMouseEnter={handleToolbarMouseEnter}
       onMouseLeave={handleToolbarMouseLeave}
+      onClick={(e) => e.stopPropagation()}
     >
       <Command
         value={commandValue}
@@ -520,8 +521,8 @@ function ActionNodeToolbar({
           {/* Actions */}
           <CommandGroup>
             <CommandItem
-              value={`ACTIONS.${slugify(action.title)}.result`}
-              onSelect={(value) => {
+              onSelect={() => {
+                const value = `ACTIONS.${slugify(action.title)}.result`
                 navigator.clipboard.writeText(value)
                 toast({
                   title: "Copied action reference",
