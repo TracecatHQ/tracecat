@@ -17,7 +17,7 @@ aws_secret = RegistrySecret(
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "AWS_REGION",
-        "AWS_PROFILE_NAME",
+        "AWS_PROFILE",
         "AWS_ROLE_ARN",
         "AWS_ROLE_SESSION_NAME",
     ],
@@ -32,7 +32,7 @@ aws_secret = RegistrySecret(
         - `AWS_SECRET_ACCESS_KEY`
         - `AWS_REGION`
     Or:
-        - `AWS_PROFILE_NAME`
+        - `AWS_PROFILE`
     Or:
         - `AWS_ROLE_ARN`
         - `AWS_ROLE_SESSION_NAME`
@@ -63,8 +63,8 @@ async def get_session():
             aws_session_token=creds["SessionToken"],
             region_name=secrets.get("AWS_REGION"),
         )
-    elif secrets.get("AWS_PROFILE_NAME"):
-        profile_name = secrets.get("AWS_PROFILE_NAME")
+    elif secrets.get("AWS_PROFILE"):
+        profile_name = secrets.get("AWS_PROFILE")
         session = aioboto3.Session(profile_name=profile_name)
     elif secrets.get("AWS_ACCESS_KEY_ID") and secrets.get("AWS_SECRET_ACCESS_KEY"):
         logger.warning(
