@@ -115,7 +115,7 @@ def _get_kubernetes_client(kubeconfig_base64: str) -> client.CoreV1Api:
     return client.CoreV1Api()
 
 
-def _validate_access_allowed(namespace: str) -> None:
+def _validate_access(namespace: str) -> None:
     """Validate if access to the namespace is allowed.
 
     Args:
@@ -155,6 +155,11 @@ def _validate_access_allowed(namespace: str) -> None:
             raise PermissionError(
                 f"Tracecat does not allow Kubernetes operations on the current namespace {current_namespace!r}"
             )
+    else:
+        # Assume access is from outside the cluster
+        logger.info(
+            "`KUBERNETES_SERVICE_HOST` environment variable not found. Assuming access from outside the cluster."
+        )
 
     logger.info(
         "Namespace access validated",
@@ -183,7 +188,7 @@ def list_kubernetes_pods(namespace: str, kubeconfig_base64: str) -> list[str]:
         ValueError: If no pods found or invalid arguments
     """
     logger.info("Listing kubernetes pods", namespace=namespace)
-    _validate_access_allowed(namespace)
+    _validate_access(namespace)
     client = _get_kubernetes_client(kubeconfig_base64)
 
     pods: V1PodList = client.list_namespaced_pod(namespace=namespace)
@@ -220,7 +225,7 @@ def list_kubernetes_containers(
         ValueError: If invalid pod or no containers found
     """
     logger.info("Listing kubernetes containers", pod=pod, namespace=namespace)
-    _validate_access_allowed(namespace)
+    _validate_access(namespace)
     client = _get_kubernetes_client(kubeconfig_base64)
 
     pod_info: V1Pod = client.read_namespaced_pod(
@@ -262,7 +267,7 @@ def list_kubernetes_pvc(namespace: str, kubeconfig_base64: str) -> list[str]:
         ValueError: If no persistent volume claims found or invalid arguments
     """
     logger.info("Listing kubernetes persistent volume claims", namespace=namespace)
-    _validate_access_allowed(namespace)
+    _validate_access(namespace)
     client = _get_kubernetes_client(kubeconfig_base64)
 
     pvcs = client.list_namespaced_persistent_volume_claim(namespace=namespace)
@@ -301,7 +306,7 @@ def list_kubernetes_secrets(namespace: str, kubeconfig_base64: str) -> list[str]
         ValueError: If no secrets found or invalid arguments
     """
     logger.info("Listing kubernetes secrets", namespace=namespace)
-    _validate_access_allowed(namespace)
+    _validate_access(namespace)
     client = _get_kubernetes_client(kubeconfig_base64)
 
     secrets = client.list_namespaced_secret(namespace=namespace)
@@ -334,7 +339,7 @@ def run_kubectl_command(
     stdin: str | None = None,
 ) -> dict[str, str | int]:
     """Run a kubectl command."""
-    _validate_access_allowed(namespace)
+    _validate_access(namespace)
 
     # Convert string command to list
     if isinstance(command, str):
