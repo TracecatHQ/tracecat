@@ -18,7 +18,7 @@ anthropic_secret = RegistrySecret(
     - `ANTHROPIC_API_KEY`
 """
 
-aws_bedrock_secret = RegistrySecret(
+anthropic_bedrock_secret = RegistrySecret(
     name="anthropic_bedrock",
     optional_keys=[
         "AWS_ACCESS_KEY_ID",
@@ -49,7 +49,7 @@ Reference: https://github.com/anthropics/anthropic-sdk-python?tab=readme-ov-file
     display_group="Anthropic",
     doc_url="https://docs.anthropic.com/en/api/client-sdks",
     namespace="llm.anthropic",
-    secrets=[anthropic_secret, aws_bedrock_secret],
+    secrets=[anthropic_secret, anthropic_bedrock_secret],
 )
 async def call(
     prompt: Annotated[
