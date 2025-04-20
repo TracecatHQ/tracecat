@@ -66,3 +66,7 @@ export function isEmptyObject(obj: object) {
 export function itemOrEmptyString(item: unknown | undefined) {
   return isEmptyObjectOrNullish(item) ? "" : YAML.stringify(item)
 }
+
+export function capitalizeFirst(str: string) {
+  return str.charAt(0).toUpperCase() + str.slice(1)
+}
