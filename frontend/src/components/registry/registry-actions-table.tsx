@@ -20,10 +20,12 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { getIcon } from "@/components/icons"
 import {
   DeleteRegistryActionAlertDialog,
   DeleteRegistryActionAlertDialogTrigger,
 } from "@/components/registry/delete-registry-action"
+import { actionTypeToLabel } from "@/components/registry/icons"
 
 export function RegistryActionsTable() {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
@@ -133,8 +135,11 @@ export function RegistryActionsTable() {
               />
             ),
             cell: ({ row }) => (
-              <div className="font-mono text-xs tracking-tight text-foreground/80">
-                {row.original.action}
+              <div className="flex items-center gap-2">
+                {getIcon(row.original.action, { className: "size-6 border" })}
+                <div className="text-xs text-foreground/80">
+                  {row.original.action}
+                </div>
               </div>
             ),
             enableSorting: true,
@@ -183,9 +188,13 @@ export function RegistryActionsTable() {
               />
             ),
             cell: ({ row }) => {
+              const type =
+                row.getValue<RegistryActionReadMinimal["type"]>("type")
+              const { label, icon: Icon } = actionTypeToLabel[type]
               return (
-                <div className="text-xs text-foreground/80">
-                  {row.getValue<RegistryActionReadMinimal["type"]>("type")}
+                <div className="flex items-center gap-2 text-xs text-foreground/80">
+                  <Icon className="size-3" />
+                  {label}
                 </div>
               )
             },

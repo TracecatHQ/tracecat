@@ -7,7 +7,6 @@ import Link from "next/link"
 import {
   ActionUpdate,
   ApiError,
-  RegistryActionRead,
   RegistryActionValidateResponse,
 } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
@@ -30,8 +29,6 @@ import {
   SettingsIcon,
   ShapesIcon,
   SplitIcon,
-  SquareFunctionIcon,
-  ToyBrickIcon,
 } from "lucide-react"
 import { FormProvider, useForm } from "react-hook-form"
 import { ImperativePanelHandle } from "react-resizable-panels"
@@ -94,6 +91,7 @@ import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { actionTypeToLabel } from "@/components/registry/icons"
 import {
   ControlFlowOptionsTooltip,
   ForEachTooltip,
@@ -155,19 +153,6 @@ const isControlFlowOption = (key: string) => {
     "control_flow.join_strategy",
     "control_flow.start_delay",
   ].includes(key)
-}
-const typeToLabel: Record<
-  RegistryActionRead["type"],
-  { label: string; icon: LucideIcon }
-> = {
-  udf: {
-    label: "User Defined Function",
-    icon: SquareFunctionIcon,
-  },
-  template: {
-    label: "Template Action",
-    icon: ToyBrickIcon,
-  },
 }
 
 enum SaveState {
@@ -381,7 +366,7 @@ export function ActionPanel({
     ...(actionValidationErrors || []),
     ...(validationErrors || []),
   ].filter((error) => error.action_ref === slugify(action.title))
-  const ActionIcon = typeToLabel[registryAction.type].icon
+  const ActionIcon = actionTypeToLabel[registryAction.type].icon
   const isInteractive = methods.watch("is_interactive")
   const interactionType = methods.watch("interaction.type")
   return (
@@ -419,7 +404,7 @@ export function ActionPanel({
                             <div className="mt-2 flex items-center text-xs text-muted-foreground">
                               <ActionIcon className="mr-1 size-3 stroke-2" />
                               <span>
-                                {typeToLabel[registryAction.type].label}
+                                {actionTypeToLabel[registryAction.type].label}
                               </span>
                             </div>
                           </TooltipTrigger>
