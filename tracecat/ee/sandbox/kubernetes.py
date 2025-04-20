@@ -115,7 +115,7 @@ def _get_kubernetes_client(kubeconfig_base64: str) -> client.CoreV1Api:
     return client.CoreV1Api()
 
 
-def _validate_access_allowed(namespace: str) -> None:
+def _validate_namespace(namespace: str) -> None:
     """Validate if access to the namespace is allowed.
 
     Args:
@@ -155,12 +155,20 @@ def _validate_access_allowed(namespace: str) -> None:
             raise PermissionError(
                 f"Tracecat does not allow Kubernetes operations on the current namespace {current_namespace!r}"
             )
+    else:
+        # Assume access is from outside the cluster
+        logger.info(
+            "`KUBERNETES_SERVICE_HOST` environment variable not found. Assuming access from outside the cluster."
+        )
 
     logger.info(
         "Namespace access validated",
         namespace=namespace,
         current_namespace=current_namespace,
     )
+
+
+### List operations
 
 
 def list_kubernetes_pods(namespace: str, kubeconfig_base64: str) -> list[str]:
@@ -180,7 +188,7 @@ def list_kubernetes_pods(namespace: str, kubeconfig_base64: str) -> list[str]:
         ValueError: If no pods found or invalid arguments
     """
     logger.info("Listing kubernetes pods", namespace=namespace)
-    _validate_access_allowed(namespace)
+    _validate_namespace(namespace)
     client = _get_kubernetes_client(kubeconfig_base64)
 
     pods: V1PodList = client.list_namespaced_pod(namespace=namespace)
@@ -217,7 +225,7 @@ def list_kubernetes_containers(
         ValueError: If invalid pod or no containers found
     """
     logger.info("Listing kubernetes containers", pod=pod, namespace=namespace)
-    _validate_access_allowed(namespace)
+    _validate_namespace(namespace)
     client = _get_kubernetes_client(kubeconfig_base64)
 
     pod_info: V1Pod = client.read_namespaced_pod(
@@ -242,96 +250,125 @@ def list_kubernetes_containers(
     return container_names
 
 
-def exec_kubernetes_pod(
-    pod: str,
-    command: str | list[str],
-    namespace: str,
-    kubeconfig_base64: str,
-    container: str | None = None,
-) -> dict[str, str | int] | None:
-    """Execute a command in a Kubernetes pod.
+def list_kubernetes_pvc(namespace: str, kubeconfig_base64: str) -> list[str]:
+    """List all persistent volume claims in a given namespace.
 
     Args:
-        pod : str
-            Name of the pod to execute command in.
-        command : str | list[str]
-            Command to execute in the pod.
         namespace : str
-            Namespace where the pod is located. Must not be the current namespace.
+            Namespace to list persistent volume claims from.
         kubeconfig_base64 : str
             Base64 encoded kubeconfig YAML file. Required for security isolation.
-        container : str | None, default=None
-            Name of the container to execute command in. If None, uses the first container.
 
     Returns:
-        dict[str, str | int]: Output from the command execution.
+        list[str]: List of persistent volume claim names in the namespace.
 
     Raises:
         PermissionError: If trying to access current namespace
-        RuntimeError: If the command execution fails
-        ValueError: If invalid arguments provided
+        ValueError: If no persistent volume claims found or invalid arguments
     """
-    cmd = command if isinstance(command, list) else [command]
-    logger.info(
-        "Executing command in kubernetes pod", pod=pod, namespace=namespace, command=cmd
-    )
+    logger.info("Listing kubernetes persistent volume claims", namespace=namespace)
+    _validate_namespace(namespace)
+    client = _get_kubernetes_client(kubeconfig_base64)
 
-    _validate_access_allowed(namespace)
+    pvcs = client.list_namespaced_persistent_volume_claim(namespace=namespace)
+    if pvcs.items is None:
+        logger.warning(
+            "No persistent volume claims found in namespace", namespace=namespace
+        )
+        raise ValueError(f"No persistent volume claims found in namespace {namespace}")
+
+    pvc_names = [
+        pvc.metadata.name for pvc in pvcs.items if pvc.metadata and pvc.metadata.name
+    ]
+
+    logger.info(
+        "Successfully listed persistent volume claims",
+        namespace=namespace,
+        pvc_count=len(pvc_names),
+    )
+    return pvc_names
+
+
+def list_kubernetes_secrets(namespace: str, kubeconfig_base64: str) -> list[str]:
+    """List all secrets in a given namespace.
+
+    Args:
+        namespace : str
+            Namespace to list secrets from.
+        kubeconfig_base64 : str
+            Base64 encoded kubeconfig YAML file. Required for security isolation.
+
+    Returns:
+        list[str]: List of secret names in the namespace.
+
+    Raises:
+        PermissionError: If trying to access current namespace
+        ValueError: If no secrets found or invalid arguments
+    """
+    logger.info("Listing kubernetes secrets", namespace=namespace)
+    _validate_namespace(namespace)
+    client = _get_kubernetes_client(kubeconfig_base64)
+
+    secrets = client.list_namespaced_secret(namespace=namespace)
+    if secrets.items is None:
+        logger.warning("No secrets found in namespace", namespace=namespace)
+        raise ValueError(f"No secrets found in namespace {namespace}")
+
+    secret_names = [
+        secret.metadata.name
+        for secret in secrets.items
+        if secret.metadata and secret.metadata.name
+    ]
+
+    logger.info(
+        "Successfully listed secrets",
+        namespace=namespace,
+        secret_count=len(secret_names),
+    )
+    return secret_names
+
+
+### Run operations
+
+
+def run_kubectl_command(
+    command: str | list[str],
+    namespace: str,
+    kubeconfig_base64: str,
+    dry_run: bool = False,
+    stdin: str | None = None,
+) -> dict[str, str | int]:
+    """Run a kubectl command."""
+    _validate_namespace(namespace)
 
     # Convert string command to list
     if isinstance(command, str):
         command = shlex.split(command)
 
-    if container is None:
-        containers = list_kubernetes_containers(pod, namespace, kubeconfig_base64)
-        container = containers[0]
-        logger.info(
-            "Using first container", pod=pod, namespace=namespace, container=container
+    kubeconfig_yaml = _decode_kubeconfig(kubeconfig_base64, as_yaml=True)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        kubeconfig_path = pathlib.Path(temp_dir) / "kubeconfig.yaml"
+        with open(kubeconfig_path, "w") as f:
+            f.write(kubeconfig_yaml)
+
+        args = ["kubectl", "--kubeconfig", kubeconfig_path]
+        if dry_run:
+            args.append("--dry-run=client")
+        # Add namespace to command
+        args.extend(["--namespace", namespace])
+        # Add command
+        args.extend(command)
+
+        output = subprocess.run(
+            args,
+            check=False,
+            capture_output=True,
+            text=True,
+            shell=False,
+            input=stdin,
         )
-
-    # Blocked by Python client websocket upgrade error:
-    # https://github.com/kubernetes-client/python/issues/2355
-
-    # Use subprocess with kubectl to execute command
-    # We create a kubeconfig file in a temporary directory and pass it to kubectl
-    try:
-        kubeconfig_yaml = _decode_kubeconfig(kubeconfig_base64, as_yaml=True)
-        with tempfile.TemporaryDirectory() as temp_dir:
-            kubeconfig_path = pathlib.Path(temp_dir) / "kubeconfig.yaml"
-            with open(kubeconfig_path, "w") as f:
-                f.write(kubeconfig_yaml)
-            output = subprocess.run(
-                [
-                    "kubectl",
-                    "exec",
-                    pod,
-                    "-n",
-                    namespace,
-                    "-c",
-                    container,
-                    "--kubeconfig",
-                    kubeconfig_path,
-                    "--",
-                    *cmd,
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                # Explicitly set shell=False to avoid shell injection
-                shell=False,
-            )
         return {
             "stdout": output.stdout,
             "stderr": output.stderr,
             "returncode": output.returncode,
         }
-    except Exception as e:
-        logger.error(
-            "Unexpected error executing kubectl command using subprocess",
-            pod=pod,
-            namespace=namespace,
-            container=container,
-            command=cmd,
-            error=e,
-        )
-        raise e
