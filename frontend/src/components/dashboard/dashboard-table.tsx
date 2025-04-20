@@ -213,7 +213,7 @@ export function WorkflowsDashboardTable() {
                 const latestDefinitionCreatedAt = getValue<string | undefined>()
                 if (!latestDefinitionCreatedAt) {
                   return (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
                       <CircleDot className="size-3 text-muted-foreground/70" />
                       <span className="text-xs text-muted-foreground/70">
                         Unsaved
