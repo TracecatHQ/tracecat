@@ -38,6 +38,7 @@ from tracecat.workflow.management.models import (
     ExternalWorkflowDefinition,
     WorkflowCommitResponse,
     WorkflowCreate,
+    WorkflowDefinitionReadMinimal,
     WorkflowRead,
     WorkflowReadMinimal,
     WorkflowUpdate,
@@ -60,10 +61,15 @@ async def list_workflows(
     service = WorkflowsManagementService(session, role=role)
     workflows = await service.list_workflows(tags=filter_tags)
     res = []
-    for workflow in workflows:
+    for workflow, defn in workflows:
         tags = [
             TagRead.model_validate(tag, from_attributes=True) for tag in workflow.tags
         ]
+        latest_defn = (
+            WorkflowDefinitionReadMinimal.model_validate(defn, from_attributes=True)
+            if defn
+            else None
+        )
         res.append(
             WorkflowReadMinimal(
                 id=WorkflowUUID.new(workflow.id).short(),
@@ -77,6 +83,7 @@ async def list_workflows(
                 tags=tags,
                 alias=workflow.alias,
                 error_handler=workflow.error_handler,
+                latest_definition=latest_defn,
             )
         )
     return res

@@ -27,7 +27,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -119,31 +118,40 @@ export function CreateWorkflowButton() {
         <DropdownMenuTrigger asChild>
           <Button
             role="combobox"
-            className="items-center space-x-2 bg-emerald-500 text-white shadow-sm hover:bg-emerald-500"
+            className="h-7 items-center space-x-1 bg-emerald-500/80 px-3 py-1 text-xs text-white shadow-sm hover:border-emerald-500 hover:bg-emerald-400/80"
           >
+            <ChevronDownIcon className="size-3" />
             <span>Create new</span>
-            <ChevronDownIcon className="size-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-48" align="end">
-          <DropdownMenuGroup>
-            <DropdownMenuItem
-              onClick={async () => await handleCreateWorkflow()}
-            >
-              Workflow
-              <DropdownMenuShortcut>
-                <PlusCircleIcon className="size-4" />
-              </DropdownMenuShortcut>
+        <DropdownMenuContent
+          className="
+            [&_[data-radix-collection-item]]:flex
+            [&_[data-radix-collection-item]]:items-center
+            [&_[data-radix-collection-item]]:gap-2
+          "
+        >
+          <DropdownMenuItem onSelect={handleCreateWorkflow}>
+            <PlusCircleIcon className="size-4 text-foreground/80" />
+            <div className="flex flex-col text-xs">
+              <span>Workflow</span>
+              <span className="text-xs text-muted-foreground">
+                Start from scratch
+              </span>
+            </div>
+          </DropdownMenuItem>
+          <DialogTrigger asChild>
+            <DropdownMenuItem>
+              <BracesIcon className="size-4 text-foreground/80" />
+              <div className="flex flex-col text-xs">
+                <span>From YAML / JSON</span>
+                <span className="text-xs text-muted-foreground">
+                  Import a workflow file
+                </span>
+              </div>
             </DropdownMenuItem>
-            <DialogTrigger asChild>
-              <DropdownMenuItem>
-                From YAML / JSON
-                <DropdownMenuShortcut>
-                  <BracesIcon className="size-4" />
-                </DropdownMenuShortcut>
-              </DropdownMenuItem>
-            </DialogTrigger>
-          </DropdownMenuGroup>
+          </DialogTrigger>
+          <DropdownMenuGroup></DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
       <DialogContent className="sm:max-w-[600px]">

@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
+import sqlalchemy as sa
 import yaml
 from pydantic import ValidationError
-from sqlmodel import and_, col, select
+from sqlmodel import and_, cast, col, select
 from temporalio import activity
 
-from tracecat.db.schemas import Action, Tag, Webhook, Workflow, WorkflowTag
+from tracecat.db.schemas import (
+    Action,
+    Tag,
+    Webhook,
+    Workflow,
+    WorkflowDefinition,
+    WorkflowTag,
+)
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, build_action_statements
 from tracecat.dsl.models import DSLConfig
 from tracecat.dsl.view import RFGraph
@@ -33,6 +40,7 @@ from tracecat.workflow.management.models import (
     GetErrorHandlerWorkflowIDActivityInputs,
     ResolveWorkflowAliasActivityInputs,
     WorkflowCreate,
+    WorkflowDefinitionMinimal,
     WorkflowDSLCreateResponse,
     WorkflowUpdate,
 )
@@ -45,22 +53,55 @@ class WorkflowsManagementService(BaseService):
 
     async def list_workflows(
         self, *, tags: list[str] | None = None
-    ) -> Sequence[Workflow]:
-        """List workflows.
+    ) -> list[tuple[Workflow, WorkflowDefinitionMinimal | None]]:
+        """List workflows with their latest definitions.
 
         Args:
             tags: Optional list of tag names to filter workflows by
 
         Returns:
-            Sequence[Workflow]: List of workflows matching the filters
+            list[tuple[Workflow, WorkflowDefinition | None]]: List of tuples containing workflow
+                and its latest definition (or None if no definition exists)
         """
-        stmt = select(Workflow).where(Workflow.owner_id == self.role.workspace_id)
+        # Subquery to get the latest definition for each workflow
+        latest_defn_subq = (
+            select(
+                WorkflowDefinition.workflow_id,
+                sa.func.max(WorkflowDefinition.version).label("latest_version"),
+            )
+            .group_by(cast(WorkflowDefinition.workflow_id, sa.UUID))
+            .subquery()
+        )
+
+        # Main query selecting workflow with left outer join to definitions
+        stmt = (
+            select(
+                Workflow,
+                WorkflowDefinition.id,
+                WorkflowDefinition.version,
+                WorkflowDefinition.created_at,
+            )
+            .where(Workflow.owner_id == self.role.workspace_id)
+            .outerjoin(
+                latest_defn_subq,
+                cast(Workflow.id, sa.UUID) == latest_defn_subq.c.workflow_id,
+            )
+            .outerjoin(
+                WorkflowDefinition,
+                and_(
+                    WorkflowDefinition.workflow_id == Workflow.id,
+                    WorkflowDefinition.version == latest_defn_subq.c.latest_version,
+                ),
+            )
+        )
 
         if tags:
             tag_set = set(tags)
             # Join through the WorkflowTag link table to Tag table
             stmt = (
-                stmt.join(WorkflowTag, Workflow.id == WorkflowTag.workflow_id)  # type: ignore
+                stmt.join(
+                    WorkflowTag, cast(Workflow.id, sa.UUID) == WorkflowTag.workflow_id
+                )
                 .join(
                     Tag, and_(Tag.id == WorkflowTag.tag_id, col(Tag.name).in_(tag_set))
                 )
@@ -69,8 +110,18 @@ class WorkflowsManagementService(BaseService):
             )
 
         results = await self.session.exec(stmt)
-        workflows = results.all()
-        return workflows
+        res = []
+        for workflow, defn_id, defn_version, defn_created in results.all():
+            if all((defn_id, defn_version, defn_created)):
+                latest_defn = WorkflowDefinitionMinimal(
+                    id=defn_id,
+                    version=defn_version,
+                    created_at=defn_created,
+                )
+            else:
+                latest_defn = None
+            res.append((workflow, latest_defn))
+        return res
 
     async def get_workflow(self, workflow_id: WorkflowID) -> Workflow | None:
         statement = select(Workflow).where(

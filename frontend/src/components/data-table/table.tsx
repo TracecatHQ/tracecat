@@ -53,6 +53,7 @@ interface DataTableProps<TData, TValue> {
   errorMessage?: string
   showSelectedRows?: boolean
   initialSortingState?: SortingState
+  initialColumnVisibility?: VisibilityState
   tableId?: string
   onDeleteRows?: (selectedRows: Row<TData>[]) => void
 }
@@ -69,6 +70,7 @@ export function DataTable<TData, TValue>({
   errorMessage,
   showSelectedRows = false,
   initialSortingState: initialSorting = [],
+  initialColumnVisibility,
   tableId,
   onDeleteRows,
 }: DataTableProps<TData, TValue>) {
@@ -76,6 +78,7 @@ export function DataTable<TData, TValue>({
     `table-state:${tableId}`,
     {
       sorting: initialSorting,
+      columnVisibility: initialColumnVisibility,
     }
   )
 
