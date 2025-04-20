@@ -30,10 +30,6 @@ async def async_openai_call(
 ) -> Response:
     """Call the OpenAI API with the given prompt and return the response."""
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-    logger.debug(
-        "🧠 Calling LLM chat completion", provider="openai", model=model, prompt=prompt
-    )
-
     messages = []
     if memory:
         messages.extend(memory)
@@ -44,6 +40,13 @@ async def async_openai_call(
         kwargs["instructions"] = instructions
     if text_format:
         kwargs["text"] = {"format": text_format}
+
+    logger.debug(
+        "🧠 Calling LLM chat completion",
+        provider="openai-responses",
+        model=model,
+        prompt=prompt,
+    )
 
     response = await client.responses.create(**kwargs)
     return response
@@ -102,6 +105,13 @@ async def async_openai_chat_completion(
     kwargs = {"model": model, "messages": messages}
     if response_format:
         kwargs["response_format"] = response_format
+
+    logger.debug(
+        "🧠 Calling LLM chat completion",
+        provider="openai-completions",
+        model=model,
+        prompt=prompt,
+    )
 
     response = await client.chat.completions.create(**kwargs)
     return response
