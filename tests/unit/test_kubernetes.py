@@ -162,8 +162,17 @@ def mock_secret_service(mocker, mock_kubeconfig):
         ],
     )
 
-    # Return a dict with both mocks for tests that need direct access
-    return {"get_secret_by_name": get_secret_mock, "decrypt_keys": decrypt_keys_mock}
+    # Mock the secrets.get method in tracecat_registry to return the mock kubeconfig
+    registry_secrets_mock = mocker.patch(
+        "tracecat_registry.secrets.get", return_value=mock_kubeconfig
+    )
+
+    # Return a dict with all mocks for tests that need direct access
+    return {
+        "get_secret_by_name": get_secret_mock,
+        "decrypt_keys": decrypt_keys_mock,
+        "registry_secrets": registry_secrets_mock,
+    }
 
 
 @pytest.mark.anyio
@@ -215,14 +224,13 @@ async def test_create_job(kubernetes_repo, mock_validate_access, mock_secret_ser
 async def test_delete_job(kubernetes_repo, mock_validate_access, mock_secret_service):
     """Test the kubernetes delete job template action."""
 
-    # Get the registered delete action - assuming it exists
-    # (adjust name as needed based on your action registry)
+    # Get the registered delete action
     bound_action = kubernetes_repo.get("ee.kubernetes.delete")
 
     # Test delete job
     test_args = {
         "name": "test-job",
-        "kind": "Job",
+        "resource": "job",  # Use "resource" instead of "kind"
         "namespace": "test-ns",
         "dry_run": True,  # Use dry_run for testing
     }
