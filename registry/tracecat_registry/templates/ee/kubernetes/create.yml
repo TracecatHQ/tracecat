@@ -22,9 +22,9 @@ definition:
       action: ee.kubernetes.run_command
       args:
         command:
-          - create
-          - -f
-          - -
+          - "create"
+          - "-f"
+          - "-"
         namespace: ${{ inputs.namespace }}
         dry_run: ${{ inputs.dry_run }}
         stdin: ${{ FN.serialize_json(inputs.manifest) }}
