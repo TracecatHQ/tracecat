@@ -176,7 +176,7 @@ def mock_secret_service(mocker, mock_kubeconfig):
 
 
 @pytest.mark.anyio
-async def test_create_job(kubernetes_repo, mock_validate_access, mock_secret_service):
+async def test_create_job(kubernetes_repo, mock_secret_service):
     """Test the kubernetes create job template action with dry run."""
 
     # Get the registered action
@@ -221,7 +221,7 @@ async def test_create_job(kubernetes_repo, mock_validate_access, mock_secret_ser
 
 
 @pytest.mark.anyio
-async def test_delete_job(kubernetes_repo, mock_validate_access, mock_secret_service):
+async def test_delete_job(kubernetes_repo, mock_secret_service):
     """Test the kubernetes delete job template action."""
 
     # Get the registered delete action
