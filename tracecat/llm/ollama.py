@@ -74,6 +74,7 @@ async def async_ollama_call(
         provider="ollama",
         model=model,
         prompt=prompt,
+        system=system_prompt,
     )
 
     response = await client.chat(**kwargs)

@@ -46,6 +46,7 @@ async def async_openai_call(
         provider="openai-responses",
         model=model,
         prompt=prompt,
+        instructions=instructions,
     )
 
     response = await client.responses.create(**kwargs)
@@ -111,6 +112,7 @@ async def async_openai_chat_completion(
         provider="openai-completions",
         model=model,
         prompt=prompt,
+        system_prompt=system_prompt,
     )
 
     response = await client.chat.completions.create(**kwargs)
