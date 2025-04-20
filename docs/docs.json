@@ -31,8 +31,8 @@
             "pages": [
               "tutorials/workflow-triggers",
               "tutorials/child-workflows",
-              "tutorials/explode-implode",
               "tutorials/data-transforms",
+              "tutorials/explode-implode",
               "tutorials/custom-integrations",
               "tutorials/alert-on-failure"
             ]
