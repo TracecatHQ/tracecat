@@ -408,10 +408,7 @@ def prettify_json(x: Any) -> str:
 
 
 def to_datetime(x: Any, timezone: str | None = None) -> datetime:
-    """Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime.
-
-    Supports timezone-aware datetime objects if IANA timezone is provided.
-    """
+    """Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime."""
     tzinfo = None
     if timezone:
         tzinfo = zoneinfo.ZoneInfo(timezone)
