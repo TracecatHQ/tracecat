@@ -21,6 +21,7 @@
               "quickstart/admin",
               "quickstart/tutorial",
               "quickstart/core-actions",
+              "quickstart/control-flow",
               "quickstart/expressions",
               "quickstart/secrets"
             ]
@@ -70,8 +71,7 @@
               "integrations/overview",
               "integrations/action-templates",
               "integrations/python-udfs",
-              "integrations/development",
-              "integrations/best-practices"
+              "integrations/development"
             ]
           }
         ]
