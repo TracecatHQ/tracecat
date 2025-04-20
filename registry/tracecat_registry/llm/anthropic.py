@@ -23,9 +23,9 @@ aws_bedrock_secret = RegistrySecret(
     optional_keys=[
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
-        "AWS_REGION",
         "AWS_SESSION_TOKEN",
         "AWS_PROFILE",
+        "AWS_REGION",
     ],
     optional=True,
 )
