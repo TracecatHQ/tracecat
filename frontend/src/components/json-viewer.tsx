@@ -151,7 +151,7 @@ export function JsonViewWithControls({
           <TabsContent
             key={value}
             value={value}
-            className="rounded-md border bg-muted-foreground/5 p-4"
+            className="mt-2 rounded-md border bg-muted-foreground/5 p-4"
           >
             <JsonView
               collapsed={!isExpanded}
