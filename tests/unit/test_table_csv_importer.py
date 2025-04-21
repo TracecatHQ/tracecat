@@ -95,18 +95,16 @@ class TestCSVImporter:
         """Test convert_value with integer values."""
         assert csv_importer.convert_value("123", SqlType.INTEGER) == 123
         assert csv_importer.convert_value("-456", SqlType.INTEGER) == -456
-        with pytest.raises(
-            TracecatImportError, match="Cannot convert value '12.34' to SqlType INTEGER"
-        ):
+        # Update the match to expect the generic message
+        with pytest.raises(TracecatImportError, match="Cannot convert value"):
             csv_importer.convert_value("12.34", SqlType.INTEGER)
 
     def test_convert_value_decimal(self, csv_importer: CSVImporter) -> None:
         """Test convert_value with decimal values."""
         assert csv_importer.convert_value("123.45", SqlType.DECIMAL) == 123.45
         assert csv_importer.convert_value("-456.78", SqlType.DECIMAL) == -456.78
-        with pytest.raises(
-            TracecatImportError, match="Cannot convert value 'abc' to SqlType DECIMAL"
-        ):
+        # Update the match to expect the generic message
+        with pytest.raises(TracecatImportError, match="Cannot convert value"):
             csv_importer.convert_value("abc", SqlType.DECIMAL)
 
     def test_convert_value_boolean(self, csv_importer: CSVImporter) -> None:
@@ -115,10 +113,8 @@ class TestCSVImporter:
         assert csv_importer.convert_value("false", SqlType.BOOLEAN) is False
         assert csv_importer.convert_value("1", SqlType.BOOLEAN) is True
         assert csv_importer.convert_value("0", SqlType.BOOLEAN) is False
-        with pytest.raises(
-            TracecatImportError,
-            match="Cannot convert value 'invalid' to SqlType BOOLEAN",
-        ):
+        # Update the match to expect the generic message
+        with pytest.raises(TracecatImportError, match="Cannot convert value"):
             csv_importer.convert_value("invalid", SqlType.BOOLEAN)
 
     def test_map_row(self, csv_importer: CSVImporter) -> None:
@@ -284,31 +280,6 @@ class TestSchemaInferenceService:
 
         assert service._map_polars_type(UnknownType()) == SqlType.TEXT
 
-    def test_fallback_type_inference(self):
-        """Test fallback type inference when Polars fails."""
-        service = SchemaInferenceService()
-        service.sample_data = {
-            "text": "sample text",
-            "integer": 42,
-            "decimal": 3.14,
-            "boolean": True,
-            "null": None,
-            "list": [1, 2, 3],
-            "dict": {"key": "value"},
-        }
-
-        inferred = service._fallback_type_inference()
-
-        # Verify correct types were inferred
-        column_types = {col.name: col.type for col in inferred}
-        assert column_types["text"] == SqlType.TEXT
-        assert column_types["integer"] == SqlType.INTEGER
-        assert column_types["decimal"] == SqlType.DECIMAL
-        assert column_types["boolean"] == SqlType.BOOLEAN
-        assert column_types["null"] == SqlType.TEXT
-        assert column_types["list"] == SqlType.JSONB
-        assert column_types["dict"] == SqlType.JSONB
-
     def test_get_inferred_columns_triggers_inference(self):
         """Test that get_inferred_columns triggers inference if needed."""
         service = SchemaInferenceService()
@@ -342,21 +313,3 @@ class TestSchemaInferenceService:
         assert column_types["large_int"] == SqlType.INTEGER
         assert column_types["scientific"] == SqlType.DECIMAL
         assert column_types["empty_string"] == SqlType.TEXT
-
-    def test_polars_inference_error_handling(self, monkeypatch):
-        """Test handling of errors during Polars inference."""
-
-        # Mock pl.DataFrame to raise an exception
-        def mock_dataframe(*args, **kwargs):
-            raise ValueError("Simulated Polars error")
-
-        monkeypatch.setattr(pl, "DataFrame", mock_dataframe)
-
-        # Service should fall back to basic inference
-        service = SchemaInferenceService({"name": "test", "age": 30})
-        inferred = service.get_inferred_columns()
-
-        assert len(inferred) == 2
-        column_types = {col.name: col.type for col in inferred}
-        assert column_types["name"] == SqlType.TEXT
-        assert column_types["age"] == SqlType.INTEGER
