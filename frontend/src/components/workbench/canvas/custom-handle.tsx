@@ -225,35 +225,58 @@ export function ActionTargetHandle({
             )}
           />
 
-          {/* Badge that fades in. This will contain all the other effects. */}
-          <Badge
+          {/* Badges container that fades in */}
+          <div
             className={cn(
-              "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-lg px-2 text-xs",
-              "transition-all duration-200",
+              "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-md shadow-sm",
+              "flex items-center justify-center transition-all duration-200",
               "group-hover:cursor-pointer",
-              hasEffects ? "scale-100 opacity-100" : "scale-75 opacity-0",
-              joinStrategy === "all" && "bg-blue-500/80 hover:bg-blue-600/80",
-              joinStrategy === "any" && "bg-amber-500/80 hover:bg-amber-600/80",
-              runIf && "bg-teal-500/80 hover:bg-teal-600/80"
+              hasEffects ? "scale-100 opacity-100" : "scale-75 opacity-0"
             )}
+            onClick={() => {
+              const ref = actionPanelRef.current
+              if (ref) {
+                if (ref.isCollapsed()) {
+                  ref.expand()
+                }
+                ref.setActiveTab("control-flow")
+              }
+            }}
           >
-            <div className="flex items-center space-x-2">
-              {hasJoin && (
+            {hasJoin && (
+              <Badge
+                className={cn(
+                  "border-0 px-2 text-xs shadow-none",
+                  joinStrategy === "all" &&
+                    "bg-blue-500/80 hover:bg-blue-600/80",
+                  joinStrategy === "any" &&
+                    "bg-amber-500/80 hover:bg-amber-600/80",
+                  runIf && "mr-0 rounded-r-none"
+                )}
+              >
                 <span className="flex items-center space-x-1">
                   <Merge className="size-3 rotate-180" strokeWidth={2.5} />
                   <span>{joinStrategy?.toLocaleUpperCase() || "ALL"}</span>
                 </span>
-              )}
-              {runIf && (
+              </Badge>
+            )}
+            {runIf && (
+              <Badge
+                className={cn(
+                  "border-0 px-2 text-xs shadow-none",
+                  "bg-teal-500/80 hover:bg-teal-600/80",
+                  hasJoin && "ml-0 rounded-l-none"
+                )}
+              >
                 <span className="flex items-center space-x-1">
                   <GitBranch className="size-3" strokeWidth={2.5} />
                   <pre className="text-xs tracking-tighter">
                     {runIf.slice(3, -2).trim()}
                   </pre>
                 </span>
-              )}
-            </div>
-          </Badge>
+              </Badge>
+            )}
+          </div>
         </div>
       </Handle>
     </>
@@ -276,7 +299,7 @@ function ForEachEffect({
           className="group absolute left-0 top-0 -translate-x-[150%]"
           onClick={() => setOpen(!open)}
         >
-          <div className="flex size-6 items-center justify-center rounded-lg border border-input bg-orange-400/80 shadow-sm hover:bg-orange-500/80 group-hover:cursor-pointer">
+          <div className="flex size-6 items-center justify-center rounded-lg bg-indigo-400 shadow-sm hover:bg-indigo-400/80 group-hover:cursor-pointer">
             <Repeat className="size-3 stroke-muted" strokeWidth={2.5} />
           </div>
         </div>
