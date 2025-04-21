@@ -9,6 +9,7 @@ import {
   ApiError,
   RegistryActionValidateResponse,
 } from "@/client"
+import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -168,7 +169,17 @@ const parseYaml = (str: string | undefined) =>
 const stringifyYaml = (obj: unknown | undefined) =>
   obj ? YAML.stringify(obj) : ""
 
-export interface ActionPanelRef extends ImperativePanelHandle {}
+export type ActionPanelTabs =
+  | "inputs"
+  | "control-flow"
+  | "retry-policy"
+  | "template-inputs"
+export interface ActionPanelRef extends ImperativePanelHandle {
+  setActiveTab: (tab: ActionPanelTabs) => void
+  getActiveTab: () => ActionPanelTabs
+  setOpen: (open: boolean) => void
+  isOpen: () => boolean
+}
 
 export function ActionPanel({
   actionId,
@@ -185,6 +196,7 @@ export function ActionPanel({
     workspaceId,
     workflowId
   )
+  const { actionPanelRef } = useWorkflowBuilder()
   const { registryAction, registryActionIsLoading, registryActionError } =
     useGetRegistryAction(action?.type)
   const { for_each, run_if, retry_policy, ...options } =
@@ -210,13 +222,35 @@ export function ActionPanel({
     RegistryActionValidateResponse[]
   >([])
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
-  const [activeTab, setActiveTab] = useState("inputs")
+  const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
+  const [open, setOpen] = useState(false)
 
   useEffect(() => {
     setActiveTab("inputs")
     setSaveState(SaveState.IDLE)
     setActionValidationErrors([])
   }, [actionId])
+
+  // Set up the ref methods
+  useEffect(() => {
+    if (actionPanelRef.current) {
+      actionPanelRef.current.setActiveTab = setActiveTab
+      actionPanelRef.current.getActiveTab = () => activeTab
+      actionPanelRef.current.setOpen = (newOpen: boolean) => {
+        setOpen(newOpen)
+        // If the panel has a collapse method, use it
+        if (
+          actionPanelRef.current?.collapse &&
+          actionPanelRef.current?.expand
+        ) {
+          newOpen
+            ? actionPanelRef.current.expand()
+            : actionPanelRef.current.collapse()
+        }
+      }
+      actionPanelRef.current.isOpen = () => open
+    }
+  }, [actionPanelRef, activeTab, setOpen, open])
 
   const handleSave = useCallback(
     async (values: ActionFormSchema) => {
@@ -374,7 +408,7 @@ export function ActionPanel({
       <Tabs
         defaultValue="inputs"
         value={activeTab}
-        onValueChange={setActiveTab}
+        onValueChange={(value) => setActiveTab(value as ActionPanelTabs)}
         className="w-full"
       >
         <FormProvider {...methods}>
