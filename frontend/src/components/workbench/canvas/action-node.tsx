@@ -121,7 +121,7 @@ export default React.memo(function ActionNode({
   const nodeRef = useRef<HTMLDivElement>(null)
   const hideTimeoutRef = useRef<number>()
   const { breakpoint, style } = useActionNodeZoomBreakpoint()
-
+  const { actionPanelRef } = useWorkflowBuilder()
   // Clear timeout on unmount
   useEffect(() => {
     return () => {
@@ -130,6 +130,12 @@ export default React.memo(function ActionNode({
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (selected && actionPanelRef.current?.isCollapsed()) {
+      actionPanelRef.current?.expand()
+    }
+  }, [selected])
 
   // Handle combined mouse over state
   useEffect(() => {
