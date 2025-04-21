@@ -89,7 +89,6 @@ export function TableCreateFromCsvDialog({
     },
   })
 
-  // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
       setCsvPreview(null)
@@ -113,18 +112,16 @@ export function TableCreateFromCsvDialog({
         // Convert string values to appropriate types before sending
         const typedSampleRow = Object.fromEntries(
           Object.entries(sampleRow).map(([key, value]) => {
-            // Skip null/undefined/empty values
             if (value === null || value === undefined || value === "") {
               return [key, null];
             }
 
-            // Try to parse JSON
             if (typeof value === 'string' && (value.trim().startsWith('{') || value.trim().startsWith('['))) {
               try {
                 return [key, JSON.parse(value)];
               } catch (e) {
                 // If JSON parsing fails, continue with other type conversions
-                console.log(`Failed to parse JSON for ${key}:`, e);
+                console.log(`Failed to parse JSON for:`, e);
               }
             }
 

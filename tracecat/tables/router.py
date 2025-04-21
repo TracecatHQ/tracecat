@@ -177,16 +177,27 @@ async def create_table_from_schema(
     except Exception as schema_error:
         if table and table.id:
             try:
-                async with AsyncDBSession(expire_on_commit=False) as cleanup_session:
-                    cleanup_service = TablesService(cleanup_session, role=role)
+                async with TablesService.with_session(role=role) as cleanup_service:
                     table_to_delete = await cleanup_service.get_table(table.id)
-                    await cleanup_service.delete_table(table_to_delete)
+                    if table_to_delete:
+                        await cleanup_service.delete_table(table_to_delete)
+                    else:
+                        logger.warning(
+                            "Could not find table for cleanup after schema error."
+                        )
+
             except Exception as cleanup_err:
-                logger.error(
-                    f"Schema error cleanup FAILED for {table.name}: {cleanup_err}"
-                )
+                raise TracecatImportError(
+                    "Schema error cleanup FAILED for table import"
+                ) from cleanup_err
+        else:
+            logger.warning(
+                "Schema creation failed, but no table object or table ID was available for cleanup."
+            )
+
+        # Raise the original schema error as an HTTPException
         raise HTTPException(
-            status_code=500, detail=f"Failed to create table schema: {schema_error}"
+            status_code=500, detail="Failed to create table schema"
         ) from schema_error
 
     csv_file = None
@@ -207,7 +218,6 @@ async def create_table_from_schema(
         del temp_reader
         csv_file.seek(0)  # Reset for DictReader
 
-        # Create mapping: CSV Header Case -> DB Column Case (likely lowercase)
         table_columns_dict = {c.name.lower(): c.name for c in table.columns}
         column_mapping = {}
         for csv_header in actual_csv_headers:
@@ -221,7 +231,6 @@ async def create_table_from_schema(
                 detail="Could not map any CSV headers to table columns.",
             )
 
-        # Initialize importer with the refreshed (likely lowercase) table columns
         importer = CSVImporter(table.columns)
 
         # Process CSV file with DictReader
@@ -231,11 +240,10 @@ async def create_table_from_schema(
         for row in csv_reader:
             try:
                 mapped_row = importer.map_row(row, column_mapping)
-                if mapped_row:  # Only append if mapping was successful
+                if mapped_row:
                     current_chunk.append(mapped_row)
-            except TracecatImportError as map_err:
-                # Log and skip rows that fail mapping/conversion
-                logger.warning(f"Skipping row due to map/convert error: {map_err}")
+            except TracecatImportError:
+                logger.warning("Skipping row due to map/convert error")
                 continue
 
             if len(current_chunk) >= importer.chunk_size:
@@ -243,7 +251,6 @@ async def create_table_from_schema(
                 total_rows_imported += batch_count
                 current_chunk = []
 
-        # Process final chunk
         if current_chunk:
             batch_count = await service.batch_insert_rows(table, current_chunk)
             total_rows_imported += batch_count
@@ -257,9 +264,29 @@ async def create_table_from_schema(
         }
 
     except Exception as import_error:
-        # Consider deleting the table if import fails, depending on desired behavior
+        # Delete the table if import fails (using the same improved cleanup logic)
+        if table and table.id:
+            try:
+                async with TablesService.with_session(role=role) as cleanup_service:
+                    table_to_delete = await cleanup_service.get_table(table.id)
+                    if table_to_delete:
+                        await cleanup_service.delete_table(table_to_delete)
+                    else:
+                        logger.warning(
+                            "Could not find table for cleanup after import error."
+                        )
+
+            except Exception as cleanup_err:
+                raise TracecatImportError(
+                    "Import error cleanup FAILED for table import"
+                ) from cleanup_err
+        else:
+            logger.warning(
+                "Import failed, but no table object or table ID was available for cleanup."
+            )
+
         raise HTTPException(
-            status_code=500, detail=f"Failed during CSV data import: {import_error}"
+            status_code=500, detail="Failed during CSV data import"
         ) from import_error
 
     finally:

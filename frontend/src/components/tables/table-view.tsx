@@ -33,14 +33,12 @@ function CollapsibleText({ text }: { text: string }) {
     return () => window.removeEventListener("resize", updateWidth)
   }, [])
 
-  // Estimate characters per line based on container width (assumes monospace font)
-  // Adjust the divisor based on your font metrics
   const charsPerLine = Math.max(25, Math.floor(containerWidth / 7))
 
   if (!isExpanded) {
     return (
       <div ref={containerRef} className="flex items-center">
-        <span className="truncate text-xs">
+        <span className="truncate font-sans text-xs">
           {text.substring(0, charsPerLine)}
         </span>
         <Button
@@ -63,7 +61,7 @@ function CollapsibleText({ text }: { text: string }) {
 
   return (
     <div ref={containerRef} className="space-y-1">
-      <pre className="whitespace-pre-wrap text-xs">{chunks.join("\n")}</pre>
+      <pre className="whitespace-pre-wrap font-sans text-xs">{chunks.join("\n")}</pre>
       <Button
         variant="ghost"
         size="sm"

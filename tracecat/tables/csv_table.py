@@ -83,30 +83,6 @@ class SchemaInferenceService:
         # Default to TEXT
         return SqlType.TEXT
 
-    def _fallback_type_inference(self) -> list[InferredColumn]:
-        """Basic type inference as fallback."""
-        result = []
-
-        for col_name, value in self.sample_data.items():
-            if value is None:
-                sql_type = SqlType.TEXT
-            elif isinstance(value, bool):
-                sql_type = SqlType.BOOLEAN
-            elif isinstance(value, int):
-                sql_type = SqlType.INTEGER
-            elif isinstance(value, float):
-                sql_type = SqlType.DECIMAL
-            elif isinstance(value, dict | list):
-                sql_type = SqlType.JSONB
-            else:
-                sql_type = SqlType.TEXT
-
-            result.append(
-                InferredColumn(name=col_name, type=sql_type, sample_value=value)
-            )
-
-        return result
-
     def get_inferred_columns(self) -> list[InferredColumn]:
         """
         Get the inferred columns.

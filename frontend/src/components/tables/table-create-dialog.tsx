@@ -274,7 +274,7 @@ export function CreateTableDialog({
       open={csvDialogOpen}
       onOpenChange={setCsvDialogOpen}
       onTableCreated={() => {
-        // Close the main dialog when a table is created via CSV
+
         onOpenChange(false)
       }}
     />
