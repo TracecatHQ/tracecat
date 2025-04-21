@@ -10,7 +10,15 @@ export function CenteredSpinner() {
   )
 }
 
-export function Spinner({ className }: { className?: string }) {
+export function Spinner({
+  className,
+  ringColor,
+  segmentColor,
+}: {
+  className?: string
+  ringColor?: string
+  segmentColor?: string
+}) {
   return (
     <svg className={cn(className)} viewBox="0 0 50 50">
       {/* Darker, slightly translucent ring */}
@@ -19,7 +27,7 @@ export function Spinner({ className }: { className?: string }) {
         cy="25"
         r="20"
         fill="none"
-        stroke="#d1d5db"
+        stroke={ringColor || "#d1d5db"}
         strokeWidth="5"
         strokeOpacity="0.7"
       />
@@ -29,7 +37,7 @@ export function Spinner({ className }: { className?: string }) {
         cy="25"
         r="20"
         fill="none"
-        stroke="#6b7280"
+        stroke={segmentColor || "#6b7280"}
         strokeWidth="5"
         strokeLinecap="round"
         strokeDasharray="30 100"

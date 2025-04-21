@@ -47,8 +47,8 @@ export default function HomePage() {
         </div>
         <div className="relative hidden h-full flex-col bg-muted p-10 text-white dark:border-r lg:flex">
           <div className="absolute inset-0 bg-zinc-900" />
-          <div className="relative z-20 flex items-center text-xl font-semibold tracking-wider">
-            <Icons.logo className="mr-4 size-6" />
+          <div className="relative z-20 flex items-center text-xl font-semibold tracking-wide">
+            <Icons.logo className="mr-2 size-6" />
             <h1>Tracecat</h1>
           </div>
         </div>

@@ -34,15 +34,13 @@ from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.ee.interactions.models import InteractionInput, InteractionState
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
-    ExecutionUUID,
     WorkflowExecutionID,
     WorkflowID,
-    WorkflowUUID,
     generate_exec_id,
 )
 from tracecat.logger import logger
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatServiceError, TracecatValidationError
+from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
@@ -128,39 +126,13 @@ class WorkflowExecutionsService:
         self, wf_exec_id: WorkflowExecutionID, _include_legacy: bool = True
     ) -> WorkflowExecution | None:
         self.logger.info("Getting workflow execution", wf_exec_id=wf_exec_id)
-
-        # For every ID that comes in, we try both new and legacy
-        # This is a new ID, so we can just query it
-        # This is the new query
-        parts = [f"WorkflowId = '{wf_exec_id}'"]
-        if _include_legacy:
-            # For backwards compatibility, include the legacy format as well
-            # Involves:
-            # - Replacing the slash with a colon
-            # - Turn all segments into legacy versions
-            try:
-                wf, ex = wf_exec_id.split("/", 1)
-            except ValueError as e:
-                raise TracecatServiceError("Invalid workflow execution ID") from e
-
-            wf_id = WorkflowUUID.new(wf)
-            legacy_wf_id = wf_id.to_legacy()
-
-            # Get suffix
-            if ex.startswith("sch-"):
-                # It's a schedule. Only have legacy format
-                legacy_wf_exec_id = f"{legacy_wf_id}:{ex}"
-                parts.append(f"WorkflowId = '{legacy_wf_exec_id}'")
-            else:
-                # It's a workflow execution (exec)
-                ex_id = ExecutionUUID.new(ex)
-                legacy_ex_id = ex_id.to_legacy()
-                legacy_wf_exec_id = f"{legacy_wf_id}:{legacy_ex_id}"
-                parts.append(f"WorkflowId = '{legacy_wf_exec_id}'")
-        query = " OR ".join(parts)
-        self.logger.debug("Querying executions", query=query)
-        it = self._client.list_workflows(query=query)
-        return await anext(it, None)
+        handle = self.handle(wf_exec_id)
+        try:
+            return await handle.describe()
+        except RPCError as e:
+            if "not found" in str(e).lower():
+                return None
+            raise
 
     async def list_executions(
         self,
@@ -608,14 +580,19 @@ class WorkflowExecutionsService:
 
         Note: This method schedules the workflow execution and returns immediately.
         """
+        wf_exec_id = generate_exec_id(wf_id)
         coro = self.create_workflow_execution(
-            dsl=dsl, wf_id=wf_id, payload=payload, trigger_type=trigger_type
+            dsl=dsl,
+            wf_id=wf_id,
+            payload=payload,
+            trigger_type=trigger_type,
+            wf_exec_id=wf_exec_id,
         )
         _ = asyncio.create_task(coro)
         return WorkflowExecutionCreateResponse(
             message="Workflow execution started",
             wf_id=wf_id,
-            wf_exec_id=generate_exec_id(wf_id),
+            wf_exec_id=wf_exec_id,
         )
 
     async def create_workflow_execution(
@@ -625,6 +602,7 @@ class WorkflowExecutionsService:
         wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
+        wf_exec_id: WorkflowExecutionID | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new workflow execution.
 
@@ -636,11 +614,13 @@ class WorkflowExecutionsService:
             raise TracecatValidationError(
                 validation_result.msg, detail=validation_result.detail
             )
+        if wf_exec_id is None:
+            wf_exec_id = generate_exec_id(wf_id)
 
         return await self._dispatch_workflow(
             dsl=dsl,
             wf_id=wf_id,
-            wf_exec_id=generate_exec_id(wf_id),
+            wf_exec_id=wf_exec_id,
             trigger_inputs=payload,
             trigger_type=trigger_type,
         )

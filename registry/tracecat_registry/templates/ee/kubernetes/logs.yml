@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get logs
+  description: Print logs from a pod.
+  display_group: Kubernetes
+  doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#logs
+  namespace: ee.kubernetes
+  name: logs
+  expects:
+    pod:
+      type: str
+      description: Name of the pod to get logs from.
+    namespace:
+      type: str
+      description: Namespace of the pod.
+    container:
+      type: str | None
+      description: >
+        Name of the container to get logs from.
+        If not provided, the first container in the pod will be used.
+      default: null
+  steps:
+    - ref: get_logs
+      action: ee.kubernetes.run_command
+      args:
+        command:
+          - kubectl
+          - logs
+          - ${{ inputs.pod }}
+          - "-c"
+          - ${{ inputs.container || "" }}
+        namespace: ${{ inputs.namespace }}
+  returns: ${{ steps.get_logs.result }}

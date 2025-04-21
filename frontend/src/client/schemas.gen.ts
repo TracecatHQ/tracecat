@@ -5485,6 +5485,27 @@ Relationships
 - 1 Workflow to many WorkflowDefinitions`,
 } as const
 
+export const $WorkflowDefinitionReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["id", "version", "created_at"],
+  title: "WorkflowDefinitionReadMinimal",
+} as const
+
 export const $WorkflowEventType = {
   type: "string",
   enum: [
@@ -6376,6 +6397,16 @@ export const $WorkflowReadMinimal = {
       ],
       title: "Error Handler",
     },
+    latest_definition: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowDefinitionReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: [
@@ -6695,7 +6726,7 @@ export const $login = {
       anyOf: [
         {
           type: "string",
-          pattern: "password",
+          pattern: "^password$",
         },
         {
           type: "null",

@@ -1782,6 +1782,12 @@ export type WorkflowDefinition = {
   }
 }
 
+export type WorkflowDefinitionReadMinimal = {
+  id: string
+  version: number
+  created_at: string
+}
+
 /**
  * The event types we care about.
  */
@@ -2056,6 +2062,7 @@ export type WorkflowReadMinimal = {
   tags?: Array<TagRead> | null
   alias?: string | null
   error_handler?: string | null
+  latest_definition?: WorkflowDefinitionReadMinimal | null
 }
 
 export type WorkflowTagCreate = {

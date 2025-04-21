@@ -7,9 +7,9 @@ import Link from "next/link"
 import {
   ActionUpdate,
   ApiError,
-  RegistryActionRead,
   RegistryActionValidateResponse,
 } from "@/client"
+import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -30,8 +30,6 @@ import {
   SettingsIcon,
   ShapesIcon,
   SplitIcon,
-  SquareFunctionIcon,
-  ToyBrickIcon,
 } from "lucide-react"
 import { FormProvider, useForm } from "react-hook-form"
 import { ImperativePanelHandle } from "react-resizable-panels"
@@ -94,6 +92,7 @@ import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { actionTypeToLabel } from "@/components/registry/icons"
 import {
   ControlFlowOptionsTooltip,
   ForEachTooltip,
@@ -156,19 +155,6 @@ const isControlFlowOption = (key: string) => {
     "control_flow.start_delay",
   ].includes(key)
 }
-const typeToLabel: Record<
-  RegistryActionRead["type"],
-  { label: string; icon: LucideIcon }
-> = {
-  udf: {
-    label: "User Defined Function",
-    icon: SquareFunctionIcon,
-  },
-  template: {
-    label: "Template Action",
-    icon: ToyBrickIcon,
-  },
-}
 
 enum SaveState {
   IDLE = "idle",
@@ -183,7 +169,17 @@ const parseYaml = (str: string | undefined) =>
 const stringifyYaml = (obj: unknown | undefined) =>
   obj ? YAML.stringify(obj) : ""
 
-export interface ActionPanelRef extends ImperativePanelHandle {}
+export type ActionPanelTabs =
+  | "inputs"
+  | "control-flow"
+  | "retry-policy"
+  | "template-inputs"
+export interface ActionPanelRef extends ImperativePanelHandle {
+  setActiveTab: (tab: ActionPanelTabs) => void
+  getActiveTab: () => ActionPanelTabs
+  setOpen: (open: boolean) => void
+  isOpen: () => boolean
+}
 
 export function ActionPanel({
   actionId,
@@ -200,6 +196,7 @@ export function ActionPanel({
     workspaceId,
     workflowId
   )
+  const { actionPanelRef } = useWorkflowBuilder()
   const { registryAction, registryActionIsLoading, registryActionError } =
     useGetRegistryAction(action?.type)
   const { for_each, run_if, retry_policy, ...options } =
@@ -225,13 +222,35 @@ export function ActionPanel({
     RegistryActionValidateResponse[]
   >([])
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
-  const [activeTab, setActiveTab] = useState("inputs")
+  const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
+  const [open, setOpen] = useState(false)
 
   useEffect(() => {
     setActiveTab("inputs")
     setSaveState(SaveState.IDLE)
     setActionValidationErrors([])
   }, [actionId])
+
+  // Set up the ref methods
+  useEffect(() => {
+    if (actionPanelRef.current) {
+      actionPanelRef.current.setActiveTab = setActiveTab
+      actionPanelRef.current.getActiveTab = () => activeTab
+      actionPanelRef.current.setOpen = (newOpen: boolean) => {
+        setOpen(newOpen)
+        // If the panel has a collapse method, use it
+        if (
+          actionPanelRef.current?.collapse &&
+          actionPanelRef.current?.expand
+        ) {
+          newOpen
+            ? actionPanelRef.current.expand()
+            : actionPanelRef.current.collapse()
+        }
+      }
+      actionPanelRef.current.isOpen = () => open
+    }
+  }, [actionPanelRef, activeTab, setOpen, open])
 
   const handleSave = useCallback(
     async (values: ActionFormSchema) => {
@@ -381,7 +400,7 @@ export function ActionPanel({
     ...(actionValidationErrors || []),
     ...(validationErrors || []),
   ].filter((error) => error.action_ref === slugify(action.title))
-  const ActionIcon = typeToLabel[registryAction.type].icon
+  const ActionIcon = actionTypeToLabel[registryAction.type].icon
   const isInteractive = methods.watch("is_interactive")
   const interactionType = methods.watch("interaction.type")
   return (
@@ -389,7 +408,7 @@ export function ActionPanel({
       <Tabs
         defaultValue="inputs"
         value={activeTab}
-        onValueChange={setActiveTab}
+        onValueChange={(value) => setActiveTab(value as ActionPanelTabs)}
         className="w-full"
       >
         <FormProvider {...methods}>
@@ -419,7 +438,7 @@ export function ActionPanel({
                             <div className="mt-2 flex items-center text-xs text-muted-foreground">
                               <ActionIcon className="mr-1 size-3 stroke-2" />
                               <span>
-                                {typeToLabel[registryAction.type].label}
+                                {actionTypeToLabel[registryAction.type].label}
                               </span>
                             </div>
                           </TooltipTrigger>

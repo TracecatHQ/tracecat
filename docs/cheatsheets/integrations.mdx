@@ -15,9 +15,18 @@ Core action namespaces are prefixed with `core.`.
 | core | http_request | `ssl` |
 | core | require | - |
 | core | send_email_smtp | `smtp` |
+| core.cases | create_case | - |
+| core.cases | create_comment | - |
+| core.cases | get_case | - |
+| core.cases | list_cases | - |
+| core.cases | list_comments | - |
+| core.cases | update_case | - |
+| core.cases | update_comment | - |
+| core.table | delete_row | - |
 | core.table | insert_row | - |
 | core.table | lookup | - |
 | core.table | lookup_many | - |
+| core.table | update_row | - |
 | core.transform | apply | - |
 | core.transform | deduplicate | - |
 | core.transform | filter | - |
@@ -35,11 +44,11 @@ Integration namespaces are prefixed with `tools.`.
 
 | Namespace | Function | Secrets |
 | --- | --- | --- |
+| tools.amazon_s3 | download_object | `amazon_s3` |
+| tools.amazon_s3 | parse_uri | `amazon_s3` |
 | tools.ansible | run_playbook | `ansible` |
 | tools.aws_boto3 | call_api | `aws` |
 | tools.aws_boto3 | call_paginated_api | `aws` |
-| tools.aws_s3 | download_object | `aws_s3` |
-| tools.aws_s3 | parse_uri | `aws_s3` |
 | tools.check_point_infinity | get_access_token | `check_point_infinity` |
 | tools.crowdsec | lookup_ip_address | `crowdsec_cti`, `ssl` |
 | tools.crowdstrike | list_alerts | `crowdstrike` |
@@ -70,13 +79,14 @@ Integration namespaces are prefixed with `tools.`.
 | tools.microsoft_graph | get_access_token | `microsoft_graph` |
 | tools.okta | lookup_user_by_email | `okta`, `ssl` |
 | tools.okta | revoke_sessions | `okta`, `ssl` |
+| tools.opencti | call_api | `opencti` |
+| tools.opencti | list_entity_methods | - |
+| tools.opencti | list_entity_types | - |
 | tools.pymongo | execute_operation | `mongodb` |
-| tools.pytenable | call_api | `tenable_nessus` |
 | tools.sentinel_one | list_threats | `sentinel_one`, `ssl` |
 | tools.slack | ask_text_input | `slack` |
 | tools.slack | lookup_user_by_email | `slack` |
 | tools.slack | post_notification | `slack` |
-| tools.slack | post_todo | `slack` |
 | tools.slack | post_update | `slack` |
 | tools.slack | revoke_sessions | `slack` |
 | tools.slack_blocks | format_choices | - |
@@ -87,6 +97,12 @@ Integration namespaces are prefixed with `tools.`.
 | tools.slack_elements | format_overflow_menu | - |
 | tools.slack_sdk | call_method | `slack` |
 | tools.slack_sdk | call_paginated_method | `slack` |
+| tools.splunk | search_events | `splunk`, `ssl` |
+| tools.thehive | add_case_comment | `ssl`, `thehive` |
+| tools.thehive | create_case | `ssl`, `thehive` |
+| tools.thehive | update_case_description | `ssl`, `thehive` |
+| tools.thehive | update_case_fields | `ssl`, `thehive` |
+| tools.thehive | update_case_status | `ssl`, `thehive` |
 | tools.threatstream | lookup_domain | `ssl`, `threatstream` |
 | tools.threatstream | lookup_email | `ssl`, `threatstream` |
 | tools.threatstream | lookup_file_hash | `ssl`, `threatstream` |
@@ -111,8 +127,8 @@ Find out more about how secrets work in Tracecat [here](/quickstart/secrets).
 
 | Secret Name | Required Keys | Optional Keys |
 | --- | --- | --- |
+| `amazon_s3` | - | `AWS_ACCESS_KEY_ID` `AWS_PROFILE` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
 | `ansible` | `ANSIBLE_SSH_KEY` | `ANSIBLE_PASSWORDS` |
-| `aws_s3` | - | `AWS_ACCESS_KEY_ID` `AWS_PROFILE_NAME` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
 | `aws` | - | `AWS_ACCESS_KEY_ID` `AWS_PROFILE_NAME` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
 | `check_point_infinity` | `CHECKPOINT_ACCESS_KEY` `CHECKPOINT_CLIENT_ID` | - |
 | `crowdsec_cti` | `CTI_API_KEY` | - |
@@ -123,17 +139,19 @@ Find out more about how secrets work in Tracecat [here](/quickstart/secrets).
 | `ipinfo` | `IPINFO_API_TOKEN` | - |
 | `jamf` | `JAMF_CLIENT_ID` `JAMF_CLIENT_SECRET` | - |
 | `jira` | `JIRA_API_TOKEN` `JIRA_USEREMAIL` | - |
+| `kubernetes` | `KUBECONFIG_BASE64` | - |
 | `ldap` | `LDAP_HOST` `LDAP_PASSWORD` `LDAP_PORT` `LDAP_USER` | - |
 | `microsoft_graph` | `MICROSOFT_GRAPH_CLIENT_ID` `MICROSOFT_GRAPH_CLIENT_SECRET` | - |
 | `mongodb` | `MONGODB_CONNECTION_STRING` | - |
 | `okta` | `OKTA_API_TOKEN` | - |
-| `ollama` | - | `OLLAMA_API_URL` |
 | `openai` | `OPENAI_API_KEY` | - |
+| `opencti` | `OPENCTI_API_TOKEN` | - |
 | `sentinel_one` | `SENTINEL_ONE_API_TOKEN` | - |
 | `slack` | `SLACK_BOT_TOKEN` | - |
 | `smtp` | `SMTP_HOST` `SMTP_PASS` `SMTP_PORT` `SMTP_USER` | - |
+| `splunk` | `SPLUNK_API_KEY` | - |
 | `ssl` | - | `SSL_CLIENT_CERT` `SSL_CLIENT_KEY` `SSL_CLIENT_PASSWORD` |
-| `tenable_nessus` | `TENABLE_ACCESS_KEY` `TENABLE_SECRET_KEY` | - |
+| `thehive` | `THEHIVE_API_KEY` | - |
 | `threatstream` | `ANOMALI_API_KEY` `ANOMALI_USERNAME` | - |
 | `urlscan` | `URLSCAN_API_KEY` | - |
 | `virustotal` | `VIRUSTOTAL_API_KEY` | - |

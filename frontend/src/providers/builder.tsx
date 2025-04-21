@@ -46,6 +46,8 @@ interface ReactFlowContextType {
   expandSidebarAndFocusEvents: () => void
   selectedActionEventRef?: string
   setSelectedActionEventRef: React.Dispatch<SetStateAction<string | undefined>>
+  currentExecutionId: string | null
+  setCurrentExecutionId: React.Dispatch<SetStateAction<string | null>>
 }
 
 const ReactFlowInteractionsContext = createContext<
@@ -69,12 +71,16 @@ export const WorkflowBuilderProvider: React.FC<
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
   const [isActionPanelCollapsed, setIsActionPanelCollapsed] =
     React.useState(false)
+  const [currentExecutionId, setCurrentExecutionId] = useState<string | null>(
+    null
+  )
   const canvasRef = useRef<WorkflowCanvasRef>(null)
   const sidebarRef = useRef<EventsSidebarRef>(null)
   const actionPanelRef = useRef<ActionPanelRef>(null)
 
   useEffect(() => {
     setSelectedNodeId(null)
+    setCurrentExecutionId(null)
   }, [workflowId])
 
   const setReactFlowNodes = useCallback(
@@ -160,6 +166,8 @@ export const WorkflowBuilderProvider: React.FC<
       actionPanelRef,
       isActionPanelCollapsed,
       toggleActionPanel,
+      currentExecutionId,
+      setCurrentExecutionId,
     }),
     [
       workflowId,
@@ -179,6 +187,8 @@ export const WorkflowBuilderProvider: React.FC<
       actionPanelRef,
       isActionPanelCollapsed,
       toggleActionPanel,
+      currentExecutionId,
+      setCurrentExecutionId,
     ]
   )
 

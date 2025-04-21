@@ -17,7 +17,7 @@ aws_secret = RegistrySecret(
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "AWS_REGION",
-        "AWS_PROFILE_NAME",
+        "AWS_PROFILE",
         "AWS_ROLE_ARN",
         "AWS_ROLE_SESSION_NAME",
     ],
@@ -32,11 +32,43 @@ aws_secret = RegistrySecret(
         - `AWS_SECRET_ACCESS_KEY`
         - `AWS_REGION`
     Or:
-        - `AWS_PROFILE_NAME`
+        - `AWS_PROFILE`
     Or:
         - `AWS_ROLE_ARN`
         - `AWS_ROLE_SESSION_NAME`
 """
+
+
+def has_usable_aws_credentials(
+    aws_access_key_id: str | None,
+    aws_secret_access_key: str | None,
+    aws_region: str | None,
+    aws_profile: str | None,
+    aws_role_arn: str | None,
+    aws_role_session_name: str | None,
+) -> bool:
+    if not any(
+        [
+            aws_access_key_id,
+            aws_secret_access_key,
+            aws_region,
+            aws_profile,
+            aws_role_arn,
+            aws_role_session_name,
+        ]
+    ):
+        return False
+
+    if aws_access_key_id and aws_secret_access_key and aws_region:
+        return True
+
+    if aws_profile:
+        return True
+
+    if aws_role_arn and aws_role_session_name:
+        return True
+
+    return False
 
 
 async def get_temporary_credentials(
@@ -63,8 +95,8 @@ async def get_session():
             aws_session_token=creds["SessionToken"],
             region_name=secrets.get("AWS_REGION"),
         )
-    elif secrets.get("AWS_PROFILE_NAME"):
-        profile_name = secrets.get("AWS_PROFILE_NAME")
+    elif secrets.get("AWS_PROFILE"):
+        profile_name = secrets.get("AWS_PROFILE")
         session = aioboto3.Session(profile_name=profile_name)
     elif secrets.get("AWS_ACCESS_KEY_ID") and secrets.get("AWS_SECRET_ACCESS_KEY"):
         logger.warning(

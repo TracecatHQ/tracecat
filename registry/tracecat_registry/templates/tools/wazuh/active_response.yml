@@ -2,11 +2,11 @@ type: action
 definition:
   name: active_response
   namespace: tools.wazuh
-  title: Run Active Response command
+  title: Run command
   description: Run an Active Response command on Wazuh agents.
   display_group: Wazuh
-  doc_url: null
-  author: null
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.active_response_controller.run_command
+  author: bouddha-fr
   expects:
     command:
       type: str

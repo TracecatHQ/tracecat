@@ -30,15 +30,7 @@ repos:
       - id: ruff-format
         verbose: true
         exclude: ^alembic/versions/
-  - repo: https://github.com/antonbabenko/pre-commit-terraform
-    rev: v1.94.1
-    hooks:
-      - id: terraform_fmt
-      - id: terraform_validate
-      - id: terraform_tflint
-    files:
-      - deployments/**
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.18.2 # Specify the desired version of Gitleaks
+    rev: v8.18.2
     hooks:
       - id: gitleaks

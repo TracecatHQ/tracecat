@@ -30,15 +30,14 @@ dependencies = [
     "docker==7.1.0",
     "grpcio==1.68.0",
     "hatchling==1.27.0",
-    "httpx>=0.27.2",
     "ldap3==2.9.1",
     "nh3==0.2.18",
     "fpdf2==2.8.2",
     "pycti==6.6.3",
     "pymongo==4.8.0",
-    "pytenable==1.6.0",
     "slack-sdk==3.28.0",
     "tenacity==8.3.0",
+    "marshmallow==3.26.1",
     "types-aioboto3[guardduty,s3]==13.0.1",
 ]
 dynamic = ["version"]

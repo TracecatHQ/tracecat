@@ -17,8 +17,9 @@ definition:
       type: str
       description: Detailed description of the incident.
     severity:
-      type: str
+      type: int
       description: Severity of the incident.
+      default: 2
     tags:
       type: list[str]
       description: Tags to categorize the incident.

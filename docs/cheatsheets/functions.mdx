@@ -6,6 +6,7 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 ## Functions
 | Function | Arguments | Description |
 | --- | --- | --- |
+| `parse_csv` | (x: str) -> list[dict[str, Any]] | Parse CSV string into list of objects. |
 | `capitalize` | (x: str) -> str | Capitalize a string. |
 | `concat` | (*items: str) -> str | Concatenate multiple strings. |
 | `endswith` | (x: str, suffix: str) -> bool | Check if a string ends with a specified suffix. |
@@ -96,8 +97,6 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 | `seconds` | (x: int) -> timedelta | Create timedelta with specified seconds. |
 | `set_timezone` | (x: datetime \| str, timezone: str) -> datetime | Convert datetime to different timezone. Timezone must be a valid IANA timezone name (e.g., "America/New_York"). |
 | `to_datetime` | (x: Any, timezone: str \| None = None) -> datetime | Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime.
-
-    Supports timezone-aware datetime objects if IANA timezone is provided.
      |
 | `to_isoformat` | (x: datetime \| str) -> str | Convert datetime to ISO format string. |
 | `to_time` | (x: datetime \| str) -> time | Convert datetime to time. |

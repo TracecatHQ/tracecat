@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
@@ -51,6 +52,7 @@ class WorkflowReadMinimal(BaseModel):
     tags: list[TagRead] | None = None
     alias: str | None = None
     error_handler: str | None = None
+    latest_definition: WorkflowDefinitionReadMinimal | None = None
 
 
 class WorkflowUpdate(BaseModel):
@@ -182,3 +184,18 @@ class WorkflowCommitResponse(BaseModel):
 class WorkflowDSLCreateResponse(BaseModel):
     workflow: Workflow | None = None
     errors: list[RegistryActionValidateResponse] | None = None
+
+
+@dataclass
+class WorkflowDefinitionMinimal:
+    """Workflow definition metadata domain model."""
+
+    id: str
+    version: int
+    created_at: datetime
+
+
+class WorkflowDefinitionReadMinimal(BaseModel):
+    id: str
+    version: int
+    created_at: datetime

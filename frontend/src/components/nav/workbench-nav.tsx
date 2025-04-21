@@ -10,6 +10,7 @@ import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
+  ChevronDownIcon,
   DownloadIcon,
   MoreHorizontal,
   PlayIcon,
@@ -23,19 +24,8 @@ import { z } from "zod"
 
 import { TracecatApiError } from "@/lib/errors"
 import { exportWorkflow, handleExportError } from "@/lib/export"
-import { useManualWorkflowExecution } from "@/lib/hooks"
+import { useCreateManualWorkflowExecution } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -73,13 +63,12 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
+import { Spinner } from "@/components/loading/spinner"
 
 export function WorkbenchNav() {
   const {
     workflow,
     isLoading: workflowLoading,
-    isOnline,
-    setIsOnline,
     commitWorkflow,
     validationErrors,
     setValidationErrors,
@@ -167,10 +156,7 @@ export function WorkbenchNav() {
               </Button>
             </TooltipTrigger>
 
-            <TooltipContent
-              side="bottom"
-              className="w-fit border bg-background p-0 text-xs text-muted-foreground shadow-lg"
-            >
+            <TooltipContent side="bottom" className="w-fit text-xs shadow-lg">
               {validationErrors ? (
                 <div className="space-y-2 rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
                   <span className="text-xs font-bold text-rose-500">
@@ -190,12 +176,10 @@ export function WorkbenchNav() {
                   </div>
                 </div>
               ) : (
-                <div className="p-2">
-                  <span>
-                    Save workflow v{(workflow.version || 0) + 1} with your
-                    changes.
-                  </span>
-                </div>
+                <span>
+                  Save workflow v{(workflow.version || 0) + 1} with your
+                  changes.
+                </span>
               )}
             </TooltipContent>
           </Tooltip>
@@ -207,53 +191,6 @@ export function WorkbenchNav() {
             {workflow.version ? `v${workflow.version}` : "Draft"}
           </Badge>
         </div>
-
-        {/* Workflow status */}
-        <Tooltip>
-          <AlertDialog>
-            <TooltipTrigger asChild>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "h-7 text-xs font-bold",
-                    isOnline
-                      ? "text-rose-400 hover:text-rose-500"
-                      : "bg-emerald-500 text-white hover:bg-emerald-500/80 hover:text-white"
-                  )}
-                >
-                  {isOnline ? "Disable workflow" : "Enable workflow"}
-                </Button>
-              </AlertDialogTrigger>
-            </TooltipTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  {isOnline ? "Disable workflow?" : "Enable workflow?"}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  {isOnline
-                    ? "Are you sure you want to disable the workflow? This will pause all schedules and block webhook events."
-                    : "Are you sure you want to enable the workflow? This will resume all schedules and allow webhook events."}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => setIsOnline(!isOnline)}>
-                  Confirm
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-          <TooltipContent
-            side="bottom"
-            className="w-72 border bg-background text-xs text-muted-foreground shadow-lg"
-          >
-            {isOnline
-              ? "Disable the workflow to pause all schedules and block webhook events."
-              : "Enable the workflow to resume all schedules and allow webhook events."}
-          </TooltipContent>
-        </Tooltip>
 
         {/* Workflow options */}
         <WorkbenchNavOptions
@@ -362,8 +299,10 @@ function WorkflowManualTrigger({
   disabled: boolean
   workflowId: string
 }) {
-  const { expandSidebarAndFocusEvents } = useWorkflowBuilder()
-  const { createExecution } = useManualWorkflowExecution(workflowId)
+  const { expandSidebarAndFocusEvents, setCurrentExecutionId } =
+    useWorkflowBuilder()
+  const { createExecution, createExecutionIsPending } =
+    useCreateManualWorkflowExecution(workflowId)
   const [open, setOpen] = React.useState(false)
   const { workspaceId } = useWorkspace()
   const [lastTriggerInput, setLastTriggerInput] = React.useState<string | null>(
@@ -373,6 +312,7 @@ function WorkflowManualTrigger({
     string,
     string
   > | null>(null)
+  const [isTriggering, setIsTriggering] = React.useState(false)
   const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
     defaultValues: {
@@ -380,152 +320,159 @@ function WorkflowManualTrigger({
     },
   })
 
-  const handleSubmit = async (values: TWorkflowControlsForm) => {
-    // Make the API call to start the workflow
-    const { payload } = values
-    setLastTriggerInput(payload)
+  const runWorkflow = async ({ payload }: Partial<TWorkflowControlsForm>) => {
+    if (disabled || createExecutionIsPending) return
+    setIsTriggering(true)
+    setTimeout(() => setIsTriggering(false), 1000)
     setManualTriggerErrors(null)
     try {
-      const response = await createExecution({
+      const result = await createExecution({
         workflow_id: workflowId,
         inputs: payload ? JSON.parse(payload) : undefined,
       })
-      // Maybe add setting to control this behavior
+
+      // Store the execution ID directly
+      if (result && result.wf_exec_id) {
+        setCurrentExecutionId(result.wf_exec_id)
+      }
+
+      // Expand sidebar immediately
       expandSidebarAndFocusEvents()
-      console.log("Workflow started", response)
-      toast({
-        title: `Workflow run started`,
-        description: `${response.wf_exec_id} ${response.message}`,
-      })
     } catch (error) {
       if (error instanceof ApiError) {
-        const tracecatError = error as TracecatApiError
+        const tracecatError = error as TracecatApiError<Record<string, string>>
         console.error("Error details", tracecatError.body.detail)
-        switch (tracecatError.status) {
-          case 400:
-            toast({
-              title: "Invalid workflow trigger inputs",
-              description: "Please hover over the run button for details.",
-              variant: "destructive",
-            })
-            setManualTriggerErrors(
-              tracecatError.body.detail as Record<string, string>
-            )
-            break
-          default:
-            console.error("Unexpected error starting workflow", error)
-            toast({
-              title: "Unexpected error starting workflow",
-              description: "Please check the run logs for more information",
-              variant: "destructive",
-            })
-        }
-      } else {
-        console.error("Unexpected error starting workflow", error)
-        toast({
-          title: "Unexpected error starting workflow",
-          description: "Please check the run logs for more information",
-          variant: "destructive",
-        })
+        setManualTriggerErrors(tracecatError.body.detail)
       }
+    }
+  }
+
+  const runWithPayload = async ({ payload }: TWorkflowControlsForm) => {
+    // Make the API call to start the workflow
+    setLastTriggerInput(payload)
+    try {
+      await runWorkflow({ payload })
     } finally {
       setOpen(false)
     }
   }
 
+  const executionPending = createExecutionIsPending || isTriggering
   return (
     <Form {...form}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span>
-            <Popover
-              open={open && !disabled}
-              onOpenChange={(newOpen) => !disabled && setOpen(newOpen)}
-            >
+      <div className="flex h-7 gap-px rounded-lg border border-input bg-emerald-400">
+        {/* Main Button */}
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            "h-full gap-2 rounded-r-none border-none px-3 py-0 text-xs font-bold",
+            manualTriggerErrors
+              ? "text-rose-400 hover:text-rose-500"
+              : "bg-emerald-500 text-white hover:bg-emerald-400 hover:text-white"
+          )}
+          disabled={disabled || executionPending}
+          onClick={() => runWorkflow({ payload: undefined })}
+        >
+          {executionPending ? (
+            <Spinner className="size-3" segmentColor="#fff" />
+          ) : manualTriggerErrors ? (
+            <AlertTriangleIcon className="size-3 fill-red-500 stroke-white" />
+          ) : (
+            <PlayIcon className="size-3 fill-white stroke-white" />
+          )}
+          <span>Run</span>
+        </Button>
+        {/* Dropdown Button */}
+        <Tooltip delayDuration={500}>
+          <Popover
+            open={open && !disabled}
+            onOpenChange={(newOpen) => !disabled && setOpen(newOpen)}
+          >
+            <TooltipTrigger asChild>
               <PopoverTrigger asChild>
                 <Button
                   type="button"
                   variant="outline"
                   className={cn(
-                    "group flex h-7 items-center px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white disabled:pointer-events-none",
-                    manualTriggerErrors &&
-                      "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
+                    "h-full w-7 rounded-l-none border-none px-1 py-0 text-xs font-bold",
+                    manualTriggerErrors
+                      ? "text-rose-400 hover:text-rose-500"
+                      : "bg-emerald-500 text-white hover:bg-emerald-400 hover:text-white"
                   )}
-                  disabled={disabled}
-                  onClick={() => !disabled && setOpen(true)}
+                  disabled={disabled || executionPending}
                 >
-                  {manualTriggerErrors ? (
-                    <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
-                  ) : (
-                    <PlayIcon className="mr-2 size-3 fill-emerald-500 stroke-emerald-500 group-hover:fill-white group-hover:stroke-white" />
-                  )}
-                  <span>Run</span>
+                  <ChevronDownIcon className="size-3" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-fit p-3">
-                <form onSubmit={form.handleSubmit(handleSubmit)}>
-                  <div className="flex h-fit flex-col">
-                    <span className="mb-2 text-xs text-muted-foreground">
-                      Edit the JSON payload below.
-                    </span>
-                    <FormField
-                      control={form.control}
-                      name="payload"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <DynamicCustomEditor
-                              className="max-h-[50rem] min-h-60 min-w-[30rem] max-w-[50rem] resize overflow-auto"
-                              defaultLanguage="yaml-extended"
-                              value={field.value}
-                              onChange={field.onChange}
-                              workspaceId={workspaceId}
-                              workflowId={workflowId}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button
-                      type="submit"
-                      variant="default"
-                      className="group mt-2 flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
-                    >
+            </TooltipTrigger>
+            <PopoverContent className="w-fit p-3">
+              <form onSubmit={form.handleSubmit(runWithPayload)}>
+                <div className="flex h-fit flex-col">
+                  <span className="mb-2 text-xs text-muted-foreground">
+                    Edit the JSON payload below.
+                  </span>
+                  <FormField
+                    control={form.control}
+                    name="payload"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <DynamicCustomEditor
+                            className="max-h-[50rem] min-h-60 min-w-[30rem] max-w-[50rem] resize overflow-auto"
+                            defaultLanguage="yaml-extended"
+                            value={field.value}
+                            onChange={field.onChange}
+                            workspaceId={workspaceId}
+                            workflowId={workflowId}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="submit"
+                    variant="default"
+                    disabled={executionPending}
+                    className="group mt-2 flex h-7 items-center bg-emerald-500 px-3 py-0 text-xs text-white hover:bg-emerald-500/80 hover:text-white"
+                  >
+                    {executionPending ? (
+                      <Spinner className="mr-2 size-3" />
+                    ) : (
                       <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
-                      <span>Run</span>
-                    </Button>
-                  </div>
-                </form>
-              </PopoverContent>
-            </Popover>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent
-          side="bottom"
-          className={cn(
-            "w-96 border bg-background text-xs text-muted-foreground shadow-lg",
-            manualTriggerErrors && "p-0"
-          )}
-        >
-          {manualTriggerErrors ? (
-            <div className="space-y-2 overflow-auto rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
-              <span className="text-xs font-bold text-rose-500">
-                Trigger Validation Errors
-              </span>
-              <div className="mt-1 space-y-1">
-                <pre className="text-wrap text-rose-500">
-                  {YAML.stringify(manualTriggerErrors)}
-                </pre>
+                    )}
+                    <span>{executionPending ? "Starting..." : "Run"}</span>
+                  </Button>
+                </div>
+              </form>
+            </PopoverContent>
+          </Popover>
+          <TooltipContent
+            side="bottom"
+            className={cn("text-xs shadow-lg", manualTriggerErrors && "p-0")}
+          >
+            {manualTriggerErrors ? (
+              <div className="space-y-2 overflow-auto rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
+                <span className="text-xs font-bold text-rose-500">
+                  Trigger Validation Errors
+                </span>
+                <div className="mt-1 space-y-1">
+                  <pre className="text-wrap text-rose-500">
+                    {YAML.stringify(manualTriggerErrors)}
+                  </pre>
+                </div>
               </div>
-            </div>
-          ) : disabled ? (
-            "Please save changes to enable manual trigger."
-          ) : (
-            "Run the workflow manually without a webhook. Click to configure inputs."
-          )}
-        </TooltipContent>
-      </Tooltip>
+            ) : disabled ? (
+              "Please save changes to enable manual trigger."
+            ) : executionPending ? (
+              "Starting workflow execution..."
+            ) : (
+              "Run the workflow with trigger inputs."
+            )}
+          </TooltipContent>
+        </Tooltip>
+      </div>
     </Form>
   )
 }

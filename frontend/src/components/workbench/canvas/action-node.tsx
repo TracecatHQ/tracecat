@@ -121,8 +121,14 @@ export default React.memo(function ActionNode({
   const nodeRef = useRef<HTMLDivElement>(null)
   const hideTimeoutRef = useRef<number>()
   const { breakpoint, style } = useActionNodeZoomBreakpoint()
-
+  const { actionPanelRef } = useWorkflowBuilder()
   // Clear timeout on unmount
+  const expandActionPanel = useCallback(() => {
+    if (actionPanelRef.current?.isCollapsed()) {
+      actionPanelRef.current?.expand()
+    }
+  }, [actionPanelRef])
+
   useEffect(() => {
     return () => {
       if (hideTimeoutRef.current) {
@@ -291,6 +297,7 @@ export default React.memo(function ActionNode({
             )}
             onMouseEnter={handleNodeMouseEnter}
             onMouseLeave={handleNodeMouseLeave}
+            onClick={expandActionPanel}
           >
             <ActionNodeContent
               workspaceId={workspaceId}
@@ -492,7 +499,6 @@ function ActionNodeToolbar({
   const { workspaceId } = useWorkflowBuilder()
   const { isChildWorkflow, childWorkflowAlias, childIdFromAlias } =
     childWorkflowInfo
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [commandValue, setCommandValue] = useState<string>(COMMAND_VALUE_UNSET)
   const handleToolbarMouseEnter = useCallback(() => {
     setIsMouseOverToolbar(true)
@@ -510,6 +516,7 @@ function ActionNodeToolbar({
       align="start"
       onMouseEnter={handleToolbarMouseEnter}
       onMouseLeave={handleToolbarMouseLeave}
+      onClick={(e) => e.stopPropagation()}
     >
       <Command
         value={commandValue}
@@ -521,8 +528,8 @@ function ActionNodeToolbar({
           {/* Actions */}
           <CommandGroup>
             <CommandItem
-              value={`ACTIONS.${slugify(action.title)}.result`}
-              onSelect={(value) => {
+              onSelect={() => {
+                const value = `ACTIONS.${slugify(action.title)}.result`
                 navigator.clipboard.writeText(value)
                 toast({
                   title: "Copied action reference",
@@ -538,7 +545,7 @@ function ActionNodeToolbar({
               }}
             >
               <CopyIcon className="mr-2 size-3" />
-              <span>Copy Reference</span>
+              <span>Copy reference</span>
             </CommandItem>
             <CommandItem onSelect={() => form.setFocus("title")}>
               <PencilIcon className="mr-2 size-3" />
@@ -552,7 +559,7 @@ function ActionNodeToolbar({
               }}
             >
               <LayoutListIcon className="mr-2 size-3" />
-              <span>View Last Input</span>
+              <span>View last input</span>
             </CommandItem>
             <CommandItem
               onSelect={() => {
@@ -562,7 +569,7 @@ function ActionNodeToolbar({
               }}
             >
               <CircleCheckBigIcon className="mr-2 size-3" />
-              <span>View Last Result</span>
+              <span>View last result</span>
             </CommandItem>
             {action?.is_interactive && (
               <CommandItem
@@ -573,7 +580,7 @@ function ActionNodeToolbar({
                 }}
               >
                 <MessagesSquare className="mr-2 size-3" />
-                <span>View Last Interaction</span>
+                <span>View last interaction</span>
               </CommandItem>
             )}
 

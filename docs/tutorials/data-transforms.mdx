@@ -15,7 +15,7 @@ Tracecat supports the following transform actions:
 - `core.transform.reshape`: Organize data into a value or object.
 - `core.transform.filter`: Filter a list of items.
 - `core.transform.is_in`: Check if an item is in a list.
-- `core.transform.is_not_in`: Check if an item is not in a list.
+- `core.transform.not_in`: Check if an item is not in a list.
 - `core.transform.deduplicate`: Deduplicate a list of JSON objects given a list of keys.
 - `core.transform.apply`: Apply a `python_lambda` function to a value.
 - `core.transform.map`: Apply a `python_lambda` function to each item in a list.
@@ -71,7 +71,7 @@ Deduplicate a list of JSON objects given a list of keys.
 <CodeGroup>
   ```php Basic deduplication
   # Deduplicate alerts by ID - keeps only the most recent alert with the same ID
-  value: [
+  items: [
     {"id": 1, "name": "Suspicious Login", "status": "New"},
     {"id": 2, "name": "Malware Detected", "status": "New"},
     {"id": 1, "name": "Suspicious Login", "status": "Updated"},
@@ -87,7 +87,7 @@ Deduplicate a list of JSON objects given a list of keys.
 
   ```php Nested field deduplication
   # Deduplicate security events based on nested user ID
-  value: [
+  items: [
     {"event": {"type": "login"}, "user": {"id": 1, "ip": "10.0.0.1"}},
     {"event": {"type": "login"}, "user": {"id": 2, "ip": "10.0.0.2"}},
     {"event": {"type": "access"}, "user": {"id": 1, "ip": "10.0.0.3"}},
@@ -106,7 +106,7 @@ Deduplicate a list of JSON objects given a list of keys.
 
   ```php Multiple key deduplication
   # Deduplicate network traffic events by source and destination
-  value: [
+  items: [
     {
       "meta": {"type": "network", "source": "10.0.0.1"},
       "data": {"dest": "8.8.8.8", "bytes": 1024},
@@ -140,13 +140,12 @@ Deduplicate a list of JSON objects given a list of keys.
   ```
 </CodeGroup>
 
-## Lambda Transforms
+## Python Lambda
 
-The following transforms accept an action input called `python_lambda`.
+Some transform actions (e.g. `core.transform.filter`, `core.transform.map`) accept an input called `python_lambda`.
 `python_lambda` is a Python Lambda function given as a string.
 
 It allows you to use small snippets of Python code to transform data and define conditions.
-For security, we only support a limited set of core Python features.
 
 <Info>
   Python lambda functions are small anonymous functions that are used to define simple functions that are passed to other functions.
@@ -172,42 +171,33 @@ For security, we only support a limited set of core Python features.
   ```
 </Note>
 
-### Filter
+## Filter
 
 Filter a list of items given a Python lambda function.
 This function should return a truthy or falsy value.
 
-**Examples**
+```php
+items: [{"name": "John", "age": 30}, {"name": "Jane", "age": 25}]
+python_lambda: >-
+  lambda x: x['age'] > 25
+```
 
-<CodeGroup>
-  ```php
-  value: [{"name": "John", "age": 30}, {"name": "Jane", "age": 25}]
-  python_lambda: "lambda x: x['age'] > 25"
-  ```
-</CodeGroup>
-
-### Apply
-
-<Warning>
-  This action is for simple oneline Python functions only.
-  If you want to use custom Python code in Tracecat,
-  we recommend syncing these functions into Tracecat as [Python UDF actions](/integrations/python-udfs).
-
-  Check out more in the [custom integrations tutorial](/tutorials/custom-integrations).
-</Warning>
+## Apply
 
 Apply a Python lambda function to a value.
 
 ```php
 value: {"name": "John", "age": 30}
-python_lambda: "lambda x: x['name'] == 'John'"
+python_lambda: >-
+  lambda x: x['name'] == 'John'
 ```
 
-### Map
+## Map
 
 Apply a Python lambda function to each item in a list.
 
 ```php
-value: [{"name": "John", "age": 30}, {"name": "Jane", "age": 25}]
-python_lambda: "lambda x: x['name']"
+items: [{"name": "John", "age": 30}, {"name": "Jane", "age": 25}]
+python_lambda: >-
+  lambda x: x['name']
 ```

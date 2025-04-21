@@ -83,6 +83,7 @@ async def validate_workflow_definition(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == workflow_id)
             .order_by(col(WorkflowDefinition.version).desc())
+            .limit(1)
         )
         defn = result.first()
         if not defn:
@@ -90,15 +91,6 @@ async def validate_workflow_definition(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No workflow definition found for workflow ID."
                 " Please commit your changes to the workflow and try again.",
-            )
-
-        # Check if the workflow is active
-
-        if defn.workflow.status == "offline":
-            logger.info("Workflow is offline")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Workflow is offline",
             )
 
         # If we are here, all checks have passed
