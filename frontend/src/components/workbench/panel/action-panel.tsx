@@ -169,9 +169,14 @@ const parseYaml = (str: string | undefined) =>
 const stringifyYaml = (obj: unknown | undefined) =>
   obj ? YAML.stringify(obj) : ""
 
+export type ActionPanelTabs =
+  | "inputs"
+  | "control-flow"
+  | "retry-policy"
+  | "template-inputs"
 export interface ActionPanelRef extends ImperativePanelHandle {
-  setActiveTab: (tab: string) => void
-  getActiveTab: () => string
+  setActiveTab: (tab: ActionPanelTabs) => void
+  getActiveTab: () => ActionPanelTabs
   setOpen: (open: boolean) => void
   isOpen: () => boolean
 }
@@ -217,7 +222,7 @@ export function ActionPanel({
     RegistryActionValidateResponse[]
   >([])
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
-  const [activeTab, setActiveTab] = useState("inputs")
+  const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
@@ -403,7 +408,7 @@ export function ActionPanel({
       <Tabs
         defaultValue="inputs"
         value={activeTab}
-        onValueChange={setActiveTab}
+        onValueChange={(value) => setActiveTab(value as ActionPanelTabs)}
         className="w-full"
       >
         <FormProvider {...methods}>
