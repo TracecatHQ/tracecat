@@ -137,6 +137,12 @@ export default React.memo(function ActionNode({
     }
   }, [])
 
+  useEffect(() => {
+    if (selected && actionPanelRef.current?.isCollapsed()) {
+      actionPanelRef.current?.expand()
+    }
+  }, [selected])
+
   // Handle combined mouse over state
   useEffect(() => {
     if (isMouseOverNode || isMouseOverToolbar || selected) {
