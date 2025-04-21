@@ -271,14 +271,11 @@ export function WorkflowEvents({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Badge
-                        variant="secondary"
-                        className="whitespace-nowrap font-normal text-foreground/70"
-                      >
+                      <div className="whitespace-nowrap text-foreground/70">
                         {event.start_time
                           ? new Date(event.start_time).toLocaleTimeString()
                           : "-"}
-                      </Badge>
+                      </div>
 
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
