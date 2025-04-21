@@ -38,7 +38,7 @@ env:
 
 jobs:
   test-all:
-    runs-on: ubuntu-latest-4-cores
+    runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
     strategy:
       matrix:
@@ -52,14 +52,14 @@ jobs:
           ref: ${{ github.event.inputs.git-ref }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: useblacksmith/setup-uv@v4
         with:
           version: "0.4.20"
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: useblacksmith/setup-python@v6
         with:
           python-version: "3.12"
 
