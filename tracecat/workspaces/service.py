@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from pydantic import UUID4
-from sqlalchemy import func
 from sqlmodel import select
 
 from tracecat import config
@@ -21,7 +22,9 @@ class WorkspaceService(BaseService):
     service_name = "workspace"
 
     @require_access_level(AccessLevel.ADMIN)
-    async def admin_list_workspaces(self, limit: int | None = None) -> list[Workspace]:
+    async def admin_list_workspaces(
+        self, limit: int | None = None
+    ) -> Sequence[Workspace]:
         """List all workspaces in the organization."""
         statement = select(Workspace)
         if limit is not None:
@@ -33,7 +36,7 @@ class WorkspaceService(BaseService):
 
     async def list_workspaces(
         self, user_id: UserID, limit: int | None = None
-    ) -> list[Workspace]:
+    ) -> Sequence[Workspace]:
         """List all workspaces that a user is a member of.
 
         If user_id is provided, list only workspaces where user is a member.
@@ -50,14 +53,6 @@ class WorkspaceService(BaseService):
             statement = statement.limit(limit)
         result = await self.session.exec(statement)
         return result.all()
-
-    async def n_workspaces(self, user_id: UserID) -> int:
-        statement = select(func.count(Workspace.id)).where(
-            Workspace.id == Membership.workspace_id,
-            Membership.user_id == user_id,
-        )
-        result = await self.session.exec(statement)
-        return result.one()
 
     @require_access_level(AccessLevel.ADMIN)
     async def create_workspace(
@@ -129,7 +124,7 @@ class WorkspaceService(BaseService):
 
     async def search_workspaces(
         self, params: SearchWorkspacesParams
-    ) -> list[Workspace]:
+    ) -> Sequence[Workspace]:
         """Retrieve a workspace by ID."""
         statement = select(Workspace)
         if self.role.access_level < AccessLevel.ADMIN:
