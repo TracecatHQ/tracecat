@@ -227,6 +227,6 @@ TRACECAT__TRUSTED_DOCKER_IMAGES = (
 If not provided, no images will be trusted.
 """
 TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES", 128_000)
+    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES", 1024 * 1024)
 )
-"""The maximum size of a payload in bytes the executor can return."""
+"""The maximum size of a payload in bytes the executor can return. Defaults to 1MB"""
