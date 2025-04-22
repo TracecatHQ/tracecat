@@ -1489,10 +1489,6 @@ export type TableRowInsert = {
     [key: string]: unknown
   }
   upsert?: boolean
-  /**
-   * The columns of the table to use for upsert
-   */
-  natural_keys?: Array<string>
 }
 
 /**

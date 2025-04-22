@@ -4546,14 +4546,6 @@ export const $TableRowInsert = {
       title: "Upsert",
       default: false,
     },
-    natural_keys: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Natural Keys",
-      description: "The columns of the table to use for upsert",
-    },
   },
   type: "object",
   required: ["data"],
