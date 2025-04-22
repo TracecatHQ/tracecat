@@ -354,7 +354,23 @@ class TestTableRows:
             await tables_service.insert_row(table, upsert_insert)
 
         # Verify error message
-        assert "Create a unique index first" in str(exc_info.value)
+        assert "Table must have at least one unique index for upsert" in str(
+            exc_info.value
+        )
+
+    async def test_index_field_required_for_upsert(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Test that upsert fails if the field is not in the index."""
+        await tables_service.create_unique_index(table, "name")
+
+        with pytest.raises(ValueError) as exc_info:
+            upsert_insert = TableRowInsert(data={"age": 41}, upsert=True)
+            await tables_service.insert_row(table, upsert_insert)
+
+        assert "Data to upsert must contain the unique index column" in str(
+            exc_info.value
+        )
 
     async def test_update_row(
         self, tables_service: TablesService, table: Table
