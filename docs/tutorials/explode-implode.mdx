@@ -6,41 +6,48 @@ icon: layer-group
 
 ## What you'll learn
 
-By the end of this tutorial, you'll learn how to set up the **fetcher-processor** pattern to process lists of data.
+By the end of this tutorial, you'll learn how to:
 
-<Note>
-    Though the **fetcher-processor** pattern requires two workflows, it is a powerful pattern as:
+- Set up the **fetcher-processor** pattern to process lists of data.
+- Create lookup tables with natural keys for upserts.
 
-    1. Processor workflows can be reused by other fetcher workflows.
-    2. Processor workflows can be tested in isolation with a single item.
-    3. Fetcher workflows can be scheduled to run at specified intervals.
-    4. Commonly used in data pipelines at scale.
-</Note>
+<Info>
+  Though the **fetcher-processor** pattern requires two workflows, it is a powerful pattern as:
+
+  1. Processor workflows can be reused by other fetcher workflows.
+  2. Processor workflows can be tested in isolation with a single item.
+  3. Fetcher workflows can be scheduled to run at specified intervals.
+  4. Commonly used in data pipelines at scale.
+</Info>
 
 ## Fetcher-processor
+
+<Note>
+  Download the workflow YAML files from the `playbooks/tutorials/` directory in our [GitHub repo](https://github.com/TracecatHQ/tracecat/tree/main/playbooks/tutorials).
+</Note>
 
 The fetcher-processor pattern consists of two workflows:
 - A fetcher workflow that fetches a list of data (e.g. list of alerts).
 - A processor workflow that receives and processes one item at a time (e.g. enrich alert and open a case)
 
 <Steps>
-    <Step title="Fetcher workflow" icon="layer-group">
-        Fetch a list of data from an external source.
-        In this example, we fetch a list of URLs from a file.
-    </Step>
-    <Step title="Processor workflow" icon="">
-        Process each item in the list.
-        In this example, we enrich each URL and open a case.
-    </Step>
+  <Step title="Fetcher workflow" icon="layer-group">
+    Fetch a list of data from an external source.
+    In this example, we fetch a list of URLs from a file.
+  </Step>
+  <Step title="Processor workflow" icon="">
+    Process each item in the list.
+    In this example, we enrich each URL and open a case.
+  </Step>
 </Steps>
 
 ## Use cases
 
 <Tip>
-    To implement branching logic (similar to if-conditions) with lists of data, use `core.transform.filter` or JSONPath filters.
+  To implement branching logic (similar to if-conditions) with lists of data, use `core.transform.filter` or JSONPath filters.
 
-    - Learn about the filter action in the [data transforms](/tutorials/data-transforms#filter) tutorial.
-    - Learn about JSONPath filters in the [JSONPath](/cheatsheet/jsonpath#basic-filters) cheatsheet.
+  - Learn about the filter action in the [data transforms](/tutorials/data-transforms#filter) tutorial.
+  - Learn about JSONPath filters in the [JSONPath](/cheatsheet/jsonpath#basic-filters) cheatsheet.
 </Tip>
 
 Common **processor workflows** include:
