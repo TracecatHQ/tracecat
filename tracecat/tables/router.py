@@ -134,7 +134,7 @@ async def get_table(
         ) from e
 
     # Get natural key info or default to empty dict if not present
-    natural_key_info = await service.get_index(table)
+    index_columns = await service.get_index(table)
 
     # Convert to response model (includes is_index field)
     return TableRead(
@@ -147,7 +147,7 @@ async def get_table(
                 type=SqlType(column.type),
                 nullable=column.nullable,
                 default=column.default,
-                is_index=natural_key_info.get(column.name, False),
+                is_index=column.name in index_columns,
             )
             for column in table.columns
         ],
