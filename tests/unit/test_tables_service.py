@@ -314,9 +314,7 @@ class TestTableRows:
 
         # Upsert using name as natural key
         upsert_data = {"name": "John", "age": 35}
-        upsert_insert = TableRowInsert(
-            data=upsert_data, upsert=True, natural_keys=["name"]
-        )
+        upsert_insert = TableRowInsert(data=upsert_data, upsert=True)
         upserted = await tables_service.insert_row(table, upsert_insert)
 
         # Verify row was updated
@@ -372,9 +370,7 @@ class TestTableRows:
 
         # Upsert with compound key
         compound_upsert = TableRowInsert(
-            data={"name": "Alice", "age": 26, "email": "alice@example.com"},
-            upsert=True,
-            natural_keys=["name", "email"],
+            data={"name": "Alice", "age": 26, "email": "alice@example.com"}, upsert=True
         )
         updated = await tables_service.insert_row(compound_table, compound_upsert)
 
@@ -408,7 +404,7 @@ class TestTableRows:
         # Attempt upsert without index
         with pytest.raises(ValueError) as exc_info:
             upsert_insert = TableRowInsert(
-                data={"name": "TestUser", "age": 41}, upsert=True, natural_keys=["name"]
+                data={"name": "TestUser", "age": 41}, upsert=True
             )
             await tables_service.insert_row(table, upsert_insert)
 
