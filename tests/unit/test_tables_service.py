@@ -180,7 +180,7 @@ class TestTableColumns:
     ) -> None:
         """Test creating a unique index on a single column."""
         # Create the unique index on the 'name' column
-        await tables_service.create_unique_index(table, ["name"])
+        await tables_service.create_unique_index(table, "name")
 
         # Insert a row with a unique name
         await tables_service.insert_row(
@@ -194,64 +194,6 @@ class TestTableColumns:
             )
 
         # Verify the error message indicates a unique constraint violation
-        error_msg = str(exc_info.value)
-        assert "unique" in error_msg.lower() or "duplicate" in error_msg.lower()
-
-    async def test_create_compound_unique_index(
-        self, tables_service: TablesService, table: Table
-    ) -> None:
-        """Test creating a unique index on multiple columns (compound key)."""
-        # Add an additional column to the table
-        await tables_service.create_column(
-            table,
-            TableColumnCreate(name="email", type=SqlType.TEXT, nullable=True),
-        )
-
-        # Create a compound unique index on 'name' and 'email'
-        await tables_service.create_unique_index(table, ["name", "email"])
-
-        # Insert a row with a unique combination
-        await tables_service.insert_row(
-            table,
-            TableRowInsert(
-                data={"name": "CompoundUser", "email": "user@example.com", "age": 25}
-            ),
-        )
-
-        # Same name but different email should succeed
-        await tables_service.insert_row(
-            table,
-            TableRowInsert(
-                data={
-                    "name": "CompoundUser",
-                    "email": "different@example.com",
-                    "age": 30,
-                }
-            ),
-        )
-
-        # Same email but different name should succeed
-        await tables_service.insert_row(
-            table,
-            TableRowInsert(
-                data={"name": "DifferentUser", "email": "user@example.com", "age": 35}
-            ),
-        )
-
-        # Same name AND email should fail due to unique constraint
-        with pytest.raises(ValueError) as exc_info:
-            await tables_service.insert_row(
-                table,
-                TableRowInsert(
-                    data={
-                        "name": "CompoundUser",
-                        "email": "user@example.com",
-                        "age": 40,
-                    }
-                ),
-            )
-
-        # Verify the error indicates a unique constraint violation
         error_msg = str(exc_info.value)
         assert "unique" in error_msg.lower() or "duplicate" in error_msg.lower()
 
@@ -269,7 +211,7 @@ class TestTableColumns:
 
         # Attempt to create a unique index on 'name' should fail
         with pytest.raises(DBAPIError) as exc_info:
-            await tables_service.create_unique_index(table, ["name"])
+            await tables_service.create_unique_index(table, "name")
 
         # Verify the error indicates a duplicate key value issue
         error_msg = str(exc_info.value)
@@ -310,7 +252,7 @@ class TestTableRows:
         assert inserted is not None, "Inserted row should not be None"
 
         # Create unique index on name column
-        await tables_service.create_unique_index(table, ["name"])
+        await tables_service.create_unique_index(table, "name")
 
         # Upsert using name as natural key
         upsert_data = {"name": "John", "age": 35}
@@ -328,10 +270,10 @@ class TestTableRows:
         assert "updated_at" in upserted
         assert isinstance(upserted["updated_at"], datetime)
 
-    async def test_upsert_compound_unique_index(
+    async def test_upsert_multiple_unique_indexes(
         self, tables_service: TablesService
     ) -> None:
-        """Test upserting with a compound unique index."""
+        """Test upserting with multiple (single column) unique index."""
         # Create a new table specifically for this test
         compound_table = await tables_service.create_table(
             TableCreate(name="compound_test_table")
@@ -352,9 +294,10 @@ class TestTableRows:
         )
 
         # Create a compound unique index on name+email
-        await tables_service.create_unique_index(compound_table, ["name", "email"])
+        await tables_service.create_unique_index(compound_table, "name")
+        await tables_service.create_unique_index(compound_table, "email")
 
-        # Insert rows with the same name but different emails
+        # Insert rows with different names and emails
         await tables_service.insert_row(
             compound_table,
             TableRowInsert(
@@ -363,34 +306,36 @@ class TestTableRows:
         )
         await tables_service.insert_row(
             compound_table,
-            TableRowInsert(
-                data={"name": "Alice", "age": 30, "email": "alice.smith@example.com"}
-            ),
+            TableRowInsert(data={"name": "Bob", "age": 30, "email": "bob@example.com"}),
         )
 
-        # Upsert with compound key
-        compound_upsert = TableRowInsert(
-            data={"name": "Alice", "age": 26, "email": "alice@example.com"}, upsert=True
-        )
-        updated = await tables_service.insert_row(compound_table, compound_upsert)
+        # Test upsert with name as natural key
+        upsert_data = {"name": "Alice", "age": 26, "email": "alice@example.com"}
+        upsert_insert = TableRowInsert(data=upsert_data, upsert=True)
+        upserted = await tables_service.insert_row(compound_table, upsert_insert)
 
-        # Verify only specific row was updated
-        assert updated["name"] == "Alice"
-        assert updated["email"] == "alice@example.com"
-        assert updated["age"] == 26
+        # Verify row was updated
+        assert upserted["name"] == "Alice"
+        assert upserted["email"] == "alice@example.com"
+        assert upserted["age"] == 26
 
-        # Verify the other row was not affected
-        rows = await tables_service.lookup_rows(
-            table_name=compound_table.name, columns=["name"], values=["Alice"]
-        )
-        assert len(rows) == 2, "Should still have two rows with name 'Alice'"
+        # Verify only two rows exist
+        rows = await tables_service.list_rows(compound_table)
+        assert len(rows) == 2, "Should still have two rows after upsert"
 
-        # Verify ages
-        ages = sorted([row["age"] for row in rows])
-        assert ages == [26, 30], "Only one row's age should be updated"
+        # Test upsert with email as natural key
+        upsert_data = {"name": "Bob", "age": 31, "email": "bob@example.com"}
+        upsert_insert = TableRowInsert(data=upsert_data, upsert=True)
+        upserted = await tables_service.insert_row(compound_table, upsert_insert)
 
-        assert "updated_at" in updated
-        assert isinstance(updated["updated_at"], datetime)
+        # Verify row was updated
+        assert upserted["name"] == "Bob"
+        assert upserted["email"] == "bob@example.com"
+        assert upserted["age"] == 31
+
+        # Verify only two rows exist
+        rows = await tables_service.list_rows(compound_table)
+        assert len(rows) == 2, "Should still have two rows after upsert"
 
     async def test_index_required_for_upsert(
         self, tables_service: TablesService, table: Table
