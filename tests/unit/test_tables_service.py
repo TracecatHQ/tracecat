@@ -217,6 +217,16 @@ class TestTableColumns:
         error_msg = str(exc_info.value)
         assert "duplicate" in error_msg.lower() or "already exists" in error_msg.lower()
 
+    async def test_create_multiple_unique_index_fails(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Test that creating multiple unique indexes fails."""
+        await tables_service.create_unique_index(table, "name")
+        with pytest.raises(ValueError) as exc_info:
+            await tables_service.create_unique_index(table, "age")
+
+        assert "Table cannot have multiple unique indexes" in str(exc_info.value)
+
 
 @pytest.mark.anyio
 class TestTableRows:
@@ -270,74 +280,7 @@ class TestTableRows:
         assert "updated_at" in upserted
         assert isinstance(upserted["updated_at"], datetime)
 
-    async def test_upsert_multiple_unique_indexes(
-        self, tables_service: TablesService
-    ) -> None:
-        """Test upserting with multiple (single column) unique index."""
-        # Create a new table specifically for this test
-        compound_table = await tables_service.create_table(
-            TableCreate(name="compound_test_table")
-        )
-
-        # Add columns
-        await tables_service.create_column(
-            compound_table,
-            TableColumnCreate(name="name", type=SqlType.TEXT, nullable=True),
-        )
-        await tables_service.create_column(
-            compound_table,
-            TableColumnCreate(name="age", type=SqlType.INTEGER, nullable=True),
-        )
-        await tables_service.create_column(
-            compound_table,
-            TableColumnCreate(name="email", type=SqlType.TEXT, nullable=True),
-        )
-
-        # Create a compound unique index on name+email
-        await tables_service.create_unique_index(compound_table, "name")
-        await tables_service.create_unique_index(compound_table, "email")
-
-        # Insert rows with different names and emails
-        await tables_service.insert_row(
-            compound_table,
-            TableRowInsert(
-                data={"name": "Alice", "age": 25, "email": "alice@example.com"}
-            ),
-        )
-        await tables_service.insert_row(
-            compound_table,
-            TableRowInsert(data={"name": "Bob", "age": 30, "email": "bob@example.com"}),
-        )
-
-        # Test upsert with name as natural key
-        upsert_data = {"name": "Alice", "age": 26, "email": "alice@example.com"}
-        upsert_insert = TableRowInsert(data=upsert_data, upsert=True)
-        upserted = await tables_service.insert_row(compound_table, upsert_insert)
-
-        # Verify row was updated
-        assert upserted["name"] == "Alice"
-        assert upserted["email"] == "alice@example.com"
-        assert upserted["age"] == 26
-
-        # Verify only two rows exist
-        rows = await tables_service.list_rows(compound_table)
-        assert len(rows) == 2, "Should still have two rows after upsert"
-
-        # Test upsert with email as natural key
-        upsert_data = {"name": "Bob", "age": 31, "email": "bob@example.com"}
-        upsert_insert = TableRowInsert(data=upsert_data, upsert=True)
-        upserted = await tables_service.insert_row(compound_table, upsert_insert)
-
-        # Verify row was updated
-        assert upserted["name"] == "Bob"
-        assert upserted["email"] == "bob@example.com"
-        assert upserted["age"] == 31
-
-        # Verify only two rows exist
-        rows = await tables_service.list_rows(compound_table)
-        assert len(rows) == 2, "Should still have two rows after upsert"
-
-    async def test_index_required_for_upsert(
+    async def test_upsert_index_required(
         self, tables_service: TablesService, table: Table
     ) -> None:
         """Test that upsert fails without a unique index."""
@@ -358,7 +301,7 @@ class TestTableRows:
             exc_info.value
         )
 
-    async def test_index_field_required_for_upsert(
+    async def test_upsert_index_field_required(
         self, tables_service: TablesService, table: Table
     ) -> None:
         """Test that upsert fails if the field is not in the index."""

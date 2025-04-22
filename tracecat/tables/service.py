@@ -111,21 +111,23 @@ class BaseTablesService(BaseService):
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        # Extract just the column portion by looking at the create_unique_index function
-        # which uses index_name = f"uq_{table.name}_{sanitized_column}"
-        query = sa.text("""
-            SELECT indexdef
-            FROM pg_indexes
-            WHERE schemaname = :schema
-              AND tablename = :table
-              AND indexdef LIKE 'CREATE UNIQUE INDEX%'
-        """)
+        def inspect_indexes(
+            sync_conn: sa.Connection,
+        ) -> Sequence[sa.engine.interfaces.ReflectedIndex]:
+            inspector = sa.inspect(sync_conn)
+            indexes = inspector.get_indexes(table.name, schema=schema_name)
+            return indexes
 
-        result = await conn.execute(query, {"schema": schema_name, "table": table.name})
-        rows = result.fetchall()
-        column_names = [row[0] for row in rows]
-        self.logger.info("Found unique indexes", columns=column_names)
-        return column_names
+        indexes = await conn.run_sync(inspect_indexes)
+        # Assume only single column indexes
+        index_names = [
+            index["column_names"][0]
+            for index in indexes
+            if len(index["column_names"]) == 1
+            and isinstance(index["column_names"][0], str)
+        ]
+        self.logger.info("Found unique index column", columns=index_names)
+        return index_names
 
     async def get_table_by_name(self, table_name: str) -> Table:
         """Get a lookup table by name.
@@ -401,6 +403,12 @@ class BaseTablesService(BaseService):
     @require_access_level(AccessLevel.ADMIN)
     async def create_unique_index(self, table: Table, column_name: str) -> None:
         """Create a unique index on specified columns."""
+
+        # Check if another index already exists
+        index = await self.get_index(table)
+        if len(index) > 0:
+            raise ValueError("Table cannot have multiple unique indexes")
+
         # Get the fully qualified table name with schema
         full_table_name = self._full_table_name(table.name)
 
@@ -427,6 +435,22 @@ class BaseTablesService(BaseService):
         )
 
         # Commit the transaction
+        await self.session.flush()
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def create_multi_unique_index(
+        self, table: Table, column_names: list[str]
+    ) -> None:
+        """Create a unique index on multiple columns."""
+        full_table_name = self._full_table_name(table.name)
+        index_name = f"uq_{table.name}_{'_'.join(column_names)}"
+        conn = await self.session.connection()
+        await conn.execute(
+            sa.DDL(
+                "CREATE UNIQUE INDEX %s ON %s (%s)",
+                (index_name, full_table_name, ", ".join(column_names)),
+            )
+        )
         await self.session.flush()
 
     @require_access_level(AccessLevel.ADMIN)
@@ -536,9 +560,14 @@ class BaseTablesService(BaseService):
             if not index:
                 raise ValueError("Table must have at least one unique index for upsert")
 
+            if len(index) > 1:
+                raise ValueError(
+                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
+                )
+
             # Ensure all conflict keys are actually in the data
             if not all(key in value_clauses for key in index):
-                raise ValueError("All unique index columns must be present in the data")
+                raise ValueError("Data to upsert must contain the unique index column")
 
             # Define what gets updated on conflict
             update_dict = {
@@ -562,25 +591,21 @@ class BaseTablesService(BaseService):
                 original_error = e
                 while (cause := e.__cause__) is not None:
                     e = cause
-
-                # Check for specific error about missing unique constraint
-                if "there is no unique or exclusion constraint" in str(e):
-                    self.logger.warning(
-                        "No unique index found for upsert conflict keys",
-                        index=index,
-                        table_name=table_name_for_logging,
-                    )
-                    raise ValueError(
-                        "Cannot upsert on columns. Create a unique index first with create_unique_index()"
-                    ) from original_error
-                elif "violates unique constraint" in str(e):
+                if "violates unique constraint" in str(e):
                     self.logger.warning(
                         "Trying to insert duplicate values",
                         index=index,
                         table_name=table_name_for_logging,
                     )
                     raise ValueError(
-                        "Please check for duplicate values before inserting in key column"
+                        "Please check for duplicate values in the unique index columns"
+                    ) from original_error
+                elif (
+                    "no unique or exclusion constraint matching the ON CONFLICT"
+                    in str(e)
+                ):
+                    raise ValueError(
+                        "Please check that the unique index columns are present in the data"
                     ) from original_error
                 raise
 
