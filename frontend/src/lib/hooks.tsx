@@ -2205,19 +2205,16 @@ export function useUpdateColumn() {
             title: "Error creating natural key",
             description:
               "Column contains duplicate values. All values must be unique.",
-            variant: "destructive",
           })
         } else if (error.status === 400) {
           toast({
             title: "Error creating natural key",
-            description: error.message,
-            variant: "destructive",
+            description: String(error.body.detail),
           })
         } else {
           toast({
             title: "Error creating natural key",
             description: error.message || "An unexpected error occurred",
-            variant: "destructive",
           })
         }
       } else {
@@ -2234,7 +2231,6 @@ export function useUpdateColumn() {
             toast({
               title: "Error updating column",
               description: error.message || "An unexpected error occurred",
-              variant: "destructive",
             })
             break
         }
