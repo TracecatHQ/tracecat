@@ -416,8 +416,23 @@ async def svc_workspace(
         logger.info("Cleaning up test workspace")
         try:
             if session.is_active:
-                await session.delete(workspace)
-                await session.commit()
+                # Reset transaction state in case it was aborted
+                try:
+                    # Try to roll back any active transaction first
+                    await session.rollback()
+                    # Then delete and commit in a fresh transaction
+                    await session.delete(workspace)
+                    await session.commit()
+                except Exception as inner_e:
+                    logger.error(f"Failed to clean up in existing session: {inner_e}")
+                    # If that fails, try with a completely new session
+                    await session.close()
+                    async with get_async_session_context_manager() as new_session:
+                        # Fetch the workspace again in the new session
+                        db_workspace = await new_session.get(Workspace, workspace.id)
+                        if db_workspace:
+                            await new_session.delete(db_workspace)
+                            await new_session.commit()
         except Exception as e:
             # Log the error but don't raise it to prevent test teardown failures
             logger.error(f"Error during workspace cleanup: {e}")
