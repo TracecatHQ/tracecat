@@ -1,4 +1,3 @@
-import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import UUID
@@ -107,51 +106,26 @@ class BaseTablesService(BaseService):
 
         return table
 
-    async def get_index(self, table: Table) -> dict[str, bool]:
-        """Check which columns are natural keys by directly querying PostgreSQL indexes."""
+    async def get_index(self, table: Table) -> list[str]:
+        """Get columns that have unique constraints."""
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        # Query directly from pg_indexes to find unique indexes
+        # Extract just the column portion by looking at the create_unique_index function
+        # which uses index_name = f"uq_{table.name}_{sanitized_column}"
         query = sa.text("""
-            SELECT
-                i.indexname,
-                i.indexdef
-            FROM
-                pg_indexes i
-            WHERE
-                i.schemaname = :schema AND
-                i.tablename = :table AND
-                i.indexdef LIKE '%UNIQUE INDEX%'
+            SELECT indexdef
+            FROM pg_indexes
+            WHERE schemaname = :schema
+              AND tablename = :table
+              AND indexdef LIKE 'CREATE UNIQUE INDEX%'
         """)
 
-        # Execute the query with named parameters
         result = await conn.execute(query, {"schema": schema_name, "table": table.name})
-
-        # Get index information
-        indexes = result.fetchall()
-
-        # Extract column names from index definitions
-        natural_key_columns = set()
-        for idx_name, idx_def in indexes:
-            # Check if this is a natural key index (follows our uq_table_column pattern)
-            if idx_name.startswith(f"uq_{table.name}_"):
-                # Extract column name from index definition
-                # Format is typically: CREATE UNIQUE INDEX uq_table_column ON schema.table (column)
-
-                column_match = re.search(r"\(([^)]+)\)", idx_def)
-                if column_match:
-                    # Get the column names, handling potential multi-column indexes
-                    columns = [c.strip() for c in column_match.group(1).split(",")]
-                    if len(columns) == 1:  # Only single-column indexes are natural keys
-                        natural_key_columns.add(columns[0])
-
-        # Return a dictionary mapping column names to their natural key status
-        result_dict = {
-            column.name: column.name in natural_key_columns for column in table.columns
-        }
-
-        return result_dict
+        rows = result.fetchall()
+        column_names = [row[0] for row in rows]
+        self.logger.info("Found unique indexes", columns=column_names)
+        return column_names
 
     async def get_table_by_name(self, table_name: str) -> Table:
         """Get a lookup table by name.
@@ -379,8 +353,10 @@ class BaseTablesService(BaseService):
         conn = await self.session.connection()
         is_index = set_fields.pop("is_index", False)
 
+        # Create index if requested
         if is_index:
-            await self.create_unique_index(column.table, [column.name])
+            await self.create_unique_index(column.table, column.name)
+
         # Handle physical column changes if name or type is being updated
         if "name" in set_fields or "type" in set_fields:
             old_name = self._sanitize_identifier(column.name)
@@ -423,22 +399,17 @@ class BaseTablesService(BaseService):
         return column
 
     @require_access_level(AccessLevel.ADMIN)
-    async def create_unique_index(self, table: Table, column_names: list[str]) -> None:
+    async def create_unique_index(self, table: Table, column_name: str) -> None:
         """Create a unique index on specified columns."""
         # Get the fully qualified table name with schema
         full_table_name = self._full_table_name(table.name)
 
         # Sanitize column names to prevent SQL injection
-        sanitized_columns = [self._sanitize_identifier(col) for col in column_names]
+        sanitized_column = self._sanitize_identifier(column_name)
 
         # Create a descriptive name for the index
         # Format: uq_[table_name]_[col1]_[col2]_etc
-        if len(sanitized_columns) == 1:
-            # This is the pattern expected by _enrich_columns_with_natural_key_info
-            index_name = f"uq_{table.name}_{sanitized_columns[0]}"
-        else:
-            # Use a different prefix for multi-column indexes
-            index_name = "multiuq_{}_{}".format(table.name, "_".join(sanitized_columns))
+        index_name = f"uq_{table.name}_{sanitized_column}"
 
         # Get database connection
         conn = await self.session.connection()
@@ -450,7 +421,7 @@ class BaseTablesService(BaseService):
                 (
                     index_name,  # Name of the index
                     full_table_name,  # Table to create index on
-                    ", ".join(sanitized_columns),  # Column(s) to index
+                    sanitized_column,  # Column to index
                 ),
             )
         )
@@ -558,28 +529,28 @@ class BaseTablesService(BaseService):
             pg_stmt = insert(table_obj)
             pg_stmt = pg_stmt.values(**value_clauses)
 
-            # Determine which columns to use for conflict resolution
-            natural_keys = params.natural_keys
+            # Get columns with unique constraints for conflict resolution
+            index = await self.get_index(table)
+
+            # Check if we have any unique columns to use for conflict resolution
+            if not index:
+                raise ValueError("Table must have at least one unique index for upsert")
 
             # Ensure all conflict keys are actually in the data
-            if not all(key in value_clauses for key in natural_keys):
-                raise ValueError("All natural keys must be present in the data")
-
-            # Check if the conflict keys have corresponding columns defined
-            if not natural_keys:
-                raise ValueError("No natural keys specified for upsert")
+            if not all(key in value_clauses for key in index):
+                raise ValueError("All unique index columns must be present in the data")
 
             # Define what gets updated on conflict
             update_dict = {
                 col: pg_stmt.excluded[col]
                 for col in value_clauses.keys()
-                if col not in natural_keys  # Don't update the conflict keys
+                if col not in index  # Don't update the unique columns
             }
 
             try:
                 # Complete the statement with on_conflict_do_update
                 stmt = pg_stmt.on_conflict_do_update(
-                    index_elements=natural_keys, set_=update_dict
+                    index_elements=index, set_=update_dict
                 ).returning(sa.text("*"))
 
                 result = await conn.execute(stmt)
@@ -596,7 +567,7 @@ class BaseTablesService(BaseService):
                 if "there is no unique or exclusion constraint" in str(e):
                     self.logger.warning(
                         "No unique index found for upsert conflict keys",
-                        natural_keys=natural_keys,
+                        index=index,
                         table_name=table_name_for_logging,
                     )
                     raise ValueError(
@@ -605,7 +576,7 @@ class BaseTablesService(BaseService):
                 elif "violates unique constraint" in str(e):
                     self.logger.warning(
                         "Trying to insert duplicate values",
-                        natural_keys=natural_keys,
+                        index=index,
                         table_name=table_name_for_logging,
                     )
                     raise ValueError(
