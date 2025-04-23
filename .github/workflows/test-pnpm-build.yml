@@ -14,6 +14,9 @@ on:
       - "frontend/**"
       - ".github/workflows/test-pnpm-build.yml"
 
+permissions:
+  contents: read
+
 jobs:
   push-ui-to-ghcr-test:
     runs-on: blacksmith-4vcpu-ubuntu-2204
