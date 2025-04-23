@@ -1,5 +1,4 @@
 import json
-import logging
 from typing import Any
 
 import polars as pl
@@ -10,8 +9,6 @@ from tracecat.tables.enums import SqlType
 from tracecat.tables.service import TablesService
 from tracecat.types.exceptions import TracecatImportError
 
-logger = logging.getLogger(__name__)
-
 
 class ColumnInfo(BaseModel):
     name: str
@@ -20,15 +17,18 @@ class ColumnInfo(BaseModel):
 
 class CSVImporter:
     def __init__(
-        self, table_columns: list[TableColumn], chunk_size: int = 1000
+        self,
+        tables_service: TablesService,
+        table_columns: list[TableColumn],
+        chunk_size: int = 1000,
     ) -> None:
+        self.tables_service = tables_service
+        self.total_rows_inserted = 0
         self.columns: dict[str, ColumnInfo] = {
             col.name: ColumnInfo(name=col.name, type=SqlType(col.type))
             for col in table_columns
         }
         self.chunk_size = chunk_size
-        self.total_rows_inserted = 0
-
         # Map SQL types to Polars dtypes for efficient conversion
         self.type_mapping = {
             SqlType.TEXT: pl.Utf8,
@@ -58,12 +58,7 @@ class CSVImporter:
             elif sql_type == SqlType.JSONB:
                 if value:
                     if not isinstance(value, str):
-                        try:
-                            return json.dumps(value)
-                        except (TypeError, ValueError) as e:
-                            raise TracecatImportError(
-                                "Cannot convert value to JSON"
-                            ) from e
+                        return json.dumps(value)
                     else:
                         try:
                             json.loads(value)
@@ -101,40 +96,32 @@ class CSVImporter:
         if not chunk:
             return
 
-        try:
-            # Convert chunk to Polars DataFrame
-            df = pl.DataFrame(chunk)
+        # Convert chunk to Polars DataFrame
+        df = pl.DataFrame(chunk)
 
-            for col_name in df.columns:
-                col_info = self.columns.get(col_name)
-                if col_info and col_name in df.columns:
-                    pl_type = self.type_mapping.get(col_info.type)
+        for col_name in df.columns:
+            col_info = self.columns.get(col_name)
+            if col_info and col_name in df.columns:
+                pl_type = self.type_mapping.get(col_info.type)
 
-                    # Special handling for JSONB columns
-                    if col_info.type == SqlType.JSONB:
-                        try:
-                            # Ensure JSON values are proper strings
-                            df = df.with_columns(
-                                pl.col(col_name).map_elements(
-                                    lambda x: json.dumps(x)
-                                    if not isinstance(x, str)
-                                    else x,
-                                    return_dtype=pl.Utf8,
-                                )
-                            )
-                        except Exception as e:
-                            raise TracecatImportError("Failed to convert column") from e
-                    elif pl_type:
-                        try:
-                            df = df.with_columns(
-                                pl.col(col_name).cast(pl_type, strict=False)
-                            )
-                        except Exception as e:
-                            raise TracecatImportError("Failed to cast column") from e
+                # Special handling for JSONB columns
+                if col_info.type == SqlType.JSONB:
+                    try:
+                        # Ensure JSON values are proper strings
+                        df = df.with_columns(
+                            pl.col(col_name).struct.json_encode().alias(col_name)
+                        )
+                    except Exception as e:
+                        raise TracecatImportError("Failed to convert column") from e
+                elif pl_type:
+                    try:
+                        df = df.with_columns(
+                            pl.col(col_name).cast(pl_type, strict=False)
+                        )
+                    except Exception as e:
+                        raise TracecatImportError("Failed to cast column") from e
 
-            rows = df.to_dicts()
+        rows = df.to_dicts()
 
-            count = await service.batch_insert_rows(table, rows)
-            self.total_rows_inserted += count
-        except Exception as e:
-            raise TracecatImportError("Error processing chunk") from e
+        count = await service.batch_insert_rows(table, rows)
+        self.total_rows_inserted += count

@@ -1527,6 +1527,20 @@ export type TableUpdate = {
 }
 
 /**
+ * Response for table import operation.
+ */
+export type TableImportResponse = {
+  table_id: string
+  table_name: string
+  rows_inserted: number
+}
+
+export type TablesInferColumnsFromFileData = {
+  workspaceId: string;
+  formData: FormData;
+};
+
+/**
  * Model for creating new tags with validation.
  */
 export type TagCreate = {

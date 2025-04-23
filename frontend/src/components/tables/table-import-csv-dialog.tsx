@@ -21,14 +21,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -38,26 +35,17 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { Spinner } from "@/components/loading/spinner"
-import { Table, TableCell, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
-const BYTES_PER_MB = 1024 * 1024
-const FILE_SIZE_LIMIT_MB = 5
+// Import shared CSV components
+import {
+  CsvUploadForm,
+  CsvPreview,
+  csvFileSchema
+} from "@/components/tables/csv-components"
 
 // Form schema for Csv import
 const csvImportSchema = z.object({
-  file: z.instanceof(File).refine(
-    (file) => {
-      // Check file size (5MB limit)
-      if (file.size > FILE_SIZE_LIMIT_MB * BYTES_PER_MB) {
-        return false
-      }
-      // Check file type
-      return file.type === "text/csv" || file.name.endsWith(".csv")
-    },
-    (file) => ({
-      message: `Please upload a CSV file under 5MB. Current file size: ${(file.size / BYTES_PER_MB).toFixed(2)}MB`,
-    })
-  ),
+  file: csvFileSchema, // Use shared schema validation
   columnMapping: z
     .record(z.string(), z.string())
     .refine(
@@ -222,117 +210,6 @@ export function TableImportCsvDialog({
         </FormProvider>
       </DialogContent>
     </Dialog>
-  )
-}
-
-interface CsvUploadFormProps {
-  isUploading: boolean
-  nextPage: () => void
-}
-
-function CsvUploadForm({ isUploading, nextPage }: CsvUploadFormProps) {
-  const form = useFormContext<CsvImportFormValues>()
-  return (
-    <div className="space-y-4">
-      <FormField
-        control={form.control}
-        name="file"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>CSV file</FormLabel>
-            <FormControl>
-              <Input
-                type="file"
-                accept=".csv"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) {
-                    field.onChange(file)
-                  }
-                }}
-              />
-            </FormControl>
-            <FormDescription>
-              Upload file (max {FILE_SIZE_LIMIT_MB}MB)
-            </FormDescription>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-      <Button
-        onClick={async () => {
-          const isValid = await form.trigger("file")
-          if (!isValid) return
-          nextPage()
-        }}
-        disabled={isUploading}
-      >
-        {isUploading ? (
-          <>
-            <Spinner className="mr-2" />
-            Uploading...
-          </>
-        ) : (
-          "Next"
-        )}
-      </Button>
-    </div>
-  )
-}
-
-interface CsvPreviewProps {
-  csvData: CsvPreviewData
-}
-
-function CsvPreview({ csvData }: CsvPreviewProps) {
-
-  return (
-    <div className="space-y-4">
-      <div className="text-sm font-medium">Preview (first 5 rows)</div>
-      <div className="max-h-60 overflow-auto rounded border">
-        <Table className="min-w-full table-fixed">
-          <TableHeader>
-            <TableRow>
-              {csvData.headers.map((header) => {
-                return (
-                <TableHead
-                  key={header}
-                  className="sticky top-0 min-w-[160px] whitespace-nowrap bg-muted/50"
-                >
-                  {header}
-                </TableHead>
-              )})}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {csvData.preview.map((row, i) => {
-              return (
-              <TableRow key={i}>
-                {csvData.headers.map((header) => {
-                  const cellValue = row[header];
-                  const isObject = typeof cellValue === 'object' && cellValue !== null;
-                  const displayValue = isObject
-                    ? JSON.stringify(cellValue).length > 30
-                      ? JSON.stringify(cellValue).substring(0, 27) + "..."
-                      : JSON.stringify(cellValue)
-                    : String(cellValue || '');
-
-
-                  return (
-                  <TableCell
-                    key={header}
-                    className="min-w-[160px] truncate"
-                    title={isObject ? JSON.stringify(cellValue) : String(cellValue || '')}
-                  >
-                    {displayValue}
-                  </TableCell>
-                )})}
-              </TableRow>
-            )})}
-          </TableBody>
-        </Table>
-      </div>
-    </div>
   )
 }
 

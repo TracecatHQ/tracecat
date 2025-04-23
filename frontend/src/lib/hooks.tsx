@@ -31,6 +31,7 @@ import {
   CaseUpdate,
   CreateWorkspaceParams,
   GitSettingsRead,
+  InferredColumn,
   OAuthSettingsRead,
   organizationDeleteOrgMember,
   OrganizationDeleteOrgMemberData,
@@ -117,8 +118,9 @@ import {
   TablesGetTableData,
   tablesImportCsv,
   TablesImportCsvData,
-  tablesInferColumnsFromCSV,
   TablesInferColumnsFromCSVData,
+  tablesInferColumnsFromFile,
+  TablesInferColumnsFromFileData,
   tablesInsertRow,
   TablesInsertRowData,
   tablesListRows,
@@ -2401,14 +2403,18 @@ export function useImportCsv() {
   }
 }
 
-export function useInferColumnsFromCSV() {
+export function useInferColumnsFromFile() {
   const {
     mutateAsync: inferColumns,
     isPending: inferColumnsPending,
     error: inferColumnsError,
-  } = useMutation({
-    mutationFn: async (params: TablesInferColumnsFromCSVData) =>
-      await tablesInferColumnsFromCSV(params),
+  } = useMutation<
+    InferredColumn[],
+    Error,
+    TablesInferColumnsFromFileData
+  >({
+    mutationFn: async (params: TablesInferColumnsFromFileData) =>
+      await tablesInferColumnsFromFile(params),
     onError: (error) => {
       console.error("Error inferring column types:", error);
       toast({

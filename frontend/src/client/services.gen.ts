@@ -262,6 +262,7 @@ import type {
   WorkspacesUpdateWorkspaceData,
   WorkspacesUpdateWorkspaceResponse,
   TablesCreateTableFromCsvResponse,
+  InferredColumn,
 } from "./types.gen"
 
 /**
@@ -2928,23 +2929,26 @@ export const tablesImportCsv = (
 
 /**
  * Infer Column Types
- * Infer column types from sample data.
+ * Infer column types from a CSV file.
  * @param data The data for the request.
- * @param data.requestBody Sample data to infer types from
- * @returns InferredColumn[] Successful Response
+ * @param data.workspaceId The workspace ID
+ * @param data.formData Form data containing the CSV file
+ * @returns InferredColumn[] List of inferred columns with their types
  * @throws ApiError
  */
-export const tablesInferColumnsFromCSV = (
-  data: TablesInferColumnsFromCSVData
-): CancelablePromise<TablesInferColumnsFromCSVResponse> => {
+export const tablesInferColumnsFromFile = (
+  data: {
+    workspaceId: string,
+    formData: FormData
+  }
+): CancelablePromise<InferredColumn[]> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/tables/importer/get-types",
+    url: "/tables/importer/infer-types",
     query: {
-      workspace_id: data.workspaceId,
+      workspace_id: data.workspaceId
     },
-    body: data.requestBody,
-    mediaType: "application/json",
+    body: data.formData,
     errors: {
       422: "Validation Error",
     },

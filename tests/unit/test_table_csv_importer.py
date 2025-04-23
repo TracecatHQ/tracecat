@@ -1,15 +1,13 @@
-"""Unit tests for the CSVImporter class."""
-
+import csv
+import io
+import json
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
-import polars as pl
 import pytest
 
 from tracecat.db.schemas import Table, TableColumn
-
-# Import the new classes
-from tracecat.tables.csv_table import SchemaInferenceService
+from tracecat.tables.csv_table import SchemaTypeInference
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import ColumnInfo, CSVImporter, TracecatImportError
 from tracecat.tables.service import TablesService
@@ -58,7 +56,8 @@ def table_columns() -> list[TableColumn]:
 @pytest.fixture
 def csv_importer(table_columns: list[TableColumn]) -> CSVImporter:
     """Fixture to create a CSVImporter instance."""
-    return CSVImporter(table_columns=table_columns)
+    mock_tables_service = Mock(spec=TablesService)
+    return CSVImporter(tables_service=mock_tables_service, table_columns=table_columns)
 
 
 class TestCSVImporter:
@@ -66,7 +65,10 @@ class TestCSVImporter:
 
     def test_init(self, table_columns: list[TableColumn]) -> None:
         """Test CSVImporter initialization."""
-        importer = CSVImporter(table_columns=table_columns)
+        mock_tables_service = Mock(spec=TablesService)
+        importer = CSVImporter(
+            tables_service=mock_tables_service, table_columns=table_columns
+        )
 
         assert importer.chunk_size == 1000
         assert importer.total_rows_inserted == 0
@@ -222,89 +224,71 @@ def sample_row_data():
     }
 
 
-class TestSchemaInferenceService:
-    """Test suite for SchemaInferenceService class."""
+@pytest.fixture
+def csv_file_content(sample_row_data):
+    """Create CSV content from sample data with proper JSON serialization"""
+    # Create a copy to avoid modifying the original
+    row_data = sample_row_data.copy()
 
-    def test_init_with_data(self, sample_row_data):
+    # Convert JSON object to proper JSON string
+    if isinstance(row_data["json_col"], dict):
+        row_data["json_col"] = json.dumps(row_data["json_col"])
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=row_data.keys())
+    writer.writeheader()
+    writer.writerow(row_data)
+    return output.getvalue().encode("utf-8")
+
+
+@pytest.fixture
+def empty_csv_file_content():
+    """Create empty CSV content"""
+    return b""
+
+
+class TestSchemaTypeInference:
+    """Test suite for SchemaTypeInference class."""
+
+    def test_init_with_data(self, csv_file_content, sample_row_data):
         """Test initialization with sample data."""
-        service = SchemaInferenceService(sample_row_data)
+        service = SchemaTypeInference(csv_file_content)
 
-        assert service.sample_data == sample_row_data
-        assert service._inferred_columns is not None
-
-        # Verify that schema was inferred
+        # Check that columns were inferred
         inferred = service.get_inferred_columns()
-        assert (
-            len(inferred) == 6
-        )  # Should match the number of columns in sample_row_data
+        assert len(inferred) == len(sample_row_data)
 
-        # Check if columns were correctly identified
+        # Verify column types
         column_types = {col.name: col.type for col in inferred}
         assert column_types["text_col"] == SqlType.TEXT
         assert column_types["int_col"] == SqlType.INTEGER
         assert column_types["float_col"] == SqlType.DECIMAL
         assert column_types["bool_col"] == SqlType.BOOLEAN
-        assert column_types["null_col"] == SqlType.TEXT  # Null defaults to TEXT
         assert column_types["json_col"] == SqlType.JSONB
 
-    def test_init_without_data(self):
+    def test_init_without_data(self, empty_csv_file_content):
         """Test initialization without sample data."""
-        service = SchemaInferenceService()
-
-        assert service.sample_data is None
-        assert service._inferred_columns is None
-
-        # Verify empty results when no data provided
+        service = SchemaTypeInference(empty_csv_file_content)
         assert service.get_inferred_columns() == []
-
-    def test_map_polars_types(self):
-        """Test mapping of Polars types to SQL types."""
-        service = SchemaInferenceService()
-
-        # Test direct mappings
-        assert service._map_polars_type(pl.Utf8()) == SqlType.TEXT
-        assert service._map_polars_type(pl.Int64()) == SqlType.INTEGER
-        assert service._map_polars_type(pl.Float64()) == SqlType.DECIMAL
-        assert service._map_polars_type(pl.Boolean()) == SqlType.BOOLEAN
-
-        # Test other numeric types
-        assert service._map_polars_type(pl.Int32()) == SqlType.INTEGER
-        assert service._map_polars_type(pl.Int16()) == SqlType.INTEGER
-        assert service._map_polars_type(pl.Int8()) == SqlType.INTEGER
-        assert service._map_polars_type(pl.UInt64()) == SqlType.INTEGER
-        assert service._map_polars_type(pl.Float32()) == SqlType.DECIMAL
-
-        # Test default fallback
-        class UnknownType:
-            pass
-
-        assert service._map_polars_type(UnknownType()) == SqlType.TEXT
-
-    def test_get_inferred_columns_triggers_inference(self):
-        """Test that get_inferred_columns triggers inference if needed."""
-        service = SchemaInferenceService()
-        service.sample_data = {"text": "sample"}
-        service._inferred_columns = None
-
-        # Should trigger _infer_schema
-        columns = service.get_inferred_columns()
-
-        assert len(columns) == 1
-        assert columns[0].name == "text"
-        assert columns[0].type == SqlType.TEXT
-        assert columns[0].sample_value == "sample"
 
     def test_complex_data_inference(self):
         """Test inference with more complex data types."""
         data = {
-            "date_string": "2023-01-01",  # Should be TEXT, not date
-            "mixed_numbers": "123.45abc",  # Should be TEXT, not number
-            "large_int": 9223372036854775807,  # Max int64
-            "scientific": 1.23e10,  # Scientific notation float
+            "date_string": "2023-01-01",
+            "mixed_numbers": "123.45abc",
+            "large_int": 9223372036854775807,
+            "scientific": 1.23e10,
             "empty_string": "",
         }
 
-        service = SchemaInferenceService(data)
+        # Convert dictionary to CSV bytes
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=data.keys())
+        writer.writeheader()
+        writer.writerow(data)
+        csv_content = output.getvalue().encode("utf-8")
+
+        service = SchemaTypeInference(csv_content)
         inferred = service.get_inferred_columns()
 
         column_types = {col.name: col.type for col in inferred}

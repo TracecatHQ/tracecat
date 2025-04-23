@@ -4626,6 +4626,28 @@ export const $TableUpdate = {
   description: "Update model for a table.",
 } as const
 
+export const $TableImportResponse = {
+  properties: {
+    table_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Table Id"
+    },
+    table_name: {
+      type: "string",
+      title: "Table Name"
+    },
+    rows_inserted: {
+      type: "integer",
+      title: "Rows Inserted"
+    }
+  },
+  type: "object",
+  required: ["table_id", "table_name", "rows_inserted"],
+  title: "TableImportResponse",
+  description: "Response for table import operation."
+} as const
+
 export const $TagCreate = {
   properties: {
     name: {

@@ -170,3 +170,11 @@ class TableUpdate(BaseModel):
                 "Table name must contain only letters, numbers, and underscores, and start with a letter or underscore"
             )
         return value
+
+
+class TableImportResponse(BaseModel):
+    """Response for table import operation."""
+
+    table_id: TableID
+    table_name: str
+    rows_inserted: int

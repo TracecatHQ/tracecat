@@ -1,4 +1,6 @@
 import csv
+import os
+import tempfile
 from io import StringIO
 from typing import Annotated, Any
 from uuid import UUID
@@ -21,7 +23,7 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.logger import logger
-from tracecat.tables.csv_table import InferredColumn, SchemaInferenceService
+from tracecat.tables.csv_table import InferredColumn, SchemaTypeInference
 from tracecat.tables.enums import SqlType
 from tracecat.tables.importer import CSVImporter
 from tracecat.tables.models import (
@@ -29,6 +31,7 @@ from tracecat.tables.models import (
     TableColumnRead,
     TableColumnUpdate,
     TableCreate,
+    TableImportResponse,
     TableRead,
     TableReadMinimal,
     TableRowInsert,
@@ -118,22 +121,23 @@ async def create_table(
             ) from e
 
 
-@router.post("/importer/get-types", status_code=status.HTTP_200_OK)
-async def get_column_types(
+@router.post("/importer/infer-types", status_code=status.HTTP_200_OK)
+async def infer_types(
     role: WorkspaceUser,
-    sample_data: dict[str, Any],
+    file: UploadFile = File(...),
 ) -> list[InferredColumn]:
     """
-    Infer column types from sample data.
+    Infer column types directly from a CSV file.
 
     Args:
-        sample_data: Dictionary containing column names as keys and sample values
+        file: CSV file to infer from
 
     Returns:
         List of inferred columns with their types
     """
-    inference_service = SchemaInferenceService(sample_data)
-    return inference_service.get_inferred_columns()
+    contents = await file.read()
+    inferer = SchemaTypeInference(file_content=contents)
+    return inferer.get_inferred_columns()
 
 
 @router.post("/importer/create-table", status_code=status.HTTP_201_CREATED)
@@ -143,7 +147,7 @@ async def create_table_from_schema(
     table_name: str = Form(...),
     columns: str = Form(...),
     file: UploadFile = File(...),
-) -> dict[str, Any]:
+) -> TableImportResponse:
     """
     Create a new table based on inferred schema and import data from CSV.
     """
@@ -160,16 +164,13 @@ async def create_table_from_schema(
 
     try:
         table_create = TableCreate(name=table_name, columns=[])
-        table = await service.create_table(table_create)  # Commits inside
+        table = await service.create_table(table_create)
 
         for col_data in columns_data:
             column_create = TableColumnCreate(
                 name=col_data["name"], type=SqlType(col_data["type"]), nullable=True
             )
-            await service.create_column(table, column_create)  # Commits inside
-
-        await session.commit()
-        await session.refresh(table, attribute_names=["columns"])
+            await service.create_column(table, column_create)
 
         if not table.columns or len(table.columns) != len(columns_data):
             raise Exception("Failed to correctly load table columns after creation.")
@@ -197,11 +198,12 @@ async def create_table_from_schema(
 
         # Raise the original schema error as an HTTPException
         raise HTTPException(
-            status_code=500, detail="Failed to create table schema"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create table schema",
         ) from schema_error
 
     csv_file = None
-    total_rows_imported = 0
+    total_rows_inserted = 0
     try:
         contents = await file.read()
         file_content = contents.decode()
@@ -227,8 +229,8 @@ async def create_table_from_schema(
 
         if not column_mapping:
             raise HTTPException(
-                status_code=400,
-                detail="Could not map any CSV headers to table columns.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create table schema",
             )
 
         importer = CSVImporter(table.columns)
@@ -248,20 +250,18 @@ async def create_table_from_schema(
 
             if len(current_chunk) >= importer.chunk_size:
                 batch_count = await service.batch_insert_rows(table, current_chunk)
-                total_rows_imported += batch_count
+                total_rows_inserted += batch_count
                 current_chunk = []
 
         if current_chunk:
             batch_count = await service.batch_insert_rows(table, current_chunk)
-            total_rows_imported += batch_count
+            total_rows_inserted += batch_count
 
-        return {
-            "status": "success",
-            "table_id": str(table.id),
-            "table_name": table.name,
-            "columns_count": len(table.columns),
-            "rows_imported": total_rows_imported,
-        }
+        return TableImportResponse(
+            table_id=table.id,
+            table_name=table.name,
+            rows_inserted=total_rows_inserted,
+        )
 
     except Exception as import_error:
         # Delete the table if import fails (using the same improved cleanup logic)
@@ -286,7 +286,8 @@ async def create_table_from_schema(
             )
 
         raise HTTPException(
-            status_code=500, detail="Failed during CSV data import"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create table schema",
         ) from import_error
 
     finally:
@@ -636,28 +637,30 @@ async def import_csv(
             detail=str(e),
         ) from e
 
-    # Initialize import service
-    importer = CSVImporter(table.columns)
-
-    # Process CSV file
+    # Create temporary file
+    csv_file_path = None
     try:
-        contents = await file.read()
-        csv_file = StringIO(contents.decode())
-        csv_reader = csv.DictReader(csv_file)
+        # Create a temporary file to save the uploaded CSV
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as temp_file:
+            csv_file_path = temp_file.name
+            contents = await file.read()
+            temp_file.write(contents)
 
-        current_chunk: list[dict[str, Any]] = []
+        # Initialize import service with tables_service
+        importer = CSVImporter(service)
 
-        # Process rows in chunks
-        for row in csv_reader:
-            mapped_row = importer.map_row(row, column_mapping)
-            current_chunk.append(mapped_row)
+        # Get column names from mapping (only target columns)
+        target_columns = [
+            col for col in column_mapping.values() if col and col != "skip"
+        ]
 
-            if len(current_chunk) >= importer.chunk_size:
-                await importer.process_chunk(current_chunk, service, table)
-                current_chunk = []
+        # Process CSV directly using COPY
+        rows_inserted = await importer.import_csv(
+            table, csv_file_path, columns=target_columns, has_header=True
+        )
 
-        # Process remaining rows
-        await importer.process_chunk(current_chunk, service, table)
+        return TableRowInsertBatchResponse(rows_inserted=rows_inserted)
+
     except TracecatImportError as e:
         logger.warning(f"Error during import: {e}")
         raise HTTPException(
@@ -671,6 +674,66 @@ async def import_csv(
             detail=f"Error processing CSV: {str(e)}",
         ) from e
     finally:
-        csv_file.close()
+        # Clean up temporary file
+        if csv_file_path and os.path.exists(csv_file_path):
+            os.remove(csv_file_path)
 
-    return TableRowInsertBatchResponse(rows_inserted=importer.total_rows_inserted)
+
+# @router.post("/{table_id}/import", status_code=status.HTTP_201_CREATED)
+# async def import_csv(
+#     role: WorkspaceUser,
+#     session: AsyncDBSession,
+#     table_id: TableID,
+#     file: UploadFile = File(...),
+#     column_mapping: dict[str, str] = Depends(get_column_mapping),
+# ) -> TableRowInsertBatchResponse:
+#     """Import data from a CSV file into a table."""
+#     service = TablesService(session, role=role)
+
+#     # Get table info
+#     try:
+#         table = await service.get_table(table_id)
+#     except TracecatNotFoundError as e:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail=str(e),
+#         ) from e
+
+#     # Initialize import service
+#     importer = CSVImporter(table.columns)
+
+#     # Process CSV file
+#     try:
+#         contents = await file.read()
+#         csv_file = StringIO(contents.decode())
+#         csv_reader = csv.DictReader(csv_file)
+
+#         current_chunk: list[dict[str, Any]] = []
+
+#         # Process rows in chunks
+#         for row in csv_reader:
+#             mapped_row = importer.map_row(row, column_mapping)
+#             current_chunk.append(mapped_row)
+
+#             if len(current_chunk) >= importer.chunk_size:
+#                 await importer.process_chunk(current_chunk, service, table)
+#                 current_chunk = []
+
+#         # Process remaining rows
+#         await importer.process_chunk(current_chunk, service, table)
+#     except TracecatImportError as e:
+#         logger.warning(f"Error during import: {e}")
+#         raise HTTPException(
+#             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+#             detail=str(e),
+#         ) from e
+#     except Exception as e:
+#         logger.warning(f"Unexpected error during import: {e}")
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail=f"Error processing CSV: {str(e)}",
+#         ) from e
+#     finally:
+#         csv_file.close()
+
+#     return TableRowInsertBatchResponse(rows_inserted=importer.total_rows_inserted)

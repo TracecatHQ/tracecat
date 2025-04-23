@@ -274,7 +274,6 @@ export function CreateTableDialog({
       open={csvDialogOpen}
       onOpenChange={setCsvDialogOpen}
       onTableCreated={() => {
-
         onOpenChange(false)
       }}
     />
