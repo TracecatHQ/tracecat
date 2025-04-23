@@ -9,6 +9,9 @@ on:
       - pyproject.toml
       - .github/workflows/lint-python.yml
 
+permissions:
+  contents: read
+
 jobs:
   ruff:
     runs-on: blacksmith-4vcpu-ubuntu-2204
