@@ -1536,9 +1536,9 @@ export type TableImportResponse = {
 }
 
 export type TablesInferColumnsFromFileData = {
-  workspaceId: string;
-  formData: FormData;
-};
+  workspaceId: string
+  formData: FormData
+}
 
 /**
  * Model for creating new tags with validation.

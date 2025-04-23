@@ -61,7 +61,9 @@ function CollapsibleText({ text }: { text: string }) {
 
   return (
     <div ref={containerRef} className="space-y-1">
-      <pre className="whitespace-pre-wrap font-sans text-xs">{chunks.join("\n")}</pre>
+      <pre className="whitespace-pre-wrap font-sans text-xs">
+        {chunks.join("\n")}
+      </pre>
       <Button
         variant="ghost"
         size="sm"

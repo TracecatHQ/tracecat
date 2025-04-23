@@ -233,7 +233,7 @@ async def create_table_from_schema(
                 detail="Failed to create table schema",
             )
 
-        importer = CSVImporter(table.columns)
+        importer = CSVImporter(tables_service=service, table_columns=table.columns)
 
         # Process CSV file with DictReader
         csv_reader = csv.DictReader(csv_file)
@@ -677,63 +677,3 @@ async def import_csv(
         # Clean up temporary file
         if csv_file_path and os.path.exists(csv_file_path):
             os.remove(csv_file_path)
-
-
-# @router.post("/{table_id}/import", status_code=status.HTTP_201_CREATED)
-# async def import_csv(
-#     role: WorkspaceUser,
-#     session: AsyncDBSession,
-#     table_id: TableID,
-#     file: UploadFile = File(...),
-#     column_mapping: dict[str, str] = Depends(get_column_mapping),
-# ) -> TableRowInsertBatchResponse:
-#     """Import data from a CSV file into a table."""
-#     service = TablesService(session, role=role)
-
-#     # Get table info
-#     try:
-#         table = await service.get_table(table_id)
-#     except TracecatNotFoundError as e:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=str(e),
-#         ) from e
-
-#     # Initialize import service
-#     importer = CSVImporter(table.columns)
-
-#     # Process CSV file
-#     try:
-#         contents = await file.read()
-#         csv_file = StringIO(contents.decode())
-#         csv_reader = csv.DictReader(csv_file)
-
-#         current_chunk: list[dict[str, Any]] = []
-
-#         # Process rows in chunks
-#         for row in csv_reader:
-#             mapped_row = importer.map_row(row, column_mapping)
-#             current_chunk.append(mapped_row)
-
-#             if len(current_chunk) >= importer.chunk_size:
-#                 await importer.process_chunk(current_chunk, service, table)
-#                 current_chunk = []
-
-#         # Process remaining rows
-#         await importer.process_chunk(current_chunk, service, table)
-#     except TracecatImportError as e:
-#         logger.warning(f"Error during import: {e}")
-#         raise HTTPException(
-#             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-#             detail=str(e),
-#         ) from e
-#     except Exception as e:
-#         logger.warning(f"Unexpected error during import: {e}")
-#         raise HTTPException(
-#             status_code=status.HTTP_400_BAD_REQUEST,
-#             detail=f"Error processing CSV: {str(e)}",
-#         ) from e
-#     finally:
-#         csv_file.close()
-
-#     return TableRowInsertBatchResponse(rows_inserted=importer.total_rows_inserted)

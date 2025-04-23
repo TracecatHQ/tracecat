@@ -118,7 +118,6 @@ import {
   TablesGetTableData,
   tablesImportCsv,
   TablesImportCsvData,
-  TablesInferColumnsFromCSVData,
   tablesInferColumnsFromFile,
   TablesInferColumnsFromFileData,
   tablesInsertRow,
@@ -2408,28 +2407,24 @@ export function useInferColumnsFromFile() {
     mutateAsync: inferColumns,
     isPending: inferColumnsPending,
     error: inferColumnsError,
-  } = useMutation<
-    InferredColumn[],
-    Error,
-    TablesInferColumnsFromFileData
-  >({
+  } = useMutation<InferredColumn[], Error, TablesInferColumnsFromFileData>({
     mutationFn: async (params: TablesInferColumnsFromFileData) =>
       await tablesInferColumnsFromFile(params),
     onError: (error) => {
-      console.error("Error inferring column types:", error);
+      console.error("Error inferring column types:", error)
       toast({
         title: "Error",
         description: "Failed to infer column types",
         variant: "destructive",
-      });
+      })
     },
-  });
+  })
 
   return {
     inferColumns,
     inferColumnsPending,
     inferColumnsError,
-  };
+  }
 }
 
 export function useCreateTableFromCsv() {
@@ -2442,9 +2437,9 @@ export function useCreateTableFromCsv() {
   } = useMutation({
     mutationFn: async (params: TablesCreateTableFromCsvData) => {
       const formData = new FormData()
-      formData.append('table_name', params.tableName)
-      formData.append('columns', JSON.stringify(params.columns))
-      formData.append('file', params.file)
+      formData.append("table_name", params.tableName)
+      formData.append("columns", JSON.stringify(params.columns))
+      formData.append("file", params.file)
 
       return await tablesCreateTableFromCsv({
         formData,
@@ -2452,7 +2447,9 @@ export function useCreateTableFromCsv() {
       })
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['tables', variables.workspaceId] })
+      queryClient.invalidateQueries({
+        queryKey: ["tables", variables.workspaceId],
+      })
       toast({
         title: "Table created successfully",
         description: "The table has been created and data imported.",

@@ -64,6 +64,7 @@ import type {
   EditorListActionsResponse,
   EditorListFunctionsData,
   EditorListFunctionsResponse,
+  InferredColumn,
   OrganizationDeleteOrgMemberData,
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
@@ -154,6 +155,7 @@ import type {
   TablesCreateColumnData,
   TablesCreateColumnResponse,
   TablesCreateTableData,
+  TablesCreateTableFromCsvResponse,
   TablesCreateTableResponse,
   TablesDeleteColumnData,
   TablesDeleteColumnResponse,
@@ -167,8 +169,8 @@ import type {
   TablesGetTableResponse,
   TablesImportCsvData,
   TablesImportCsvResponse,
-  TablesInferColumnsFromCSVResponse,
   TablesInferColumnsFromCSVData,
+  TablesInferColumnsFromCSVResponse,
   TablesInsertRowData,
   TablesInsertRowResponse,
   TablesListRowsData,
@@ -261,8 +263,6 @@ import type {
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
   WorkspacesUpdateWorkspaceResponse,
-  TablesCreateTableFromCsvResponse,
-  InferredColumn,
 } from "./types.gen"
 
 /**
@@ -2936,24 +2936,22 @@ export const tablesImportCsv = (
  * @returns InferredColumn[] List of inferred columns with their types
  * @throws ApiError
  */
-export const tablesInferColumnsFromFile = (
-  data: {
-    workspaceId: string,
-    formData: FormData
-  }
-): CancelablePromise<InferredColumn[]> => {
+export const tablesInferColumnsFromFile = (data: {
+  workspaceId: string
+  formData: FormData
+}): CancelablePromise<InferredColumn[]> => {
   return __request(OpenAPI, {
     method: "POST",
     url: "/tables/importer/infer-types",
     query: {
-      workspace_id: data.workspaceId
+      workspace_id: data.workspaceId,
     },
     body: data.formData,
     errors: {
       422: "Validation Error",
     },
-  });
-};
+  })
+}
 
 /**
  * Create Table From CSV
@@ -2962,24 +2960,22 @@ export const tablesInferColumnsFromFile = (
  * @returns TablesCreateTableFromCsvResponse Successful Response
  * @throws ApiError
  */
-export const tablesCreateTableFromCsv = (
-  data: {
-    formData: FormData,
-    workspaceId: string
-  }
-): CancelablePromise<TablesCreateTableFromCsvResponse> => {
+export const tablesCreateTableFromCsv = (data: {
+  formData: FormData
+  workspaceId: string
+}): CancelablePromise<TablesCreateTableFromCsvResponse> => {
   return __request(OpenAPI, {
     method: "POST",
     url: "/tables/importer/create-table",
     query: {
-      workspace_id: data.workspaceId
+      workspace_id: data.workspaceId,
     },
     body: data.formData,
     errors: {
       422: "Validation Error",
     },
-  });
-};
+  })
+}
 
 /**
  * List Cases

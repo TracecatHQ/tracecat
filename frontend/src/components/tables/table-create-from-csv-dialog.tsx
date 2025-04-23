@@ -5,10 +5,9 @@ import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
-import { useCreateTableFromCsv } from "@/lib/hooks"
 
-import { useInferColumnsFromFile } from "@/lib/hooks"
-import { CsvPreviewData, SqlTypeEnum, getCsvPreview } from "@/lib/tables"
+import { useCreateTableFromCsv, useInferColumnsFromFile } from "@/lib/hooks"
+import { CsvPreviewData, getCsvPreview, SqlTypeEnum } from "@/lib/tables"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -34,12 +33,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-
 // Import shared CSV components
 import {
-  CsvUploadForm,
+  csvFileSchema,
   CsvPreview,
-  csvFileSchema
+  CsvUploadForm,
 } from "@/components/tables/csv-components"
 
 // Form schema for CSV import
@@ -52,9 +50,9 @@ const csvCreateTableSchema = z.object({
 type CsvCreateTableFormValues = z.infer<typeof csvCreateTableSchema>
 
 interface TableCreateFromCsvDialogProps {
-    open?: boolean
-    onOpenChange?: (open: boolean) => void
-    onTableCreated?: () => void
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  onTableCreated?: () => void
 }
 
 export function TableCreateFromCsvDialog({
@@ -65,15 +63,16 @@ export function TableCreateFromCsvDialog({
   const { workspaceId } = useWorkspace()
   const { inferColumns } = useInferColumnsFromFile()
 
-  const [currentStep, setCurrentStep] = useState<'upload' | 'preview'>('upload')
+  const [currentStep, setCurrentStep] = useState<"upload" | "preview">("upload")
   const [isUploading, setIsUploading] = useState(false)
   const [csvPreview, setCsvPreview] = useState<CsvPreviewData | null>(null)
-  const [inferredColumns, setInferredColumns] = useState<Array<{name: string; type: string; sample_values?: unknown[]}>>()
-  const { createTableFromCsv} = useCreateTableFromCsv()
+  const [inferredColumns, setInferredColumns] =
+    useState<Array<{ name: string; type: string; sample_values?: unknown[] }>>()
+  const { createTableFromCsv } = useCreateTableFromCsv()
   const form = useForm<CsvCreateTableFormValues>({
     resolver: zodResolver(csvCreateTableSchema),
     defaultValues: {
-      tableName: '',
+      tableName: "",
       columnTypes: {},
     },
   })
@@ -82,49 +81,51 @@ export function TableCreateFromCsvDialog({
     if (!open) {
       setCsvPreview(null)
       setInferredColumns([])
-      setCurrentStep('upload')
+      setCurrentStep("upload")
       form.reset()
     }
   }, [open, form])
 
   const handleCreatePreview = useCallback(async () => {
-    const { file } = form.getValues();
+    const { file } = form.getValues()
     try {
-      setIsUploading(true);
-      const parsedData = await getCsvPreview(file);
-      setCsvPreview(parsedData);
+      setIsUploading(true)
+      const parsedData = await getCsvPreview(file)
+      setCsvPreview(parsedData)
 
       // Send the entire file for inference instead of just the sample data
-      const formData = new FormData();
-      formData.append('file', file);
+      const formData = new FormData()
+      formData.append("file", file)
 
       // Call the infer-types-from-file endpoint
       const inferred = await inferColumns({
-        formData,  // Fixed: Use the formData object instead of file_content
-        workspaceId
-      });
+        formData, // Fixed: Use the formData object instead of file_content
+        workspaceId,
+      })
 
-      setInferredColumns(inferred);
+      setInferredColumns(inferred)
 
       // Set default column types based on inference
-      const columnTypes = {} as Record<string, typeof SqlTypeEnum[number]>;
-      inferred.forEach((col: {name: string; type: string; sample_values?: unknown[]}) => {
-        columnTypes[col.name] = col.type as typeof SqlTypeEnum[number];
-      });
+      const columnTypes = {} as Record<string, (typeof SqlTypeEnum)[number]>
+      inferred.forEach(
+        (col: { name: string; type: string; sample_values?: unknown[] }) => {
+          columnTypes[col.name] = col.type as (typeof SqlTypeEnum)[number]
+        }
+      )
 
-      form.setValue('columnTypes', columnTypes);
+      form.setValue("columnTypes", columnTypes)
 
-      setCurrentStep('preview');
+      setCurrentStep("preview")
     } catch (error) {
-      console.error("Error parsing CSV preview:", error);
+      console.error("Error parsing CSV preview:", error)
       toast({
         title: "Error",
         description: "Failed to parse CSV file",
-      });
+      })
     } finally {
-      setIsUploading(false);
+      setIsUploading(false)
     }
-  }, [form, inferColumns, workspaceId]);
+  }, [form, inferColumns, workspaceId])
 
   const handleCreateTable = async (data: CsvCreateTableFormValues) => {
     try {
@@ -132,14 +133,14 @@ export function TableCreateFromCsvDialog({
         toast({
           title: "Error",
           description: "No CSV data available",
-          variant: "destructive"
+          variant: "destructive",
         })
         return
       }
 
-      const columns = csvPreview.headers.map(header => ({
+      const columns = csvPreview.headers.map((header) => ({
         name: header,
-        type: data.columnTypes[header] as typeof SqlTypeEnum[number]
+        type: data.columnTypes[header] as (typeof SqlTypeEnum)[number],
       }))
 
       await createTableFromCsv({
@@ -155,8 +156,9 @@ export function TableCreateFromCsvDialog({
       console.error("Error creating table:", error)
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to create table",
-        variant: "destructive"
+        description:
+          error instanceof Error ? error.message : "Failed to create table",
+        variant: "destructive",
       })
     }
   }
@@ -172,9 +174,12 @@ export function TableCreateFromCsvDialog({
         </DialogHeader>
 
         <FormProvider {...form}>
-          <form onSubmit={form.handleSubmit(handleCreateTable)} className="space-y-8">
+          <form
+            onSubmit={form.handleSubmit(handleCreateTable)}
+            className="space-y-8"
+          >
             <div className="space-y-6">
-              {currentStep === 'upload' ? (
+              {currentStep === "upload" ? (
                 <CsvUploadForm
                   isUploading={isUploading}
                   nextPage={handleCreatePreview}
@@ -188,10 +193,7 @@ export function TableCreateFromCsvDialog({
                       <FormItem>
                         <FormLabel>Table Name</FormLabel>
                         <FormControl>
-                          <Input
-                            placeholder="Enter table name..."
-                            {...field}
-                          />
+                          <Input placeholder="Enter table name..." {...field} />
                         </FormControl>
                         <FormDescription>
                           Name for the new table
@@ -214,14 +216,12 @@ export function TableCreateFromCsvDialog({
                     <Button
                       variant="outline"
                       onClick={() => {
-                        setCurrentStep('upload')
+                        setCurrentStep("upload")
                       }}
                     >
                       Back
                     </Button>
-                    <Button type="submit">
-                      Create Table
-                    </Button>
+                    <Button type="submit">Create Table</Button>
                   </div>
                 </>
               )}
@@ -235,28 +235,33 @@ export function TableCreateFromCsvDialog({
 
 interface ColumnTypeMappingProps {
   csvHeaders: string[]
-  inferredColumns: Array<{name: string; type: string; sample_values?: unknown[]}>
+  inferredColumns: Array<{
+    name: string
+    type: string
+    sample_values?: unknown[]
+  }>
 }
 
-function ColumnTypeMapping({ csvHeaders, inferredColumns }: ColumnTypeMappingProps) {
+function ColumnTypeMapping({
+  csvHeaders,
+  inferredColumns,
+}: ColumnTypeMappingProps) {
   const form = useFormContext<CsvCreateTableFormValues>()
 
   // Create a mapping of header names to inferred column types and sample values
   const inferredTypes: Record<string, string> = {}
   const sampleValuesMap: Record<string, unknown[]> = {}
 
-  inferredColumns.forEach(col => {
-    inferredTypes[col.name] = col.type;
+  inferredColumns.forEach((col) => {
+    inferredTypes[col.name] = col.type
     if (col.sample_values) {
-      sampleValuesMap[col.name] = col.sample_values;
+      sampleValuesMap[col.name] = col.sample_values
     }
   })
 
   return (
     <div className="space-y-4">
-      <div className="text-sm font-medium">
-        Column Types
-      </div>
+      <div className="text-sm font-medium">Column Types</div>
       <div className="space-y-4">
         {csvHeaders.map((header) => (
           <div key={header} className="space-y-2">

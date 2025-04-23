@@ -35,12 +35,11 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { Spinner } from "@/components/loading/spinner"
-
 // Import shared CSV components
 import {
-  CsvUploadForm,
+  csvFileSchema,
   CsvPreview,
-  csvFileSchema
+  CsvUploadForm,
 } from "@/components/tables/csv-components"
 
 // Form schema for Csv import
