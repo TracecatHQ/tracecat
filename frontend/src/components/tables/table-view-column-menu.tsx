@@ -9,7 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   ChevronDownIcon,
   CopyIcon,
-  DatabaseIcon,
+  DatabaseZapIcon,
   Pencil,
   Trash2Icon,
 } from "lucide-react"
@@ -114,7 +114,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 }}
                 disabled={column.is_index}
               >
-                <DatabaseIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
+                <DatabaseZapIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
                 {column.is_index ? "Unique index" : "Create unique index"}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -502,7 +502,7 @@ function TableColumnIndexDialog({
               </>
             ) : (
               <>
-                <DatabaseIcon className="mr-2 size-4" />
+                <DatabaseZapIcon className="mr-2 size-4" />
                 Create unique index
               </>
             )}
