@@ -12,12 +12,12 @@ By the end of this tutorial, you'll learn how to:
 - Create lookup tables with natural keys for upserts.
 
 <Info>
-  Though the **fetcher-processor** pattern requires two workflows, it is a powerful pattern as:
+  Benefits of the **fetcher-processor** pattern:
 
   1. Processor workflows can be reused by other fetcher workflows.
   2. Processor workflows can be tested in isolation with a single item.
   3. Fetcher workflows can be scheduled to run at specified intervals.
-  4. Commonly used in data pipelines at scale.
+  4. Lower memory usage per workflow when processing large lists of data.
 </Info>
 
 ## Fetcher-processor
