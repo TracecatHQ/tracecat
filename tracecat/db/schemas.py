@@ -26,6 +26,7 @@ from tracecat.db.adapter import (
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.tasks.enums import TaskStatus
 
 DEFAULT_SA_RELATIONSHIP_KWARGS = {
     "lazy": "selectin",
@@ -761,3 +762,60 @@ class CaseComment(Resource, table=True):
         )
     )
     case: Case = Relationship(back_populates="comments")
+
+
+class TaskGroup(Resource, table=True):
+    """A group of tasks."""
+
+    __tablename__: str = "task_groups"
+    __table_args__ = (UniqueConstraint("name"),)
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    name: str = Field(..., description="The name of the task group")
+    tasks: list["Task"] = Relationship(
+        back_populates="group",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+
+class Task(Resource, table=True):
+    """A task is a unit of work that needs to be completed."""
+
+    __tablename__: str = "tasks"
+    __table_args__ = (UniqueConstraint("group_id", "index"),)
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    index: int = Field(
+        default=0,
+        description="The index of the task in the case",
+    )
+    title: str = Field(..., description="The title of the task")
+    status: TaskStatus = Field(
+        default=TaskStatus.TODO,
+        description="The status of the task",
+    )
+    workflow_alias: str | None = Field(
+        default=None,
+        description="The alias of the workflow that will execute the task",
+    )
+    # Relationships
+    group_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("task_groups.id", ondelete="CASCADE"),
+        ),
+    )
+    group: TaskGroup = Relationship(back_populates="tasks")
