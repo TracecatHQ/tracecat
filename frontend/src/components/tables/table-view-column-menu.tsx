@@ -426,7 +426,9 @@ function TableColumnIndexDialog({
       <AlertDialog open={open} onOpenChange={onOpenChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Column is already a unique index</AlertDialogTitle>
+            <AlertDialogTitle>
+              Column is already a unique index
+            </AlertDialogTitle>
             <AlertDialogDescription>
               Column <b>{column.name}</b> is already a unique index.
             </AlertDialogDescription>
