@@ -9,7 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   ChevronDownIcon,
   CopyIcon,
-  KeyIcon,
+  DatabaseIcon,
   Pencil,
   Trash2Icon,
 } from "lucide-react"
@@ -114,8 +114,8 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 }}
                 disabled={column.is_index}
               >
-                <KeyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-                {column.is_index ? "Natural Key" : "Make natural key"}
+                <DatabaseIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
+                {column.is_index ? "Unique index" : "Create unique index"}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
@@ -426,10 +426,9 @@ function TableColumnIndexDialog({
       <AlertDialog open={open} onOpenChange={onOpenChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Column is already a Natural Key</AlertDialogTitle>
+            <AlertDialogTitle>Column is already a unique index</AlertDialogTitle>
             <AlertDialogDescription>
-              Column <b>{column.name}</b> is already a natural key with a unique
-              index.
+              Column <b>{column.name}</b> is already a unique index.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -454,13 +453,13 @@ function TableColumnIndexDialog({
       })
 
       toast({
-        title: "Natural key created",
-        description: "Column is now a natural key.",
+        title: "Created unique index",
+        description: "Column is now a unique index.",
       })
 
       onOpenChange()
     } catch (error) {
-      console.error("Error creating natural key:", error)
+      console.error("Error creating unique index:", error)
     }
   }
 
@@ -475,11 +474,10 @@ function TableColumnIndexDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Create Natural Key</AlertDialogTitle>
+          <AlertDialogTitle>Create unique index</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to make column <b>{column.name}</b> a natural
-            key? This will create a unique index on the column, making it usable
-            for upsert operations.
+            Are you sure you want to make column <b>{column.name}</b> a unique
+            index? This enables upsert operations on the table.
             <br />
             <br />
             <strong>Requirements:</strong>
@@ -504,8 +502,8 @@ function TableColumnIndexDialog({
               </>
             ) : (
               <>
-                <KeyIcon className="mr-2 size-4" />
-                Create Natural Key
+                <DatabaseIcon className="mr-2 size-4" />
+                Create unique index
               </>
             )}
           </AlertDialogAction>

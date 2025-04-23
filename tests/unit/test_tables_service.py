@@ -264,7 +264,7 @@ class TestTableRows:
         # Create unique index on name column
         await tables_service.create_unique_index(table, "name")
 
-        # Upsert using name as natural key
+        # Upsert using name as unique index
         upsert_data = {"name": "John", "age": 35}
         upsert_insert = TableRowInsert(data=upsert_data, upsert=True)
         upserted = await tables_service.insert_row(table, upsert_insert)

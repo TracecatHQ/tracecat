@@ -133,7 +133,7 @@ async def get_table(
             detail=str(e),
         ) from e
 
-    # Get natural key info or default to empty dict if not present
+    # Get unique index info or default to empty dict if not present
     index_columns = await service.get_index(table)
 
     # Convert to response model (includes is_index field)
