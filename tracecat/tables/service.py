@@ -438,22 +438,6 @@ class BaseTablesService(BaseService):
         await self.session.flush()
 
     @require_access_level(AccessLevel.ADMIN)
-    async def create_multi_unique_index(
-        self, table: Table, column_names: list[str]
-    ) -> None:
-        """Create a unique index on multiple columns."""
-        full_table_name = self._full_table_name(table.name)
-        index_name = f"uq_{table.name}_{'_'.join(column_names)}"
-        conn = await self.session.connection()
-        await conn.execute(
-            sa.DDL(
-                "CREATE UNIQUE INDEX %s ON %s (%s)",
-                (index_name, full_table_name, ", ".join(column_names)),
-            )
-        )
-        await self.session.flush()
-
-    @require_access_level(AccessLevel.ADMIN)
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
         full_table_name = self._full_table_name(column.table.name)
