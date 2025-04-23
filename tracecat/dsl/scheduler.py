@@ -3,6 +3,7 @@ from collections import defaultdict
 from collections.abc import Coroutine
 from typing import Any
 
+from pydantic_core import to_json
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
@@ -92,7 +93,8 @@ class DSLScheduler:
             await self._queue_tasks(ref, unreachable=non_err_edges)
         else:
             self.logger.info("Task failed with no error paths", ref=ref)
-            details = None
+            # XXX: This can sometimes return null because the exception isn't an ApplicationError
+            # But rather a ChildWorkflowError or CancelledError
             if isinstance(exc, ApplicationError) and exc.details:
                 self.logger.warning(
                     "Task failed with application error",
@@ -107,7 +109,21 @@ class DSLScheduler:
                         ref=ref,
                         details=details,
                     )
-                    details = None
+                    message = "Application error details are not a dictionary."
+                    try:
+                        message += f"\nGot: {to_json(details, fallback=str).decode()}"
+                    except Exception as e:
+                        self.logger.warning(
+                            "Couldn't jsonify application error details",
+                            ref=ref,
+                            error=e,
+                        )
+                        message += "Couldn't parse error details as json."
+                    details = ActionErrorInfo(
+                        ref=ref,
+                        message=message,
+                        type=exc.__class__.__name__,
+                    )
                 elif all(k in details for k in ("ref", "message", "type")):
                     # Regular action error
                     # it's of shape ActionErrorInfo()
@@ -120,7 +136,23 @@ class DSLScheduler:
                             ref=ref,
                             error=e,
                         )
-                        details = None
+                        message = (
+                            f"Failed to parse regular application error details: {e}."
+                        )
+                        try:
+                            message += f"\n{to_json(details, fallback=str).decode()}"
+                        except Exception as e:
+                            self.logger.warning(
+                                "Couldn't jsonify application error details",
+                                ref=ref,
+                                error=e,
+                            )
+                            message += "Couldn't parse error details as json."
+                        details = ActionErrorInfo(
+                            ref=ref,
+                            message=message,
+                            type=exc.__class__.__name__,
+                        )
                 else:
                     # Child workflow error
                     # it's of shape {ref: ActionErrorInfo(), ...}
@@ -134,7 +166,43 @@ class DSLScheduler:
                             ref=ref,
                             error=e,
                         )
-                        details = None
+                        message = "Child workflow error details are not a dictionary."
+                        try:
+                            message += (
+                                f"\nGot: {to_json(details, fallback=str).decode()}"
+                            )
+                        except Exception as e:
+                            self.logger.warning(
+                                "Couldn't jsonify child wf application error details",
+                                ref=ref,
+                                error=e,
+                            )
+                            message += "Couldn't parse error details as json."
+                        details = ActionErrorInfo(
+                            ref=ref,
+                            message=message,
+                            type=exc.__class__.__name__,
+                        )
+            else:
+                self.logger.warning(
+                    "Task failed with non-application error",
+                    ref=ref,
+                    exc=exc,
+                )
+                try:
+                    message = str(exc)
+                except Exception as e:
+                    self.logger.warning(
+                        "Failed to stringify non-application error",
+                        ref=ref,
+                        error=e,
+                    )
+                    message = f"Failed to stringify non-application error: {e}"
+                details = ActionErrorInfo(
+                    ref=ref,
+                    message=message,
+                    type=exc.__class__.__name__,
+                )
             self.task_exceptions[ref] = TaskExceptionInfo(
                 exception=exc, details=details
             )

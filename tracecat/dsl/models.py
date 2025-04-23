@@ -243,4 +243,4 @@ class DSLExecutionError(TypedDict, total=False):
 @dataclass(frozen=True)
 class TaskExceptionInfo:
     exception: Exception
-    details: ActionErrorInfo | None = None
+    details: ActionErrorInfo

@@ -10,8 +10,7 @@ import { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot } from "lucide-react"
 
-import { exportWorkflow, handleExportError } from "@/lib/export"
-import { useTags, useWorkflowManager } from "@/lib/hooks"
+import { useOrgAppSettings, useTags, useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -43,9 +42,11 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 
 export function WorkflowsDashboardTable() {
   const router = useRouter()
+  const { appSettings } = useOrgAppSettings()
   const { workspaceId } = useWorkspace()
   const { user } = useAuth()
   const searchParams = useSearchParams()
@@ -66,6 +67,7 @@ export function WorkflowsDashboardTable() {
     console.debug("Clicked row", row)
     router.push(`/workspaces/${workspaceId}/workflows/${row.original.id}`)
   }
+  const enabledExport = appSettings?.app_workflow_export_enabled
   return (
     <DeleteWorkflowAlertDialog
       selectedWorkflow={selectedWorkflow}
@@ -440,51 +442,18 @@ export function WorkflowsDashboardTable() {
                             <span>No tags available</span>
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem
-                          className="text-xs"
-                          onClick={async (e) => {
-                            e.stopPropagation() // Prevent row click
-
-                            try {
-                              await exportWorkflow({
-                                workspaceId,
-                                workflowId: row.original.id,
-                                format: "json",
-                              })
-                            } catch (error) {
-                              console.error(
-                                "Failed to download workflow definition:",
-                                error
-                              )
-                              toast(handleExportError(error as Error))
-                            }
-                          }}
-                        >
-                          Export to JSON
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-xs"
-                          onClick={async (e) => {
-                            e.stopPropagation() // Prevent row click
-
-                            try {
-                              await exportWorkflow({
-                                workspaceId,
-                                workflowId: row.original.id,
-                                format: "yaml",
-                              })
-                            } catch (error) {
-                              console.error(
-                                "Failed to download workflow definition:",
-                                error
-                              )
-                              toast(handleExportError(error as Error))
-                            }
-                          }}
-                        >
-                          Export to YAML
-                        </DropdownMenuItem>
-
+                        <ExportMenuItem
+                          enabledExport={enabledExport}
+                          format="json"
+                          workspaceId={workspaceId}
+                          workflowId={row.original.id}
+                        />
+                        <ExportMenuItem
+                          enabledExport={enabledExport}
+                          format="yaml"
+                          workspaceId={workspaceId}
+                          workflowId={row.original.id}
+                        />
                         {/* Danger zone */}
                         <DeleteWorkflowAlertDialogTrigger asChild>
                           <DropdownMenuItem

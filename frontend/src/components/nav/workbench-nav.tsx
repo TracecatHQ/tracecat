@@ -23,8 +23,10 @@ import YAML from "yaml"
 import { z } from "zod"
 
 import { TracecatApiError } from "@/lib/errors"
-import { exportWorkflow, handleExportError } from "@/lib/export"
-import { useCreateManualWorkflowExecution } from "@/lib/hooks"
+import {
+  useCreateManualWorkflowExecution,
+  useOrgAppSettings,
+} from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -39,7 +41,6 @@ import { Dialog } from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -61,8 +62,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { toast } from "@/components/ui/use-toast"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
+import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
 
 export function WorkbenchNav() {
@@ -484,62 +485,34 @@ function WorkbenchNavOptions({
   workspaceId: string
   workflowId: string
 }) {
+  const { appSettings } = useOrgAppSettings()
+  const enabledExport = appSettings?.app_workflow_export_enabled
   return (
-    <>
-      <Dialog>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <MoreHorizontal className="size-4" />
-              <span className="sr-only">More</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuItem
-              className="text-xs text-foreground/70"
-              onClick={async () => {
-                try {
-                  await exportWorkflow({
-                    workspaceId,
-                    workflowId,
-                    format: "json",
-                  })
-                } catch (error) {
-                  console.error(
-                    "Failed to download JSON workflow definition:",
-                    error
-                  )
-                  toast(handleExportError(error as Error))
-                }
-              }}
-            >
-              <DownloadIcon className="mr-2 size-4" />
-              <span>Export as JSON</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-xs text-foreground/70"
-              onClick={async () => {
-                try {
-                  await exportWorkflow({
-                    workspaceId,
-                    workflowId,
-                    format: "yaml",
-                  })
-                } catch (error) {
-                  console.error(
-                    "Failed to download YAML workflow definition:",
-                    error
-                  )
-                  toast(handleExportError(error as Error))
-                }
-              }}
-            >
-              <DownloadIcon className="mr-2 size-4" />
-              <span>Export as YAML</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </Dialog>
-    </>
+    <Dialog>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon">
+            <MoreHorizontal className="size-4" />
+            <span className="sr-only">More</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <ExportMenuItem
+            enabledExport={enabledExport}
+            format="yaml"
+            workspaceId={workspaceId}
+            workflowId={workflowId}
+            icon={<DownloadIcon className="mr-2 size-4" />}
+          />
+          <ExportMenuItem
+            enabledExport={enabledExport}
+            format="json"
+            workspaceId={workspaceId}
+            workflowId={workflowId}
+            icon={<DownloadIcon className="mr-2 size-4" />}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </Dialog>
   )
 }
