@@ -37,17 +37,24 @@ Once that's working, we can add the fetcher workflow that fetches a list of data
   and upload them into your Tracecat instance.
 </Note>
 
+![Workflows](/img/tutorials/explode-implode/workflows.png)
+
 ### Prerequisites
 
 - Knowledge of Tracecat [for-loops](/quickstart/control-flow) and [child workflows](/tutorials/child-workflows)
 - [URLScan](https://urlscan.io/docs/api/) and [URLHaus](https://urlhaus-api.abuse.ch/) abuse.ch API keys added as Tracecat secrets.
-
-![API keys](/img/tutorials/explode-implode/api-keys.png)
-
 - A table with `url` (text), `download` (jsonb), `asn` (jsonb), and `geoip` (jsonb) columns. `url` as the index.
 
-![New table](/img/tutorials/explode-implode/new-table.png)
-![Table](/img/tutorials/explode-implode/table.png)
+<AccordionGroup>
+  <Accordion title="API keys" icon="key">
+    Add the URLScan and URLHaus API keys as Tracecat secrets.
+    ![API keys](/img/tutorials/explode-implode/api-keys.png)
+  </Accordion>
+  <Accordion title="Create table" icon="table">
+    ![New table](/img/tutorials/explode-implode/new-table.png)
+    ![Table](/img/tutorials/explode-implode/table.png)
+  </Accordion>
+</AccordionGroup>
 
 ### Steps
 
@@ -74,6 +81,8 @@ Once that's working, we can add the fetcher workflow that fetches a list of data
   </Step>
   <Step title="Fetcher workflow">
     In the following example, we fetch a list of URLs from URLHaus and pass them to the processor workflow.
+
+    ![Fetcher workflow](/img/tutorials/explode-implode/fetcher-workflow.png)
 
     <AccordionGroup>
       <Accordion title="Fetch data from URLHaus" icon="at">
