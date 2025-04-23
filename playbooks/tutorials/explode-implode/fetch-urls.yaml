@@ -1,0 +1,51 @@
+definition:
+  actions:
+  - action: core.workflow.execute
+    args:
+      trigger_inputs:
+        url: ${{ var.data.url }}
+      workflow_alias: enrich_url
+    depends_on:
+    - list_url_blocklist
+    description: ''
+    for_each: ${{ for var.data in ACTIONS.list_url_blocklist.result.data.urls }}
+    interaction: null
+    join_strategy: all
+    ref: enrich_url
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  - action: tools.urlhaus.list_urls
+    args:
+      limit: 5
+    depends_on: []
+    description: ''
+    for_each: null
+    interaction: null
+    join_strategy: all
+    ref: list_url_blocklist
+    retry_policy:
+      max_attempts: 1
+      retry_until: null
+      timeout: 300
+    run_if: null
+    start_delay: 0.0
+    wait_until: null
+  config:
+    environment: default
+    timeout: 300.0
+  description: '- Fetches list of active malicious URLs from URLHaus.
+
+    - Passes each URL into an enrichment and defang child workflow'
+  entrypoint:
+    expects: {}
+    ref: null
+  error_handler: ''
+  inputs: {}
+  returns: null
+  title: Fetch malicious URLs
+  triggers: []

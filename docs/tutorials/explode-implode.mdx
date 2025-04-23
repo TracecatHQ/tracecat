@@ -1,10 +1,130 @@
 ---
 title: Explode-implode
-description: Loop and process lists of data with child workflows.
+description: Split and process lists of data with child workflows.
 icon: layer-group
 ---
 
-<Warning>
-  This tutorial is under construction to be completed by Feb 24th 2025.
-  Contact us on [Discord](https://discord.gg/n3GF4qxFU8) for live help and examples.
-</Warning>
+## What you'll learn
+
+By the end of this tutorial, you'll learn how to:
+
+- Set up the **fetcher-processor** pattern to process lists of data.
+- Create lookup tables with natural keys for upserts.
+
+<Info>
+  Though the **fetcher-processor** pattern requires two workflows, it is a powerful pattern as:
+
+  1. Processor workflows can be reused by other fetcher workflows.
+  2. Processor workflows can be tested in isolation with a single item.
+  3. Fetcher workflows can be scheduled to run at specified intervals.
+  4. Commonly used in data pipelines at scale.
+</Info>
+
+## Fetcher-processor
+
+This pattern consists of two workflows:
+- A fetcher workflow that fetches a list of data (e.g. list of alerts).
+- A processor workflow that receives and processes one item at a time (e.g. enrich alert and open a case)
+
+It's easier to start with the processor workflow, which only processes one item at a time.
+Once that's working, we can add the fetcher workflow that fetches a list of data and passes it to the processor workflow.
+
+## Tutorial
+
+<Note>
+  The workflows in the following tutorial are open source.
+  You can download them from our [GitHub repo](https://github.com/TracecatHQ/tracecat/tree/main/playbooks/tutorials)
+  and upload them into your Tracecat instance.
+</Note>
+
+### Prerequisites
+
+- Knowledge of Tracecat [for-loops](/quickstart/control-flow) and [child workflows](/tutorials/child-workflows)
+- [URLScan](https://urlscan.io/docs/api/) and [URLHaus](https://urlhaus-api.abuse.ch/) abuse.ch API keys added as Tracecat secrets.
+
+![API keys](/img/tutorials/explode-implode/api-keys.png)
+
+- A table with `url` (text), `download` (jsonb), `asn` (jsonb), and `geoip` (jsonb) columns. `url` as the index.
+
+![New table](/img/tutorials/explode-implode/new-table.png)
+![Table](/img/tutorials/explode-implode/table.png)
+
+### Steps
+
+<Steps>
+  <Step title="Processor workflow">
+    In the following example, we assume the workflow receives a `url` field from the `TRIGGER`,
+    then looks up the URL with URLScan and extracts important fields.
+
+    ![Processor workflow](/img/tutorials/explode-implode/processor-workflow.png)
+    <AccordionGroup>
+      <Accordion title="Lookup URL with URLScan" icon="magnifying-glass">
+          Pass `TRIGGER.url` into `tools.urlscan.lookup_url` action.
+          ![Lookup URL](/img/tutorials/explode-implode/lookup-url.png)
+      </Accordion>
+      <Accordion title="Extract important fields" icon="list-check">
+        Use a reshape action to extract `download`, `asn`, and `geoip` from the URLScan result.
+        ![Extract important fields](/img/tutorials/explode-implode/extract-fields.png)
+      </Accordion>
+      <Accordion title="Upsert data to a table" icon="database">
+        Upsert data into the `url_blocklist` table created as part of the prerequisites.
+        ![Upsert data](/img/tutorials/explode-implode/upsert-data.png)
+      </Accordion>
+    </AccordionGroup>
+  </Step>
+  <Step title="Fetcher workflow">
+    In the following example, we fetch a list of URLs from URLHaus and pass them to the processor workflow.
+
+    <AccordionGroup>
+      <Accordion title="Fetch data from URLHaus" icon="at">
+        Fetch data from URLHaus using the [URLHaus](https://urlhaus-api.abuse.ch/) integration.
+        ![Fetch data](/img/tutorials/explode-implode/fetch-data.png)
+      </Accordion>
+      <Accordion title="Filter data" icon="filter">
+        For demonstration purposes, we filter for URLs that are tagged with `elf`.
+        ![Filter data](/img/tutorials/explode-implode/filter-data.png)
+      </Accordion>
+      <Accordion title="Define looped workflow" icon="rotate-right">
+        Select the `core.workflow.execute` action, then define the following loop expression:
+        ![Loop](/img/tutorials/explode-implode/loop.png)
+      </Accordion>
+      <Accordion title="Define workflow inputs" icon="person-running">
+        Define the workflow execution action by setting:
+        - `workflow_alias`: to the alias of the processor workflow
+        - `trigger_inputs`: as an object with a single `url` field
+        ![Execute workflow](/img/tutorials/explode-implode/execute-workflow.png)
+      </Accordion>
+    </AccordionGroup>
+  </Step>
+  <Step title="Lookup table">
+    Go to tables to view the results of the processor workflow.
+    ![Table](/img/tutorials/explode-implode/table.png)
+  </Step>
+</Steps>
+
+## Best practices
+
+- Add new workflow logic into the processor workflow.
+- If the processor workflow gets too large, use child workflows in the processor workflow to split it into smaller ones.
+- The fetcher workflow should only be used to fetch data and (optionally) filter them into different processor workflows.
+
+<Tip>
+  To implement branching logic (similar to if-conditions) with lists of data, use `core.transform.filter` or JSONPath filters.
+
+  - Learn about the filter action in the [data transforms](/tutorials/data-transforms#filter) tutorial.
+  - Learn about JSONPath filters in the [JSONPath](/cheatsheet/jsonpath#basic-filters) cheatsheet.
+</Tip>
+
+### Use cases
+
+Common **processor workflows** include:
+
+- Normalizing a single alert (e.g. renaming fields)
+- Enriching indicators of compromise (IoCs) in a single alert
+- Opening a single case in a ticketing system (Tracecat cases, Jira, etc.)
+
+These processor workflows can be reused by different **fetcher workflows**.
+Examples of fetcher workflows include:
+
+- Ingesting alerts from a SIEM
+- Ingesting indicators from a threat intelligence platform
