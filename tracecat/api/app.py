@@ -255,7 +255,8 @@ def create_app(**kwargs) -> FastAPI:
 
     # Middleware
     app.add_middleware(RequestLoggingMiddleware)
-    app.add_middleware(SecurityHeadersMiddleware)
+    if config.TRACECAT__APP_ENV != "development":
+        app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allow_origins,
