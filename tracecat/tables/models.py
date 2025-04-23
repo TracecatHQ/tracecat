@@ -92,10 +92,6 @@ class TableRowInsert(BaseModel):
 
     data: dict[str, Any]
     upsert: bool = False
-    natural_keys: list[str] = Field(
-        default_factory=list,
-        description="The columns of the table to use for upsert",
-    )
 
 
 class TableRowInsertBatch(BaseModel):

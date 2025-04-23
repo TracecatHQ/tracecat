@@ -27,6 +27,7 @@ from tracecat.dsl.models import DSLConfig
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
+from tracecat.settings.service import get_setting
 from tracecat.tags.models import TagRead
 from tracecat.types.exceptions import TracecatValidationError
 from tracecat.validation.service import validate_dsl
@@ -391,6 +392,15 @@ async def export_workflow(
 
     Supported formats are JSON and CSV.
     """
+    # Check if workflow exports are enabled
+    if not await get_setting(
+        "app_workflow_export_enabled", session=session, default=True
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workflow exports are disabled",
+        )
+
     logger.info(
         "Exporting workflow", workflow_id=workflow_id, format=format, version=version
     )

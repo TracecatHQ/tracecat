@@ -141,6 +141,7 @@ export type AppSettingsRead = {
   app_registry_validation_enabled: boolean
   app_executions_query_limit: number
   app_interactions_enabled: boolean
+  app_workflow_export_enabled: boolean
 }
 
 /**
@@ -159,6 +160,10 @@ export type AppSettingsUpdate = {
    * Whether app interactions are enabled.
    */
   app_interactions_enabled?: boolean
+  /**
+   * Whether workflow exports are enabled.
+   */
+  app_workflow_export_enabled?: boolean
 }
 
 /**
@@ -1484,10 +1489,6 @@ export type TableRowInsert = {
     [key: string]: unknown
   }
   upsert?: boolean
-  /**
-   * The columns of the table to use for upsert
-   */
-  natural_keys?: Array<string>
 }
 
 /**

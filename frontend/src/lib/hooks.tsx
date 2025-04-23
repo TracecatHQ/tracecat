@@ -2200,23 +2200,26 @@ export function useUpdateColumn() {
       })
     },
     onError: (error: TracecatApiError, variables) => {
-      // Check if this was a natural key operation
+      // Check if this was a unique index operation
       const isIndexOperation = !!variables.requestBody?.is_index
 
       if (isIndexOperation) {
-        // Handle natural key specific errors
+        // Handle unique index specific errors
         if (error.status === 409) {
           toast({
-            title: "Error creating natural key",
+            title: "Error creating unique index",
             description:
               "Column contains duplicate values. All values must be unique.",
-            variant: "destructive",
+          })
+        } else if (error.status === 400) {
+          toast({
+            title: "Error creating unique index",
+            description: String(error.body.detail),
           })
         } else {
           toast({
-            title: "Error creating natural key",
+            title: "Error creating unique index",
             description: error.message || "An unexpected error occurred",
-            variant: "destructive",
           })
         }
       } else {
@@ -2233,7 +2236,6 @@ export function useUpdateColumn() {
             toast({
               title: "Error updating column",
               description: error.message || "An unexpected error occurred",
-              variant: "destructive",
             })
             break
         }

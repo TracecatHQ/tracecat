@@ -311,8 +311,8 @@ async def get_table(
             detail=str(e),
         ) from e
 
-    # Get natural key info or default to empty dict if not present
-    natural_key_info = await service.get_index(table)
+    # Get unique index info or default to empty dict if not present
+    index_columns = await service.get_index(table)
 
     # Convert to response model (includes is_index field)
     return TableRead(
@@ -325,7 +325,7 @@ async def get_table(
                 type=SqlType(column.type),
                 nullable=column.nullable,
                 default=column.default,
-                is_index=natural_key_info.get(column.name, False),
+                is_index=column.name in index_columns,
             )
             for column in table.columns
         ],
@@ -439,6 +439,11 @@ async def update_column(
         ) from e
     try:
         await service.update_column(column, params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except ProgrammingError as e:
         # Drill down to the root cause
         while (cause := e.__cause__) is not None:
