@@ -67,9 +67,7 @@ export function WorkflowsDashboardTable() {
     console.debug("Clicked row", row)
     router.push(`/workspaces/${workspaceId}/workflows/${row.original.id}`)
   }
-  const disabledExport = !appSettings?.app_workflow_export_enabled
   const enabledExport = appSettings?.app_workflow_export_enabled
-  console.log("Disabled export", disabledExport)
   return (
     <DeleteWorkflowAlertDialog
       selectedWorkflow={selectedWorkflow}
