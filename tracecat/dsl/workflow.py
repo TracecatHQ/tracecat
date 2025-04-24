@@ -994,8 +994,8 @@ class DSLWorkflow:
                 handler_wf_id=wf_id,
                 orig_wf_id=orig_wf_id,
                 orig_wf_exec_id=orig_wf_exec_id,
+                orig_wf_exec_url=url,
                 errors=errors,
-                url=url,
             ),
             runtime_config=runtime_config,
         )
