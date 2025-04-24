@@ -81,12 +81,9 @@ definition:
           channel: ${{ inputs.channel }}
           text: ${{ inputs.summary }}
           thread_ts: ${{ inputs.thread_ts }}
+          blocks: ${{ steps.blocks.result }}
           metadata:
             event_type: notification
             event_payload:
-              # Get the interaction context from the current action
-              # in the workflow execution. Returns null if the
-              # action is not interactive
               interaction_context: ${{ FN.get_interaction() }}
-          blocks: ${{ steps.blocks.result }}
   returns: ${{ steps.post_message.result.message }}
