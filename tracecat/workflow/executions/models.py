@@ -401,7 +401,11 @@ class WorkflowExecutionEventCompact(BaseModel):
 
         attrs = event.start_child_workflow_execution_initiated_event_attributes
         wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
-        memo = ChildWorkflowMemo.from_temporal(attrs.memo)
+        try:
+            memo = ChildWorkflowMemo.from_temporal(attrs.memo)
+        except Exception as e:
+            logger.error("Error parsing child workflow memo", error=e)
+            raise e
         input_data = extract_first(attrs.input)
         dsl_run_args = DSLRunArgs(**input_data)
 
