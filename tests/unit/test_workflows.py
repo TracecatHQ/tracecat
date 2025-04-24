@@ -10,6 +10,7 @@ Objectives
 
 import asyncio
 import os
+import re
 from collections.abc import AsyncGenerator, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
@@ -46,7 +47,12 @@ from tracecat.dsl.models import (
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.expressions.common import ExprContext
-from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID, WorkflowUUID
+from tracecat.identifiers.workflow import (
+    WF_EXEC_ID_PATTERN,
+    WorkflowExecutionID,
+    WorkflowID,
+    WorkflowUUID,
+)
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
@@ -2494,6 +2500,7 @@ def assert_error_handler_initiated_correctly(
     handler_wf: Workflow,
     failing_wf_id: WorkflowID,
     failing_wf_exec_id: WorkflowExecutionID,
+    workspace_id: str,
 ) -> WorkflowExecutionEvent[RunActionInput]:
     # # 5.1 Find the event where the error handler was called
     evt = next(
@@ -2529,9 +2536,16 @@ def assert_error_handler_initiated_correctly(
     )
 
     # Check that the error handler received the correct error context
+    match = re.match(WF_EXEC_ID_PATTERN, failing_wf_exec_id)
+    if not match:
+        pytest.fail(f"Invalid workflow execution ID: {failing_wf_exec_id}")
+    wf_id_short = WorkflowUUID.new(failing_wf_id).short()
+    exec_id = match.group("execution_id")
+    wf_exec_url = f"http://localhost/workspaces/{workspace_id}/workflows/{wf_id_short}/executions/{exec_id}"
+
     assert group.action_input.trigger_inputs == {
-        "errors": {
-            "failing_action": {
+        "errors": [
+            {
                 "attempt": 1,
                 "expr_context": "ACTIONS",
                 "message": (
@@ -2556,7 +2570,7 @@ def assert_error_handler_initiated_correctly(
                 "ref": "failing_action",
                 "type": "ExecutorClientError",
             }
-        },
+        ],
         "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
         "message": (
             "Workflow failed with 1 task exception(s)\n\n"
@@ -2581,6 +2595,7 @@ def assert_error_handler_initiated_correctly(
             "Line: 73"
         ),
         "orig_wf_exec_id": failing_wf_exec_id,
+        "orig_wf_exec_url": wf_exec_url,
         "orig_wf_id": str(failing_wf_id),
     }
     return evt
@@ -2648,6 +2663,10 @@ async def test_workflow_error_handler_success(
     5. Check that the error handler has the correct context
     """
 
+    workspace_id = test_role.workspace_id
+    if workspace_id is None:
+        raise ValueError("Workspace ID is not set")
+
     # 1. Create an error handler
     handler_dsl = error_handler_wf_and_dsl.dsl
     handler_wf = error_handler_wf_and_dsl.wf
@@ -2689,6 +2708,7 @@ async def test_workflow_error_handler_success(
         handler_wf=handler_wf,
         failing_wf_id=TEST_WF_ID,
         failing_wf_exec_id=wf_exec_id,
+        workspace_id=str(workspace_id),
     )
 
     # 6. Verify that the error handler started and completed
