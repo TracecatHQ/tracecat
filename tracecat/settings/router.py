@@ -35,6 +35,15 @@ OrgAdminUserRole = Annotated[
     ),
 ]
 
+OrgUserRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+    ),
+]
+
 # NOTE: We expose settings groups
 # We don't need create or delete endpoints as we only need to read/update settings.
 # For M2M, we use the service directly.
@@ -167,7 +176,7 @@ async def update_oauth_settings(
 @router.get("/app", response_model=AppSettingsRead)
 async def get_app_settings(
     *,
-    role: OrgAdminUserRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
 ) -> AppSettingsRead:
     service = SettingsService(session, role)
