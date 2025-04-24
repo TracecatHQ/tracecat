@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import re
 import uuid
 from collections.abc import Generator, Iterable
 from datetime import UTC, datetime, timedelta
@@ -23,10 +24,10 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
-    from pydantic import TypeAdapter, ValidationError
+    from pydantic import ValidationError
     from slugify import slugify
 
-    from tracecat import identifiers
+    from tracecat import config, identifiers
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.action import (
@@ -43,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.enums import FailStrategy, LoopStrategy, PlatformAction
     from tracecat.dsl.models import (
         ActionErrorInfo,
+        ActionErrorInfoAdapter,
         ActionStatement,
         DSLConfig,
         DSLEnvironment,
@@ -225,10 +227,26 @@ class DSLWorkflow:
             if e.details:
                 err_info_map = e.details[0]
                 self.logger.info("Raising error info", err_info_data=err_info_map)
-                ta = TypeAdapter(ActionErrorInfo)
-                errors = {
-                    ref: ta.validate_python(data) for ref, data in err_info_map.items()
-                }
+                if not isinstance(err_info_map, dict):
+                    logger.error(
+                        "Unexpected error info object",
+                        err_info_map=err_info_map,
+                        type=type(err_info_map).__name__,
+                    )
+                    # TODO: There's likely a nicer way to gracefully handle this
+                    # instead of a sentinel error value
+                    errors = [
+                        ActionErrorInfo(
+                            ref="N/A",
+                            message=f"Unexpected error info object of type {type(err_info_map).__name__}: {err_info_map}",
+                            type=type(err_info_map).__name__,
+                        )
+                    ]
+                else:
+                    errors = [
+                        ActionErrorInfoAdapter.validate_python(data)
+                        for data in err_info_map.values()
+                    ]
             else:
                 errors = None
 
@@ -946,7 +964,7 @@ class DSLWorkflow:
         handler_wf_id: WorkflowID,
         orig_wf_id: WorkflowID,
         orig_wf_exec_id: WorkflowExecutionID,
-        errors: dict[str, ActionErrorInfo] | None = None,
+        errors: list[ActionErrorInfo] | None = None,
     ) -> DSLRunArgs:
         """Grab a workflow definition and create error handler workflow run args"""
 
@@ -966,6 +984,23 @@ class DSLWorkflow:
         )
         self.logger.debug("Runtime config", runtime_config=runtime_config)
 
+        url = None
+        if match := re.match(identifiers.workflow.WF_EXEC_ID_PATTERN, orig_wf_exec_id):
+            if self.role.workspace_id is None:
+                logger.warning("Workspace ID is required to create error handler URL")
+            else:
+                try:
+                    workflow_id = identifiers.workflow.WorkflowUUID.new(
+                        match.group("workflow_id")
+                    ).short()
+                    exec_id = match.group("execution_id")
+                    url = (
+                        f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{self.role.workspace_id}"
+                        f"/workflows/{workflow_id}/executions/{exec_id}"
+                    )
+                except Exception as e:
+                    logger.error("Error parsing workflow execution ID", error=e)
+
         return DSLRunArgs(
             role=self.role,
             dsl=dsl,
@@ -976,6 +1011,7 @@ class DSLWorkflow:
                 handler_wf_id=wf_id,
                 orig_wf_id=orig_wf_id,
                 orig_wf_exec_id=orig_wf_exec_id,
+                orig_wf_exec_url=url,
                 errors=errors,
             ),
             runtime_config=runtime_config,
