@@ -296,14 +296,14 @@ class ChildWorkflowMemo(BaseModel):
     def from_temporal(memo: temporalio.api.common.v1.Memo) -> ChildWorkflowMemo:
         try:
             action_ref = orjson.loads(memo.fields["action_ref"].data)
-            if loop_index_data := memo.fields["loop_index"].data:
-                loop_index = orjson.loads(loop_index_data)
-            else:
-                loop_index = None
-            return ChildWorkflowMemo(action_ref=action_ref, loop_index=loop_index)
         except Exception as e:
-            logger.opt(exception=e).error("Error parsing child workflow memo")
-            raise e
+            logger.warning("Error parsing child workflow memo action ref", error=e)
+            action_ref = "Unknown Child Workflow"
+        if loop_index_data := memo.fields["loop_index"].data:
+            loop_index = orjson.loads(loop_index_data)
+        else:
+            loop_index = None
+        return ChildWorkflowMemo(action_ref=action_ref, loop_index=loop_index)
 
 
 AdjDst = tuple[str, EdgeType]

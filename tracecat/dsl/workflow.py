@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
     from pydantic import TypeAdapter, ValidationError
+    from slugify import slugify
 
     from tracecat import identifiers
     from tracecat.concurrency import GatheringTaskGroup
@@ -987,6 +988,10 @@ class DSLWorkflow:
         self.logger.info("Running error handler workflow", args=args)
         wf_exec_id = identifiers.workflow.generate_exec_id(args.wf_id)
         wf_info = workflow.info()
+        if args.dsl is None:
+            raise ValueError("DSL is required to run error handler workflow")
+        # Use Temporal memo to store the action ref in the child workflow run
+        memo = ChildWorkflowMemo(action_ref=slugify(args.dsl.title, separator="_"))
         await workflow.execute_child_workflow(
             DSLWorkflow.run,
             args,
@@ -996,5 +1001,6 @@ class DSLWorkflow:
             task_queue=wf_info.task_queue,
             execution_timeout=wf_info.execution_timeout,
             task_timeout=wf_info.task_timeout,
+            memo=memo.model_dump(),
             search_attributes=wf_info.typed_search_attributes,
         )
