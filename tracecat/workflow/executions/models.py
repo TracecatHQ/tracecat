@@ -474,6 +474,7 @@ class ErrorHandlerWorkflowInput:
     orig_wf_id: WorkflowID
     orig_wf_exec_id: WorkflowExecutionID
     errors: dict[str, ActionErrorInfo] | None
+    url: str | None = None
 
 
 class ReceiveInteractionResponse(BaseModel):

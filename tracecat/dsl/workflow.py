@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import re
 import uuid
 from collections.abc import Generator, Iterable
 from datetime import UTC, datetime, timedelta
@@ -26,7 +27,7 @@ with workflow.unsafe.imports_passed_through():
     from pydantic import TypeAdapter, ValidationError
     from slugify import slugify
 
-    from tracecat import identifiers
+    from tracecat import config, identifiers
     from tracecat.concurrency import GatheringTaskGroup
     from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
     from tracecat.dsl.action import (
@@ -966,6 +967,23 @@ class DSLWorkflow:
         )
         self.logger.debug("Runtime config", runtime_config=runtime_config)
 
+        url = None
+        if match := re.match(identifiers.workflow.WF_EXEC_ID_PATTERN, orig_wf_exec_id):
+            if self.role.workspace_id is None:
+                logger.warning("Workspace ID is required to create error handler URL")
+            else:
+                try:
+                    workflow_id = identifiers.workflow.WorkflowUUID.new(
+                        match.group("workflow_id")
+                    ).short()
+                    exec_id = match.group("execution_id")
+                    url = (
+                        f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{self.role.workspace_id}"
+                        f"/workflows/{workflow_id}/executions/{exec_id}"
+                    )
+                except Exception as e:
+                    logger.error("Error parsing workflow execution ID", error=e)
+
         return DSLRunArgs(
             role=self.role,
             dsl=dsl,
@@ -977,6 +995,7 @@ class DSLWorkflow:
                 orig_wf_id=orig_wf_id,
                 orig_wf_exec_id=orig_wf_exec_id,
                 errors=errors,
+                url=url,
             ),
             runtime_config=runtime_config,
         )
