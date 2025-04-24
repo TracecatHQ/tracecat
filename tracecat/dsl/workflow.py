@@ -228,15 +228,25 @@ class DSLWorkflow:
                 err_info_map = e.details[0]
                 self.logger.info("Raising error info", err_info_data=err_info_map)
                 if not isinstance(err_info_map, dict):
-                    raise ApplicationError(
-                        "Error info map is not a dictionary",
-                        non_retryable=True,
-                        type=e.__class__.__name__,
-                    ) from e
-                errors = [
-                    ActionErrorInfoAdapter.validate_python(data)
-                    for data in err_info_map.values()
-                ]
+                    logger.error(
+                        "Unexpected error info object",
+                        err_info_map=err_info_map,
+                        type=type(err_info_map).__name__,
+                    )
+                    # TODO: There's likely a nicer way to gracefully handle this
+                    # instead of a sentinel error value
+                    errors = [
+                        ActionErrorInfo(
+                            ref="N/A",
+                            message=f"Unexpected error info object of type {type(err_info_map).__name__}: {err_info_map}",
+                            type=type(err_info_map).__name__,
+                        )
+                    ]
+                else:
+                    errors = [
+                        ActionErrorInfoAdapter.validate_python(data)
+                        for data in err_info_map.values()
+                    ]
             else:
                 errors = None
 
