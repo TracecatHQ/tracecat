@@ -473,7 +473,7 @@ class ErrorHandlerWorkflowInput:
     handler_wf_id: WorkflowID
     orig_wf_id: WorkflowID
     orig_wf_exec_id: WorkflowExecutionID
-    errors: dict[str, ActionErrorInfo] | None
+    errors: list[ActionErrorInfo] | None = None
     orig_wf_exec_url: str | None = None
 
 

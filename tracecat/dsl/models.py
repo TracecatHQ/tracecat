@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.enums import JoinStrategy
@@ -60,6 +60,9 @@ class ActionErrorInfo:
     def format(self, loc: str = "run_action") -> str:
         locator = f"{self.expr_context}.{self.ref} -> {loc}"
         return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
+
+
+ActionErrorInfoAdapter = TypeAdapter(ActionErrorInfo)
 
 
 class ActionRetryPolicy(BaseModel):

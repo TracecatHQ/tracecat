@@ -24,7 +24,7 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
-    from pydantic import TypeAdapter, ValidationError
+    from pydantic import ValidationError
     from slugify import slugify
 
     from tracecat import config, identifiers
@@ -44,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.enums import FailStrategy, LoopStrategy, PlatformAction
     from tracecat.dsl.models import (
         ActionErrorInfo,
+        ActionErrorInfoAdapter,
         ActionStatement,
         DSLConfig,
         DSLEnvironment,
@@ -226,10 +227,16 @@ class DSLWorkflow:
             if e.details:
                 err_info_map = e.details[0]
                 self.logger.info("Raising error info", err_info_data=err_info_map)
-                ta = TypeAdapter(ActionErrorInfo)
-                errors = {
-                    ref: ta.validate_python(data) for ref, data in err_info_map.items()
-                }
+                if not isinstance(err_info_map, dict):
+                    raise ApplicationError(
+                        "Error info map is not a dictionary",
+                        non_retryable=True,
+                        type=e.__class__.__name__,
+                    ) from e
+                errors = [
+                    ActionErrorInfoAdapter.validate_python(data)
+                    for data in err_info_map.values()
+                ]
             else:
                 errors = None
 
@@ -947,7 +954,7 @@ class DSLWorkflow:
         handler_wf_id: WorkflowID,
         orig_wf_id: WorkflowID,
         orig_wf_exec_id: WorkflowExecutionID,
-        errors: dict[str, ActionErrorInfo] | None = None,
+        errors: list[ActionErrorInfo] | None = None,
     ) -> DSLRunArgs:
         """Grab a workflow definition and create error handler workflow run args"""
 
