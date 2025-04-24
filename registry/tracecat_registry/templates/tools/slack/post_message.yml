@@ -14,7 +14,7 @@ definition:
       type: str
       description: The channel to post the message to.
     blocks:
-      type: list[dict] | None
+      type: list[dict[str, any]] | None
       description: List of JSON-based blocks.
     thread_ts:
       type: str | None
