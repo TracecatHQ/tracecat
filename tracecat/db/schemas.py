@@ -13,6 +13,7 @@ from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
 from tracecat.auth.models import UserRole
+from tracecat.authz.models import WorkspaceRole
 from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
@@ -69,6 +70,11 @@ class Membership(SQLModel, table=True):
 
     user_id: UUID4 = Field(foreign_key="user.id", primary_key=True)
     workspace_id: UUID4 = Field(foreign_key="workspace.id", primary_key=True)
+    role: WorkspaceRole = Field(
+        default=WorkspaceRole.EDITOR,
+        description="User's role in this workspace",
+        nullable=False,
+    )
 
 
 class Ownership(SQLModel, table=True):
@@ -92,7 +98,7 @@ class Ownership(SQLModel, table=True):
 
 class Workspace(Resource, table=True):
     id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
-    name: str = Field(..., unique=True, index=True, nullable=False)
+    name: str = Field(..., index=True, nullable=False)
     settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
     members: list["User"] = Relationship(
         back_populates="workspaces",
