@@ -56,6 +56,7 @@ from tracecat.workflow.executions.enums import (
     TemporalSearchAttr,
     TriggerType,
     WorkflowEventType,
+    WorkflowExecutionEventStatus,
 )
 from tracecat.workflow.executions.models import (
     EventFailure,
@@ -206,7 +207,10 @@ class WorkflowExecutionsService:
                     continue
                 wf_event_type = HISTORY_TO_WF_EVENT_TYPE[event.event_type]
                 source.curr_event_type = wf_event_type
-                source.status = wf_event_type.to_status()
+                if source.status != WorkflowExecutionEventStatus.DETACHED:
+                    # Only overwrite the status if it's not already set to DETACHED
+                    # If it's DETACHED the status remains unchanged
+                    source.status = wf_event_type.to_status()
                 if is_start_event(event):
                     source.start_time = event.event_time.ToDatetime(datetime.UTC)
                 if is_close_event(event):

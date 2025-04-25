@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
 from tracecat.dsl.common import ChildWorkflowMemo, DSLRunArgs
-from tracecat.dsl.enums import JoinStrategy, PlatformAction
+from tracecat.dsl.enums import JoinStrategy, PlatformAction, WaitStrategy
 from tracecat.dsl.models import (
     ActionErrorInfo,
     ActionRetryPolicy,
@@ -330,6 +330,7 @@ class WorkflowExecutionEventCompact(BaseModel):
     child_wf_exec_id: WorkflowExecutionID | None = None
     child_wf_count: int = 0
     loop_index: int | None = None
+    child_wf_wait_strategy: WaitStrategy | None = None
 
     @staticmethod
     def from_source_event(
@@ -406,6 +407,22 @@ class WorkflowExecutionEventCompact(BaseModel):
         except Exception as e:
             logger.error("Error parsing child workflow memo", error=e)
             raise e
+
+        if (
+            attrs.parent_close_policy
+            == temporalio.api.enums.v1.ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
+            and memo.wait_strategy == WaitStrategy.DETACH
+        ):
+            status = WorkflowExecutionEventStatus.DETACHED
+        else:
+            status = WorkflowExecutionEventStatus.SCHEDULED
+        logger.info(
+            "Child workflow initiated event",
+            status=status,
+            wf_exec_id=wf_exec_id,
+            memo=memo,
+        )
+
         input_data = extract_first(attrs.input)
         dsl_run_args = DSLRunArgs(**input_data)
 
@@ -413,12 +430,13 @@ class WorkflowExecutionEventCompact(BaseModel):
             source_event_id=event.event_id,
             schedule_time=event.event_time.ToDatetime(UTC),
             curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
-            status=WorkflowExecutionEventStatus.SCHEDULED,
+            status=status,
             action_name=PlatformAction.CHILD_WORKFLOW_EXECUTE.value,
             action_ref=memo.action_ref,
             action_input=dsl_run_args.trigger_inputs,
             child_wf_exec_id=wf_exec_id,
             loop_index=memo.loop_index,
+            child_wf_wait_strategy=memo.wait_strategy,
         )
 
     @staticmethod

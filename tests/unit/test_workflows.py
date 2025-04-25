@@ -20,7 +20,8 @@ from typing import Any, Literal
 import pytest
 import yaml
 from pydantic import SecretStr
-from temporalio.client import Client, WorkflowFailureError
+from temporalio.api.enums.v1.workflow_pb2 import ParentClosePolicy
+from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import Worker
@@ -37,7 +38,7 @@ from tracecat.dsl.common import (
     DSLInput,
     DSLRunArgs,
 )
-from tracecat.dsl.enums import LoopStrategy
+from tracecat.dsl.enums import LoopStrategy, WaitStrategy
 from tracecat.dsl.models import (
     ActionStatement,
     DSLConfig,
@@ -3076,3 +3077,105 @@ async def test_workflow_table_actions_in_loop(
     for i, row in enumerate(sorted(rows, key=lambda r: r["number"]), 1):
         assert row["number"] == i
         assert row["squared"] == i * i
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_workflow_detached_child_workflow(
+    test_role: Role, temporal_client: Client
+):
+    """
+    Test that a workflow can detach a child workflow.
+    Logic:
+    1. Parent workflow creates child workflow
+    2. Terminate parent workflow
+    3. Child workflow runs to completion
+    4. Verify child workflow completed successfully
+    """
+    test_name = f"{test_workflow_detached_child_workflow.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+    # Child
+    child_dsl = DSLInput(
+        title="Test child workflow detached",
+        description="Test child workflow detached",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                args={
+                    "value": "${{ TRIGGER + 1000 }}",
+                },
+                start_delay=2,
+            ),
+        ],
+        inputs={},
+        returns="${{ ACTIONS.a.result }}",
+    )
+
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
+    # Parent
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test parent workflow can call child correctly",
+        entrypoint=DSLEntrypoint(ref="parent"),
+        actions=[
+            ActionStatement(
+                ref="parent",
+                action="core.workflow.execute",
+                for_each="${{ for var.x in [1,2,3] }}",
+                args={
+                    "workflow_id": child_workflow.id,
+                    "trigger_inputs": "${{ var.x }}",
+                    "wait_strategy": WaitStrategy.DETACH.value,
+                    "timeout": "123",
+                },
+            ),
+        ],
+    )
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+    async with Worker(
+        temporal_client,
+        task_queue=queue,
+        activities=get_activities(),
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        parent_handle = await temporal_client.start_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=retry_policies["workflow:fail_fast"],
+        )
+        # Wait for parent completion
+        await parent_handle.result()
+        desc = await parent_handle.describe()
+        pending_children = desc.raw_description.pending_children
+        assert len(pending_children) == 3
+        async with GatheringTaskGroup() as tg:
+            for child in pending_children:
+                logger.info("child", child=child)
+                child_handle = temporal_client.get_workflow_handle_for(
+                    DSLWorkflow.run, child.workflow_id
+                )
+                child_desc = await child_handle.describe()
+                assert (
+                    child.parent_close_policy
+                    == ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
+                ), (
+                    f"Child {child.workflow_id} has parent close policy {child.parent_close_policy}"
+                )
+                assert child_desc.status == WorkflowExecutionStatus.RUNNING, (
+                    f"Child {child.workflow_id} is not running"
+                )
+
+                tg.create_task(child_handle.result())
+
+        results = tg.results()
+        assert results == [1001, 1002, 1003]

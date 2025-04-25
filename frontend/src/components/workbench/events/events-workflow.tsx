@@ -22,6 +22,7 @@ import {
   CirclePlayIcon,
   CircleX,
   EyeOffIcon,
+  GitForkIcon,
   LayoutListIcon,
   LoaderIcon,
   ScanEyeIcon,
@@ -266,7 +267,7 @@ export function WorkflowEvents({
                   </div>
 
                   <div className="flex flex-1 items-center justify-between">
-                    <div className="max-w-28 truncate text-foreground/70">
+                    <div className="w-full truncate text-foreground/70">
                       {event.action_ref}
                     </div>
 
@@ -414,6 +415,15 @@ export function getWorkflowEventIcon(
           strokeWidth={2.5}
         />
       )
+    case "DETACHED":
+      return (
+        <GitForkIcon
+          className={cn("!size-3 stroke-emerald-500", className)}
+          strokeWidth={2.5}
+        />
+      )
+    case "UNKNOWN":
+      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
     default:
       throw new Error("Invalid status")
   }
