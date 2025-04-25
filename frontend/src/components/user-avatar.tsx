@@ -1,5 +1,4 @@
 import { UserRead } from "@/client"
-import { UserIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
