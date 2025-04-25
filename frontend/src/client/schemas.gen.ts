@@ -1431,53 +1431,6 @@ export const $CaseUpdate = {
   title: "CaseUpdate",
 } as const
 
-export const $CreateWorkspaceMembershipParams = {
-  properties: {
-    user_id: {
-      type: "string",
-      format: "uuid4",
-      title: "User Id",
-    },
-  },
-  type: "object",
-  required: ["user_id"],
-  title: "CreateWorkspaceMembershipParams",
-} as const
-
-export const $CreateWorkspaceParams = {
-  properties: {
-    name: {
-      type: "string",
-      maxLength: 100,
-      minLength: 1,
-      title: "Name",
-    },
-    settings: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Settings",
-    },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-      default: "00000000-0000-0000-0000-000000000000",
-    },
-  },
-  type: "object",
-  required: ["name"],
-  title: "CreateWorkspaceParams",
-} as const
-
 export const $DSLConfig_Input = {
   properties: {
     scheduler: {
@@ -4934,40 +4887,6 @@ export const $TriggerType = {
   description: "Trigger type for a workflow execution.",
 } as const
 
-export const $UpdateWorkspaceParams = {
-  properties: {
-    name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Name",
-    },
-    settings: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Settings",
-    },
-  },
-  type: "object",
-  title: "UpdateWorkspaceParams",
-} as const
-
 export const $UserCreate = {
   properties: {
     email: {
@@ -6623,6 +6542,40 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
+export const $WorkspaceCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+    settings: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Settings",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+      default: "00000000-0000-0000-0000-000000000000",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "WorkspaceCreate",
+} as const
+
 export const $WorkspaceMember = {
   properties: {
     user_id: {
@@ -6666,7 +6619,20 @@ export const $WorkspaceMember = {
   title: "WorkspaceMember",
 } as const
 
-export const $WorkspaceMembershipResponse = {
+export const $WorkspaceMembershipCreate = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid4",
+      title: "User Id",
+    },
+  },
+  type: "object",
+  required: ["user_id"],
+  title: "WorkspaceMembershipCreate",
+} as const
+
+export const $WorkspaceMembershipRead = {
   properties: {
     user_id: {
       type: "string",
@@ -6681,31 +6647,10 @@ export const $WorkspaceMembershipResponse = {
   },
   type: "object",
   required: ["user_id", "workspace_id"],
-  title: "WorkspaceMembershipResponse",
+  title: "WorkspaceMembershipRead",
 } as const
 
-export const $WorkspaceMetadataResponse = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid4",
-      title: "Id",
-    },
-    name: {
-      type: "string",
-      title: "Name",
-    },
-    n_members: {
-      type: "integer",
-      title: "N Members",
-    },
-  },
-  type: "object",
-  required: ["id", "name", "n_members"],
-  title: "WorkspaceMetadataResponse",
-} as const
-
-export const $WorkspaceResponse = {
+export const $WorkspaceRead = {
   properties: {
     id: {
       type: "string",
@@ -6749,7 +6694,62 @@ export const $WorkspaceResponse = {
   },
   type: "object",
   required: ["id", "name", "owner_id", "n_members", "members"],
-  title: "WorkspaceResponse",
+  title: "WorkspaceRead",
+} as const
+
+export const $WorkspaceReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    n_members: {
+      type: "integer",
+      title: "N Members",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "n_members"],
+  title: "WorkspaceReadMinimal",
+} as const
+
+export const $WorkspaceUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    settings: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Settings",
+    },
+  },
+  type: "object",
+  title: "WorkspaceUpdate",
 } as const
 
 export const $login = {

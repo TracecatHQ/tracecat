@@ -8,23 +8,23 @@ from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 
 
 # Params
-class CreateWorkspaceParams(BaseModel):
+class WorkspaceCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     settings: dict[str, str] | None = None
     owner_id: OwnerID = Field(default=config.TRACECAT__DEFAULT_ORG_ID)
 
 
-class UpdateWorkspaceParams(BaseModel):
+class WorkspaceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     settings: dict[str, str] | None = None
 
 
-class SearchWorkspacesParams(BaseModel):
+class WorkspaceSearch(BaseModel):
     name: str | None = None
 
 
 # Responses
-class WorkspaceMetadataResponse(BaseModel):
+class WorkspaceReadMinimal(BaseModel):
     id: WorkspaceID
     name: str
     n_members: int
@@ -38,7 +38,7 @@ class WorkspaceMember(BaseModel):
     role: UserRole
 
 
-class WorkspaceResponse(BaseModel):
+class WorkspaceRead(BaseModel):
     id: WorkspaceID
     name: str
     settings: dict[str, str] | None = None
@@ -49,11 +49,11 @@ class WorkspaceResponse(BaseModel):
 
 # === Membership === #
 # Params
-class CreateWorkspaceMembershipParams(BaseModel):
+class WorkspaceMembershipCreate(BaseModel):
     user_id: UserID
 
 
 # Responses
-class WorkspaceMembershipResponse(BaseModel):
+class WorkspaceMembershipRead(BaseModel):
     user_id: UserID
     workspace_id: WorkspaceID

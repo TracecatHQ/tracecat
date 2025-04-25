@@ -13,7 +13,7 @@ from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 from tracecat.service import BaseService
 from tracecat.types.auth import AccessLevel
 from tracecat.types.exceptions import TracecatException, TracecatManagementError
-from tracecat.workspaces.models import SearchWorkspacesParams, UpdateWorkspaceParams
+from tracecat.workspaces.models import WorkspaceSearch, WorkspaceUpdate
 
 
 class WorkspaceService(BaseService):
@@ -95,7 +95,7 @@ class WorkspaceService(BaseService):
 
     @require_access_level(AccessLevel.ADMIN)
     async def update_workspace(
-        self, workspace_id: WorkspaceID, params: UpdateWorkspaceParams
+        self, workspace_id: WorkspaceID, params: WorkspaceUpdate
     ) -> None:
         """Update a workspace."""
         statement = select(Workspace).where(Workspace.id == workspace_id)
@@ -122,9 +122,7 @@ class WorkspaceService(BaseService):
         await self.session.delete(workspace)
         await self.session.commit()
 
-    async def search_workspaces(
-        self, params: SearchWorkspacesParams
-    ) -> Sequence[Workspace]:
+    async def search_workspaces(self, params: WorkspaceSearch) -> Sequence[Workspace]:
         """Retrieve a workspace by ID."""
         statement = select(Workspace)
         if self.role.access_level < AccessLevel.ADMIN:

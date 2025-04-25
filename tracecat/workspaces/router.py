@@ -17,14 +17,14 @@ from tracecat.types.exceptions import (
     TracecatManagementError,
 )
 from tracecat.workspaces.models import (
-    CreateWorkspaceMembershipParams,
-    CreateWorkspaceParams,
-    SearchWorkspacesParams,
-    UpdateWorkspaceParams,
+    WorkspaceCreate,
     WorkspaceMember,
-    WorkspaceMembershipResponse,
-    WorkspaceMetadataResponse,
-    WorkspaceResponse,
+    WorkspaceMembershipCreate,
+    WorkspaceMembershipRead,
+    WorkspaceRead,
+    WorkspaceReadMinimal,
+    WorkspaceSearch,
+    WorkspaceUpdate,
 )
 from tracecat.workspaces.service import WorkspaceService
 
@@ -42,7 +42,7 @@ async def list_workspaces(
         require_workspace="no",
     ),
     session: AsyncDBSession,
-) -> list[WorkspaceMetadataResponse]:
+) -> list[WorkspaceReadMinimal]:
     """List workspaces.
 
     Access Level
@@ -61,7 +61,7 @@ async def list_workspaces(
             )
         workspaces = await service.list_workspaces(role.user_id)
     return [
-        WorkspaceMetadataResponse(id=ws.id, name=ws.name, n_members=ws.n_members)
+        WorkspaceReadMinimal(id=ws.id, name=ws.name, n_members=ws.n_members)
         for ws in workspaces
     ]
 
@@ -75,9 +75,9 @@ async def create_workspace(
         require_workspace="no",
         min_access_level=AccessLevel.ADMIN,
     ),
-    params: CreateWorkspaceParams,
+    params: WorkspaceCreate,
     session: AsyncDBSession,
-) -> WorkspaceMetadataResponse:
+) -> WorkspaceReadMinimal:
     """Create a new workspace.
 
     Access Level
@@ -101,7 +101,7 @@ async def create_workspace(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Resource already exists"
         ) from e
-    return WorkspaceMetadataResponse(
+    return WorkspaceReadMinimal(
         id=workspace.id, name=workspace.name, n_members=workspace.n_members
     )
 
@@ -116,13 +116,13 @@ async def search_workspaces(
         require_workspace="no",
     ),
     session: AsyncDBSession,
-    params: SearchWorkspacesParams = Depends(),
-) -> list[WorkspaceMetadataResponse]:
+    params: WorkspaceSearch = Depends(),
+) -> list[WorkspaceReadMinimal]:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     service = WorkspaceService(session, role=role)
     workspaces = await service.search_workspaces(params)
     return [
-        WorkspaceMetadataResponse(id=ws.id, name=ws.name, n_members=ws.n_members)
+        WorkspaceReadMinimal(id=ws.id, name=ws.name, n_members=ws.n_members)
         for ws in workspaces
     ]
 
@@ -138,7 +138,7 @@ async def get_workspace(
     ),
     workspace_id: WorkspaceID,
     session: AsyncDBSession,
-) -> WorkspaceResponse:
+) -> WorkspaceRead:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     service = WorkspaceService(session, role=role)
     workspace = await service.get_workspace(workspace_id)
@@ -146,7 +146,7 @@ async def get_workspace(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
-    return WorkspaceResponse(
+    return WorkspaceRead(
         id=workspace.id,
         name=workspace.name,
         settings=workspace.settings,
@@ -179,7 +179,7 @@ async def update_workspace(
         workspace_id_in_path=True,
     ),
     workspace_id: WorkspaceID,
-    params: UpdateWorkspaceParams,
+    params: WorkspaceUpdate,
     session: AsyncDBSession,
 ) -> None:
     """Update a workspace."""
@@ -238,12 +238,12 @@ async def list_workspace_memberships(
     ),
     workspace_id: WorkspaceID,
     session: AsyncDBSession,
-) -> list[WorkspaceMembershipResponse]:
+) -> list[WorkspaceMembershipRead]:
     """List memberships of a workspace."""
     service = MembershipService(session, role=role)
     memberships = await service.list_memberships(workspace_id)
     return [
-        WorkspaceMembershipResponse(
+        WorkspaceMembershipRead(
             user_id=membership.user_id, workspace_id=membership.workspace_id
         )
         for membership in memberships
@@ -264,7 +264,7 @@ async def create_workspace_membership(
         workspace_id_in_path=True,
     ),
     workspace_id: WorkspaceID,
-    params: CreateWorkspaceMembershipParams,
+    params: WorkspaceMembershipCreate,
     session: AsyncDBSession,
 ) -> None:
     """Create a workspace membership for a user."""
@@ -299,7 +299,7 @@ async def get_workspace_membership(
     workspace_id: WorkspaceID,
     user_id: UserID,
     session: AsyncDBSession,
-) -> WorkspaceMembershipResponse:
+) -> WorkspaceMembershipRead:
     """Get a workspace membership for a user."""
     service = MembershipService(session, role=role)
     membership = await service.get_membership(workspace_id, user_id=user_id)
@@ -308,7 +308,7 @@ async def get_workspace_membership(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Membership not found",
         )
-    return WorkspaceMembershipResponse(
+    return WorkspaceMembershipRead(
         user_id=membership.user_id, workspace_id=membership.workspace_id
     )
 

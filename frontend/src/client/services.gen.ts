@@ -379,7 +379,7 @@ export const publicReceiveInteraction = (
  * ------------
  * - Basic: Can list workspaces where they are a member.
  * - Admin: Can list all workspaces regardless of membership.
- * @returns WorkspaceMetadataResponse Successful Response
+ * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
 export const workspacesListWorkspaces =
@@ -399,7 +399,7 @@ export const workspacesListWorkspaces =
  * - Admin: Can create a workspace for any user.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns WorkspaceMetadataResponse Successful Response
+ * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
 export const workspacesCreateWorkspace = (
@@ -421,7 +421,7 @@ export const workspacesCreateWorkspace = (
  * Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs.
  * @param data The data for the request.
  * @param data.name
- * @returns WorkspaceMetadataResponse Successful Response
+ * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
 export const workspacesSearchWorkspaces = (
@@ -444,7 +444,7 @@ export const workspacesSearchWorkspaces = (
  * Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns WorkspaceResponse Successful Response
+ * @returns WorkspaceRead Successful Response
  * @throws ApiError
  */
 export const workspacesGetWorkspace = (
@@ -516,7 +516,7 @@ export const workspacesDeleteWorkspace = (
  * List memberships of a workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns WorkspaceMembershipResponse Successful Response
+ * @returns WorkspaceMembershipRead Successful Response
  * @throws ApiError
  */
 export const workspacesListWorkspaceMemberships = (
@@ -566,7 +566,7 @@ export const workspacesCreateWorkspaceMembership = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.userId
- * @returns WorkspaceMembershipResponse Successful Response
+ * @returns WorkspaceMembershipRead Successful Response
  * @throws ApiError
  */
 export const workspacesGetWorkspaceMembership = (
