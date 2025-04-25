@@ -124,15 +124,15 @@ export function AddWorkspaceMember({
                 </FormItem>
               )}
             />
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="submit" variant="default">
+                  Add member
+                </Button>
+              </DialogClose>
+            </DialogFooter>
           </form>
         </Form>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button type="submit" variant="default">
-              Add member
-            </Button>
-          </DialogClose>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
