@@ -1,5 +1,7 @@
 from collections.abc import Mapping
 
+UNSET = object()
+
 
 def is_iterable(value: object, *, container_only: bool = True) -> bool:
     """Check if a value is iterable, optionally excluding string-like and mapping types.

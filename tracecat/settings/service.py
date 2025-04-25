@@ -11,6 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.authz.controls import require_access_level
+from tracecat.common import UNSET
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import OrganizationSetting
 from tracecat.logger import logger
@@ -270,7 +271,7 @@ async def get_setting(
     *,
     role: Role | None = None,
     session: AsyncSession | None = None,
-    default: Any | None = None,
+    default: Any = UNSET,
 ) -> Any | None:
     """Shorthand to get a setting value from the database."""
     role = role or ctx_role.get()
@@ -301,7 +302,7 @@ async def get_setting(
             setting = await service.get_org_setting(key)
             no_default_val = service.get_value(setting) if setting else None
 
-    if no_default_val is None and default:
+    if no_default_val is None and default is not UNSET:
         logger.warning("Setting not found, using default value", key=key)
         return default
     return no_default_val
