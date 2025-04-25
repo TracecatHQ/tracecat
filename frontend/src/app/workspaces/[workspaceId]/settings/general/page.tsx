@@ -1,6 +1,6 @@
 "use client"
 
-import { WorkspaceResponse } from "@/client"
+import { WorkspaceRead } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -60,7 +60,7 @@ export default function WorkspaceGeneralSettingsPage() {
   )
 }
 
-function DangerZone({ workspace }: { workspace: WorkspaceResponse }) {
+function DangerZone({ workspace }: { workspace: WorkspaceRead }) {
   const { deleteWorkspace } = useWorkspaceManager()
   const handleDelete = async () => {
     console.log("Delete workspace", workspace)

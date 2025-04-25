@@ -2,11 +2,7 @@
 
 import React, { useEffect, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import {
-  ApiError,
-  CreateWorkspaceParams,
-  WorkspaceMetadataResponse,
-} from "@/client"
+import { ApiError, WorkspaceCreate, WorkspaceReadMinimal } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { CaretSortIcon, CheckIcon } from "@radix-ui/react-icons"
@@ -57,7 +53,7 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
     useWorkspaceManager()
   const [open, setOpen] = useState(false)
   const [currWorkspace, setCurrWorkspace] = useState<
-    WorkspaceMetadataResponse | undefined
+    WorkspaceReadMinimal | undefined
   >()
   const pathname = usePathname()
   const router = useRouter()
@@ -166,13 +162,13 @@ function CreateWorkspaceForm({
   setOpen: (open: boolean) => void
 }) {
   const { createWorkspace } = useWorkspaceManager()
-  const methods = useForm<CreateWorkspaceParams>({
+  const methods = useForm<WorkspaceCreate>({
     defaultValues: {
       name: "",
     },
   })
 
-  const onSubmit = async (values: CreateWorkspaceParams) => {
+  const onSubmit = async (values: WorkspaceCreate) => {
     console.log("Creating workspace", values)
     try {
       await createWorkspace(values)

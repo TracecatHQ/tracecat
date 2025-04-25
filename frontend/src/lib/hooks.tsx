@@ -29,7 +29,6 @@ import {
   casesUpdateCase,
   casesUpdateComment,
   CaseUpdate,
-  CreateWorkspaceParams,
   GitSettingsRead,
   OAuthSettingsRead,
   organizationDeleteOrgMember,
@@ -154,6 +153,7 @@ import {
   workflowsListWorkflows,
   workflowsRemoveTag,
   WorkflowsRemoveTagData,
+  WorkspaceCreate,
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
@@ -456,7 +456,7 @@ export function useWorkspaceManager() {
 
   // Create workspace
   const { mutateAsync: createWorkspace } = useMutation({
-    mutationFn: async (params: CreateWorkspaceParams) =>
+    mutationFn: async (params: WorkspaceCreate) =>
       await workspacesCreateWorkspace({
         requestBody: params,
       }),

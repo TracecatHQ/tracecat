@@ -3,7 +3,7 @@
 import "react18-json-view/src/style.css"
 
 import React from "react"
-import { WorkspaceResponse } from "@/client"
+import { WorkspaceRead } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -28,7 +28,7 @@ type WorkspaceConfigFormSchema = z.infer<typeof workspaceConfigFormSchema>
 export function WorkspaceGeneralSettings({
   workspace,
 }: {
-  workspace: WorkspaceResponse
+  workspace: WorkspaceRead
 }) {
   const { user } = useAuth()
   const { updateWorkspace } = useWorkspace()

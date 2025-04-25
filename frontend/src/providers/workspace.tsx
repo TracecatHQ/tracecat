@@ -3,14 +3,14 @@
 import React, { createContext, ReactNode, useContext } from "react"
 import {
   ApiError,
-  UpdateWorkspaceParams,
   usersUsersPatchUser,
   UsersUsersPatchUserData,
-  WorkspaceResponse,
+  WorkspaceRead,
   workspacesCreateWorkspaceMembership,
   workspacesDeleteWorkspaceMembership,
   workspacesGetWorkspace,
   workspacesUpdateWorkspace,
+  WorkspaceUpdate,
 } from "@/client"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
@@ -19,13 +19,13 @@ import { toast } from "@/components/ui/use-toast"
 
 type WorkspaceContextType = {
   workspaceId: string
-  workspace: WorkspaceResponse | undefined
+  workspace: WorkspaceRead | undefined
   workspaceLoading: boolean
   workspaceError: ApiError | null
   addWorkspaceMember: (userId: string) => Promise<unknown>
   removeWorkspaceMember: (userId: string) => Promise<unknown>
   updateWorkspaceMember: (params: UsersUsersPatchUserData) => Promise<unknown>
-  updateWorkspace: (params: UpdateWorkspaceParams) => Promise<unknown>
+  updateWorkspace: (params: WorkspaceUpdate) => Promise<unknown>
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(
@@ -51,7 +51,7 @@ export function WorkspaceProvider({
     data: workspace,
     isLoading: workspaceLoading,
     error: workspaceError,
-  } = useQuery<WorkspaceResponse | undefined, ApiError>({
+  } = useQuery<WorkspaceRead | undefined, ApiError>({
     queryKey: ["workspace", workspaceId],
     queryFn: async () => {
       if (!workspaceId) {
@@ -64,7 +64,7 @@ export function WorkspaceProvider({
 
   // Update workspace
   const { mutateAsync: updateWorkspace } = useMutation({
-    mutationFn: async (params: UpdateWorkspaceParams) =>
+    mutationFn: async (params: WorkspaceUpdate) =>
       await workspacesUpdateWorkspace({
         workspaceId,
         requestBody: params,

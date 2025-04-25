@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { UserRole, WorkspaceMember, WorkspaceResponse } from "@/client"
+import { UserRole, WorkspaceMember, WorkspaceRead } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
@@ -50,7 +50,7 @@ import {
 export function WorkspaceMembersTable({
   workspace,
 }: {
-  workspace: WorkspaceResponse
+  workspace: WorkspaceRead
 }) {
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)

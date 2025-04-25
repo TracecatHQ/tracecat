@@ -1,9 +1,4 @@
-import {
-  ApiError,
-  UserRead,
-  usersSearchUser,
-  WorkspaceResponse,
-} from "@/client"
+import { ApiError, UserRead, usersSearchUser, WorkspaceRead } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -40,7 +35,7 @@ type AddUser = z.infer<typeof addUserSchema>
 export function AddWorkspaceMember({
   workspace,
   className,
-}: { workspace: WorkspaceResponse } & React.HTMLAttributes<HTMLButtonElement>) {
+}: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
   const { user } = useAuth()
   const { addWorkspaceMember } = useWorkspace()
   const methods = useForm<AddUser>({
