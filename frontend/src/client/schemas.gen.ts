@@ -520,6 +520,10 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Workflow Export Enabled",
     },
+    app_create_workspace_on_register: {
+      type: "boolean",
+      title: "App Create Workspace On Register",
+    },
   },
   type: "object",
   required: [
@@ -527,6 +531,7 @@ export const $AppSettingsRead = {
     "app_executions_query_limit",
     "app_interactions_enabled",
     "app_workflow_export_enabled",
+    "app_create_workspace_on_register",
   ],
   title: "AppSettingsRead",
   description: "Settings for the app.",
@@ -557,6 +562,13 @@ export const $AppSettingsUpdate = {
       type: "boolean",
       title: "App Workflow Export Enabled",
       description: "Whether workflow exports are enabled.",
+      default: true,
+    },
+    app_create_workspace_on_register: {
+      type: "boolean",
+      title: "App Create Workspace On Register",
+      description:
+        "Whether to automatically create a workspace when a user signs up.",
       default: true,
     },
   },

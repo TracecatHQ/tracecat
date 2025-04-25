@@ -108,6 +108,7 @@ class AppSettingsRead(BaseSettingsGroup):
     app_executions_query_limit: int
     app_interactions_enabled: bool
     app_workflow_export_enabled: bool
+    app_create_workspace_on_register: bool
 
 
 class AppSettingsUpdate(BaseSettingsGroup):
@@ -127,6 +128,10 @@ class AppSettingsUpdate(BaseSettingsGroup):
     app_workflow_export_enabled: bool = Field(
         default=True,
         description="Whether workflow exports are enabled.",
+    )
+    app_create_workspace_on_register: bool = Field(
+        default=True,
+        description="Whether to automatically create a workspace when a user signs up.",
     )
 
 

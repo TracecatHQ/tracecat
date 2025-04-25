@@ -142,6 +142,7 @@ export type AppSettingsRead = {
   app_executions_query_limit: number
   app_interactions_enabled: boolean
   app_workflow_export_enabled: boolean
+  app_create_workspace_on_register: boolean
 }
 
 /**
@@ -164,6 +165,10 @@ export type AppSettingsUpdate = {
    * Whether workflow exports are enabled.
    */
   app_workflow_export_enabled?: boolean
+  /**
+   * Whether to automatically create a workspace when a user signs up.
+   */
+  app_create_workspace_on_register?: boolean
 }
 
 /**
