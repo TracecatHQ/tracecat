@@ -2,7 +2,6 @@ from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from temporalio import activity, workflow
-from temporalio.common import SearchAttributeKey
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import (
     ExecuteWorkflowInput,
@@ -16,9 +15,9 @@ with workflow.unsafe.imports_passed_through():
     from pydantic import BaseModel
 
     from tracecat.contexts import ctx_role
-    from tracecat.dsl.common import DSLRunArgs
+    from tracecat.dsl.common import DSLRunArgs, get_trigger_type
     from tracecat.logger import logger
-    from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
+    from tracecat.workflow.executions.enums import TriggerType
 
 
 def _set_common_workflow_tags(info: workflow.Info | activity.Info) -> None:
@@ -65,20 +64,6 @@ def _set_fingerprint(
             scope.fingerprint = [wf_exec_id, trigger_type.value]
 
 
-def _get_trigger_type(info: workflow.Info) -> TriggerType:
-    search_attributes = info.typed_search_attributes
-    trigger_type = search_attributes.get(
-        SearchAttributeKey.for_keyword(TemporalSearchAttr.TRIGGER_TYPE.value)
-    )
-    if trigger_type is None:
-        logger.warning(
-            "Couldn't find trigger type, using manual as fallback",
-            workflow_id=info.workflow_id,
-        )
-        trigger_type = TriggerType.MANUAL
-    return TriggerType(trigger_type)
-
-
 class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
         # https://docs.sentry.io/platforms/python/troubleshooting/#addressing-concurrency-issues
@@ -92,7 +77,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
             sentry.set_tag("temporal.workflow.task_queue", info.task_queue)
             sentry.set_tag("temporal.workflow.namespace", info.namespace)
             sentry.set_tag("temporal.workflow.run_id", info.run_id)
-            trigger_type = _get_trigger_type(info)
+            trigger_type = get_trigger_type(info)
             if (role := ctx_role.get()) and role.workspace_id:
                 sentry.set_tag("tracecat.workspace_id", str(role.workspace_id))
             # Fingerprint to each workflow ID
