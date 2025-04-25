@@ -297,7 +297,7 @@ function ChangeUserRoleDialog({
           <SelectValue placeholder="Select a role" />
         </SelectTrigger>
         <SelectContent>
-          {WorkspaceRoleEnum.map((role) => (
+          {WorkspaceRoleEnum.map((role: WorkspaceRole) => (
             <SelectItem key={role} value={role}>
               <span className="capitalize">{role}</span>
             </SelectItem>
