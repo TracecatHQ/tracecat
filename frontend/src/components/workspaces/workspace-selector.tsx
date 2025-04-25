@@ -105,6 +105,7 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
                 {workspaces?.map((ws) => (
                   <CommandItem
                     key={ws.id}
+                    value={ws.id}
                     onSelect={() => {
                       setCurrWorkspace(ws)
                       // replace /workspaces/<ws-id>/... with /workspaces/<new-ws-id>/...
