@@ -28,12 +28,12 @@ from tracecat.workspaces.models import (
 )
 from tracecat.workspaces.service import WorkspaceService
 
-router = APIRouter(prefix="/workspaces")
+router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 # === Management === #
 
 
-@router.get("", tags=["workspaces"])
+@router.get("")
 async def list_workspaces(
     *,
     role: Role = RoleACL(
@@ -66,7 +66,7 @@ async def list_workspaces(
     ]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, tags=["workspaces"])
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     *,
     role: Role = RoleACL(
@@ -107,7 +107,7 @@ async def create_workspace(
 
 
 # NOTE: This route must be defined before the route for getting a single workspace for both to work
-@router.get("/search", tags=["workspaces"])
+@router.get("/search")
 async def search_workspaces(
     *,
     role: Role = RoleACL(
@@ -127,7 +127,7 @@ async def search_workspaces(
     ]
 
 
-@router.get("/{workspace_id}", tags=["workspaces"])
+@router.get("/{workspace_id}")
 async def get_workspace(
     *,
     role: Role = RoleACL(
@@ -168,7 +168,6 @@ async def get_workspace(
 @router.patch(
     "/{workspace_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workspaces"],
 )
 async def update_workspace(
     *,
@@ -196,7 +195,6 @@ async def update_workspace(
 @router.delete(
     "/{workspace_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workspaces"],
 )
 async def delete_workspace(
     *,
@@ -229,7 +227,7 @@ async def delete_workspace(
 # === Memberships === #
 
 
-@router.get("/{workspace_id}/memberships", tags=["workspaces"])
+@router.get("/{workspace_id}/memberships")
 async def list_workspace_memberships(
     *,
     role: Role = RoleACL(
@@ -254,7 +252,6 @@ async def list_workspace_memberships(
 
 @router.post(
     "/{workspace_id}/memberships",
-    tags=["workspaces"],
     status_code=status.HTTP_201_CREATED,
 )
 async def create_workspace_membership(
@@ -290,7 +287,7 @@ async def create_workspace_membership(
         ) from e
 
 
-@router.get("/{workspace_id}/memberships/{user_id}", tags=["workspaces"])
+@router.get("/{workspace_id}/memberships/{user_id}")
 async def get_workspace_membership(
     *,
     role: Role = RoleACL(
@@ -318,7 +315,6 @@ async def get_workspace_membership(
 
 @router.delete(
     "/{workspace_id}/memberships/{user_id}",
-    tags=["workspaces"],
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_workspace_membership(
