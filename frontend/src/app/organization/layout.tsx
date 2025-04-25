@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense } from "react"
+import { Suspense, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/providers/auth"
 
@@ -16,9 +16,11 @@ export default function OrganizationLayout({
 }) {
   const { user } = useAuth()
   const router = useRouter()
-  if (!userIsPrivileged(user)) {
-    return router.push("/")
-  }
+  useEffect(() => {
+    if (!userIsPrivileged(user)) {
+      router.push("/")
+    }
+  }, [user, router])
   return (
     <div className="no-scrollbar flex h-screen max-h-screen flex-col overflow-hidden">
       {/* DynamicNavbar needs a WorkflowProvider and a WorkspaceProvider */}
