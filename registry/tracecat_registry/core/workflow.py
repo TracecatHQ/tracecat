@@ -61,5 +61,15 @@ async def execute(
         Literal["isolated", "all"],
         Doc("Fail strategy to use when a child workflow fails."),
     ] = "isolated",
+    wait_strategy: Annotated[
+        Literal["wait", "detach"],
+        Doc(
+            "Wait strategy to use when waiting for child workflows to complete. "
+            "In `wait` mode, this action will wait for all child workflows to complete before returning. "
+            "Any child workflow failures will be reported as an error. "
+            "In `detach` mode, this action will return immediately after the child workflows are created. "
+            "A fialing child workflow will not affect the parent. "
+        ),
+    ] = "wait",
 ) -> Any:
     raise ActionIsInterfaceError()
