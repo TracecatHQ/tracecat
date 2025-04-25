@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 
 UNSET = object()
+"""Sentinel value for indicating that a value is not set as `None` is a valid value."""
 
 
 def is_iterable(value: object, *, container_only: bool = True) -> bool:
