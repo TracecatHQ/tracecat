@@ -14,6 +14,7 @@ class WorkflowExecutionEventStatus(StrEnum):
     TERMINATED = "TERMINATED"
     TIMED_OUT = "TIMED_OUT"
     UNKNOWN = "UNKNOWN"
+    DETACHED = "DETACHED"
 
 
 class WorkflowEventType(StrEnum):

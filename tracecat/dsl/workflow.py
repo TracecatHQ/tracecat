@@ -41,7 +41,12 @@ with workflow.unsafe.imports_passed_through():
         ExecuteChildWorkflowArgs,
         dsl_execution_error_from_exception,
     )
-    from tracecat.dsl.enums import FailStrategy, LoopStrategy, PlatformAction
+    from tracecat.dsl.enums import (
+        FailStrategy,
+        LoopStrategy,
+        PlatformAction,
+        WaitStrategy,
+    )
     from tracecat.dsl.models import (
         ActionErrorInfo,
         ActionErrorInfoAdapter,
@@ -923,23 +928,54 @@ class DSLWorkflow:
     async def _run_child_workflow(
         self, task: ActionStatement, run_args: DSLRunArgs, loop_index: int | None = None
     ) -> Any:
-        self.logger.info("Running child workflow", run_args=run_args)
         wf_exec_id = identifiers.workflow.generate_exec_id(run_args.wf_id)
         wf_info = workflow.info()
+        # XXX(safety): This has been validated in prepare_child_workflow
+        args = ExecuteChildWorkflowArgs.model_construct(**task.args)
         # Use Temporal memo to store the action ref in the child workflow run
-        memo = ChildWorkflowMemo(action_ref=task.ref, loop_index=loop_index)
-        return await workflow.execute_child_workflow(
-            DSLWorkflow.run,
-            run_args,
-            id=wf_exec_id,
-            retry_policy=retry_policies["workflow:fail_fast"],
-            # Propagate the parent workflow attributes to the child workflow
-            task_queue=wf_info.task_queue,
-            execution_timeout=wf_info.execution_timeout,
-            task_timeout=wf_info.task_timeout,
-            memo=memo.model_dump(),
-            search_attributes=wf_info.typed_search_attributes,
+        memo = ChildWorkflowMemo(
+            action_ref=task.ref, loop_index=loop_index, wait_strategy=args.wait_strategy
+        ).model_dump()
+        self.logger.info(
+            "Running child workflow",
+            run_args=run_args,
+            wait_strategy=args.wait_strategy,
+            memo=memo,
         )
+
+        match args.wait_strategy:
+            case WaitStrategy.DETACH:
+                child_wf_handle = await workflow.start_child_workflow(
+                    DSLWorkflow.run,
+                    run_args,
+                    id=wf_exec_id,
+                    retry_policy=retry_policies["workflow:fail_fast"],
+                    # Propagate the parent workflow attributes to the child workflow
+                    task_queue=wf_info.task_queue,
+                    execution_timeout=wf_info.execution_timeout,
+                    task_timeout=wf_info.task_timeout,
+                    memo=memo,
+                    search_attributes=wf_info.typed_search_attributes,
+                    # DETACH specific options
+                    # Abandon the child workflow if the parent is cancelled
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                )
+                result = child_wf_handle.id
+            case _:
+                # WAIT and all other strategies
+                result = await workflow.execute_child_workflow(
+                    DSLWorkflow.run,
+                    run_args,
+                    id=wf_exec_id,
+                    retry_policy=retry_policies["workflow:fail_fast"],
+                    # Propagate the parent workflow attributes to the child workflow
+                    task_queue=wf_info.task_queue,
+                    execution_timeout=wf_info.execution_timeout,
+                    task_timeout=wf_info.task_timeout,
+                    memo=memo,
+                    search_attributes=wf_info.typed_search_attributes,
+                )
+        return result
 
     async def _get_error_handler_workflow_id(
         self, args: DSLRunArgs
