@@ -14,7 +14,7 @@ import {
 
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
-import { userIsPrivileged } from "@/lib/auth"
+import { getDisplayName, userIsPrivileged } from "@/lib/auth"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -40,20 +40,19 @@ export default function UserNav() {
     clearLastWorkspaceId()
     await logout()
   }
+  const displayName = user ? getDisplayName(user) : userDefaults.name
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative size-8 rounded-full">
-          <UserAvatar alt={user?.first_name ?? undefined} />
+          <UserAvatar alt={displayName} user={user} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56 p-2" align="end" forceMount>
         <DropdownMenuLabel className="font-normal">
           <div className="flex items-center justify-between">
             <div className="flex flex-col space-y-1">
-              <p className="text-sm font-medium leading-none">
-                {user?.first_name ?? userDefaults.name}
-              </p>
+              <p className="text-sm font-medium leading-none">{displayName}</p>
               <p className="text-xs leading-none text-muted-foreground">
                 {user?.email.toString() ?? userDefaults.email}
               </p>
