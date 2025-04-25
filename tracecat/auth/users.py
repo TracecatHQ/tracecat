@@ -36,6 +36,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.models import UserCreate, UserRole, UserUpdate
+from tracecat.authz.models import WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.db.adapter import (
     SQLModelAccessTokenDatabaseAsync,
@@ -46,6 +47,7 @@ from tracecat.db.schemas import AccessToken, OAuthAccount, User
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
 from tracecat.types.auth import system_role
+from tracecat.workspaces.models import WorkspaceMembershipCreate
 from tracecat.workspaces.service import WorkspaceService
 
 
@@ -148,6 +150,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 self.logger.info("Promoted user to superuser", user=user.email)
             elif await get_setting("app_create_workspace_on_register", default=True):
                 # Check if we should auto-create a workspace for the user
+                self.logger.info("Creating workspace for new user", user=user.email)
                 try:
                     # Determine workspace name
                     if user.first_name:
@@ -163,10 +166,13 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                     workspace = await ws_svc.create_workspace(
                         name=workspace_name, users=[user]
                     )
-                    # Add user to workspace
+                    # Add user to workspace as a workspace admin
                     membership_svc = MembershipService(session, role=sys_role)
                     await membership_svc.create_membership(
-                        workspace_id=workspace.id, user_id=user.id
+                        workspace_id=workspace.id,
+                        params=WorkspaceMembershipCreate(
+                            user_id=user.id, role=WorkspaceRole.ADMIN
+                        ),
                     )
                     self.logger.info(
                         "Created workspace for new user",
