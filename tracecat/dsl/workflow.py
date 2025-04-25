@@ -257,11 +257,11 @@ class DSLWorkflow:
 
             try:
                 err_run_args = await self._prepare_error_handler_workflow(
-                    handler_wf_id,
                     message=e.message,
                     handler_wf_id=handler_wf_id,
                     orig_wf_id=args.wf_id,
                     orig_wf_exec_id=self.wf_exec_id,
+                    orig_dsl=self.dsl,
                     errors=errors,
                 )
                 await self._run_error_handler_workflow(err_run_args)
@@ -994,12 +994,12 @@ class DSLWorkflow:
 
     async def _prepare_error_handler_workflow(
         self,
-        wf_id: WorkflowID,
         *,
         message: str,
         handler_wf_id: WorkflowID,
         orig_wf_id: WorkflowID,
         orig_wf_exec_id: WorkflowExecutionID,
+        orig_dsl: DSLInput,
         errors: list[ActionErrorInfo] | None = None,
     ) -> DSLRunArgs:
         """Grab a workflow definition and create error handler workflow run args"""
@@ -1040,14 +1040,15 @@ class DSLWorkflow:
         return DSLRunArgs(
             role=self.role,
             dsl=dsl,
-            wf_id=wf_id,
+            wf_id=handler_wf_id,
             parent_run_context=ctx_run.get(),
             trigger_inputs=ErrorHandlerWorkflowInput(
                 message=message,
-                handler_wf_id=wf_id,
+                handler_wf_id=handler_wf_id,
                 orig_wf_id=orig_wf_id,
                 orig_wf_exec_id=orig_wf_exec_id,
                 orig_wf_exec_url=url,
+                orig_wf_title=orig_dsl.title,
                 errors=errors,
             ),
             runtime_config=runtime_config,

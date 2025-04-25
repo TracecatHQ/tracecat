@@ -491,6 +491,7 @@ class ErrorHandlerWorkflowInput:
     handler_wf_id: WorkflowID
     orig_wf_id: WorkflowID
     orig_wf_exec_id: WorkflowExecutionID
+    orig_wf_title: str
     errors: list[ActionErrorInfo] | None = None
     orig_wf_exec_url: str | None = None
 
