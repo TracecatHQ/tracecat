@@ -36,6 +36,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.models import UserCreate, UserRole, UserUpdate
+from tracecat.authz.service import MembershipService
 from tracecat.db.adapter import (
     SQLModelAccessTokenDatabaseAsync,
     SQLModelUserDatabaseAsync,
@@ -44,6 +45,8 @@ from tracecat.db.engine import get_async_session, get_async_session_context_mana
 from tracecat.db.schemas import AccessToken, OAuthAccount, User
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
+from tracecat.types.auth import system_role
+from tracecat.workspaces.service import WorkspaceService
 
 
 class InvalidDomainException(FastAPIUsersException):
@@ -143,6 +146,42 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 update_params = UserUpdate(is_superuser=True, role=UserRole.ADMIN)
                 await self.update(user_update=update_params, user=user)
                 self.logger.info("Promoted user to superuser", user=user.email)
+            elif await get_setting("app_create_workspace_on_register", default=True):
+                # Check if we should auto-create a workspace for the user
+                try:
+                    # Determine workspace name
+                    if user.first_name:
+                        workspace_name = f"{user.first_name}'s Workspace"
+                    else:
+                        # Remove domain from email to use as workspace name
+                        email_username = user.email.split("@")[0]
+                        workspace_name = f"{email_username}'s Workspace"
+
+                    # Create workspace with the system role
+                    sys_role = system_role()
+                    ws_svc = WorkspaceService(session, role=sys_role)
+                    workspace = await ws_svc.create_workspace(
+                        name=workspace_name, users=[user]
+                    )
+                    # Add user to workspace
+                    membership_svc = MembershipService(session, role=sys_role)
+                    await membership_svc.create_membership(
+                        workspace_id=workspace.id, user_id=user.id
+                    )
+                    self.logger.info(
+                        "Created workspace for new user",
+                        workspace_id=workspace.id,
+                        workspace_name=workspace_name,
+                        user_id=user.id,
+                        user_email=user.email,
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        "Failed to create workspace for new user",
+                        error=str(e),
+                        user_id=user.id,
+                        user_email=user.email,
+                    )
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None
@@ -193,7 +232,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
 
 async def get_user_db(session: SQLAlchemyAsyncSession = Depends(get_async_session)):
-    yield SQLAlchemyUserDatabase(session, User, OAuthAccount)
+    yield SQLAlchemyUserDatabase(session, User, OAuthAccount)  # type: ignore
 
 
 async def get_access_token_db(

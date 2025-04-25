@@ -57,3 +57,12 @@ class Role(BaseModel):
         if self.workspace_id is not None:
             headers["x-tracecat-role-workspace-id"] = str(self.workspace_id)
         return headers
+
+
+def system_role() -> Role:
+    """Role for system actions."""
+    return Role(
+        type="service",
+        service_id="tracecat-api",
+        access_level=AccessLevel.ADMIN,
+    )
