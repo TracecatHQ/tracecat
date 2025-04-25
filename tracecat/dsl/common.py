@@ -21,7 +21,7 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from tracecat.db.schemas import Action
-from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy
+from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy, WaitStrategy
 from tracecat.dsl.models import (
     ActionStatement,
     DSLConfig,
@@ -260,6 +260,7 @@ class ExecuteChildWorkflowArgs(BaseModel):
     batch_size: int = 32
     fail_strategy: FailStrategy = FailStrategy.ISOLATED
     timeout: float | None = None
+    wait_strategy: WaitStrategy = WaitStrategy.WAIT
 
     @model_validator(mode="after")
     def validate_workflow_id_or_alias(self) -> Self:
@@ -291,6 +292,10 @@ class ChildWorkflowMemo(BaseModel):
         default=None,
         description="The loop index of the child workflow, if any.",
     )
+    wait_strategy: WaitStrategy = Field(
+        default=WaitStrategy.WAIT,
+        description="The wait strategy of the child workflow.",
+    )
 
     @staticmethod
     def from_temporal(memo: temporalio.api.common.v1.Memo) -> ChildWorkflowMemo:
@@ -303,7 +308,16 @@ class ChildWorkflowMemo(BaseModel):
             loop_index = orjson.loads(loop_index_data)
         else:
             loop_index = None
-        return ChildWorkflowMemo(action_ref=action_ref, loop_index=loop_index)
+        try:
+            wait_strategy = WaitStrategy(
+                orjson.loads(memo.fields["wait_strategy"].data)
+            )
+        except Exception as e:
+            logger.warning("Error parsing child workflow memo wait strategy", error=e)
+            wait_strategy = WaitStrategy.WAIT
+        return ChildWorkflowMemo(
+            action_ref=action_ref, loop_index=loop_index, wait_strategy=wait_strategy
+        )
 
 
 AdjDst = tuple[str, EdgeType]

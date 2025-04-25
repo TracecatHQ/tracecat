@@ -1875,6 +1875,7 @@ export type WorkflowExecutionEventStatus =
   | "TERMINATED"
   | "TIMED_OUT"
   | "UNKNOWN"
+  | "DETACHED"
 
 export type WorkflowExecutionRead = {
   /**

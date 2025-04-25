@@ -5816,6 +5816,7 @@ export const $WorkflowExecutionEventStatus = {
     "TERMINATED",
     "TIMED_OUT",
     "UNKNOWN",
+    "DETACHED",
   ],
   title: "WorkflowExecutionEventStatus",
 } as const
