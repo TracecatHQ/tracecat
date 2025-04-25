@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.authz.models import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import SecretID
 from tracecat.logger import logger
@@ -22,13 +23,23 @@ from tracecat.types.exceptions import TracecatNotFoundError
 router = APIRouter(prefix="/secrets", tags=["secrets"])
 org_router = APIRouter(prefix="/organization/secrets", tags=["organization-secrets"])
 
+WorkspaceUser = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+        require_workspace_roles=[WorkspaceRole.EDITOR, WorkspaceRole.ADMIN],
+    ),
+]
+
 WorkspaceAdminUser = Annotated[
     Role,
     RoleACL(
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        min_access_level=AccessLevel.ADMIN,
+        require_workspace_roles=WorkspaceRole.ADMIN,
     ),
 ]
 
@@ -46,7 +57,7 @@ OrgAdminUser = Annotated[
 @router.get("/search", response_model=list[SecretRead])
 async def search_secrets(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     environment: str = Query(...),
     names: set[str] | None = Query(
@@ -78,7 +89,7 @@ async def search_secrets(
 @router.get("")
 async def list_secrets(
     *,
-    role: WorkspaceAdminUser,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     types: set[SecretType] | None = Query(
         None, alias="type", description="Filter by secret type"

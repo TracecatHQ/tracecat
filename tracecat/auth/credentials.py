@@ -23,7 +23,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat import config
 from tracecat.auth.models import UserRole
 from tracecat.auth.users import is_unprivileged, optional_current_active_user
-from tracecat.authz.service import AuthorizationService
+from tracecat.authz.models import WorkspaceRole
+from tracecat.authz.service import MembershipService
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import User
@@ -59,6 +60,7 @@ USER_ROLE_TO_ACCESS_LEVEL = {
 def get_role_from_user(
     user: User,
     workspace_id: UUID4 | None = None,
+    workspace_role: WorkspaceRole | None = None,
     service_id: InternalServiceID = "tracecat-api",
 ) -> Role:
     return Role(
@@ -67,6 +69,7 @@ def get_role_from_user(
         user_id=user.id,
         service_id=service_id,
         access_level=USER_ROLE_TO_ACCESS_LEVEL[user.role],
+        workspace_role=workspace_role,
     )
 
 
@@ -108,7 +111,7 @@ def TemporaryRole(
 ):
     """An async context manager to authenticate a user or service."""
     prev_role = ctx_role.get()
-    temp_role = Role(type=type, workspace_id=user_id, service_id=service_id)
+    temp_role = Role(type=type, workspace_id=user_id, service_id=service_id)  # type: ignore
     ctx_role.set(temp_role)
     try:
         yield temp_role
@@ -131,29 +134,58 @@ async def _role_dependency(
     allow_service: bool,
     require_workspace: Literal["yes", "no", "optional"],
     min_access_level: AccessLevel | None = None,
+    require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
 ) -> Role:
     if user and allow_user:
-        role = get_role_from_user(user, workspace_id=workspace_id)
         if is_unprivileged(user) and workspace_id is not None:
-            # Check if unprivileged user is a member of the workspace
-            authz_service = AuthorizationService(session)
-            if not await authz_service.user_is_workspace_member(
-                user_id=user.id, workspace_id=workspace_id
-            ):
+            # Unprivileged user trying to target a workspace
+            # 1. Check if they are a member of the workspace
+            svc = MembershipService(session)
+            membership = await svc.get_membership(
+                workspace_id=workspace_id, user_id=user.id
+            )
+            if membership is None:
                 logger.warning(
                     "User is not a member of this workspace",
-                    role=role,
+                    user=user,
                     workspace_id=workspace_id,
                 )
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
                 )
+            # 2. Check if they have the appropriate workspace role
+            if isinstance(require_workspace_roles, WorkspaceRole):
+                require_workspace_roles = [require_workspace_roles]
+            if (
+                require_workspace_roles
+                and membership.role not in require_workspace_roles
+            ):
+                logger.warning(
+                    "User does not have the appropriate workspace role",
+                    user=user,
+                    workspace_id=workspace_id,
+                    role=require_workspace_roles,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You cannot perform this operation",
+                )
+            # User has appropriate workspace role
+            workspace_role = membership.role
+        else:
+            # Privileged user doesn't need workspace role verification
+            workspace_role = None
+
+        role = get_role_from_user(
+            user, workspace_id=workspace_id, workspace_role=workspace_role
+        )
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)
     else:
         logger.warning("Invalid authentication or authorization", user=user)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
+    # Structural checks
     if role is None:
         logger.warning("Invalid role", role=role)
         raise HTTPException(
@@ -165,6 +197,7 @@ async def _role_dependency(
         logger.warning("User does not have access to this workspace", role=role)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
+    # TODO(security): If min_access_level is not set, we should require max privilege by default
     if min_access_level is not None:
         if role.access_level < min_access_level:
             logger.warning(
@@ -186,6 +219,7 @@ def RoleACL(
     require_workspace: Literal["yes", "no", "optional"] = "yes",
     min_access_level: AccessLevel | None = None,
     workspace_id_in_path: bool = False,
+    require_workspace_roles: WorkspaceRole | list[WorkspaceRole] | None = None,
 ) -> Any:
     """
     Check the user or service against the authentication requirements and return a role.
@@ -215,6 +249,7 @@ def RoleACL(
                 allow_service=allow_service,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
+                require_workspace_roles=require_workspace_roles,
             )
 
         return Depends(role_dependency_req_ws)
@@ -242,6 +277,7 @@ def RoleACL(
                 allow_service=allow_service,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
+                require_workspace_roles=require_workspace_roles,
             )
 
         return Depends(role_dependency_opt_ws)
@@ -264,6 +300,7 @@ def RoleACL(
                 allow_service=allow_service,
                 min_access_level=min_access_level,
                 require_workspace=require_workspace,
+                require_workspace_roles=require_workspace_roles,
             )
 
         return Depends(role_dependency_not_req_ws)
