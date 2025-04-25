@@ -12,18 +12,19 @@ import SecretsExample from '/snippets/secrets-example.mdx'
 
 <Note>
   The docs below only cover the `core` namespace.
-  For information on `core.transform` and `core.workflow`, check out the tutorials on [Data Transforms](/tutorials/data-transforms) and [Child Workflows](/tutorials/child-workflows).
+  For information on `core.transform`, `core.workflow`, and `core.require`, check out the tutorials on [Data Transforms](/tutorials/data-transforms), [Child Workflows](/tutorials/child-workflows), and [Wait until](/tutorials/wait-retry-until).
 </Note>
 
 Core actions are the building blocks of Tracecat workflows and action templates.
 All core actions are under the `core` namespace.
 They are distinct from pre-built integrations in the `tools` namespace, which are pre-configured for specific 3rd-party tools.
 
-There are three sub-namespaces under `core`:
+There are four sub-namespaces under `core`:
 
 - `core`
 - `core.transform`
 - `core.workflow`
+- `core.require`
 
 `core` actions are the most commonly used actions in Tracecat.
 They include:
@@ -33,6 +34,7 @@ They include:
 | `core.http_request` | `HTTP Request` | Make a HTTP request. |
 | `core.http_poll` | `HTTP Polling` | Poll a REST API until a condition is met. |
 | `core.ai_action` | `AI Action` | Prompt a LLM (e.g. OpenAI, self-hosted) to take an action. |
+| `core.require` | `Require` | Check if multiple conditions are met. |
 
 ## HTTP Request
 
@@ -155,11 +157,6 @@ You can further configure the polling behavior via the optional inputs:
 </Accordion>
 
 ## AI Action
-
-<Note>
-  Tracecat supports self-hosted LLMs such as `llama`, `mistral`, and `deepseek`.
-  Check out the [self-hosted LLM](/self-hosting/llms) deployment guide to learn how to set it up.
-</Note>
 
 🚧 The AI action is currently under heavy development.
 Please contact us on [Discord](https://discord.gg/n3GF4qxFU8) for up-to-date information and usage examples.

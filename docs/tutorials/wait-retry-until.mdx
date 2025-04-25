@@ -1,23 +1,167 @@
 ---
-title: Wait and retries
-description: Define wait until and retry until logic in workflows.
+title: Wait, require, and retry
+description: Define wait until, require, and retry until logic in workflows.
 ---
 
 ## What you'll learn
 
 - How wait until some time (e.g. "tomorrow 2pm") before running an action.
 - How to use the `FN.is_working_hours` inline function.
+- How to use the `core.require` action to check conditions.
 - How to retry a child workflow until a condition is met.
+
+## Wait until
+
+Under the if-conditions tab of any action, you can configure a `wait_until` condition.
+This condition takes a human-readable string (e.g. "tomorrow 2pm") and waits until that time.
+
+You can specify relative dates, for example:
+- `tomorrow at 2pm`
+- `in 2 days`
+
+Or absolute dates, for example:
+- `2025-05-01 at 2pm`
+- `March 21st 2025 at 10am`
+
+<Info>
+  Under-the-hood, we use the `dateparser` library to parse the human-readable string.
+  View `dateparser` docs [here](https://dateparser.readthedocs.io/en/latest/).
+</Info>
+
+![Wait until](/img/tutorials/wait-retry-until/wait-until.png)
+
+## Require
+
+<Note>
+  Require accepts expressions similar to `if-conditions`.
+  Learn more about conditional expressions [here](/docs/quickstart/control-flow#if-conditions).
+  View all available operators (e.g. `==`, `!=`, `>`, `>=`, `<`, `<=`) [here](/cheatsheets/functions#operators).
+</Note>
+
+The `core.require` action checks if any or all of multiple conditions are met.
+It takes three arguments:
+- `conditions`: A list of expressions that evaluate to booleans e.g. `FN.length(ACTIONS.some_action.result.some_array) > 0`
+- `raise_error`: If `true`, the workflow will fail if the conditions (all or any) are not met.
+- `require_all`: If `true`, all conditions must be met for the workflow to continue. If `false`, only one condition needs to be met.
+
+![Require](/img/tutorials/wait-retry-until/require.png)
+
+For example, the following `core.require` action fails if the length of the `some_array` is greater than 0 and `email` is equal to "john@acme.com".
+
+```php
+conditions:
+  - ${{ FN.length(ACTIONS.some_action.result.some_array) > 0 }}
+  - ${{ ACTIONS.some_action.result.email == "john@acme.com" }}
+```
+
+![Require example](/img/tutorials/wait-retry-until/require-example.png)
+
+## Retry until
+
+<Note>
+  Child workflows return the full context of the workflow run (e.g. action inputs and outputs) by default.
+  This is not easy to work with when using `retry_until`.
+
+  Specify an output schema for the child workflow to return specific data from the workflow run.
+  Learn more about output schemas in the child workflows tutorial [here](/tutorials/child-workflows#output-schema).
+</Note>
+
+Under the if-conditions tab of any action, you can configure a `retry_until` condition.
+To make use of this condition, define a conditional expression on the same action's result.
+
+For example, the following execute child workflow action will retry until the child workflow returns an `ack` field with a value of `true`:
+
+```php
+retry_until: ${{ ACTIONS.send_reminder.result.ack == True }}
+```
+
+![Retry until](/img/tutorials/wait-retry-until/retry-until.png)
 
 ## Tutorial
 
-In this tutorial, we'll build a workflow that receives an external alert via webhook,
-looks
+In this tutorial, we'll build two workflows:
 
+- A workflow that notifies a user on Slack during working hours only.
+- A workflow that reminds a user on Slack to react to a message with a thumbs up emoji.
 
 ### Prerequisites
 
 - A Slack bot token and channel to send messages to.
-- Slack token has permissions to write and read messages in the channel.
+- Slack token has the following OAuth scopes:
 
-### Steps
+<Accordion title="Slack OAuth scopes" icon="slack">
+  ![Slack OAuth scopes](/img/tutorials/wait-retry-until/slack-oauth-scopes.png)
+</Accordion>
+
+### Workflow 1. Alert if working
+
+In the following workflow, we assume that the webhook or manual trigger receives a payload with an `email` field.
+The email must be an user in Slack.
+
+For example:
+
+```json
+{
+  "email": "john.doe@example.com"
+  // ... other fields
+}
+```
+
+![Alert if working hours](/img/tutorials/wait-retry-until/alert-working-hours.png)
+
+<Steps>
+  <Step title="Lookup user by email">
+    Select and configure the `tools.slack.lookup_user_by_email` action.
+    ![Lookup user](/img/tutorials/wait-retry-until/lookup-user.png)
+  </Step>
+
+  <Step title="Notify today if working">
+    Select the `tools.slack.post_message` action.
+    Configure inputs:
+
+    ```yaml
+    text: >
+      Hi <@${{ ACTIONS.lookup_user_by_email.result.id }}>,
+      please acknowledge this message with a thumbs up 👍!
+    channel: C0YOURSLACKCHANNEL
+    ```
+
+    And the if-condition:
+
+    ```php
+    ${{ FN.is_working_hours(FN.now(), "09:00", "17:00") == True }}
+    ```
+
+    ![Notify today](/img/tutorials/wait-retry-until/notify-today.png)
+
+  </Step>
+
+  <Step title="Notify tomorrow if not working">
+    Select the `tools.slack.post_message` action.
+    Configure inputs:
+
+    ```yaml
+    text: >
+      Hi <@${{ ACTIONS.lookup_user_by_email.result.id }}>,
+      an alert was triggered during off-hours yesterday.
+
+      Please acknowledge this message with a thumbs up 👍!
+    channel: C0YOURSLACKCHANNEL
+    ```
+
+    And the if-condition:
+
+    ```php
+    ${FN.is_working_hours(FN.now(), "09:00", "17:00") == False}
+    ```
+
+    ![Notify tomorrow](/img/tutorials/wait-retry-until/notify-tomorrow.png)
+  </Step>
+
+  <Step title="⚠️ Send reminder until acknowledged">
+
+  </Step>
+</Steps>
+
+
+### Workflow 2. Send reminder
