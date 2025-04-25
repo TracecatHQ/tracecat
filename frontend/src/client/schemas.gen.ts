@@ -3370,6 +3370,16 @@ export const $Role = {
       ],
       title: "Workspace Id",
     },
+    workspace_role: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceRole",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     user_id: {
       anyOf: [
         {
@@ -6610,12 +6620,22 @@ export const $WorkspaceMember = {
       format: "email",
       title: "Email",
     },
-    role: {
+    org_role: {
       $ref: "#/components/schemas/UserRole",
+    },
+    workspace_role: {
+      $ref: "#/components/schemas/WorkspaceRole",
     },
   },
   type: "object",
-  required: ["user_id", "first_name", "last_name", "email", "role"],
+  required: [
+    "user_id",
+    "first_name",
+    "last_name",
+    "email",
+    "org_role",
+    "workspace_role",
+  ],
   title: "WorkspaceMember",
 } as const
 
@@ -6625,6 +6645,10 @@ export const $WorkspaceMembershipCreate = {
       type: "string",
       format: "uuid4",
       title: "User Id",
+    },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+      default: "editor",
     },
   },
   type: "object",
@@ -6644,10 +6668,30 @@ export const $WorkspaceMembershipRead = {
       format: "uuid4",
       title: "Workspace Id",
     },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+    },
   },
   type: "object",
-  required: ["user_id", "workspace_id"],
+  required: ["user_id", "workspace_id", "role"],
   title: "WorkspaceMembershipRead",
+} as const
+
+export const $WorkspaceMembershipUpdate = {
+  properties: {
+    role: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceRole",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "WorkspaceMembershipUpdate",
 } as const
 
 export const $WorkspaceRead = {
@@ -6716,6 +6760,12 @@ export const $WorkspaceReadMinimal = {
   type: "object",
   required: ["id", "name", "n_members"],
   title: "WorkspaceReadMinimal",
+} as const
+
+export const $WorkspaceRole = {
+  type: "string",
+  enum: ["editor", "admin"],
+  title: "WorkspaceRole",
 } as const
 
 export const $WorkspaceUpdate = {
