@@ -287,7 +287,7 @@ export function OrgMembersTable() {
                                 console.debug("Selected user", row.original)
                               }}
                             >
-                              Remove from workspace
+                              Remove from organization
                             </DropdownMenuItem>
                           </AlertDialogTrigger>
                         </DropdownMenuGroup>
