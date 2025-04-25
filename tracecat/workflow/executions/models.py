@@ -46,6 +46,7 @@ from tracecat.workflow.executions.common import (
     is_utility_activity,
 )
 from tracecat.workflow.executions.enums import (
+    TriggerType,
     WorkflowEventType,
     WorkflowExecutionEventStatus,
 )
@@ -491,6 +492,8 @@ class ErrorHandlerWorkflowInput:
     handler_wf_id: WorkflowID
     orig_wf_id: WorkflowID
     orig_wf_exec_id: WorkflowExecutionID
+    orig_wf_title: str
+    trigger_type: TriggerType
     errors: list[ActionErrorInfo] | None = None
     orig_wf_exec_url: str | None = None
 

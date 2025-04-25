@@ -2597,6 +2597,8 @@ def assert_error_handler_initiated_correctly(
         ),
         "orig_wf_exec_id": failing_wf_exec_id,
         "orig_wf_exec_url": wf_exec_url,
+        "orig_wf_title": "Division by zero",
+        "trigger_type": "manual",
         "orig_wf_id": str(failing_wf_id),
     }
     return evt
