@@ -22,7 +22,7 @@ from tracecat.logger import logger
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.types.auth import AccessLevel, Role
-from tracecat.workspaces.models import WorkspaceMetadataResponse
+from tracecat.workspaces.models import WorkspaceReadMinimal
 
 
 @pytest.fixture
@@ -314,7 +314,7 @@ def test_workspace(test_admin_user, authed_client_controls):
     get_client, cfg_write, cfg_read = authed_client_controls
     # Login
     workspace_name = "__test_workspace"
-    workspace: WorkspaceMetadataResponse | None = None
+    workspace: WorkspaceReadMinimal | None = None
 
     try:
         # First, try to delete any existing test workspace
@@ -339,7 +339,7 @@ def test_workspace(test_admin_user, authed_client_controls):
                 json={"name": workspace_name},
             )
             response.raise_for_status()
-            workspace = WorkspaceMetadataResponse(**response.json())
+            workspace = WorkspaceReadMinimal(**response.json())
 
         logger.info("Created test workspace", workspace=workspace)
         cfg_write("workspace", workspace.model_dump(mode="json"))
@@ -354,7 +354,7 @@ def test_workspace(test_admin_user, authed_client_controls):
                     "Unexpected error when retrieving workspace. Workspace either doesn't exist or there was a conflict."
                     "Please check the logs for more information, or try viewing the database directly."
                 ) from e
-            yield WorkspaceMetadataResponse(**workspace.model_dump())
+            yield WorkspaceReadMinimal(**workspace.model_dump())
     finally:
         # NOTE: This will remove all test assets created from the DB
         logger.info("Teardown test workspace")
