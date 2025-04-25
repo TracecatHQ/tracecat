@@ -49,7 +49,7 @@ export function OrgSettingsAppForm() {
       app_workflow_export_enabled:
         appSettings?.app_workflow_export_enabled ?? true,
       app_create_workspace_on_register:
-        appSettings?.app_create_workspace_on_register ?? false,
+        appSettings?.app_create_workspace_on_register ?? true,
     },
   })
 
