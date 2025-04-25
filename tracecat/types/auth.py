@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from tracecat.authz.models import WorkspaceRole
 from tracecat.identifiers import InternalServiceID, UserID, WorkspaceID
 
 
@@ -10,7 +11,9 @@ class AccessLevel(IntEnum):
     """Access control levels for roles."""
 
     BASIC = 0
+    """The access level for workspace members."""
     ADMIN = 999
+    """The access level for organization admins. Org admins are members of all workspaces."""
 
 
 class Role(BaseModel):
@@ -42,6 +45,7 @@ class Role(BaseModel):
 
     type: Literal["user", "service"] = Field(frozen=True)
     workspace_id: WorkspaceID | None = Field(default=None, frozen=True)
+    workspace_role: WorkspaceRole | None = Field(default=None, frozen=True)
     user_id: UserID | None = Field(default=None, frozen=True)
     access_level: AccessLevel = Field(default=AccessLevel.BASIC, frozen=True)
     service_id: InternalServiceID = Field(frozen=True)

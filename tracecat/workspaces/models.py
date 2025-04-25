@@ -2,6 +2,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from tracecat import config
 from tracecat.auth.models import UserRole
+from tracecat.authz.models import WorkspaceRole
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 
 # === Workspace === #
@@ -35,7 +36,8 @@ class WorkspaceMember(BaseModel):
     first_name: str | None
     last_name: str | None
     email: EmailStr
-    role: UserRole
+    org_role: UserRole
+    workspace_role: WorkspaceRole
 
 
 class WorkspaceRead(BaseModel):
@@ -48,12 +50,16 @@ class WorkspaceRead(BaseModel):
 
 
 # === Membership === #
-# Params
 class WorkspaceMembershipCreate(BaseModel):
     user_id: UserID
+    role: WorkspaceRole = WorkspaceRole.EDITOR
 
 
-# Responses
+class WorkspaceMembershipUpdate(BaseModel):
+    role: WorkspaceRole | None = None
+
+
 class WorkspaceMembershipRead(BaseModel):
     user_id: UserID
     workspace_id: WorkspaceID
+    role: WorkspaceRole
