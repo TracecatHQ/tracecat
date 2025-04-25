@@ -1,8 +1,8 @@
 "use client"
 
 import Link from "next/link"
+import { useParams } from "next/navigation"
 import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
 import {
   BookText,
   ExternalLink,
@@ -33,8 +33,8 @@ import UserAvatar from "@/components/user-avatar"
 export default function UserNav() {
   const { user, logout } = useAuth()
   const { clearLastWorkspaceId } = useWorkspaceManager()
-  const { workspaceId } = useWorkspace()
-  const workspaceUrl = `/workspaces/${workspaceId}`
+  const { workspaceId } = useParams<{ workspaceId?: string }>()
+  const workspaceUrl = workspaceId ? `/workspaces/${workspaceId}` : null
 
   const handleLogout = async () => {
     clearLastWorkspaceId()
@@ -92,34 +92,42 @@ export default function UserNav() {
               <ExternalLink className="ml-auto size-3 text-muted-foreground" />
             </DropdownMenuItem>
           </Link>
-          <Link
-            href={`${workspaceUrl}/settings/general`}
-            className="my-2 w-full"
-          >
-            <DropdownMenuItem className="text-xs hover:cursor-pointer">
-              <Settings className="mr-2 size-4" />
-              Settings
-            </DropdownMenuItem>
-          </Link>
-          <Link
-            href={`${workspaceUrl}/settings/credentials`}
-            className="my-2 w-full"
-          >
-            <DropdownMenuItem className="text-xs hover:cursor-pointer">
-              <KeyRound className="mr-2 size-4" />
-              <span>Credentials</span>
-            </DropdownMenuItem>
-          </Link>
-          <Link
-            href={`${workspaceUrl}/settings/members`}
-            className="my-2 w-full"
-          >
-            <DropdownMenuItem className="text-xs hover:cursor-pointer">
-              <UsersRound className="mr-2 size-4" />
-              <span>Manage members</span>
-            </DropdownMenuItem>
-          </Link>
         </DropdownMenuGroup>
+        {workspaceUrl && (
+          <DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              Workspace
+            </DropdownMenuLabel>
+            <Link
+              href={`${workspaceUrl}/settings/general`}
+              className="my-2 w-full"
+            >
+              <DropdownMenuItem className="text-xs hover:cursor-pointer">
+                <Settings className="mr-2 size-4" />
+                Settings
+              </DropdownMenuItem>
+            </Link>
+            <Link
+              href={`${workspaceUrl}/settings/credentials`}
+              className="my-2 w-full"
+            >
+              <DropdownMenuItem className="text-xs hover:cursor-pointer">
+                <KeyRound className="mr-2 size-4" />
+                <span>Credentials</span>
+              </DropdownMenuItem>
+            </Link>
+            <Link
+              href={`${workspaceUrl}/settings/members`}
+              className="my-2 w-full"
+            >
+              <DropdownMenuItem className="text-xs hover:cursor-pointer">
+                <UsersRound className="mr-2 size-4" />
+                <span>Manage members</span>
+              </DropdownMenuItem>
+            </Link>
+          </DropdownMenuGroup>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="text-xs hover:cursor-pointer"
