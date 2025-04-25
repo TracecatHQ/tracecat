@@ -111,7 +111,7 @@ export default function UserNav() {
             href={`${workspaceUrl}/settings/members`}
             className="my-2 w-full"
           >
-            <DropdownMenuItem className="text-xs">
+            <DropdownMenuItem className="text-xs hover:cursor-pointer">
               <UsersRound className="mr-2 size-4" />
               <span>Manage members</span>
             </DropdownMenuItem>
