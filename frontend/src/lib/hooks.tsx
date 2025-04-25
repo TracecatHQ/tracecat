@@ -855,17 +855,20 @@ export function useWorkspaceSecrets() {
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot create secrets in this workspace.",
+          })
         case 409:
-          console.error("Secret already exists", error)
-          toast({
+          return toast({
             title: "Secret already exists",
             description:
               "Secrets with the same name and environment are not supported.",
           })
-          break
         default:
           console.error("Failed to create secret", error)
-          toast({
+          return toast({
             title: "Failed to add new secret",
             description: "Please contact support for help.",
           })
@@ -894,12 +897,20 @@ export function useWorkspaceSecrets() {
       })
       queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
     },
-    onError: (error) => {
-      console.error("Failed to update secret", error)
-      toast({
-        title: "Failed to update secret",
-        description: "An error occurred while updating the secret.",
-      })
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot update secrets in this workspace.",
+          })
+        default:
+          console.error("Failed to update secret", error)
+          return toast({
+            title: "Failed to update secret",
+            description: "An error occurred while updating the secret.",
+          })
+      }
     },
   })
 
@@ -914,12 +925,20 @@ export function useWorkspaceSecrets() {
         description: "Secret deleted successfully.",
       })
     },
-    onError: (error) => {
-      console.error("Failed to delete credentials", error)
-      toast({
-        title: "Failed to delete secret",
-        description: "An error occurred while deleting the secret.",
-      })
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot delete secrets in this workspace.",
+          })
+        default:
+          console.error("Failed to delete secret", error)
+          return toast({
+            title: "Failed to delete secret",
+            description: "An error occurred while deleting the secret.",
+          })
+      }
     },
   })
 
