@@ -40,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
         DSLRunArgs,
         ExecuteChildWorkflowArgs,
         dsl_execution_error_from_exception,
+        get_trigger_type,
     )
     from tracecat.dsl.enums import (
         FailStrategy,
@@ -86,6 +87,7 @@ with workflow.unsafe.imports_passed_through():
         TracecatValidationError,
     )
     from tracecat.validation.models import ValidationResult
+    from tracecat.workflow.executions.enums import TriggerType
     from tracecat.workflow.executions.models import ErrorHandlerWorkflowInput
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
@@ -255,6 +257,7 @@ class DSLWorkflow:
             else:
                 errors = None
 
+            trigger_type = get_trigger_type(workflow.info())
             try:
                 err_run_args = await self._prepare_error_handler_workflow(
                     message=e.message,
@@ -262,6 +265,7 @@ class DSLWorkflow:
                     orig_wf_id=args.wf_id,
                     orig_wf_exec_id=self.wf_exec_id,
                     orig_dsl=self.dsl,
+                    trigger_type=TriggerType(trigger_type),
                     errors=errors,
                 )
                 await self._run_error_handler_workflow(err_run_args)
@@ -1000,6 +1004,7 @@ class DSLWorkflow:
         orig_wf_id: WorkflowID,
         orig_wf_exec_id: WorkflowExecutionID,
         orig_dsl: DSLInput,
+        trigger_type: TriggerType,
         errors: list[ActionErrorInfo] | None = None,
     ) -> DSLRunArgs:
         """Grab a workflow definition and create error handler workflow run args"""
@@ -1050,6 +1055,7 @@ class DSLWorkflow:
                 orig_wf_exec_url=url,
                 orig_wf_title=orig_dsl.title,
                 errors=errors,
+                trigger_type=trigger_type,
             ),
             runtime_config=runtime_config,
         )
