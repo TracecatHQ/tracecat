@@ -1704,6 +1704,8 @@ export type ValidationError = {
   type: string
 }
 
+export type WaitStrategy = "wait" | "detach"
+
 export type WebhookCreate = {
   status?: WebhookStatus
   method?: WebhookMethod
@@ -1864,6 +1866,7 @@ export type WorkflowExecutionEventCompact = {
   child_wf_exec_id?: string | null
   child_wf_count?: number
   loop_index?: number | null
+  child_wf_wait_strategy?: WaitStrategy | null
 }
 
 export type WorkflowExecutionEventStatus =

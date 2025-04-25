@@ -5239,6 +5239,12 @@ export const $ValidationError = {
   title: "ValidationError",
 } as const
 
+export const $WaitStrategy = {
+  type: "string",
+  enum: ["wait", "detach"],
+  title: "WaitStrategy",
+} as const
+
 export const $WebhookCreate = {
   properties: {
     status: {
@@ -5790,6 +5796,16 @@ export const $WorkflowExecutionEventCompact = {
         },
       ],
       title: "Loop Index",
+    },
+    child_wf_wait_strategy: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WaitStrategy",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",
