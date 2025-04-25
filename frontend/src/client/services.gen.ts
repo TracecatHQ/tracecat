@@ -258,6 +258,8 @@ import type {
   WorkspacesSearchWorkspacesData,
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
+  WorkspacesUpdateWorkspaceMembershipData,
+  WorkspacesUpdateWorkspaceMembershipResponse,
   WorkspacesUpdateWorkspaceResponse,
 } from "./types.gen"
 
@@ -551,6 +553,34 @@ export const workspacesCreateWorkspaceMembership = (
     url: "/workspaces/{workspace_id}/memberships",
     path: {
       workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Workspace Membership
+ * Update a workspace membership for a user.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.userId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const workspacesUpdateWorkspaceMembership = (
+  data: WorkspacesUpdateWorkspaceMembershipData
+): CancelablePromise<WorkspacesUpdateWorkspaceMembershipResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/memberships/{user_id}",
+    path: {
+      workspace_id: data.workspaceId,
+      user_id: data.userId,
     },
     body: data.requestBody,
     mediaType: "application/json",

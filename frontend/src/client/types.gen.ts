@@ -1125,6 +1125,7 @@ export type ResponseInteraction = {
 export type Role = {
   type: "user" | "service"
   workspace_id?: string | null
+  workspace_role?: WorkspaceRole | null
   user_id?: string | null
   access_level?: AccessLevel
   service_id:
@@ -2097,16 +2098,23 @@ export type WorkspaceMember = {
   first_name: string | null
   last_name: string | null
   email: string
-  role: UserRole
+  org_role: UserRole
+  workspace_role: WorkspaceRole
 }
 
 export type WorkspaceMembershipCreate = {
   user_id: string
+  role?: WorkspaceRole
 }
 
 export type WorkspaceMembershipRead = {
   user_id: string
   workspace_id: string
+  role: WorkspaceRole
+}
+
+export type WorkspaceMembershipUpdate = {
+  role?: WorkspaceRole | null
 }
 
 export type WorkspaceRead = {
@@ -2125,6 +2133,8 @@ export type WorkspaceReadMinimal = {
   name: string
   n_members: number
 }
+
+export type WorkspaceRole = "editor" | "admin"
 
 export type WorkspaceUpdate = {
   name?: string | null
@@ -2217,6 +2227,14 @@ export type WorkspacesCreateWorkspaceMembershipData = {
 }
 
 export type WorkspacesCreateWorkspaceMembershipResponse = unknown
+
+export type WorkspacesUpdateWorkspaceMembershipData = {
+  requestBody: WorkspaceMembershipUpdate
+  userId: string
+  workspaceId: string
+}
+
+export type WorkspacesUpdateWorkspaceMembershipResponse = void
 
 export type WorkspacesGetWorkspaceMembershipData = {
   userId: string
@@ -3217,6 +3235,19 @@ export type $OpenApiTs = {
     }
   }
   "/workspaces/{workspace_id}/memberships/{user_id}": {
+    patch: {
+      req: WorkspacesUpdateWorkspaceMembershipData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: WorkspacesGetWorkspaceMembershipData
       res: {
