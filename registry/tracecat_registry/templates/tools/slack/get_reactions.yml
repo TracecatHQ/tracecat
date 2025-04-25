@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Get reactions
+  description: Get reactions to a message.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/reactions.get
+  namespace: tools.slack
+  name: get_reactions
+  expects:
+    channel:
+      type: str
+      description: The channel to get reactions from.
+    timestamp:
+      type: str
+      description: The timestamp of the message to get reactions from.
+  steps:
+    - ref: get_reactions
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: reactions_get
+        params:
+          channel: ${{ inputs.channel }}
+          timestamp: ${{ inputs.timestamp }}
+  returns: ${{ steps.get_reactions.result.message.reactions }}
