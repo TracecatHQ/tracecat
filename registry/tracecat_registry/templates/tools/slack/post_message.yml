@@ -16,9 +16,11 @@ definition:
     blocks:
       type: list[dict[str, any]] | None
       description: List of JSON-based blocks.
+      default: null
     thread_ts:
       type: str | None
       description: The timestamp of the thread to reply to.
+      default: null
   steps:
     - ref: post_message
       action: tools.slack_sdk.call_method
