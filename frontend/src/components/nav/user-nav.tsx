@@ -14,6 +14,7 @@ import {
 
 import { siteConfig } from "@/config/site"
 import { userDefaults } from "@/config/user"
+import { userIsPrivileged } from "@/lib/auth"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -57,12 +58,14 @@ export default function UserNav() {
                 {user?.email.toString() ?? userDefaults.email}
               </p>
             </div>
-            <Badge
-              variant="secondary"
-              className="pointer-events-none font-medium capitalize"
-            >
-              {user?.role}
-            </Badge>
+            {userIsPrivileged(user) && (
+              <Badge
+                variant="secondary"
+                className="pointer-events-none font-medium capitalize"
+              >
+                {user?.role}
+              </Badge>
+            )}
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
