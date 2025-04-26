@@ -159,9 +159,144 @@ For example:
   </Step>
 
   <Step title="⚠️ Send reminder until acknowledged">
+    Let's configure a `core.workflow.execute` action that executes workflow 2 (to be built next).
 
+    ```yaml
+    workflow_alias: send_reminder
+    trigger_inputs:
+      thread_ts: ${{ ACTIONS.notify_today.result.ts || ACTIONS.notify_tomorrow.result.ts }}
+      user_tag: <@${{ ACTIONS.lookup_user_by_email.result.id }}>
+    ```
+
+    ![Execute remind user](/img/tutorials/wait-retry-until/execute-remind-user.png)
+
+    And the `retry_until` condition:
+
+    ```php
+    retry_until: ${{ ACTIONS.send_reminder.result.ack == True }}
+    ```
+
+    ![Retry until](/img/tutorials/wait-retry-until/retry-until.png)
   </Step>
 </Steps>
 
-
 ### Workflow 2. Send reminder
+
+In this workflow, we'll build a workflow that takes an input with two fields:
+- `thread_ts`: The timestamp of the thread to send the reminder to.
+- `user_tag`: The Slack user tag (e.g. `<@U0123456789>`) of the user to send the reminder to.
+- `user_id`: The Slack user ID (e.g. `U0123456789`) of the user to send the reminder to.
+
+And returns an output with a single field:
+- `ack`: A boolean field that indicates if the user has acknowledged the reminder.
+
+Set the workflow alias to `send_reminder`.
+
+![Send reminder](/img/tutorials/wait-retry-until/send-reminder.png)
+
+<Steps>
+  <Step title="Send reminder">
+    Select and configure the `tools.slack.post_message` action.
+
+    ```yaml
+    channel: C0YOURSLACKCHANNEL
+    text: ${{ TRIGGER.user_tag }} please acknowledge this alert.
+    thread_ts: ${{ TRIGGER.thread_ts }}
+    ```
+  </Step>
+
+  <Step title="Get all reactions to the original message">
+    Select and configure the `tools.slack.get_reactions` action.
+
+    ```yaml
+    channel: C0YOURSLACKCHANNEL
+    timestamp: ${{ TRIGGER.thread_ts }}
+    ```
+
+    Configure a reasonable `start_delay` to check for a response after some time.
+    In this example, we wait 120 seconds before checking for a response.
+
+    ![Start delay](/img/tutorials/wait-retry-until/start-delay.png)
+
+    The `tools.slack.get_reactions` action returns a response like this:
+
+    ```json
+    [
+      {
+        "name": "thumbsup",
+        "users": [
+          "W222222"
+        ],
+        "count": 1
+      },
+      {
+        "name": "question",
+        "users": [
+          "W333333"
+        ],
+        "count": 1
+      }
+    ]
+    ```
+  </Step>
+
+  <Step title="Filter out users who thumbed up">
+    Select and configure the `core.transform.filter` action.
+
+    Configure inputs:
+
+    ```yaml
+    items: ${{ ACTIONS.get_reactions.result }}
+    python_lambda: >
+      lambda x: x.get(''name'') == "thumbsup"
+    ```
+
+    With if-condition:
+
+    ```php
+    ${{ FN.length(ACTIONS.get_reactions.result) > 0 }}
+    ```
+
+    ![Filter thumbs up](/img/tutorials/wait-retry-until/filter-thumbs-up.png)
+  </Step>
+
+  <Step title="Evaluate ack condition">
+    Select and configure the `core.require` action and rename it to `Ack`.
+
+    Configure inputs:
+
+    ```yaml
+    raise_error: false
+    conditions:
+    - ${{ FN.length(ACTIONS.filter_thumbs_up.result) > 0 }}
+    - ${{ TRIGGER.user_id in ACTIONS.filter_thumbs_up.result[0].users }}
+    ```
+  </Step>
+
+  <Step title="Define output schema">
+    Go to the `Schema` tab of workflow settings.
+    Define the following output schema for the workflow.
+
+    ```yaml
+    ack: ${{ ACTIONS.ack.result }}
+    ```
+
+    ![Output schema](/img/tutorials/wait-retry-until/output-schema.png)
+  </Step>
+</Steps>
+
+🎉 Congratulations! You've built two workflows that work together to notify a user on Slack during working hours only.
+Try this out by manually triggering the alert if working workflow with the following payload:
+
+```json
+{
+  // Some user in Slack
+  "email": "john.doe@example.com"
+}
+```
+
+The `send_reminder` workflow will:
+
+- Send a reminder to the user on Slack.
+- Wait 120 seconds for a reaction.
+- And keep retrying until the user reacts with a thumbs up.
