@@ -33,6 +33,7 @@
               "tutorials/child-workflows",
               "tutorials/data-transforms",
               "tutorials/explode-implode",
+              "tutorials/wait-retry-until",
               "tutorials/custom-integrations",
               "tutorials/alert-on-failure"
             ]
