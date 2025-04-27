@@ -28,8 +28,8 @@ export default function ProfileSettingsPage() {
   const form = useForm<ProfileFormData>({
     defaultValues: {
       email: user?.email ?? "",
-      firstName: user?.first_name ?? "",
-      lastName: user?.last_name ?? "",
+      firstName: user?.firstName ?? "",
+      lastName: user?.lastName ?? "",
     },
   })
 

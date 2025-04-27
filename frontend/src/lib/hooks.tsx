@@ -1336,7 +1336,7 @@ export function useRegistryRepositories() {
     onError: (error: TracecatApiError) => {
       switch (error.status) {
         case 400:
-          toast({
+          return toast({
             title: "Couldn't sync repository",
             description: (
               <div className="flex items-start gap-2">
@@ -1345,10 +1345,14 @@ export function useRegistryRepositories() {
               </div>
             ),
           })
-          break
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You are not authorized to perform this action",
+          })
         case 422:
           const { message } = error.body.detail as RegistryRepositoryErrorDetail
-          toast({
+          return toast({
             title: "Repository validation failed",
             description: (
               <div className="flex items-start gap-2">
@@ -1357,9 +1361,8 @@ export function useRegistryRepositories() {
               </div>
             ),
           })
-          break
         default:
-          toast({
+          return toast({
             title: "Unexpected error syncing repositories",
             description: (
               <div className="flex items-start gap-2">
@@ -1370,7 +1373,6 @@ export function useRegistryRepositories() {
             ),
           })
       }
-      return error
     },
   })
 
@@ -1865,6 +1867,21 @@ export function useRegistryRepositoriesReload() {
         title: "Reloaded repositories",
         description: "Repositories reloaded successfully.",
       })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You are not authorized to perform this action",
+          })
+        default:
+          console.error("Failed to reload repositories", error)
+          return toast({
+            title: "Failed to reload repositories",
+            description: `An error occurred while reloading the repositories: ${error.body.detail}`,
+          })
+      }
     },
   })
 

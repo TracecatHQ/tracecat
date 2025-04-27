@@ -5,6 +5,7 @@ import {
   RegistryRepositoryErrorDetail,
   RegistryRepositoryReadMinimal,
 } from "@/client"
+import { useAuth } from "@/providers/auth"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   AlertTriangleIcon,
@@ -57,6 +58,7 @@ enum AlertAction {
 }
 
 export function RegistryRepositoriesTable() {
+  const { user } = useAuth()
   const {
     repos: registryRepos,
     reposIsLoading: registryReposIsLoading,
@@ -419,30 +421,34 @@ export function RegistryRepositoriesTable() {
                           <span>Copy commit SHA</span>
                         </DropdownMenuItem>
                       )}
-                      <DropdownMenuItem
-                        className="flex items-center text-xs"
-                        onClick={(e) => {
-                          e.stopPropagation() // Prevent row click
-                          setSelectedRepo(row.original)
-                          setAlertAction(AlertAction.SYNC)
-                          setAlertOpen(true)
-                        }}
-                      >
-                        <RefreshCcw className="mr-2 size-4" />
-                        <span>Sync from remote</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="flex items-center text-xs text-rose-600"
-                        onClick={(e) => {
-                          e.stopPropagation() // Prevent row click
-                          setSelectedRepo(row.original)
-                          setAlertAction(AlertAction.DELETE)
-                          setAlertOpen(true)
-                        }}
-                      >
-                        <TrashIcon className="mr-2 size-4" />
-                        <span>Delete repository</span>
-                      </DropdownMenuItem>
+                      {user?.isOrgAdmin() && (
+                        <>
+                          <DropdownMenuItem
+                            className="flex items-center text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation() // Prevent row click
+                              setSelectedRepo(row.original)
+                              setAlertAction(AlertAction.SYNC)
+                              setAlertOpen(true)
+                            }}
+                          >
+                            <RefreshCcw className="mr-2 size-4" />
+                            <span>Sync from remote</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="flex items-center text-xs text-rose-600"
+                            onClick={(e) => {
+                              e.stopPropagation() // Prevent row click
+                              setSelectedRepo(row.original)
+                              setAlertAction(AlertAction.DELETE)
+                              setAlertOpen(true)
+                            }}
+                          >
+                            <TrashIcon className="mr-2 size-4" />
+                            <span>Delete repository</span>
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )

@@ -16,10 +16,10 @@ import {
 import { MutateFunction, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { authConfig } from "@/config/auth"
-import { getCurrentUser } from "@/lib/auth"
+import { getCurrentUser, User } from "@/lib/auth"
 
 type AuthContextType = {
-  user: UserRead | null
+  user: User | null
   userIsLoading: boolean
   login: MutateFunction<
     AuthAuthDatabaseLoginResponse,
@@ -40,9 +40,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     data: user,
     isLoading: userIsLoading,
     error: userError,
-  } = useQuery<UserRead | null, ApiError>({
+  } = useQuery<User | null, ApiError>({
     queryKey: ["auth"],
-    queryFn: getCurrentUser,
+    queryFn: async () => {
+      const userRead = await getCurrentUser()
+      return userRead ? new User(userRead) : null
+    },
     retry: false,
     staleTime: authConfig.staleTime,
     refetchOnWindowFocus: true,

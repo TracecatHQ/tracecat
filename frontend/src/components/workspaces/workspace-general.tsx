@@ -32,7 +32,6 @@ export function WorkspaceGeneralSettings({
 }) {
   const { user } = useAuth()
   const { updateWorkspace } = useWorkspace()
-  const hasPermissions = user?.is_superuser || user?.role === "admin"
 
   const methods = useForm({
     resolver: zodResolver(workspaceConfigFormSchema),
@@ -66,7 +65,7 @@ export function WorkspaceGeneralSettings({
                   <Input
                     placeholder="Workspace name"
                     {...field}
-                    disabled={!hasPermissions}
+                    disabled={!user?.isPrivileged()}
                   />
                 </FormControl>
                 <FormMessage />

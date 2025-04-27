@@ -47,7 +47,6 @@ import {
 
 export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
   const { user } = useAuth()
-  const isAdmin = user?.is_superuser || user?.role === "admin"
   const { workspaceId, workspaceLoading, workspaceError } = useWorkspace()
   const { workspaces, workspacesError, workspacesLoading, setLastWorkspaceId } =
     useWorkspaceManager()
@@ -129,7 +128,7 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
                   </CommandItem>
                 ))}
               </CommandGroup>
-              {isAdmin && (
+              {user?.isPrivileged() && (
                 <>
                   <CommandSeparator />
                   <CommandGroup heading="Management">

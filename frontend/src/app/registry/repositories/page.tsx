@@ -1,23 +1,22 @@
 "use client"
 
+import { useAuth } from "@/providers/auth"
 import { RefreshCcw } from "lucide-react"
 
+import { userIsOrgAdmin } from "@/lib/auth"
 import { useRegistryRepositoriesReload } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
-import { toast } from "@/components/ui/use-toast"
 import { RegistryRepositoriesTable } from "@/components/registry/registry-repos-table"
 
 export default function RegistryRepositoriesPage() {
+  const { user } = useAuth()
   const { reloadRegistryRepositories, reloadRegistryRepositoriesIsPending } =
     useRegistryRepositoriesReload()
   const refreshRepositories = async () => {
     try {
       await reloadRegistryRepositories()
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to reload repositories",
-      })
+      console.log("Error reloading repositories", error)
     }
   }
   return (
@@ -33,16 +32,18 @@ export default function RegistryRepositoriesPage() {
             </p>
           </div>
           <div className="ml-auto flex items-center space-x-2">
-            <Button
-              role="combobox"
-              variant="outline"
-              className="items-center space-x-2"
-              disabled={reloadRegistryRepositoriesIsPending}
-              onClick={refreshRepositories}
-            >
-              <RefreshCcw className="size-4 text-muted-foreground/80" />
-              <span>Refresh repositories</span>
-            </Button>
+            {user?.isOrgAdmin() && (
+              <Button
+                role="combobox"
+                variant="outline"
+                className="items-center space-x-2"
+                disabled={reloadRegistryRepositoriesIsPending}
+                onClick={refreshRepositories}
+              >
+                <RefreshCcw className="size-4 text-muted-foreground/80" />
+                <span>Refresh repositories</span>
+              </Button>
+            )}
           </div>
         </div>
         <RegistryRepositoriesTable />

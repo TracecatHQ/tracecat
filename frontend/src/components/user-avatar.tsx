@@ -1,12 +1,11 @@
-import { UserRead } from "@/client"
-
+import { User } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 interface UserAvatarProps extends React.HTMLAttributes<HTMLElement> {
   src?: string
   alt?: string
-  user?: UserRead | null
+  user?: User | null
 }
 export default function UserAvatar({
   src,
@@ -14,8 +13,8 @@ export default function UserAvatar({
   user,
   className,
 }: UserAvatarProps) {
-  const initials = user?.first_name
-    ? `${user.first_name[0]}`.toUpperCase()
+  const initials = user?.firstName
+    ? `${user.firstName[0]}`.toUpperCase()
     : user?.email[0].toUpperCase()
   return (
     <Avatar className={cn("size-8", className)}>
