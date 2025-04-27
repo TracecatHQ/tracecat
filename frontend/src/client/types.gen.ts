@@ -2601,6 +2601,7 @@ export type TagsDeleteTagResponse = unknown
 
 export type UsersSearchUserData = {
   email?: string | null
+  workspaceId?: string | null
 }
 
 export type UsersSearchUserResponse = UserRead

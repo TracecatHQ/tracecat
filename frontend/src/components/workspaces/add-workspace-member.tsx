@@ -64,6 +64,7 @@ export function AddWorkspaceMember({
       // Check if the user exists
       userToAdd = await usersSearchUser({
         email: values.email,
+        workspaceId: workspace.id,
       })
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {

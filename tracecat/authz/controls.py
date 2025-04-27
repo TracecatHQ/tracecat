@@ -61,7 +61,7 @@ def require_workspace_role(*roles: WorkspaceRole) -> Callable[[T], T]:
     """
 
     def check(self: BaseService):
-        self.logger.warning("Checking workspace role", role=self.role)
+        self.logger.debug("Checking workspace role", role=self.role)
         if not hasattr(self, "role"):
             raise AttributeError("Service must have a 'role' attribute")
 

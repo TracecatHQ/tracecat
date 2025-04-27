@@ -1837,6 +1837,7 @@ export const tagsDeleteTag = (
  * Create new user.
  * @param data The data for the request.
  * @param data.email
+ * @param data.workspaceId
  * @returns UserRead Successful Response
  * @throws ApiError
  */
@@ -1848,6 +1849,7 @@ export const usersSearchUser = (
     url: "/users/search",
     query: {
       email: data.email,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",
