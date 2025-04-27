@@ -7,7 +7,6 @@ import { CirclePlusIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { userIsPrivileged } from "@/lib/auth"
 import { WorkspaceRoleEnum } from "@/lib/workspace"
 import { Button } from "@/components/ui/button"
 import {
@@ -99,14 +98,13 @@ export function AddWorkspaceMember({
     }
   }
 
-  const userIsAdmin = userIsPrivileged(user, membership)
   return (
     <Dialog open={showDialog} onOpenChange={setShowDialog}>
       <DialogTrigger asChild>
         <Button
           variant="outline"
           role="combobox"
-          disabled={!userIsAdmin}
+          disabled={!user?.isPrivileged(membership)}
           className="disabled:cursor-not-allowed"
         >
           <CirclePlusIcon className="mr-2 size-4" />

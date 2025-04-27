@@ -3,7 +3,6 @@
 import { useAuth } from "@/providers/auth"
 import { RefreshCcw } from "lucide-react"
 
-import { userIsOrgAdmin } from "@/lib/auth"
 import { useRegistryRepositoriesReload } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import { RegistryRepositoriesTable } from "@/components/registry/registry-repos-table"

@@ -4,7 +4,6 @@ import { Suspense, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/providers/auth"
 
-import { userIsPrivileged } from "@/lib/auth"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
 import { OrganizationSidebarNav } from "@/components/organization/sidebar-nav"
@@ -17,7 +16,7 @@ export default function OrganizationLayout({
   const { user } = useAuth()
   const router = useRouter()
   useEffect(() => {
-    if (!userIsPrivileged(user)) {
+    if (!user?.isPrivileged()) {
       router.push("/")
     }
   }, [user, router])

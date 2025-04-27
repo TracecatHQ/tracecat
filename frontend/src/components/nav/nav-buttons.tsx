@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation"
 import { useAuth } from "@/providers/auth"
 import { BuildingIcon, ChevronLeftIcon, LibraryBigIcon } from "lucide-react"
 
-import { userIsPrivileged } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 
 export function RegistryNavButton() {
@@ -27,7 +26,7 @@ export function RegistryNavButton() {
 export function OrganizationNavButton() {
   const pathname = usePathname()
   const { user } = useAuth()
-  if (!userIsPrivileged(user)) {
+  if (!user?.isPrivileged()) {
     return null
   }
   return (

@@ -7,7 +7,6 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
 import { CopyIcon, Trash2Icon } from "lucide-react"
 
-import { userIsPrivileged } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -25,7 +24,6 @@ export function TableViewAction({ row }: { row: Row<TableRowRead> }) {
   const [activeType, setActiveType] = useState<TableViewActionType>(null)
   const onOpenChange = () => setActiveType(null)
 
-  const isPrivileged = userIsPrivileged(user)
   return (
     <>
       <DropdownMenu>
@@ -46,7 +44,7 @@ export function TableViewAction({ row }: { row: Row<TableRowRead> }) {
             <CopyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
             Copy ID
           </DropdownMenuItem>
-          {isPrivileged && (
+          {user?.isPrivileged() && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem

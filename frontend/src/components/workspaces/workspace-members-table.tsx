@@ -6,7 +6,6 @@ import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 
-import { userIsPrivileged } from "@/lib/auth"
 import { WorkspaceRoleEnum } from "@/lib/workspace"
 import {
   AlertDialog,
@@ -90,7 +89,6 @@ export function WorkspaceMembersTable({
     },
     [selectedUser, updateWorkspaceMembership, workspace.id]
   )
-  const userIsAdmin = userIsPrivileged(user, membership)
   return (
     <Dialog open={isChangeRoleOpen} onOpenChange={setIsChangeRoleOpen}>
       <AlertDialog
@@ -197,7 +195,7 @@ export function WorkspaceMembersTable({
                         Copy user ID
                       </DropdownMenuItem>
 
-                      {userIsAdmin && (
+                      {user?.isPrivileged(membership) && (
                         <>
                           <DialogTrigger asChild>
                             <DropdownMenuItem
