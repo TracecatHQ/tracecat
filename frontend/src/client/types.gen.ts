@@ -142,6 +142,7 @@ export type AppSettingsRead = {
   app_executions_query_limit: number
   app_interactions_enabled: boolean
   app_workflow_export_enabled: boolean
+  app_create_workspace_on_register: boolean
 }
 
 /**
@@ -164,6 +165,10 @@ export type AppSettingsUpdate = {
    * Whether workflow exports are enabled.
    */
   app_workflow_export_enabled?: boolean
+  /**
+   * Whether to automatically create a workspace when a user signs up.
+   */
+  app_create_workspace_on_register?: boolean
 }
 
 /**
@@ -442,18 +447,6 @@ export type CaseUpdate = {
   fields?: {
     [key: string]: unknown
   } | null
-}
-
-export type CreateWorkspaceMembershipParams = {
-  user_id: string
-}
-
-export type CreateWorkspaceParams = {
-  name: string
-  settings?: {
-    [key: string]: string
-  } | null
-  owner_id?: string
 }
 
 /**
@@ -1132,6 +1125,7 @@ export type ResponseInteraction = {
 export type Role = {
   type: "user" | "service"
   workspace_id?: string | null
+  workspace_role?: WorkspaceRole | null
   user_id?: string | null
   access_level?: AccessLevel
   service_id:
@@ -1650,13 +1644,6 @@ export type type3 = "schedule" | "webhook"
  */
 export type TriggerType = "manual" | "scheduled" | "webhook"
 
-export type UpdateWorkspaceParams = {
-  name?: string | null
-  settings?: {
-    [key: string]: string
-  } | null
-}
-
 export type UserCreate = {
   email: string
   password: string
@@ -2102,26 +2089,39 @@ export type WorkflowUpdate = {
   error_handler?: string | null
 }
 
+export type WorkspaceCreate = {
+  name: string
+  settings?: {
+    [key: string]: string
+  } | null
+  owner_id?: string
+}
+
 export type WorkspaceMember = {
   user_id: string
   first_name: string | null
   last_name: string | null
   email: string
-  role: UserRole
+  org_role: UserRole
+  workspace_role: WorkspaceRole
 }
 
-export type WorkspaceMembershipResponse = {
+export type WorkspaceMembershipCreate = {
+  user_id: string
+  role?: WorkspaceRole
+}
+
+export type WorkspaceMembershipRead = {
   user_id: string
   workspace_id: string
+  role: WorkspaceRole
 }
 
-export type WorkspaceMetadataResponse = {
-  id: string
-  name: string
-  n_members: number
+export type WorkspaceMembershipUpdate = {
+  role?: WorkspaceRole | null
 }
 
-export type WorkspaceResponse = {
+export type WorkspaceRead = {
   id: string
   name: string
   settings?: {
@@ -2130,6 +2130,21 @@ export type WorkspaceResponse = {
   owner_id: string
   n_members: number
   members: Array<WorkspaceMember>
+}
+
+export type WorkspaceReadMinimal = {
+  id: string
+  name: string
+  n_members: number
+}
+
+export type WorkspaceRole = "editor" | "admin"
+
+export type WorkspaceUpdate = {
+  name?: string | null
+  settings?: {
+    [key: string]: string
+  } | null
 }
 
 export type login = {
@@ -2170,29 +2185,28 @@ export type PublicReceiveInteractionData = {
 
 export type PublicReceiveInteractionResponse = ReceiveInteractionResponse
 
-export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>
+export type WorkspacesListWorkspacesResponse = Array<WorkspaceReadMinimal>
 
 export type WorkspacesCreateWorkspaceData = {
-  requestBody: CreateWorkspaceParams
+  requestBody: WorkspaceCreate
 }
 
-export type WorkspacesCreateWorkspaceResponse = WorkspaceMetadataResponse
+export type WorkspacesCreateWorkspaceResponse = WorkspaceReadMinimal
 
 export type WorkspacesSearchWorkspacesData = {
   name?: string | null
 }
 
-export type WorkspacesSearchWorkspacesResponse =
-  Array<WorkspaceMetadataResponse>
+export type WorkspacesSearchWorkspacesResponse = Array<WorkspaceReadMinimal>
 
 export type WorkspacesGetWorkspaceData = {
   workspaceId: string
 }
 
-export type WorkspacesGetWorkspaceResponse = WorkspaceResponse
+export type WorkspacesGetWorkspaceResponse = WorkspaceRead
 
 export type WorkspacesUpdateWorkspaceData = {
-  requestBody: UpdateWorkspaceParams
+  requestBody: WorkspaceUpdate
   workspaceId: string
 }
 
@@ -2209,22 +2223,29 @@ export type WorkspacesListWorkspaceMembershipsData = {
 }
 
 export type WorkspacesListWorkspaceMembershipsResponse =
-  Array<WorkspaceMembershipResponse>
+  Array<WorkspaceMembershipRead>
 
 export type WorkspacesCreateWorkspaceMembershipData = {
-  requestBody: CreateWorkspaceMembershipParams
+  requestBody: WorkspaceMembershipCreate
   workspaceId: string
 }
 
 export type WorkspacesCreateWorkspaceMembershipResponse = unknown
+
+export type WorkspacesUpdateWorkspaceMembershipData = {
+  requestBody: WorkspaceMembershipUpdate
+  userId: string
+  workspaceId: string
+}
+
+export type WorkspacesUpdateWorkspaceMembershipResponse = void
 
 export type WorkspacesGetWorkspaceMembershipData = {
   userId: string
   workspaceId: string
 }
 
-export type WorkspacesGetWorkspaceMembershipResponse =
-  WorkspaceMembershipResponse
+export type WorkspacesGetWorkspaceMembershipResponse = WorkspaceMembershipRead
 
 export type WorkspacesDeleteWorkspaceMembershipData = {
   userId: string
@@ -2580,6 +2601,7 @@ export type TagsDeleteTagResponse = unknown
 
 export type UsersSearchUserData = {
   email?: string | null
+  workspaceId?: string | null
 }
 
 export type UsersSearchUserResponse = UserRead
@@ -3116,7 +3138,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceMetadataResponse>
+        200: Array<WorkspaceReadMinimal>
       }
     }
     post: {
@@ -3125,7 +3147,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: WorkspaceMetadataResponse
+        201: WorkspaceReadMinimal
         /**
          * Validation Error
          */
@@ -3140,7 +3162,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceMetadataResponse>
+        200: Array<WorkspaceReadMinimal>
         /**
          * Validation Error
          */
@@ -3155,7 +3177,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkspaceResponse
+        200: WorkspaceRead
         /**
          * Validation Error
          */
@@ -3196,7 +3218,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceMembershipResponse>
+        200: Array<WorkspaceMembershipRead>
         /**
          * Validation Error
          */
@@ -3218,13 +3240,26 @@ export type $OpenApiTs = {
     }
   }
   "/workspaces/{workspace_id}/memberships/{user_id}": {
+    patch: {
+      req: WorkspacesUpdateWorkspaceMembershipData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: WorkspacesGetWorkspaceMembershipData
       res: {
         /**
          * Successful Response
          */
-        200: WorkspaceMembershipResponse
+        200: WorkspaceMembershipRead
         /**
          * Validation Error
          */

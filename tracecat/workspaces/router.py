@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -7,6 +9,7 @@ from fastapi import (
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.authz.models import WorkspaceRole
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import UserID, WorkspaceID
@@ -17,32 +20,66 @@ from tracecat.types.exceptions import (
     TracecatManagementError,
 )
 from tracecat.workspaces.models import (
-    CreateWorkspaceMembershipParams,
-    CreateWorkspaceParams,
-    SearchWorkspacesParams,
-    UpdateWorkspaceParams,
+    WorkspaceCreate,
     WorkspaceMember,
-    WorkspaceMembershipResponse,
-    WorkspaceMetadataResponse,
-    WorkspaceResponse,
+    WorkspaceMembershipCreate,
+    WorkspaceMembershipRead,
+    WorkspaceMembershipUpdate,
+    WorkspaceRead,
+    WorkspaceReadMinimal,
+    WorkspaceSearch,
+    WorkspaceUpdate,
 )
 from tracecat.workspaces.service import WorkspaceService
 
-router = APIRouter(prefix="/workspaces")
+router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
-# === Management === #
-
-
-@router.get("", tags=["workspaces"])
-async def list_workspaces(
-    *,
-    role: Role = RoleACL(
+OrgUser = Annotated[
+    Role,
+    RoleACL(
         allow_user=True,
         allow_service=False,
         require_workspace="no",
     ),
+]
+OrgAdminUser = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=AccessLevel.ADMIN,
+    ),
+]
+WorkspaceUserInPath = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+        require_workspace_roles=[WorkspaceRole.EDITOR, WorkspaceRole.ADMIN],
+        workspace_id_in_path=True,
+    ),
+]
+WorkspaceAdminUserInPath = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+        require_workspace_roles=WorkspaceRole.ADMIN,
+        workspace_id_in_path=True,
+    ),
+]
+# === Management === #
+
+
+@router.get("")
+async def list_workspaces(
+    *,
+    role: OrgUser,
     session: AsyncDBSession,
-) -> list[WorkspaceMetadataResponse]:
+) -> list[WorkspaceReadMinimal]:
     """List workspaces.
 
     Access Level
@@ -61,23 +98,18 @@ async def list_workspaces(
             )
         workspaces = await service.list_workspaces(role.user_id)
     return [
-        WorkspaceMetadataResponse(id=ws.id, name=ws.name, n_members=ws.n_members)
+        WorkspaceReadMinimal(id=ws.id, name=ws.name, n_members=ws.n_members)
         for ws in workspaces
     ]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, tags=["workspaces"])
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
-    ),
-    params: CreateWorkspaceParams,
+    role: OrgAdminUser,
+    params: WorkspaceCreate,
     session: AsyncDBSession,
-) -> WorkspaceMetadataResponse:
+) -> WorkspaceReadMinimal:
     """Create a new workspace.
 
     Access Level
@@ -101,44 +133,35 @@ async def create_workspace(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Resource already exists"
         ) from e
-    return WorkspaceMetadataResponse(
+    return WorkspaceReadMinimal(
         id=workspace.id, name=workspace.name, n_members=workspace.n_members
     )
 
 
 # NOTE: This route must be defined before the route for getting a single workspace for both to work
-@router.get("/search", tags=["workspaces"])
+@router.get("/search")
 async def search_workspaces(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-    ),
+    role: OrgUser,
     session: AsyncDBSession,
-    params: SearchWorkspacesParams = Depends(),
-) -> list[WorkspaceMetadataResponse]:
+    params: WorkspaceSearch = Depends(),
+) -> list[WorkspaceReadMinimal]:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     service = WorkspaceService(session, role=role)
     workspaces = await service.search_workspaces(params)
     return [
-        WorkspaceMetadataResponse(id=ws.id, name=ws.name, n_members=ws.n_members)
+        WorkspaceReadMinimal(id=ws.id, name=ws.name, n_members=ws.n_members)
         for ws in workspaces
     ]
 
 
-@router.get("/{workspace_id}", tags=["workspaces"])
+@router.get("/{workspace_id}")
 async def get_workspace(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-        workspace_id_in_path=True,
-    ),
+    role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     session: AsyncDBSession,
-) -> WorkspaceResponse:
+) -> WorkspaceRead:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     service = WorkspaceService(session, role=role)
     workspace = await service.get_workspace(workspace_id)
@@ -146,7 +169,10 @@ async def get_workspace(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
-    return WorkspaceResponse(
+    membership_svc = MembershipService(session, role=role)
+    memberships = await membership_svc.list_memberships_with_users(workspace_id)
+
+    return WorkspaceRead(
         id=workspace.id,
         name=workspace.name,
         settings=workspace.settings,
@@ -154,13 +180,14 @@ async def get_workspace(
         n_members=workspace.n_members,
         members=[
             WorkspaceMember(
-                user_id=member.id,
-                first_name=member.first_name,
-                last_name=member.last_name,
-                email=member.email,
-                role=member.role,
+                user_id=user.id,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                email=user.email,
+                org_role=user.role,
+                workspace_role=membership.role,
             )
-            for member in workspace.members
+            for membership, user in memberships
         ],
     )
 
@@ -168,19 +195,12 @@ async def get_workspace(
 @router.patch(
     "/{workspace_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workspaces"],
 )
 async def update_workspace(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        min_access_level=AccessLevel.ADMIN,
-        require_workspace="yes",
-        workspace_id_in_path=True,
-    ),
+    role: WorkspaceAdminUserInPath,
     workspace_id: WorkspaceID,
-    params: UpdateWorkspaceParams,
+    params: WorkspaceUpdate,
     session: AsyncDBSession,
 ) -> None:
     """Update a workspace."""
@@ -196,17 +216,10 @@ async def update_workspace(
 @router.delete(
     "/{workspace_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    tags=["workspaces"],
 )
 async def delete_workspace(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        min_access_level=AccessLevel.ADMIN,
-        require_workspace="yes",
-        workspace_id_in_path=True,
-    ),
+    role: WorkspaceAdminUserInPath,
     workspace_id: WorkspaceID,
     session: AsyncDBSession,
 ) -> None:
@@ -229,45 +242,32 @@ async def delete_workspace(
 # === Memberships === #
 
 
-@router.get("/{workspace_id}/memberships", tags=["workspaces"])
+@router.get("/{workspace_id}/memberships")
 async def list_workspace_memberships(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-        workspace_id_in_path=True,
-    ),
+    role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     session: AsyncDBSession,
-) -> list[WorkspaceMembershipResponse]:
+) -> list[WorkspaceMembershipRead]:
     """List memberships of a workspace."""
     service = MembershipService(session, role=role)
     memberships = await service.list_memberships(workspace_id)
     return [
-        WorkspaceMembershipResponse(
-            user_id=membership.user_id, workspace_id=membership.workspace_id
+        WorkspaceMembershipRead(
+            user_id=membership.user_id,
+            workspace_id=membership.workspace_id,
+            role=membership.role,
         )
         for membership in memberships
     ]
 
 
-@router.post(
-    "/{workspace_id}/memberships",
-    tags=["workspaces"],
-    status_code=status.HTTP_201_CREATED,
-)
+@router.post("/{workspace_id}/memberships", status_code=status.HTTP_201_CREATED)
 async def create_workspace_membership(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        min_access_level=AccessLevel.ADMIN,
-        require_workspace="yes",
-        workspace_id_in_path=True,
-    ),
+    role: WorkspaceAdminUserInPath,
     workspace_id: WorkspaceID,
-    params: CreateWorkspaceMembershipParams,
+    params: WorkspaceMembershipCreate,
     session: AsyncDBSession,
 ) -> None:
     """Create a workspace membership for a user."""
@@ -276,7 +276,7 @@ async def create_workspace_membership(
     )
     service = MembershipService(session, role=role)
     try:
-        await service.create_membership(workspace_id, user_id=params.user_id)
+        await service.create_membership(workspace_id, params=params)
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -290,19 +290,49 @@ async def create_workspace_membership(
         ) from e
 
 
-@router.get("/{workspace_id}/memberships/{user_id}", tags=["workspaces"])
+@router.patch(
+    "/{workspace_id}/memberships/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def update_workspace_membership(
+    *,
+    role: WorkspaceAdminUserInPath,
+    workspace_id: WorkspaceID,
+    user_id: UserID,
+    params: WorkspaceMembershipUpdate,
+    session: AsyncDBSession,
+) -> None:
+    """Update a workspace membership for a user."""
+    service = MembershipService(session, role=role)
+    membership = await service.get_membership(workspace_id, user_id=user_id)
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Membership not found",
+        )
+    try:
+        await service.update_membership(membership, params=params)
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User does not have the appropriate access level",
+        ) from e
+    except IntegrityError as e:
+        logger.error("INTEGRITY ERROR")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User is already a member of workspace.",
+        ) from e
+
+
+@router.get("/{workspace_id}/memberships/{user_id}")
 async def get_workspace_membership(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-        workspace_id_in_path=True,
-    ),
+    role: WorkspaceUserInPath,
     workspace_id: WorkspaceID,
     user_id: UserID,
     session: AsyncDBSession,
-) -> WorkspaceMembershipResponse:
+) -> WorkspaceMembershipRead:
     """Get a workspace membership for a user."""
     service = MembershipService(session, role=role)
     membership = await service.get_membership(workspace_id, user_id=user_id)
@@ -311,25 +341,20 @@ async def get_workspace_membership(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Membership not found",
         )
-    return WorkspaceMembershipResponse(
-        user_id=membership.user_id, workspace_id=membership.workspace_id
+    return WorkspaceMembershipRead(
+        user_id=membership.user_id,
+        workspace_id=membership.workspace_id,
+        role=membership.role,
     )
 
 
 @router.delete(
     "/{workspace_id}/memberships/{user_id}",
-    tags=["workspaces"],
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_workspace_membership(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        min_access_level=AccessLevel.ADMIN,
-        require_workspace="yes",
-        workspace_id_in_path=True,
-    ),
+    role: WorkspaceAdminUserInPath,
     workspace_id: WorkspaceID,
     user_id: UserID,
     session: AsyncDBSession,

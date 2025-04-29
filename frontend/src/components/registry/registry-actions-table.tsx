@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from "react"
 import { RegistryActionReadMinimal } from "@/client"
+import { useAuth } from "@/providers/auth"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
 import { CopyIcon, TrashIcon } from "lucide-react"
@@ -28,6 +29,7 @@ import {
 import { actionTypeToLabel } from "@/components/registry/icons"
 
 export function RegistryActionsTable() {
+  const { user } = useAuth()
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
   const [selectedAction, setSelectedAction] =
@@ -250,21 +252,25 @@ export function RegistryActionsTable() {
                       <CopyIcon className="mr-2 size-4" />
                       <span>Copy action name</span>
                     </DropdownMenuItem>
-                    <DeleteRegistryActionAlertDialogTrigger asChild>
-                      <DropdownMenuItem
-                        className="text-xs text-rose-500 focus:text-rose-600"
-                        onClick={() => {
-                          setSelectedAction(row.original)
-                          console.debug(
-                            "Selected action to delete",
-                            row.original
-                          )
-                        }}
-                      >
-                        <TrashIcon className="mr-2 size-4 text-rose-500" />
-                        <span className="text-rose-500">Delete action</span>
-                      </DropdownMenuItem>
-                    </DeleteRegistryActionAlertDialogTrigger>
+                    {user?.isOrgAdmin() && (
+                      <>
+                        <DeleteRegistryActionAlertDialogTrigger asChild>
+                          <DropdownMenuItem
+                            className="text-xs text-rose-500 focus:text-rose-600"
+                            onClick={() => {
+                              setSelectedAction(row.original)
+                              console.debug(
+                                "Selected action to delete",
+                                row.original
+                              )
+                            }}
+                          >
+                            <TrashIcon className="mr-2 size-4 text-rose-500" />
+                            <span className="text-rose-500">Delete action</span>
+                          </DropdownMenuItem>
+                        </DeleteRegistryActionAlertDialogTrigger>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               )

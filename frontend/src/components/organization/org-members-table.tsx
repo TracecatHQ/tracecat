@@ -5,7 +5,6 @@ import { OrgMemberRead, UserRole } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 
-import { userIsPrivileged } from "@/lib/auth"
 import { getRelativeTime } from "@/lib/event-history"
 import { useOrgMembers } from "@/lib/hooks"
 import {
@@ -97,7 +96,6 @@ export function OrgMembersTable() {
     }
   }
   // Since this is the org members table, should only superusers be able to change roles?
-  const privileged = userIsPrivileged(user)
   return (
     <Dialog open={isChangeRoleOpen} onOpenChange={setIsChangeRoleOpen}>
       <AlertDialog
@@ -266,7 +264,7 @@ export function OrgMembersTable() {
                         Copy user ID
                       </DropdownMenuItem>
 
-                      {privileged && (
+                      {user?.isPrivileged() && (
                         <DropdownMenuGroup>
                           <DialogTrigger asChild>
                             <DropdownMenuItem
@@ -287,7 +285,7 @@ export function OrgMembersTable() {
                                 console.debug("Selected user", row.original)
                               }}
                             >
-                              Remove from workspace
+                              Remove from organization
                             </DropdownMenuItem>
                           </AlertDialogTrigger>
                         </DropdownMenuGroup>

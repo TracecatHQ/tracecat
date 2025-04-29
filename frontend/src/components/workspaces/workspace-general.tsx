@@ -3,7 +3,7 @@
 import "react18-json-view/src/style.css"
 
 import React from "react"
-import { WorkspaceResponse } from "@/client"
+import { WorkspaceRead } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -28,11 +28,10 @@ type WorkspaceConfigFormSchema = z.infer<typeof workspaceConfigFormSchema>
 export function WorkspaceGeneralSettings({
   workspace,
 }: {
-  workspace: WorkspaceResponse
+  workspace: WorkspaceRead
 }) {
   const { user } = useAuth()
   const { updateWorkspace } = useWorkspace()
-  const hasPermissions = user?.is_superuser || user?.role === "admin"
 
   const methods = useForm({
     resolver: zodResolver(workspaceConfigFormSchema),
@@ -66,7 +65,7 @@ export function WorkspaceGeneralSettings({
                   <Input
                     placeholder="Workspace name"
                     {...field}
-                    disabled={!hasPermissions}
+                    disabled={!user?.isPrivileged()}
                   />
                 </FormControl>
                 <FormMessage />

@@ -16,7 +16,6 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { userIsPrivileged } from "@/lib/auth"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
 import { SqlTypeEnum } from "@/lib/tables"
 import {
@@ -72,7 +71,6 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
   const { tableId } = useParams<{ tableId?: string }>()
   const [activeType, setActiveType] = useState<TableViewColumnMenuType>(null)
   const onOpenChange = () => setActiveType(null)
-  const isPrivileged = userIsPrivileged(user)
 
   return (
     <>
@@ -104,7 +102,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
             <CopyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
             Copy name
           </DropdownMenuItem>
-          {isPrivileged && (
+          {user?.isPrivileged() && (
             <>
               <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"

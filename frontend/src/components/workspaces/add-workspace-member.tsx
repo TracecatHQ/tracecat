@@ -1,9 +1,5 @@
-import {
-  ApiError,
-  UserRead,
-  usersSearchUser,
-  WorkspaceResponse,
-} from "@/client"
+import { useState } from "react"
+import { ApiError, UserRead, usersSearchUser, WorkspaceRead } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -11,10 +7,10 @@ import { CirclePlusIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
+import { WorkspaceRoleEnum } from "@/lib/workspace"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -30,23 +26,33 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { toast } from "@/components/ui/use-toast"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 const addUserSchema = z.object({
   email: z.string().email(),
+  role: z.enum(WorkspaceRoleEnum).default("editor"),
 })
 type AddUser = z.infer<typeof addUserSchema>
 
 export function AddWorkspaceMember({
   workspace,
   className,
-}: { workspace: WorkspaceResponse } & React.HTMLAttributes<HTMLButtonElement>) {
+}: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
   const { user } = useAuth()
-  const { addWorkspaceMember } = useWorkspace()
-  const methods = useForm<AddUser>({
+  const { membership, addWorkspaceMembership: addWorkspaceMember } =
+    useWorkspace()
+  const [showDialog, setShowDialog] = useState(false)
+  const form = useForm<AddUser>({
     resolver: zodResolver(addUserSchema),
     defaultValues: {
       email: "",
+      role: "editor",
     },
   })
 
@@ -57,37 +63,48 @@ export function AddWorkspaceMember({
       // Check if the user exists
       userToAdd = await usersSearchUser({
         email: values.email,
+        workspaceId: workspace.id,
       })
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
-        console.error("Couldn't find user with this email.", e.message)
+        form.setError("email", {
+          message:
+            "Couldn't find a user with this email. Please ensure they have signed up via email/password, OAuth2.0, or SSO.",
+        })
       } else {
         console.error("Unexpected error", e)
+        form.setError("email", {
+          message: `Error adding user to workspace: ${(e as ApiError).message}`,
+        })
       }
-      toast({
-        title: "Couldn't find a user with this email. ",
-        description:
-          "Users must first sign-up via email/password or OAuth2.0 before getting invited to a workspace.",
-      })
       return
     }
 
     // We've found this user
     try {
-      await addWorkspaceMember(userToAdd.id)
+      await addWorkspaceMember({
+        workspaceId: workspace.id,
+        requestBody: {
+          user_id: userToAdd.id,
+          role: values.role,
+        },
+      })
+      setShowDialog(false)
     } catch (e) {
       console.error("Error adding user to workspace", e)
+      form.setError("email", {
+        message: `Error adding user to workspace: ${(e as ApiError).message}`,
+      })
     }
   }
 
-  const userIsAdmin = user?.is_superuser || user?.role === "admin"
   return (
-    <Dialog>
+    <Dialog open={showDialog} onOpenChange={setShowDialog}>
       <DialogTrigger asChild>
         <Button
           variant="outline"
           role="combobox"
-          disabled={!userIsAdmin}
+          disabled={!user?.isPrivileged(membership)}
           className="disabled:cursor-not-allowed"
         >
           <CirclePlusIcon className="mr-2 size-4" />
@@ -104,11 +121,11 @@ export function AddWorkspaceMember({
             </span>
           </div>
         </DialogHeader>
-        <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(onSubmit)}>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               key="email"
-              control={methods.control}
+              control={form.control}
               name="email"
               render={({ field }) => (
                 <FormItem>
@@ -124,15 +141,41 @@ export function AddWorkspaceMember({
                 </FormItem>
               )}
             />
+            <FormField
+              key="role"
+              control={form.control}
+              name="role"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm">Role</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    defaultValue={field.value}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a role" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {WorkspaceRoleEnum.map((role) => (
+                        <SelectItem key={role} value={role}>
+                          {role}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter>
+              <Button type="submit" variant="default">
+                Add member
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button type="submit" variant="default">
-              Add member
-            </Button>
-          </DialogClose>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

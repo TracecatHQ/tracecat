@@ -76,7 +76,7 @@ export function NewCredentialsDialog({
     try {
       await createSecret(values)
     } catch (error) {
-      console.error(error)
+      console.log(error)
     }
     methods.reset()
   }

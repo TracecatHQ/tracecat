@@ -1,6 +1,6 @@
 "use client"
 
-import { WorkspaceResponse } from "@/client"
+import { WorkspaceRead } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -13,7 +13,6 @@ import { WorkspaceGeneralSettings } from "@/components/workspaces/workspace-gene
 export default function WorkspaceGeneralSettingsPage() {
   const { workspace, workspaceError, workspaceLoading } = useWorkspace()
   const { user } = useAuth()
-  const isAdmin = user?.is_superuser || user?.role === "admin"
 
   if (workspaceLoading) {
     return <CenteredSpinner />
@@ -42,7 +41,7 @@ export default function WorkspaceGeneralSettingsPage() {
           <div className="flex items-center gap-4">
             <WorkspaceGeneralSettings workspace={workspace} />
           </div>
-          {isAdmin && (
+          {user?.isPrivileged() && (
             <div className="space-y-4">
               <div className="space-y-2">
                 <h6 className="text-md text-rose-500">Danger zone</h6>
@@ -60,7 +59,7 @@ export default function WorkspaceGeneralSettingsPage() {
   )
 }
 
-function DangerZone({ workspace }: { workspace: WorkspaceResponse }) {
+function DangerZone({ workspace }: { workspace: WorkspaceRead }) {
   const { deleteWorkspace } = useWorkspaceManager()
   const handleDelete = async () => {
     console.log("Delete workspace", workspace)

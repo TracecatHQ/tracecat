@@ -3,11 +3,9 @@
 import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 import { ShieldAlertIcon, Table2Icon, WorkflowIcon } from "lucide-react"
 
-import { userIsPrivileged } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 import {
   OrganizationNavButton,
@@ -16,7 +14,6 @@ import {
 import { WorkspaceSelector } from "@/components/workspaces/workspace-selector"
 
 export function WorkspaceNav() {
-  const { user } = useAuth()
   const { workspaceId } = useWorkspace()
   const pathname = usePathname()
   const basePath = `/workspaces/${workspaceId}`
@@ -59,7 +56,7 @@ export function WorkspaceNav() {
         <span>Cases</span>
       </Link>
       <RegistryNavButton />
-      {userIsPrivileged(user) && <OrganizationNavButton />}
+      <OrganizationNavButton />
     </nav>
   )
 }

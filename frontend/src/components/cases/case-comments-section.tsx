@@ -16,7 +16,7 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { getDisplayName, SYSTEM_USER } from "@/lib/auth"
+import { SYSTEM_USER, User } from "@/lib/auth"
 import {
   useCaseComments,
   useCreateCaseComment,
@@ -93,8 +93,8 @@ export function CommentSection({
       <Separator />
       <div className="space-y-4 p-4">
         {caseComments?.map((comment) => {
-          const user = comment.user ?? SYSTEM_USER
-          const displayName = getDisplayName(user)
+          const user = new User(comment.user ?? SYSTEM_USER)
+          const displayName = user.getDisplayName()
           const username = user.email.split("@")[0]
           const isEditing = editingCommentId === comment.id
 

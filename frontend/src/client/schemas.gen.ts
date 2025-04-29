@@ -520,6 +520,10 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Workflow Export Enabled",
     },
+    app_create_workspace_on_register: {
+      type: "boolean",
+      title: "App Create Workspace On Register",
+    },
   },
   type: "object",
   required: [
@@ -527,6 +531,7 @@ export const $AppSettingsRead = {
     "app_executions_query_limit",
     "app_interactions_enabled",
     "app_workflow_export_enabled",
+    "app_create_workspace_on_register",
   ],
   title: "AppSettingsRead",
   description: "Settings for the app.",
@@ -557,6 +562,13 @@ export const $AppSettingsUpdate = {
       type: "boolean",
       title: "App Workflow Export Enabled",
       description: "Whether workflow exports are enabled.",
+      default: true,
+    },
+    app_create_workspace_on_register: {
+      type: "boolean",
+      title: "App Create Workspace On Register",
+      description:
+        "Whether to automatically create a workspace when a user signs up.",
       default: true,
     },
   },
@@ -1417,53 +1429,6 @@ export const $CaseUpdate = {
   },
   type: "object",
   title: "CaseUpdate",
-} as const
-
-export const $CreateWorkspaceMembershipParams = {
-  properties: {
-    user_id: {
-      type: "string",
-      format: "uuid4",
-      title: "User Id",
-    },
-  },
-  type: "object",
-  required: ["user_id"],
-  title: "CreateWorkspaceMembershipParams",
-} as const
-
-export const $CreateWorkspaceParams = {
-  properties: {
-    name: {
-      type: "string",
-      maxLength: 100,
-      minLength: 1,
-      title: "Name",
-    },
-    settings: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Settings",
-    },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-      default: "00000000-0000-0000-0000-000000000000",
-    },
-  },
-  type: "object",
-  required: ["name"],
-  title: "CreateWorkspaceParams",
 } as const
 
 export const $DSLConfig_Input = {
@@ -3405,6 +3370,16 @@ export const $Role = {
       ],
       title: "Workspace Id",
     },
+    workspace_role: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceRole",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     user_id: {
       anyOf: [
         {
@@ -4920,40 +4895,6 @@ export const $TriggerType = {
   enum: ["manual", "scheduled", "webhook"],
   title: "TriggerType",
   description: "Trigger type for a workflow execution.",
-} as const
-
-export const $UpdateWorkspaceParams = {
-  properties: {
-    name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Name",
-    },
-    settings: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Settings",
-    },
-  },
-  type: "object",
-  title: "UpdateWorkspaceParams",
 } as const
 
 export const $UserCreate = {
@@ -6611,6 +6552,40 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
+export const $WorkspaceCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+    settings: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Settings",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+      default: "00000000-0000-0000-0000-000000000000",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "WorkspaceCreate",
+} as const
+
 export const $WorkspaceMember = {
   properties: {
     user_id: {
@@ -6645,16 +6620,43 @@ export const $WorkspaceMember = {
       format: "email",
       title: "Email",
     },
-    role: {
+    org_role: {
       $ref: "#/components/schemas/UserRole",
+    },
+    workspace_role: {
+      $ref: "#/components/schemas/WorkspaceRole",
     },
   },
   type: "object",
-  required: ["user_id", "first_name", "last_name", "email", "role"],
+  required: [
+    "user_id",
+    "first_name",
+    "last_name",
+    "email",
+    "org_role",
+    "workspace_role",
+  ],
   title: "WorkspaceMember",
 } as const
 
-export const $WorkspaceMembershipResponse = {
+export const $WorkspaceMembershipCreate = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid4",
+      title: "User Id",
+    },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+      default: "editor",
+    },
+  },
+  type: "object",
+  required: ["user_id"],
+  title: "WorkspaceMembershipCreate",
+} as const
+
+export const $WorkspaceMembershipRead = {
   properties: {
     user_id: {
       type: "string",
@@ -6666,34 +6668,33 @@ export const $WorkspaceMembershipResponse = {
       format: "uuid4",
       title: "Workspace Id",
     },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+    },
   },
   type: "object",
-  required: ["user_id", "workspace_id"],
-  title: "WorkspaceMembershipResponse",
+  required: ["user_id", "workspace_id", "role"],
+  title: "WorkspaceMembershipRead",
 } as const
 
-export const $WorkspaceMetadataResponse = {
+export const $WorkspaceMembershipUpdate = {
   properties: {
-    id: {
-      type: "string",
-      format: "uuid4",
-      title: "Id",
-    },
-    name: {
-      type: "string",
-      title: "Name",
-    },
-    n_members: {
-      type: "integer",
-      title: "N Members",
+    role: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceRole",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",
-  required: ["id", "name", "n_members"],
-  title: "WorkspaceMetadataResponse",
+  title: "WorkspaceMembershipUpdate",
 } as const
 
-export const $WorkspaceResponse = {
+export const $WorkspaceRead = {
   properties: {
     id: {
       type: "string",
@@ -6737,7 +6738,68 @@ export const $WorkspaceResponse = {
   },
   type: "object",
   required: ["id", "name", "owner_id", "n_members", "members"],
-  title: "WorkspaceResponse",
+  title: "WorkspaceRead",
+} as const
+
+export const $WorkspaceReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    n_members: {
+      type: "integer",
+      title: "N Members",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "n_members"],
+  title: "WorkspaceReadMinimal",
+} as const
+
+export const $WorkspaceRole = {
+  type: "string",
+  enum: ["editor", "admin"],
+  title: "WorkspaceRole",
+} as const
+
+export const $WorkspaceUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    settings: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Settings",
+    },
+  },
+  type: "object",
+  title: "WorkspaceUpdate",
 } as const
 
 export const $login = {

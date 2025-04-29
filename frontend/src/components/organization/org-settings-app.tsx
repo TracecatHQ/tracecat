@@ -24,6 +24,7 @@ const appFormSchema = z.object({
   app_executions_query_limit: z.number().min(1).max(1000),
   app_interactions_enabled: z.boolean(),
   app_workflow_export_enabled: z.boolean(),
+  app_create_workspace_on_register: z.boolean(),
 })
 
 type AppFormValues = z.infer<typeof appFormSchema>
@@ -47,6 +48,8 @@ export function OrgSettingsAppForm() {
       app_interactions_enabled: appSettings?.app_interactions_enabled ?? false,
       app_workflow_export_enabled:
         appSettings?.app_workflow_export_enabled ?? true,
+      app_create_workspace_on_register:
+        appSettings?.app_create_workspace_on_register ?? true,
     },
   })
 
@@ -58,6 +61,8 @@ export function OrgSettingsAppForm() {
           app_executions_query_limit: data.app_executions_query_limit,
           app_interactions_enabled: data.app_interactions_enabled,
           app_workflow_export_enabled: data.app_workflow_export_enabled,
+          app_create_workspace_on_register:
+            data.app_create_workspace_on_register,
         },
       })
     } catch {
@@ -157,6 +162,28 @@ export function OrgSettingsAppForm() {
                 <FormDescription>
                   Allow users to export workflows. When disabled, users will be
                   unable to export workflows.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="app_create_workspace_on_register"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Create Workspace on Sign-up</FormLabel>
+                <FormDescription>
+                  Automatically create a workspace for new users when they sign
+                  up.
                 </FormDescription>
               </div>
               <FormControl>

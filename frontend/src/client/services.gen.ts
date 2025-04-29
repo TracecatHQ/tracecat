@@ -258,6 +258,8 @@ import type {
   WorkspacesSearchWorkspacesData,
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
+  WorkspacesUpdateWorkspaceMembershipData,
+  WorkspacesUpdateWorkspaceMembershipResponse,
   WorkspacesUpdateWorkspaceResponse,
 } from "./types.gen"
 
@@ -379,7 +381,7 @@ export const publicReceiveInteraction = (
  * ------------
  * - Basic: Can list workspaces where they are a member.
  * - Admin: Can list all workspaces regardless of membership.
- * @returns WorkspaceMetadataResponse Successful Response
+ * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
 export const workspacesListWorkspaces =
@@ -399,7 +401,7 @@ export const workspacesListWorkspaces =
  * - Admin: Can create a workspace for any user.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns WorkspaceMetadataResponse Successful Response
+ * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
 export const workspacesCreateWorkspace = (
@@ -421,7 +423,7 @@ export const workspacesCreateWorkspace = (
  * Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs.
  * @param data The data for the request.
  * @param data.name
- * @returns WorkspaceMetadataResponse Successful Response
+ * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
 export const workspacesSearchWorkspaces = (
@@ -444,7 +446,7 @@ export const workspacesSearchWorkspaces = (
  * Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns WorkspaceResponse Successful Response
+ * @returns WorkspaceRead Successful Response
  * @throws ApiError
  */
 export const workspacesGetWorkspace = (
@@ -516,7 +518,7 @@ export const workspacesDeleteWorkspace = (
  * List memberships of a workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns WorkspaceMembershipResponse Successful Response
+ * @returns WorkspaceMembershipRead Successful Response
  * @throws ApiError
  */
 export const workspacesListWorkspaceMemberships = (
@@ -561,12 +563,40 @@ export const workspacesCreateWorkspaceMembership = (
 }
 
 /**
+ * Update Workspace Membership
+ * Update a workspace membership for a user.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.userId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const workspacesUpdateWorkspaceMembership = (
+  data: WorkspacesUpdateWorkspaceMembershipData
+): CancelablePromise<WorkspacesUpdateWorkspaceMembershipResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/memberships/{user_id}",
+    path: {
+      workspace_id: data.workspaceId,
+      user_id: data.userId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Workspace Membership
  * Get a workspace membership for a user.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.userId
- * @returns WorkspaceMembershipResponse Successful Response
+ * @returns WorkspaceMembershipRead Successful Response
  * @throws ApiError
  */
 export const workspacesGetWorkspaceMembership = (
@@ -1807,6 +1837,7 @@ export const tagsDeleteTag = (
  * Create new user.
  * @param data The data for the request.
  * @param data.email
+ * @param data.workspaceId
  * @returns UserRead Successful Response
  * @throws ApiError
  */
@@ -1818,6 +1849,7 @@ export const usersSearchUser = (
     url: "/users/search",
     query: {
       email: data.email,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

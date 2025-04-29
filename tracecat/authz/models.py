@@ -1,9 +1,5 @@
 from enum import StrEnum
 
-from pydantic import BaseModel
-
-from tracecat.identifiers import UserID, WorkspaceID
-
 
 class OwnerType(StrEnum):
     USER = "user"
@@ -11,16 +7,7 @@ class OwnerType(StrEnum):
     ORGANIZATION = "organization"
 
 
-# === Memberships === #
-
-
-# Params
-class CreateMembershipParams(BaseModel):
-    user_id: UserID
-    workspace_id: WorkspaceID
-
-
-# Responses
-class MembershipResponse(BaseModel):
-    user_id: UserID
-    workspace_id: WorkspaceID
+class WorkspaceRole(StrEnum):
+    # VIEWER = "viewer"
+    EDITOR = "editor"
+    ADMIN = "admin"

@@ -13,7 +13,6 @@ import {
   Trash2Icon,
 } from "lucide-react"
 
-import { userIsPrivileged } from "@/lib/auth"
 import { useListTables } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -96,7 +95,6 @@ function TableItem({
   const [activeType, setActiveType] = useState<TableSideNavActionType>(null)
   const onOpenChange = () => setActiveType(null)
   const isSelected = selectedTableId === table.id
-  const isPrivileged = userIsPrivileged(user)
   return (
     <>
       <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
@@ -141,7 +139,7 @@ function TableItem({
                 <CopyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
                 Copy name
               </DropdownMenuItem>
-              {isPrivileged && (
+              {user?.isPrivileged() && (
                 <>
                   <DropdownMenuItem
                     onClick={(e) => {
