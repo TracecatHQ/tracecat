@@ -14,9 +14,7 @@ SERVICE_KEY=$(openssl rand -hex 32)
 SIGNING_SECRET=$(openssl rand -hex 32)
 
 # Create database encryption key
-DB_ENCRYPTION_KEY=$(docker run --rm python:3.12-slim-bookworm /bin/bash -c "\
-    pip install cryptography >/dev/null 2>&1; \
-    python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'")
+DB_ENCRYPTION_KEY=$(openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_')
 
 # Set default KEY_NAMES if not provided
 DB_ENCRYPTION_KEY_NAME=${DB_ENCRYPTION_KEY_NAME:-"${APP_ENV:-prod}/tracecat/db-encryption-key"}
