@@ -35,15 +35,6 @@ dotenv_replace() {
 
 echo -e "${YELLOW}Creating .env...${NC}"
 
-# Check that docker exists and is running
-if !  docker ps &> /dev/null
-then
-    echo -e "${RED}Docker could not be found. Please check if installed and running.${NC}"
-    exit
-fi
-
-
-
 # If .env exists, ask user if they want to overwrite it
 if [ -f .env ]; then
     read -p "A .env file already exists. Do you want to overwrite it? (y/n) " -n 1 -r
@@ -75,9 +66,9 @@ signing_secret=$(openssl rand -hex 32)
 
 
 echo -e "${YELLOW}Generating a Fernet encryption key for the database...${NC}"
-db_fernet_key=$(docker run --rm python:3.12-slim-bookworm /bin/bash -c "\
-    pip install cryptography >/dev/null 2>&1; \
-    python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'")
+
+# Use a cross-platform base64 command (works on both Linux and macOS)
+db_fernet_key=$(openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_')
 
 echo -e "${YELLOW}Creating new .env from .env.example...${NC}"
 cp .env.example .env
