@@ -488,8 +488,10 @@ def to_timestamp(x: datetime | str, unit: str = "s") -> int:
     return int(ts)
 
 
-def from_timestamp(x: int, unit: str = "s") -> datetime:
-    """Convert integer timestamp in milliseconds ('ms') or seconds ('s') to datetime."""
+def from_timestamp(x: float | int | str, unit: str = "s") -> datetime:
+    """Convert timestamp in milliseconds ('ms') or seconds ('s') to datetime."""
+    if isinstance(x, str):
+        x = float(x)
     if unit == "ms":
         dt = datetime.fromtimestamp(x / 1000, UTC)
     else:
