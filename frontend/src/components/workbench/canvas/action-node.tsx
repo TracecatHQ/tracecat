@@ -497,8 +497,12 @@ function ActionNodeToolbar({
 }) {
   const form = useFormContext()
   const { workspaceId } = useWorkflowBuilder()
-  const { isChildWorkflow, childWorkflowAlias, childIdFromAlias } =
-    childWorkflowInfo
+  const {
+    isChildWorkflow,
+    childWorkflowAlias,
+    childIdFromAlias,
+    childWorkflowId,
+  } = childWorkflowInfo
   const [commandValue, setCommandValue] = useState<string>(COMMAND_VALUE_UNSET)
   const handleToolbarMouseEnter = useCallback(() => {
     setIsMouseOverToolbar(true)
@@ -596,19 +600,27 @@ function ActionNodeToolbar({
           {isChildWorkflow && (
             <Fragment>
               <CommandSeparator />
-              <CommandGroup heading="Subflow">
-                <CommandItem disabled={!childWorkflowAlias}>
-                  <Link
-                    href={`/workspaces/${workspaceId}/workflows/${childIdFromAlias}`}
-                    className={!childWorkflowAlias ? "pointer-events-none" : ""}
+              {(childWorkflowAlias || childWorkflowId) && (
+                <CommandGroup heading="Subflow">
+                  <CommandItem
+                    disabled={!childWorkflowAlias && !childWorkflowId}
                   >
-                    <div className="flex items-center">
-                      <SquareArrowOutUpRightIcon className="mr-2 size-3" />
-                      <span>Open subflow</span>
-                    </div>
-                  </Link>
-                </CommandItem>
-              </CommandGroup>
+                    <Link
+                      href={`/workspaces/${workspaceId}/workflows/${childIdFromAlias ?? childWorkflowId}`}
+                      className={
+                        !childWorkflowAlias && !childWorkflowId
+                          ? "pointer-events-none"
+                          : ""
+                      }
+                    >
+                      <div className="flex items-center">
+                        <SquareArrowOutUpRightIcon className="mr-2 size-3" />
+                        <span>Open subflow</span>
+                      </div>
+                    </Link>
+                  </CommandItem>
+                </CommandGroup>
+              )}
             </Fragment>
           )}
         </CommandList>
@@ -638,8 +650,22 @@ function ChildWorkflowLink({
         href={`/workspaces/${workspaceId}/workflows/${childWorkflowId}`}
         onClick={handleClearSelection}
       >
-        <span className="font-normal">Open workflow</span>
-        <SquareArrowOutUpRightIcon className="size-3" />
+        <div className="flex flex-col items-center gap-1">
+          <Tooltip delayDuration={100}>
+            <TooltipTrigger>
+              <div className="rounded-sm border bg-muted-foreground/10 p-0.5">
+                <SquareArrowOutUpRightIcon className="size-3 text-foreground/70" />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={20}>
+              <span>
+                Open the{" "}
+                <TooltipCode value={childWorkflowAlias ?? childWorkflowId} />
+                subflow
+              </span>
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </Link>
     )
   }
