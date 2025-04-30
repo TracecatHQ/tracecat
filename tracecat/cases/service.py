@@ -9,6 +9,7 @@ from sqlalchemy.exc import ProgrammingError
 from sqlmodel import cast, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     CaseCommentCreate,
     CaseCommentUpdate,
@@ -55,6 +56,75 @@ class CasesService(BaseService):
                 statement = statement.order_by(attr)
         result = await self.session.exec(statement)
         return result.all()
+
+    async def search_cases(
+        self,
+        search_term: str | None = None,
+        status: CaseStatus | None = None,
+        priority: CasePriority | None = None,
+        severity: CaseSeverity | None = None,
+        limit: int | None = None,
+        order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
+        | None = None,
+        sort: Literal["asc", "desc"] | None = None,
+    ) -> Sequence[Case]:
+        """Search cases based on various criteria.
+
+        Args:
+            search_term: Text to search for in case summary and description
+            status: Filter by case status
+            priority: Filter by case priority
+            severity: Filter by case severity
+            limit: Maximum number of cases to return
+            order_by: Field to order the cases by
+            sort: Direction to sort (asc or desc)
+
+        Returns:
+            Sequence of cases matching the search criteria
+        """
+        statement = select(Case).where(Case.owner_id == self.workspace_id)
+
+        # Apply search term filter (search in summary and description)
+        if search_term:
+            statement = statement.where(
+                sa.or_(
+                    Case.summary.ilike(f"%{search_term}%"),
+                    Case.description.ilike(f"%{search_term}%"),
+                )
+            )
+
+        # Apply status filter
+        if status:
+            statement = statement.where(Case.status == status)
+
+        # Apply priority filter
+        if priority:
+            statement = statement.where(Case.priority == priority)
+
+        # Apply severity filter
+        if severity:
+            statement = statement.where(Case.severity == severity)
+
+        # Apply limit
+        if limit is not None:
+            statement = statement.limit(limit)
+
+        # Apply ordering
+        if order_by is not None:
+            attr = getattr(Case, order_by)
+            if sort == "asc":
+                statement = statement.order_by(attr.asc())
+            elif sort == "desc":
+                statement = statement.order_by(attr.desc())
+            else:
+                statement = statement.order_by(attr)
+
+        try:
+            result = await self.session.exec(statement)
+            return result.all()
+        except (ProgrammingError, UndefinedColumnError) as e:
+            # Handle database errors gracefully
+            raise TracecatException(f"Error searching cases: {str(e)}")
 
     async def get_case(self, case_id: uuid.UUID) -> Case | None:
         """Get a case with its associated custom fields.
@@ -415,3 +485,4 @@ class CaseCommentsService(BaseService):
 
         await self.session.delete(comment)
         await self.session.commit()
+
