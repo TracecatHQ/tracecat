@@ -17,7 +17,7 @@ definition:
       type: datetime
       description: End time for the query (exclusive).
     query:
-      type: str | None
+      type: str | dict[str, any] | None
       description: SentinelOne search query.
       default: null
     limit:
