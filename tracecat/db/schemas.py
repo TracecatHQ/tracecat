@@ -126,6 +126,13 @@ class Workspace(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
+    folders: list["WorkflowFolder"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
 
     @computed_field
     @property
@@ -250,6 +257,57 @@ class WorkflowTag(SQLModel, table=True):
     workflow_id: uuid.UUID = Field(foreign_key="workflow.id", primary_key=True)
 
 
+class WorkflowFolder(Resource, table=True):
+    """Folder for organizing workflows.
+
+    Uses materialized path pattern for hierarchical structure.
+    Path format: "/parent/child/" where each segment is the folder name.
+    Root folders have path "/foldername/".
+    """
+
+    __tablename__: str = "workflow_folder"
+    __table_args__ = (
+        UniqueConstraint("path", "owner_id", name="uq_workflow_folder_path_owner"),
+    )
+    # Owner (workspace)
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    name: str = Field(..., description="Display name of the folder")
+    path: str = Field(index=True, description="Full materialized path: /parent/child/")
+
+    # Relationships
+    owner: "Workspace" = Relationship(back_populates="folders")
+    workflows: list["Workflow"] = Relationship(
+        back_populates="folder",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+    @property
+    def parent_path(self) -> str:
+        """Get the parent path of this folder."""
+        if self.path == "/":
+            return "/"
+
+        # Remove trailing slash, split by slashes, remove the last segment, join back
+        path_parts = self.path.rstrip("/").split("/")
+        if len(path_parts) <= 2:  # Root level folder like "/folder/"
+            return "/"
+
+        return "/".join(path_parts[:-1]) + "/"
+
+    @property
+    def is_root(self) -> bool:
+        """Check if this is a root-level folder."""
+        return self.path.count("/") <= 2  # "/foldername/" has two slashes
+
+
 class Tag(Resource, table=True):
     """A tag for organizing and filtering entities."""
 
@@ -338,6 +396,12 @@ class Workflow(Resource, table=True):
         sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )
     owner: Workspace | None = Relationship(back_populates="workflows")
+    # Folder
+    folder_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(UUID, ForeignKey("workflow_folder.id", ondelete="CASCADE")),
+    )
+    folder: WorkflowFolder | None = Relationship(back_populates="workflows")
     # Relationships
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
