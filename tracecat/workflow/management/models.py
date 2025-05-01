@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
@@ -40,7 +41,15 @@ class WorkflowRead(BaseModel):
     error_handler: str | None = None
 
 
+class WorkflowDefinitionReadMinimal(BaseModel):
+    id: str
+    version: int
+    created_at: datetime
+
+
 class WorkflowReadMinimal(BaseModel):
+    """Minimal version of WorkflowRead model for list endpoints."""
+
     id: WorkflowIDShort
     title: str
     description: str
@@ -53,6 +62,7 @@ class WorkflowReadMinimal(BaseModel):
     alias: str | None = None
     error_handler: str | None = None
     latest_definition: WorkflowDefinitionReadMinimal | None = None
+    folder_id: uuid.UUID | None = None
 
 
 class WorkflowUpdate(BaseModel):
@@ -195,7 +205,5 @@ class WorkflowDefinitionMinimal:
     created_at: datetime
 
 
-class WorkflowDefinitionReadMinimal(BaseModel):
-    id: str
-    version: int
-    created_at: datetime
+class WorkflowMoveToFolder(BaseModel):
+    folder_path: str | None = None
