@@ -64,6 +64,20 @@ import type {
   EditorListActionsResponse,
   EditorListFunctionsData,
   EditorListFunctionsResponse,
+  FoldersCreateFolderData,
+  FoldersCreateFolderResponse,
+  FoldersDeleteFolderData,
+  FoldersDeleteFolderResponse,
+  FoldersGetDirectoryData,
+  FoldersGetDirectoryResponse,
+  FoldersGetFolderData,
+  FoldersGetFolderResponse,
+  FoldersListFoldersData,
+  FoldersListFoldersResponse,
+  FoldersMoveFolderData,
+  FoldersMoveFolderResponse,
+  FoldersUpdateFolderData,
+  FoldersUpdateFolderResponse,
   OrganizationDeleteOrgMemberData,
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
@@ -236,6 +250,8 @@ import type {
   WorkflowsListTagsResponse,
   WorkflowsListWorkflowsData,
   WorkflowsListWorkflowsResponse,
+  WorkflowsMoveWorkflowToFolderData,
+  WorkflowsMoveWorkflowToFolderResponse,
   WorkflowsRemoveTagData,
   WorkflowsRemoveTagResponse,
   WorkflowsUpdateWorkflowData,
@@ -969,6 +985,38 @@ export const triggersUpdateWebhook = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/workflows/{workflow_id}/webhook",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Move Workflow To Folder
+ * Move a workflow to a different folder.
+ *
+ * If folder_id is null, the workflow will be moved to the root (no folder).
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const workflowsMoveWorkflowToFolder = (
+  data: WorkflowsMoveWorkflowToFolderData
+): CancelablePromise<WorkflowsMoveWorkflowToFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/{workflow_id}/move",
     path: {
       workflow_id: data.workflowId,
     },
@@ -3306,6 +3354,204 @@ export const casesDeleteField = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Directory
+ * Get directory items (workflows and folders) in the given path.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.path Folder path
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const foldersGetDirectory = (
+  data: FoldersGetDirectoryData
+): CancelablePromise<FoldersGetDirectoryResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/folders/directory",
+    query: {
+      path: data.path,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Folders
+ * List folders under the specified parent path.
+ *
+ * If parent_path is not provided, returns root-level folders.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.parentPath Parent folder path
+ * @returns WorkflowFolderRead Successful Response
+ * @throws ApiError
+ */
+export const foldersListFolders = (
+  data: FoldersListFoldersData
+): CancelablePromise<FoldersListFoldersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/folders",
+    query: {
+      parent_path: data.parentPath,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Folder
+ * Create a new folder.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowFolderRead Successful Response
+ * @throws ApiError
+ */
+export const foldersCreateFolder = (
+  data: FoldersCreateFolderData
+): CancelablePromise<FoldersCreateFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/folders",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Folder
+ * Get folder details by ID.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @returns WorkflowFolderRead Successful Response
+ * @throws ApiError
+ */
+export const foldersGetFolder = (
+  data: FoldersGetFolderData
+): CancelablePromise<FoldersGetFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Folder
+ * Update a folder (rename).
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowFolderRead Successful Response
+ * @throws ApiError
+ */
+export const foldersUpdateFolder = (
+  data: FoldersUpdateFolderData
+): CancelablePromise<FoldersUpdateFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Folder
+ * Delete a folder.
+ *
+ * If recursive=true, deletes all subfolders and moves the contained workflows to root.
+ * If recursive=false (default), fails if the folder contains any subfolders or workflows.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const foldersDeleteFolder = (
+  data: FoldersDeleteFolderData
+): CancelablePromise<FoldersDeleteFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Move Folder
+ * Move a folder to a new parent folder.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowFolderRead Successful Response
+ * @throws ApiError
+ */
+export const foldersMoveFolder = (
+  data: FoldersMoveFolderData
+): CancelablePromise<FoldersMoveFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/folders/{folder_id}/move",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

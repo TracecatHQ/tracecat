@@ -1960,6 +1960,60 @@ export const $ExprContext = {
   description: "Expression contexts.",
 } as const
 
+export const $FolderDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "folder",
+      title: "Type",
+    },
+    num_items: {
+      type: "integer",
+      title: "Num Items",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "path",
+    "owner_id",
+    "created_at",
+    "updated_at",
+    "type",
+    "num_items",
+  ],
+  title: "FolderDirectoryItem",
+} as const
+
 export const $GetWorkflowDefinitionActivityInputs = {
   properties: {
     role: {
@@ -5456,6 +5510,136 @@ export const $WorkflowDefinitionReadMinimal = {
   title: "WorkflowDefinitionReadMinimal",
 } as const
 
+export const $WorkflowDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    status: {
+      type: "string",
+      title: "Status",
+    },
+    icon_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Url",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Version",
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/TagRead",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+    },
+    error_handler: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Handler",
+    },
+    latest_definition: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowDefinitionReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    type: {
+      type: "string",
+      const: "workflow",
+      title: "Type",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "title",
+    "description",
+    "status",
+    "icon_url",
+    "created_at",
+    "updated_at",
+    "version",
+    "type",
+  ],
+  title: "WorkflowDirectoryItem",
+} as const
+
 export const $WorkflowEventType = {
   type: "string",
   enum: [
@@ -6124,6 +6308,125 @@ export const $WorkflowExecutionTerminate = {
   title: "WorkflowExecutionTerminate",
 } as const
 
+export const $WorkflowFolderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    parent_path: {
+      type: "string",
+      title: "Parent Path",
+      default: "/",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "WorkflowFolderCreate",
+} as const
+
+export const $WorkflowFolderDelete = {
+  properties: {
+    recursive: {
+      type: "boolean",
+      title: "Recursive",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "WorkflowFolderDelete",
+} as const
+
+export const $WorkflowFolderMove = {
+  properties: {
+    new_parent_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Parent Path",
+    },
+  },
+  type: "object",
+  title: "WorkflowFolderMove",
+} as const
+
+export const $WorkflowFolderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "path", "owner_id", "created_at", "updated_at"],
+  title: "WorkflowFolderRead",
+} as const
+
+export const $WorkflowFolderUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+  },
+  type: "object",
+  title: "WorkflowFolderUpdate",
+} as const
+
+export const $WorkflowMoveToFolder = {
+  properties: {
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
+  },
+  type: "object",
+  title: "WorkflowMoveToFolder",
+} as const
+
 export const $WorkflowRead = {
   properties: {
     id: {
@@ -6368,6 +6671,18 @@ export const $WorkflowReadMinimal = {
         },
       ],
     },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
   },
   type: "object",
   required: [
@@ -6381,6 +6696,7 @@ export const $WorkflowReadMinimal = {
     "version",
   ],
   title: "WorkflowReadMinimal",
+  description: "Minimal version of WorkflowRead model for list endpoints.",
 } as const
 
 export const $WorkflowTagCreate = {
