@@ -8,7 +8,7 @@ import { useWorkspace } from "@/providers/workspace"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
-import { CircleDot } from "lucide-react"
+import { CircleDot, Copy, FileJson2, Tags, Trash2 } from "lucide-react"
 
 import { useOrgAppSettings, useTags, useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
@@ -334,6 +334,7 @@ export function WorkflowsDashboardTable() {
                             })
                           }}
                         >
+                          <Copy className="mr-2 size-4" />
                           Copy workflow ID
                         </DropdownMenuItem>
                         <DropdownMenuItem
@@ -356,6 +357,7 @@ export function WorkflowsDashboardTable() {
                             })
                           }}
                         >
+                          <Copy className="mr-2 size-4" />
                           Copy workflow alias
                         </DropdownMenuItem>
                         {tags && tags.length > 0 ? (
@@ -364,6 +366,7 @@ export function WorkflowsDashboardTable() {
                               className="text-xs"
                               onClick={(e) => e.stopPropagation()}
                             >
+                              <Tags className="mr-2 size-4" />
                               Tags
                             </DropdownMenuSubTrigger>
                             <DropdownMenuPortal>
@@ -439,6 +442,7 @@ export function WorkflowsDashboardTable() {
                             className="!bg-transparent text-xs !text-muted-foreground hover:cursor-not-allowed"
                             onClick={(e) => e.stopPropagation()}
                           >
+                            <Tags className="mr-2 size-4" />
                             <span>No tags available</span>
                           </DropdownMenuItem>
                         )}
@@ -447,12 +451,14 @@ export function WorkflowsDashboardTable() {
                           format="json"
                           workspaceId={workspaceId}
                           workflowId={row.original.id}
+                          icon={<FileJson2 className="mr-2 size-4" />}
                         />
                         <ExportMenuItem
                           enabledExport={enabledExport}
                           format="yaml"
                           workspaceId={workspaceId}
                           workflowId={row.original.id}
+                          icon={<FileJson2 className="mr-2 size-4" />}
                         />
                         {/* Danger zone */}
                         <DeleteWorkflowAlertDialogTrigger asChild>
@@ -467,6 +473,7 @@ export function WorkflowsDashboardTable() {
                               )
                             }}
                           >
+                            <Trash2 className="mr-2 size-4" />
                             Delete
                           </DropdownMenuItem>
                         </DeleteWorkflowAlertDialogTrigger>
