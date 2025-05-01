@@ -51,15 +51,13 @@ import {
   FolderActions,
   WorkflowActions,
 } from "@/components/dashboard/table-actions"
-import { ActiveDialog } from "@/components/dashboard/table-dialog-common"
+import { ActiveDialog, NO_DATA } from "@/components/dashboard/table-common"
 import { WorkflowMoveDialog } from "@/components/dashboard/workflow-move-dialog"
 import {
   DataTable,
   DataTableColumnHeader,
   DataTableToolbarProps,
 } from "@/components/data-table"
-
-const NO_DATA = "--" as const
 
 export function WorkflowFoldersTable({
   view,

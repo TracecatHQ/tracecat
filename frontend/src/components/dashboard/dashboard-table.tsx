@@ -10,7 +10,7 @@ import { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot } from "lucide-react"
 
-import { useOrgAppSettings, useWorkflowManager } from "@/lib/hooks"
+import { useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,7 @@ import {
 import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
 import { ViewMode } from "@/components/dashboard/folder-view-toggle"
 import { WorkflowActions } from "@/components/dashboard/table-actions"
+import { NO_DATA } from "@/components/dashboard/table-common"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -36,7 +37,6 @@ import {
 
 export function WorkflowsDashboardTable() {
   const router = useRouter()
-  const { appSettings } = useOrgAppSettings()
   const { workspaceId } = useWorkspace()
   const { user } = useAuth()
   const searchParams = useSearchParams()
@@ -52,7 +52,6 @@ export function WorkflowsDashboardTable() {
     console.debug("Clicked row", row)
     router.push(`/workspaces/${workspaceId}/workflows/${row.original.id}`)
   }
-  const enabledExport = appSettings?.app_workflow_export_enabled
   return (
     <DeleteWorkflowAlertDialog
       selectedWorkflow={selectedWorkflow}
@@ -271,7 +270,9 @@ export function WorkflowsDashboardTable() {
                     {tags?.length ? (
                       tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)
                     ) : (
-                      <span className="text-xs text-muted-foreground">-</span>
+                      <span className="text-xs text-muted-foreground">
+                        {NO_DATA}
+                      </span>
                     )}
                   </div>
                 )

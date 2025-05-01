@@ -30,7 +30,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { DeleteWorkflowAlertDialogTrigger } from "@/components/dashboard/delete-workflow-dialog"
 import { ViewMode } from "@/components/dashboard/folder-view-toggle"
-import { ActiveDialog } from "@/components/dashboard/table-dialog-common"
+import { ActiveDialog } from "@/components/dashboard/table-common"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 
 export function WorkflowActions({
