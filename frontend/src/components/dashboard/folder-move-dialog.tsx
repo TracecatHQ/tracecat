@@ -22,6 +22,7 @@ import { toast } from "@/components/ui/use-toast"
 import {
   FileTreeCommand,
   getFileTreeItems,
+  ROOT_FOLDER_NAME,
 } from "@/components/dashboard/file-tree-command"
 
 interface FolderMoveDialogProps {
@@ -140,7 +141,9 @@ export function FolderMoveDialog({
             <div className="mt-2 text-xs">
               Current location:{" "}
               <span className="font-medium">
-                {currentParentPath === "/" ? "Root" : currentParentPath}
+                {currentParentPath === "/"
+                  ? ROOT_FOLDER_NAME
+                  : currentParentPath}
               </span>
             </div>
           </DialogDescription>
@@ -159,12 +162,13 @@ export function FolderMoveDialog({
                 {destinationPath ? (
                   <div className="flex items-center gap-2">
                     <FolderIcon className="size-4" />
-                    {destinationPath === "/" ? "Root" : destinationPath}
+                    {destinationPath === "/"
+                      ? ROOT_FOLDER_NAME
+                      : destinationPath}
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <FolderIcon className="size-4" />
-                    Root (/)
+                    Select a folder...
                   </div>
                 )}
                 <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />

@@ -165,6 +165,7 @@ export function buildFolderTree(paths: string[]): FileTreeItem[] {
   return root
 }
 
+export const ROOT_FOLDER_NAME = "Root (/)"
 /**
  * Converts a list of folder paths into a hierarchical tree structure
  * @param folders List of folder paths (e.g. ["/folder1", "/folder1/folder2"])
@@ -175,7 +176,7 @@ export function getFileTreeItems(
 ): FileTreeItem[] {
   // Start with root folder
   const rootItem: FileTreeItem = {
-    name: "Root (/)",
+    name: ROOT_FOLDER_NAME,
     path: "/",
     children: [],
   }

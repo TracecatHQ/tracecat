@@ -24,6 +24,7 @@ import { toast } from "@/components/ui/use-toast"
 import {
   FileTreeCommand,
   getFileTreeItems,
+  ROOT_FOLDER_NAME,
 } from "@/components/dashboard/file-tree-command"
 
 interface WorkflowMoveDialogProps {
@@ -115,12 +116,11 @@ export function WorkflowMoveDialog({
                 {selectedFolder ? (
                   <div className="flex items-center gap-2">
                     <FolderIcon className="size-4" />
-                    {selectedFolder === "/" ? "Root" : selectedFolder}
+                    {selectedFolder === "/" ? ROOT_FOLDER_NAME : selectedFolder}
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <FolderIcon className="size-4" />
-                    Root (/)
+                    Select a folder...
                   </div>
                 )}
                 <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
