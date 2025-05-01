@@ -157,7 +157,10 @@ export function WorkbenchNav() {
               </Button>
             </TooltipTrigger>
 
-            <TooltipContent side="bottom" className="w-fit text-xs shadow-lg">
+            <TooltipContent
+              side="bottom"
+              className="w-fit p-0 text-xs shadow-lg"
+            >
               {validationErrors ? (
                 <div className="space-y-2 rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
                   <span className="text-xs font-bold text-rose-500">
@@ -177,10 +180,12 @@ export function WorkbenchNav() {
                   </div>
                 </div>
               ) : (
-                <span>
-                  Save workflow v{(workflow.version || 0) + 1} with your
-                  changes.
-                </span>
+                <div className="p-2">
+                  <span>
+                    Save workflow v{(workflow.version || 0) + 1} with your
+                    changes.
+                  </span>
+                </div>
               )}
             </TooltipContent>
           </Tooltip>
