@@ -144,7 +144,7 @@ export function WorkflowFoldersTable({
             Welcome back! Here are your workflows.
           </p>
         </div>
-        <div className="ml-auto flex items-center space-x-2">
+        <div className="ml-auto flex items-center space-x-4">
           <FolderViewToggle
             defaultView={view}
             onViewChange={(view) => setView(view)}

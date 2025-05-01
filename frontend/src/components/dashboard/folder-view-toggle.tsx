@@ -33,7 +33,7 @@ interface FolderViewToggleProps {
 export function FolderViewToggle({
   defaultView = ViewMode.Tags,
   onViewChange,
-  variant = "icon",
+  variant = "minimal",
   className,
 }: FolderViewToggleProps) {
   const [activeView, setActiveView] = useState<ViewMode>(defaultView)
@@ -69,7 +69,13 @@ export function FolderViewToggle({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Switch to {activeView} view</p>
+            <p>
+              Switch to{" "}
+              {activeView === ViewMode.Folders
+                ? ViewMode.Tags
+                : ViewMode.Folders}{" "}
+              view
+            </p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -118,32 +124,50 @@ export function FolderViewToggle({
         className
       )}
     >
-      <button
-        onClick={() => handleViewChange(ViewMode.Folders)}
-        className={cn(
-          "flex size-7 items-center justify-center rounded-l-md transition-colors",
-          activeView === ViewMode.Folders
-            ? "bg-background text-accent-foreground hover:bg-accent/90"
-            : "bg-accent text-muted-foreground hover:bg-muted/50"
-        )}
-        aria-current={activeView === ViewMode.Folders}
-        aria-label="Folder view"
-      >
-        <FolderIcon className="size-3.5" />
-      </button>
-      <button
-        onClick={() => handleViewChange(ViewMode.Tags)}
-        className={cn(
-          "flex size-7 items-center justify-center rounded-r-md transition-colors",
-          activeView === ViewMode.Tags
-            ? "bg-background text-accent-foreground hover:bg-accent/90"
-            : "bg-accent text-muted-foreground hover:bg-muted/50"
-        )}
-        aria-current={activeView === ViewMode.Tags}
-        aria-label="Tags view"
-      >
-        <TagIcon className="size-3.5" />
-      </button>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => handleViewChange(ViewMode.Tags)}
+              className={cn(
+                "flex size-7 items-center justify-center rounded-r-sm transition-colors",
+                activeView === ViewMode.Tags
+                  ? "bg-background text-accent-foreground"
+                  : "bg-accent text-muted-foreground hover:bg-muted/50"
+              )}
+              aria-current={activeView === ViewMode.Tags}
+              aria-label="Tags view"
+            >
+              <TagIcon className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Switch to tags view</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => handleViewChange(ViewMode.Folders)}
+              className={cn(
+                "flex size-7 items-center justify-center rounded-l-sm transition-colors",
+                activeView === ViewMode.Folders
+                  ? "bg-background text-accent-foreground"
+                  : "bg-accent text-muted-foreground hover:bg-muted/50"
+              )}
+              aria-current={activeView === ViewMode.Folders}
+              aria-label="Folder view"
+            >
+              <FolderIcon className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Switch to folder view</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     </div>
   )
 }
