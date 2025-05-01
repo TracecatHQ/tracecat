@@ -633,6 +633,17 @@ export type ExprContext =
   | "inputs"
   | "steps"
 
+export type FolderDirectoryItem = {
+  id: string
+  name: string
+  path: string
+  owner_id: string
+  created_at: string
+  updated_at: string
+  type: "folder"
+  num_items: number
+}
+
 export type GetWorkflowDefinitionActivityInputs = {
   role: Role
   workflow_id: string
@@ -1778,6 +1789,23 @@ export type WorkflowDefinitionReadMinimal = {
   created_at: string
 }
 
+export type WorkflowDirectoryItem = {
+  id: string
+  title: string
+  description: string
+  status: string
+  icon_url: string | null
+  created_at: string
+  updated_at: string
+  version: number | null
+  tags?: Array<TagRead> | null
+  alias?: string | null
+  error_handler?: string | null
+  latest_definition?: WorkflowDefinitionReadMinimal | null
+  folder_id?: string | null
+  type: "workflow"
+}
+
 /**
  * The event types we care about.
  */
@@ -2014,6 +2042,36 @@ export type WorkflowExecutionTerminate = {
   reason?: string | null
 }
 
+export type WorkflowFolderCreate = {
+  name: string
+  parent_path?: string
+}
+
+export type WorkflowFolderDelete = {
+  recursive?: boolean
+}
+
+export type WorkflowFolderMove = {
+  new_parent_path?: string | null
+}
+
+export type WorkflowFolderRead = {
+  id: string
+  name: string
+  path: string
+  owner_id: string
+  created_at: string
+  updated_at: string
+}
+
+export type WorkflowFolderUpdate = {
+  name?: string | null
+}
+
+export type WorkflowMoveToFolder = {
+  folder_path?: string | null
+}
+
 export type WorkflowRead = {
   id: string
   title: string
@@ -2042,6 +2100,9 @@ export type WorkflowRead = {
   error_handler?: string | null
 }
 
+/**
+ * Minimal version of WorkflowRead model for list endpoints.
+ */
 export type WorkflowReadMinimal = {
   id: string
   title: string
@@ -2055,6 +2116,7 @@ export type WorkflowReadMinimal = {
   alias?: string | null
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
+  folder_id?: string | null
 }
 
 export type WorkflowTagCreate = {
@@ -2352,6 +2414,14 @@ export type TriggersUpdateWebhookData = {
 }
 
 export type TriggersUpdateWebhookResponse = void
+
+export type WorkflowsMoveWorkflowToFolderData = {
+  requestBody: WorkflowMoveToFolder
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsMoveWorkflowToFolderResponse = void
 
 export type WorkflowExecutionsListWorkflowExecutionsData = {
   limit?: number | null
@@ -2994,6 +3064,66 @@ export type CasesDeleteFieldData = {
 
 export type CasesDeleteFieldResponse = void
 
+export type FoldersGetDirectoryData = {
+  /**
+   * Folder path
+   */
+  path?: string
+  workspaceId: string
+}
+
+export type FoldersGetDirectoryResponse = Array<
+  WorkflowDirectoryItem | FolderDirectoryItem
+>
+
+export type FoldersListFoldersData = {
+  /**
+   * Parent folder path
+   */
+  parentPath?: string
+  workspaceId: string
+}
+
+export type FoldersListFoldersResponse = Array<WorkflowFolderRead>
+
+export type FoldersCreateFolderData = {
+  requestBody: WorkflowFolderCreate
+  workspaceId: string
+}
+
+export type FoldersCreateFolderResponse = WorkflowFolderRead
+
+export type FoldersGetFolderData = {
+  folderId: string
+  workspaceId: string
+}
+
+export type FoldersGetFolderResponse = WorkflowFolderRead
+
+export type FoldersUpdateFolderData = {
+  folderId: string
+  requestBody: WorkflowFolderUpdate
+  workspaceId: string
+}
+
+export type FoldersUpdateFolderResponse = WorkflowFolderRead
+
+export type FoldersDeleteFolderData = {
+  folderId: string
+  requestBody: WorkflowFolderDelete
+  workspaceId: string
+}
+
+export type FoldersDeleteFolderResponse = void
+
+export type FoldersMoveFolderData = {
+  folderId: string
+  requestBody: WorkflowFolderMove
+  workspaceId: string
+}
+
+export type FoldersMoveFolderResponse = WorkflowFolderRead
+
 export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
@@ -3436,6 +3566,21 @@ export type $OpenApiTs = {
     }
     patch: {
       req: TriggersUpdateWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/move": {
+    post: {
+      req: WorkflowsMoveWorkflowToFolderData
       res: {
         /**
          * Successful Response
@@ -4714,6 +4859,105 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/folders/directory": {
+    get: {
+      req: FoldersGetDirectoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkflowDirectoryItem | FolderDirectoryItem>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/folders": {
+    get: {
+      req: FoldersListFoldersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkflowFolderRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: FoldersCreateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WorkflowFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/folders/{folder_id}": {
+    get: {
+      req: FoldersGetFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: FoldersUpdateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: FoldersDeleteFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/folders/{folder_id}/move": {
+    post: {
+      req: FoldersMoveFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowFolderRead
         /**
          * Validation Error
          */

@@ -48,7 +48,7 @@ interface DataTableProps<TData, TValue> {
   toolbarProps?: DataTableToolbarProps<TData>
   tableHeaderAuxOptions?: AuxClickMenuOptionProps<TableCol<TData>>[]
   isLoading?: boolean
-  error?: Error
+  error?: Error | null
   emptyMessage?: string
   errorMessage?: string
   showSelectedRows?: boolean
@@ -196,7 +196,7 @@ function TableContents<TData>({
   errorMessage = "Failed to fetch data",
 }: {
   isLoading?: boolean
-  error?: Error
+  error?: Error | null
   table: ReturnType<typeof useReactTable<TData>>
   colSpan: number
   onClickRow?: (row: Row<TData>) => () => void

@@ -29,6 +29,13 @@ import {
   casesUpdateCase,
   casesUpdateComment,
   CaseUpdate,
+  FolderDirectoryItem,
+  foldersCreateFolder,
+  foldersDeleteFolder,
+  foldersGetDirectory,
+  foldersListFolders,
+  foldersMoveFolder,
+  foldersUpdateFolder,
   GitSettingsRead,
   OAuthSettingsRead,
   organizationDeleteOrgMember,
@@ -136,6 +143,7 @@ import {
   usersUsersPatchCurrentUser,
   UserUpdate,
   WebhookUpdate,
+  WorkflowDirectoryItem,
   WorkflowExecutionCreate,
   WorkflowExecutionRead,
   WorkflowExecutionReadCompact,
@@ -144,6 +152,8 @@ import {
   workflowExecutionsGetWorkflowExecution,
   workflowExecutionsGetWorkflowExecutionCompact,
   workflowExecutionsListWorkflowExecutions,
+  WorkflowFolderCreate,
+  WorkflowFolderRead,
   WorkflowReadMinimal,
   workflowsAddTag,
   WorkflowsAddTagData,
@@ -151,6 +161,8 @@ import {
   WorkflowsCreateWorkflowData,
   workflowsDeleteWorkflow,
   workflowsListWorkflows,
+  workflowsMoveWorkflowToFolder,
+  WorkflowsMoveWorkflowToFolderData,
   workflowsRemoveTag,
   WorkflowsRemoveTagData,
   WorkspaceCreate,
@@ -313,6 +325,7 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
 
 interface WorkflowFilter {
   tag?: string[]
+  folderId?: string
 }
 
 export function useWorkflowManager(filter?: WorkflowFilter) {
@@ -376,6 +389,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
       toast({
         title: "Deleted workflow",
         description: "Your workflow has been deleted successfully.",
@@ -429,6 +443,23 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
       })
     },
   })
+
+  // Move workflow
+  const { mutateAsync: moveWorkflow } = useMutation({
+    mutationFn: async (params: WorkflowsMoveWorkflowToFolderData) =>
+      await workflowsMoveWorkflowToFolder(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to move workflow:", error)
+      toast({
+        title: "Error moving workflow",
+        description: error.body.detail + ". Please try again.",
+      })
+    },
+  })
+
   return {
     workflows,
     workflowsLoading,
@@ -437,6 +468,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     deleteWorkflow,
     addWorkflowTag,
     removeWorkflowTag,
+    moveWorkflow,
   }
 }
 
@@ -2741,5 +2773,264 @@ export function useGetWorkflows(workspaceId: string) {
     workflows,
     workflowsLoading,
     workflowsError,
+  }
+}
+
+export function useFolders(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  // List folders
+  const {
+    data: folders,
+    isLoading: foldersIsLoading,
+    error: foldersError,
+  } = useQuery<WorkflowFolderRead[]>({
+    queryKey: ["folders", workspaceId],
+    queryFn: async () => await foldersListFolders({ workspaceId }),
+  })
+
+  // Get folder by parent path
+  const {
+    data: subFolders,
+    isLoading: subFoldersIsLoading,
+    error: subFoldersError,
+    refetch: refetchSubFolders,
+  } = useQuery<WorkflowFolderRead[]>({
+    queryKey: ["folders", workspaceId, "parent"],
+    queryFn: async () =>
+      await foldersListFolders({
+        workspaceId,
+        parentPath: "/",
+      }),
+    enabled: !!workspaceId,
+  })
+
+  // Create folder
+  const {
+    mutateAsync: createFolder,
+    isPending: createFolderIsPending,
+    error: createFolderError,
+  } = useMutation({
+    mutationFn: async (params: WorkflowFolderCreate) =>
+      await foldersCreateFolder({
+        workspaceId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      toast({
+        title: "Created folder",
+        description: (
+          <div className="flex items-center space-x-2">
+            <CircleCheck className="size-4 fill-emerald-500 stroke-white" />
+            <span>Folder created successfully.</span>
+          </div>
+        ),
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 409:
+          console.error("Error creating folder", error)
+          return toast({
+            title: "Error creating folder",
+            description:
+              "A folder with this name already exists at this location.",
+          })
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+        default:
+          console.error("Failed to create folder", error)
+          return toast({
+            title: "Failed to create folder",
+            description: `An error occurred while creating the folder: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  // Update folder
+  const {
+    mutateAsync: updateFolder,
+    isPending: updateFolderIsPending,
+    error: updateFolderError,
+  } = useMutation({
+    mutationFn: async ({
+      folderId,
+      name,
+    }: {
+      folderId: string
+      name: string
+    }) =>
+      await foldersUpdateFolder({
+        folderId,
+        workspaceId,
+        requestBody: { name },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      toast({
+        title: "Updated folder",
+        description: "Folder updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 409:
+          console.error("Error updating folder", error)
+          toast({
+            title: "Error updating folder",
+            description:
+              "A folder with this name already exists at this location.",
+          })
+          break
+        default:
+          console.error("Error updating folder", error)
+          toast({
+            title: "Error updating folder",
+            description: `An error occurred while updating the folder: ${error.body.detail}`,
+          })
+          break
+      }
+    },
+  })
+
+  // Move folder
+  const {
+    mutateAsync: moveFolder,
+    isPending: moveFolderIsPending,
+    error: moveFolderError,
+  } = useMutation({
+    mutationFn: async ({
+      folderId,
+      newParentPath,
+    }: {
+      folderId: string
+      newParentPath: string | null
+    }) =>
+      await foldersMoveFolder({
+        folderId,
+        workspaceId,
+        requestBody: { new_parent_path: newParentPath },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      toast({
+        title: "Moved folder",
+        description: "Folder moved successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Error moving folder", error)
+      toast({
+        title: "Error moving folder",
+        description: `An error occurred while moving the folder: ${error.body.detail}`,
+      })
+    },
+  })
+
+  // Delete folder
+  const {
+    mutateAsync: deleteFolder,
+    isPending: deleteFolderIsPending,
+    error: deleteFolderError,
+  } = useMutation({
+    mutationFn: async ({
+      folderId,
+      recursive = false,
+    }: {
+      folderId: string
+      recursive?: boolean
+    }) =>
+      await foldersDeleteFolder({
+        folderId,
+        workspaceId,
+        requestBody: { recursive },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      toast({
+        title: "Deleted folder",
+        description: "Folder deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Cannot delete folder",
+            description: String(error.body.detail),
+          })
+          break
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Error deleting folder", error)
+          toast({
+            title: "Failed to delete folder",
+            description: `An error occurred while deleting the folder: ${error.body.detail}`,
+          })
+          break
+      }
+    },
+  })
+
+  return {
+    // List
+    folders,
+    foldersIsLoading,
+    foldersError,
+    // List subfolders
+    subFolders,
+    subFoldersIsLoading,
+    subFoldersError,
+    refetchSubFolders,
+    // Create
+    createFolder,
+    createFolderIsPending,
+    createFolderError,
+    // Update
+    updateFolder,
+    updateFolderIsPending,
+    updateFolderError,
+    // Move
+    moveFolder,
+    moveFolderIsPending,
+    moveFolderError,
+    // Delete
+    deleteFolder,
+    deleteFolderIsPending,
+    deleteFolderError,
+  }
+}
+
+export type DirectoryItem = FolderDirectoryItem | WorkflowDirectoryItem
+export function useGetDirectoryItems(path: string, workspaceId?: string) {
+  const {
+    data: directoryItems,
+    isLoading: directoryItemsIsLoading,
+    error: directoryItemsError,
+  } = useQuery<DirectoryItem[], ApiError>({
+    enabled: !!workspaceId,
+    queryKey: ["directory-items", path],
+    queryFn: async () =>
+      await foldersGetDirectory({ path, workspaceId: workspaceId ?? "" }),
+  })
+
+  return {
+    directoryItems,
+    directoryItemsIsLoading,
+    directoryItemsError,
   }
 }

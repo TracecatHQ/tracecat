@@ -10,20 +10,13 @@ import { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot } from "lucide-react"
 
-import { useOrgAppSettings, useTags, useWorkflowManager } from "@/lib/hooks"
+import { useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -32,42 +25,33 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { toast } from "@/components/ui/use-toast"
-import {
-  DeleteWorkflowAlertDialog,
-  DeleteWorkflowAlertDialogTrigger,
-} from "@/components/dashboard/delete-workflow-dialog"
+import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
+import { ViewMode } from "@/components/dashboard/folder-view-toggle"
+import { WorkflowActions } from "@/components/dashboard/table-actions"
+import { NO_DATA } from "@/components/dashboard/table-common"
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
-import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 
 export function WorkflowsDashboardTable() {
   const router = useRouter()
-  const { appSettings } = useOrgAppSettings()
   const { workspaceId } = useWorkspace()
   const { user } = useAuth()
   const searchParams = useSearchParams()
   const queryTags = searchParams.getAll("tag") || undefined
-  const {
-    workflows,
-    workflowsLoading,
-    workflowsError,
-    addWorkflowTag,
-    removeWorkflowTag,
-  } = useWorkflowManager({ tag: queryTags })
+  const { workflows, workflowsLoading, workflowsError } = useWorkflowManager({
+    tag: queryTags,
+  })
   const [selectedWorkflow, setSelectedWorkflow] =
     useState<WorkflowReadMinimal | null>(null)
-  const { tags } = useTags(workspaceId)
 
   const handleOnClickRow = (row: Row<WorkflowReadMinimal>) => () => {
     // Link to workflow detail page
     console.debug("Clicked row", row)
     router.push(`/workspaces/${workspaceId}/workflows/${row.original.id}`)
   }
-  const enabledExport = appSettings?.app_workflow_export_enabled
   return (
     <DeleteWorkflowAlertDialog
       selectedWorkflow={selectedWorkflow}
@@ -286,7 +270,9 @@ export function WorkflowsDashboardTable() {
                     {tags?.length ? (
                       tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)
                     ) : (
-                      <span className="text-xs text-muted-foreground">-</span>
+                      <span className="text-xs text-muted-foreground">
+                        {NO_DATA}
+                      </span>
                     )}
                   </div>
                 )
@@ -302,7 +288,7 @@ export function WorkflowsDashboardTable() {
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="ghost"
-                        className="size-8 p-0"
+                        className="size-6 p-0"
                         onClick={(e) => e.stopPropagation()} // Prevent row click
                       >
                         <span className="sr-only">Open menu</span>
@@ -310,167 +296,14 @@ export function WorkflowsDashboardTable() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
-                      <DropdownMenuGroup>
-                        <DropdownMenuItem
-                          className="text-xs"
-                          onClick={(e) => {
-                            e.stopPropagation() // Prevent row click
-                            navigator.clipboard.writeText(row.original.id)
-                            toast({
-                              title: "Workflow ID copied",
-                              description: (
-                                <div className="flex flex-col space-y-2">
-                                  <span>
-                                    Workflow ID copied for{" "}
-                                    <b className="inline-block">
-                                      {row.original.title}
-                                    </b>
-                                  </span>
-                                  <span className="text-muted-foreground">
-                                    ID: {row.original.id}
-                                  </span>
-                                </div>
-                              ),
-                            })
-                          }}
-                        >
-                          Copy workflow ID
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-xs"
-                          onClick={(e) => {
-                            e.stopPropagation() // Prevent row click
-                            navigator.clipboard.writeText(row.original.title)
-                            toast({
-                              title: "Workflow alias copied",
-                              description: (
-                                <div className="flex flex-col space-y-2">
-                                  <span>
-                                    Workflow alias copied for{" "}
-                                    <b className="inline-block">
-                                      {row.original.title}
-                                    </b>
-                                  </span>
-                                </div>
-                              ),
-                            })
-                          }}
-                        >
-                          Copy workflow alias
-                        </DropdownMenuItem>
-                        {tags && tags.length > 0 ? (
-                          <DropdownMenuSub>
-                            <DropdownMenuSubTrigger
-                              className="text-xs"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              Tags
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuPortal>
-                              <DropdownMenuSubContent>
-                                {/* No tags */}
-
-                                {tags.map((tag) => {
-                                  const hasTag = row.original.tags?.some(
-                                    (t) => t.id === tag.id
-                                  )
-                                  return (
-                                    <DropdownMenuCheckboxItem
-                                      key={tag.id}
-                                      className="text-xs"
-                                      checked={hasTag}
-                                      onClick={async (e) => {
-                                        e.stopPropagation()
-                                        try {
-                                          if (hasTag) {
-                                            // Delete tag if already exists
-                                            await removeWorkflowTag({
-                                              workflowId: row.original.id,
-                                              workspaceId,
-                                              tagId: tag.id,
-                                            })
-                                            toast({
-                                              title: "Tag removed",
-                                              description: `Successfully removed tag "${tag.name}" from workflow`,
-                                            })
-                                          } else {
-                                            // Add tag if doesn't exist
-                                            await addWorkflowTag({
-                                              workflowId: row.original.id,
-                                              workspaceId,
-                                              requestBody: {
-                                                tag_id: tag.id,
-                                              },
-                                            })
-                                            toast({
-                                              title: "Tag added",
-                                              description: `Successfully added tag "${tag.name}" to workflow`,
-                                            })
-                                          }
-                                        } catch (error) {
-                                          console.error(
-                                            "Failed to modify tag:",
-                                            error
-                                          )
-                                          toast({
-                                            title: "Error",
-                                            description: `Failed to ${hasTag ? "remove" : "add"} tag ${hasTag ? "from" : "to"} workflow`,
-                                            variant: "destructive",
-                                          })
-                                        }
-                                      }}
-                                    >
-                                      <div
-                                        className="mr-2 flex size-2 rounded-full"
-                                        style={{
-                                          backgroundColor:
-                                            tag.color || undefined,
-                                        }}
-                                      />
-                                      <span>{tag.name}</span>
-                                    </DropdownMenuCheckboxItem>
-                                  )
-                                })}
-                              </DropdownMenuSubContent>
-                            </DropdownMenuPortal>
-                          </DropdownMenuSub>
-                        ) : (
-                          <DropdownMenuItem
-                            className="!bg-transparent text-xs !text-muted-foreground hover:cursor-not-allowed"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <span>No tags available</span>
-                          </DropdownMenuItem>
-                        )}
-                        <ExportMenuItem
-                          enabledExport={enabledExport}
-                          format="json"
-                          workspaceId={workspaceId}
-                          workflowId={row.original.id}
-                        />
-                        <ExportMenuItem
-                          enabledExport={enabledExport}
-                          format="yaml"
-                          workspaceId={workspaceId}
-                          workflowId={row.original.id}
-                        />
-                        {/* Danger zone */}
-                        <DeleteWorkflowAlertDialogTrigger asChild>
-                          <DropdownMenuItem
-                            className="text-xs text-rose-500 focus:text-rose-600"
-                            onClick={(e) => {
-                              e.stopPropagation() // Prevent row click
-                              setSelectedWorkflow(row.original)
-                              console.debug(
-                                "Selected workflow to delete",
-                                row.original
-                              )
-                            }}
-                          >
-                            Delete
-                          </DropdownMenuItem>
-                        </DeleteWorkflowAlertDialogTrigger>
-                      </DropdownMenuGroup>
+                      <WorkflowActions
+                        view={ViewMode.Tags}
+                        item={{
+                          type: "workflow",
+                          ...row.original,
+                        }}
+                        setSelectedWorkflow={setSelectedWorkflow}
+                      />
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )

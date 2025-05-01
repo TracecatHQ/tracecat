@@ -29,17 +29,19 @@ from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.settings.service import get_setting
 from tracecat.tags.models import TagRead
-from tracecat.types.exceptions import TracecatValidationError
+from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.validation.service import validate_dsl
 from tracecat.webhooks.models import WebhookCreate, WebhookRead, WebhookUpdate
 from tracecat.workflow.actions.models import ActionRead
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.models import (
     ExternalWorkflowDefinition,
     WorkflowCommitResponse,
     WorkflowCreate,
     WorkflowDefinitionReadMinimal,
+    WorkflowMoveToFolder,
     WorkflowRead,
     WorkflowReadMinimal,
     WorkflowUpdate,
@@ -85,6 +87,7 @@ async def list_workflows(
                 alias=workflow.alias,
                 error_handler=workflow.error_handler,
                 latest_definition=latest_defn,
+                folder_id=workflow.folder_id,
             )
         )
     return res
@@ -564,3 +567,35 @@ async def update_webhook(
     session.add(webhook)
     await session.commit()
     await session.refresh(webhook)
+
+
+@router.post(
+    "/{workflow_id}/move", tags=["workflows"], status_code=status.HTTP_204_NO_CONTENT
+)
+async def move_workflow_to_folder(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+    params: WorkflowMoveToFolder,
+) -> None:
+    """Move a workflow to a different folder.
+
+    If folder_id is null, the workflow will be moved to the root (no folder).
+    """
+    service = WorkflowFolderService(session, role=role)
+
+    # Verify the folder exists if provided
+    path = params.folder_path
+    if path is not None and path != "/":
+        folder = await service.get_folder_by_path(path)
+        if not folder:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"
+            )
+    else:
+        folder = None
+
+    try:
+        await service.move_workflow(workflow_id, folder)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
