@@ -407,4 +407,3 @@ async def list_comments(
         result.append(comment_data)
 
     return result
-

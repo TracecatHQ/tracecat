@@ -1,8 +1,6 @@
 import uuid
-from typing import Annotated
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, status
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import DBAPIError
 
@@ -80,15 +78,18 @@ async def search_cases(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
-    search_term: str | None = Query(None, description="Text to search for in case summary and description"),
+    search_term: str | None = Query(
+        None, description="Text to search for in case summary and description"
+    ),
     status: CaseStatus | None = Query(None, description="Filter by case status"),
     priority: CasePriority | None = Query(None, description="Filter by case priority"),
     severity: CaseSeverity | None = Query(None, description="Filter by case severity"),
     limit: int | None = Query(None, description="Maximum number of cases to return"),
-    order_by: Literal["created_at", "updated_at", "priority", "severity", "status"] | None = Query(
-        None, description="Field to order the cases by"
+    order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
+    | None = Query(None, description="Field to order the cases by"),
+    sort: Literal["asc", "desc"] | None = Query(
+        None, description="Direction to sort (asc or desc)"
     ),
-    sort: Literal["asc", "desc"] | None = Query(None, description="Direction to sort (asc or desc)"),
 ) -> list[CaseReadMinimal]:
     """Search cases based on various criteria."""
     service = CasesService(session, role)
@@ -378,4 +379,3 @@ async def delete_field(
     """Delete a case field."""
     service = CaseFieldsService(session, role)
     await service.delete_field(field_id)
-

@@ -119,12 +119,8 @@ class CasesService(BaseService):
             else:
                 statement = statement.order_by(attr)
 
-        try:
-            result = await self.session.exec(statement)
-            return result.all()
-        except (ProgrammingError, UndefinedColumnError) as e:
-            # Handle database errors gracefully
-            raise TracecatException(f"Error searching cases: {str(e)}")
+        result = await self.session.exec(statement)
+        return result.all()
 
     async def get_case(self, case_id: uuid.UUID) -> Case | None:
         """Get a case with its associated custom fields.
@@ -485,4 +481,3 @@ class CaseCommentsService(BaseService):
 
         await self.session.delete(comment)
         await self.session.commit()
-

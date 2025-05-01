@@ -1062,7 +1062,9 @@ class TestCoreSearchCases:
         assert case_result["status"] == mock_case.status.value
 
     @patch("tracecat_registry.core.cases.CasesService.with_session")
-    async def test_search_cases_with_multiple_params(self, mock_with_session, mock_case):
+    async def test_search_cases_with_multiple_params(
+        self, mock_with_session, mock_case
+    ):
         """Test searching cases with multiple parameters."""
         # Set up the mock service context manager
         mock_service = AsyncMock()
@@ -1259,4 +1261,3 @@ class TestCoreListComments:
             case_id = str(uuid.uuid4())
             with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
                 await list_comments(case_id=case_id)
-
