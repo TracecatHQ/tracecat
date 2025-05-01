@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.types.exceptions import TracecatValidationError
+from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.workflow.management.folders.models import (
     DirectoryItem,
     WorkflowFolderCreate,
@@ -27,7 +27,10 @@ async def get_directory(
 ) -> list[DirectoryItem]:
     """Get directory items (workflows and folders) in the given path."""
     service = WorkflowFolderService(session, role=role)
-    result = await service.get_directory_items(path)
+    try:
+        result = await service.get_directory_items(path)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     return list(result)
 
 

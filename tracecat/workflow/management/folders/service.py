@@ -3,9 +3,10 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlmodel import col, func, or_, select
+import sqlalchemy as sa
+from sqlmodel import and_, cast, col, func, or_, select
 
-from tracecat.db.schemas import Workflow, WorkflowFolder
+from tracecat.db.schemas import Workflow, WorkflowDefinition, WorkflowFolder
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.service import BaseService
@@ -21,6 +22,7 @@ from tracecat.workflow.management.folders.models import (
     FolderDirectoryItem,
     WorkflowDirectoryItem,
 )
+from tracecat.workflow.management.models import WorkflowDefinitionReadMinimal
 
 
 class WorkflowFolderService(BaseService):
@@ -461,16 +463,51 @@ class WorkflowFolderService(BaseService):
         if not path.endswith("/") and path != "/":
             path += "/"
 
+        # Subquery to get the latest definition for each workflow
+        latest_defn_subq = (
+            select(
+                WorkflowDefinition.workflow_id,
+                sa.func.max(WorkflowDefinition.version).label("latest_version"),
+            )
+            .group_by(cast(WorkflowDefinition.workflow_id, sa.UUID))
+            .subquery()
+        )
+        if path != "/":
+            folder = await self.get_folder_by_path(path)
+            if not folder:
+                raise TracecatNotFoundError(f"Folder {path} not found")
+            folder_id = folder.id
+        else:
+            folder_id = None
+
+        workflow_statement = (
+            select(
+                Workflow,
+                WorkflowDefinition.id,
+                WorkflowDefinition.version,
+                WorkflowDefinition.created_at,
+            )
+            .where(
+                Workflow.owner_id == self.workspace_id,
+                col(Workflow.folder_id) == folder_id,
+            )
+            .outerjoin(
+                latest_defn_subq,
+                cast(Workflow.id, sa.UUID) == latest_defn_subq.c.workflow_id,
+            )
+            .outerjoin(
+                WorkflowDefinition,
+                and_(
+                    WorkflowDefinition.workflow_id == Workflow.id,
+                    WorkflowDefinition.version == latest_defn_subq.c.latest_version,
+                ),
+            )
+        )
+
+        workflow_result = await self.session.exec(workflow_statement)
+        workflows_with_defns = workflow_result.all()
         # For root path, get workflows with no folder_id
         if path == "/":
-            # Get root-level workflows (those with no folder)
-            workflow_statement = select(Workflow).where(
-                Workflow.owner_id == self.workspace_id,
-                col(Workflow.folder_id).is_(None),
-            )
-            workflow_result = await self.session.exec(workflow_statement)
-            workflows = workflow_result.all()
-
             # Get root-level folders
             folder_statement = select(WorkflowFolder).where(
                 WorkflowFolder.owner_id == self.workspace_id,
@@ -481,24 +518,6 @@ class WorkflowFolderService(BaseService):
             folder_result = await self.session.exec(folder_statement)
             folders = folder_result.all()
         else:
-            # Get the folder first
-            folder_statement = select(WorkflowFolder).where(
-                WorkflowFolder.owner_id == self.workspace_id,
-                WorkflowFolder.path == path,
-            )
-            folder_result = await self.session.exec(folder_statement)
-            folder = folder_result.one_or_none()
-
-            if not folder:
-                return []
-
-            # Get workflows in this folder
-            workflow_statement = select(Workflow).where(
-                Workflow.owner_id == self.workspace_id, Workflow.folder_id == folder.id
-            )
-            workflow_result = await self.session.exec(workflow_statement)
-            workflows = workflow_result.all()
-
             # Get direct child folders
             folder_statement = select(WorkflowFolder).where(
                 WorkflowFolder.owner_id == self.workspace_id,
@@ -525,8 +544,17 @@ class WorkflowFolderService(BaseService):
                     **folder.model_dump(),
                 )
             )
+
         # Add workflows
-        for workflow in workflows:
+        for workflow, defn_id, defn_version, defn_created in workflows_with_defns:
+            if all((defn_id, defn_version, defn_created)):
+                latest_definition = WorkflowDefinitionReadMinimal(
+                    id=defn_id,
+                    version=defn_version,
+                    created_at=defn_created,
+                )
+            else:
+                latest_definition = None
             directory_items.append(
                 WorkflowDirectoryItem(
                     type="workflow",
@@ -538,6 +566,7 @@ class WorkflowFolderService(BaseService):
                     title=workflow.title,
                     description=workflow.description,
                     status=workflow.status,
+                    latest_definition=latest_definition,
                     icon_url=workflow.icon_url,
                     tags=[
                         TagRead.model_validate(tag, from_attributes=True)
