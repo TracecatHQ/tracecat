@@ -11,6 +11,7 @@ from tracecat_registry.core.cases import (
     get_case,
     list_cases,
     list_comments,
+    search_cases,
     update_case,
     update_comment,
 )
@@ -800,6 +801,335 @@ class TestCoreListCases:
         # Assert list_cases was called with expected parameters
         mock_service.list_cases.assert_called_once_with(
             limit=None, order_by=None, sort=None
+        )
+
+        # Verify the result is an empty list
+        assert result == []
+
+
+@pytest.mark.anyio
+class TestCoreSearchCases:
+    """Test cases for the search_cases UDF."""
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_no_params(self, mock_with_session, mock_case):
+        """Test searching cases without any parameters."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the search_cases function
+        result = await search_cases()
+
+        # Assert search_cases was called with expected parameters
+        mock_service.search_cases.assert_called_once_with(
+            search_term=None,
+            status=None,
+            priority=None,
+            severity=None,
+            limit=None,
+            order_by=None,
+            sort=None,
+        )
+
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check that the required fields are present
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+        assert "created_at" in case_result
+        assert "updated_at" in case_result
+        assert case_result["status"] == mock_case.status.value
+        assert case_result["priority"] == mock_case.priority.value
+        assert case_result["severity"] == mock_case.severity.value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_with_search_term(self, mock_with_session, mock_case):
+        """Test searching cases with search_term parameter."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the search_cases function with search_term
+        result = await search_cases(search_term="test")
+
+        # Assert search_cases was called with expected parameters
+        mock_service.search_cases.assert_called_once_with(
+            search_term="test",
+            status=None,
+            priority=None,
+            severity=None,
+            limit=None,
+            order_by=None,
+            sort=None,
+        )
+
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check key values
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_with_status(self, mock_with_session, mock_case):
+        """Test searching cases with status parameter."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the search_cases function with status
+        result = await search_cases(status="in_progress")
+
+        # Assert search_cases was called with expected parameters
+        mock_service.search_cases.assert_called_once()
+        call_args = mock_service.search_cases.call_args[1]
+        assert call_args["search_term"] is None
+        assert call_args["status"] == CaseStatus.IN_PROGRESS
+        assert call_args["priority"] is None
+        assert call_args["severity"] is None
+        assert call_args["limit"] is None
+        assert call_args["order_by"] is None
+        assert call_args["sort"] is None
+
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check key values
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_with_priority(self, mock_with_session, mock_case):
+        """Test searching cases with priority parameter."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the search_cases function with priority
+        result = await search_cases(priority="high")
+
+        # Assert search_cases was called with expected parameters
+        mock_service.search_cases.assert_called_once()
+        call_args = mock_service.search_cases.call_args[1]
+        assert call_args["search_term"] is None
+        assert call_args["status"] is None
+        assert call_args["priority"] == CasePriority.HIGH
+        assert call_args["severity"] is None
+        assert call_args["limit"] is None
+        assert call_args["order_by"] is None
+        assert call_args["sort"] is None
+
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check key values
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_with_severity(self, mock_with_session, mock_case):
+        """Test searching cases with severity parameter."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the search_cases function with severity
+        result = await search_cases(severity="critical")
+
+        # Assert search_cases was called with expected parameters
+        mock_service.search_cases.assert_called_once()
+        call_args = mock_service.search_cases.call_args[1]
+        assert call_args["search_term"] is None
+        assert call_args["status"] is None
+        assert call_args["priority"] is None
+        assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["limit"] is None
+        assert call_args["order_by"] is None
+        assert call_args["sort"] is None
+
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check key values
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_with_limit(self, mock_with_session, mock_case):
+        """Test searching cases with limit parameter."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the search_cases function with limit
+        result = await search_cases(limit=5)
+
+        # Assert search_cases was called with expected parameters
+        mock_service.search_cases.assert_called_once_with(
+            search_term=None,
+            status=None,
+            priority=None,
+            severity=None,
+            limit=5,
+            order_by=None,
+            sort=None,
+        )
+
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check key values
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_with_ordering(self, mock_with_session, mock_case):
+        """Test searching cases with ordering parameters."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the search_cases function with ordering
+        result = await search_cases(order_by="created_at", sort="desc")
+
+        # Assert search_cases was called with expected parameters
+        mock_service.search_cases.assert_called_once_with(
+            search_term=None,
+            status=None,
+            priority=None,
+            severity=None,
+            limit=None,
+            order_by="created_at",
+            sort="desc",
+        )
+
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check key values match expected
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["status"] == mock_case.status.value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_with_multiple_params(
+        self, mock_with_session, mock_case
+    ):
+        """Test searching cases with multiple parameters."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the search_cases function with multiple parameters
+        result = await search_cases(
+            search_term="test",
+            status="new",
+            priority="high",
+            severity="critical",
+            limit=10,
+            order_by="updated_at",
+            sort="asc",
+        )
+
+        # Assert search_cases was called with expected parameters
+        mock_service.search_cases.assert_called_once()
+        call_args = mock_service.search_cases.call_args[1]
+        assert call_args["search_term"] == "test"
+        assert call_args["status"] == CaseStatus.NEW
+        assert call_args["priority"] == CasePriority.HIGH
+        assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["limit"] == 10
+        assert call_args["order_by"] == "updated_at"
+        assert call_args["sort"] == "asc"
+
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check key values
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_empty_result(self, mock_with_session):
+        """Test searching cases when no cases match the criteria."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = []
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the search_cases function
+        result = await search_cases(search_term="nonexistent")
+
+        # Assert search_cases was called with expected parameters
+        mock_service.search_cases.assert_called_once_with(
+            search_term="nonexistent",
+            status=None,
+            priority=None,
+            severity=None,
+            limit=None,
+            order_by=None,
+            sort=None,
         )
 
         # Verify the result is an empty list

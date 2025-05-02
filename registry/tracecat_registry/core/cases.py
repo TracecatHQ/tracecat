@@ -319,6 +319,67 @@ async def list_cases(
 
 
 @registry.register(
+    default_title="Search Cases",
+    display_group="Cases",
+    description="Search cases based on various criteria.",
+    namespace="core.cases",
+)
+async def search_cases(
+    search_term: Annotated[
+        str | None,
+        Doc("Text to search for in case summary and description."),
+    ] = None,
+    status: Annotated[
+        StatusType | None,
+        Doc("Filter by case status."),
+    ] = None,
+    priority: Annotated[
+        PriorityType | None,
+        Doc("Filter by case priority."),
+    ] = None,
+    severity: Annotated[
+        SeverityType | None,
+        Doc("Filter by case severity."),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Doc("Maximum number of cases to return."),
+    ] = None,
+    order_by: Annotated[
+        Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
+        Doc("The field to order the cases by."),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc("The direction to order the cases by."),
+    ] = None,
+) -> list[dict[str, Any]]:
+    async with CasesService.with_session() as service:
+        cases = await service.search_cases(
+            search_term=search_term,
+            status=CaseStatus(status) if status else None,
+            priority=CasePriority(priority) if priority else None,
+            severity=CaseSeverity(severity) if severity else None,
+            limit=limit,
+            order_by=order_by,
+            sort=sort,
+        )
+    return [
+        CaseReadMinimal(
+            id=case.id,
+            created_at=case.created_at,
+            updated_at=case.updated_at,
+            short_id=f"CASE-{case.case_number:04d}",
+            summary=case.summary,
+            status=case.status,
+            priority=case.priority,
+            severity=case.severity,
+        ).model_dump(mode="json")
+        for case in cases
+    ]
+
+
+@registry.register(
     default_title="List Case Comments",
     display_group="Cases",
     description="List all comments for a case.",

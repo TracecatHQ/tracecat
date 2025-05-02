@@ -1,11 +1,12 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import DBAPIError
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.models import UserRead
+from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     CaseCommentCreate,
     CaseCommentRead,
@@ -57,6 +58,50 @@ async def list_cases(
     """List all cases."""
     service = CasesService(session, role)
     cases = await service.list_cases()
+    return [
+        CaseReadMinimal(
+            id=case.id,
+            created_at=case.created_at,
+            updated_at=case.updated_at,
+            short_id=f"CASE-{case.case_number:04d}",
+            summary=case.summary,
+            status=case.status,
+            priority=case.priority,
+            severity=case.severity,
+        )
+        for case in cases
+    ]
+
+
+@cases_router.get("/search")
+async def search_cases(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    search_term: str | None = Query(
+        None, description="Text to search for in case summary and description"
+    ),
+    status: CaseStatus | None = Query(None, description="Filter by case status"),
+    priority: CasePriority | None = Query(None, description="Filter by case priority"),
+    severity: CaseSeverity | None = Query(None, description="Filter by case severity"),
+    limit: int | None = Query(None, description="Maximum number of cases to return"),
+    order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
+    | None = Query(None, description="Field to order the cases by"),
+    sort: Literal["asc", "desc"] | None = Query(
+        None, description="Direction to sort (asc or desc)"
+    ),
+) -> list[CaseReadMinimal]:
+    """Search cases based on various criteria."""
+    service = CasesService(session, role)
+    cases = await service.search_cases(
+        search_term=search_term,
+        status=status,
+        priority=priority,
+        severity=severity,
+        limit=limit,
+        order_by=order_by,
+        sort=sort,
+    )
     return [
         CaseReadMinimal(
             id=case.id,
