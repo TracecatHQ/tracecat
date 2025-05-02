@@ -5,9 +5,10 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import Schedule
 from tracecat.identifiers import ScheduleID
-from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery
+from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatServiceError
+from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.schedules.models import (
     ScheduleCreate,
     ScheduleSearch,
@@ -36,6 +37,18 @@ async def create_schedule(
 ) -> Schedule:
     """Create a schedule for a workflow."""
     service = WorkflowSchedulesService(session, role=role)
+    workflow_svc = WorkflowsManagementService(session, role=role)
+    workflow = await workflow_svc.get_workflow(WorkflowUUID.new(params.workflow_id))
+    if not workflow:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found. Please check the workflow ID and try again.k",
+        )
+    if not workflow.version:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow must be saved before creating a schedule.",
+        )
     try:
         return await service.create_schedule(params)
     except TracecatServiceError as e:
