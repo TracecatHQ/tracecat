@@ -4,6 +4,7 @@ import "react18-json-view/src/style.css"
 
 import React from "react"
 import { ApiError, WebhookRead, WorkflowRead } from "@/client"
+import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
@@ -75,6 +76,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
@@ -357,11 +364,22 @@ type ScheduleInputs = z.infer<typeof scheduleInputsSchema>
 export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
   const { createSchedule } = useSchedules(workflowId)
   const { workspaceId } = useWorkspace()
+  const { workflow } = useWorkflow()
+  const hasVersion = !!workflow?.version
   const form = useForm<ScheduleInputs>({
     resolver: zodResolver(scheduleInputsSchema),
   })
 
   const onSubmit = async (values: ScheduleInputs) => {
+    if (!hasVersion) {
+      toast({
+        title: "Cannot create schedule",
+        description: "You must commit the workflow before creating a schedule.",
+        variant: "destructive",
+      })
+      return
+    }
+
     const { duration, timeout } = values
     try {
       const response = await createSchedule({
@@ -384,23 +402,41 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
 
   return (
     <Dialog>
-      <DialogTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="flex h-7 w-full items-center justify-center gap-2 text-muted-foreground"
-        >
-          <PlusCircleIcon className="size-4" />
-          <span>Create Schedule</span>
-        </Button>
-      </DialogTrigger>
+      <TooltipProvider>
+        <Tooltip open={!hasVersion ? undefined : false}>
+          <TooltipTrigger asChild>
+            <span tabIndex={0}>
+              <DialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="flex h-7 w-full items-center justify-center gap-2 text-muted-foreground"
+                  disabled={!hasVersion}
+                >
+                  <PlusCircleIcon className="size-4" />
+                  <span>Create Schedule</span>
+                </Button>
+              </DialogTrigger>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>You must save the workflow before creating a schedule.</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create a new schedule</DialogTitle>
           <DialogDescription>
             Configure the schedule for the workflow. The workflow will not run
             immediately.
+            {!hasVersion && (
+              <p className="mt-2 text-rose-500">
+                Warning: You must commit the workflow before creating a
+                schedule.
+              </p>
+            )}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
