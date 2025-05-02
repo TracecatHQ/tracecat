@@ -7,7 +7,7 @@ verbose: true # Enable verbose output globally
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v5.0.0
     hooks:
       - id: check-added-large-files
         args:
@@ -19,7 +19,7 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.0
+    rev: v0.11.8
     hooks:
       - id: ruff
         args:
@@ -31,6 +31,6 @@ repos:
         verbose: true
         exclude: ^alembic/versions/
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.18.2
+    rev: v8.25.1
     hooks:
       - id: gitleaks
