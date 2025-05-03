@@ -13,9 +13,11 @@ import {
   CaseCommentCreate,
   CaseCommentRead,
   CaseCommentUpdate,
+  CaseCreate,
   CaseFieldRead,
   CaseRead,
   CaseReadMinimal,
+  casesCreateCase,
   casesCreateComment,
   casesDeleteCase,
   casesDeleteComment,
@@ -2498,6 +2500,37 @@ export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
     caseData,
     caseDataIsLoading,
     caseDataError,
+  }
+}
+
+export function useCreateCase(workspaceId: string) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: createCase,
+    isPending: createCaseIsPending,
+    error: createCaseError,
+  } = useMutation({
+    mutationFn: async (params: CaseCreate) =>
+      await casesCreateCase({ workspaceId, requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cases"] })
+      toast({
+        title: "Case created",
+        description: "New case created successfully",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Error creating case",
+        description: `An error occurred while creating the case: ${error.body.detail}`,
+      })
+    },
+  })
+
+  return {
+    createCase,
+    createCaseIsPending,
+    createCaseError,
   }
 }
 
