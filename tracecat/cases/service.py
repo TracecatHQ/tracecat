@@ -6,7 +6,7 @@ from typing import Any, Literal
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
 from sqlalchemy.exc import ProgrammingError
-from sqlmodel import cast, select
+from sqlmodel import cast, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
@@ -88,8 +88,8 @@ class CasesService(BaseService):
         if search_term:
             statement = statement.where(
                 sa.or_(
-                    Case.summary.ilike(f"%{search_term}%"),
-                    Case.description.ilike(f"%{search_term}%"),
+                    col(Case.summary).ilike(f"%{search_term}%"),
+                    col(Case.description).ilike(f"%{search_term}%"),
                 )
             )
 
