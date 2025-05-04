@@ -5,7 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import CaseCreate, CaseFieldCreate, CaseUpdate
 from tracecat.cases.service import CaseFieldsService, CasesService
-from tracecat.db.schemas import Case, CaseFields
+from tracecat.db.schemas import Case, CaseFields, User
 from tracecat.tables.enums import SqlType
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
@@ -298,3 +298,141 @@ class TestCaseFieldsIntegration:
         fields_statement = select(CaseFields).where(CaseFields.id == fields_id)
         fields_result = await session.exec(fields_statement)
         assert fields_result.one_or_none() is None
+
+
+@pytest.mark.anyio
+class TestCaseAssigneeIntegration:
+    @pytest.fixture
+    async def test_user(self, session: AsyncSession) -> User:
+        """Create a test user for assignment."""
+        # Create an actual user in the database for testing assignee relationship
+        user = User(
+            email="test-assignee@example.com",
+            hashed_password="hashed_password_for_testing",
+            is_active=True,
+            is_verified=True,
+            is_superuser=False,
+            last_login_at=None,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+    async def test_create_case_with_assignee(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        test_user: User,
+        session: AsyncSession,
+    ) -> None:
+        """Test creating a case with an assignee and verify the relationship is stored correctly."""
+        # Assign the case to our test user
+        case_create_params.assignee_id = test_user.id
+
+        # Create case
+        created_case = await cases_service.create_case(case_create_params)
+
+        # Verify assignee was set
+        assert created_case.assignee_id == test_user.id
+
+        # Verify the case can be retrieved with assignee
+        retrieved_case = await cases_service.get_case(created_case.id)
+        assert retrieved_case is not None
+        assert retrieved_case.assignee_id == test_user.id
+
+        # Verify database state directly
+        statement = select(Case).where(Case.id == created_case.id)
+        result = await session.exec(statement)
+        case_from_db = result.one()
+        assert case_from_db.assignee_id == test_user.id
+
+    async def test_update_case_assignee(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        test_user: User,
+        session: AsyncSession,
+    ) -> None:
+        """Test updating a case to add an assignee."""
+        # Create case without assignee
+        created_case = await cases_service.create_case(case_create_params)
+        assert created_case.assignee_id is None
+
+        # Update case with assignee
+        update_params = CaseUpdate(assignee_id=test_user.id)
+        updated_case = await cases_service.update_case(created_case, update_params)
+
+        # Verify assignee was set
+        assert updated_case.assignee_id == test_user.id
+
+        # Verify database state directly
+        statement = select(Case).where(Case.id == created_case.id)
+        result = await session.exec(statement)
+        case_from_db = result.one()
+        assert case_from_db.assignee_id == test_user.id
+
+    async def test_remove_case_assignee(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        test_user: User,
+        session: AsyncSession,
+    ) -> None:
+        """Test removing an assignee from a case."""
+        # Create case with assignee
+        case_create_params.assignee_id = test_user.id
+        created_case = await cases_service.create_case(case_create_params)
+        assert created_case.assignee_id == test_user.id
+
+        # Update to remove assignee
+        update_params = CaseUpdate(assignee_id=None)
+        updated_case = await cases_service.update_case(created_case, update_params)
+
+        # Verify assignee was removed
+        assert updated_case.assignee_id is None
+
+        # Verify database state directly
+        statement = select(Case).where(Case.id == created_case.id)
+        result = await session.exec(statement)
+        case_from_db = result.one()
+        assert case_from_db.assignee_id is None
+
+    async def test_list_cases_with_assignee_filtering(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        test_user: User,
+        session: AsyncSession,
+    ) -> None:
+        """Test that cases can be filtered by assignee."""
+        # Create cases with and without assignees
+        case1 = await cases_service.create_case(case_create_params)
+
+        assigned_params = CaseCreate(
+            summary="Assigned Case",
+            description="This case has an assignee",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+            assignee_id=test_user.id,
+        )
+        case2 = await cases_service.create_case(assigned_params)
+
+        # Get all cases
+        all_cases = await cases_service.list_cases()
+        assert len(all_cases) >= 2
+
+        # Verify at least one case with our test user
+        cases_with_assignee = [
+            case for case in all_cases if case.assignee_id == test_user.id
+        ]
+        assert len(cases_with_assignee) >= 1
+        assert case2.id in [case.id for case in cases_with_assignee]
+
+        # Verify at least one case without assignee
+        cases_without_assignee = [
+            case for case in all_cases if case.assignee_id is None
+        ]
+        assert len(cases_without_assignee) >= 1
+        assert case1.id in [case.id for case in cases_without_assignee]
