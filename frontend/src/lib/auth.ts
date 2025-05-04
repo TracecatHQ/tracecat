@@ -42,7 +42,9 @@ export function userIsOrgAdmin(user?: UserRead | null): boolean {
   return user?.is_superuser || user?.role === "admin"
 }
 
-export function getDisplayName(user: UserRead) {
+export function getDisplayName(
+  user: Pick<UserRead, "email" | "first_name" | "last_name">
+) {
   if (!user.first_name) {
     return user.email.split("@")[0]
   } else if (user.last_name) {
