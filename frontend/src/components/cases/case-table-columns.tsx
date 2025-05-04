@@ -5,6 +5,7 @@ import { ColumnDef } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import fuzzysort from "fuzzysort"
 
+import { User } from "@/lib/auth"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Tooltip,
@@ -17,6 +18,10 @@ import {
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
+import {
+  AssignedUser,
+  NoAssignee,
+} from "@/components/cases/case-panel-selectors"
 import { DataTableColumnHeader } from "@/components/data-table"
 
 export const columns: ColumnDef<CaseReadMinimal>[] = [
@@ -189,6 +194,23 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
           </TooltipContent>
         </Tooltip>
       )
+    },
+    filterFn: (row, id, value) => {
+      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+    },
+  },
+  {
+    accessorKey: "assignee",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Assigned To" />
+    ),
+    cell: ({ getValue }) => {
+      const user = getValue<CaseReadMinimal["assignee"]>()
+      if (!user) {
+        return <NoAssignee text="Not assigned" className="text-xs" />
+      }
+
+      return <AssignedUser user={new User(user)} className="text-xs" />
     },
     filterFn: (row, id, value) => {
       return value.includes(row.getValue<CaseReadMinimal["id"]>(id))

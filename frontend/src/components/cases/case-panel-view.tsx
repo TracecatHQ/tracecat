@@ -1,10 +1,16 @@
 "use client"
 
 import React from "react"
-import { CasePriority, CaseSeverity, CaseStatus, CaseUpdate } from "@/client"
+import {
+  CasePriority,
+  CaseSeverity,
+  CaseStatus,
+  CaseUpdate,
+  UserRead,
+} from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { format, formatDistanceToNow } from "date-fns"
-import { Braces, List, PlayCircle } from "lucide-react"
+import { Braces, List, PlayCircle, UserCircle2 } from "lucide-react"
 
 import { useGetCase, useUpdateCase } from "@/lib/hooks"
 import { Badge } from "@/components/ui/badge"
@@ -13,6 +19,7 @@ import { CommentSection } from "@/components/cases/case-comments-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
 import {
+  AssigneeSelect,
   PrioritySelect,
   SeveritySelect,
   StatusSelect,
@@ -26,7 +33,7 @@ interface CasePanelContentProps {
 }
 
 export function CasePanelView({ caseId }: CasePanelContentProps) {
-  const { workspaceId } = useWorkspace()
+  const { workspaceId, workspace } = useWorkspace()
   const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
     caseId,
     workspaceId,
@@ -88,6 +95,13 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     await updateCase(params)
   }
 
+  const handleAssigneeChange = async (newAssignee?: UserRead | null) => {
+    const params: Partial<CaseUpdate> = {
+      assignee_id: newAssignee?.id || null,
+    }
+    await updateCase(params)
+  }
+
   const customFields = caseData.fields.filter((field) => !field.reserved)
   return (
     <div className="flex h-full flex-col overflow-auto px-6">
@@ -127,6 +141,19 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
         {/* Right column - Details & Custom Fields */}
         <div className="col-span-3 space-y-6">
+          <div className="bg-card p-4">
+            <h3 className="mb-3 flex items-center text-sm font-semibold text-muted-foreground">
+              <UserCircle2 className="mr-2 size-4" />
+              Assigned To
+            </h3>
+            <div className="space-y-4">
+              <AssigneeSelect
+                assignee={caseData.assignee}
+                workspaceMembers={workspace?.members ?? []}
+                onValueChange={handleAssigneeChange}
+              />
+            </div>
+          </div>
           <div className="bg-card p-4">
             <h3 className="mb-3 flex items-center text-sm font-semibold text-muted-foreground">
               <List className="mr-2 size-4" />
