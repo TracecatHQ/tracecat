@@ -151,6 +151,7 @@ class CasesService(BaseService):
             priority=params.priority,
             severity=params.severity,
             status=params.status,
+            assignee_id=params.assignee_id,
         )
 
         self.session.add(case)

@@ -25,6 +25,7 @@ class CaseReadMinimal(BaseModel):
     status: CaseStatus
     priority: CasePriority
     severity: CaseSeverity
+    assignee: UserRead | None = None
 
 
 class CaseRead(BaseModel):
@@ -36,10 +37,9 @@ class CaseRead(BaseModel):
     status: CaseStatus
     priority: CasePriority
     severity: CaseSeverity
-    # Details
     description: str
-    # Custom fields
     fields: list[CaseCustomFieldRead]
+    assignee: UserRead | None = None
 
 
 class CaseCreate(BaseModel):
@@ -49,6 +49,7 @@ class CaseCreate(BaseModel):
     priority: CasePriority
     severity: CaseSeverity
     fields: dict[str, Any] | None = None
+    assignee_id: uuid.UUID | None = None
 
 
 class CaseUpdate(BaseModel):
@@ -58,6 +59,7 @@ class CaseUpdate(BaseModel):
     priority: CasePriority | None = None
     severity: CaseSeverity | None = None
     fields: dict[str, Any] | None = None
+    assignee_id: uuid.UUID | None = None
 
 
 # Case Fields

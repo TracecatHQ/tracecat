@@ -68,6 +68,9 @@ async def list_cases(
             status=case.status,
             priority=case.priority,
             severity=case.severity,
+            assignee=UserRead.model_validate(case.assignee, from_attributes=True)
+            if case.assignee
+            else None,
         )
         for case in cases
     ]
@@ -112,6 +115,9 @@ async def search_cases(
             status=case.status,
             priority=case.priority,
             severity=case.severity,
+            assignee=UserRead.model_validate(case.assignee, from_attributes=True)
+            if case.assignee
+            else None,
         )
         for case in cases
     ]
@@ -160,6 +166,9 @@ async def get_case(
         priority=case.priority,
         severity=case.severity,
         description=case.description,
+        assignee=UserRead.model_validate(case.assignee, from_attributes=True)
+        if case.assignee
+        else None,
         fields=final_fields,
     )
 
