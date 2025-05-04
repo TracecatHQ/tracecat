@@ -21,6 +21,7 @@ import {
 import {
   AssignedUser,
   NoAssignee,
+  UNASSIGNED,
 } from "@/components/cases/case-panel-selectors"
 import { DataTableColumnHeader } from "@/components/data-table"
 
@@ -102,7 +103,7 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       return <CaseBadge {...props} />
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+      return value.includes(row.getValue<CaseReadMinimal["status"]>("status"))
     },
   },
   {
@@ -120,7 +121,9 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       return <CaseBadge {...props} />
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+      return value.includes(
+        row.getValue<CaseReadMinimal["priority"]>("priority")
+      )
     },
   },
   {
@@ -142,7 +145,9 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       return <CaseBadge {...props} />
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+      return value.includes(
+        row.getValue<CaseReadMinimal["severity"]>("severity")
+      )
     },
   },
   {
@@ -169,7 +174,8 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       )
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+      const dateStr = row.getValue<CaseReadMinimal["created_at"]>("created_at")
+      return value.includes(dateStr)
     },
   },
   {
@@ -196,7 +202,8 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       )
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+      const dateStr = row.getValue<CaseReadMinimal["updated_at"]>("updated_at")
+      return value.includes(dateStr)
     },
   },
   {
@@ -213,7 +220,14 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       return <AssignedUser user={new User(user)} className="text-xs" />
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+      const assignee = row.getValue<CaseReadMinimal["assignee"]>("assignee")
+      if (!assignee) {
+        // Handle unassigned case
+        return value.includes(UNASSIGNED)
+      }
+      const user = new User(assignee)
+      const displayName = user.getDisplayName()
+      return value.includes(displayName)
     },
   },
 ]
