@@ -130,7 +130,7 @@ class AppSettingsUpdate(BaseSettingsGroup):
         description="Whether workflow exports are enabled.",
     )
     app_create_workspace_on_register: bool = Field(
-        default=True,
+        default=False,
         description="Whether to automatically create a workspace when a user signs up.",
     )
 
