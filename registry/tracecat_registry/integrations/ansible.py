@@ -79,6 +79,16 @@ async def run_playbook(
     ssh_key = secrets.get("ANSIBLE_SSH_KEY")
     passwords = secrets.get("ANSIBLE_PASSWORDS")
 
+    # NOTE: Tracecat secrets does NOT preserve newlines, so we need to manually add them
+    # Need to do this jankness until we support different secret types in Tracecat
+    ssh_key_body = (
+        ssh_key.replace("-----BEGIN OPENSSH PRIVATE KEY-----", "")
+        .replace("-----END OPENSSH PRIVATE KEY-----", "")
+        .strip()
+        .replace(" ", "\n")
+    )
+    ssh_key_data = f"-----BEGIN OPENSSH PRIVATE KEY-----\n{ssh_key_body}\n-----END OPENSSH PRIVATE KEY-----\n"  # gitleaks:allow
+
     extravars = extravars or {}
     runner_kwargs = runner_kwargs or {}
 
@@ -106,7 +116,7 @@ async def run_playbook(
     }
 
     if ssh_key:
-        runner_kwargs["ssh_key"] = ssh_key
+        runner_kwargs["ssh_key"] = ssh_key_data
     if passwords:
         runner_kwargs["passwords"] = orjson.loads(passwords)
 
@@ -124,6 +134,7 @@ async def run_playbook(
         return runner, result
 
     _, result = await loop.run_in_executor(None, run)
+
     if isinstance(result, Runner):
         # Events are a generator, so we need to convert to a list
         return list(result.events)
