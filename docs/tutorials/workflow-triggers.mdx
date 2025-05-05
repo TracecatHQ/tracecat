@@ -42,7 +42,8 @@ Learn more in the [child workflows](/tutorials/child-workflows) and [expressions
   The webhook URL shown in the UI screenshots are for demonstration only.
 </Warning>
 
-Webhooks are disabled by default. To activate a workflow's webhook, click on the `Trigger` action, toggle the webhook on, then enable the workflow.
+Webhooks are disabled by default. To activate a workflow's webhook, click on the `Trigger` action, then toggle the webhook on.
+Events can then be triggered by making a `POST` request to the webhook URL.
 Webhook URLs are formatted as:
 
 ```bash
@@ -78,16 +79,15 @@ WEBHOOK_URL=https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-se
 
     ![Deserialize JSON action](/img/tutorials/triggers/deserialize-json.png)
   </Step>
+  <Step title="Save workflow">
+    Save the workflow.
+  </Step>
   <Step title="Toggle webhook">
     Click on the `Trigger` action.
     Enable the webhook by clicking on the toggle switch.
+    The workflow will now receive webhook events.
 
     ![Toggle webhook](/img/tutorials/triggers/toggle-webhook.png)
-  </Step>
-  <Step title="Enable workflow">
-    Save the workflow, then press the `Enable workflow` button for the webhook to start receiving requests.
-
-    ![Enable workflow](/img/tutorials/triggers/enable-workflow.png)
   </Step>
   <Step title="POST webhook request">
     Copy the webhook URL to your clipboard, then make a `POST` request to the webhook URL.
@@ -155,15 +155,16 @@ This tutorial requires:
 
       ![Schedule trigger](/img/tutorials/triggers/schedule.png)
     </Step>
+    <Step title="Save workflow">
+      Save the workflow.
+      You can save the workflow before configuring the schedule.
+    </Step>
     <Step title="Configure schedule">
       Configure the schedule to run every 60 seconds.
+      Once the schedule is configured, the workflow will run every 60 seconds.
+      The first scheduled workflow starts 60 seconds after the schedule is created.
 
       ![Schedule form](/img/tutorials/triggers/schedule-form.png)
-    </Step>
-    <Step title="Enable workflow">
-      Save the workflow, then press the `Enable workflow` button for the schedule to start running.
-
-      ![Enable workflow](/img/tutorials/triggers/enable-workflow.png)
 
       <Accordion title="Sample Slack notification" icon="slack">
         ![Slack notification](/img/tutorials/triggers/slack-notification.png)
