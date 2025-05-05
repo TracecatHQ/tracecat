@@ -110,7 +110,7 @@ export default function CaseTable() {
           options: SEVERITIES,
         },
         {
-          column: "assignee",
+          column: "Assignee",
           title: "Assignee",
           options: assignees,
         },
