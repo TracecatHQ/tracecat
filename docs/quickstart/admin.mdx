@@ -11,9 +11,28 @@ icon: user
   OAuth](/self-hosting/authentication/google-oauth).
 </Note>
 
-## Owner
+## User Roles
 
-The owner role is assigned to the first user who logs into Tracecat. This user has admin rights to every workspace in the Tracecat instance.
+Tracecat has a two-level permission system:
+
+### Organization Roles
+
+| Role  | Permissions                                                                                                                                     |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Admin | Has access to all API endpoints and all workspaces, can administer organization-level (platform) settings and management APIs (`/organization`) |
+| Basic | Can only access workspaces they've been invited to and non-management APIs                                                                      |
+
+### Workspace Roles
+
+| Role   | Permissions                                                                                      |
+| ------ | ------------------------------------------------------------------------------------------------ |
+| Admin  | Can manage workspace membership, create/update/delete secrets, and all other workspace functions |
+| Editor | Non-management workspace functions                                                               |
+
+## Organization owner
+
+The first user who logs into Tracecat is automatically assigned both `superuser` and an organization admin role. Currently,
+the `superuser` role does not have any additional permissions beyond the organization admin role.
 
 ## Security
 
@@ -36,8 +55,8 @@ TRACECAT__AUTH_ALLOWED_DOMAINS=tracecat.com,example.com
     ![Signup](/img/quickstart/admin/signup.png)
   </Step>
   <Step title="🎉 Welcome">
-    After signing up, you'll be redirected to the default workspace.
-    ![Welcome](/img/quickstart/admin/workspace.png)
+    After signing up, you'll be redirected to the default workspace as both an
+    organization admin. ![Welcome](/img/quickstart/admin/workspace.png)
   </Step>
 </Steps>
 
@@ -48,7 +67,7 @@ They will be redirected to the following page:
 
 ![new-user](/img/quickstart/admin/new-user.png)
 
-To invite the new user to a workspace, first log into Tracecat as the admin, then follow these steps:
+To invite the new user to a workspace, first log into Tracecat as an organization or workspace admin, then follow these steps:
 
 <Steps>
   <Step title="Workspace members">
@@ -58,9 +77,10 @@ To invite the new user to a workspace, first log into Tracecat as the admin, the
   </Step>
   <Step title="Add workspace member">
     Click the `Add member` button, then enter the email address of the new user
-    that signed up. ![Add workspace
-    member](/img/quickstart/admin/add-member.png) The new user will show up as:
-    ![Members list](/img/quickstart/admin/members-list.png)
+    that signed up. You can assign them either Workspace `Admin` or `Editor`
+    role. ![Add workspace member](/img/quickstart/admin/add-member.png) The new
+    user will show up as: ![Members
+    list](/img/quickstart/admin/members-list.png)
   </Step>
   <Step title="Login as new user">
     The new user can now log into Tracecat using the email address and password
@@ -69,14 +89,15 @@ To invite the new user to a workspace, first log into Tracecat as the admin, the
   </Step>
 </Steps>
 
-## Organization settings
+## Organization Admin Settings
 
-Superadmins also have the ability to:
+Organization admins have the ability to:
 
 - View all users and sessions.
 - View all workspaces and settings.
-- Remove any non-superadmin user from any workspace.
+- Remove any non-admin user from any workspace.
 - Revoke active sessions for any user.
+- Manage organization-level settings.
 
 ![Remove user](/img/quickstart/admin/remove-user.png)
 
