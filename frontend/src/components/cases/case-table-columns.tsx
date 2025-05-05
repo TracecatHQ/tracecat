@@ -207,9 +207,10 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
     },
   },
   {
+    id: "Assignee",
     accessorKey: "assignee",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Assigned To" />
+      <DataTableColumnHeader column={column} title="Assignee" />
     ),
     cell: ({ getValue }) => {
       const user = getValue<CaseReadMinimal["assignee"]>()
