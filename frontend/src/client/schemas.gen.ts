@@ -995,6 +995,18 @@ export const $CaseCreate = {
       ],
       title: "Fields",
     },
+    assignee_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+    },
   },
   type: "object",
   required: ["summary", "description", "status", "priority", "severity"],
@@ -1254,6 +1266,16 @@ export const $CaseRead = {
       type: "array",
       title: "Fields",
     },
+    assignee: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: [
@@ -1304,6 +1326,16 @@ export const $CaseReadMinimal = {
     },
     severity: {
       $ref: "#/components/schemas/CaseSeverity",
+    },
+    assignee: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserRead",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",
@@ -1425,6 +1457,18 @@ export const $CaseUpdate = {
         },
       ],
       title: "Fields",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
     },
   },
   type: "object",

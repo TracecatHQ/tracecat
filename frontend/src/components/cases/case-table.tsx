@@ -7,6 +7,7 @@ import { useCasePanelContext } from "@/providers/case-panel"
 import { useWorkspace } from "@/providers/workspace"
 import { type Row } from "@tanstack/react-table"
 
+import { getDisplayName } from "@/lib/auth"
 import { useDeleteCase, useListCases } from "@/lib/hooks"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
@@ -15,12 +16,13 @@ import {
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
+import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { columns } from "@/components/cases/case-table-columns"
 import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
 
 export default function CaseTable() {
   const { user } = useAuth()
-  const { workspaceId } = useWorkspace()
+  const { workspaceId, workspace } = useWorkspace()
   const { cases, casesIsLoading, casesError } = useListCases({
     workspaceId,
   })
@@ -65,6 +67,57 @@ export default function CaseTable() {
     [deleteCase, toast, setIsDeleting]
   )
 
+  const defaultToolbarProps = useMemo(() => {
+    const workspaceMembers =
+      workspace?.members.map((m) => {
+        const displayName = getDisplayName({
+          first_name: m.first_name,
+          last_name: m.last_name,
+          email: m.email,
+        })
+        return {
+          label: displayName,
+          value: displayName,
+        }
+      }) ?? []
+    const assignees = [
+      {
+        label: "Not assigned",
+        value: UNASSIGNED,
+      },
+      ...workspaceMembers,
+    ]
+
+    return {
+      filterProps: {
+        placeholder: "Filter cases by summary...",
+        column: "summary",
+      },
+      fields: [
+        {
+          column: "status",
+          title: "Status",
+          options: STATUSES,
+        },
+        {
+          column: "priority",
+          title: "Priority",
+          options: PRIORITIES,
+        },
+        {
+          column: "severity",
+          title: "Severity",
+          options: SEVERITIES,
+        },
+        {
+          column: "assignee",
+          title: "Assignee",
+          options: assignees,
+        },
+      ],
+    } as DataTableToolbarProps<CaseReadMinimal>
+  }, [workspace])
+
   return (
     <TooltipProvider>
       <DataTable
@@ -79,28 +132,4 @@ export default function CaseTable() {
       />
     </TooltipProvider>
   )
-}
-
-const defaultToolbarProps: DataTableToolbarProps<CaseReadMinimal> = {
-  filterProps: {
-    placeholder: "Filter cases by summary...",
-    column: "summary",
-  },
-  fields: [
-    {
-      column: "status",
-      title: "Status",
-      options: STATUSES,
-    },
-    {
-      column: "priority",
-      title: "Priority",
-      options: PRIORITIES,
-    },
-    {
-      column: "severity",
-      title: "Severity",
-      options: SEVERITIES,
-    },
-  ],
 }

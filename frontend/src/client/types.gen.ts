@@ -294,6 +294,7 @@ export type CaseCreate = {
   fields?: {
     [key: string]: unknown
   } | null
+  assignee_id?: string | null
 }
 
 export type CaseCustomFieldRead = {
@@ -390,6 +391,7 @@ export type CaseRead = {
   severity: CaseSeverity
   description: string
   fields: Array<CaseCustomFieldRead>
+  assignee?: UserRead | null
 }
 
 export type CaseReadMinimal = {
@@ -401,6 +403,7 @@ export type CaseReadMinimal = {
   status: CaseStatus
   priority: CasePriority
   severity: CaseSeverity
+  assignee?: UserRead | null
 }
 
 /**
@@ -447,6 +450,7 @@ export type CaseUpdate = {
   fields?: {
     [key: string]: unknown
   } | null
+  assignee_id?: string | null
 }
 
 /**
@@ -2982,6 +2986,46 @@ export type CasesCreateCaseData = {
 
 export type CasesCreateCaseResponse = unknown
 
+export type CasesSearchCasesData = {
+  /**
+   * Maximum number of cases to return
+   */
+  limit?: number | null
+  /**
+   * Field to order the cases by
+   */
+  orderBy?:
+    | "created_at"
+    | "updated_at"
+    | "priority"
+    | "severity"
+    | "status"
+    | null
+  /**
+   * Filter by case priority
+   */
+  priority?: CasePriority | null
+  /**
+   * Text to search for in case summary and description
+   */
+  searchTerm?: string | null
+  /**
+   * Filter by case severity
+   */
+  severity?: CaseSeverity | null
+  /**
+   * Direction to sort (asc or desc)
+   */
+  sort?: "asc" | "desc" | null
+  /**
+   * Filter by case status
+   */
+  status?: CaseStatus | null
+  workspaceId: string
+}
+
+export type CasesSearchCasesResponse = Array<CaseReadMinimal>
+
 export type CasesGetCaseData = {
   caseId: string
   workspaceId: string
@@ -4706,6 +4750,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/search": {
+    get: {
+      req: CasesSearchCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseReadMinimal>
         /**
          * Validation Error
          */

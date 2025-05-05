@@ -54,6 +54,8 @@ import type {
   CasesListCommentsResponse,
   CasesListFieldsData,
   CasesListFieldsResponse,
+  CasesSearchCasesData,
+  CasesSearchCasesResponse,
   CasesUpdateCaseData,
   CasesUpdateCaseResponse,
   CasesUpdateCommentData,
@@ -3046,6 +3048,43 @@ export const casesCreateCase = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Search Cases
+ * Search cases based on various criteria.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.searchTerm Text to search for in case summary and description
+ * @param data.status Filter by case status
+ * @param data.priority Filter by case priority
+ * @param data.severity Filter by case severity
+ * @param data.limit Maximum number of cases to return
+ * @param data.orderBy Field to order the cases by
+ * @param data.sort Direction to sort (asc or desc)
+ * @returns CaseReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const casesSearchCases = (
+  data: CasesSearchCasesData
+): CancelablePromise<CasesSearchCasesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/search",
+    query: {
+      search_term: data.searchTerm,
+      status: data.status,
+      priority: data.priority,
+      severity: data.severity,
+      limit: data.limit,
+      order_by: data.orderBy,
+      sort: data.sort,
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },
