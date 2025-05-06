@@ -1,10 +1,9 @@
 """Generic interface to Ansible Python API."""
 
-import asyncio
 from typing import Annotated, Any
 
 import orjson
-from ansible_runner import Runner, run_async
+from ansible_runner import Runner, run
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -43,7 +42,7 @@ ansible_secret = RegistrySecret(
     namespace="tools.ansible",
     secrets=[ansible_secret],
 )
-async def run_playbook(
+def run_playbook(
     playbook: Annotated[
         list[dict[str, Any]], Field(..., description="List of plays to run")
     ],
@@ -75,9 +74,17 @@ async def run_playbook(
         int,
         Field(description="Timeout for the playbook execution in seconds"),
     ] = 60,
-) -> list[dict[str, Any]]:
+    ignore_events: Annotated[
+        list[str] | None,
+        Field(
+            description="List of events to ignore from the playbook. If None, filters out `verbose` events as default."
+        ),
+    ] = None,
+) -> list[dict[str, Any]] | list[str]:
     ssh_key = secrets.get("ANSIBLE_SSH_KEY")
     passwords = secrets.get("ANSIBLE_PASSWORDS")
+
+    ignore_events = ignore_events or ["verbose"]
 
     # NOTE: Tracecat secrets does NOT preserve newlines, so we need to manually add them
     # Need to do this jankness until we support different secret types in Tracecat
@@ -120,23 +127,18 @@ async def run_playbook(
     if passwords:
         runner_kwargs["passwords"] = orjson.loads(passwords)
 
-    loop = asyncio.get_running_loop()
-
-    def run():
-        runner, result = run_async(
-            playbook=playbook,
-            envvars=envvars,
-            extravars=extravars,
-            timeout=timeout,
-            inventory=inventory,
-            **runner_kwargs,
-        )
-        return runner, result
-
-    _, result = await loop.run_in_executor(None, run)
+    result = run(
+        playbook=playbook,
+        envvars=envvars,
+        extravars=extravars,
+        timeout=timeout,
+        inventory=inventory,
+        **runner_kwargs,
+    )
 
     if isinstance(result, Runner):
         # Events are a generator, so we need to convert to a list
-        return list(result.events)
+        events = result.events
+        return [event for event in events if event.get("event") not in ignore_events]
     else:
         raise ValueError("Ansible runner returned no result.")
