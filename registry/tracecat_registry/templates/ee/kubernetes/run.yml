@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Run image in pod
+  description: Run a image in a pod.
+  display_group: Kubernetes
+  doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#run
+  namespace: ee.kubernetes
+  name: run
+  expects:
+    image:
+      type: str
+      description: Image to run in the pod.
+    command:
+      type: list[str]
+      description: Command to run in the pod.
+    namespace:
+      type: str
+      description: Namespace to create the resource in.
+    env:
+      type: dict[str, str]
+      description: Environment variables to set in the pod.
+      default: {}
+    restart:
+      type: str
+      description: Restart policy for the pod.
+      default: "Never"
+    overrides:
+      type: dict[str, str]
+      description: Overrides to apply to the pod.
+      default: {}
+    dry_run:
+      type: bool
+      description: Whether to dry run the create client-side.
+      default: false
+  steps:
+    - ref: run_image
+      action: ee.kubernetes.run_command
+      args:
+        command:
+          - "run"
+          - "--image"
+          - ${{ inputs.image }}
+          - "--restart"
+          - ${{ inputs.restart }}
+          - "--env"
+          - ${{ FN.serialize_json(inputs.env) }}
+          - "--overrides"
+          - ${{ FN.serialize_json(inputs.overrides) }}
+          - "--command"
+          - "--"
+        namespace: ${{ inputs.namespace }}
+        dry_run: ${{ inputs.dry_run }}
+        stdin: ${{ FN.join(inputs.command, " ") }}
+  returns: ${{ steps.run_image.result }}
