@@ -1,6 +1,7 @@
 from tracecat.ee.sandbox.kubernetes import (
-    list_kubernetes_pods,
+    get_kubernetes_pod_logs,
     list_kubernetes_containers,
+    list_kubernetes_pods,
     list_kubernetes_pvc,
     list_kubernetes_secrets,
     run_kubectl_command,
@@ -80,6 +81,28 @@ def list_secrets(
 ) -> list[str]:
     kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
     return list_kubernetes_secrets(namespace, kubeconfig_base64)
+
+
+@registry.register(
+    default_title="Get pod logs",
+    description="Get logs from a given pod.",
+    display_group="Kubernetes",
+    doc_url="https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#logs",
+    namespace="ee.kubernetes",
+    secrets=[kubernetes_secret],
+)
+def get_pod_logs(
+    pod: Annotated[str, Doc("Pod to get logs from.")],
+    namespace: Annotated[str, Doc("Namespace to get logs from.")],
+    container: Annotated[str | None, Doc("Container to get logs from.")],
+    tail_lines: Annotated[
+        int, Doc("Number of lines to return from the end of the logs.")
+    ] = 10,
+) -> str:
+    kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
+    return get_kubernetes_pod_logs(
+        pod, namespace, kubeconfig_base64, container, tail_lines
+    )
 
 
 @registry.register(
