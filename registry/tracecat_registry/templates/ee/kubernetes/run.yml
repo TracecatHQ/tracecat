@@ -7,7 +7,7 @@ definition:
   namespace: ee.kubernetes
   name: run
   expects:
-    name:
+    pod:
       type: str
       description: Name of the pod to create.
     image:
@@ -37,7 +37,7 @@ definition:
       args:
         command:
           - "run"
-          - ${{ inputs.name }}
+          - ${{ inputs.pod }}
           - "--image"
           - ${{ inputs.image }}
           - "--restart"
@@ -48,5 +48,5 @@ definition:
           - "--"
         namespace: ${{ inputs.namespace }}
         dry_run: ${{ inputs.dry_run }}
-        stdin: ${{ FN.join(inputs.command, " ") }}
+        args: ${{ inputs.command }}
   returns: ${{ steps.run_image.result }}

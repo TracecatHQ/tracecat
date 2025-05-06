@@ -33,5 +33,5 @@ definition:
           - ${{ inputs.container || "" }}
           - "--"
         namespace: ${{ inputs.namespace }}
-        stdin: ${{ FN.join(inputs.command, " ") }}
+        args: ${{ inputs.command }}
   returns: ${{ steps.exec_command.result }}

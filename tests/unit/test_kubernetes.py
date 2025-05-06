@@ -1,10 +1,18 @@
 import base64
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
 from pydantic import SecretStr
+from tracecat_registry.integrations.ee.kubernetes import (
+    get_logs,
+    list_containers,
+    list_pods,
+    list_pvc,
+    list_secrets,
+)
 
 from tracecat.ee.sandbox.kubernetes import _decode_kubeconfig
 from tracecat.executor.service import run_template_action
@@ -33,59 +41,102 @@ def load_kubernetes_templates(kubernetes_repo):
 
 
 @pytest.fixture(autouse=True)
-def mock_kubeconfig():
-    """Create a mock kubernetes config encoded as base64.
+def current_kubeconfig():
+    """Get a kubernetes config from the current user's kubeconfig file.
+
+    Assumes that the current user has a kubeconfig file at ~/.kube/config.
 
     Returns:
         str: Base64 encoded kubernetes config
     """
-    kubeconfig = {
-        "apiVersion": "v1",
-        "clusters": [
-            {
-                "cluster": {"server": "https://kubernetes.default.svc"},
-                "name": "kubernetes",
-            }
-        ],
-        "contexts": [
-            {
-                "context": {"cluster": "kubernetes", "user": "test-user"},
-                "name": "test-context",
-            }
-        ],
-        "current-context": "test-context",
-        "users": [{"name": "test-user", "user": {"token": "test-token"}}],
-    }
-
-    # Convert to YAML and then encode to base64
-    kubeconfig_yaml = yaml.dump(kubeconfig)
+    process = subprocess.run(
+        ["kubectl", "config", "view", "--minify", "--flatten"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    kubeconfig_yaml = process.stdout
     kubeconfig_base64 = base64.b64encode(kubeconfig_yaml.encode()).decode().rstrip("=")
 
     return kubeconfig_base64
 
 
-def test_decode_kubeconfig_as_dict(mock_kubeconfig):
+@pytest.fixture(autouse=True, scope="session")
+def tracecat_ci_namespace():
+    """Create a test namespace."""
+    try:
+        subprocess.run(
+            ["kubectl", "create", "ns", "tracecat-ci"],
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        pass
+    yield
+    try:
+        subprocess.run(
+            ["kubectl", "delete", "ns", "tracecat-ci"],
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        pass
+
+
+@pytest.fixture(autouse=True, scope="session")
+def test_pod(tracecat_ci_namespace):
+    """Create a test pod. alpine:latest that sleeps for 10 minutes."""
+    try:
+        subprocess.run(
+            [
+                "kubectl",
+                "run",
+                "test-pod",
+                "-n",
+                "tracecat-ci",
+                "--image=alpine:latest",
+                "--command",
+                "--",
+                "sh",
+                "-c",
+                'while true; do echo "log message $(date)"; sleep 600; done',
+            ],
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        pass
+    yield
+    try:
+        subprocess.run(
+            ["kubectl", "delete", "pod", "test-pod", "-n", "tracecat-ci"],
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        pass
+
+
+def test_decode_kubeconfig_as_dict(current_kubeconfig):
     """Test decoding kubeconfig to dictionary."""
-    decoded = _decode_kubeconfig(mock_kubeconfig)
+    decoded = _decode_kubeconfig(current_kubeconfig)
 
     assert isinstance(decoded, dict)
     assert decoded["apiVersion"] == "v1"
     assert len(decoded["clusters"]) == 1
-    assert decoded["clusters"][0]["name"] == "kubernetes"
+    assert decoded["clusters"][0]["name"] in ["kubernetes", "orbstack"]
     assert len(decoded["contexts"]) == 1
-    assert decoded["contexts"][0]["name"] == "test-context"
+    assert decoded["contexts"][0]["name"] in ["kubernetes", "orbstack"]
 
 
-def test_decode_kubeconfig_as_yaml(mock_kubeconfig):
+def test_decode_kubeconfig_as_yaml(current_kubeconfig):
     """Test decoding kubeconfig to YAML string."""
-    decoded = _decode_kubeconfig(mock_kubeconfig, as_yaml=True)
+    decoded = _decode_kubeconfig(current_kubeconfig, as_yaml=True)
 
     assert isinstance(decoded, str)
     # Parse the YAML to verify it's valid
     parsed = yaml.safe_load(decoded)
     assert parsed["apiVersion"] == "v1"
     assert len(parsed["clusters"]) == 1
-    assert parsed["clusters"][0]["name"] == "kubernetes"
+    assert parsed["clusters"][0]["name"] in ["kubernetes", "orbstack"]
+    assert len(parsed["contexts"]) == 1
+    assert parsed["contexts"][0]["name"] in ["kubernetes", "orbstack"]
 
 
 def test_decode_kubeconfig_invalid_empty():
@@ -145,7 +196,7 @@ def mock_validate_access():
 
 
 @pytest.fixture
-def mock_secret_service(mocker, mock_kubeconfig):
+def mock_secret_service(mocker, current_kubeconfig):
     """Mock the SecretsService methods needed for Kubernetes tests."""
     # Mock get_secret_by_name to return a dummy Secret object
     get_secret_mock = mocker.patch(
@@ -158,13 +209,13 @@ def mock_secret_service(mocker, mock_kubeconfig):
     decrypt_keys_mock = mocker.patch(
         "tracecat.secrets.service.SecretsService.decrypt_keys",
         return_value=[
-            SecretKeyValue(key="kubeconfig", value=SecretStr(mock_kubeconfig))
+            SecretKeyValue(key="kubeconfig", value=SecretStr(current_kubeconfig))
         ],
     )
 
     # Mock the secrets.get method in tracecat_registry to return the mock kubeconfig
     registry_secrets_mock = mocker.patch(
-        "tracecat_registry.secrets.get", return_value=mock_kubeconfig
+        "tracecat_registry.secrets.get", return_value=current_kubeconfig
     )
 
     # Return a dict with all mocks for tests that need direct access
@@ -173,6 +224,9 @@ def mock_secret_service(mocker, mock_kubeconfig):
         "decrypt_keys": decrypt_keys_mock,
         "registry_secrets": registry_secrets_mock,
     }
+
+
+# Kubectl Template Actions
 
 
 @pytest.mark.anyio
@@ -218,6 +272,7 @@ async def test_create_job(kubernetes_repo, mock_secret_service):
     assert "stdout" in result
     assert "stderr" in result
     assert "returncode" in result
+    assert result["returncode"] == 0, result["stderr"]
 
 
 @pytest.mark.anyio
@@ -247,3 +302,175 @@ async def test_delete_job(kubernetes_repo, mock_secret_service):
     assert "stdout" in result
     assert "stderr" in result
     assert "returncode" in result
+    assert result["returncode"] == 0, result["stderr"]
+
+
+@pytest.mark.anyio
+async def test_create_pvc(kubernetes_repo, mock_secret_service):
+    """Test the kubernetes create pvc template action."""
+
+    # Get the registered action
+    bound_action = kubernetes_repo.get("ee.kubernetes.create_pvc")
+
+    # Test create pvc
+    test_args = {
+        "name": "test-pvc",
+        "namespace": "test-ns",
+        "size": "1Gi",
+        "access_modes": ["ReadWriteOnce"],
+        "storage_class": "standard",
+        "dry_run": True,
+    }
+
+    # Run the action
+    result = await run_template_action(
+        action=bound_action,
+        args=test_args,
+        context={},
+    )
+
+    # Validate results
+    assert isinstance(result, dict)
+    assert "stdout" in result
+    assert "stderr" in result
+    assert "returncode" in result
+    assert result["returncode"] == 0
+
+
+@pytest.mark.anyio
+async def test_create_secret(kubernetes_repo, mock_secret_service):
+    """Test the kubernetes create secret template action."""
+
+    # Get the registered action
+    bound_action = kubernetes_repo.get("ee.kubernetes.create_secret")
+
+    # Test create secret
+    test_args = {
+        "name": "test-secret",
+        "namespace": "test-ns",
+        "data": {"key": "value"},
+        "dry_run": True,
+    }
+
+    # Run the action
+    result = await run_template_action(
+        action=bound_action,
+        args=test_args,
+        context={},
+    )
+
+    # Validate results
+    assert isinstance(result, dict)
+    assert "stdout" in result
+    assert "stderr" in result
+    assert "returncode" in result
+    assert result["returncode"] == 0, result["stderr"]
+
+
+@pytest.mark.anyio
+async def test_run_image(kubernetes_repo, mock_secret_service):
+    """Test the kubernetes run image template action with dry run."""
+
+    # Get the registered action
+    bound_action = kubernetes_repo.get("ee.kubernetes.run")
+
+    # Test run pod
+    test_args = {
+        "pod": "test-pod",
+        "image": "alpine:latest",
+        "command": ["echo", "hello"],
+        "namespace": "test-ns",
+        "dry_run": True,
+    }
+
+    # Run the action
+    result = await run_template_action(
+        action=bound_action,
+        args=test_args,
+        context={},
+    )
+
+    # Validate results
+    assert isinstance(result, dict)
+    assert "stdout" in result
+    assert "stderr" in result
+    assert "returncode" in result
+    assert result["returncode"] == 0, result["stderr"]
+
+
+@pytest.mark.anyio
+async def test_exec(kubernetes_repo, mock_secret_service, test_pod):
+    """Test the kubernetes exec command template action."""
+
+    # Get the registered action
+    bound_action = kubernetes_repo.get("ee.kubernetes.exec")
+
+    # Test exec command
+    test_args = {
+        "pod": "test-pod",
+        "command": ["echo", "hello", "world!"],
+        "namespace": "tracecat-ci",
+    }
+
+    # Run the action
+    result = await run_template_action(
+        action=bound_action,
+        args=test_args,
+        context={},
+    )
+
+    # Validate results
+    assert isinstance(result, dict)
+    assert "stdout" in result
+    assert "stderr" in result
+    assert "returncode" in result
+    assert result["returncode"] == 0, result["stderr"]
+    assert "hello" in result["stdout"], result["stdout"]
+
+
+### UDFs
+
+
+def test_get_logs(kubernetes_repo, mock_secret_service, test_pod):
+    """Test the kubernetes get logs template action."""
+
+    # Get the logs
+    result = get_logs(
+        pod="test-pod",
+        namespace="tracecat-ci",
+    )
+    assert isinstance(result, str)
+    assert "log message" in result
+
+
+def test_list_containers(kubernetes_repo, mock_secret_service, test_pod):
+    """Test the kubernetes list containers template action."""
+    result = list_containers(
+        pod="test-pod",
+        namespace="tracecat-ci",
+    )
+    assert isinstance(result, list)
+
+
+def test_list_pods(kubernetes_repo, mock_secret_service):
+    """Test the kubernetes list pods template action."""
+    result = list_pods(
+        namespace="tracecat-ci",
+    )
+    assert isinstance(result, list)
+
+
+def test_list_pvc(kubernetes_repo, mock_secret_service):
+    """Test the kubernetes list pvc template action."""
+    result = list_pvc(
+        namespace="tracecat-ci",
+    )
+    assert isinstance(result, list)
+
+
+def test_list_secrets(kubernetes_repo, mock_secret_service):
+    """Test the kubernetes list secrets template action."""
+    result = list_secrets(
+        namespace="tracecat-ci",
+    )
+    assert isinstance(result, list)

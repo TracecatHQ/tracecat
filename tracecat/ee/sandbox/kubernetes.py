@@ -387,6 +387,8 @@ def run_kubectl_command(
     kubeconfig_base64: str,
     dry_run: bool = False,
     stdin: str | None = None,
+    args: list[str] | None = None,
+    timeout: int = 60,
 ) -> dict[str, str | int]:
     """Run a kubectl command."""
     _validate_namespace(namespace)
@@ -395,33 +397,40 @@ def run_kubectl_command(
     if isinstance(command, str):
         command = shlex.split(command)
 
+    _validate_namespace(namespace)
+    _get_kubernetes_client(kubeconfig_base64)
+
     kubeconfig_yaml = _decode_kubeconfig(kubeconfig_base64, as_yaml=True)
     with tempfile.TemporaryDirectory() as temp_dir:
         kubeconfig_path = pathlib.Path(temp_dir) / "kubeconfig.yaml"
         with open(kubeconfig_path, "w") as f:
             f.write(kubeconfig_yaml)
 
-        args = ["kubectl", "--kubeconfig", kubeconfig_path.as_posix()]
+        _args = ["kubectl", "--kubeconfig", kubeconfig_path.as_posix()]
         if dry_run:
-            args.append("--dry-run=client")
+            _args.append("--dry-run=client")
         # Add namespace to command
-        args.extend(["--namespace", namespace])
+        _args.extend(["--namespace", namespace])
         # Add command
-        args.extend(command)
+        _args.extend(command)
 
-        logger.info("Running kubectl command", command=args, stdin=stdin)
+        # If additional args are provided, add them to the command
+        if args:
+            _args.extend(args)
+
+        logger.info("Running kubectl command", command=_args, stdin=stdin)
 
         output = subprocess.run(
-            args,
+            _args,
             check=False,
             capture_output=True,
             text=True,
             shell=False,
             input=stdin,
-            timeout=60,
+            timeout=timeout,
         )
 
-        logger.info("Successfully ran kubectl command", command=args, stdin=stdin)
+        logger.info("Successfully ran kubectl command", command=_args, stdin=stdin)
 
         return {
             "stdout": output.stdout,
