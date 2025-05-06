@@ -7,6 +7,9 @@ definition:
   namespace: ee.kubernetes
   name: run
   expects:
+    name:
+      type: str
+      description: Name of the pod to create.
     image:
       type: str
       description: Image to run in the pod.
@@ -16,10 +19,6 @@ definition:
     namespace:
       type: str
       description: Namespace to create the resource in.
-    env:
-      type: dict[str, str]
-      description: Environment variables to set in the pod.
-      default: {}
     restart:
       type: str
       description: Restart policy for the pod.
@@ -38,12 +37,11 @@ definition:
       args:
         command:
           - "run"
+          - ${{ inputs.name }}
           - "--image"
           - ${{ inputs.image }}
           - "--restart"
           - ${{ inputs.restart }}
-          - "--env"
-          - ${{ FN.serialize_json(inputs.env) }}
           - "--overrides"
           - ${{ FN.serialize_json(inputs.overrides) }}
           - "--command"
