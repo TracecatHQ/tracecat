@@ -30,10 +30,10 @@ definition:
       description: Whether to dry run the create client-side.
       default: false
   steps:
-    - ref: pvc_manifest
-      action: core.transform.reshape
+    - ref: create_pvc
+      action: ee.kubernetes.create
       args:
-        value:
+        manifest:
           apiVersion: v1
           kind: PersistentVolumeClaim
           metadata:
@@ -44,10 +44,6 @@ definition:
             resources:
               requests:
                 storage: ${{ inputs.size }}
-    - ref: create_pvc
-      action: ee.kubernetes.create
-      args:
-        manifest: ${{ steps.pvc_manifest.result }}
         namespace: ${{ inputs.namespace }}
         dry_run: ${{ inputs.dry_run }}
   returns: ${{ steps.create_pvc.result }}
