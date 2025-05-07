@@ -1,4 +1,4 @@
-# Schema for a one-shot prompt action
+# Schema for a few-shot prompt action
 # Returns `system_prompt` and `prompt` to pass into any LLM provider.
 
 # NOTE: Follows convention from https://docs.crewai.com/concepts/agents
