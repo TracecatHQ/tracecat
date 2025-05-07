@@ -5,7 +5,7 @@ definition:
   display_group: CrowdStrike
   doc_url: https://falconpy.io/Service-Collections/Incidents.html
   namespace: tools.crowdstrike
-  name: list_cases
+  name: list_incidents
   expects:
     start_time:
       type: datetime

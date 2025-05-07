@@ -1,9 +1,9 @@
 type: action
 definition:
-  name: lookup_file_hash
+  name: lookup_email
   namespace: tools.threatstream
-  title: Lookup File Hash
-  description: Search Anomali ThreatStream for reputation of a file hash.
+  title: Lookup email
+  description: Search Anomali ThreatStream for reputation of an email address.
   display_group: Anomali ThreatStream
   secrets:
     - name: threatstream
@@ -11,9 +11,9 @@ definition:
         - ANOMALI_USERNAME
         - ANOMALI_API_KEY
   expects:
-    file_hash:
+    email:
       type: str
-      description: File hash to lookup.
+      description: Email to lookup.
   steps:
     - ref: get_reputation
       action: core.http_request
@@ -24,8 +24,8 @@ definition:
           Accept: application/json
           Authorization: apikey ${{ SECRETS.threatstream.ANOMALI_USERNAME}}:${{ SECRETS.threatstream.ANOMALI_API_KEY }}
         params:
-          value: ${{ inputs.file_hash }}
-          type: md5
+          value: ${{ inputs.email }}
+          type: email
           status: active
           limit: 0
   returns: ${{ steps.get_reputation.result.data }}

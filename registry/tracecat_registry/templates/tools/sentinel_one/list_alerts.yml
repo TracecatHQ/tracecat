@@ -5,7 +5,7 @@ definition:
   display_group: SentinelOne
   doc_url: https://<base_url>/api-doc/api-details?category=alerts&api=get-alerts
   namespace: tools.sentinel_one
-  name: list_threats
+  name: list_alerts
   secrets:
     - name: sentinel_one
       keys: ["SENTINEL_ONE_API_TOKEN"]
