@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Remove reaction
+  description: Remove a reaction from a message in a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/reactions.remove
+  namespace: tools.slack
+  name: remove_reaction
+  expects:
+    channel:
+      type: str
+      description: ID of the channel to remove the reaction from.
+    timestamp:
+      type: str
+      description: Timestamp of the message to remove the reaction from.
+    name:
+      type: str
+      description: Name of the reaction to remove.
+  steps:
+    - ref: remove_reaction
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: reactions_remove
+        params:
+          channel: ${{ inputs.channel }}
+          timestamp: ${{ inputs.timestamp }}
+          name: ${{ inputs.name }}
+  returns: ${{ steps.remove_reaction.result }}
