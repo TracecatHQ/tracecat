@@ -1,12 +1,12 @@
 type: action
 definition:
   title: Analyze alert
-  description: |
+  description: >
     Returns `system_prompt` and `prompt`.
-    Extract who, what, when, where, why, how from the alert.
+    Extract `who`, `what`, `when`, `where`, `why`, `how` from the alert.
     Suggest scenarios where the alert is a false positive or a true positive.
-  display_group: Agents
-  namespace: agentic
+  display_group: Prompts
+  namespace: prompts.secops
   name: analyze_alert
   expects:
     input:
@@ -14,7 +14,9 @@ definition:
       description: Alert to analyze.
     backstory:
       type: str
-      description: What are the alerts about? Where did they come from?
+      description: >
+        What are the alerts about? Where did they come from?
+        What is the organization?
     role:
       type: str
       description: >
@@ -123,6 +125,8 @@ definition:
               - where
               - why
               - how
+              - false_positives
+              - true_positives
             additionalProperties: false
             properties:
               thoughts:
@@ -198,7 +202,11 @@ definition:
     - ref: prompt
       action: core.transform.reshape
       args:
-        value: <alert>${{ inputs.alert }}</alert>
+        value: |
+          <alert>
+          ${{ inputs.input }}
+          </alert>
   returns:
     system_prompt: ${{ steps.system_prompt.result }}
     prompt: ${{ steps.prompt.result }}
+    response_format: ${{ steps.response_format.result }}
