@@ -33,7 +33,6 @@ dependencies = [
     "ldap3==2.9.1",
     "nh3==0.2.18",
     "fpdf2==2.8.2",
-    "pycti==6.6.3",
     "pymongo==4.8.0",
     "slack-sdk==3.28.0",
     "tenacity==8.3.0",
