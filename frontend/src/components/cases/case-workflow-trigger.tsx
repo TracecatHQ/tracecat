@@ -195,6 +195,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
                     id="group-fields-toggle"
                     checked={groupCaseFields}
                     onCheckedChange={setGroupCaseFields}
+                    className="ring-0 focus:ring-0 focus-visible:ring-0"
                   />
                   <Label htmlFor="group-fields-toggle" className="text-xs">
                     Group case fields
