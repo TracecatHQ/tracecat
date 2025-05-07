@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "openapi-pydantic==0.5.1",
+#     "pyyaml==6.0.2",
+#     "tracecat",
+#     "tracecat_registry",
+# ]
+# [tool.uv.sources]
+# tracecat = { path = "../" }
+# tracecat_registry = { path = "../registry" }
+# ///
 """
 OpenAPI to Tracecat Action Templates Generator
 
@@ -7,6 +19,7 @@ It creates a template action for each operation in the OpenAPI spec, with approp
 input schemas, HTTP steps, and documentation links.
 
 Usage:
+    # Installs dependencies
     uv run openapi_to_template.py --input openapi.json --output-dir templates/ --config gen_template_config.yaml
 
 Tested with msgraph, sentinelone, and jira.
