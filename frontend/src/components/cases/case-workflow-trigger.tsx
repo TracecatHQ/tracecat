@@ -55,9 +55,9 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
     null
   )
   // Use the useLocalStorage hook
-  const [flattenCaseFields, setFlattenCaseFields] = useLocalStorage(
-    "flattenCaseFields",
-    true
+  const [groupCaseFields, setGroupCaseFields] = useLocalStorage(
+    "groupCaseFields",
+    false
   )
 
   const { createExecution, createExecutionIsPending } =
@@ -68,17 +68,17 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
         .filter((field) => !field.reserved)
         .map((field) => [field.id, field.value])
     )
-    if (flattenCaseFields) {
+    if (groupCaseFields) {
       return {
         case_id: caseData.id,
-        ...fields,
+        case_fields: fields,
       }
     }
     return {
       case_id: caseData.id,
-      case_fields: fields,
+      ...fields,
     }
-  }, [caseData, flattenCaseFields])
+  }, [caseData, groupCaseFields])
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
 
   const selectedWorkflowUrl = `/workspaces/${workspaceId}/workflows/${selectedWorkflowId}`
@@ -192,12 +192,12 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
                 </TooltipProvider>
                 <div className="mt-4 flex items-center space-x-2">
                   <Switch
-                    id="flatten-fields-toggle"
-                    checked={flattenCaseFields}
-                    onCheckedChange={setFlattenCaseFields}
+                    id="group-fields-toggle"
+                    checked={groupCaseFields}
+                    onCheckedChange={setGroupCaseFields}
                   />
-                  <Label htmlFor="flatten-fields-toggle" className="text-xs">
-                    Pass case fields as top-level keys
+                  <Label htmlFor="group-fields-toggle" className="text-xs">
+                    Group case fields
                   </Label>
                 </div>
               </AlertDialogDescription>
