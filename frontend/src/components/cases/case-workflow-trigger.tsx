@@ -24,7 +24,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -34,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { JsonViewWithControls } from "@/components/json-viewer"
@@ -57,7 +57,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
   // Use the useLocalStorage hook
   const [flattenCaseFields, setFlattenCaseFields] = useLocalStorage(
     "flattenCaseFields",
-    false
+    true
   )
 
   const { createExecution, createExecutionIsPending } =
@@ -191,7 +191,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
                   />
                 </TooltipProvider>
                 <div className="mt-4 flex items-center space-x-2">
-                  <Checkbox
+                  <Switch
                     id="flatten-fields-toggle"
                     checked={flattenCaseFields}
                     onCheckedChange={setFlattenCaseFields}
