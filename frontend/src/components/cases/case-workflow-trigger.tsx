@@ -8,6 +8,7 @@ import { PlayIcon, SquareArrowOutUpRightIcon } from "lucide-react"
 
 import {
   useCreateManualWorkflowExecution,
+  useLocalStorage,
   useWorkflowManager,
 } from "@/lib/hooks"
 import {
@@ -23,6 +24,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -51,19 +54,31 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null
   )
+  // Use the useLocalStorage hook
+  const [flattenCaseFields, setFlattenCaseFields] = useLocalStorage(
+    "flattenCaseFields",
+    false
+  )
+
   const { createExecution, createExecutionIsPending } =
     useCreateManualWorkflowExecution(selectedWorkflowId || "")
-  const triggerInputs = useMemo(
-    () => ({
+  const triggerInputs = useMemo(() => {
+    const fields = Object.fromEntries(
+      caseData.fields
+        .filter((field) => !field.reserved)
+        .map((field) => [field.id, field.value])
+    )
+    if (flattenCaseFields) {
+      return {
+        case_id: caseData.id,
+        ...fields,
+      }
+    }
+    return {
       case_id: caseData.id,
-      case_fields: Object.fromEntries(
-        caseData.fields
-          .filter((field) => !field.reserved)
-          .map((field) => [field.id, field.value])
-      ),
-    }),
-    [caseData]
-  )
+      case_fields: fields,
+    }
+  }, [caseData, flattenCaseFields])
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
 
   const selectedWorkflowUrl = `/workspaces/${workspaceId}/workflows/${selectedWorkflowId}`
@@ -175,6 +190,16 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
                     defaultExpanded
                   />
                 </TooltipProvider>
+                <div className="mt-4 flex items-center space-x-2">
+                  <Checkbox
+                    id="flatten-fields-toggle"
+                    checked={flattenCaseFields}
+                    onCheckedChange={setFlattenCaseFields}
+                  />
+                  <Label htmlFor="flatten-fields-toggle" className="text-xs">
+                    Pass case fields as top-level keys
+                  </Label>
+                </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
