@@ -1,0 +1,9 @@
+---
+description:
+globs: *.py
+alwaysApply: false
+---
+---
+globs: *.py
+---
+- Always use python 3.11+ type hints. This means prefer using builtin types (e.g. `list`, `dict`, `set`) for type hints over the equivalent types from the `typing` module.
