@@ -26,7 +26,7 @@ definition:
       args:
         prompt: ${{ inputs.prompt }}
         dispatch_action: true
-    - ref: ask_input
+    - ref: post_message
       action: tools.slack_sdk.call_method
       args:
         sdk_method: chat_postMessage
@@ -43,4 +43,4 @@ definition:
           thread_ts: ${{ inputs.thread_ts }}
           blocks:
             - ${{ steps.text_input_block.result }}
-  returns: ${{ steps.ask_input.result.message }}
+  returns: ${{ steps.post_message.result.message }}
