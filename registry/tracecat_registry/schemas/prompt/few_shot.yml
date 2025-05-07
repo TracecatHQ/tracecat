@@ -1,0 +1,20 @@
+# Schema for a one-shot prompt action
+# Returns `system_prompt` and `prompt` to pass into any LLM provider.
+
+# NOTE: Follows convention from https://docs.crewai.com/concepts/agents
+# and https://docs.crewai.com/concepts/tasks
+input:
+  type: any
+  description: Input to the prompt.
+backstory:
+  type: str
+  description: Provides context and personality to the agent.
+role:
+  type: str
+  description: Defines the function and expertise of the agent.
+example_responses:
+  type: list[any] | None
+  description: >
+    Example responses from the agent.
+    Must define at least one example response in a `few_shot` step.
+  default: null
