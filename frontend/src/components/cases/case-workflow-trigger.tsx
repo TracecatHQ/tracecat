@@ -8,6 +8,7 @@ import { PlayIcon, SquareArrowOutUpRightIcon } from "lucide-react"
 
 import {
   useCreateManualWorkflowExecution,
+  useLocalStorage,
   useWorkflowManager,
 } from "@/lib/hooks"
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -31,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { JsonViewWithControls } from "@/components/json-viewer"
@@ -51,19 +54,31 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null
   )
+  // Use the useLocalStorage hook
+  const [groupCaseFields, setGroupCaseFields] = useLocalStorage(
+    "groupCaseFields",
+    false
+  )
+
   const { createExecution, createExecutionIsPending } =
     useCreateManualWorkflowExecution(selectedWorkflowId || "")
-  const triggerInputs = useMemo(
-    () => ({
+  const triggerInputs = useMemo(() => {
+    const fields = Object.fromEntries(
+      caseData.fields
+        .filter((field) => !field.reserved)
+        .map((field) => [field.id, field.value])
+    )
+    if (groupCaseFields) {
+      return {
+        case_id: caseData.id,
+        case_fields: fields,
+      }
+    }
+    return {
       case_id: caseData.id,
-      case_fields: Object.fromEntries(
-        caseData.fields
-          .filter((field) => !field.reserved)
-          .map((field) => [field.id, field.value])
-      ),
-    }),
-    [caseData]
-  )
+      ...fields,
+    }
+  }, [caseData, groupCaseFields])
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
 
   const selectedWorkflowUrl = `/workspaces/${workspaceId}/workflows/${selectedWorkflowId}`
@@ -175,6 +190,17 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
                     defaultExpanded
                   />
                 </TooltipProvider>
+                <div className="mt-4 flex items-center space-x-2">
+                  <Switch
+                    id="group-fields-toggle"
+                    checked={groupCaseFields}
+                    onCheckedChange={setGroupCaseFields}
+                    className="ring-0 focus:ring-0 focus-visible:ring-0"
+                  />
+                  <Label htmlFor="group-fields-toggle" className="text-xs">
+                    Group case fields
+                  </Label>
+                </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
