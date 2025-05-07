@@ -760,7 +760,7 @@ def process_operation(  # Added type hints from openapi-pydantic
         secrets=final_action_secrets,  # Pass the converted list
         expects=final_expects,
         steps=[http_step],
-        returns="${{ steps.http_call.result }}",
+        returns="${{ steps.http_call.result.data }}",
         # Apply other overrides if they exist in the config and are part of TemplateActionDefinition
         # Note: TemplateActionDefinition.deprecated might expect a string by some linters/definitions.
         # Here, we assume a boolean from config is acceptable, or it should be a string in gen-config.yaml.
