@@ -19,10 +19,10 @@
 
 </div>
 
-[Tracecat](https://tracecat.com) is a modern, open source workflow automation platform built for security and IT engineers. Simple YAML-based templates for integrations with a no-code UI for workflows.
-Executed using Temporal for scale and reliability.
-
-We're on a mission to make security and IT automation more accessible through **response-as-code**. What Sigma rules did for detection, YARA for malware research, and Nuclei did for vulnerabilities, Tracecat is doing for response automation.
+[Tracecat](https://tracecat.com) is a modern, open source automation platform built for security and IT engineers.
+Simple YAML-based templates for integrations with a no-code UI for workflows.
+Built-in lookup tables and case management.
+Orchestrated using Temporal for scale and reliability.
 
 ## Getting Started
 
@@ -76,9 +76,8 @@ Have questions? Feedback? New integration ideas? Come hang out with us in the [T
 ![Tracecat Registry](img/tracecat-template.svg)
 
 Tracecat Registry is a collection of integration and response-as-code templates.
-Response actions are organized into [MITRE D3FEND](https://d3fend.mitre.org/) categories (`detect`, `isolate`, `evict`, `restore`, `harden`, `model`) and Tracecat's own ontology of capabilities (e.g. `list_alerts`, `list_cases`, `list_users`). Template inputs (e.g. `start_time`, `end_time`) are normalized to fit the [Open Cyber Security Schema (OCSF)](https://schema.ocsf.io/) ontology where possible.
-
-The future of response automation should be self-serve, where teams rapidly link common capabilities (e.g. `list_alerts` -> `enrich_ip_address` -> `block_ip_address`) into workflows.
+Response actions are organized into Tracecat's own ontology of common capabilities (e.g. `list_alerts`, `list_cases`, `list_users`).
+Template inputs (e.g. `start_time`, `end_time`) are normalized to fit the [Open Cyber Security Schema (OCSF)](https://schema.ocsf.io/) ontology where possible.
 
 **Examples**
 
