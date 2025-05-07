@@ -328,6 +328,56 @@ def list_kubernetes_secrets(namespace: str, kubeconfig_base64: str) -> list[str]
     return secret_names
 
 
+### Log operations
+
+
+def get_kubernetes_pod_logs(
+    pod: str,
+    namespace: str,
+    kubeconfig_base64: str,
+    container: str | None = None,
+    tail_lines: int = 10,
+) -> str:
+    """Get logs from a given pod.
+
+    Args:
+        pod : str
+            Name of the pod to get logs from.
+        namespace : str
+            Namespace of the pod.
+        kubeconfig_base64 : str
+            Base64 encoded kubeconfig YAML file. Required for security isolation.
+        container : str | None
+            Name of the container to get logs from. If not provided, the first
+            container in the pod will be used.
+        tail_lines : int
+            Number of lines to tail from the end of the logs.
+
+    Returns:
+        str: Logs from the pod.
+
+    Raises:
+        PermissionError: If trying to access current namespace
+        ValueError: If invalid pod or container
+    """
+    logger.info(
+        "Getting kubernetes pod logs", pod=pod, namespace=namespace, container=container
+    )
+    _validate_namespace(namespace)
+    client = _get_kubernetes_client(kubeconfig_base64)
+
+    kwargs = {
+        "name": pod,
+        "namespace": namespace,
+        "container": container,
+        "tail_lines": tail_lines,
+    }
+    logs = client.read_namespaced_pod_log(**kwargs)
+
+    logger.info("Successfully got pod logs", **kwargs)
+    return logs
+
+
 ### Run operations
 
 
@@ -337,6 +387,8 @@ def run_kubectl_command(
     kubeconfig_base64: str,
     dry_run: bool = False,
     stdin: str | None = None,
+    args: list[str] | None = None,
+    timeout: int = 60,
 ) -> dict[str, str | int]:
     """Run a kubectl command."""
     _validate_namespace(namespace)
@@ -345,28 +397,41 @@ def run_kubectl_command(
     if isinstance(command, str):
         command = shlex.split(command)
 
+    _validate_namespace(namespace)
+    _get_kubernetes_client(kubeconfig_base64)
+
     kubeconfig_yaml = _decode_kubeconfig(kubeconfig_base64, as_yaml=True)
     with tempfile.TemporaryDirectory() as temp_dir:
         kubeconfig_path = pathlib.Path(temp_dir) / "kubeconfig.yaml"
         with open(kubeconfig_path, "w") as f:
             f.write(kubeconfig_yaml)
 
-        args = ["kubectl", "--kubeconfig", kubeconfig_path]
+        _args = ["kubectl", "--kubeconfig", kubeconfig_path.as_posix()]
         if dry_run:
-            args.append("--dry-run=client")
+            _args.append("--dry-run=client")
         # Add namespace to command
-        args.extend(["--namespace", namespace])
+        _args.extend(["--namespace", namespace])
         # Add command
-        args.extend(command)
+        _args.extend(command)
+
+        # If additional args are provided, add them to the command
+        if args:
+            _args.extend(args)
+
+        logger.info("Running kubectl command", command=_args, stdin=stdin)
 
         output = subprocess.run(
-            args,
+            _args,
             check=False,
             capture_output=True,
             text=True,
             shell=False,
             input=stdin,
+            timeout=timeout,
         )
+
+        logger.info("Successfully ran kubectl command", command=_args, stdin=stdin)
+
         return {
             "stdout": output.stdout,
             "stderr": output.stderr,

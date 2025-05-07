@@ -1,6 +1,7 @@
 from tracecat.ee.sandbox.kubernetes import (
-    list_kubernetes_pods,
+    get_kubernetes_pod_logs,
     list_kubernetes_containers,
+    list_kubernetes_pods,
     list_kubernetes_pvc,
     list_kubernetes_secrets,
     run_kubectl_command,
@@ -83,6 +84,28 @@ def list_secrets(
 
 
 @registry.register(
+    default_title="Get pod logs",
+    description="Get logs from a given pod.",
+    display_group="Kubernetes",
+    doc_url="https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#logs",
+    namespace="ee.kubernetes",
+    secrets=[kubernetes_secret],
+)
+def get_logs(
+    pod: Annotated[str, Doc("Pod to get logs from.")],
+    namespace: Annotated[str, Doc("Namespace to get logs from.")],
+    container: Annotated[str | None, Doc("Container to get logs from.")] = None,
+    tail_lines: Annotated[
+        int, Doc("Number of lines to return from the end of the logs.")
+    ] = 10,
+) -> str:
+    kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
+    return get_kubernetes_pod_logs(
+        pod, namespace, kubeconfig_base64, container, tail_lines
+    )
+
+
+@registry.register(
     default_title="Run kubectl command",
     description="Run a kubectl command on a Kubernetes cluster.",
     display_group="Kubernetes",
@@ -99,8 +122,18 @@ def run_command(
     stdin: Annotated[
         str | None, Doc("Optional string to pass to the command's standard input.")
     ] = None,
+    args: Annotated[
+        list[str] | None, Doc("Additional arguments to pass to the command.")
+    ] = None,
+    timeout: Annotated[int, Doc("Timeout for the command in seconds.")] = 60,
 ) -> dict[str, str | int]:
     kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
     return run_kubectl_command(
-        command, namespace, kubeconfig_base64, dry_run=dry_run, stdin=stdin
+        command,
+        namespace,
+        kubeconfig_base64,
+        dry_run=dry_run,
+        stdin=stdin,
+        args=args,
+        timeout=timeout,
     )

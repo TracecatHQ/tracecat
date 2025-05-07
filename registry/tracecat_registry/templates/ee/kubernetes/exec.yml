@@ -11,7 +11,7 @@ definition:
       type: str
       description: Name of the pod to execute the command in.
     command:
-      type: str
+      type: list[str]
       description: Command to execute in the pod.
     namespace:
       type: str
@@ -33,5 +33,5 @@ definition:
           - ${{ inputs.container || "" }}
           - "--"
         namespace: ${{ inputs.namespace }}
-        stdin: ${{ inputs.command }}
+        args: ${{ inputs.command }}
   returns: ${{ steps.exec_command.result }}
