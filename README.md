@@ -19,10 +19,10 @@
 
 </div>
 
-[Tracecat](https://tracecat.com) is a modern, open source workflow automation platform built for security and IT engineers. Simple YAML-based templates for integrations with a no-code UI for workflows.
-Executed using Temporal for scale and reliability.
-
-We're on a mission to make security and IT automation more accessible through **response-as-code**. What Sigma rules did for detection, YARA for malware research, and Nuclei did for vulnerabilities, Tracecat is doing for response automation.
+[Tracecat](https://tracecat.com) is a modern, open source automation platform built for security and IT engineers.
+Simple YAML-based templates for integrations with a no-code UI for workflows.
+Built-in lookup tables and case management.
+Orchestrated using Temporal for scale and reliability.
 
 ## Getting Started
 
