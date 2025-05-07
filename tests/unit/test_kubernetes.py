@@ -120,9 +120,17 @@ def test_decode_kubeconfig_as_dict(current_kubeconfig):
     assert isinstance(decoded, dict)
     assert decoded["apiVersion"] == "v1"
     assert len(decoded["clusters"]) == 1
-    assert decoded["clusters"][0]["name"] in ["kubernetes", "orbstack"]
+    assert decoded["clusters"][0]["name"] in [
+        "kind-tracecat-ci",
+        "kubernetes",
+        "orbstack",
+    ]
     assert len(decoded["contexts"]) == 1
-    assert decoded["contexts"][0]["name"] in ["kubernetes", "orbstack"]
+    assert decoded["contexts"][0]["name"] in [
+        "kind-tracecat-ci",
+        "kubernetes",
+        "orbstack",
+    ]
 
 
 def test_decode_kubeconfig_as_yaml(current_kubeconfig):
@@ -134,9 +142,17 @@ def test_decode_kubeconfig_as_yaml(current_kubeconfig):
     parsed = yaml.safe_load(decoded)
     assert parsed["apiVersion"] == "v1"
     assert len(parsed["clusters"]) == 1
-    assert parsed["clusters"][0]["name"] in ["kubernetes", "orbstack"]
+    assert parsed["clusters"][0]["name"] in [
+        "kind-tracecat-ci",
+        "kubernetes",
+        "orbstack",
+    ]
     assert len(parsed["contexts"]) == 1
-    assert parsed["contexts"][0]["name"] in ["kubernetes", "orbstack"]
+    assert parsed["contexts"][0]["name"] in [
+        "kind-tracecat-ci",
+        "kubernetes",
+        "orbstack",
+    ]
 
 
 def test_decode_kubeconfig_invalid_empty():
