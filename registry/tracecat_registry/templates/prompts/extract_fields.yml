@@ -220,8 +220,15 @@ definition:
           - Your analysis should be critical, considering the provided backstory and your role.
           - If `is_potential_ioc` is true, you MUST provide an `ioc_type`.
           - `reasoning` should explain the significance of the field itself and why it might be relevant for investigation, without detailing *how* to investigate.
-          - Ensure your output is formatted as JSON that strictly adheres to the schema defined in the `response_format` step.
+          - Ensure your output is formatted as JSON that strictly adheres to the schema presented in the `<response_schema>` section.
           </guidance>
+
+          <response_schema>
+          Your output must be a single JSON object matching the following schema:
+          ```json
+          ${{ steps.response_format.result }}
+          ```
+          </response_schema>
 
           <examples>
           Here are some examples of how to structure your response based on different alerts:

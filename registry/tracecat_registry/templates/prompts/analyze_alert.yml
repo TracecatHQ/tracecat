@@ -189,6 +189,13 @@ definition:
           - Your output must be formatted as JSON.
           </guidance>
 
+          <response_schema>
+          Your response must be a single JSON object strictly adhering to the following schema:
+          ```json
+          ${{ steps.response_format.result }}
+          ```
+          </response_schema>
+
           <examples>
           ${{ inputs.example_responses || steps.few_shot.result }}
           </examples>
