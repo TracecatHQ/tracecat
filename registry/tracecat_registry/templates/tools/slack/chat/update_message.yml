@@ -1,44 +1,43 @@
 type: action
 definition:
-  title: Post message
-  description: Post a message to a Slack channel.
+  title: Update message
+  description: Update a message in a Slack channel.
   display_group: Slack
-  doc_url: https://api.slack.com/methods/chat.postMessage
+  doc_url: https://api.slack.com/methods/chat.update
   namespace: tools.slack
-  name: post_message
+  name: update_message
   expects:
     text:
       type: str | None
-      description: The message to post to Slack.
+      description: New text for the message.
       default: null
     channel:
       type: str
-      description: The channel to post the message to.
+      description: ID of the channel to update the message in.
+    ts:
+      type: str
+      description: Timestamp of the message to update.
     blocks:
       type: list[dict[str, any]] | None
       description: List of JSON-based blocks.
       default: null
     markdown_text:
       type: str | None
-      description: The text to post to Slack, in Markdown format.
-      default: null
-    thread_ts:
-      type: str | None
-      description: The timestamp of the thread to reply to.
+      description: The text to update the message with, in Markdown format.
       default: null
   steps:
-    - ref: post_message
+    - ref: update_message
       action: tools.slack_sdk.call_method
       args:
-        sdk_method: chat_postMessage
+        sdk_method: chat_update
         params:
           channel: ${{ inputs.channel }}
+          ts: ${{ inputs.ts }}
           text: ${{ inputs.text }}
           blocks: ${{ inputs.blocks }}
           markdown_text: ${{ inputs.markdown_text }}
-          thread_ts: ${{ inputs.thread_ts }}
           metadata:
-            event_type: post_message
+            event_type: update_message
             event_payload:
               interaction_context: ${{ FN.get_interaction() }}
-  returns: ${{ steps.post_message.result.message }}
+  returns: ${{ steps.update_message.result.message }}
