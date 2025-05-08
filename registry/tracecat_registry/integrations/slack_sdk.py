@@ -226,7 +226,7 @@ def format_buttons(
         Field(
             ...,
             description=(
-                "List of JSONs with `text` and `value` with `style` (optional) or `url` keys."
+                "List of JSONs with `text`, `action_id` (optional), and `value` with `style` (optional) or `url` keys."
                 " See examples: https://api.slack.com/reference/block-kit/block-elements#button__examples"
             ),
         ),
@@ -254,7 +254,6 @@ def format_buttons(
                 raise ValueError(
                     f"Expected `text` and `url` keys in button. Got button: {button}"
                 ) from e
-            elements.append(element)
         else:
             try:
                 element = {
@@ -272,7 +271,11 @@ def format_buttons(
                 ) from e
             if "style" in button:
                 element["style"] = button["style"]
-            elements.append(element)
+
+        if "action_id" in button:
+            element["action_id"] = button["action_id"]
+
+        elements.append(element)
     block = {"type": "actions", "elements": elements, "block_id": block_id}
     return block
 
