@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Set channel description
+  description: Set the description of a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/conversations.setPurpose
+  namespace: tools.slack
+  name: set_channel_description
+  expects:
+    channel:
+      type: str
+      description: The ID of the channel to set the description for.
+    description:
+      type: str
+      description: The description to set for the channel.
+  steps:
+    - ref: set_description
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: conversations_setPurpose
+        params:
+          channel: ${{ inputs.channel }}
+          purpose: ${{ inputs.description }}
+  returns: ${{ steps.set_description.result }}

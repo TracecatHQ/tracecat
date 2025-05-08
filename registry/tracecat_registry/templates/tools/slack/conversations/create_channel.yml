@@ -1,27 +1,15 @@
 type: action
 definition:
   title: Create channel
-  description: Create a new Slack channel and update the channel description and topic.
+  description: Create a new Slack channel.
   display_group: Slack
   doc_url: https://api.slack.com/methods/conversations.create
-  # Along with:
-  # - https://docs.slack.dev/reference/methods/conversations.invite
-  # - https://docs.slack.dev/reference/methods/conversations.setTopic
-  # - https://docs.slack.dev/reference/methods/conversations.setPurpose
   namespace: tools.slack
   name: create_channel
   expects:
     name:
       type: str
       description: Name of the channel to create.
-    description:
-      type: str | None
-      description: Channel description AKA purpose.
-      default: null
-    topic:
-      type: str | None
-      description: Channel topic.
-      default: null
     is_private:
       type: bool
       description: Whether the channel is private.
@@ -34,18 +22,4 @@ definition:
         params:
           name: ${{ inputs.name }}
           is_private: ${{ inputs.is_private }}
-    - ref: set_description
-      action: tools.slack_sdk.call_method
-      args:
-        sdk_method: conversations_setPurpose
-        params:
-          channel: ${{ steps.create_channel.result.channel.id }}
-          purpose: ${{ inputs.description || "" }}
-    - ref: set_topic
-      action: tools.slack_sdk.call_method
-      args:
-        sdk_method: conversations_setTopic
-        params:
-          channel: ${{ steps.create_channel.result.channel.id }}
-          topic: ${{ inputs.topic || "" }}
   returns: ${{ steps.create_channel.result }}
