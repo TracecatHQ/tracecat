@@ -20,5 +20,5 @@ definition:
         sdk_method: conversations_invite
         params:
           channel: ${{ inputs.channel }}
-          users: ${{ inputs.users }}
+          users: ${{ FN.join(inputs.users, ",") }}
   returns: ${{ steps.invite_users.result }}
