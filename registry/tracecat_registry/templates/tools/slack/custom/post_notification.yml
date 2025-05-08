@@ -58,11 +58,12 @@ definition:
       args:
         value:
           - type: divider
-          - type: section
+          - type: header
             block_id: summary
             text:
-              type: mrkdwn
+              type: plain_text
               text: ${{ inputs.summary }}
+              emoji: true
           - type: section
             block_id: description
             text:
@@ -81,6 +82,7 @@ definition:
           text: ${{ inputs.summary }}
           thread_ts: ${{ inputs.thread_ts }}
           blocks: ${{ steps.blocks.result }}
+          unfurl_links: false
           metadata:
             event_type: notification
             event_payload:

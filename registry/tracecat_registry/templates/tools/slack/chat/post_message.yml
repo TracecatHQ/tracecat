@@ -22,6 +22,14 @@ definition:
       type: str | None
       description: The text to post to Slack, in Markdown format.
       default: null
+    unfurl_links:
+      type: bool
+      description: Whether to unfurl links in the message.
+      default: true
+    unfurl_media:
+      type: bool
+      description: Whether to unfurl media in the message.
+      default: false
     thread_ts:
       type: str | None
       description: The timestamp of the thread to reply to.
@@ -36,6 +44,8 @@ definition:
           text: ${{ inputs.text }}
           blocks: ${{ inputs.blocks }}
           markdown_text: ${{ inputs.markdown_text }}
+          unfurl_links: ${{ inputs.unfurl_links }}
+          unfurl_media: ${{ inputs.unfurl_media }}
           thread_ts: ${{ inputs.thread_ts }}
           metadata:
             event_type: post_message
