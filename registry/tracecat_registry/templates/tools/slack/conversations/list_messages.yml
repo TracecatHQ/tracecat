@@ -15,8 +15,9 @@ definition:
       description: Unix timestamp of the latest message to return.
       default: null
     oldest:
-      type: str
+      type: str | None
       description: Unix timestamp of the oldest message to return.
+      default: null
     limit:
       type: int
       description: Maximum number of messages to return.
