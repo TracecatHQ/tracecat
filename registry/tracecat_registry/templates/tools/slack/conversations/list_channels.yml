@@ -7,6 +7,10 @@ definition:
   namespace: tools.slack
   name: list_channels
   expects:
+    exclude_archived:
+      type: bool
+      description: Whether to exclude archived channels from the list.
+      default: false
     types:
       type: list[str]
       description: Types of channels to return.
@@ -21,6 +25,7 @@ definition:
       args:
         sdk_method: conversations_list
         params:
+          exclude_archived: ${{ inputs.exclude_archived }}
           types: ${{ inputs.types }}
         limit: ${{ inputs.limit }}
   returns: ${{ steps.list_channels.result }}
