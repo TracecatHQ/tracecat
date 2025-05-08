@@ -42,7 +42,7 @@ definition:
       default: null
   steps:
     - ref: fields_block
-      action: tools.slack_blocks.format_fields_context
+      action: tools.slack_blocks.format_fields
       args:
         fields: ${{ inputs.fields }}
     - ref: buttons_block
