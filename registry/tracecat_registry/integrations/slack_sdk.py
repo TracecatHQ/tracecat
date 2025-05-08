@@ -5,6 +5,8 @@ from typing import Annotated, Any, cast
 from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
+from slack_sdk.webhook.async_client import AsyncWebhookClient
+from typing import Literal
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
@@ -331,3 +333,55 @@ def format_text_input(
         "block_id": block_id,
     }
     return block
+
+
+### Webhook client for response_url
+
+
+@registry.register(
+    default_title="Post response",
+    description="Post messsage back to Slack interaction via `response_url`.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/interactivity/handling#message_responses",
+    namespace="tools.slack_sdk",
+)
+async def post_response(
+    url: Annotated[str, Field(..., description="Webhook URL.")],
+    text: Annotated[
+        str | None,
+        Field(..., description="Text to send to the webhook."),
+    ] = None,
+    blocks: Annotated[
+        list[dict[str, Any]] | None,
+        Field(..., description="Blocks to send to the webhook."),
+    ] = None,
+    response_type: Annotated[
+        Literal["in_channel", "ephemeral"],
+        Field(..., description="Response type. Defaults to `ephemeral`."),
+    ] = "ephemeral",
+    replace_original: Annotated[
+        bool,
+        Field(..., description="Whether to replace the original message."),
+    ] = False,
+    thread_ts: Annotated[
+        str | None,
+        Field(
+            ...,
+            description="Thread timestamp. If None, defaults to the current timestamp.",
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    client = AsyncWebhookClient(url=url)
+    body = {
+        "text": text,
+        "blocks": blocks,
+        "response_type": response_type,
+        "replace_original": replace_original,
+    }
+    if thread_ts:
+        body["thread_ts"] = thread_ts
+    response = await client.send_dict(body)
+    return {
+        "status_code": response.status_code,
+        "body": response.body,
+    }
