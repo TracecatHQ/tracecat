@@ -147,6 +147,7 @@ services:
       ]
 
   ui:
+    # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.34.3}
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -155,6 +156,10 @@ services:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
         NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
         NODE_ENV: ${NODE_ENV}
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/.next:/app/.next
+      - ./frontend/node_modules:/app/node_modules
     container_name: ui
     restart: unless-stopped
     ports:
@@ -168,10 +173,6 @@ services:
       NODE_ENV: ${NODE_ENV}
     depends_on:
       - api
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/.next:/app/.next
-      - ./frontend/node_modules:/app/node_modules
     attach: false
 
   postgres_db:
