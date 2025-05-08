@@ -737,11 +737,11 @@ def weeks_between(start: datetime | str, end: datetime | str) -> float:
     return (end - start).total_seconds() / 604800
 
 
-def to_isoformat(x: datetime | str) -> str:
+def to_isoformat(x: datetime | str, timespec: str = "auto") -> str:
     """Convert datetime to ISO format string."""
     if isinstance(x, str):
         x = to_datetime(x)
-    return x.isoformat()
+    return x.isoformat(timespec=timespec)
 
 
 def now() -> datetime:
@@ -751,7 +751,9 @@ def now() -> datetime:
 
 def utcnow() -> datetime:
     """Return the current timezone-aware datetime."""
-    return datetime.now(UTC)
+    return datetime.now(
+        UTC,
+    )
 
 
 def today() -> date:
