@@ -14,10 +14,10 @@ definition:
       type: str
       description: Short description of the event. Supports Markdown.
     fields:
-      type: list[dict[str, any]]
+      type: list[dict[str, str]]
       description: >-
-        List of fields to display in the update (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
-        Include an `image_url` key per field to display an image (e.g. `[{"user": "chris@tracecat.com", "image_url": "https://example.com/image.png"}]`).
+        List of JSONs with `field`, `value`, and `image_url` (optional) keys.
+        (e.g. `[{"field": "user", "value": "chris@tracecat.com", "image_url": "https://example.com/image.png"}]`).
     channel:
       type: str
       description: ID that represents a channel, private group, or IM channel.
