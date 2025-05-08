@@ -115,7 +115,7 @@ def format_fields(
         Field(..., description="Block ID. If None, defaults to `tc_fields`."),
     ] = None,
 ) -> dict[str, Any]:
-    fields_str = "\n".join([f">*{x['field']}*: {x['value']}" for x in fields])
+    fields_str = "\n".join([f"> *{x['field']}*: {x['value']}" for x in fields])
     block_id = block_id or "tc_fields"
     block = {
         "type": "section",
@@ -151,23 +151,22 @@ def format_fields_context(
     block_id = block_id or "tc_fields_context"
     elements = []
     for field in fields:
-        image_url = field.pop("image_url", None)
-        k, v = field.popitem()
-        text = f"{k}: *{v}*"
-        if image_url:
-            elements.append(
+        element = {
+            "type": "mrkdwn",
+            "text": f"*{field['field']}*: {field['value']}",
+        }
+        if "image_url" in field:
+            element = [
                 {
                     "type": "image",
-                    "image_url": image_url,
-                    "alt_text": text,
-                }
-            )
-        elements.append(
-            {
-                "type": "mrkdwn",
-                "text": text,
-            }
-        )
+                    "image_url": field["image_url"],
+                    "alt_text": f"{field['field']} {field['value']}",
+                },
+                element,
+            ]
+            elements.extend(element)
+        else:
+            elements.append(element)
     block = {"type": "context", "elements": elements, "block_id": block_id}
     return block
 
