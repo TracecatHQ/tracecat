@@ -386,6 +386,11 @@ def dict_values(x: dict[Any, Any]) -> list[Any]:
     return list(x.values())
 
 
+def zip_map(x: list[str], y: list[str]) -> dict[str, str]:
+    """Zip two arrays into list of key-value pairs, then convert into mapping."""
+    return dict(zip(x, y, strict=False))
+
+
 def map_dict_keys(x: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
     """Map keys in an object to new keys."""
     try:
@@ -904,6 +909,7 @@ _FUNCTION_MAPPING = {
     "not_empty": not_empty,
     "not_in": not_in,
     "unique": unique,
+    "zip_map": zip_map,  # Inspired by Terraform: https://developer.hashicorp.com/terraform/language/functions/zipmap
     # Math
     "add": add,
     "sub": sub,
