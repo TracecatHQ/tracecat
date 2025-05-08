@@ -16,16 +16,23 @@ definition:
       type: str
       description: Detailed description of the notification. Supports Markdown.
     fields:
-      type: list[dict[str, any]]
+      type: list[dict[str, str]]
       description: >-
-        List of fields to display in the notification
-        (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
-    choices:
-      type: list[str]
-      description: List of possible boolean choices for user to take (e.g. "Confirm", "Deny").
+        List of fields to display in the notification.
+        Each field is a JSON with `field` and `value` keys.
+        (e.g. `[{"field": "user", "value": "chris@tracecat.com"}, {"field": "role", "value": "admin"}]`).
+    buttons:
+      type: list[dict[str, str]]
+      description: >-
+        List of possible boolean choices for user to take.
+        Each button is a JSON with `text` and `value` keys.
+        (e.g. `[{"text": "Confirm", "value": "confirm"}, {"text": "Deny", "value": "deny"}]`).
     links:
-      type: list[str]
-      description: Links to add to the notification.
+      type: list[dict[str, str]]
+      description: >-
+        List of links to add to the notification.
+        Each link is a JSON with `url` and `text` keys.
+        (e.g. `[{"url": "https://www.google.com", "text": "Google"}, {"url": "https://www.yahoo.com", "text": "Yahoo"}]`).
     channel:
       type: str
       description: ID that represents a channel, private group, or IM channel.
@@ -38,10 +45,10 @@ definition:
       action: tools.slack_blocks.format_fields_context
       args:
         fields: ${{ inputs.fields }}
-    - ref: choices_block
-      action: tools.slack_blocks.format_choices
+    - ref: buttons_block
+      action: tools.slack_blocks.format_buttons
       args:
-        labels: ${{ inputs.choices }}
+        buttons: ${{ inputs.buttons }}
     - ref: links_block
       action: tools.slack_blocks.format_links
       args:
@@ -55,7 +62,7 @@ definition:
             block_id: summary
             text:
               type: mrkdwn
-              text: "*${{ inputs.summary }}*"
+              text: ${{ inputs.summary }}
           - type: section
             block_id: description
             text:
@@ -63,7 +70,7 @@ definition:
               text: ${{ inputs.description }}
           - ${{ steps.fields_block.result }}
           - type: divider
-          - ${{ steps.choices_block.result }}
+          - ${{ steps.buttons_block.result }}
           - ${{ steps.links_block.result }}
     - ref: post_message
       action: tools.slack_sdk.call_method
