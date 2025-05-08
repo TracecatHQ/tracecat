@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: Update view
+  description: Update a view. Used to update a pop up modal.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/views.update
+  namespace: tools.slack
+  name: update_view
+  expects:
+    view_id:
+      type: str
+      description: ID of the view to update.
+    view:
+      type: list[dict[str, any]]
+      description: >
+        List of blocks to update the view with.
+        See: https://docs.slack.dev/reference/views/modal-views
+  steps:
+    - ref: update_view
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: views_update
+        params:
+          view_id: ${{ inputs.view_id }}
+          view: ${{ inputs.view }}
+          hash: ${{ FN.to_isoformat(FN.utcnow()) }}
+  returns: ${{ steps.update_view.result }}

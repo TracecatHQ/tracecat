@@ -40,4 +40,4 @@ definition:
             event_type: update_message
             event_payload:
               interaction_context: ${{ FN.get_interaction() }}
-  returns: ${{ steps.update_message.result.message }}
+  returns: ${{ steps.update_message.result }}

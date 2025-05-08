@@ -41,4 +41,4 @@ definition:
             event_type: post_message
             event_payload:
               interaction_context: ${{ FN.get_interaction() }}
-  returns: ${{ steps.post_message.result.message }}
+  returns: ${{ steps.post_message.result }}

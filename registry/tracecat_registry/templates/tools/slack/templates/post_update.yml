@@ -56,4 +56,4 @@ definition:
           metadata:
             event_type: update
           blocks: ${{ steps.blocks.result }}
-  returns: ${{ steps.post_message.result.message }}
+  returns: ${{ steps.post_message.result }}

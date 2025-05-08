@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: List channels
+  description: List all channels.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/conversations.list
+  namespace: tools.slack
+  name: list_channels
+  expects:
+    types:
+      type: list[str]
+      description: Types of channels to return.
+      default: ["public_channel", "private_channel"]
+    limit:
+      type: int
+      description: Maximum number of channels to return.
+      default: 100
+  steps:
+    - ref: list_channels
+      action: tools.slack_sdk.call_paginated_method
+      args:
+        sdk_method: conversations_list
+        params:
+          types: ${{ inputs.types }}
+        limit: ${{ inputs.limit }}
+  returns: ${{ steps.list_channels.result }}

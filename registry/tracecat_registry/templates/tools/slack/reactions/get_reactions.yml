@@ -21,4 +21,4 @@ definition:
         params:
           channel: ${{ inputs.channel }}
           timestamp: ${{ inputs.timestamp }}
-  returns: ${{ steps.get_reactions.result.message.reactions }}
+  returns: ${{ steps.get_reactions.result }}

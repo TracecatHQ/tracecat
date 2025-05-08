@@ -1,0 +1,20 @@
+type: action
+definition:
+  title: Get user profile
+  description: Get a user's profile.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/users.profile.get
+  namespace: tools.slack
+  name: get_profile
+  expects:
+    user:
+      type: str
+      description: ID of the user to get the profile of.
+  steps:
+    - ref: get_profile
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: users_profile_get
+        params:
+          user: ${{ inputs.user }}
+  returns: ${{ steps.get_profile.result }}

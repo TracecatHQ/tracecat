@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: List members
+  description: List members of a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/conversations.members
+  namespace: tools.slack
+  name: list_members
+  expects:
+    channel:
+      type: str
+      description: ID of the channel to list members of.
+    limit:
+      type: int
+      description: Maximum number of members to return.
+      default: 100
+  steps:
+    - ref: list_members
+      action: tools.slack_sdk.call_paginated_method
+      args:
+        sdk_method: conversations_members
+        params:
+          channel: ${{ inputs.channel }}
+        limit: ${{ inputs.limit }}
+  returns: ${{ steps.list_members.result }}
