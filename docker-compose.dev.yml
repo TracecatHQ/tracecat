@@ -147,7 +147,6 @@ services:
       ]
 
   ui:
-    # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.34.3}
     build:
       context: ./frontend
       dockerfile: Dockerfile
