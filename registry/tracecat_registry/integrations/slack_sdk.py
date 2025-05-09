@@ -1,12 +1,11 @@
 """Generic interface for Slack SDK."""
 
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 from slack_sdk.webhook.async_client import AsyncWebhookClient
-from typing import Literal
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
