@@ -751,9 +751,7 @@ def now() -> datetime:
 
 def utcnow() -> datetime:
     """Return the current timezone-aware datetime."""
-    return datetime.now(
-        UTC,
-    )
+    return datetime.now(UTC)
 
 
 def today() -> date:
