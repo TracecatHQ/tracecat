@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from temporalio.service import RPCError
 
 from tracecat.contexts import ctx_role
@@ -31,17 +31,21 @@ router = APIRouter(
 )
 
 
-@router.post("")
+# NOTE: Need to set response_model to None to avoid FastAPI trying to parse the response as JSON
+# We need empty status 200 responses for slash command APIs (e.g. Slack)
+@router.post("", response_model=None)
 async def incoming_webhook(
     *,
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
     payload: PayloadDep,
-    echo: bool = Query(
-        default=False, description="Echo the request payload back to the caller"
+    echo: bool = Query(default=False, description="Echo back to the caller"),
+    empty_echo: bool = Query(
+        default=False,
+        description="Return an empty response. Assumes `echo` to be `True`.",
     ),
     request: Request,
-) -> WorkflowExecutionCreateResponse:
+) -> WorkflowExecutionCreateResponse | Response:
     """Webhook endpoint to trigger a workflow.
 
     This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
@@ -59,10 +63,14 @@ async def incoming_webhook(
         trigger_type=TriggerType.WEBHOOK,
     )
     if echo:
+        if empty_echo:
+            return Response(status_code=200)
         try:
             response["payload"] = await request.json()
         except Exception as e:
-            logger.warning("Failed to echo request payload body", error=str(e))
+            logger.warning(
+                "Failed to decode request payload body during echo", error=str(e)
+            )
             response["payload"] = None
     return response
 

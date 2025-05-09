@@ -55,6 +55,8 @@ WEBHOOK_URL=https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-se
   For example, Slack event subscriptions require a `200` response along with a challenge token contained in the webhook payload.
 
   Add the query parameter `echo=true` to the webhook URL to echo the webhook payload back to the server.
+  By default, we return the workflow context (e.g. `execution_id`) as the response to the webhook POST request.
+  To return an empty response with status code 200, set the query parameter `empty_echo=true`.
 
   ```bash
   https://${WEBHOOK_URL}?echo=true

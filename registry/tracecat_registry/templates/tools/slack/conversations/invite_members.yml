@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Invite members to channel
+  description: Invite members to a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/conversations.invite
+  namespace: tools.slack
+  name: invite_members
+  expects:
+    channel:
+      type: str
+      description: ID of the channel to invite members to.
+    users:
+      type: list[str]
+      description: List of user IDs to invite to the channel.
+  steps:
+    - ref: invite_users
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: conversations_invite
+        params:
+          channel: ${{ inputs.channel }}
+          users: ${{ FN.join(inputs.users, ",") }}
+  returns: ${{ steps.invite_users.result }}

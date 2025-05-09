@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Kick member
+  description: Kick a member from a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/conversations.kick
+  namespace: tools.slack
+  name: kick_member
+  expects:
+    channel:
+      type: str
+      description: ID of the channel to kick members from.
+    user:
+      type: str
+      description: ID of the user to kick from the channel.
+  steps:
+    - ref: kick_member
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: conversations_kick
+        params:
+          channel: ${{ inputs.channel }}
+          user: ${{ inputs.user }}
+  returns: ${{ steps.kick_member.result }}

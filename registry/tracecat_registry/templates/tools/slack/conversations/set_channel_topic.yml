@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Set channel topic
+  description: Set the topic of a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/conversations.setTopic
+  namespace: tools.slack
+  name: set_channel_topic
+  expects:
+    channel:
+      type: str
+      description: The ID of the channel to set the topic for.
+    topic:
+      type: str
+      description: The topic to set for the channel.
+  steps:
+    - ref: set_topic
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: conversations_setTopic
+        params:
+          channel: ${{ inputs.channel }}
+          topic: ${{ inputs.topic }}
+  returns: ${{ steps.set_topic.result }}

@@ -8,8 +8,9 @@ definition:
   name: post_message
   expects:
     text:
-      type: str
+      type: str | None
       description: The message to post to Slack.
+      default: null
     channel:
       type: str
       description: The channel to post the message to.
@@ -17,6 +18,18 @@ definition:
       type: list[dict[str, any]] | None
       description: List of JSON-based blocks.
       default: null
+    markdown_text:
+      type: str | None
+      description: The text to post to Slack, in Markdown format.
+      default: null
+    unfurl_links:
+      type: bool
+      description: Whether to unfurl links in the message.
+      default: true
+    unfurl_media:
+      type: bool
+      description: Whether to unfurl media in the message.
+      default: false
     thread_ts:
       type: str | None
       description: The timestamp of the thread to reply to.
@@ -30,9 +43,12 @@ definition:
           channel: ${{ inputs.channel }}
           text: ${{ inputs.text }}
           blocks: ${{ inputs.blocks }}
+          markdown_text: ${{ inputs.markdown_text }}
+          unfurl_links: ${{ inputs.unfurl_links }}
+          unfurl_media: ${{ inputs.unfurl_media }}
           thread_ts: ${{ inputs.thread_ts }}
           metadata:
-            event_type: notification
+            event_type: post_message
             event_payload:
               interaction_context: ${{ FN.get_interaction() }}
-  returns: ${{ steps.post_message.result.message }}
+  returns: ${{ steps.post_message.result }}

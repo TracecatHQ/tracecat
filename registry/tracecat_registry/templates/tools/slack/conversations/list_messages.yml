@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: List messages
+  description: List messages from a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/conversations.history
+  namespace: tools.slack
+  name: list_messages
+  expects:
+    channel:
+      type: str
+      description: ID of the channel to list messages from.
+    latest:
+      type: str | None
+      description: Unix timestamp of the latest message to return.
+      default: null
+    oldest:
+      type: str | None
+      description: Unix timestamp of the oldest message to return.
+      default: null
+    limit:
+      type: int
+      description: Maximum number of messages to return.
+      default: 100
+  steps:
+    - ref: list_messages
+      action: tools.slack_sdk.call_paginated_method
+      args:
+        sdk_method: conversations_history
+        params:
+          channel: ${{ inputs.channel }}
+          latest: ${{ inputs.latest }}
+          oldest: ${{ inputs.oldest }}
+        limit: ${{ inputs.limit }}
+  returns: ${{ steps.list_messages.result }}

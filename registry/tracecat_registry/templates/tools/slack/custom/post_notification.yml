@@ -16,13 +16,23 @@ definition:
       type: str
       description: Detailed description of the notification. Supports Markdown.
     fields:
-      type: list[dict[str, any]]
+      type: list[dict[str, str]]
       description: >-
-        List of fields to display in the notification
-        (e.g. `[{"user": "chris@tracecat.com"}, {"role": "admin"}]`).
+        List of fields to display in the notification.
+        Each field is a JSON with `field` and `value` keys.
+        (e.g. `[{"field": "user", "value": "chris@tracecat.com"}, {"field": "role", "value": "admin"}]`).
+    buttons:
+      type: list[dict[str, str]]
+      description: >-
+        List of possible boolean choices for user to take.
+        Each button is a JSON with `text` and `value` keys.
+        (e.g. `[{"text": "Confirm", "value": "confirm"}, {"text": "Deny", "value": "deny"}]`).
     links:
-      type: list[str]
-      description: Links to add to the notification.
+      type: list[dict[str, str]]
+      description: >-
+        List of links to add to the notification.
+        Each link is a JSON with `url` and `text` keys.
+        (e.g. `[{"url": "https://www.google.com", "text": "Google"}, {"url": "https://www.yahoo.com", "text": "Yahoo"}]`).
     channel:
       type: str
       description: ID that represents a channel, private group, or IM channel.
@@ -32,9 +42,13 @@ definition:
       default: null
   steps:
     - ref: fields_block
-      action: tools.slack_blocks.format_fields_context
+      action: tools.slack_blocks.format_fields
       args:
         fields: ${{ inputs.fields }}
+    - ref: buttons_block
+      action: tools.slack_blocks.format_buttons
+      args:
+        buttons: ${{ inputs.buttons }}
     - ref: links_block
       action: tools.slack_blocks.format_links
       args:
@@ -44,11 +58,12 @@ definition:
       args:
         value:
           - type: divider
-          - type: section
+          - type: header
             block_id: summary
             text:
-              type: mrkdwn
-              text: "*${{ inputs.summary }}*"
+              type: plain_text
+              text: ${{ inputs.summary }}
+              emoji: true
           - type: section
             block_id: description
             text:
@@ -56,6 +71,7 @@ definition:
               text: ${{ inputs.description }}
           - ${{ steps.fields_block.result }}
           - type: divider
+          - ${{ steps.buttons_block.result }}
           - ${{ steps.links_block.result }}
     - ref: post_message
       action: tools.slack_sdk.call_method
@@ -66,8 +82,9 @@ definition:
           text: ${{ inputs.summary }}
           thread_ts: ${{ inputs.thread_ts }}
           blocks: ${{ steps.blocks.result }}
+          unfurl_links: false
           metadata:
             event_type: notification
             event_payload:
               interaction_context: ${{ FN.get_interaction() }}
-  returns: ${{ steps.post_message.result.message }}
+  returns: ${{ steps.post_message.result }}

@@ -1,0 +1,43 @@
+# Tracecat custom Slack action to find a channel by name.
+type: action
+definition:
+  title: Find channel
+  description: Find a channel by name and return information about it.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/conversations.list
+  namespace: tools.slack
+  name: find_channel
+  expects:
+    name:
+      type: str
+      description: Channel name to search for.
+    exclude_archived:
+      type: bool
+      description: Whether to exclude archived channels from the search.
+      default: true
+    types:
+      type: list[str]
+      description: Types of channels to search through.
+      default: ["public_channel", "private_channel"]
+    limit:
+      type: int
+      description: Maximum number of channels to search through.
+      default: 100
+  steps:
+    - ref: list_channels
+      action: tools.slack_sdk.call_paginated_method
+      args:
+        sdk_method: conversations_list
+        params:
+          exclude_archived: ${{ inputs.exclude_archived }}
+          types: ${{ inputs.types }}
+        limit: ${{ inputs.limit }}
+    - ref: channels_is_in
+      action: core.transform.is_in
+      args:
+        items: ${{ steps.list_channels.result }}
+        collection:
+          - ${{ inputs.name }}
+        python_lambda: >
+          lambda x: x.get("name")
+  returns: ${{ steps.channels_is_in.result[0] }}

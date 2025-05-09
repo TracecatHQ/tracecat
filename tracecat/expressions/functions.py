@@ -386,6 +386,11 @@ def dict_values(x: dict[Any, Any]) -> list[Any]:
     return list(x.values())
 
 
+def zip_map(x: list[str], y: list[str]) -> dict[str, str]:
+    """Zip two arrays into list of key-value pairs, then convert into mapping."""
+    return dict(zip(x, y, strict=False))
+
+
 def map_dict_keys(x: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
     """Map keys in an object to new keys."""
     try:
@@ -732,11 +737,11 @@ def weeks_between(start: datetime | str, end: datetime | str) -> float:
     return (end - start).total_seconds() / 604800
 
 
-def to_isoformat(x: datetime | str) -> str:
+def to_isoformat(x: datetime | str, timespec: str = "auto") -> str:
     """Convert datetime to ISO format string."""
     if isinstance(x, str):
         x = to_datetime(x)
-    return x.isoformat()
+    return x.isoformat(timespec=timespec)
 
 
 def now() -> datetime:
@@ -904,6 +909,7 @@ _FUNCTION_MAPPING = {
     "not_empty": not_empty,
     "not_in": not_in,
     "unique": unique,
+    "zip_map": zip_map,  # Inspired by Terraform: https://developer.hashicorp.com/terraform/language/functions/zipmap
     # Math
     "add": add,
     "sub": sub,
