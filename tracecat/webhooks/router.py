@@ -68,7 +68,9 @@ async def incoming_webhook(
         try:
             response["payload"] = await request.json()
         except Exception as e:
-            logger.warning("Failed to decode request payload body during echo", error=str(e))
+            logger.warning(
+                "Failed to decode request payload body during echo", error=str(e)
+            )
             response["payload"] = None
     return response
 
