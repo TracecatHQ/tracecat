@@ -2,11 +2,13 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useReducer,
   useRef,
   useState,
 } from "react"
 import {
   addEdge,
+  applyEdgeChanges,
   applyNodeChanges,
   Background,
   Connection,
@@ -24,13 +26,12 @@ import {
   Position,
   ReactFlow,
   ReactFlowInstance,
-  useEdgesState,
-  useNodesState,
   useReactFlow,
   XYPosition,
   type Node,
   type ReactFlowJsonObject,
 } from "@xyflow/react"
+import { useDebouncedCallback } from "use-debounce"
 import { v4 as uuid4 } from "uuid"
 
 import "@xyflow/react/dist/style.css"
@@ -59,6 +60,105 @@ import triggerNode, {
   TriggerNodeType,
   TriggerTypename,
 } from "@/components/workbench/canvas/trigger-node"
+import type {
+  GraphAction,
+  GraphState,
+} from "@/components/workbench/canvas/types"
+
+const initialGraphState: GraphState = {
+  nodes: [],
+  edges: [],
+  viewport: { x: 0, y: 0, zoom: 1 },
+}
+
+// Graph reducer function
+/**
+ * Reducer for managing the graph state.
+ * Adds debug logging for all action cases.
+ * @param state - The current graph state
+ * @param action - The action to apply
+ * @returns The new graph state
+ */
+/**
+ * Reducer for managing the graph state.
+ * Logs the action for each case.
+ * @param state - The current graph state
+ * @param action - The action to apply
+ * @returns The new graph state
+ */
+function graphReducer(state: GraphState, action: GraphAction): GraphState {
+  // Log the action for debugging
+  // eslint-disable-next-line no-console
+  console.debug("[graphReducer] action:", action)
+  switch (action.type) {
+    case "SET_INITIAL_GRAPH": {
+      return {
+        nodes: action.payload.nodes || [],
+        edges: action.payload.edges || [],
+        viewport: action.payload.viewport || { x: 0, y: 0, zoom: 1 },
+      }
+    }
+
+    case "NODES_CHANGE": {
+      return {
+        ...state,
+        nodes: applyNodeChanges(action.changes, state.nodes),
+      }
+    }
+
+    case "EDGES_CHANGE": {
+      return {
+        ...state,
+        edges: applyEdgeChanges(action.changes, state.edges),
+      }
+    }
+
+    case "VIEWPORT_CHANGE": {
+      return {
+        ...state,
+        viewport: action.viewport,
+      }
+    }
+
+    case "ADD_NODE": {
+      return {
+        ...state,
+        nodes: [...state.nodes, action.node],
+      }
+    }
+
+    case "ADD_EDGE": {
+      return {
+        ...state,
+        edges: addEdge(action.edge, state.edges),
+      }
+    }
+
+    case "SET_NODES_AND_EDGES": {
+      return {
+        ...state,
+        nodes: action.nodes,
+        edges: action.edges,
+      }
+    }
+
+    case "CONFIRMED_DELETION": {
+      return {
+        ...state,
+        nodes: state.nodes.filter((node) => !action.nodeIds.includes(node.id)),
+        edges: state.edges.filter(
+          (edge) =>
+            !action.nodeIds.includes(edge.source) &&
+            !action.nodeIds.includes(edge.target)
+        ),
+      }
+    }
+
+    default: {
+      return state
+    }
+  }
+}
 
 const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
 const defaultNodeWidth = 172
@@ -166,8 +266,9 @@ export const WorkflowCanvas = React.forwardRef<
   const containerRef = useRef<HTMLDivElement>(null)
   const connectingNodeId = useRef<string | null>(null)
   const connectingHandleId = useRef<string | null>(null)
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
+  const [graphState, dispatch] = useReducer(graphReducer, initialGraphState)
+  const { nodes, edges } = graphState
+
   const [reactFlowInstance, setReactFlowInstance] =
     useState<ReactFlowInstance | null>(null)
   const { setViewport, getNode, screenToFlowPosition } = useReactFlow()
@@ -182,6 +283,21 @@ export const WorkflowCanvas = React.forwardRef<
   const [pendingDeleteEdges, setPendingDeleteEdges] = useState<EdgeChange[]>([])
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const { deleteAction } = useDeleteAction()
+
+  const debouncedUpdateWorkflow = useDebouncedCallback(
+    async (data: {
+      object?: ReactFlowJsonObject<NodeType>
+      entrypoint?: string
+    }) => {
+      if (workflowId && reactFlowInstance) {
+        await updateWorkflow(data)
+        console.log("Workflow updated (debounced)")
+      }
+    },
+    1000, // 1 second debounce time
+    { maxWait: 5000 } // Maximum 5 seconds between updates
+  )
+
   /**
    * Load the saved workflow
    */
@@ -195,13 +311,16 @@ export const WorkflowCanvas = React.forwardRef<
         if (!graph) {
           throw new Error("No workflow data found")
         }
-        const { nodes: layoutNodes, edges: layoutEdges } = getLayoutedElements(
-          graph.nodes,
-          graph.edges,
-          "TB"
-        )
-        setNodes((currNodes) => [...currNodes, ...layoutNodes])
-        setEdges((currEdges) => [...currEdges, ...layoutEdges])
+
+        dispatch({
+          type: "SET_INITIAL_GRAPH",
+          payload: {
+            nodes: graph.nodes,
+            edges: graph.edges,
+            viewport: graph.viewport,
+          },
+        })
+
         setViewport({
           x: graph.viewport?.x ?? 0,
           y: graph.viewport?.y ?? 0,
@@ -209,10 +328,28 @@ export const WorkflowCanvas = React.forwardRef<
         })
       } catch (error) {
         console.error("Failed to fetch workflow data:", error)
+        toast({
+          title: "Failed to fetch workflow data",
+          description: "Please try refreshing the page.",
+        })
       }
     }
     initializeReactFlowInstance()
   }, [workflow?.id, reactFlowInstance]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (
+      workflowId &&
+      reactFlowInstance &&
+      (graphState.nodes.length > 0 || graphState.edges.length > 0)
+    ) {
+      debouncedUpdateWorkflow({
+        object: pruneGraphObject(
+          reactFlowInstance
+        ) as ReactFlowJsonObject<NodeType>,
+      })
+    }
+  }, [graphState, workflowId, reactFlowInstance]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Connections
   const onConnect = useCallback(
@@ -238,9 +375,9 @@ export const WorkflowCanvas = React.forwardRef<
         // 3. Set the workflow entrypoint
         await updateWorkflow({ entrypoint: entrypointNode.id })
       }
-      setEdges((eds) => addEdge(params, eds))
+      dispatch({ type: "ADD_EDGE", edge: params })
     },
-    [edges, setEdges, getNode, setNodes] // eslint-disable-line react-hooks/exhaustive-deps
+    [nodes, getNode, updateWorkflow] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const onConnectStart = useCallback(
@@ -265,7 +402,7 @@ export const WorkflowCanvas = React.forwardRef<
         origin: [0.5, 0.0],
       }
 
-      setNodes((nds) => nds.concat(newNode))
+      dispatch({ type: "ADD_NODE", node: newNode })
       return newNode
     },
     [screenToFlowPosition]
@@ -294,7 +431,8 @@ export const WorkflowCanvas = React.forwardRef<
               sourceHandle: connectingHandleId.current,
             }),
           } as Edge
-          setEdges((eds) => [...eds, edge])
+
+          dispatch({ type: "ADD_EDGE", edge })
         }
       } finally {
         console.log("Cleaning up connect end")
@@ -303,7 +441,7 @@ export const WorkflowCanvas = React.forwardRef<
         setIsConnecting(false)
       }
     },
-    [screenToFlowPosition] // eslint-disable-line react-hooks/exhaustive-deps
+    [dropSelectorNode] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const onPaneMouseMove = useCallback(
@@ -344,19 +482,15 @@ export const WorkflowCanvas = React.forwardRef<
         )
       )
 
-      // If the above succeeds, we can remove the nodes from state
-      // For all nodes, we need to remove all their edges
-      // WE need to compute all the edges that need to be removed based on the pending node deletions
-      setNodes((nodes) => applyNodeChanges(pendingDeleteNodes, nodes))
-      const nodeIds = new Set(pendingDeleteNodes.map((n) => n.id))
-      setEdges((edges) =>
-        edges.filter(
-          (edge) => !nodeIds.has(edge.source) && !nodeIds.has(edge.target)
-        )
-      )
+      // Dispatch deletion action to the reducer
+      const nodeIds = pendingDeleteNodes.map((node) => node.id)
+      dispatch({ type: "CONFIRMED_DELETION", nodeIds })
 
-      await updateWorkflow({
-        object: pruneGraphObject(reactFlowInstance),
+      // Update workflow with the latest graph state
+      debouncedUpdateWorkflow({
+        object: pruneGraphObject(
+          reactFlowInstance
+        ) as ReactFlowJsonObject<NodeType>,
       })
 
       console.log("Workflow updated successfully")
@@ -378,11 +512,11 @@ export const WorkflowCanvas = React.forwardRef<
     workflowId,
     reactFlowInstance,
     workspaceId,
-    setNodes,
-    updateWorkflow,
+    debouncedUpdateWorkflow,
     toast,
   ])
 
+  // Handle edge changes
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
       const pendingDeletes: EdgeRemoveChange[] = []
@@ -407,10 +541,16 @@ export const WorkflowCanvas = React.forwardRef<
         console.log("Pending delete edges:", pendingDeletes)
         setPendingDeleteEdges(pendingDeletes)
       }
-      onEdgesChange(nextChanges)
+
+      // Dispatch changes to the reducer
+      if (nextChanges.length > 0) {
+        dispatch({ type: "EDGES_CHANGE", changes: nextChanges })
+      }
     },
-    [edges, setEdges, pendingDeleteEdges]
+    [reactFlowInstance]
   )
+
+  // Handle node changes
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       const pendingDeletes: NodeRemoveChange[] = []
@@ -444,10 +584,13 @@ export const WorkflowCanvas = React.forwardRef<
         console.log("Pending delete nodes:", pendingDeletes)
         setPendingDeleteNodes(pendingDeletes)
       }
-      // apply the changes we kept
-      onNodesChange(nextChanges)
+
+      // Apply changes to the reducer
+      if (nextChanges.length > 0) {
+        dispatch({ type: "NODES_CHANGE", changes: nextChanges })
+      }
     },
-    [nodes, setNodes, pendingDeleteNodes]
+    [getNode]
   )
 
   const onLayout = useCallback(
@@ -457,24 +600,26 @@ export const WorkflowCanvas = React.forwardRef<
         edges,
         direction
       )
-      setNodes(newNodes)
-      setEdges(newEdges)
+
+      dispatch({
+        type: "SET_NODES_AND_EDGES",
+        nodes: newNodes,
+        edges: newEdges,
+      })
     },
     [nodes, edges] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
-  // Saving react flow instance state
-  useEffect(() => {
-    if (workflowId && reactFlowInstance) {
-      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
-    }
-  }, [edges])
-
-  const onNodesDragStop = () => {
-    if (workflowId && reactFlowInstance) {
-      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
-    }
-  }
+  // Handle viewport changes
+  const onViewportChange = useCallback(
+    (event: any) => {
+      if (reactFlowInstance) {
+        const { x, y, zoom } = reactFlowInstance.getViewport()
+        dispatch({ type: "VIEWPORT_CHANGE", viewport: { x, y, zoom } })
+      }
+    },
+    [reactFlowInstance]
+  )
 
   // Add this function to center on a node
   const centerOnNode = useCallback(
@@ -513,7 +658,7 @@ export const WorkflowCanvas = React.forwardRef<
       const nativeEvent = "nativeEvent" in event ? event.nativeEvent : event
       dropSelectorNode(nativeEvent)
     },
-    [reactFlowInstance] // eslint-disable-line react-hooks/exhaustive-deps
+    [reactFlowInstance, dropSelectorNode]
   )
 
   return (
@@ -529,7 +674,8 @@ export const WorkflowCanvas = React.forwardRef<
         onInit={setReactFlowInstance}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
-        onNodeDragStop={onNodesDragStop}
+        onNodeDragStop={debouncedUpdateWorkflow.flush}
+        onMove={onViewportChange}
         defaultEdgeOptions={defaultEdgeOptions}
         nodeTypes={nodeTypes}
         proOptions={{ hideAttribution: true }}
