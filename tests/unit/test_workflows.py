@@ -3161,7 +3161,7 @@ async def test_workflow_detached_child_workflow(
         pending_children = desc.raw_description.pending_children
         assert len(pending_children) == 3
         async with GatheringTaskGroup() as tg:
-            for child in pending_children:
+            for child in sorted(pending_children, key=lambda c: c.initiated_id):
                 logger.info("child", child=child)
                 child_handle = temporal_client.get_workflow_handle_for(
                     DSLWorkflow.run, child.workflow_id
