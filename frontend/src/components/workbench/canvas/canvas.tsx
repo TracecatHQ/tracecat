@@ -354,12 +354,7 @@ export const WorkflowCanvas = React.forwardRef<
   // Connections
   const onConnect = useCallback(
     async (params: Edge | Connection) => {
-      console.log("Edge connected:", params)
       if (params.source?.startsWith("trigger")) {
-        params = {
-          ...params,
-          label: "⚡ Trigger",
-        }
         // 1. Find the trigger node
         const triggerNode = nodes.find(
           (node) => node.type === "trigger"
