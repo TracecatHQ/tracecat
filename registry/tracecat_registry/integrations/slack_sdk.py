@@ -337,6 +337,129 @@ def format_text_input(
     return block
 
 
+@registry.register(
+    default_title="Format rich text input",
+    description="Format a rich text input block.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/reference/block-kit/block-elements#rich_text_input",
+    namespace="tools.slack_blocks",
+)
+def format_rich_text_input(
+    prompt: Annotated[
+        str,
+        Field(..., description="Prompt to ask the user."),
+    ],
+    initial_value: Annotated[
+        str | None,
+        Field(..., description="Initial value of the rich text input."),
+    ] = None,
+    placeholder: Annotated[
+        str | None,
+        Field(..., description="Placeholder text for the rich text input."),
+    ] = None,
+    dispatch_action: Annotated[
+        bool,
+        Field(..., description="Whether pressing Enter submits the input."),
+    ] = False,
+    action_id: Annotated[
+        str | None,
+        Field(..., description="Action ID. If None, defaults to `tc_rich_text_input`."),
+    ] = None,
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc_rich_text_input`."),
+    ] = None,
+) -> dict[str, Any]:
+    action_id = action_id or "tc_rich_text_input"
+    block_id = block_id or "tc_rich_text_input"
+
+    text_input = {
+        "type": "rich_text_input",
+        "action_id": action_id,
+        "dispatch_action_config": {"trigger_actions_on": ["on_enter_pressed"]},
+    }
+    if initial_value:
+        text_input["initial_value"] = initial_value
+    if placeholder:
+        text_input["placeholder"] = {"type": "plain_text", "text": placeholder}
+
+    block = {
+        "type": "input",
+        "label": {"type": "plain_text", "emoji": True, "text": prompt},
+        "element": text_input,
+        "block_id": block_id,
+        "dispatch_action": dispatch_action,
+    }
+    return block
+
+
+@registry.register(
+    default_title="Format dropdowns",
+    description="Format a single-select block of dropdowns as an accessory.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/reference/block-kit/block-elements#select",
+    namespace="tools.slack_blocks",
+)
+def format_dropdown(
+    prompt: Annotated[
+        str,
+        Field(..., description="Prompt to ask the user."),
+    ],
+    options: Annotated[
+        list[dict[str, str]],
+        Field(
+            ...,
+            description=(
+                "List of JSONs with `label` and `value` keys."
+                " E.g. `[{'label': 'Option 1', 'value': 'option_1'}, {'label': 'Option 2', 'value': 'option_2'}]`."
+            ),
+        ),
+    ],
+    initial_option: Annotated[
+        dict[str, str] | None,
+        Field(
+            ...,
+            description="Initial option to select. If None, defaults to the first option.",
+        ),
+    ] = None,
+    action_id: Annotated[
+        str | None,
+        Field(..., description="Action ID. If None, defaults to `tc_dropdown`."),
+    ] = None,
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc_dropdown`."),
+    ] = None,
+) -> dict[str, Any]:
+    action_id = action_id or "tc_dropdown"
+    block_id = block_id or "tc_dropdown"
+
+    option_elements = []
+    for option in options:
+        label, value = option["label"], option["value"]
+        option_elements.append(
+            {
+                "text": {"type": "plain_text", "text": label, "emoji": True},
+                "value": value,
+            }
+        )
+
+    block = {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": prompt},
+        "block_id": block_id,
+        "accessory": {
+            "type": "static_select",
+            "action_id": action_id,
+            "options": option_elements,
+        },
+    }
+    if initial_option:
+        block["accessory"]["initial_option"] = initial_option
+
+    return block
+
+
 ### Webhook client for response_url
 
 
