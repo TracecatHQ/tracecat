@@ -50,10 +50,8 @@ definition:
       args:
         sdk_method: chat_postMessage
         params:
+          blocks: ${{ steps.blocks.result }}
           channel: ${{ inputs.channel }}
           text: ${{ inputs.summary }}
           thread_ts: ${{ inputs.thread_ts }}
-          metadata:
-            event_type: update
-          blocks: ${{ steps.blocks.result }}
   returns: ${{ steps.post_message.result }}

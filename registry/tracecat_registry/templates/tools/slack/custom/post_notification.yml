@@ -78,13 +78,9 @@ definition:
       args:
         sdk_method: chat_postMessage
         params:
+          blocks: ${{ steps.blocks.result }}
           channel: ${{ inputs.channel }}
           text: ${{ inputs.summary }}
           thread_ts: ${{ inputs.thread_ts }}
-          blocks: ${{ steps.blocks.result }}
           unfurl_links: false
-          metadata:
-            event_type: notification
-            event_payload:
-              interaction_context: ${{ FN.get_interaction() }}
   returns: ${{ steps.post_message.result }}
