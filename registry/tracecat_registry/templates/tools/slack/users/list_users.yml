@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: List users
+  description: List users in a Slack workspace.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/users.list
+  namespace: tools.slack
+  name: list_users
+  expects:
+    include_locale:
+      type: bool
+      description: Whether to include the locale in the response.
+      default: false
+    limit:
+      type: int
+      description: The maximum number of users to return.
+      default: 100
+  steps:
+    - ref: list_users
+      action: tools.slack_sdk.call_paginated_method
+      args:
+        sdk_method: users_list
+        params:
+          include_locale: ${{ inputs.include_locale }}
+        limit: ${{ inputs.limit }}
+  returns: ${{ steps.list_users.result }}
