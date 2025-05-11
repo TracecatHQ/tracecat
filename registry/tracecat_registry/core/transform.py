@@ -183,3 +183,15 @@ def map(
 ) -> list[Any]:
     fn = build_safe_lambda(python_lambda)
     return list(map_(fn, items))
+
+
+@registry.register(
+    default_title="Compact",
+    description="Remove all null or empty string values from a list.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def compact(
+    items: Annotated[list[Any], Doc("List of items to compact.")],
+) -> list[Any]:
+    return [item for item in items if item is not None and item != ""]
