@@ -1,9 +1,11 @@
 """Generic interface for Slack SDK."""
 
 from typing import Annotated, Any, Literal, cast
+import asyncio
 
 from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
+from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 from slack_sdk.webhook.async_client import AsyncWebhookClient
 
@@ -86,6 +88,43 @@ async def call_paginated_method(
             key = [k for k in data.keys() if isinstance(data[k], list)][0]
         members.extend(data[key])
     return members
+
+
+### Other utilities
+
+
+@registry.register(
+    default_title="Lookup many users by email",
+    description="Lookup users by emails. Returns a list of users found and a list of users not found.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/methods/users.lookupByEmail",
+    namespace="tools.slack",
+    secrets=[slack_secret],
+)
+async def lookup_users_by_email(
+    emails: Annotated[list[str], Field(..., description="List of user emails.")],
+) -> dict[str, list[dict[str, Any] | str]]:
+    bot_token = secrets.get("SLACK_BOT_TOKEN")
+    client = AsyncWebClient(token=bot_token)
+
+    async def lookup_single_email(email: str) -> tuple[bool, dict[str, Any] | str]:
+        try:
+            result = await client.users_lookupByEmail(email=email)
+            return True, cast(dict[str, Any], result.data)["user"]
+        except SlackApiError as e:
+            if e.response["error"] == "users_not_found":
+                return False, email
+            else:
+                raise e
+
+    # Process all emails concurrently
+    results = await asyncio.gather(*[lookup_single_email(email) for email in emails])
+
+    # Separate results into found and not found
+    found = [data for found_flag, data in results if found_flag]
+    not_found = [data for found_flag, data in results if not found_flag]
+
+    return {"found": found, "not_found": not_found}
 
 
 ### Block utilities
