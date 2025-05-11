@@ -42,11 +42,6 @@ import { useDeleteAction } from "@/lib/hooks"
 import { pruneGraphObject, pruneReactFlowInstance } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
 import actionNode, {
   ActionNodeData,
@@ -553,18 +548,13 @@ export const WorkflowCanvas = React.forwardRef<
           >
             Layout
           </Badge>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                className="m-0 size-6 p-0 text-xs"
-                onClick={() => onLayout("TB")}
-              >
-                <MoveVerticalIcon className="size-3" strokeWidth={2} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Vertical layout</TooltipContent>
-          </Tooltip>
+          <Button
+            variant="outline"
+            className="m-0 size-6 p-0 text-xs"
+            onClick={() => onLayout("TB")}
+          >
+            <MoveVerticalIcon className="size-3" strokeWidth={2} />
+          </Button>
           <Button
             variant="outline"
             className="m-0 hidden size-6 p-0 text-xs"
