@@ -14,7 +14,6 @@ import {
   Controls,
   Edge,
   EdgeChange,
-  EdgeRemoveChange,
   FitViewOptions,
   MarkerType,
   NodeChange,
