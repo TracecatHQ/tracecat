@@ -19,9 +19,18 @@ export function pruneGraphObject(reactFlowInstance: ReactFlowInstance) {
 
   // Keep nodes that are NOT ephemeral
   object.nodes = object.nodes.filter((node) => !ephemeralNodeIds.has(node.id))
-  // Keep edges that are NOT connected to ephemeral nodes
+
+  // Create a Set of all valid node IDs for quick lookups
+  const validNodeIds = new Set(object.nodes.map((node) => node.id))
+
+  // Keep edges that:
+  // 1. Are NOT connected to ephemeral nodes
+  // 2. Have both source and target nodes that exist in the graph
   object.edges = object.edges.filter(
-    (edge) => !ephemeralNodeIds.has(edge.target)
+    (edge) =>
+      !ephemeralNodeIds.has(edge.target) &&
+      validNodeIds.has(edge.source) &&
+      validNodeIds.has(edge.target)
   )
 
   // Check that the object at least contains the trigger node
