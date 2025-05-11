@@ -66,7 +66,7 @@ export function WorkbenchSidebarEvents() {
   // Prefer currentExecutionId (from direct trigger) over lastExecution.id (from query)
   const executionId = currentExecutionId || lastExecution?.id
 
-  console.log({
+  console.debug({
     currentExecId: currentExecutionId,
     lastExecId: lastExecution?.id,
     executionIdUsed: executionId,
@@ -144,7 +144,7 @@ function WorkbenchSidebarEventsList({
   const { execution, executionIsLoading, executionError } =
     useCompactWorkflowExecution(executionId)
 
-  console.log({
+  console.debug({
     execId: execution?.id,
     execIsLoading: executionIsLoading,
     execError: executionError,
