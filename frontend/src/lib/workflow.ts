@@ -1,17 +1,26 @@
-import { ReactFlowInstance } from "@xyflow/react"
+import type { ReactFlowInstance, ReactFlowJsonObject } from "@xyflow/react"
 
 import { isEphemeral } from "@/components/workbench/canvas/canvas"
 
 export const CHILD_WORKFLOW_ACTION_TYPE = "core.workflow.execute" as const
 
 /**
+ * Prune the React Flow instance to remove ephemeral nodes and edges.
+ * @param reactFlowInstance - The React Flow instance.
+ * @returns The pruned React Flow instance.
+ */
+export function pruneReactFlowInstance(reactFlowInstance: ReactFlowInstance) {
+  return pruneGraphObject(reactFlowInstance.toObject())
+}
+
+/**
  * Prune the graph object to remove ephemeral nodes and edges.
  * @param reactFlowInstance - The React Flow instance.
  * @returns The pruned graph object.
  */
-export function pruneReactFlowInstance(reactFlowInstance: ReactFlowInstance) {
-  const object = reactFlowInstance.toObject()
-
+export function pruneGraphObject(
+  object: Omit<ReactFlowJsonObject, "viewport">
+) {
   // Keep nodes that are NOT ephemeral
   object.nodes = object.nodes.filter((node) => !isEphemeral(node))
 

@@ -40,7 +40,7 @@ import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 
 import { useDeleteAction } from "@/lib/hooks"
-import { pruneReactFlowInstance } from "@/lib/workflow"
+import { pruneGraphObject, pruneReactFlowInstance } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -199,9 +199,11 @@ export const WorkflowCanvas = React.forwardRef<
         if (!graph) {
           throw new Error("No workflow data found")
         }
+        // Defensive
+        const prunedGraph = pruneGraphObject(graph)
         const { nodes: layoutNodes, edges: layoutEdges } = getLayoutedElements(
-          graph.nodes,
-          graph.edges,
+          prunedGraph.nodes,
+          prunedGraph.edges,
           "TB"
         )
         setNodes((currNodes) => [...currNodes, ...layoutNodes])
@@ -448,9 +450,13 @@ export const WorkflowCanvas = React.forwardRef<
 
   const onLayout = useCallback(
     (direction: "TB" | "LR") => {
-      const { nodes: newNodes, edges: newEdges } = getLayoutedElements(
+      const prundGraph = pruneGraphObject({
         nodes,
         edges,
+      })
+      const { nodes: newNodes, edges: newEdges } = getLayoutedElements(
+        prundGraph.nodes,
+        prundGraph.edges,
         direction
       )
       setNodes(newNodes)
