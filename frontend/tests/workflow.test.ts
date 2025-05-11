@@ -1,13 +1,13 @@
 import { ReactFlowInstance } from "@xyflow/react"
 
-import { pruneGraphObject } from "@/lib/workflow"
+import { pruneReactFlowInstance } from "@/lib/workflow"
 
 // Mock the canvas module to avoid circular dependencies
 jest.mock("@/components/workbench/canvas/canvas", () => ({
   isEphemeral: jest.fn((node: { type: string }) => node.type === "selector"),
 }))
 
-describe("pruneGraphObject", () => {
+describe("pruneReactFlowInstance", () => {
   let mockReactFlowInstance: ReactFlowInstance
 
   beforeEach(() => {
@@ -28,7 +28,7 @@ describe("pruneGraphObject", () => {
       viewport: { x: 0, y: 0, zoom: 1 },
     })
 
-    const result = pruneGraphObject(mockReactFlowInstance)
+    const result = pruneReactFlowInstance(mockReactFlowInstance)
 
     expect(result.nodes).toHaveLength(2)
     expect(result.edges).toHaveLength(1)
@@ -49,7 +49,7 @@ describe("pruneGraphObject", () => {
       viewport: { x: 0, y: 0, zoom: 1 },
     })
 
-    const result = pruneGraphObject(mockReactFlowInstance)
+    const result = pruneReactFlowInstance(mockReactFlowInstance)
 
     expect(result.nodes).toHaveLength(2)
     expect(result.edges).toHaveLength(1)
@@ -71,7 +71,7 @@ describe("pruneGraphObject", () => {
       viewport: { x: 0, y: 0, zoom: 1 },
     })
 
-    const result = pruneGraphObject(mockReactFlowInstance)
+    const result = pruneReactFlowInstance(mockReactFlowInstance)
 
     expect(result.nodes).toHaveLength(2)
     expect(result.edges).toHaveLength(1)
@@ -89,7 +89,7 @@ describe("pruneGraphObject", () => {
       viewport: { x: 0, y: 0, zoom: 1 },
     })
 
-    expect(() => pruneGraphObject(mockReactFlowInstance)).toThrow(
+    expect(() => pruneReactFlowInstance(mockReactFlowInstance)).toThrow(
       "Workflow cannot be saved without a trigger node"
     )
   })

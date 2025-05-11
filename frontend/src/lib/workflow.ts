@@ -9,7 +9,7 @@ export const CHILD_WORKFLOW_ACTION_TYPE = "core.workflow.execute" as const
  * @param reactFlowInstance - The React Flow instance.
  * @returns The pruned graph object.
  */
-export function pruneGraphObject(reactFlowInstance: ReactFlowInstance) {
+export function pruneReactFlowInstance(reactFlowInstance: ReactFlowInstance) {
   const object = reactFlowInstance.toObject()
 
   // Keep nodes that are NOT ephemeral

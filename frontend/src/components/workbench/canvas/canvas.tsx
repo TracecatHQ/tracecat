@@ -40,7 +40,7 @@ import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 
 import { useDeleteAction } from "@/lib/hooks"
-import { pruneGraphObject } from "@/lib/workflow"
+import { pruneReactFlowInstance } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -359,7 +359,7 @@ export const WorkflowCanvas = React.forwardRef<
       )
 
       await updateWorkflow({
-        object: pruneGraphObject(reactFlowInstance),
+        object: pruneReactFlowInstance(reactFlowInstance),
       })
 
       console.log("Workflow updated successfully")
@@ -462,13 +462,13 @@ export const WorkflowCanvas = React.forwardRef<
   // Saving react flow instance state
   useEffect(() => {
     if (workflowId && reactFlowInstance) {
-      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
+      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     }
   }, [edges])
 
   const onNodesDragStop = () => {
     if (workflowId && reactFlowInstance) {
-      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
+      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     }
   }
 
