@@ -179,7 +179,6 @@ export const WorkflowCanvas = React.forwardRef<
   const [pendingDeleteNodes, setPendingDeleteNodes] = useState<
     NodeRemoveChange[]
   >([])
-  const [pendingDeleteEdges, setPendingDeleteEdges] = useState<EdgeChange[]>([])
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const { deleteAction } = useDeleteAction()
   /**
@@ -334,7 +333,6 @@ export const WorkflowCanvas = React.forwardRef<
     if (!workflowId || !reactFlowInstance) return
     console.log("HANDLE CONFIRMED DELETION", {
       pendingDeleteNodes,
-      pendingDeleteEdges,
     })
 
     try {
@@ -370,11 +368,9 @@ export const WorkflowCanvas = React.forwardRef<
     } finally {
       setShowDeleteDialog(false)
       setPendingDeleteNodes([])
-      setPendingDeleteEdges([])
     }
   }, [
     pendingDeleteNodes,
-    pendingDeleteEdges,
     workflowId,
     reactFlowInstance,
     workspaceId,
@@ -385,7 +381,6 @@ export const WorkflowCanvas = React.forwardRef<
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      const pendingDeletes: EdgeRemoveChange[] = []
       const nextChanges = changes.reduce((acc, change) => {
         if (change.type === "remove") {
           // Add pending deletes
@@ -403,13 +398,9 @@ export const WorkflowCanvas = React.forwardRef<
         }
         return [...acc, change]
       }, [] as EdgeChange[])
-      if (pendingDeletes.length > 0) {
-        console.log("Pending delete edges:", pendingDeletes)
-        setPendingDeleteEdges(pendingDeletes)
-      }
       onEdgesChange(nextChanges)
     },
-    [edges, setEdges, pendingDeleteEdges]
+    [edges, setEdges]
   )
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -577,7 +568,6 @@ export const WorkflowCanvas = React.forwardRef<
           onOpenChange={(open) => {
             if (!open) {
               setPendingDeleteNodes([])
-              setPendingDeleteEdges([])
             }
           }}
           onConfirm={handleConfirmedDeletion}
