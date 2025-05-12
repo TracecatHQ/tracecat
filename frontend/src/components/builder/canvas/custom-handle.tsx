@@ -20,7 +20,7 @@ import {
   Repeat,
 } from "lucide-react"
 
-import { cn } from "@/lib/utils"
+import { cn, splitConditionalExpression } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import {
@@ -271,7 +271,7 @@ export function ActionTargetHandle({
                 <span className="flex items-center space-x-1">
                   <GitBranch className="size-3" strokeWidth={2.5} />
                   <pre className="text-xs tracking-tighter">
-                    {runIf.slice(3, -2).trim()}
+                    {splitConditionalExpression(runIf.slice(3, -2).trim(), 50)}
                   </pre>
                 </span>
               </Badge>
