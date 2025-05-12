@@ -74,7 +74,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         allowed_domains = cast(
             list[str] | None,
             await get_setting("auth_allowed_email_domains", role=self.role),
-            # Allow overriding of falsy value (empty list)
+            # Allow overriding of empty list
         ) or list(config.TRACECAT__AUTH_ALLOWED_DOMAINS)
         self.logger.debug("Allowed domains", allowed_domains=allowed_domains)
         validate_email(email=email, allowed_domains=allowed_domains)
