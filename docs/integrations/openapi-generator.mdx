@@ -1,0 +1,213 @@
+---
+title: "OpenAPI to Action Template Generator"
+---
+
+Tracecat has a tool that converts OpenAPI 3.0 specifications into [action templates](/integrations/action-templates). This utility allows you to quickly generate HTTP actions for any API that has an OpenAPI (formerly Swagger) specification, making integration with external services easier and more consistent.
+
+## Support Notice
+
+<Note>
+  The generator currently only supports OpenAPI Specification (OAS) 3.0. If you
+  need to generate templates from OpenAPI 2.0 (Swagger) or OAS 3.1
+  specifications, please reach out to the Tracecat support team via our [Discord
+  channel](https://discord.gg/n3GF4qxFU8).
+</Note>
+
+## Overview
+
+The generator creates a template action for each operation defined in an OpenAPI specification. Each generated action includes:
+
+- Appropriate input schemas based on API parameters
+- HTTP request steps with proper configuration
+- Documentation links from the OpenAPI spec
+- Authentication configuration
+
+## Getting Started
+
+To use the OpenAPI to Action Generator, you'll need:
+
+1. An OpenAPI 3.0 specification file (JSON or YAML format)
+2. Python 3.12 or later
+3. The Tracecat package installed
+
+### Basic Usage
+
+Run the generator script with the following command:
+
+```bash
+uv run scripts/openapi_to_template.py --input <path-to-openapi-spec> --output-dir <output-directory>
+```
+
+For example:
+
+```bash
+uv run scripts/openapi_to_template.py --input api-specs/petstore.json --output-dir generated_templates/petstore
+```
+
+This will process the OpenAPI specification and generate action template YAML files in the specified output directory.
+
+## Configuration
+
+For more advanced control over the generation process, you can provide a configuration file using the `--config` parameter:
+
+```bash
+uv run scripts/openapi_to_template.py --input api-specs/petstore.json --output-dir generated_templates/petstore --config my-config.yaml
+```
+
+### Configuration Options
+
+The configuration file follows this structure:
+
+```yaml
+# Control which endpoints to process
+endpoints:
+  include:
+    like:
+      - "/pet/{petId}*" # Glob patterns for paths to include
+    exact:
+      - "/pet/123" # Exact path matches
+  exclude:
+    like:
+      - "/store/*" # Glob patterns for paths to exclude
+    exact:
+      - "/store/order/1" # Exact path matches to exclude
+
+# Override default action definition values
+definition_overrides:
+  # NOTE: Namespace will be used as a prefix, not an override
+  namespace: "the.pet.store" # Namespace for the actions
+
+  # Everything else acts as an override
+  display_group: "PetStore" # Group name in the Tracecat UI
+  author: "OpenAPI Generator" # Author name
+  doc_url_prefix: "https://petstore.swagger.io/docs" # Prefix for documentation URLs
+  name: "delete_pet" # Override action name (use with caution)
+  title: "Deletes a pet" # Override action title
+  description: "HTTP DELETE request to /pet/{petId}" # Override description
+  doc_url: "https://petstore.swagger.io/v2" # Override documentation URL
+  deprecated: "This action is deprecated." # Deprecation message
+
+# Authentication configuration
+auth:
+  secrets:
+    - name: "petstore" # Secret name
+      keys: ["API_KEY"] # Required keys for the secret
+  injection:
+    args:
+      headers:
+        Authorization: "ApiKey ${{ SECRETS.petstore.API_KEY }}"
+      params:
+        api_key: "${{ SECRETS.petstore.API_KEY }}"
+  expects:
+    api_key:
+      type: "str"
+      description: "API key for authentication"
+      default: null
+
+# Output organization
+use_namespace_directories: true # Create subdirectories based on action namespace
+```
+
+### Configuration Details
+
+#### Endpoints Filtering
+
+Use the `endpoints` section to control which API endpoints are processed:
+
+- `include.like`: Glob patterns to include paths (e.g., `/users/*`)
+- `include.exact`: Exact paths to include (e.g., `/users/profile`)
+- `exclude.like`: Glob patterns to exclude paths (e.g., `/internal/*`)
+- `exclude.exact`: Exact paths to exclude (e.g., `/users/admin`)
+
+#### Definition Overrides
+
+The `definition_overrides` section allows you to customize the generated action definitions. The supported fields are:
+
+- `display_group`: Sets the display group for the action (e.g., "PetStore")
+- `namespace`: Sets the namespace for the action (e.g., "the.pet.store")
+- `author`: Sets the author of the action (e.g., "OpenAPI Generator")
+- `doc_url_prefix`: Sets a prefix for documentation URLs (e.g., "https://petstore.swagger.io/docs")
+- `name`: Overrides the action name (e.g., "delete_pet")
+- `title`: Overrides the action title (e.g., "Deletes a pet")
+- `description`: Overrides the action description (e.g., "HTTP DELETE request to /pet/{petId}")
+- `doc_url`: Overrides the documentation URL (e.g., "https://petstore.swagger.io/v2")
+- `deprecated`: Sets a deprecation message or flag (e.g., "This action is deprecated.")
+
+The generator also supports additional custom fields that will be passed through to the template definition.
+
+#### Authentication
+
+The `auth` section configures authentication for the generated actions:
+
+- `secrets`: Defines required secrets with name and keys
+- `injection`: Specifies how to inject authentication into requests via headers or query parameters
+- `expects`: Defines expected input fields for authentication
+
+#### Output Organization
+
+The `use_namespace_directories` option controls how the generated files are organized:
+
+- When `true` (default): Creates subdirectories based on the action namespace (e.g., `api/pets/action.yml`)
+- When `false`: Places all actions directly in the output directory
+
+## Example generated template
+
+```yaml
+type: action
+definition:
+  name: add_comment
+  namespace: api.issue_comments
+  title: Add comment
+  description: |
+    Adds a comment to an issue.
+
+    This operation can be accessed anonymously.
+
+    **[Permissions](#permissions) required:**
+
+    *  *Browse projects* and *Add comments* [project permission](https://confluence.atlassian.com/x/yodKLg) for
+    the project that the issue containing the comment is in.
+    *  If [issue-level security](https://confluence.atlassian.com/x/J4lKLg) is configured, issue-level
+    security permission to view the issue.
+  author: OpenAPI Generator
+  display_group: Issue comments
+  doc_url: null
+  deprecated: null
+  secrets: null
+  expects:
+    base_url:
+      type: str
+      description: Base URL for the The Jira Cloud platform REST API
+      default: null
+    auth_header:
+      type: str
+      description: Authorization header value (e.g., 'Bearer token123')
+      default: null
+    issueIdOrKey:
+      type: str
+      description: The ID or key of the issue.
+      default: null
+    expand:
+      type: str
+      description:
+        Use [expand](#expansion) to include additional information about
+        comments in the response. This parameter accepts `renderedBody`, which returns
+        the comment body rendered in HTML.
+      default: null
+    body:
+      type: dict[str, any]
+      description: Request body
+      default: null
+  steps:
+    - ref: http_call
+      action: core.http_request
+      args:
+        method: POST
+        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issueIdOrKey }}/comment
+        params:
+          expand: ${{ inputs.expand }}
+        headers:
+          Authorization: ${{ inputs.auth_header }}
+        json: ${{ inputs.body }}
+  returns: ${{ steps.http_call.result }}
+```
