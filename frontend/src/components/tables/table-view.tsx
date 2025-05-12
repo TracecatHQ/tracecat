@@ -1,7 +1,6 @@
 "use client"
 
-import React from "react"
-import { useParams } from "next/navigation"
+import React, { useEffect } from "react"
 import { TableColumnRead, TableRead, TableRowRead } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { CellContext, ColumnDef } from "@tanstack/react-table"
@@ -76,13 +75,22 @@ function CollapsibleText({ text }: { text: string }) {
   )
 }
 
-export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
-  const { tableId } = useParams<{ tableId: string }>()
+export function DatabaseTable({
+  table: { id, name, columns },
+}: {
+  table: TableRead
+}) {
   const { workspaceId } = useWorkspace()
   const { rows, rowsIsLoading, rowsError } = useListRows({
-    tableId,
+    tableId: id,
     workspaceId,
   })
+
+  useEffect(() => {
+    if (id) {
+      document.title = `${name} | Tables`
+    }
+  }, [id, name])
 
   type CellT = CellContext<TableRowRead, TableColumnRead>
   const allColumns: ColumnDef<TableRowRead, TableColumnRead>[] = [
