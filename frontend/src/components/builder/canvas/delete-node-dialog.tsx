@@ -24,7 +24,7 @@ export function DeleteActionNodeDialog({
     <AlertDialog {...rest}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete Action Node</AlertDialogTitle>
+          <AlertDialogTitle>Delete action node</AlertDialogTitle>
           <AlertDialogDescription className="space-y-2">
             Are you sure you want to delete this action node? This will remove
             it from the workflow and delete any connections to other nodes.
