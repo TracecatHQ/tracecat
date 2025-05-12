@@ -20,6 +20,7 @@ import {
   Repeat,
 } from "lucide-react"
 
+import { compressActionsInString } from "@/lib/expressions"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
@@ -271,7 +272,7 @@ export function ActionTargetHandle({
                 <span className="flex items-center space-x-1">
                   <GitBranch className="size-3" strokeWidth={2.5} />
                   <pre className="text-xs tracking-tighter">
-                    {runIf.slice(3, -2).trim()}
+                    {compressActionsInString(runIf.slice(3, -2).trim())}
                   </pre>
                 </span>
               </Badge>
