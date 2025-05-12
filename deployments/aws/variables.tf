@@ -44,25 +44,6 @@ variable "auth_allowed_domains" {
 }
 
 
-variable "setting_override_saml_enabled" {
-  type        = string
-  description = "Override the SAML setting"
-  default     = null
-}
-
-variable "setting_override_oauth_google_enabled" {
-  type        = string
-  description = "Override the Google OAuth setting"
-  default     = null
-}
-
-variable "setting_override_basic_auth_enabled" {
-  type        = string
-  description = "Override the basic auth setting"
-  default     = null
-}
-
-
 ### Images and Versions
 
 variable "tracecat_image" {
