@@ -17,7 +17,6 @@ References
 
 import base64
 import os
-import pathlib
 import shlex
 import subprocess
 import tempfile
@@ -401,12 +400,16 @@ def run_kubectl_command(
     _get_kubernetes_client(kubeconfig_base64)
 
     kubeconfig_yaml = _decode_kubeconfig(kubeconfig_base64, as_yaml=True)
-    with tempfile.TemporaryDirectory() as temp_dir:
-        kubeconfig_path = pathlib.Path(temp_dir) / "kubeconfig.yaml"
-        with open(kubeconfig_path, "w") as f:
-            f.write(kubeconfig_yaml)
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yaml", delete=True
+    ) as temp_kubeconfig_file:
+        temp_kubeconfig_file.write(kubeconfig_yaml)
+        temp_kubeconfig_file.flush()  # Ensure data is written to disk before kubectl uses it
+        kubeconfig_file_name = (
+            temp_kubeconfig_file.name
+        )  # Get the path of the temporary file
 
-        _args = ["kubectl", "--kubeconfig", kubeconfig_path.as_posix()]
+        _args = ["kubectl", "--kubeconfig", kubeconfig_file_name]
         if dry_run:
             _args.append("--dry-run=client")
         # Add namespace to command

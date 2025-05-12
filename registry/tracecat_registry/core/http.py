@@ -103,32 +103,66 @@ class HTTPResponse(TypedDict):
     data: str | dict[str, Any] | list[Any] | None
 
 
-def get_certificate() -> tuple[str, str | None, str | None] | None:
-    cert = None
-    if secrets.get("SSL_CLIENT_CERT"):
-        # Create a temp file for the certificate
-        cert_file_path = None
-        with tempfile.NamedTemporaryFile(delete=False) as cert_file:
-            cert_file.write(secrets.get("SSL_CLIENT_CERT").encode())
+class TemporaryClientCertificate:
+    """
+    Manages temporary files for SSL client certificate and key.
+    Ensures files are deleted upon exiting the context.
+    """
+
+    def __init__(
+        self,
+        client_cert_str: str | None = None,
+        client_key_str: str | None = None,
+        client_key_password: str | None = None,
+    ):
+        self.client_cert_str = client_cert_str
+        self.client_key_str = client_key_str
+        self.client_key_password = client_key_password
+        self._temp_files: list[tempfile._TemporaryFileWrapper] = []
+
+    def __enter__(self) -> str | tuple[str, str] | tuple[str, str, str] | None:
+        cert_path: str | None = None
+        key_path: str | None = None
+
+        if self.client_cert_str:
+            cert_file = tempfile.NamedTemporaryFile(
+                mode="w", delete=True, encoding="utf-8"
+            )
+            self._temp_files.append(cert_file)
+            cert_file.write(self.client_cert_str)
             cert_file.flush()
-            cert_file_path = cert_file.name
+            cert_path = cert_file.name
 
-        # Create a temp file for the key (if exists)
-        key_file_path = None
-        if secrets.get("SSL_CLIENT_KEY"):
-            with tempfile.NamedTemporaryFile(delete=False) as key_file:
-                key_file.write(secrets.get("SSL_CLIENT_KEY").encode())
-                key_file.flush()
-                key_file_path = key_file.name
+        if self.client_key_str:
+            key_file = tempfile.NamedTemporaryFile(
+                mode="w", delete=True, encoding="utf-8"
+            )
+            self._temp_files.append(key_file)
+            key_file.write(self.client_key_str)
+            key_file.flush()
+            key_path = key_file.name
 
-        cert = [
-            cert_file_path,
-            key_file_path,
-            secrets.get("SSL_CLIENT_PASSWORD"),
-        ]
-        # Drop None values
-        cert = tuple(c for c in cert if c is not None)
-    return cert
+        if cert_path and key_path:
+            if self.client_key_password:
+                return (cert_path, key_path, self.client_key_password)
+            return (cert_path, key_path)
+        elif cert_path:
+            # Only cert_path is provided (e.g. a PEM file with both cert and key)
+            return cert_path
+
+        # No client certificate material provided, or only key without cert (which is invalid for httpx cert tuple)
+        return None
+
+    def __exit__(self, exc_type, exc_val, traceback):
+        for temp_file in self._temp_files:
+            try:
+                temp_file.close()  # Closing triggers deletion due to delete=True
+            except Exception:
+                # Log if closing fails, but attempt to close all others.
+                logger.error(
+                    f"Error closing temporary certificate file {temp_file.name}",
+                    exc_info=True,
+                )
 
 
 def httpx_to_response(response: httpx.Response) -> HTTPResponse:
@@ -238,39 +272,47 @@ async def http_request(
     """Perform a HTTP request to a given URL."""
 
     basic_auth = httpx.BasicAuth(**auth) if auth else None
-    cert = get_certificate()
 
-    try:
-        async with httpx.AsyncClient(
-            cert=cert,
-            auth=basic_auth,
-            timeout=httpx.Timeout(timeout),
-            follow_redirects=follow_redirects,
-            max_redirects=max_redirects,
-            verify=verify_ssl,
-        ) as client:
-            response = await client.request(
-                method=method,
-                url=url,
-                headers=headers,
-                params=params,
-                json=payload,
-                data=form_data,
+    client_cert_str = secrets.get("SSL_CLIENT_CERT")
+    client_key_str = secrets.get("SSL_CLIENT_KEY")
+    client_key_password = secrets.get("SSL_CLIENT_PASSWORD")
+
+    # Use the new context manager
+    with TemporaryClientCertificate(
+        client_cert_str=client_cert_str,
+        client_key_str=client_key_str,
+        client_key_password=client_key_password,
+    ) as cert_for_httpx:
+        try:
+            async with httpx.AsyncClient(
+                cert=cert_for_httpx,  # Pass the result from the context manager
+                auth=basic_auth,
+                timeout=httpx.Timeout(timeout),
+                follow_redirects=follow_redirects,
+                max_redirects=max_redirects,
+                verify=verify_ssl,
+            ) as client:
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    params=params,
+                    json=payload,
+                    data=form_data,
+                )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            error_message = _http_status_error_to_message(e)
+            logger.error(
+                "HTTP request failed",
+                status_code=e.response.status_code,
+                error_message=error_message,
             )
-        response.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        error_message = _http_status_error_to_message(e)
-        logger.error(
-            "HTTP request failed",
-            status_code=e.response.status_code,
-            error_message=error_message,
-        )
-        raise TracecatException(error_message)
-        # raise e
-    except httpx.ReadTimeout as e:
-        logger.error(f"HTTP request timed out after {timeout} seconds.")
-        raise e
-    return httpx_to_response(response)
+            raise TracecatException(error_message)
+        except httpx.ReadTimeout as e:
+            logger.error(f"HTTP request timed out after {timeout} seconds.")
+            raise e
+        return httpx_to_response(response)
 
 
 class PredicateArgs(TypedDict):
@@ -328,7 +370,7 @@ async def http_poll(
     """Perform a HTTP request to a given URL with optional polling."""
 
     basic_auth = httpx.BasicAuth(**auth) if auth else None
-    cert = get_certificate()
+    # REMOVED: cert = get_certificate() # This was not present here but good to ensure no residue
 
     retry_codes = poll_retry_codes
     if isinstance(retry_codes, int):
@@ -367,28 +409,37 @@ async def http_poll(
         ),
     )
     async def call() -> httpx.Response:
-        try:
-            async with httpx.AsyncClient(
-                cert=cert,
-                auth=basic_auth,
-                timeout=httpx.Timeout(timeout),
-                follow_redirects=follow_redirects,
-                max_redirects=max_redirects,
-                verify=verify_ssl,
-            ) as client:
-                response = await client.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    params=params,
-                    json=payload,
-                    data=form_data,
-                )
-            return response
-        # Handled by Temporal
-        except httpx.ReadTimeout as e:
-            logger.error(f"HTTP request timed out after {timeout} seconds.")
-            raise e
+        client_cert_str = secrets.get("SSL_CLIENT_CERT")
+        client_key_str = secrets.get("SSL_CLIENT_KEY")
+        client_key_password = secrets.get("SSL_CLIENT_PASSWORD")
+
+        # Use the new context manager within the call function
+        with TemporaryClientCertificate(
+            client_cert_str=client_cert_str,
+            client_key_str=client_key_str,
+            client_key_password=client_key_password,
+        ) as cert_for_httpx:
+            try:
+                async with httpx.AsyncClient(
+                    cert=cert_for_httpx,  # Pass the result from the context manager
+                    auth=basic_auth,
+                    timeout=httpx.Timeout(timeout),
+                    follow_redirects=follow_redirects,
+                    max_redirects=max_redirects,
+                    verify=verify_ssl,
+                ) as client:
+                    response = await client.request(
+                        method=method,
+                        url=url,
+                        headers=headers,
+                        params=params,
+                        json=payload,
+                        data=form_data,
+                    )
+                return response
+            except httpx.ReadTimeout as e:
+                logger.error(f"HTTP request timed out after {timeout} seconds.")
+                raise e
 
     result = await call()
     return httpx_to_response(result)
