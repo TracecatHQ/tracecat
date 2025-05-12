@@ -112,7 +112,7 @@ export function OrgSettingsAppForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel>Workflow Executions Query Limit</FormLabel>
+                <FormLabel>Workflow executions query limit</FormLabel>
                 <FormDescription>
                   Maximum number of executions that can be queried at once.
                 </FormDescription>
@@ -137,7 +137,7 @@ export function OrgSettingsAppForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel>Enable Interactions</FormLabel>
+                <FormLabel>Enable interactions</FormLabel>
                 <FormDescription>
                   Enable application interactions functionality (alpha).
                 </FormDescription>
@@ -158,7 +158,7 @@ export function OrgSettingsAppForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel>Enable Workflow Exports</FormLabel>
+                <FormLabel>Enable workflow exports</FormLabel>
                 <FormDescription>
                   Allow users to export workflows. When disabled, users will be
                   unable to export workflows.
@@ -180,7 +180,7 @@ export function OrgSettingsAppForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel>Create Workspace on Sign-up</FormLabel>
+                <FormLabel>Create workspace on sign-up</FormLabel>
                 <FormDescription>
                   Automatically create a workspace for new users when they sign
                   up.
