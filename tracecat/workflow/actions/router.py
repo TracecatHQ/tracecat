@@ -9,6 +9,7 @@ from tracecat.db.schemas import Action
 from tracecat.ee.interactions.models import ActionInteractionValidator
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
+from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.types.exceptions import RegistryError
 from tracecat.workflow.actions.models import (
@@ -213,10 +214,9 @@ async def delete_action(
     result = await session.exec(statement)
     try:
         action = result.one()
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
+    except NoResultFound:
+        logger.error(f"Action not found: {action_id}. Ignore delete.")
+        return
     # If the user doesn't own this workflow, they can't delete the action
     await session.delete(action)
     await session.commit()
