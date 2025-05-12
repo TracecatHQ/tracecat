@@ -133,7 +133,7 @@ export function BasicRegistrationForm() {
       })
     } catch (error) {
       if (error instanceof ApiError) {
-        console.error("ApiError registering user", error)
+        console.log("ApiError registering user", error)
         const apiError = error as TracecatApiError
 
         // Handle both string and object error details
@@ -172,7 +172,7 @@ export function BasicRegistrationForm() {
             }
           } else {
             // Handle RequestValidationError case
-            console.error("Validation error", detail)
+            console.log("Validation error", detail)
             form.setError("email", {
               message: detail[0].msg || "Unknown error",
             })
