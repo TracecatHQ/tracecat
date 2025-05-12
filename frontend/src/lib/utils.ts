@@ -70,3 +70,51 @@ export function itemOrEmptyString(item: unknown | undefined) {
 export function capitalizeFirst(str: string) {
   return str.charAt(0).toUpperCase() + str.slice(1)
 }
+
+export function splitConditionalExpression(
+  s: string,
+  maxLength: number = 30,
+  operators: string[] = ["&&", "||", "=="]
+): string {
+  // 1) Tokenize on operators (keeping the delimiters)
+  const operatorPattern = new RegExp(
+    `(${operators.map((op) => op.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`
+  )
+  const parts = s
+    .split(operatorPattern)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+
+  if (parts.length === 0) {
+    return ""
+  }
+
+  // 2) Build lines greedily
+  const lines: string[] = []
+  let currentLine = parts[0] // start with the first operand
+
+  for (let i = 1; i < parts.length; i += 2) {
+    const op = parts[i]
+    const operand = parts[i + 1] ?? ""
+    const chunk = `${op} ${operand}`
+
+    // If adding this chunk would exceed maxLength, emit the current line…
+    if (currentLine.length + 1 + chunk.length > maxLength) {
+      lines.push(currentLine)
+      currentLine = chunk
+    } else {
+      // …otherwise, tack it on
+      currentLine += " " + chunk
+    }
+  }
+
+  // push whatever's left
+  lines.push(currentLine)
+
+  // 3) If we ended up with exactly one line and it's ≤ maxLength, return the original
+  if (lines.length === 1 && lines[0].length <= maxLength) {
+    return s
+  }
+
+  return lines.join("\n")
+}
