@@ -937,12 +937,12 @@ _FUNCTION_MAPPING = {
     "or": or_,
     "not": not_,
     # Type conversion
-    "serialize_json": serialize_json,
     "deserialize_json": orjson.loads,
-    "serialize_yaml": serialize_yaml,
+    "deserialize_ndjson": deserialize_ndjson,
     "deserialize_yaml": deserialize_yaml,
     "prettify_json": prettify_json,
-    "deserialize_ndjson": deserialize_ndjson,
+    "serialize_json": serialize_json,
+    "serialize_yaml": serialize_yaml,
     # Time related
     "datetime": create_datetime,
     "days_between": days_between,

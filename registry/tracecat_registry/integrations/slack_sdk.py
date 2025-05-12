@@ -1,9 +1,11 @@
 """Generic interface for Slack SDK."""
 
 from typing import Annotated, Any, Literal, cast
+import asyncio
 
 from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
+from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 from slack_sdk.webhook.async_client import AsyncWebhookClient
 
@@ -86,6 +88,43 @@ async def call_paginated_method(
             key = [k for k in data.keys() if isinstance(data[k], list)][0]
         members.extend(data[key])
     return members
+
+
+### Other utilities
+
+
+@registry.register(
+    default_title="Lookup many users by email",
+    description="Lookup users by emails. Returns a list of users found and a list of users not found.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/methods/users.lookupByEmail",
+    namespace="tools.slack",
+    secrets=[slack_secret],
+)
+async def lookup_users_by_email(
+    emails: Annotated[list[str], Field(..., description="List of user emails.")],
+) -> dict[str, list[dict[str, Any] | str]]:
+    bot_token = secrets.get("SLACK_BOT_TOKEN")
+    client = AsyncWebClient(token=bot_token)
+
+    async def lookup_single_email(email: str) -> tuple[bool, dict[str, Any] | str]:
+        try:
+            result = await client.users_lookupByEmail(email=email)
+            return True, cast(dict[str, Any], result.data)["user"]
+        except SlackApiError as e:
+            if e.response["error"] == "users_not_found":
+                return False, email
+            else:
+                raise e
+
+    # Process all emails concurrently
+    results = await asyncio.gather(*[lookup_single_email(email) for email in emails])
+
+    # Separate results into found and not found
+    found = [data for found_flag, data in results if found_flag]
+    not_found = [data for found_flag, data in results if not found_flag]
+
+    return {"found": found, "not_found": not_found}
 
 
 ### Block utilities
@@ -334,6 +373,129 @@ def format_text_input(
         },
         "block_id": block_id,
     }
+    return block
+
+
+@registry.register(
+    default_title="Format rich text input",
+    description="Format a rich text input block.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/reference/block-kit/block-elements#rich_text_input",
+    namespace="tools.slack_blocks",
+)
+def format_rich_text_input(
+    prompt: Annotated[
+        str,
+        Field(..., description="Prompt to ask the user."),
+    ],
+    initial_value: Annotated[
+        str | None,
+        Field(..., description="Initial value of the rich text input."),
+    ] = None,
+    placeholder: Annotated[
+        str | None,
+        Field(..., description="Placeholder text for the rich text input."),
+    ] = None,
+    dispatch_action: Annotated[
+        bool,
+        Field(..., description="Whether pressing Enter submits the input."),
+    ] = False,
+    action_id: Annotated[
+        str | None,
+        Field(..., description="Action ID. If None, defaults to `tc_rich_text_input`."),
+    ] = None,
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc_rich_text_input`."),
+    ] = None,
+) -> dict[str, Any]:
+    action_id = action_id or "tc_rich_text_input"
+    block_id = block_id or "tc_rich_text_input"
+
+    text_input = {
+        "type": "rich_text_input",
+        "action_id": action_id,
+        "dispatch_action_config": {"trigger_actions_on": ["on_enter_pressed"]},
+    }
+    if initial_value:
+        text_input["initial_value"] = initial_value
+    if placeholder:
+        text_input["placeholder"] = {"type": "plain_text", "text": placeholder}
+
+    block = {
+        "type": "input",
+        "label": {"type": "plain_text", "emoji": True, "text": prompt},
+        "element": text_input,
+        "block_id": block_id,
+        "dispatch_action": dispatch_action,
+    }
+    return block
+
+
+@registry.register(
+    default_title="Format dropdowns",
+    description="Format a single-select block of dropdowns as an accessory.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/reference/block-kit/block-elements#select",
+    namespace="tools.slack_blocks",
+)
+def format_dropdown(
+    prompt: Annotated[
+        str,
+        Field(..., description="Prompt to ask the user."),
+    ],
+    options: Annotated[
+        list[dict[str, str]],
+        Field(
+            ...,
+            description=(
+                "List of JSONs with `label` and `value` keys."
+                " E.g. `[{'label': 'Option 1', 'value': 'option_1'}, {'label': 'Option 2', 'value': 'option_2'}]`."
+            ),
+        ),
+    ],
+    initial_option: Annotated[
+        dict[str, str] | None,
+        Field(
+            ...,
+            description="Initial option to select. If None, defaults to the first option.",
+        ),
+    ] = None,
+    action_id: Annotated[
+        str | None,
+        Field(..., description="Action ID. If None, defaults to `tc_dropdown`."),
+    ] = None,
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc_dropdown`."),
+    ] = None,
+) -> dict[str, Any]:
+    action_id = action_id or "tc_dropdown"
+    block_id = block_id or "tc_dropdown"
+
+    option_elements = []
+    for option in options:
+        label, value = option["label"], option["value"]
+        option_elements.append(
+            {
+                "text": {"type": "plain_text", "text": label, "emoji": True},
+                "value": value,
+            }
+        )
+
+    block = {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": prompt},
+        "block_id": block_id,
+        "accessory": {
+            "type": "static_select",
+            "action_id": action_id,
+            "options": option_elements,
+        },
+    }
+    if initial_option:
+        block["accessory"]["initial_option"] = initial_option
+
     return block
 
 
