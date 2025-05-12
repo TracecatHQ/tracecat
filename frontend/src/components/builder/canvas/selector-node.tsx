@@ -5,7 +5,7 @@ import { Handle, Node, NodeProps, Position, useNodeId } from "@xyflow/react"
 import fuzzysort from "fuzzysort"
 import { CloudOffIcon, XIcon } from "lucide-react"
 
-import { useWorkbenchRegistryActions } from "@/lib/hooks"
+import { useBuilderRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
   Command,
@@ -20,9 +20,9 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
+import { ActionNodeType } from "@/components/builder/canvas/action-node"
+import { isEphemeral } from "@/components/builder/canvas/canvas"
 import { getIcon } from "@/components/icons"
-import { ActionNodeType } from "@/components/workbench/canvas/action-node"
-import { isEphemeral } from "@/components/workbench/canvas/canvas"
 
 export const SelectorTypename = "selector" as const
 
@@ -156,7 +156,7 @@ function ActionCommandSelector({
   inputValue: string
 }) {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
-    useWorkbenchRegistryActions()
+    useBuilderRegistryActions()
 
   if (!registryActions || registryActionsIsLoading) {
     return (

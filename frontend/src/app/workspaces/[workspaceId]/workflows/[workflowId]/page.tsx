@@ -1,14 +1,14 @@
 import { type Metadata } from "next"
 import { cookies } from "next/headers"
 
-import { Workbench } from "@/components/workbench/workbench"
+import { Builder } from "@/components/builder/builder"
 
 export const metadata: Metadata = {
-  title: "Workbench | Tracecat",
+  title: "Builder | Tracecat",
 }
 
-export default async function WorkbenchPage() {
+export default async function BuilderPage() {
   const layout = (await cookies()).get("react-resizable-panels:layout")
   const defaultLayout = layout ? JSON.parse(layout.value) : undefined
-  return <Workbench defaultLayout={defaultLayout} />
+  return <Builder defaultLayout={defaultLayout} />
 }

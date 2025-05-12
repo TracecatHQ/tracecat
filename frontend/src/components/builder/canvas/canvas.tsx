@@ -46,18 +46,18 @@ import { useToast } from "@/components/ui/use-toast"
 import actionNode, {
   ActionNodeData,
   ActionNodeType,
-} from "@/components/workbench/canvas/action-node"
-import { DeleteActionNodeDialog } from "@/components/workbench/canvas/delete-node-dialog"
+} from "@/components/builder/canvas/action-node"
+import { DeleteActionNodeDialog } from "@/components/builder/canvas/delete-node-dialog"
 import selectorNode, {
   SelectorNodeData,
   SelectorNodeType,
   SelectorTypename,
-} from "@/components/workbench/canvas/selector-node"
+} from "@/components/builder/canvas/selector-node"
 import triggerNode, {
   TriggerNodeData,
   TriggerNodeType,
   TriggerTypename,
-} from "@/components/workbench/canvas/trigger-node"
+} from "@/components/builder/canvas/trigger-node"
 
 const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
 const defaultNodeWidth = 172

@@ -19,10 +19,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { getWorkflowEventIcon } from "@/components/builder/events/events-workflow"
 import { CodeBlock } from "@/components/code-block"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { AlertNotification } from "@/components/notifications"
-import { getWorkflowEventIcon } from "@/components/workbench/events/events-workflow"
 
 export function ActionEvent({
   execution,

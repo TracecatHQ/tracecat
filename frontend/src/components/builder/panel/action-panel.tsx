@@ -86,6 +86,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  ControlFlowOptionsTooltip,
+  ForEachTooltip,
+  RetryPolicyTooltip,
+  RunIfTooltip,
+} from "@/components/builder/panel/action-panel-tooltips"
 import { CopyButton } from "@/components/copy-button"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { getIcon } from "@/components/icons"
@@ -93,12 +99,6 @@ import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { actionTypeToLabel } from "@/components/registry/icons"
-import {
-  ControlFlowOptionsTooltip,
-  ForEachTooltip,
-  RetryPolicyTooltip,
-  RunIfTooltip,
-} from "@/components/workbench/panel/action-panel-tooltips"
 
 // These are YAML strings
 const actionFormSchema = z.object({

@@ -1,6 +1,6 @@
 import type { ReactFlowInstance, ReactFlowJsonObject } from "@xyflow/react"
 
-import { isEphemeral } from "@/components/workbench/canvas/canvas"
+import { isEphemeral } from "@/components/builder/canvas/canvas"
 
 export const CHILD_WORKFLOW_ACTION_TYPE = "core.workflow.execute" as const
 

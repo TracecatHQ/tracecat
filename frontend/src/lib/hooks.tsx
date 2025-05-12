@@ -1150,13 +1150,13 @@ export function useUserManager() {
 
 /* Registry Actions */
 // For selector node
-export function useWorkbenchRegistryActions(versions?: string[]) {
+export function useBuilderRegistryActions(versions?: string[]) {
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
-    queryKey: ["workbench_registry_actions", versions],
+    queryKey: ["builder_registry_actions", versions],
     queryFn: async () => {
       return await registryActionsListRegistryActions()
     },

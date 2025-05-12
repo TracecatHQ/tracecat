@@ -29,9 +29,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { TriggerSourceHandle } from "@/components/builder/canvas/custom-handle"
+import { nodeStyles } from "@/components/builder/canvas/node-styles"
 import { getIcon } from "@/components/icons"
-import { TriggerSourceHandle } from "@/components/workbench/canvas/custom-handle"
-import { nodeStyles } from "@/components/workbench/canvas/node-styles"
 
 export type TriggerNodeData = {
   type: "trigger"

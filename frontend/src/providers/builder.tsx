@@ -20,12 +20,9 @@ import {
 } from "@xyflow/react"
 
 import { pruneReactFlowInstance } from "@/lib/workflow"
-import {
-  NodeType,
-  WorkflowCanvasRef,
-} from "@/components/workbench/canvas/canvas"
-import { EventsSidebarRef } from "@/components/workbench/events/events-sidebar"
-import { ActionPanelRef } from "@/components/workbench/panel/action-panel"
+import { NodeType, WorkflowCanvasRef } from "@/components/builder/canvas/canvas"
+import { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
+import { ActionPanelRef } from "@/components/builder/panel/action-panel"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance

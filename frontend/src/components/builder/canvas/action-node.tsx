@@ -64,14 +64,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast, useToast } from "@/components/ui/use-toast"
-import { getIcon } from "@/components/icons"
 import {
   ActionSoruceSuccessHandle,
   ActionSourceErrorHandle,
   ActionTargetHandle,
-} from "@/components/workbench/canvas/custom-handle"
-import { nodeStyles } from "@/components/workbench/canvas/node-styles"
-import { EventsSidebarRef } from "@/components/workbench/events/events-sidebar"
+} from "@/components/builder/canvas/custom-handle"
+import { nodeStyles } from "@/components/builder/canvas/node-styles"
+import { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
+import { getIcon } from "@/components/icons"
 
 export type ActionNodeData = {
   id: string
