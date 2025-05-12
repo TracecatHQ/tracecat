@@ -19,15 +19,15 @@ import {
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Spinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
-import { ActionEvent } from "@/components/workbench/events/events-selected-action"
-import { EventsSidebarEmpty } from "@/components/workbench/events/events-sidebar-empty"
-import { WorkflowInteractions } from "@/components/workbench/events/events-sidebar-interactions"
+import { ActionEvent } from "@/components/builder/events/events-selected-action"
+import { EventsSidebarEmpty } from "@/components/builder/events/events-sidebar-empty"
+import { WorkflowInteractions } from "@/components/builder/events/events-sidebar-interactions"
 import {
   WorkflowEvents,
   WorkflowEventsHeader,
-} from "@/components/workbench/events/events-workflow"
+} from "@/components/builder/events/events-workflow"
+import { Spinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 
 export type EventsSidebarTabs =
   | "workflow-events"

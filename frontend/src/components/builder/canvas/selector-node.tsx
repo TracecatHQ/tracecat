@@ -20,9 +20,9 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
+import { ActionNodeType } from "@/components/builder/canvas/action-node"
+import { isEphemeral } from "@/components/builder/canvas/canvas"
 import { getIcon } from "@/components/icons"
-import { ActionNodeType } from "@/components/workbench/canvas/action-node"
-import { isEphemeral } from "@/components/workbench/canvas/canvas"
 
 export const SelectorTypename = "selector" as const
 

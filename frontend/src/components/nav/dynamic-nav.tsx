@@ -3,10 +3,10 @@
 import React from "react"
 import { useParams, usePathname } from "next/navigation"
 
+import { WorkbenchNav } from "@/components/nav/builder-nav"
 import { Navbar } from "@/components/nav/navbar"
 import { OrganizationNav } from "@/components/nav/organization-nav"
 import { RegistryNav } from "@/components/nav/registry-nav"
-import { WorkbenchNav } from "@/components/nav/workbench-nav"
 import { WorkspaceNav } from "@/components/nav/workspace-nav"
 
 type DynamicNavbarParams = {

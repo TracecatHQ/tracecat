@@ -17,16 +17,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { WorkflowCanvas } from "@/components/workbench/canvas/canvas"
-import { WorkbenchSidebarEvents } from "@/components/workbench/events/events-sidebar"
-import { WorkbenchPanel } from "@/components/workbench/panel/workbench-panel"
+import { WorkflowCanvas } from "@/components/builder/canvas/canvas"
+import { WorkbenchSidebarEvents } from "@/components/builder/events/events-sidebar"
+import { WorkbenchPanel } from "@/components/builder/panel/workbench-panel"
 
-interface WorkbenchProps {
+interface BuilderProps {
   defaultLayout: number[] | undefined
   defaultCollapsed?: boolean
 }
 
-export function Workbench({ defaultLayout = [0, 68, 24] }: WorkbenchProps) {
+export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
   const {
     canvasRef,
     sidebarRef,

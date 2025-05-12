@@ -83,11 +83,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { TriggerTypename } from "@/components/builder/canvas/trigger-node"
 import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { TriggerTypename } from "@/components/workbench/canvas/trigger-node"
 
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   return (

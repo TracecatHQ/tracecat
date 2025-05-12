@@ -5,14 +5,14 @@ import { useWorkflow } from "@/providers/workflow"
 import { Node } from "@xyflow/react"
 import { Search } from "lucide-react"
 
-import { FormLoading } from "@/components/loading/form"
-import { AlertNotification } from "@/components/notifications"
 import {
   ActionPanel,
   ActionPanelRef,
-} from "@/components/workbench/panel/action-panel"
-import { TriggerPanel } from "@/components/workbench/panel/trigger-panel"
-import { WorkflowPanel } from "@/components/workbench/panel/workflow-panel"
+} from "@/components/builder/panel/action-panel"
+import { TriggerPanel } from "@/components/builder/panel/trigger-panel"
+import { WorkflowPanel } from "@/components/builder/panel/workflow-panel"
+import { FormLoading } from "@/components/loading/form"
+import { AlertNotification } from "@/components/notifications"
 
 export const WorkbenchPanel = React.forwardRef<ActionPanelRef, object>(() => {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
