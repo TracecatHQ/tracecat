@@ -24,8 +24,22 @@ from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction
 from tracecat.ee.interactions.models import InteractionContext
 from tracecat.expressions.formatters import tabulate
-from tracecat.expressions.ioc_extractors.email import extract_emails
-from tracecat.expressions.ioc_extractors.ip import extract_ipv4
+from tracecat.expressions.ioc_extractors import (
+    extract_asns,
+    extract_cves,
+    extract_domains,
+    extract_emails,
+    extract_ip,
+    extract_ipv4,
+    extract_ipv6,
+    extract_mac,
+    extract_md5,
+    extract_sha1,
+    extract_sha256,
+    extract_sha512,
+    extract_urls,
+    normalize_email,
+)
 from tracecat.parse import unescape_string
 
 
@@ -991,8 +1005,20 @@ _FUNCTION_MAPPING = {
     # Interaction
     "get_interaction": get_interaction,
     # IOC extractors
+    "extract_asns": extract_asns,
+    "extract_cves": extract_cves,
+    "extract_domains": extract_domains,
     "extract_emails": extract_emails,
+    "extract_md5": extract_md5,
+    "extract_sha1": extract_sha1,
+    "extract_sha256": extract_sha256,
+    "extract_sha512": extract_sha512,
+    "extract_ip": extract_ip,
     "extract_ipv4": extract_ipv4,
+    "extract_ipv6": extract_ipv6,
+    "extract_mac": extract_mac,
+    "extract_urls": extract_urls,
+    "normalize_email": normalize_email,
 }
 
 OPERATORS = {

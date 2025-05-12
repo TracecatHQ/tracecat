@@ -46,6 +46,7 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 | `not_empty` | (x: Sequence[Any]) -> bool | Check if sequence is not empty. |
 | `not_in` | (item: Any, container: Sequence[Any]) -> bool | Check if item does not exist in container. |
 | `unique` | (items: Sequence[Any]) -> list[Any] | List of hashable items (e.g. strings, numbers) to remove duplicates from. |
+| `zip_map` | (x: list[str], y: list[str]) -> dict[str, str] | Zip two arrays into list of key-value pairs, then convert into mapping. |
 | `add` | (a: float \| int, b: float \| int) -> float \| int | Add two numbers together. |
 | `sub` | (a: float \| int, b: float \| int) -> float \| int | Subtract second number from first number. |
 | `mul` | (a: float \| int, b: float \| int) -> float \| int | Multiply two numbers together. |
@@ -67,17 +68,17 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 | `and` | (a: bool, b: bool) -> bool | Logical AND operation. |
 | `or` | (a: bool, b: bool) -> bool | Logical OR operation. |
 | `not` | (x: bool) -> bool | Logical NOT operation. |
-| `serialize_json` | (x: Any) -> str | Convert object to JSON string. |
 | `deserialize_json` | (obj, /) | Deserialize JSON to Python objects. |
-| `serialize_yaml` | (x: Any) -> str | Serialize object to YAML string. |
+| `deserialize_ndjson` | (x: str) -> list[dict[str, Any]] | Parse newline-delimited JSON string into list of objects. |
 | `deserialize_yaml` | (x: str) -> Any | Deserialize YAML string to object. |
 | `prettify_json` | (x: Any) -> str | Convert object to formatted JSON string. |
-| `deserialize_ndjson` | (x: str) -> list[dict[str, Any]] | Parse newline-delimited JSON string into list of objects. |
+| `serialize_json` | (x: Any) -> str | Convert object to JSON string. |
+| `serialize_yaml` | (x: Any) -> str | Serialize object to YAML string. |
 | `datetime` | (year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0) -> datetime | Create datetime from year, month, day, hour, minute, and second. |
 | `days_between` | (start: datetime \| str, end: datetime \| str) -> float | Days between two datetimes. |
 | `days` | (x: int) -> timedelta | Create timedelta with specified days. |
 | `format_datetime` | (x: datetime \| str, format: str) -> str | Format datetime into specified format (e.g. '%Y-%m-%d %H:%M:%S'). |
-| `from_timestamp` | (x: int, unit: str = s) -> datetime | Convert integer timestamp in milliseconds ('ms') or seconds ('s') to datetime. |
+| `from_timestamp` | (x: float \| int \| str, unit: str = s) -> datetime | Convert timestamp in milliseconds ('ms') or seconds ('s') to datetime. |
 | `get_day_of_week` | (x: datetime \| str, format: "Literal[number, full, short]" = number) -> int \| str | Extract day of week from datetime. Returns 0-6 (Mon-Sun) or day name if format is "full" or "short". |
 | `get_day` | (x: datetime \| str) -> int | Get day of month (1-31) from datetime. |
 | `get_hour` | (x: datetime \| str) -> int | Get hour (0-23) from datetime. |
@@ -96,9 +97,8 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 | `seconds_between` | (start: datetime \| str, end: datetime \| str) -> float | Seconds between two datetimes. |
 | `seconds` | (x: int) -> timedelta | Create timedelta with specified seconds. |
 | `set_timezone` | (x: datetime \| str, timezone: str) -> datetime | Convert datetime to different timezone. Timezone must be a valid IANA timezone name (e.g., "America/New_York"). |
-| `to_datetime` | (x: Any, timezone: str \| None = None) -> datetime | Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime.
-     |
-| `to_isoformat` | (x: datetime \| str) -> str | Convert datetime to ISO format string. |
+| `to_datetime` | (x: Any, timezone: str \| None = None) -> datetime | Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime. |
+| `to_isoformat` | (x: datetime \| str, timespec: str = auto) -> str | Convert datetime to ISO format string. |
 | `to_time` | (x: datetime \| str) -> time | Convert datetime to time. |
 | `to_timestamp` | (x: datetime \| str, unit: str = s) -> int | Convert datetime to timestamp in milliseconds ('ms') or seconds ('s'). |
 | `today` | () -> date | Return the current date. |
@@ -117,8 +117,20 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 | `ipv6_is_public` | (ipv6: str) -> bool | Check if IPv6 address is public/global. |
 | `check_ip_version` | (ip: str) -> int | Get IP address version (4 or 6). |
 | `get_interaction` | () -> dict[str, str] \| None | Get the interaction context from the current action in the workflow execution. |
+| `extract_asns` | (text: str) -> list[str] | Extract Autonomous System Numbers, e.g. AS1234, from a string. |
+| `extract_cves` | (text: str) -> list[str] | Extract CVE IDs, such as CVE-2021-34527, from a string. |
+| `extract_domains` | (text: str, include_defanged: bool = False) -> list[str] | Extract domain names from a string. |
 | `extract_emails` | (text: str, normalize: bool = False) -> list[str] | Extract unique emails from a string. |
+| `extract_md5` | (text: str) -> list[str] | Extract MD5 hashes from a string. |
+| `extract_sha1` | (text: str) -> list[str] | Extract SHA1 hashes from a string. |
+| `extract_sha256` | (text: str) -> list[str] | Extract SHA256 hashes from a string. |
+| `extract_sha512` | (text: str) -> list[str] | Extract SHA512 hashes from a string. |
+| `extract_ip` | (text: str, include_defanged: bool = False) -> list[str] | Extract unique IPv4 and IPv6 addresses from a string. |
 | `extract_ipv4` | (text: str, include_defanged: bool = False) -> list[str] | Extract unique IPv4 addresses from a string. |
+| `extract_ipv6` | (text: str, include_defanged: bool = False) -> list[str] | Extract unique IPv6 addresses from a string. Includes defanged variants as an option. |
+| `extract_mac` | (text: str) -> list[str] | Extract MAC addresses from a string. |
+| `extract_urls` | (text: str, http_only: bool = False, include_defanged: bool = False) -> list[str] | Extract URLs from text, optionally including defanged ones. |
+| `normalize_email` | (email: str) -> str | Convert sub-addressed email to a normalized email address. |
 
 ## Operators
 | Operator | Description |
