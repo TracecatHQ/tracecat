@@ -3,15 +3,19 @@ export const actionsRegexFactory = () =>
   /ACTIONS\.(\w+)\.(result|error)((?:\.[\w\d\[\]]+)*)/g
 
 /**
- * Replaces ACTIONS expressions in a string with their compacted forms.
- * Only ACTIONS references are transformed; the rest of the string remains unchanged.
+ * Replaces ACTIONS expressions in a string with their compacted forms while preserving the rest of the string.
+ * ACTIONS references are transformed to a more readable format with the @ prefix.
  *
  * Examples:
- * - `ACTIONS.test.result && ACTIONS.other.error` -> `test && other.error`
- * - `ACTIONS.test.result.foo.bar || something else` -> `test..bar || something else`
+ * - `ACTIONS.test.result` → `@test`
+ * - `ACTIONS.test.result.foo.bar` → `@test..bar` (preserves last field, ignores array indices)
+ * - `ACTIONS.test.error` → `@test.error`
+ * - `ACTIONS.test.error.foo.bar` → `@test.error..bar`
+ * - `ACTIONS.a.result && ACTIONS.b.error` → `@a && @b.error`
+ * - `if (ACTIONS.test.result) return ACTIONS.other.error;` → `if (@test) return @other.error;`
  *
- * @param s - String containing ACTIONS expressions to compact
- * @returns string - Original string with ACTIONS references replaced by their compact form
+ * @param s - String containing ACTIONS expressions to compress
+ * @returns string - Original string with ACTIONS references replaced by their compact form with @ prefix
  */
 export function compressActionsInString(s: string): string {
   if (typeof s !== "string") {
