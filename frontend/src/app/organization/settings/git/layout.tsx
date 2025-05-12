@@ -4,10 +4,6 @@ export const metadata: Metadata = {
   title: "Git repository | Organization",
 }
 
-export default function GitLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function GitLayout({ children }: { children: React.ReactNode }) {
   return children
 }

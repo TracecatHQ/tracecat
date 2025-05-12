@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect } from "react"
+import React from "react"
 import { useWorkflow } from "@/providers/workflow"
 import { ImperativePanelHandle } from "react-resizable-panels"
 

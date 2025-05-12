@@ -1,7 +1,7 @@
+import { Metadata } from "next"
 import CasePanelProvider from "@/providers/case-panel"
 
 import CaseTable from "@/components/cases/case-table"
-import { Metadata } from "next"
 
 export const metadata: Metadata = {
   title: "Cases",
