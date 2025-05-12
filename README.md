@@ -24,6 +24,8 @@ Simple YAML-based templates for integrations with a no-code UI for workflows.
 Built-in lookup tables and case management.
 Orchestrated using Temporal for scale and reliability.
 
+![Tracecat workflow](/img/workflow.png)
+
 ## Getting Started
 
 > [!IMPORTANT]
@@ -73,7 +75,7 @@ Have questions? Feedback? New integration ideas? Come hang out with us in the [T
 
 ## Tracecat Registry
 
-![Tracecat Registry](img/tracecat-template.svg)
+![Tracecat Action template](img/action-template.svg)
 
 Tracecat Registry is a collection of integration and response-as-code templates.
 Response actions are organized into Tracecat's own ontology of common capabilities (e.g. `list_alerts`, `list_cases`, `list_users`).
