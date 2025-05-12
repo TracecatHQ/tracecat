@@ -97,9 +97,9 @@ def _build_email_message(
 
 
 @registry.register(
-    namespace="core",
+    default_title="Send email (SMTP)",
     description="Perform a send email action using SMTP",
-    default_title="Send Email (SMTP)",
+    namespace="core",
     secrets=[smtp_secret],
 )
 def send_email_smtp(

@@ -8,8 +8,8 @@ from tracecat_registry import ActionIsInterfaceError, registry
 
 @registry.register(
     namespace="core.workflow",
-    description="Execute a child workflow. The child workflow inherits the parent's execution context.",
-    default_title="Execute child workflow",
+    description="Execute a child workflow.",
+    default_title="Execute subflow",
     display_group="Workflows",
 )
 async def execute(

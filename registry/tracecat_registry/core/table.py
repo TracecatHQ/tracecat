@@ -10,7 +10,7 @@ from tracecat_registry import registry
 
 
 @registry.register(
-    default_title="Lookup one record",
+    default_title="Lookup record",
     description="Get a single record from a table corresponding to the given column and value.",
     display_group="Tables",
     namespace="core.table",
