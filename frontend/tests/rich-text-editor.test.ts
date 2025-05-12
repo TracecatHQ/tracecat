@@ -1,6 +1,6 @@
 import { Block } from "@blocknote/core"
 
-import { getSpacedBlocks } from "./rich-text-editor"
+import { getSpacedBlocks } from "@/lib/rich-text-editor"
 
 describe("getSpacedBlocks", () => {
   const createParagraphBlock = (): Block => ({
