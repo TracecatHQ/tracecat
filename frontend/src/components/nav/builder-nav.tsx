@@ -66,7 +66,7 @@ import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
 
-export function WorkbenchNav() {
+export function BuilderNav() {
   const {
     workflow,
     isLoading: workflowLoading,
@@ -199,10 +199,7 @@ export function WorkbenchNav() {
         </div>
 
         {/* Workflow options */}
-        <WorkbenchNavOptions
-          workspaceId={workspaceId}
-          workflowId={workflow.id}
-        />
+        <BuilderNavOptions workspaceId={workspaceId} workflowId={workflow.id} />
       </div>
     </div>
   )
@@ -251,20 +248,20 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
     leafRoute = "executions"
   }
 
-  const workbenchPath = `/workspaces/${workspaceId}/workflows/${workflowId}`
+  const builderPath = `/workspaces/${workspaceId}/workflows/${workflowId}`
 
   return (
     <Tabs value={leafRoute}>
       <TabsList className="grid h-8 w-full grid-cols-2">
         <TabsTrigger className="w-full px-2 py-0" value="workflow" asChild>
-          <Link href={workbenchPath} className="size-full text-xs" passHref>
+          <Link href={builderPath} className="size-full text-xs" passHref>
             <WorkflowIcon className="mr-2 size-4" />
             <span>Workflow</span>
           </Link>
         </TabsTrigger>
         <TabsTrigger className="w-full px-2 py-0" value="executions" asChild>
           <Link
-            href={`${workbenchPath}/executions`}
+            href={`${builderPath}/executions`}
             className="size-full text-xs"
             passHref
           >
@@ -483,7 +480,7 @@ function WorkflowManualTrigger({
   )
 }
 
-function WorkbenchNavOptions({
+function BuilderNavOptions({
   workspaceId,
   workflowId,
 }: {

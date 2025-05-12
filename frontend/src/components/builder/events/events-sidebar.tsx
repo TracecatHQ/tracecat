@@ -48,7 +48,7 @@ export interface EventsSidebarRef extends ImperativePanelHandle {
   isOpen: () => boolean
 }
 
-export function WorkbenchSidebarEvents() {
+export function BuilderSidebarEvents() {
   const { workflowId } = useWorkflow()
   const { sidebarRef, currentExecutionId } = useWorkflowBuilder()
   const [activeTab, setActiveTab] =
@@ -124,14 +124,11 @@ export function WorkbenchSidebarEvents() {
 
   // We have an execution ID to use
   return (
-    <WorkbenchSidebarEventsList
-      activeTab={activeTab}
-      executionId={executionId}
-    />
+    <BuilderSidebarEventsList activeTab={activeTab} executionId={executionId} />
   )
 }
 
-function WorkbenchSidebarEventsList({
+function BuilderSidebarEventsList({
   activeTab,
   executionId,
 }: {

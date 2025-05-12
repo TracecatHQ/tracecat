@@ -3,7 +3,7 @@ import { ReactFlowInstance } from "@xyflow/react"
 import { pruneReactFlowInstance } from "@/lib/workflow"
 
 // Mock the canvas module to avoid circular dependencies
-jest.mock("@/components/workbench/canvas/canvas", () => ({
+jest.mock("@/components/builder/canvas/canvas", () => ({
   isEphemeral: jest.fn((node: { type: string }) => node.type === "selector"),
 }))
 

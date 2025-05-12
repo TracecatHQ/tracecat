@@ -3,7 +3,7 @@
 import React from "react"
 import { useParams, usePathname } from "next/navigation"
 
-import { WorkbenchNav } from "@/components/nav/builder-nav"
+import { BuilderNav } from "@/components/nav/builder-nav"
 import { Navbar } from "@/components/nav/navbar"
 import { OrganizationNav } from "@/components/nav/organization-nav"
 import { RegistryNav } from "@/components/nav/registry-nav"
@@ -26,7 +26,7 @@ export function DynamicNavbar() {
 function getNavBar(pathname: string, params: DynamicNavbarParams) {
   const { workspaceId, workflowId } = params
   if (pathname.includes("/workflows") && workspaceId && workflowId) {
-    return <WorkbenchNav />
+    return <BuilderNav />
   } else if (pathname.includes("/workspaces") && workspaceId) {
     return <WorkspaceNav />
   } else if (pathname.includes("/registry")) {

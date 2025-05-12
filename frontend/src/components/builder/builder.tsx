@@ -18,8 +18,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { WorkflowCanvas } from "@/components/builder/canvas/canvas"
-import { WorkbenchSidebarEvents } from "@/components/builder/events/events-sidebar"
-import { WorkbenchPanel } from "@/components/builder/panel/workbench-panel"
+import { BuilderSidebarEvents } from "@/components/builder/events/events-sidebar"
+import { BuilderPanel } from "@/components/builder/panel/builder-panel"
 
 interface BuilderProps {
   defaultLayout: number[] | undefined
@@ -90,7 +90,7 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
           maxSize={48}
           className="h-full"
         >
-          <WorkbenchSidebarEvents />
+          <BuilderSidebarEvents />
         </ResizablePanel>
         <TooltipProvider>
           <Tooltip>
@@ -147,7 +147,7 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
           maxSize={48}
           className="h-full"
         >
-          <WorkbenchPanel ref={actionPanelRef} />
+          <BuilderPanel ref={actionPanelRef} />
         </ResizablePanel>
       </ResizablePanelGroup>
     </TooltipProvider>

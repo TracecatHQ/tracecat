@@ -14,7 +14,7 @@ import { WorkflowPanel } from "@/components/builder/panel/workflow-panel"
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
 
-export const WorkbenchPanel = React.forwardRef<ActionPanelRef, object>(() => {
+export const BuilderPanel = React.forwardRef<ActionPanelRef, object>(() => {
   const { selectedNodeId, getNode } = useWorkflowBuilder()
   const { workflow, isLoading, error } = useWorkflow()
   const selectedNode = getNode(selectedNodeId ?? "")
@@ -70,7 +70,7 @@ export const WorkbenchPanel = React.forwardRef<ActionPanelRef, object>(() => {
   )
 })
 
-WorkbenchPanel.displayName = "WorkbenchPanel"
+BuilderPanel.displayName = "BuilderPanel"
 
 function NodePanel({ node, workflow }: { node: Node; workflow: WorkflowRead }) {
   switch (node.type) {

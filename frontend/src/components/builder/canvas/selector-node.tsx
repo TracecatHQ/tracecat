@@ -5,7 +5,7 @@ import { Handle, Node, NodeProps, Position, useNodeId } from "@xyflow/react"
 import fuzzysort from "fuzzysort"
 import { CloudOffIcon, XIcon } from "lucide-react"
 
-import { useWorkbenchRegistryActions } from "@/lib/hooks"
+import { useBuilderRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import {
   Command,
@@ -156,7 +156,7 @@ function ActionCommandSelector({
   inputValue: string
 }) {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
-    useWorkbenchRegistryActions()
+    useBuilderRegistryActions()
 
   if (!registryActions || registryActionsIsLoading) {
     return (
