@@ -14,7 +14,6 @@ import {
   Controls,
   Edge,
   EdgeChange,
-  EdgeRemoveChange,
   FitViewOptions,
   MarkerType,
   NodeChange,
@@ -40,7 +39,7 @@ import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 
 import { useDeleteAction } from "@/lib/hooks"
-import { pruneGraphObject } from "@/lib/workflow"
+import { pruneGraphObject, pruneReactFlowInstance } from "@/lib/workflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
@@ -179,7 +178,6 @@ export const WorkflowCanvas = React.forwardRef<
   const [pendingDeleteNodes, setPendingDeleteNodes] = useState<
     NodeRemoveChange[]
   >([])
-  const [pendingDeleteEdges, setPendingDeleteEdges] = useState<EdgeChange[]>([])
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const { deleteAction } = useDeleteAction()
   /**
@@ -195,9 +193,11 @@ export const WorkflowCanvas = React.forwardRef<
         if (!graph) {
           throw new Error("No workflow data found")
         }
+        // Defensive
+        const prunedGraph = pruneGraphObject(graph)
         const { nodes: layoutNodes, edges: layoutEdges } = getLayoutedElements(
-          graph.nodes,
-          graph.edges,
+          prunedGraph.nodes,
+          prunedGraph.edges,
           "TB"
         )
         setNodes((currNodes) => [...currNodes, ...layoutNodes])
@@ -334,7 +334,6 @@ export const WorkflowCanvas = React.forwardRef<
     if (!workflowId || !reactFlowInstance) return
     console.log("HANDLE CONFIRMED DELETION", {
       pendingDeleteNodes,
-      pendingDeleteEdges,
     })
 
     try {
@@ -356,7 +355,7 @@ export const WorkflowCanvas = React.forwardRef<
       )
 
       await updateWorkflow({
-        object: pruneGraphObject(reactFlowInstance),
+        object: pruneReactFlowInstance(reactFlowInstance),
       })
 
       console.log("Workflow updated successfully")
@@ -370,11 +369,9 @@ export const WorkflowCanvas = React.forwardRef<
     } finally {
       setShowDeleteDialog(false)
       setPendingDeleteNodes([])
-      setPendingDeleteEdges([])
     }
   }, [
     pendingDeleteNodes,
-    pendingDeleteEdges,
     workflowId,
     reactFlowInstance,
     workspaceId,
@@ -385,7 +382,6 @@ export const WorkflowCanvas = React.forwardRef<
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      const pendingDeletes: EdgeRemoveChange[] = []
       const nextChanges = changes.reduce((acc, change) => {
         if (change.type === "remove") {
           // Add pending deletes
@@ -403,13 +399,9 @@ export const WorkflowCanvas = React.forwardRef<
         }
         return [...acc, change]
       }, [] as EdgeChange[])
-      if (pendingDeletes.length > 0) {
-        console.log("Pending delete edges:", pendingDeletes)
-        setPendingDeleteEdges(pendingDeletes)
-      }
       onEdgesChange(nextChanges)
     },
-    [edges, setEdges, pendingDeleteEdges]
+    [edges, setEdges]
   )
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -452,9 +444,13 @@ export const WorkflowCanvas = React.forwardRef<
 
   const onLayout = useCallback(
     (direction: "TB" | "LR") => {
-      const { nodes: newNodes, edges: newEdges } = getLayoutedElements(
+      const prundGraph = pruneGraphObject({
         nodes,
         edges,
+      })
+      const { nodes: newNodes, edges: newEdges } = getLayoutedElements(
+        prundGraph.nodes,
+        prundGraph.edges,
         direction
       )
       setNodes(newNodes)
@@ -466,13 +462,13 @@ export const WorkflowCanvas = React.forwardRef<
   // Saving react flow instance state
   useEffect(() => {
     if (workflowId && reactFlowInstance) {
-      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
+      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     }
   }, [edges])
 
   const onNodesDragStop = () => {
     if (workflowId && reactFlowInstance) {
-      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
+      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     }
   }
 
@@ -577,7 +573,6 @@ export const WorkflowCanvas = React.forwardRef<
           onOpenChange={(open) => {
             if (!open) {
               setPendingDeleteNodes([])
-              setPendingDeleteEdges([])
             }
           }}
           onConfirm={handleConfirmedDeletion}

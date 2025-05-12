@@ -19,7 +19,7 @@ import {
   useReactFlow,
 } from "@xyflow/react"
 
-import { pruneGraphObject } from "@/lib/workflow"
+import { pruneReactFlowInstance } from "@/lib/workflow"
 import {
   NodeType,
   WorkflowCanvasRef,
@@ -86,14 +86,14 @@ export const WorkflowBuilderProvider: React.FC<
   const setReactFlowNodes = useCallback(
     (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
       reactFlowInstance.setNodes(nodes)
-      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
+      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     },
     [workflowId, reactFlowInstance]
   )
   const setReactFlowEdges = useCallback(
     (edges: Edge[] | ((edges: Edge[]) => Edge[])) => {
       reactFlowInstance.setEdges(edges)
-      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
+      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     },
     [workflowId, reactFlowInstance]
   )
