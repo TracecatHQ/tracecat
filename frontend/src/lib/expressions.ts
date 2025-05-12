@@ -28,10 +28,7 @@ export function compressActionsInString(s: string): string {
   const regex = actionsRegexFactory()
   return s.replace(regex, (match, actionName, type, path) => {
     // Parse path segments
-    const pathSegments = path
-      ? path.split(".").filter(Boolean)
-      : //   .filter((seg: string) => !/^\d+$/.test(seg) && !/^\[\d+\]$/.test(seg))
-        []
+    const pathSegments = path ? path.split(".").filter(Boolean) : []
 
     // Generate compact form based on type and path
     const formattedActionName = `@${actionName}`
