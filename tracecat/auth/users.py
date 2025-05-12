@@ -73,13 +73,10 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     async def validate_email(self, email: str) -> None:
         allowed_domains = cast(
             list[str] | None,
-            await get_setting(
-                "auth_allowed_email_domains",
-                role=self.role,
-                # TODO: Deprecate in future version
-                default=list(config.TRACECAT__AUTH_ALLOWED_DOMAINS),
-            ),
-        )
+            await get_setting("auth_allowed_email_domains", role=self.role),
+            # Allow overriding of falsy value (empty list)
+        ) or list(config.TRACECAT__AUTH_ALLOWED_DOMAINS)
+        self.logger.debug("Allowed domains", allowed_domains=allowed_domains)
         validate_email(email=email, allowed_domains=allowed_domains)
 
     async def oauth_callback(
