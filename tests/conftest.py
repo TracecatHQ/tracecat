@@ -146,11 +146,6 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     )
     monkeysession.setattr(config, "TEMPORAL__CLUSTER_URL", "http://localhost:7233")
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
-    monkeysession.setattr(
-        config,
-        "TRACECAT__REMOTE_REPOSITORY_URL",
-        "git+ssh://git@github.com/TracecatHQ/udfs.git",
-    )
     # Need this for local unit tests
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
 

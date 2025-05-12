@@ -358,13 +358,7 @@ class Repository:
                     "Invalid Git repository URL. Please provide a valid Git SSH URL (git+ssh)."
                 ) from e
             package_name = (
-                await get_setting(
-                    "git_repo_package_name",
-                    role=self.role,
-                    # TODO: Deprecate in future version
-                    default=config.TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME,
-                )
-                or repo_name
+                await get_setting("git_repo_package_name", role=self.role) or repo_name
             )
             logger.debug(
                 "Parsed Git repository URL",

@@ -163,25 +163,6 @@ TRACECAT__ALLOWED_GIT_DOMAINS = set(
         "TRACECAT__ALLOWED_GIT_DOMAINS", "github.com,gitlab.com,bitbucket.org"
     ).split(",")
 )
-"""Deprecated: This config has been moved into the settings service"""
-# If you wish to use a remote registry, set the URL here
-# If the url is unset, this will be set to None
-TRACECAT__REMOTE_REPOSITORY_URL = (
-    os.environ.get("TRACECAT__REMOTE_REPOSITORY_URL") or None
-)
-"""Deprecated: This config has been moved into the settings service"""
-TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME = os.getenv(
-    "TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME"
-)
-"""If not provided, the package name will be inferred from the git remote URL.
-
-Deprecated: This config has been moved into the settings service
-"""
-
-# === Email settings === #
-TRACECAT__ALLOWED_EMAIL_ATTRIBUTES = os.environ.get(
-    "TRACECAT__ALLOWED_EMAIL_ATTRIBUTES"
-)
 
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
@@ -219,13 +200,6 @@ TRACECAT__RATE_LIMIT_BY_ENDPOINT = (
 )
 """Whether to rate limit by endpoint."""
 
-TRACECAT__TRUSTED_DOCKER_IMAGES = (
-    (images := os.environ.get("TRACECAT__TRUSTED_DOCKER_IMAGES", ""))
-    and images.split(",")
-) or []
-"""List of trusted docker images.
-If not provided, no images will be trusted.
-"""
 TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
     os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES", 1024 * 1024)
 )
