@@ -243,7 +243,7 @@ export function ActionTargetHandle({
               }
             }}
           >
-            {hasJoin && (
+            {Boolean(hasJoin) && (
               <Badge
                 className={cn(
                   "border-0 px-2 text-xs shadow-none",

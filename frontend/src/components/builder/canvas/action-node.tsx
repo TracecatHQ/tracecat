@@ -391,7 +391,7 @@ function ActionNodeContent({
           <div className="flex w-full flex-1 justify-between">
             <div className="flex flex-col space-y-1">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Unknown Action
+                Unknown action
               </CardTitle>
               <CardDescription className="text-xs">
                 Action type not found

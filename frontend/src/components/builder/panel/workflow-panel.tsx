@@ -248,7 +248,7 @@ export function WorkflowPanel({
                     value="workflow-static-inputs"
                   >
                     <FileInputIcon className="mr-2 size-4" />
-                    <span>Static Inputs</span>
+                    <span>Static inputs</span>
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -544,7 +544,7 @@ export function WorkflowPanel({
                       <AccordionTrigger className="px-4 text-xs font-bold">
                         <div className="flex items-center">
                           <Redo2Icon className="mr-3 size-4" />
-                          <span className="capitalize">Input schema</span>
+                          <span>Input schema</span>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
@@ -599,7 +599,7 @@ export function WorkflowPanel({
                       <AccordionTrigger className="px-4 text-xs font-bold">
                         <div className="flex items-center">
                           <Undo2Icon className="mr-3 size-4" />
-                          <span className="capitalize">Output Schema</span>
+                          <span>Output schema</span>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
@@ -661,7 +661,7 @@ export function WorkflowPanel({
                       <AccordionTrigger className="px-4 text-xs font-bold">
                         <div className="flex items-center">
                           <FileInputIcon className="mr-3 size-4" />
-                          <span>Static Inputs</span>
+                          <span>Static inputs</span>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
@@ -723,7 +723,7 @@ function StaticInputTooltip() {
   return (
     <div className="w-full space-y-4">
       <div className="flex w-full items-center justify-between text-muted-foreground ">
-        <span className="font-mono text-sm font-semibold">Static Inputs</span>
+        <span className="font-mono text-sm font-semibold">Static inputs</span>
         <span className="text-xs text-muted-foreground/80">(optional)</span>
       </div>
       <div className="flex w-full flex-col items-center justify-between space-y-4 text-muted-foreground">
@@ -747,7 +747,7 @@ function WorkflowReturnValueTooltip() {
   return (
     <div className="flex w-full flex-col space-y-4">
       <div className="flex w-full items-center justify-between text-muted-foreground">
-        <span className="font-mono text-sm font-semibold">Output Schema</span>
+        <span className="font-mono text-sm font-semibold">Output schema</span>
         <span className="text-xs text-muted-foreground/80">(optional)</span>
       </div>
       <span className="w-full text-muted-foreground">

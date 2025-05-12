@@ -5,8 +5,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { SidebarNav } from "@/app/workspaces/[workspaceId]/settings/sidebar-nav"
 
 export const metadata: Metadata = {
-  title: "Workspace Settings",
-  description: "Workspace Settings",
+  title: "Settings | Workspace",
 }
 
 export default async function WorkspaceSettingsLayout({

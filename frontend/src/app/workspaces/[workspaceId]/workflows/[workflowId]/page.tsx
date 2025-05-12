@@ -4,7 +4,7 @@ import { cookies } from "next/headers"
 import { Builder } from "@/components/builder/builder"
 
 export const metadata: Metadata = {
-  title: "Builder | Tracecat",
+  title: "Workflow builder",
 }
 
 export default async function BuilderPage() {

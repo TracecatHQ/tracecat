@@ -50,7 +50,7 @@ StatusType = Literal[
 
 
 @registry.register(
-    default_title="Create Case",
+    default_title="Create case",
     display_group="Cases",
     description="Create a new case.",
     namespace="core.cases",
@@ -96,7 +96,7 @@ async def create_case(
 
 
 @registry.register(
-    default_title="Update Case",
+    default_title="Update case",
     display_group="Cases",
     description="Update an existing case.",
     namespace="core.cases",
@@ -157,7 +157,7 @@ async def update_case(
 
 
 @registry.register(
-    default_title="Create Case Comment",
+    default_title="Create case comment",
     display_group="Cases",
     description="Add a comment to an existing case.",
     namespace="core.cases",
@@ -193,7 +193,7 @@ async def create_comment(
 
 
 @registry.register(
-    default_title="Update Case Comment",
+    default_title="Update case comment",
     display_group="Cases",
     description="Update an existing case comment.",
     namespace="core.cases",
@@ -229,7 +229,7 @@ async def update_comment(
 
 
 @registry.register(
-    default_title="Get Case",
+    default_title="Get case",
     display_group="Cases",
     description="Get details of a specific case by ID.",
     namespace="core.cases",
@@ -282,7 +282,7 @@ async def get_case(
 
 
 @registry.register(
-    default_title="List Cases",
+    default_title="List cases",
     display_group="Cases",
     description="List all cases.",
     namespace="core.cases",
@@ -319,7 +319,7 @@ async def list_cases(
 
 
 @registry.register(
-    default_title="Search Cases",
+    default_title="Search cases",
     display_group="Cases",
     description="Search cases based on various criteria.",
     namespace="core.cases",
@@ -380,7 +380,7 @@ async def search_cases(
 
 
 @registry.register(
-    default_title="List Case Comments",
+    default_title="List case comments",
     display_group="Cases",
     description="List all comments for a case.",
     namespace="core.cases",

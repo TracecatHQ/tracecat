@@ -253,7 +253,7 @@ def _http_status_error_to_message(e: httpx.HTTPStatusError) -> str:
 @registry.register(
     namespace="core",
     description="Perform a HTTP request to a given URL.",
-    default_title="HTTP Request",
+    default_title="HTTP request",
     secrets=[ssl_secret],
 )
 async def http_request(
@@ -324,7 +324,7 @@ class PredicateArgs(TypedDict):
 @registry.register(
     namespace="core",
     description="Perform a HTTP request to a given URL with polling.",
-    default_title="HTTP Polling",
+    default_title="HTTP poll",
     secrets=[ssl_secret],
 )
 async def http_poll(

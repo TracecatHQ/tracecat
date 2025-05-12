@@ -23,7 +23,7 @@ export default function AppSettingsPage() {
 
         <div className="mb-4 flex flex-row items-center justify-between rounded-lg border p-4">
           <div className="space-y-0.5">
-            <Label>Application Version</Label>
+            <Label>Application version</Label>
           </div>
           <Badge variant="secondary" className="text-xs text-muted-foreground">
             {appInfo?.version ?? "Unknown"}

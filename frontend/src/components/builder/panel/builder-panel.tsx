@@ -21,7 +21,7 @@ export const BuilderPanel = React.forwardRef<ActionPanelRef, object>(() => {
 
   useEffect(() => {
     if (workflow) {
-      document.title = `${workflow.title} | Tracecat`
+      document.title = `Workflow | ${workflow.title}`
     }
   }, [workflow])
 

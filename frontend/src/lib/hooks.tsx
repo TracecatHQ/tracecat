@@ -1852,8 +1852,8 @@ export function useOrgAppSettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-app-settings"] })
       toast({
-        title: "Updated App settings",
-        description: "App settings updated successfully.",
+        title: "Updated application settings",
+        description: "Application settings updated successfully.",
       })
     },
     onError: (error: TracecatApiError) => {
@@ -1865,10 +1865,10 @@ export function useOrgAppSettings() {
           })
           break
         default:
-          console.error("Failed to update App settings", error)
+          console.error("Failed to update application settings", error)
           toast({
-            title: "Failed to update App settings",
-            description: `An error occurred while updating the App settings: ${error.body.detail}`,
+            title: "Failed to update application settings",
+            description: `An error occurred while updating the application settings: ${error.body.detail}`,
           })
       }
     },
@@ -1950,8 +1950,8 @@ export function useOrgAuthSettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-auth-settings"] })
       toast({
-        title: "Updated Auth settings",
-        description: "Auth settings updated successfully.",
+        title: "Updated authentication settings",
+        description: "Authentication settings updated successfully.",
       })
     },
     onError: (error: TracecatApiError) => {
@@ -1963,10 +1963,10 @@ export function useOrgAuthSettings() {
           })
           break
         default:
-          console.error("Failed to update auth settings", error)
+          console.error("Failed to update authentication settings", error)
           toast({
-            title: "Failed to update auth settings",
-            description: `An error occurred while updating the auth settings: ${error.body.detail}`,
+            title: "Failed to update authentication settings",
+            description: `An error occurred while updating the authentication settings: ${error.body.detail}`,
           })
       }
     },
@@ -2394,7 +2394,7 @@ export function useInsertRow() {
     onError: (error: TracecatApiError, variables) => {
       if (error.status === 409) {
         toast({
-          title: "Duplicate Value Error",
+          title: "Duplicate value error",
           description:
             "Cannot insert duplicate values in a unique column. Please use unique values.",
           variant: "destructive",
