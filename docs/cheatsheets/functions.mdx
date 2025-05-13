@@ -37,14 +37,14 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 | `regex_match` | (pattern: str, text: str) -> bool | Check if text matches regex pattern. |
 | `regex_not_match` | (pattern: str, text: str) -> bool | Check if text does not match regex pattern. |
 | `compact` | (x: list[Any]) -> list[Any] | Drop null values from a list. Similar to compact function in Terraform. |
-| `contains` | (item: Any, container: Sequence[Any]) -> bool | Check if item exists in container. |
-| `does_not_contain` | (item: Any, container: Sequence[Any]) -> bool | Check if item does not exist in container. |
+| `contains` | (item: Any, container: Sequence[Any]) -> bool | Check if item exists in a sequence. |
+| `does_not_contain` | (item: Any, container: Sequence[Any]) -> bool | Check if item does not exist in a sequence. |
 | `flatten` | (iterables: Sequence[Sequence[Any]]) -> list[Any] | Flatten nested sequences into a single list. |
-| `is_empty` | (x: Sequence[Any]) -> bool | Check if sequence is empty. |
-| `is_in` | (item: Any, container: Sequence[Any]) -> bool | Check if item exists in container. |
+| `is_empty` | (x: Sequence[Any]) -> bool | Check if sequence has length 0. |
+| `is_in` | (item: Any, container: Sequence[Any]) -> bool | Check if item exists in a sequence. |
 | `length` | (obj, /) | Return the number of items in a container. |
-| `not_empty` | (x: Sequence[Any]) -> bool | Check if sequence is not empty. |
-| `not_in` | (item: Any, container: Sequence[Any]) -> bool | Check if item does not exist in container. |
+| `not_empty` | (x: Sequence[Any]) -> bool | Check if sequence has length greater than 0. |
+| `not_in` | (item: Any, container: Sequence[Any]) -> bool | Check if item does not exist in a sequence. |
 | `unique` | (items: Sequence[Any]) -> list[Any] | List of hashable items (e.g. strings, numbers) to remove duplicates from. |
 | `zip_map` | (x: list[str], y: list[str]) -> dict[str, str] | Zip two arrays into list of key-value pairs, then convert into mapping. |
 | `add` | (a: float \| int, b: float \| int) -> float \| int | Add two numbers together. |
@@ -148,7 +148,7 @@ description: A cheatsheet of functions and operators supported by Tracecat.
 | `*` | Multiply two numbers together. |
 | `/` | Divide first number by second number. |
 | `%` | Calculate modulo (remainder) of first number divided by second. |
-| `in` | Check if item exists in container. |
-| `not in` | Check if item does not exist in container. |
+| `in` | Check if item exists in a sequence. |
+| `not in` | Check if item does not exist in a sequence. |
 | `is` | - |
 | `is not` | - |

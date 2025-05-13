@@ -301,22 +301,22 @@ def compact(x: list[Any]) -> list[Any]:
 
 
 def is_in(item: Any, container: Sequence[Any]) -> bool:
-    """Check if item exists in container."""
+    """Check if item exists in a sequence."""
     return item in container
 
 
 def not_in(item: Any, container: Sequence[Any]) -> bool:
-    """Check if item does not exist in container."""
+    """Check if item does not exist in a sequence."""
     return item not in container
 
 
 def is_empty(x: Sequence[Any]) -> bool:
-    """Check if sequence is empty."""
+    """Check if sequence has length 0."""
     return len(x) == 0
 
 
 def not_empty(x: Sequence[Any]) -> bool:
-    """Check if sequence is not empty."""
+    """Check if sequence has length greater than 0."""
     return len(x) > 0
 
 
