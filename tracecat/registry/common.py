@@ -67,8 +67,6 @@ async def reload_registry(session: AsyncSession, role: Role):
     if maybe_remote_url := await get_setting(
         "git_repo_url",
         role=role,
-        # TODO: Deprecate in future version
-        default=config.TRACECAT__REMOTE_REPOSITORY_URL,
     ):
         remote_url = cast(str, maybe_remote_url)
         parsed_url = urlparse(remote_url)

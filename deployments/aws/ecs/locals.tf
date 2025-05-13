@@ -43,15 +43,10 @@ locals {
       TRACECAT__APP_ENV                               = var.tracecat_app_env
       TRACECAT__AUTH_ALLOWED_DOMAINS                  = var.auth_allowed_domains
       TRACECAT__AUTH_TYPES                            = var.auth_types
-      TRACECAT__SETTING_OVERRIDE_SAML_ENABLED         = var.setting_override_saml_enabled
-      TRACECAT__SETTING_OVERRIDE_OAUTH_GOOGLE_ENABLED = var.setting_override_oauth_google_enabled
-      TRACECAT__SETTING_OVERRIDE_BASIC_AUTH_ENABLED   = var.setting_override_basic_auth_enabled
       TRACECAT__DB_ENDPOINT                           = local.core_db_hostname
       TRACECAT__EXECUTOR_URL                          = local.internal_executor_url
       TRACECAT__PUBLIC_API_URL                        = local.public_api_url
       TRACECAT__PUBLIC_APP_URL                        = local.public_app_url
-      TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME        = var.remote_repository_package_name
-      TRACECAT__REMOTE_REPOSITORY_URL                 = var.remote_repository_url
     }, local.tracecat_db_configs) :
     { name = k, value = tostring(v) }
   ]
@@ -81,8 +76,6 @@ locals {
       LOG_LEVEL                                = var.log_level
       TRACECAT__APP_ENV                        = var.tracecat_app_env
       TRACECAT__DB_ENDPOINT                    = local.core_db_hostname
-      TRACECAT__REMOTE_REPOSITORY_URL          = var.remote_repository_url
-      TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME = var.remote_repository_package_name
     }, local.tracecat_db_configs) :
     { name = k, value = tostring(v) }
   ]
