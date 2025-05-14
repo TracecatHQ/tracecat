@@ -1,4 +1,4 @@
-from typing import Annotated, Any, Union, get_args, get_origin
+from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -271,6 +271,48 @@ def test_invalid_schema():
     annotated_any_type = next(arg for arg in field_a_args if arg is not type(None))
     assert get_origin(annotated_any_type) is Annotated
     assert get_args(annotated_any_type)[0] is Any
+
+
+def test_enum_fields():
+    schema = {
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string",
+                "enum": ["open", "in_progress", "closed"],
+                "title": "ticket_status",
+            },
+            "severity": {
+                "type": "integer",
+                "enum": [1, 2, 3, 4],
+            },
+        },
+        "required": ["status"],
+    }
+
+    Model = json_schema_to_pydantic(schema)
+
+    assert issubclass(Model, BaseModel)
+
+    # Check status enum (required)
+    status_type_annotation = Model.__annotations__["status"]
+    assert get_origin(status_type_annotation) is Annotated
+    StatusLiteralType = get_args(status_type_annotation)[0]
+    assert get_origin(StatusLiteralType) is Literal
+    assert set(get_args(StatusLiteralType)) == {"open", "in_progress", "closed"}
+
+    # Check severity enum (optional)
+    severity_type_annotation = Model.__annotations__["severity"]
+    assert get_origin(severity_type_annotation) is Union  # For Optional fields
+    severity_args = get_args(severity_type_annotation)
+    assert type(None) in severity_args
+    annotated_severity_type = next(
+        arg for arg in severity_args if arg is not type(None)
+    )
+    assert get_origin(annotated_severity_type) is Annotated
+    SeverityLiteralType = get_args(annotated_severity_type)[0]
+    assert get_origin(SeverityLiteralType) is Literal
+    assert set(get_args(SeverityLiteralType)) == {1, 2, 3, 4}
 
 
 def test_array_of_objects():

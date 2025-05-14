@@ -228,3 +228,44 @@ async def test_pydantic_ai_call_with_build_timeline_schema():
     assert "thoughts" in result
     assert "timeline" in result
     assert "relationships" in result
+
+
+@pytest.mark.anyio
+async def test_pydantic_ai_call_with_enum_output():
+    """Tests the call function with a OpenAI call and an enum in the output schema."""
+    order_status_schema = {
+        "title": "OrderStatus",
+        "type": "object",
+        "properties": {
+            "order_id": {"type": "string"},
+            "status": {
+                "type": "string",
+                "enum": ["pending", "shipped", "delivered", "cancelled"],
+            },
+        },
+        "required": ["order_id", "status"],
+    }
+
+    instructions = (
+        "You are an order fulfillment system. Provide the order status in the specified JSON format. "
+        "The status must be one of: pending, shipped, delivered, or cancelled."
+    )
+    user_prompt = "The order ABC123 has just been shipped. Please provide its status."
+
+    # This test makes a live API call to OpenAI
+    result = await call(
+        instructions=instructions,
+        user_prompt=user_prompt,
+        model_name="gpt-3.5-turbo",  # Using a cheaper model for live test
+        model_provider="openai",
+        output_type=order_status_schema,
+    )
+
+    assert isinstance(result, dict)
+    assert "order_id" in result
+    assert "status" in result
+    assert result["status"] in ["pending", "shipped", "delivered", "cancelled"]
+    # We can be more specific if the prompt strongly suggests a value, e.g.:
+    # assert result["status"] == "shipped"
+    # However, LLM responses can vary, so checking inclusion in the enum is safer for a live test.
+    print(f"Live LLM call for enum test returned: {result}")
