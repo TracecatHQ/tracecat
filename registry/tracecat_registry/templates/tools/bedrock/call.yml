@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Call AWS Bedrock (Pydantic AI)
+  description: Call an LLM via Pydantic AI with AWS Bedrock.
+  display_group: AWS
+  doc_url: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters.html
+  namespace: llm.bedrock
+  name: call
+  secrets:
+    - name: bedrock
+      optional_keys: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_REGION"]
+  expects:
+    prompt:
+      type: str
+      description: Prompt to send to the LLM.
+    model:
+      type: str
+      description: Model to use.
+    memory:
+      type: list[dict[str, str]]
+      description: List of messages to send to the LLM.
+    instructions:
+      type: str | None
+      description: Instructions to use for the LLM.
+      default: null
+    output_type:
+      type: str | dict[str, any] | None
+      description: Output type to use.
+    model_settings:
+      type: dict[str, any] | None
+      description: Model-specific settings.
+      default: null
+  steps:
+    - ref: call_bedrock
+      action: llm.pydantic_ai.call
+      args:
+        model_name: ${{ inputs.model }}
+        model_provider: bedrock
+        output_type: ${{ inputs.output_type }}
+        message_history: ${{ inputs.memory }}
+        instructions: ${{ inputs.instructions }}
+        model_settings: ${{ inputs.model_settings }}
+  returns: ${{ steps.call_bedrock.result }}

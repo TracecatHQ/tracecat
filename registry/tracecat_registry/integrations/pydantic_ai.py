@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.agent import AgentRunResult
+import orjson
 from pydantic_ai.messages import ModelMessage, UserPromptPart, TextPart
 
 from pydantic_ai.models.openai import OpenAIModel, OpenAIResponsesModel
@@ -9,6 +10,10 @@ from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.providers.bedrock import BedrockProvider
+from pydantic_ai.models.gemini import GeminiModel
+from pydantic_ai.providers.google_gla import GoogleGLAProvider
+from pydantic_ai.providers.google_vertex import GoogleVertexProvider
+
 from pydantic_ai.settings import ModelSettings
 
 from tracecat.validation.common import json_schema_to_pydantic
@@ -21,54 +26,9 @@ from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
-from tracecat_registry import RegistrySecret, registry, secrets
-
-openai_secret = RegistrySecret(
-    name="openai",
-    keys=["OPENAI_API_KEY"],
-)
-"""OpenAI secret.
-
-- name: `openai`
-- keys:
-    - `OPENAI_API_KEY`
-"""
-
-anthropic_secret = RegistrySecret(
-    name="anthropic",
-    keys=["ANTHROPIC_API_KEY"],
-)
-"""Anthropic secret.
-
-- name: `anthropic`
-- keys:
-    - `ANTHROPIC_API_KEY`
-"""
+from tracecat_registry import registry, secrets
 
 
-aws_bedrock_secret = RegistrySecret(
-    name="aws_bedrock",
-    optional_keys=[
-        "AWS_ACCESS_KEY_ID",
-        "AWS_SECRET_ACCESS_KEY",
-        "AWS_SESSION_TOKEN",
-        "AWS_PROFILE",
-        "AWS_REGION",
-    ],
-    optional=True,
-)
-"""AWS credentials for Amazon Bedrock.
-
-- name: `aws_bedrock`
-- optional_keys:
-    - `AWS_ACCESS_KEY_ID`
-    - `AWS_SECRET_ACCESS_KEY`
-    - `AWS_REGION`
-    - `AWS_SESSION_TOKEN`
-    - `AWS_PROFILE`
-"""
-
-# Objects should be configured via structured outputs.
 SUPPORTED_OUTPUT_TYPES = {
     "bool": bool,
     "float": float,
@@ -112,13 +72,22 @@ def _parse_message_history(message_history: list[dict[str, Any]]) -> list[ModelM
     namespace="llm.pydantic_ai",
 )
 async def call(
-    instructions: Annotated[str, Doc("Instructions to use for this agent")],
     user_prompt: Annotated[str, Doc("User prompt")],
     model_name: Annotated[str, Doc("Model to use")],
     model_provider: Annotated[
-        Literal["openai", "openai_responses", "anthropic", "bedrock", "gemini"],
+        Literal[
+            "openai",
+            "openai_responses",
+            "anthropic",
+            "bedrock",
+            "gemini",
+            "gemini_vertex",
+        ],
         Doc("Model provider to use"),
     ],
+    instructions: Annotated[
+        str | None, Doc("Instructions to use for this agent")
+    ] = None,
     output_type: Annotated[
         str | dict[str, Any] | None,
         Doc(
@@ -154,6 +123,26 @@ async def call(
             model = AnthropicModel(
                 model_name=model_name,
                 provider=AnthropicProvider(api_key=secrets.get("ANTHROPIC_API_KEY")),
+            )
+        case "gemini":
+            model = GeminiModel(
+                model_name=model_name,
+                provider=GoogleGLAProvider(api_key=secrets.get("GEMINI_API_KEY")),
+            )
+        case "gemini_vertex":
+            try:
+                service_account_info = orjson.loads(
+                    secrets.get("GOOGLE_API_CREDENTIALS")
+                )
+            except orjson.JSONDecodeError as e:
+                raise ValueError(
+                    "`GOOGLE_API_CREDENTIALS` is not a valid JSON string."
+                ) from e
+            model = GeminiModel(
+                model_name=model_name,
+                provider=GoogleVertexProvider(
+                    service_account_info=service_account_info
+                ),
             )
         case "bedrock":
             session = await get_session()

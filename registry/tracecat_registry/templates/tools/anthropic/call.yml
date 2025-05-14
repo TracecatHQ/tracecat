@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Call Anthropic (Pydantic AI)
+  description: Call an Anthropic LLM via Pydantic AI.
+  display_group: Anthropic
+  doc_url: https://docs.anthropic.com/en/api
+  namespace: llm.anthropic
+  name: call
+  secrets:
+    - name: anthropic
+      keys: ["ANTHROPIC_API_KEY"]
+  expects:
+    prompt:
+      type: str
+      description: Prompt to send to the LLM.
+    model:
+      type: str
+      description: Model to use.
+    memory:
+      type: list[dict[str, str]]
+      description: List of messages to send to the LLM.
+    system:
+      type: str | None
+      description: System prompt to use for the LLM.
+      default: null
+    output_type:
+      type: str | dict[str, any] | None
+      description: >
+        Output format to use. Either JSONSchema
+        or a supported type (see `llm.pydantic_ai.call`).
+      default: null
+    model_settings:
+      type: dict[str, any] | None
+      description: Model-specific settings.
+      default: null
+  steps:
+    - ref: call_anthropic
+      action: llm.pydantic_ai.call
+      args:
+        model_name: ${{ inputs.model }}
+        model_provider: anthropic
+        output_type: ${{ inputs.output_type }}
+        message_history: ${{ inputs.memory }}
+        instructions: ${{ inputs.system }}
+        model_settings: ${{ inputs.model_settings }}
+  returns: ${{ steps.call_anthropic.result }}

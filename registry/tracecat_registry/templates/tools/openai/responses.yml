@@ -1,0 +1,56 @@
+
+type: action
+definition:
+  title: Call OpenAI (responses)
+  description: Call an LLM via OpenAI responses API.
+  display_group: OpenAI
+  doc_url: https://platform.openai.com/docs/api-reference/chat/create
+  namespace: llm.openai
+  name: call
+  secrets:
+    - name: openai
+      keys:
+        - OPENAI_API_KEY
+  expects:
+    prompt:
+      type: str
+      description: Prompt or conversation history to send to the LLM
+    model:
+      type: str
+      description: Model to use
+      default: gpt-4o-mini
+    memory:
+      type: list[dict[str, str]] | None
+      description: Past messages to include in the conversation.
+      default: null
+    instructions:
+      type: str | None
+      description: Insert a system message at the beginning of the conversation.
+      default: null
+    text_format:
+      type: str | dict[str, any] | None
+      description: >
+        Output format to use. Either JSONSchema
+        or a supported type (see `llm.pydantic_ai.call`).
+      default: null
+    model_settings:
+      type: dict[str, any] | None
+      description: Model-specific settings.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL for OpenAI API. Defaults to `https://api.openai.com`.
+      default: null
+  steps:
+    - ref: call_openai
+      action: llm.pydantic_ai.call
+      args:
+        base_url: ${{ inputs.base_url }}
+        instructions: ${{ inputs.instructions }}
+        message_history: ${{ inputs.memory }}
+        model_name: ${{ inputs.model }}
+        model_provider: openai_responses
+        output_type: ${{ inputs.text_format }}
+        user_prompt: ${{ inputs.prompt }}
+        model_settings: ${{ inputs.model_settings }}
+  returns: ${{ steps.call_openai.result }}
