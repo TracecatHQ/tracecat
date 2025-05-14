@@ -17,8 +17,9 @@ definition:
       type: str
       description: Model to use.
     memory:
-      type: list[dict[str, str]]
+      type: list[dict[str, str]] | None
       description: List of messages to send to the LLM.
+      default: null
     system:
       type: str | None
       description: System prompt to use for the LLM.
