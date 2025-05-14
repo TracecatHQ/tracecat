@@ -38,10 +38,11 @@ definition:
     - ref: call_anthropic
       action: llm.pydantic_ai.call
       args:
+        instructions: ${{ inputs.system }}
+        message_history: ${{ inputs.memory }}
         model_name: ${{ inputs.model }}
         model_provider: anthropic
-        output_type: ${{ inputs.output_type }}
-        message_history: ${{ inputs.memory }}
-        instructions: ${{ inputs.system }}
         model_settings: ${{ inputs.model_settings }}
+        output_type: ${{ inputs.output_type }}
+        user_prompt: ${{ inputs.prompt }}
   returns: ${{ steps.call_anthropic.result }}

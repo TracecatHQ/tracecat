@@ -35,10 +35,11 @@ definition:
     - ref: call_bedrock
       action: llm.pydantic_ai.call
       args:
+        instructions: ${{ inputs.instructions }}
+        message_history: ${{ inputs.memory }}
         model_name: ${{ inputs.model }}
         model_provider: bedrock
-        output_type: ${{ inputs.output_type }}
-        message_history: ${{ inputs.memory }}
-        instructions: ${{ inputs.instructions }}
         model_settings: ${{ inputs.model_settings }}
+        output_type: ${{ inputs.output_type }}
+        user_prompt: ${{ inputs.prompt }}
   returns: ${{ steps.call_bedrock.result }}
