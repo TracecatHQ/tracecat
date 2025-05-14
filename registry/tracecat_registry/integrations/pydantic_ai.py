@@ -90,10 +90,17 @@ def _parse_message_history(message_history: list[dict[str, Any]]) -> list[ModelM
     """
     messages = []
     for message in message_history:
+        content_value: str | None = message.get("content") or message.get(
+            "parts", [{}]
+        )[0].get("text")
+        if content_value is None:
+            # Still None, raise an error or handle as appropriate
+            raise ValueError(f"Message has no parsable content: {message}")
+
         if message["role"] == "user":
-            messages.append(UserPromptPart(content=message["content"]))
+            messages.append(UserPromptPart(content=content_value))
         elif message["role"] in ["assistant", "model"]:
-            messages.append(TextPart(content=message["content"]))
+            messages.append(TextPart(content=content_value))
     return messages
 
 
@@ -107,7 +114,6 @@ def _parse_message_history(message_history: list[dict[str, Any]]) -> list[ModelM
 async def call(
     instructions: Annotated[str, Doc("Instructions to use for this agent")],
     user_prompt: Annotated[str, Doc("User prompt")],
-    *,
     model_name: Annotated[str, Doc("Model to use")],
     model_provider: Annotated[
         Literal["openai", "openai_responses", "anthropic", "bedrock", "gemini"],
@@ -116,36 +122,40 @@ async def call(
     output_type: Annotated[
         str | dict[str, Any] | None,
         Doc(
-            f"Output type to use. Either JSONSchema or a supported type: {list(SUPPORTED_OUTPUT_TYPES.keys())}"
+            f"Output type to use. Either JSONSchema or a supported type: {list(SUPPORTED_OUTPUT_TYPES.keys())}."
         ),
     ] = None,
-    model_settings: Annotated[dict[str, Any], Doc("Model-specific settings")],
-    message_history: Annotated[list[dict[str, Any]], Doc("Message history")],
+    model_settings: Annotated[
+        dict[str, Any] | None, Doc("Model-specific settings")
+    ] = None,
+    message_history: Annotated[
+        list[dict[str, Any]] | None, Doc("Message history")
+    ] = None,
     base_url: Annotated[str | None, Doc("Base URL for the model")] = None,
 ) -> Any:
     """Call an LLM via Pydantic AI agent."""
 
-    match model_provider.split(":", 1):
-        case ["openai", model_name]:
+    match model_provider:
+        case "openai":
             model = OpenAIModel(
                 model_name=model_name,
                 provider=OpenAIProvider(
                     base_url=base_url, api_key=secrets.get("OPENAI_API_KEY")
                 ),
             )
-        case ["openai_responses", model_name]:
+        case "openai_responses":
             model = OpenAIResponsesModel(
                 model_name=model_name,
                 provider=OpenAIProvider(
                     base_url=base_url, api_key=secrets.get("OPENAI_API_KEY")
                 ),
             )
-        case ["anthropic", model_name]:
+        case "anthropic":
             model = AnthropicModel(
                 model_name=model_name,
                 provider=AnthropicProvider(api_key=secrets.get("ANTHROPIC_API_KEY")),
             )
-        case ["bedrock", model_name]:
+        case "bedrock":
             session = await get_session()
             client = session.client("bedrock-runtime")
             model = BedrockConverseModel(
@@ -155,30 +165,28 @@ async def call(
         case _:
             raise ValueError(f"Unsupported model: {model_name}")
 
+    response_format: Any = str
     if isinstance(output_type, str):
         response_format = SUPPORTED_OUTPUT_TYPES[output_type]
     elif isinstance(output_type, dict):
         try:
-            model_name = output_type.get("name") or output_type["title"]
+            model_name_from_schema = output_type.get("name") or output_type["title"]
             response_format = json_schema_to_pydantic(
-                schema=output_type, name=model_name
+                schema=output_type, name=model_name_from_schema
             )
         except KeyError:
             raise ValueError(
                 f"Invalid JSONSchema: {output_type}. Missing top-level `name` or `title` field."
             )
-    else:
-        raise ValueError(
-            f"Unexpected `output_type`. Expected either JSONSchema or a supported Python type. Got {output_type}"
-        )
 
     agent = Agent(
         model=model,
         instructions=instructions,
-        output_type=response_format,  # https://ai.pydantic.dev/output/
+        output_type=response_format,
         model_settings=ModelSettings(**model_settings) if model_settings else None,
     )
 
+    messages: list[ModelMessage] | None = None
     if message_history:
         messages = _parse_message_history(message_history)
 

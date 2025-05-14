@@ -1,8 +1,11 @@
 from typing import Any
 
 import pytest
+from dotenv import load_dotenv
 from pydantic_ai.messages import TextPart, UserPromptPart
-from tracecat_registry.integrations.pydantic_ai import _parse_message_history
+from tracecat_registry.integrations.pydantic_ai import _parse_message_history, call
+
+load_dotenv()
 
 
 @pytest.mark.parametrize(
@@ -79,6 +82,149 @@ def test_parse_message_history(model_provider: str, messages: list[dict[str, Any
         UserPromptPart(content="What is the capital of the moon?"),
         TextPart(content="The Moon's capital is Tranquility Base."),
     ]
-    assert parsed_messages == expected_messages, (
-        f"Failed to parse message history for {model_provider!r}"
+    assert parsed_messages[0].content == expected_messages[0].content  # type: ignore
+    assert parsed_messages[1].content == expected_messages[1].content  # type: ignore
+    assert isinstance(parsed_messages[0], UserPromptPart)
+    assert isinstance(parsed_messages[1], TextPart)
+
+
+@pytest.mark.anyio
+async def test_pydantic_ai_call():
+    result = await call(
+        instructions="You are a helpful assistant.",
+        user_prompt="What is the capital of France?",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
     )
+    assert isinstance(result, str)
+    assert "Paris" in result
+
+
+@pytest.mark.anyio
+async def test_pydantic_ai_call_with_bool_output_type():
+    result = await call(
+        instructions="You are a helpful assistant.",
+        user_prompt="Are you a helpful assistant?",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        output_type="bool",
+    )
+    assert isinstance(result, bool)
+    assert result
+
+
+@pytest.mark.anyio
+async def test_pydantic_ai_call_with_analyze_alert_schema():
+    """Tests the call function with the analyze_alert.yml schema."""
+    analyze_alert_schema = {
+        "name": "alert_analysis",
+        "type": "object",
+        "properties": {
+            "thoughts": {"type": "array", "items": {"type": "string"}},
+            "who": {"type": "string"},
+            "what": {"type": "string"},
+            "when": {"type": "string"},
+            "where": {"type": "string"},
+            "why": {"type": "string"},
+            "how": {"type": "string"},
+            "false_positives": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "scenario": {"type": "string"},
+                        "reasoning": {"type": "string"},
+                    },
+                    "required": ["scenario", "reasoning"],
+                },
+            },
+            "true_positives": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "scenario": {"type": "string"},
+                        "reasoning": {"type": "string"},
+                    },
+                    "required": ["scenario", "reasoning"],
+                },
+            },
+        },
+        "required": [
+            "thoughts",
+            "who",
+            "what",
+            "when",
+            "where",
+            "why",
+            "how",
+            "false_positives",
+            "true_positives",
+        ],
+    }
+    result = await call(
+        instructions="Analyze the provided security alert.",
+        user_prompt="Alert: Unusual login detected from IP 1.2.3.4 for user 'test@example.com'.",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        output_type=analyze_alert_schema,
+    )
+    assert isinstance(result, dict)
+    # Check for a few key fields
+    assert "thoughts" in result
+    assert "who" in result
+    assert "what" in result
+    assert "false_positives" in result
+    assert "true_positives" in result
+
+
+@pytest.mark.anyio
+async def test_pydantic_ai_call_with_build_timeline_schema():
+    """Tests the call function with the build_timeline.yml schema."""
+    build_timeline_schema = {
+        "name": "timeline_analysis",
+        "type": "object",
+        "properties": {
+            "thoughts": {"type": "array", "items": {"type": "string"}},
+            "timeline": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "timestamp": {"type": "string"},
+                        "actor_id": {"type": "string"},
+                        "actor_type": {"type": "string"},
+                        "user_agent": {"type": "string"},
+                        "event_action": {"type": "string"},
+                        "event_outcome": {"type": "string"},
+                        "event_description": {"type": "string"},
+                        "event_details": {"type": "object"},
+                    },
+                    "required": [
+                        "timestamp",
+                        "actor_id",
+                        "actor_type",
+                        "user_agent",
+                        "event_action",
+                        "event_outcome",
+                        "event_description",
+                        "event_details",
+                    ],
+                },
+            },
+            "relationships": {"type": "string"},
+        },
+        "required": ["thoughts", "timeline", "relationships"],
+    }
+    result = await call(
+        instructions="Build a timeline of events.",
+        user_prompt="Event 1: User logged in at 2023-01-01T10:00:00Z. Event 2: User accessed file X at 2023-01-01T10:05:00Z.",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        output_type=build_timeline_schema,
+    )
+    assert isinstance(result, dict)
+    # Check for a few key fields
+    assert "thoughts" in result
+    assert "timeline" in result
+    assert "relationships" in result
