@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.messages import ModelMessage, UserPromptPart, TextPart
@@ -9,6 +10,8 @@ from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.providers.bedrock import BedrockProvider
 from pydantic_ai.settings import ModelSettings
+
+from tracecat.validation.common import json_schema_to_pydantic
 
 
 from tracecat_registry.integrations.aws_boto3 import get_session
@@ -102,23 +105,24 @@ def _parse_message_history(message_history: list[dict[str, Any]]) -> list[ModelM
     namespace="llm.pydantic_ai",
 )
 async def call(
+    instructions: Annotated[str, Doc("Instructions to use for this agent")],
     user_prompt: Annotated[str, Doc("User prompt")],
+    *,
+    model_name: Annotated[str, Doc("Model to use")],
     model_provider: Annotated[
         Literal["openai", "openai_responses", "anthropic", "bedrock", "gemini"],
         Doc("Model provider to use"),
     ],
-    model_name: Annotated[str, Doc("Model to use")],
-    instructions: Annotated[str, Doc("Instructions to use for this agent")],
     output_type: Annotated[
-        str,
+        str | dict[str, Any] | None,
         Doc(
-            f"Output type to use. Supported types: {list(SUPPORTED_OUTPUT_TYPES.keys())}"
+            f"Output type to use. Either JSONSchema or a supported type: {list(SUPPORTED_OUTPUT_TYPES.keys())}"
         ),
-    ],
+    ] = None,
     model_settings: Annotated[dict[str, Any], Doc("Model-specific settings")],
     message_history: Annotated[list[dict[str, Any]], Doc("Message history")],
     base_url: Annotated[str | None, Doc("Base URL for the model")] = None,
-):
+) -> Any:
     """Call an LLM via Pydantic AI agent."""
 
     match model_provider.split(":", 1):
@@ -151,19 +155,39 @@ async def call(
         case _:
             raise ValueError(f"Unsupported model: {model_name}")
 
+    if isinstance(output_type, str):
+        response_format = SUPPORTED_OUTPUT_TYPES[output_type]
+    elif isinstance(output_type, dict):
+        try:
+            model_name = output_type.get("name") or output_type["title"]
+            response_format = json_schema_to_pydantic(
+                schema=output_type, name=model_name
+            )
+        except KeyError:
+            raise ValueError(
+                f"Invalid JSONSchema: {output_type}. Missing top-level `name` or `title` field."
+            )
+    else:
+        raise ValueError(
+            f"Unexpected `output_type`. Expected either JSONSchema or a supported Python type. Got {output_type}"
+        )
+
     agent = Agent(
         model=model,
         instructions=instructions,
-        output_type=SUPPORTED_OUTPUT_TYPES[output_type],
+        output_type=response_format,  # https://ai.pydantic.dev/output/
         model_settings=ModelSettings(**model_settings) if model_settings else None,
     )
 
     if message_history:
         messages = _parse_message_history(message_history)
 
-    result: AgentRunResult = await agent.run(
+    result: AgentRunResult[BaseModel] = await agent.run(
         user_prompt=user_prompt,
         message_history=messages,
     )
 
-    return result
+    output = result.output
+    if isinstance(output, BaseModel):
+        return output.model_dump()
+    return output
