@@ -311,11 +311,17 @@ function CsvPreview({ csvData }: CsvPreviewProps) {
                 {csvData.headers.map((header) => {
                   const cellValue = row[header];
                   const isObject = typeof cellValue === 'object' && cellValue !== null;
-                  const displayValue = isObject
-                    ? JSON.stringify(cellValue).length > 30
-                      ? JSON.stringify(cellValue).substring(0, 27) + "..."
-                      : JSON.stringify(cellValue)
-                    : String(cellValue || '');
+                  let displayValue;
+                  if (isObject) {
+                    const jsonString = JSON.stringify(cellValue);
+                    if (jsonString.length > 30) {
+                      displayValue = jsonString.substring(0, 27) + "...";
+                    } else {
+                      displayValue = jsonString;
+                    }
+                  } else {
+                    displayValue = String(cellValue || '');
+                  }
 
 
                   return (
