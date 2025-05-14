@@ -28,15 +28,16 @@ dependencies = [
     "crowdstrike-falconpy==1.4.4",
     "dnspython==2.6.1",
     "docker==7.1.0",
+    "fpdf2==2.8.2",
     "grpcio==1.68.0",
     "hatchling==1.27.0",
     "ldap3==2.9.1",
+    "marshmallow==3.26.1",
     "nh3==0.2.18",
-    "fpdf2==2.8.2",
+    "pydantic-ai-slim[openai,anthropic,vertexai]==0.2.3",
     "pymongo==4.8.0",
     "slack-sdk==3.28.0",
     "tenacity==8.3.0",
-    "marshmallow==3.26.1",
     "types-aioboto3[guardduty,s3]==13.0.1",
 ]
 dynamic = ["version"]
