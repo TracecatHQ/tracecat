@@ -33,7 +33,7 @@ please reach out to [founders@tracecat.com](mailto:founders@tracecat.com) for he
 
 <Steps>
   <Step title="Download Terraform stack">
-    Download installation files from the Tracecat GitHub repo: https://github.com/TracecatHQ/tracecat/tree/main/deployments/aws
+    Download Terraform modules from GitHub: https://github.com/TracecatHQ/terraform-fargate
   </Step>
   <Step title="Create encryption secrets for Tracecat">
     Tracecat relies on three symmetric encryption keys (`TRACECAT__DB_ENCRYPTION_KEY`, `TRACECAT__SERVICE_KEY`, `TRACECAT__SIGNING_SECRET`) to sign and encrypt secrets within the application.
@@ -45,10 +45,10 @@ please reach out to [founders@tracecat.com](mailto:founders@tracecat.com) for he
 
     Download and execute the secrets creation bash script.
     ```bash
-    curl -o create-aws-secrets.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/main/deployments/aws/scripts/create-aws-secrets.sh
+    curl -o create-aws-secrets.sh https://raw.githubusercontent.com/TracecatHQ/terraform-fargate/main/scripts/create-aws-secrets.sh
     chmod +x create-aws-secrets.sh && ./create-aws-secrets.sh
     ```
-    View [`create-aws-secrets.sh` file on GitHub](https://github.com/TracecatHQ/tracecat/blob/main/deployments/aws/scripts/create-aws-secrets.sh) for details
+    View [`create-aws-secrets.sh` file on GitHub](https://github.com/TracecatHQ/terraform-fargate/blob/main/scripts/create-aws-secrets.sh) for details
     if you want to run this step manually.
   </Step>
   <Step title="Retrieve secret ARNs">
@@ -97,7 +97,7 @@ please reach out to [founders@tracecat.com](mailto:founders@tracecat.com) for he
 
     <Tip>
       You can configure the Tracecat Fargate deployment via Terraform variables.
-      View available configs in the [`variables.tf` file on GitHub](https://github.com/TracecatHQ/tracecat/blob/main/deployments/aws/variables.tf).
+      View available configs in the [`variables.tf` file on GitHub](https://github.com/TracecatHQ/terraform-fargate/blob/main/variables.tf).
     </Tip>
 
   </Step>
@@ -114,4 +114,4 @@ The first user that logs in via Google OAuth or SAML SSO will be created with de
 ## Next Steps
 
 - Log into Tracecat and build your first playbook. [View quickstart](/quickstart).
-- Read [`variables.tf`](https://github.com/TracecatHQ/tracecat/blob/main/deployments/aws/variables.tf) and [`ecs/locals.tf`](https://github.com/TracecatHQ/tracecat/blob/main/deployments/aws/ecs/locals.tf) files to better understand Tracecat's configurations.
+- Read [`variables.tf`](https://github.com/TracecatHQ/terraform-fargate/blob/main/variables.tf) and [`ecs/locals.tf`](https://github.com/TracecatHQ/terraform-fargate/blob/main/modules/ecs/locals.tf) files to better understand Tracecat's configurations.
