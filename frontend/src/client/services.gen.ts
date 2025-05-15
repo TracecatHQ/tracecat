@@ -290,9 +290,11 @@ import type {
  * @param data The data for the request.
  * @param data.secret
  * @param data.workflowId
- * @param data.echo Echo the request payload back to the caller
+ * @param data.echo Echo back to the caller
+ * @param data.emptyEcho Return an empty response. Assumes `echo` to be `True`.
+ * @param data.vendor Vendor specific webhook verification. Supported vendors: `okta`.
  * @param data.contentType
- * @returns WorkflowExecutionCreateResponse Successful Response
+ * @returns unknown Successful Response
  * @throws ApiError
  */
 export const publicIncomingWebhook = (
@@ -310,6 +312,8 @@ export const publicIncomingWebhook = (
     },
     query: {
       echo: data.echo,
+      empty_echo: data.emptyEcho,
+      vendor: data.vendor,
     },
     errors: {
       422: "Validation Error",
