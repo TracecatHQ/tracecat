@@ -47,8 +47,6 @@ FILES=(
     "docker-compose.yml"
     "docs/tutorials/updating.mdx"
     "docs/self-hosting/deployment-options/docker-compose.mdx"
-    "deployments/aws/variables.tf"
-    "deployments/aws/ecs/variables.tf"
     "docs/quickstart/install.mdx"
     "docs/self-hosting/updating.mdx"
     "CONTRIBUTING.md"
