@@ -61,6 +61,15 @@ WEBHOOK_URL=https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-se
   ```bash
   https://${WEBHOOK_URL}?echo=true
   ```
+
+  We also support direct webhook verification for `okta`:
+
+  ```bash
+  https://${WEBHOOK_URL}?vendor=okta
+  ```
+
+  Can't find the vendor you're looking for?
+  Open an issue on [GitHub](https://github.com/TracecatHQ/tracecat/issues) and we'll add support for it.
 </Note>
 
 <Info>

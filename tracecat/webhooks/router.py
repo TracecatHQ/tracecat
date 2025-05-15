@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, TypedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from temporalio.service import RPCError
@@ -31,6 +31,10 @@ router = APIRouter(
 )
 
 
+class OktaVerificationResponse(TypedDict):
+    verification: str
+
+
 # NOTE: Need to set response_model to None to avoid FastAPI trying to parse the response as JSON
 # We need empty status 200 responses for slash command APIs (e.g. Slack)
 @router.post("", response_model=None)
@@ -44,8 +48,12 @@ async def incoming_webhook(
         default=False,
         description="Return an empty response. Assumes `echo` to be `True`.",
     ),
+    vendor: str = Query(
+        default=None,
+        description="Vendor specific webhook verification. Supported vendors: `okta`.",
+    ),
     request: Request,
-) -> WorkflowExecutionCreateResponse | Response:
+) -> WorkflowExecutionCreateResponse | OktaVerificationResponse | Response:
     """Webhook endpoint to trigger a workflow.
 
     This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
@@ -72,6 +80,19 @@ async def incoming_webhook(
                 "Failed to decode request payload body during echo", error=str(e)
             )
             response["payload"] = None
+
+    if vendor is not None:
+        if vendor == "okta":
+            # https://developer.okta.com/docs/concepts/event-hooks/#one-time-verification-request
+            challenge = request.headers.get("x-okta-verification-challenge")
+            if challenge:
+                return OktaVerificationResponse(verification=challenge)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported vendor: {vendor}. Expected: `okta`.",
+            )
+
     return response
 
 
