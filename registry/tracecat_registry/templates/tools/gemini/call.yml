@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Call Gemini
+  description: Call an LLM via Gemini API.
+  display_group: Gemini
+  doc_url: https://ai.google.dev/api/generate-content
+  namespace: llm.gemini
+  name: call
+  secrets:
+    - name: gemini
+      keys: ["GEMINI_API_KEY"]
+  expects:
+    prompt:
+      type: str
+      description: Prompt to send to the LLM.
+    model:
+      type: str
+      description: Model to use.
+    memory:
+      type: list[dict[str, str]] | None
+      description: List of messages to send to the LLM.
+      default: null
+    instructions:
+      type: str | None
+      description: Instructions to use for the LLM.
+      default: null
+    output_type:
+      type: str | dict[str, any] | None
+      description: Output type to use.
+      default: null
+    model_settings:
+      type: dict[str, any] | None
+      description: Model-specific settings.
+      default: null
+  steps:
+    - ref: call_gemini
+      action: llm.pydantic_ai.call
+      args:
+        instructions: ${{ inputs.instructions }}
+        message_history: ${{ inputs.memory }}
+        model_name: ${{ inputs.model }}
+        model_provider: gemini
+        model_settings: ${{ inputs.model_settings }}
+        output_type: ${{ inputs.output_type }}
+        user_prompt: ${{ inputs.prompt }}
+  returns: ${{ steps.call_gemini.result }}
