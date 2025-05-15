@@ -9,8 +9,10 @@ Create Date: 2024-08-23 00:45:53.922227
 from collections.abc import Sequence
 
 import fastapi_users_db_sqlalchemy
+import fastapi_users_db_sqlalchemy.generics
 import sqlalchemy as sa
 import sqlmodel
+import sqlmodel.sql.sqltypes
 from sqlalchemy.dialects import postgresql
 
 from alembic import op

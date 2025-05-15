@@ -20,7 +20,7 @@ from sqlmodel import AutoString, Field, SQLModel, func, select
 
 
 class SQLModelBaseUserDB(SQLModel):
-    __tablename__ = "user"
+    __tablename__: str = "user"
 
     model_config: ConfigDict = ConfigDict(from_attributes=True)
     id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
@@ -40,7 +40,7 @@ class SQLModelBaseUserDB(SQLModel):
 
 
 class SQLModelBaseOAuthAccount(SQLModel):
-    __tablename__ = "oauthaccount"
+    __tablename__: str = "oauthaccount"
 
     model_config: ConfigDict = ConfigDict(from_attributes=True)
     id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -154,7 +154,7 @@ class SQLModelUserDatabaseAsync(Generic[UP, ID], BaseUserDatabase[UP, ID]):
 
 
 class SQLModelBaseAccessToken(SQLModel):
-    __tablename__ = "accesstoken"
+    __tablename__: str = "accesstoken"
 
     model_config: ConfigDict = ConfigDict(from_attributes=True)
     token: str = Field(

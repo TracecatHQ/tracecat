@@ -40,7 +40,7 @@ def downgrade() -> None:
         "caseevent",
         sa.Column("workflow_id", sa.VARCHAR(), autoincrement=False, nullable=False),
     )
-    op.drop_constraint(None, "caseevent", type_="foreignkey")
+    op.drop_constraint(None, "caseevent", type_="foreignkey")  # type: ignore
     op.alter_column("caseevent", "case_id", existing_type=sa.VARCHAR(), nullable=False)
     op.create_table(
         "casecontext",

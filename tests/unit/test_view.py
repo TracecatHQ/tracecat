@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.models import ActionStatement
-from tracecat.dsl.view import RFGraph, TriggerNode
+from tracecat.dsl.view import RFGraph, TriggerNode, TriggerNodeData
 
 
 @pytest.fixture(scope="session")
@@ -17,18 +17,17 @@ def metadata():
     metadata = TestMetadata(
         title="TEST_WORKFLOW",
         description="TEST_DESCRIPTION",
-        entrypoint={"ref": "action_a"},
-        trigger={
-            "id": "trigger-TEST_WORKFLOW_ID",
-            "type": "trigger",
-            "data": {
-                "type": "trigger",
-                "title": "Trigger",
-                "status": "online",
-                "isConfigured": True,
-                "webhook": {},
-            },
-        },
+        entrypoint=DSLEntrypoint(ref="action_a"),
+        trigger=TriggerNode(
+            id="trigger-TEST_WORKFLOW_ID",
+            type="trigger",
+            data=TriggerNodeData(
+                title="Trigger",
+                status="online",
+                is_configured=True,
+                webhook={},  # Empty dict for webhook
+            ),
+        ),
     )
 
     return metadata
@@ -116,7 +115,7 @@ def test_parse_dag_simple_sequence(metadata):
             depends_on=["action_b"],
         ),
     ]
-    graph = RFGraph(**rf_obj)
+    graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
     dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
@@ -201,7 +200,7 @@ def test_kite(metadata):
         ),
         ActionStatement(ref="action_g", action="udf", args={}, depends_on=["action_f"]),
     ]
-    graph = RFGraph(**rf_obj)
+    graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
     dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
@@ -341,7 +340,7 @@ def test_double_kite(metadata):
             depends_on=["action_k", "action_l"],
         ),
     ]
-    graph = RFGraph(**rf_obj)
+    graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
     dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
@@ -416,7 +415,7 @@ def test_tree_1(metadata):
         ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_c"]),
         ActionStatement(ref="action_g", action="udf", args={}, depends_on=["action_c"]),
     ]
-    graph = RFGraph(**rf_obj)
+    graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
     dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
@@ -492,7 +491,7 @@ def test_tree_2(metadata):
         ActionStatement(ref="action_f", action="udf", args={}, depends_on=["action_e"]),
         ActionStatement(ref="action_g", action="udf", args={}, depends_on=["action_f"]),
     ]
-    graph = RFGraph(**rf_obj)
+    graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
     dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
@@ -583,7 +582,7 @@ def test_complex_dag_1(metadata):
             depends_on=["action_d", "action_e", "action_f"],
         ),
     ]
-    graph = RFGraph(**rf_obj)
+    graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
     dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
@@ -700,7 +699,7 @@ def test_complex_dag_2(metadata):
             depends_on=["action_g", "action_h"],
         ),
     ]
-    graph = RFGraph(**rf_obj)
+    graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
     dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
@@ -832,7 +831,7 @@ def test_complex_dag_3(metadata):
         ),
         ActionStatement(ref="action_l", action="udf", args={}, depends_on=["action_j"]),
     ]
-    graph = RFGraph(**rf_obj)
+    graph = RFGraph.model_validate(rf_obj)
     stmts = build_actions(graph)
     dsl = DSLInput(actions=stmts, **metadata.model_dump())
     assert dsl.actions == expected_wf_ir
