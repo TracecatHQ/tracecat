@@ -1,9 +1,9 @@
 type: action
 definition:
-  title: Call AWS Bedrock (Pydantic AI)
+  title: Call Bedrock
   description: Call an LLM via Pydantic AI with AWS Bedrock.
-  display_group: AWS
-  doc_url: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters.html
+  display_group: Amazon Bedrock
+  doc_url: https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html
   namespace: llm.bedrock
   name: call
   secrets:
@@ -27,6 +27,7 @@ definition:
     output_type:
       type: str | dict[str, any] | None
       description: Output type to use.
+      default: null
     model_settings:
       type: dict[str, any] | None
       description: Model-specific settings.

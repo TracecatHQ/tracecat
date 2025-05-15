@@ -1,11 +1,11 @@
 type: action
 definition:
   title: Call OpenAI (chat)
-  description: Call an LLM via OpenAI chat API.
+  description: Call an LLM via OpenAI chat completion API.
   display_group: OpenAI
   doc_url: https://platform.openai.com/docs/api-reference/chat/create
   namespace: llm.openai
-  name: chat
+  name: chat_completion
   secrets:
     - name: openai
       keys:

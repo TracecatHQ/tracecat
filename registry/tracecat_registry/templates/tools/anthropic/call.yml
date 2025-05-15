@@ -1,9 +1,9 @@
 type: action
 definition:
-  title: Call Anthropic (Pydantic AI)
+  title: Call Anthropic
   description: Call an Anthropic LLM via Pydantic AI.
   display_group: Anthropic
-  doc_url: https://docs.anthropic.com/en/api
+  doc_url: https://docs.anthropic.com/en/docs/about-claude/models/all-models
   namespace: llm.anthropic
   name: call
   secrets:
