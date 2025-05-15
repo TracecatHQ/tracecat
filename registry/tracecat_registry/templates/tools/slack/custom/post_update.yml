@@ -54,4 +54,8 @@ definition:
           channel: ${{ inputs.channel }}
           text: ${{ inputs.summary }}
           thread_ts: ${{ inputs.thread_ts }}
+          metadata:
+            event_type: interaction_created
+            event_payload:
+              interaction: ${{ FN.get_interaction() }}
   returns: ${{ steps.post_message.result }}
