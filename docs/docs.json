@@ -71,9 +71,9 @@
             "pages": [
               "integrations/overview",
               "integrations/action-templates",
-              "integrations/openapi-generator",
               "integrations/python-udfs",
-              "integrations/development"
+              "integrations/development",
+              "integrations/openapi-converter"
             ]
           }
         ]
