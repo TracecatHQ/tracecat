@@ -199,6 +199,9 @@ class BaseSecret(Resource):
     # Use sa_type over sa_column for inheritance
     tags: dict[str, str] | None = Field(sa_type=JSONB)
 
+    def __repr__(self) -> str:
+        return f"BaseSecret(name={self.name}, owner_id={self.owner_id}, environment={self.environment})"
+
 
 class OrganizationSecret(BaseSecret, table=True):
     __table_args__ = (UniqueConstraint("name", "environment"),)
