@@ -170,7 +170,9 @@ def _validate_namespace(namespace: str) -> None:
 ### List operations
 
 
-def list_kubernetes_pods(namespace: str, kubeconfig_base64: str) -> list[str]:
+def list_kubernetes_pods(
+    namespace: str, kubeconfig_base64: str, include_status: bool = False
+) -> list[str] | list[dict[str, str]]:
     """List all pods in the given namespace.
 
     Args:
@@ -178,9 +180,13 @@ def list_kubernetes_pods(namespace: str, kubeconfig_base64: str) -> list[str]:
             The namespace to list pods from. Must not be the current namespace.
         kubeconfig_base64 : str
             Base64 encoded kubeconfig YAML file. Required for security isolation.
+        include_status : bool
+            Whether to include the status of the pods in the result.
 
     Returns:
-        list[str]: List of pod names in the namespace.
+        Either:
+            list[str]: List of pod names in the namespace.
+            list[dict[str, str]]: List of pod names and statuses in the namespace.
 
     Raises:
         PermissionError: If trying to access current namespace
@@ -196,10 +202,18 @@ def list_kubernetes_pods(namespace: str, kubeconfig_base64: str) -> list[str]:
         raise ValueError(f"No pods found in namespace {namespace}")
     items: list[V1Pod] = pods.items
     pod_names = [pod.metadata.name for pod in items]  # type: ignore
+    if include_status:
+        pod_statuses = [pod.status.phase for pod in items]  # type: ignore
 
     logger.info(
         "Successfully listed pods", namespace=namespace, pod_count=len(pod_names)
     )
+
+    if include_status:
+        return [
+            {"name": name, "status": status}
+            for name, status in zip(pod_names, pod_statuses, strict=False)
+        ]
     return pod_names
 
 
