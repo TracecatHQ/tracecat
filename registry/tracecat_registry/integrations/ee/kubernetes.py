@@ -6,6 +6,7 @@ from tracecat.ee.sandbox.kubernetes import (
     list_kubernetes_secrets,
     run_kubectl_command,
 )
+from typing import overload
 
 from tracecat_registry import registry, RegistrySecret, secrets
 
@@ -22,6 +23,20 @@ kubernetes_secret = RegistrySecret(name="kubernetes", keys=["KUBECONFIG_BASE64"]
 """
 
 
+@overload
+def list_pods(
+    namespace: str,
+    include_status: bool = True,
+) -> list[dict[str, str]]: ...
+
+
+@overload
+def list_pods(
+    namespace: str,
+    include_status: bool = False,
+) -> list[str]: ...
+
+
 @registry.register(
     default_title="List pods",
     description="List all Kubernetes pods in a given namespace.",
@@ -32,9 +47,12 @@ kubernetes_secret = RegistrySecret(name="kubernetes", keys=["KUBECONFIG_BASE64"]
 )
 def list_pods(
     namespace: Annotated[str, Doc("Namespace to list pods from.")],
-) -> list[str]:
+    include_status: Annotated[
+        bool, Doc("Whether to include the status of the pods in the result.")
+    ] = False,
+) -> list[str] | list[dict[str, str]]:
     kubeconfig_base64 = secrets.get("KUBECONFIG_BASE64")
-    return list_kubernetes_pods(namespace, kubeconfig_base64)
+    return list_kubernetes_pods(namespace, kubeconfig_base64, include_status)
 
 
 @registry.register(
