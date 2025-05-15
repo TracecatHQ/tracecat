@@ -1,6 +1,8 @@
 from builtins import filter as filter_
 from builtins import map as map_
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal, overload
+import collections
+import re
 
 from tracecat.expressions.common import build_safe_lambda, eval_jsonpath
 from typing_extensions import Doc
@@ -8,9 +10,114 @@ from typing_extensions import Doc
 from tracecat_registry import registry
 
 
+@overload
+def _find_none_values(obj: Any, fast_check: Literal[True]) -> bool: ...
+
+
+@overload
+def _find_none_values(obj: Any, fast_check: Literal[False] = False) -> list[str]: ...
+
+
+def _find_none_values(obj: Any, fast_check: bool = False) -> bool | list[str]:
+    """Find all None values in nested structures and return their dot paths.
+
+    For field names containing dots, spaces, or special characters,
+    the path will use quotes: a."b.c".d, x."special key".z
+
+    Args:
+        obj: Object to check for None values
+        fast_check: If True, returns a boolean immediately when a None is found
+                    instead of collecting all paths (faster)
+
+    Returns:
+        If fast_check=True: Boolean indicating if any None values were found
+        If fast_check=False: List of dot notation paths to null values
+    """
+    # Regex pattern for characters that require quoting in dot notation
+    NEEDS_QUOTES_PATTERN = re.compile(r"[^a-zA-Z0-9_]")
+
+    def needs_quotes(key: str) -> bool:
+        """Check if a key needs to be quoted in dot notation."""
+        return bool(NEEDS_QUOTES_PATTERN.search(key))
+
+    if obj is None:
+        return True if fast_check else [""]
+
+    # Use collections.deque for C-optimized queue operations
+    if fast_check:
+        queue = collections.deque([obj])
+
+        while queue:
+            current = queue.popleft()
+
+            if isinstance(current, dict):
+                # Use items() for C-optimized iteration
+                for _, value in current.items():
+                    if value is None:
+                        return True
+                    elif isinstance(value, (dict, list)):
+                        queue.append(value)
+
+            elif isinstance(current, list):
+                # Use extend for C-optimized batch append
+                queue.extend(item for item in current if isinstance(item, (dict, list)))
+                # Check for None in a C-optimized way
+                if any(item is None for item in current):
+                    return True
+
+        return False
+    else:
+        queue = collections.deque([("", obj)])
+        null_paths = []
+
+        while queue:
+            path, current = queue.popleft()
+
+            if isinstance(current, dict):
+                # Use items() for C-optimized iteration
+                for key, value in current.items():
+                    if isinstance(key, str):
+                        # Quote keys with special characters (not just dots)
+                        if needs_quotes(key):
+                            # Escape any quotes in the key
+                            escaped_key = key.replace('"', '\\"')
+                            key_repr = f'"{escaped_key}"'
+                        else:
+                            key_repr = key
+                    else:
+                        # Handle non-string keys
+                        key_repr = str(key)
+
+                    new_path = f"{path}.{key_repr}" if path else key_repr
+
+                    if value is None:
+                        null_paths.append(new_path)
+                    elif isinstance(value, (dict, list)):
+                        queue.append((new_path, value))
+
+            elif isinstance(current, list):
+                for i, item in enumerate(current):
+                    new_path = f"{path}[{i}]"
+                    if item is None:
+                        null_paths.append(new_path)
+                    elif isinstance(item, (dict, list)):
+                        queue.append((new_path, item))
+
+        return null_paths
+
+
+def _drop_none_values(obj: Any) -> Any:
+    """Remove None values from nested objects and lists."""
+    if isinstance(obj, dict):
+        return {k: _drop_none_values(v) for k, v in obj.items() if v is not None}
+    elif isinstance(obj, list):
+        return [_drop_none_values(item) for item in obj if item is not None]
+    return obj
+
+
 @registry.register(
     default_title="Reshape",
-    description="Reshapes the input value to the output. You can use this to reshape a JSON-like structure into another easier to manipulate JSON object.",
+    description="Reshape inputs into outputs.",
     display_group="Data Transform",
     namespace="core.transform",
 )
@@ -19,7 +126,38 @@ def reshape(
         Any | list[Any] | dict[str, Any],
         Doc("The value to reshape"),
     ],
+    on_null: Annotated[
+        Literal["drop", "raise", "check", "ignore"],
+        Doc(
+            "If `drop`, silently removes all null values from the output. "
+            "If `raise`, raises an error if any null value in output. "
+            "If `check`, raises an informative error with dot paths to null value fields. "
+            "Defaults to `ignore`, which keeps null values in output. "
+        ),
+    ] = "ignore",
 ) -> Any:
+    if on_null == "ignore":
+        return value
+
+    if on_null == "check":
+        null_paths = _find_none_values(value, fast_check=False)
+        if null_paths:  # Now type checker knows this is always a list
+            null_paths_str = "\n - ".join(null_paths)
+            msg = (
+                "Null values encountered in output. "
+                f"Found null values in the following fields:\n\n - {null_paths_str}"
+            )
+            raise ValueError(msg)
+
+    if on_null == "raise":
+        has_nulls = _find_none_values(value, fast_check=True)
+        if has_nulls:
+            msg = "Null values encountered in output."
+            raise ValueError(msg)
+
+    if on_null == "drop":
+        return _drop_none_values(value)
+
     return value
 
 
