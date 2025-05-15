@@ -64,46 +64,14 @@ def _parse_message_history(message_history: list[dict[str, Any]]) -> list[ModelM
     return messages
 
 
-@registry.register(
-    default_title="Call Pydantic AI agent",
-    description="Call an LLM via Pydantic AI agent.",
-    display_group="Pydantic AI",
-    doc_url="https://ai.pydantic.dev/agents/",
-    namespace="llm.pydantic_ai",
-)
-async def call(
-    user_prompt: Annotated[str, Doc("User prompt")],
-    model_name: Annotated[str, Doc("Model to use")],
-    model_provider: Annotated[
-        Literal[
-            "openai",
-            "openai_responses",
-            "anthropic",
-            "bedrock",
-            "gemini",
-            "gemini_vertex",
-        ],
-        Doc("Model provider to use"),
-    ],
-    instructions: Annotated[
-        str | None, Doc("Instructions to use for this agent")
-    ] = None,
-    output_type: Annotated[
-        str | dict[str, Any] | None,
-        Doc(
-            f"Output type to use. Either JSONSchema or a supported type: {list(SUPPORTED_OUTPUT_TYPES.keys())}."
-        ),
-    ] = None,
-    model_settings: Annotated[
-        dict[str, Any] | None, Doc("Model-specific settings")
-    ] = None,
-    message_history: Annotated[
-        list[dict[str, Any]] | None, Doc("Message history")
-    ] = None,
-    base_url: Annotated[str | None, Doc("Base URL for the model")] = None,
-) -> Any:
-    """Call an LLM via Pydantic AI agent."""
-
+def _build_agent(
+    model_name: str,
+    model_provider: str,
+    model_settings: dict[str, Any] | None,
+    base_url: str | None,
+    instructions: str | None,
+    output_type: str | dict[str, Any] | None,
+) -> Agent:
     match model_provider:
         case "openai":
             model = OpenAIModel(
@@ -175,11 +143,61 @@ async def call(
         model_settings=ModelSettings(**model_settings) if model_settings else None,
     )
 
+    return agent
+
+
+@registry.register(
+    default_title="Call Pydantic AI agent",
+    description="Call an LLM via Pydantic AI agent.",
+    display_group="Pydantic AI",
+    doc_url="https://ai.pydantic.dev/agents/",
+    namespace="llm.pydantic_ai",
+)
+def call(
+    user_prompt: Annotated[str, Doc("User prompt")],
+    model_name: Annotated[str, Doc("Model to use")],
+    model_provider: Annotated[
+        Literal[
+            "openai",
+            "openai_responses",
+            "anthropic",
+            "bedrock",
+            "gemini",
+            "gemini_vertex",
+        ],
+        Doc("Model provider to use"),
+    ],
+    instructions: Annotated[
+        str | None, Doc("Instructions to use for this agent")
+    ] = None,
+    output_type: Annotated[
+        str | dict[str, Any] | None,
+        Doc(
+            f"Output type to use. Either JSONSchema or a supported type: {list(SUPPORTED_OUTPUT_TYPES.keys())}."
+        ),
+    ] = None,
+    model_settings: Annotated[
+        dict[str, Any] | None, Doc("Model-specific settings")
+    ] = None,
+    message_history: Annotated[
+        list[dict[str, Any]] | None, Doc("Message history")
+    ] = None,
+    base_url: Annotated[str | None, Doc("Base URL for the model")] = None,
+) -> Any:
+    """Call an LLM via Pydantic AI agent."""
+    agent = _build_agent(
+        model_name=model_name,
+        model_provider=model_provider,
+        model_settings=model_settings,
+        base_url=base_url,
+        instructions=instructions,
+        output_type=output_type,
+    )
     messages: list[ModelMessage] | None = None
     if message_history:
         messages = _parse_message_history(message_history)
 
-    result: AgentRunResult[BaseModel] = await agent.run(
+    result: AgentRunResult = agent.run_sync(
         user_prompt=user_prompt,
         message_history=messages,
     )
