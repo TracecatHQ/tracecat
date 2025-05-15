@@ -88,9 +88,8 @@ def test_parse_message_history(model_provider: str, messages: list[dict[str, Any
     assert isinstance(parsed_messages[1], TextPart)
 
 
-@pytest.mark.anyio
-async def test_pydantic_ai_call():
-    result = await call(
+def test_pydantic_ai_call():
+    result = call(
         instructions="You are a helpful assistant.",
         user_prompt="What is the capital of France?",
         model_name="gpt-4o-mini",
@@ -100,9 +99,8 @@ async def test_pydantic_ai_call():
     assert "Paris" in result
 
 
-@pytest.mark.anyio
-async def test_pydantic_ai_call_with_bool_output_type():
-    result = await call(
+def test_pydantic_ai_call_with_bool_output_type():
+    result = call(
         instructions="You are a helpful assistant.",
         user_prompt="Are you a helpful assistant?",
         model_name="gpt-4o-mini",
@@ -113,8 +111,7 @@ async def test_pydantic_ai_call_with_bool_output_type():
     assert result
 
 
-@pytest.mark.anyio
-async def test_pydantic_ai_call_with_analyze_alert_schema():
+def test_pydantic_ai_call_with_analyze_alert_schema():
     """Tests the call function with the analyze_alert.yml schema."""
     analyze_alert_schema = {
         "name": "alert_analysis",
@@ -162,7 +159,7 @@ async def test_pydantic_ai_call_with_analyze_alert_schema():
             "true_positives",
         ],
     }
-    result = await call(
+    result = call(
         instructions="Analyze the provided security alert.",
         user_prompt="Alert: Unusual login detected from IP 1.2.3.4 for user 'test@example.com'.",
         model_name="gpt-4o-mini",
@@ -178,8 +175,7 @@ async def test_pydantic_ai_call_with_analyze_alert_schema():
     assert "true_positives" in result
 
 
-@pytest.mark.anyio
-async def test_pydantic_ai_call_with_build_timeline_schema():
+def test_pydantic_ai_call_with_build_timeline_schema():
     """Tests the call function with the build_timeline.yml schema."""
     build_timeline_schema = {
         "name": "timeline_analysis",
@@ -216,7 +212,7 @@ async def test_pydantic_ai_call_with_build_timeline_schema():
         },
         "required": ["thoughts", "timeline", "relationships"],
     }
-    result = await call(
+    result = call(
         instructions="Build a timeline of events.",
         user_prompt="Event 1: User logged in at 2023-01-01T10:00:00Z. Event 2: User accessed file X at 2023-01-01T10:05:00Z.",
         model_name="gpt-4o-mini",
@@ -230,8 +226,7 @@ async def test_pydantic_ai_call_with_build_timeline_schema():
     assert "relationships" in result
 
 
-@pytest.mark.anyio
-async def test_pydantic_ai_call_with_enum_output():
+def test_pydantic_ai_call_with_enum_output():
     """Tests the call function with a OpenAI call and an enum in the output schema."""
     order_status_schema = {
         "title": "OrderStatus",
@@ -253,7 +248,7 @@ async def test_pydantic_ai_call_with_enum_output():
     user_prompt = "The order ABC123 has just been shipped. Please provide its status."
 
     # This test makes a live API call to OpenAI
-    result = await call(
+    result = call(
         instructions=instructions,
         user_prompt=user_prompt,
         model_name="gpt-3.5-turbo",  # Using a cheaper model for live test
