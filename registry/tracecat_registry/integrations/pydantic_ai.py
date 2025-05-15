@@ -19,7 +19,7 @@ from pydantic_ai.settings import ModelSettings
 from tracecat.validation.common import json_schema_to_pydantic
 
 
-from tracecat_registry.integrations.aws_boto3 import get_session
+from tracecat_registry.integrations.aws_boto3 import get_sync_session
 
 
 from typing import Annotated, Any, Literal
@@ -145,8 +145,8 @@ async def call(
                 ),
             )
         case "bedrock":
-            session = await get_session()
-            client = session.client("bedrock-runtime")
+            session = get_sync_session()
+            client = session.client(service_name="bedrock-runtime")
             model = BedrockConverseModel(
                 model_name=model_name,
                 provider=BedrockProvider(bedrock_client=client),
