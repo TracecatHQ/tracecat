@@ -1,5 +1,6 @@
 import base64
 import subprocess
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -101,6 +102,8 @@ def test_pod(tracecat_ci_namespace):
             ],
             check=True,
         )
+        # Wait for the pod to be in running state
+        time.sleep(10)
     except subprocess.CalledProcessError:
         pass
     yield
