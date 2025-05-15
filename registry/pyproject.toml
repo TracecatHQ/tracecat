@@ -39,7 +39,8 @@ dependencies = [
     "pymongo==4.8.0",
     "slack-sdk==3.28.0",
     "tenacity==8.3.0",
-    "types-aioboto3[guardduty,s3]==14.3.0",
+    "types-boto3[sts,s3]==1.37.3",
+    "types-aioboto3[sts,s3]==14.3.0",
 ]
 dynamic = ["version"]
 
