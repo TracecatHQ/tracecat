@@ -4,9 +4,6 @@
 # Tracecat-related files
 .tracecat/
 
-# UV
-uv.lock
-
 # Terraform-related files
 *.tfstate
 *.tfstate.backup
