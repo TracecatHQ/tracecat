@@ -906,6 +906,8 @@ _FUNCTION_MAPPING = {
     "is_null": is_null,
     "less_than_or_equal": less_than_or_equal,
     "less_than": less_than,
+    "is_not_equal": not_equal,  # alias for not_equal
+    "is_not_null": not_null,  # alias for not_null
     "not_equal": not_equal,
     "not_null": not_null,
     # Regex
@@ -921,7 +923,9 @@ _FUNCTION_MAPPING = {
     "is_in": is_in,
     "length": len,
     "not_empty": not_empty,
+    "is_not_empty": not_empty,  # alias for not_empty
     "not_in": not_in,
+    "is_not_in": not_in,  # alias for not_in
     "unique": unique,
     "zip_map": zip_map,  # Inspired by Terraform: https://developer.hashicorp.com/terraform/language/functions/zipmap
     # Math
