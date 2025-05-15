@@ -2225,14 +2225,22 @@ export type login = {
 export type PublicIncomingWebhookData = {
   contentType?: string | null
   /**
-   * Echo the request payload back to the caller
+   * Echo back to the caller
    */
   echo?: boolean
+  /**
+   * Return an empty response. Assumes `echo` to be `True`.
+   */
+  emptyEcho?: boolean
   secret: string
+  /**
+   * Vendor specific webhook verification. Supported vendors: `okta`.
+   */
+  vendor?: string
   workflowId: string
 }
 
-export type PublicIncomingWebhookResponse = WorkflowExecutionCreateResponse
+export type PublicIncomingWebhookResponse = unknown
 
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
@@ -3268,7 +3276,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionCreateResponse
+        200: unknown
         /**
          * Validation Error
          */

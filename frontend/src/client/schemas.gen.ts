@@ -569,7 +569,7 @@ export const $AppSettingsUpdate = {
       title: "App Create Workspace On Register",
       description:
         "Whether to automatically create a workspace when a user signs up.",
-      default: true,
+      default: false,
     },
   },
   type: "object",
