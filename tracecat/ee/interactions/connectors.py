@@ -7,9 +7,9 @@ def parse_slack_interaction_input(payload: dict[str, Any]) -> InteractionInput:
     """Extract event payload from various Slack payloads"""
     match payload:
         case {
-            "type": "interaction_created",
             "message": {
                 "metadata": {
+                    "event_type": "interaction_created",
                     "event_payload": {
                         "interaction": {
                             "interaction_id": interaction_id,
