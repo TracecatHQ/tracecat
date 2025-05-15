@@ -11,8 +11,12 @@ import SecretsExample from '/snippets/secrets-example.mdx'
 </Tip>
 
 <Note>
-  The docs below only cover the `core` namespace.
-  For information on `core.transform`, `core.workflow`, and `core.require`, check out the tutorials on [Data Transforms](/tutorials/data-transforms), [Child Workflows](/tutorials/child-workflows), and [Wait until](/tutorials/wait-retry-until).
+  This tutorial covers the three most commonly used core actions: `core.transform.reshape`, `core.http_request`, and `core.http_poll`.
+
+  To learn about the other core actions, check out the following tutorials:
+  - [Data transforms](/tutorials/data-transforms)
+  - [Child workflows](/tutorials/child-workflows)
+  - [Wait until](/tutorials/wait-retry-until)
 </Note>
 
 Core actions are the building blocks of Tracecat workflows and action templates.
@@ -31,10 +35,68 @@ They include:
 
 | Name | Display Name | Description |
 | --- | --- | --- |
+| `core.transform.reshape` | `Reshape` | Reshape and manipulate data. |
 | `core.http_request` | `HTTP Request` | Make a HTTP request. |
 | `core.http_poll` | `HTTP Polling` | Poll a REST API until a condition is met. |
-| `core.ai_action` | `AI Action` | Prompt a LLM (e.g. OpenAI, self-hosted) to take an action. |
-| `core.require` | `Require` | Check if multiple conditions are met. |
+
+## Reshape
+
+Reshape is a simple action that takes a single input `value` (e.g. a string, number, or object),
+evaluates any [expressions and functions](/quickstart/expressions), and returns the result.
+
+![Reshape](/img/quickstart/core-actions/reshape.png)
+
+The following examples show common use-cases and inputs for the `Reshape` action.
+
+<CodeGroup>
+  ```php Basic usage
+  # Get one value from a previous action
+  value: ${{ ACTIONS.get_user.result.data.user.name }}
+
+  # Get multiple values from a previous action
+  value:
+    name: ${{ ACTIONS.get_user.result.data.user.name }}
+    email: ${{ ACTIONS.get_user.result.data.user.email }}
+
+  # Get data from the trigger
+  value: ${{ TRIGGER.data.user }}
+  ```
+
+  ```php Hardcode values
+  # Hardcode a value
+  value: "John Doe"
+
+  ## Hardcode list of values
+  value:
+    - "John Doe"
+    - "Jane Doe"
+
+  ## Hardcode object
+  value:
+    name: "John Doe"
+    email: "john.doe@example.com"
+  ```
+
+  ```php With inline functions
+  # ACTIONS, TRIGGER, and FN are all available in the reshape action
+  value:
+    email: ${{ ACTIONS.get_user.result.data.user.name || "No email found" }}
+    ip_version: ${{ FN.check_ip_version(ACTIONS.get_user.result.data.user.ip) }}
+    iso_datetime: ${{ FN.to_isoformat(ACTIONS.get_user.result.data.user.created_at) }}
+  ```
+</CodeGroup>
+
+
+<Tip>
+  Use the `Reshape` action to:
+  - Hardcode values
+  - Rename data fields
+  - Store data from previous actions or the trigger into a value or object
+  - Transform data using [inline functions](/quickstart/expressions#fn-context)
+
+  This action is one of the most commonly used and powerful action in Tracecat.
+  Check out the [functions cheatsheet](/quickstart/functions) for a list of all the available functions.
+</Tip>
 
 ## HTTP Request
 
@@ -70,7 +132,7 @@ The `core.http_request` action supports `GET`, `POST`, `PUT`, `PATCH`, and `DELE
   ```
 </CodeGroup>
 
-## Polling HTTP Request
+## HTTP Polling
 
 Tracecat makes it easy to poll APIs with long-running operations using the `core.http_poll` action.
 To configure the `core.http_poll` action, you'll need to specify one of the following inputs:
@@ -94,69 +156,76 @@ You can further configure the polling behavior via the optional inputs:
 - `poll_interval`: Seconds between polling attempts. Defaults to exponential wait.
 - `poll_max_attempts`: Maximum number of polling attempts. Defaults to 10.
 
-<Accordion title="Example: URLScan" icon="globe">
-  URLScan uses a two-step process to get a threat intelligence report on a URL:
+## Tutorial: URLScan
 
-  1. Call the `/scan` endpoint to submit the URL for scanning.
-  2. Poll the `/result` endpoint repeatedly until the status code changes from `404` to `200`.
+URLScan uses a two-step process to get a threat intelligence report on a URL:
 
-  <Steps>
-    <Step title="Create URLScan secret">
-      Add URLScan API key to Tracecat's built-in secrets manager.
+1. Call the `/scan` endpoint to submit the URL for scanning.
+2. Poll the `/result` endpoint repeatedly until the status code changes from `404` to `200`.
+3. Uses a reshape to extract the maliciousness score and categories from the response body.
 
-      <SecretsExample />
+<Steps>
+  <Step title="Create URLScan secret">
+    Add URLScan API key to Tracecat's built-in secrets manager.
 
-    </Step>
-    <Step title="Call /scan endpoint">
-      Add the `core.http_request` action to your workflow.
-      Rename it to `Submit URL` and configure it with the following inputs:
+    <SecretsExample />
 
-      ```yaml
-      url: https://urlscan.io/api/v1/scan/
-      method: POST
-      headers:
-        API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
-      payload:
-        url: https://crowdstrikebluescreen.com
-        visibility: private
-      ```
+  </Step>
+  <Step title="Call /scan endpoint">
+    Add the `core.http_request` action to your workflow.
+    Rename it to `Submit URL` and configure it with the following inputs:
 
-      ![Scan URL](/img/quickstart/core-actions/scan-url.png)
-    </Step>
-    <Step title="Poll /result endpoint">
-      Add the `core.http_poll` action to your workflow.
-      Rename it to `Get result` and configure it with the following inputs:
+    ```yaml
+    url: https://urlscan.io/api/v1/scan/
+    method: POST
+    headers:
+      API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+    payload:
+      url: https://crowdstrikebluescreen.com
+      visibility: private
+    ```
 
-      ```yaml
-      url: https://urlscan.io/api/v1/result/${{ ACTIONS.scan_url.result.data.uuid }}
-      method: GET
-      poll_retry_codes: [404]
-      headers:
-        API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
-      ```
+    ![Scan URL](/img/quickstart/core-actions/scan-url.png)
+  </Step>
+  <Step title="Poll /result endpoint">
+    Add the `core.http_poll` action to your workflow.
+    Rename it to `Get result` and configure it with the following inputs:
 
-      ![Get URLScan result](/img/quickstart/core-actions/get-urlscan-result.png)
-    </Step>
-    <Step title="Run workflow">
-      Run the workflow to submit the URL for scanning and get the threat intelligence report.
-      Under the hood, `Get result` calls the `/result` endpoint repeatedly until the status code is `200`.
+    ```yaml
+    url: https://urlscan.io/api/v1/result/${{ ACTIONS.scan_url.result.data.uuid }}
+    method: GET
+    poll_retry_codes: [404]
+    headers:
+      API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+    ```
 
-      <Tabs>
-        <Tab title="Events">
-          ![View URLScan run](/img/quickstart/core-actions/view-urlscan-run.png)
-        </Tab>
-        <Tab title="Scan URL result">
-          ![View scan URL result](/img/quickstart/core-actions/view-scan-url-result.png)
-        </Tab>
-        <Tab title="Get result result">
-          ![View urlscan result](/img/quickstart/core-actions/view-urlscan-result.png)
-        </Tab>
-      </Tabs>
-    </Step>
-  </Steps>
-</Accordion>
+    ![Get URLScan result](/img/quickstart/core-actions/get-urlscan-result.png)
+  </Step>
+  <Step title="Get final verdict">
+    Configure the reshape action to extract the maliciousness scores and categories from the response body.
 
-## AI Action
+    ```yaml
+    value:
+      verdict: ${{ ACTIONS.lookup_url.result.data.verdicts.urlscan.malicious }}
+      score: ${{ ACTIONS.lookup_url.result.data.verdicts.urlscan.score }}
+    ```
 
-🚧 The AI action is currently under heavy development.
-Please contact us on [Discord](https://discord.gg/n3GF4qxFU8) for up-to-date information and usage examples.
+    ![View final verdict](/img/quickstart/core-actions/view-final-verdict.png)
+  </Step>
+  <Step title="Run workflow">
+    Run the workflow to submit the URL for scanning and get the threat intelligence report.
+    Under the hood, `Get result` calls the `/result` endpoint repeatedly until the status code is `200`.
+
+    <Tabs>
+      <Tab title="Events">
+        ![View URLScan run](/img/quickstart/core-actions/view-urlscan-run.png)
+      </Tab>
+      <Tab title="Scan URL result">
+        ![View scan URL result](/img/quickstart/core-actions/view-scan-url-result.png)
+      </Tab>
+      <Tab title="Get result">
+        ![View urlscan result](/img/quickstart/core-actions/view-urlscan-result.png)
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
