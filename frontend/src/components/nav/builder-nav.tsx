@@ -3,7 +3,7 @@
 import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { ApiError, RegistryActionValidateResponse } from "@/client"
+import { ApiError, ValidationResult } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -213,12 +213,12 @@ const isErrorDetailEmpty = (detail: unknown): boolean => {
 }
 
 function ErrorMessage({
-  message,
+  msg,
   detail,
   className,
-}: RegistryActionValidateResponse & React.HTMLAttributes<HTMLPreElement>) {
+}: ValidationResult & React.HTMLAttributes<HTMLPreElement>) {
   // Replace newline characters with <br /> tags
-  const formattedMessage = message.split("\n").map((line, index) => (
+  const formattedMessage = msg?.split("\n").map((line, index) => (
     <React.Fragment key={index}>
       {line}
       <br />

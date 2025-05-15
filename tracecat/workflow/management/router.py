@@ -26,10 +26,10 @@ from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
 from tracecat.dsl.models import DSLConfig
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
-from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.settings.service import get_setting
 from tracecat.tags.models import TagRead
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.validation.models import ValidationDetail, ValidationResult
 from tracecat.validation.service import validate_dsl
 from tracecat.webhooks.models import WebhookCreate, WebhookRead, WebhookUpdate
 from tracecat.workflow.actions.models import ActionRead
@@ -298,83 +298,81 @@ async def commit_workflow(
     # XXX: This is actually the logical equivalent of creating a workflow definition (deployment)
     # Committing from YAML (i.e. attaching yaml) will override the workflow definition in the database
 
-    with logger.contextualize(role=role):
-        mgmt_service = WorkflowsManagementService(session, role=role)
-        workflow = await mgmt_service.get_workflow(workflow_id)
-        if not workflow:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Could not find workflow"
+    mgmt_service = WorkflowsManagementService(session, role=role)
+    workflow = await mgmt_service.get_workflow(workflow_id)
+    if not workflow:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Could not find workflow"
+        )
+
+    # Perform Tiered Validation
+    # Tier 1: DSLInput validation
+    # Verify that the workflow DSL is structurally sound
+    construction_errors: list[ValidationResult] = []
+    try:
+        # Convert the workflow into a WorkflowDefinition
+        # XXX: When we commit from the workflow, we have action IDs
+        dsl = await mgmt_service.build_dsl_from_workflow(workflow)
+    except TracecatValidationError as e:
+        logger.info("Custom validation error in DSL", e=e)
+        construction_errors.append(
+            ValidationResult(status="error", msg=str(e), detail=e.detail)
+        )
+    except ValidationError as e:
+        logger.info("Pydantic validation error in DSL", e=e)
+        construction_errors.append(
+            ValidationResult(
+                status="error",
+                msg=str(e),
+                detail=ValidationDetail.list_from_pydantic(e),
             )
+        )
 
-        # Perform Tiered Validation
-        # Tier 1: DSLInput validation
-        # Verify that the workflow DSL is structurally sound
-        construction_errors = []
-        try:
-            # Convert the workflow into a WorkflowDefinition
-            # XXX: When we commit from the workflow, we have action IDs
-            dsl = await mgmt_service.build_dsl_from_workflow(workflow)
-        except* TracecatValidationError as eg:
-            logger.error(eg.message, error=eg.exceptions)
-            construction_errors.extend(
-                RegistryActionValidateResponse.from_dsl_validation_error(e)  # type: ignore
-                for e in eg.exceptions
-            )
-        except* ValidationError as eg:
-            logger.error(eg.message, error=eg.exceptions)
-            construction_errors.extend(
-                RegistryActionValidateResponse.from_pydantic_validation_error(e)  # type: ignore
-                for e in eg.exceptions
-            )
-
-        if construction_errors:
-            return WorkflowCommitResponse(
-                workflow_id=workflow_id.short(),
-                status="failure",
-                message=f"Workflow definition construction failed with {len(construction_errors)} errors",
-                errors=construction_errors,
-            )
-
-        # When we're here, we've verified that the workflow DSL is structurally sound
-        # Now, we have to ensure that the arguments are sound
-
-        if val_errors := await validate_dsl(session=session, dsl=dsl):
-            logger.warning("Validation errors", errors=val_errors)
-            return WorkflowCommitResponse(
-                workflow_id=workflow_id.short(),
-                status="failure",
-                message=f"{len(val_errors)} validation error(s)",
-                errors=[
-                    RegistryActionValidateResponse.from_validation_result(val_res)
-                    for val_res in val_errors
-                ],
-            )
-
-        # Validation is complete. We can now construct the workflow definition
-        # Phase 1: Create workflow definition
-        # Workflow definition uses action.refs to refer to actions
-        # We should only instantiate action refs at workflow    runtime
-        service = WorkflowDefinitionsService(session, role=role)
-        # Creating a workflow definition only uses refs
-        defn = await service.create_workflow_definition(workflow_id, dsl, commit=False)
-
-        # Update Workflow
-        # We don't need to backpropagate the graph to the workflow beacuse the workflow is the source of truth
-        # We only need to update the workflow definition version
-        workflow.version = defn.version
-
-        session.add(workflow)
-        session.add(defn)
-        await session.commit()
-        await session.refresh(workflow)
-        await session.refresh(defn)
-
+    if construction_errors:
         return WorkflowCommitResponse(
             workflow_id=workflow_id.short(),
-            status="success",
-            message="Workflow committed successfully.",
-            metadata={"version": defn.version},
+            status="failure",
+            message=f"Workflow definition construction failed with {len(construction_errors)} errors",
+            errors=construction_errors,
         )
+
+    # When we're here, we've verified that the workflow DSL is structurally sound
+    # Now, we have to ensure that the arguments are sound
+
+    if val_errors := await validate_dsl(session=session, dsl=dsl):
+        logger.warning("Validation errors", errors=val_errors)
+        return WorkflowCommitResponse(
+            workflow_id=workflow_id.short(),
+            status="failure",
+            message=f"{len(val_errors)} validation error(s)",
+            errors=list(val_errors),
+        )
+
+    # Validation is complete. We can now construct the workflow definition
+    # Phase 1: Create workflow definition
+    # Workflow definition uses action.refs to refer to actions
+    # We should only instantiate action refs at workflow    runtime
+    service = WorkflowDefinitionsService(session, role=role)
+    # Creating a workflow definition only uses refs
+    defn = await service.create_workflow_definition(workflow_id, dsl, commit=False)
+
+    # Update Workflow
+    # We don't need to backpropagate the graph to the workflow beacuse the workflow is the source of truth
+    # We only need to update the workflow definition version
+    workflow.version = defn.version
+
+    session.add(workflow)
+    session.add(defn)
+    await session.commit()
+    await session.refresh(workflow)
+    await session.refresh(defn)
+
+    return WorkflowCommitResponse(
+        workflow_id=workflow_id.short(),
+        status="success",
+        message="Workflow committed successfully.",
+        metadata={"version": defn.version},
+    )
 
 
 @router.get("/{workflow_id}/export", tags=["workflows"])

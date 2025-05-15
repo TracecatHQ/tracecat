@@ -7,7 +7,7 @@ import Link from "next/link"
 import {
   ActionUpdate,
   ApiError,
-  RegistryActionValidateResponse,
+  ValidationResult,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -218,8 +218,8 @@ export function ActionPanel({
     },
   })
 
-  const [actionValidationErrors, setActionValidationErrors] = useState<
-    RegistryActionValidateResponse[]
+  const [validationResults, setValidationResults] = useState<
+    ValidationResult[]
   >([])
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
@@ -228,7 +228,7 @@ export function ActionPanel({
   useEffect(() => {
     setActiveTab("inputs")
     setSaveState(SaveState.IDLE)
-    setActionValidationErrors([])
+    setValidationResults([])
   }, [actionId])
 
   // Set up the ref methods
@@ -260,7 +260,7 @@ export function ActionPanel({
       }
 
       setSaveState(SaveState.SAVING)
-      setActionValidationErrors([])
+      setValidationResults([])
 
       try {
         const params: ActionUpdate = {
@@ -324,7 +324,7 @@ export function ActionPanel({
       updateAction,
       methods,
       setSaveState,
-      setActionValidationErrors,
+      setValidationResults,
     ]
   )
 
@@ -342,12 +342,17 @@ export function ActionPanel({
       } catch (error) {
         console.error("Failed to save action", error)
         setSaveState(SaveState.ERROR)
-        setActionValidationErrors([
+        setValidationResults([
           {
-            ok: false,
-            message: "Failed to save action",
-            detail: String(error),
-            action_ref: slugify(action?.title ?? ""),
+            status: "error",
+            msg: "Failed to save action",
+            detail: [
+              {
+                type: "general",
+                msg: String(error),
+              },
+            ],
+            ref: slugify(action?.title ?? ""),
           },
         ])
       }
@@ -397,9 +402,9 @@ export function ActionPanel({
 
   // If there are validation errors, filter out the errors related to this action
   const finalValErrors = [
-    ...(actionValidationErrors || []),
+    ...(validationResults || []),
     ...(validationErrors || []),
-  ].filter((error) => error.action_ref === slugify(action.title))
+  ].filter((error) => error.ref === slugify(action.title))
   const ActionIcon = actionTypeToLabel[registryAction.type].icon
   const isInteractive = methods.watch("is_interactive")
   const interactionType = methods.watch("interaction.type")
@@ -879,7 +884,7 @@ export function ActionPanel({
                               <Separator className="my-2 bg-rose-400" />
                               {finalValErrors.map((error, index) => (
                                 <div key={index} className="mb-4">
-                                  <span>{error.message}</span>
+                                  <span>{error.msg}</span>
                                   <pre>{YAML.stringify(error.detail)}</pre>
                                 </div>
                               ))}
