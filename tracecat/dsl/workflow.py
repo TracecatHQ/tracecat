@@ -351,6 +351,7 @@ class DSLWorkflow:
             ) from e
 
         # Prepare user facing context
+
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
             ExprContext.INPUTS: self.dsl.inputs,
@@ -361,6 +362,7 @@ class DSLWorkflow:
                     "dispatch_type": self.dispatch_type,
                     "execution_id": self.wf_exec_id,
                     "run_id": self.wf_run_id,
+                    "trigger_type": get_trigger_type(wf_info),
                 },
                 environment=self.runtime_config.environment,
                 variables={},
