@@ -585,7 +585,7 @@ export function ActionPanel({
                             )}
                           />
                           <div className="space-y-2">
-                            <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Label className="flex items-center gap-2 text-xs font-medium">
                               <span>Action ID</span>
                               <CopyButton
                                 value={action.id}
