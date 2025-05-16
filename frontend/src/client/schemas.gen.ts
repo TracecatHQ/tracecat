@@ -5290,9 +5290,13 @@ export const $WebhookCreate = {
       $ref: "#/components/schemas/WebhookStatus",
       default: "offline",
     },
-    method: {
-      $ref: "#/components/schemas/WebhookMethod",
-      default: "POST",
+    methods: {
+      items: {
+        $ref: "#/components/schemas/WebhookMethod",
+      },
+      type: "array",
+      title: "Methods",
+      description: "Methods to allow",
     },
     entrypoint_ref: {
       anyOf: [
@@ -5358,8 +5362,13 @@ export const $WebhookRead = {
       type: "object",
       title: "Filters",
     },
-    method: {
-      $ref: "#/components/schemas/WebhookMethod",
+    methods: {
+      items: {
+        $ref: "#/components/schemas/WebhookMethod",
+      },
+      type: "array",
+      title: "Methods",
+      description: "Methods to allow",
     },
     workflow_id: {
       type: "string",
@@ -5377,7 +5386,6 @@ export const $WebhookRead = {
     "secret",
     "status",
     "filters",
-    "method",
     "workflow_id",
     "url",
   ],
@@ -5401,15 +5409,19 @@ export const $WebhookUpdate = {
         },
       ],
     },
-    method: {
+    methods: {
       anyOf: [
         {
-          $ref: "#/components/schemas/WebhookMethod",
+          items: {
+            $ref: "#/components/schemas/WebhookMethod",
+          },
+          type: "array",
         },
         {
           type: "null",
         },
       ],
+      title: "Methods",
     },
     entrypoint_ref: {
       anyOf: [

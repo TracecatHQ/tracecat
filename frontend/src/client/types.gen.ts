@@ -1710,7 +1710,10 @@ export type WaitStrategy = "wait" | "detach"
 
 export type WebhookCreate = {
   status?: WebhookStatus
-  method?: WebhookMethod
+  /**
+   * Methods to allow
+   */
+  methods?: Array<WebhookMethod>
   entrypoint_ref?: string | null
 }
 
@@ -1727,7 +1730,10 @@ export type WebhookRead = {
   filters: {
     [key: string]: unknown
   }
-  method: WebhookMethod
+  /**
+   * Methods to allow
+   */
+  methods?: Array<WebhookMethod>
   workflow_id: string
   url: string
 }
@@ -1736,7 +1742,7 @@ export type WebhookStatus = "online" | "offline"
 
 export type WebhookUpdate = {
   status?: WebhookStatus | null
-  method?: WebhookMethod | null
+  methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
 }
 
@@ -2236,11 +2242,31 @@ export type PublicIncomingWebhookData = {
   /**
    * Vendor specific webhook verification. Supported vendors: `okta`.
    */
-  vendor?: string
+  vendor?: string | null
   workflowId: string
 }
 
 export type PublicIncomingWebhookResponse = unknown
+
+export type PublicIncomingWebhook1Data = {
+  contentType?: string | null
+  /**
+   * Echo back to the caller
+   */
+  echo?: boolean
+  /**
+   * Return an empty response. Assumes `echo` to be `True`.
+   */
+  emptyEcho?: boolean
+  secret: string
+  /**
+   * Vendor specific webhook verification. Supported vendors: `okta`.
+   */
+  vendor?: string | null
+  workflowId: string
+}
+
+export type PublicIncomingWebhook1Response = unknown
 
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
@@ -3270,8 +3296,21 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: PublicIncomingWebhook1Data
       res: {
         /**
          * Successful Response

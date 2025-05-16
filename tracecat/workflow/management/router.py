@@ -1,5 +1,5 @@
 import json
-from typing import Literal
+from typing import Literal, cast
 
 import orjson
 import yaml
@@ -500,7 +500,7 @@ async def create_webhook(
 
     webhook = Webhook(
         owner_id=role.workspace_id,
-        method=params.method,
+        methods=cast(list[str], params.methods),
         workflow_id=workflow_id,
         status=params.status,
     )  # type: ignore
