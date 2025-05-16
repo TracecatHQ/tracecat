@@ -329,19 +329,29 @@ def test_deduplicate(
         # Simple scalar values
         (None, "ignore", None, None),
         (None, "drop", None, None),
-        (None, "raise", None, ValueError),
-        (None, "check", None, ValueError),
+        (None, "check", None, ValueError),  # Detailed error with paths
+        (None, "raise", None, ValueError),  # Fast check with basic error
         (123, "ignore", 123, None),
         # Simple lists with None
         ([1, None, 3], "ignore", [1, None, 3], None),
         ([1, None, 3], "drop", [1, 3], None),
-        ([1, None, 3], "raise", None, ValueError),
-        ([1, None, 3], "check", None, ValueError),
+        ([1, None, 3], "check", None, ValueError),  # Detailed error with paths
+        ([1, None, 3], "raise", None, ValueError),  # Fast check with basic error
         # Dictionaries with None
         ({"a": 1, "b": None, "c": 3}, "ignore", {"a": 1, "b": None, "c": 3}, None),
         ({"a": 1, "b": None, "c": 3}, "drop", {"a": 1, "c": 3}, None),
-        ({"a": 1, "b": None, "c": 3}, "raise", None, ValueError),
-        ({"a": 1, "b": None, "c": 3}, "check", None, ValueError),
+        (
+            {"a": 1, "b": None, "c": 3},
+            "check",
+            None,
+            ValueError,
+        ),  # Detailed error with paths
+        (
+            {"a": 1, "b": None, "c": 3},
+            "raise",
+            None,
+            ValueError,
+        ),  # Fast check with basic error
         # Nested dictionaries
         (
             {"a": 1, "b": {"x": None, "y": 2}},
@@ -350,8 +360,18 @@ def test_deduplicate(
             None,
         ),
         ({"a": 1, "b": {"x": None, "y": 2}}, "drop", {"a": 1, "b": {"y": 2}}, None),
-        ({"a": 1, "b": {"x": None, "y": 2}}, "raise", None, ValueError),
-        ({"a": 1, "b": {"x": None, "y": 2}}, "check", None, ValueError),
+        (
+            {"a": 1, "b": {"x": None, "y": 2}},
+            "check",
+            None,
+            ValueError,
+        ),  # Detailed error with paths
+        (
+            {"a": 1, "b": {"x": None, "y": 2}},
+            "raise",
+            None,
+            ValueError,
+        ),  # Fast check with basic error
         # List of objects
         (
             [{"id": 1, "val": None}, {"id": 2, "val": "test"}],
@@ -365,8 +385,18 @@ def test_deduplicate(
             [{"id": 1}, {"id": 2, "val": "test"}],
             None,
         ),
-        ([{"id": 1, "val": None}, {"id": 2, "val": "test"}], "raise", None, ValueError),
-        ([{"id": 1, "val": None}, {"id": 2, "val": "test"}], "check", None, ValueError),
+        (
+            [{"id": 1, "val": None}, {"id": 2, "val": "test"}],
+            "check",
+            None,
+            ValueError,
+        ),  # Detailed error with paths
+        (
+            [{"id": 1, "val": None}, {"id": 2, "val": "test"}],
+            "raise",
+            None,
+            ValueError,
+        ),  # Fast check with basic error
         # Complex nested structure with lists and dictionaries
         (
             {
@@ -412,9 +442,9 @@ def test_deduplicate(
                     {"id": 2, "nested": {"values": [4, 5, 6]}},
                 ],
             },
-            "raise",
+            "check",
             None,
-            ValueError,
+            ValueError,  # Detailed error with paths
         ),
         (
             {
@@ -424,9 +454,9 @@ def test_deduplicate(
                     {"id": 2, "nested": {"values": [4, 5, 6]}},
                 ],
             },
-            "check",
+            "raise",
             None,
-            ValueError,
+            ValueError,  # Fast check with basic error
         ),
     ],
 )
@@ -495,8 +525,17 @@ def test_reshape_check_error_paths(value: Any, expected_paths: list[str]) -> Non
 
     error_msg = str(excinfo.value)
     # Extract the paths from the error message
-    path_section = error_msg.split("Dot notation to null value fields:\n")[1]
-    actual_paths = path_section.strip().split("\n")
+    path_section = error_msg.split("Found null values in the following fields:")[1]
+    # Remove bullet points and whitespace
+    actual_paths = [
+        path.strip().lstrip("- ") for path in path_section.strip().split("\n")
+    ]
+    # Remove empty lines but keep empty paths (representing root level None)
+    actual_paths = [path for path in actual_paths if path is not None]
+
+    # For None at root level, check for special case
+    if value is None and len(actual_paths) == 0:
+        actual_paths = [""]
 
     # Sort both expected and actual lists to make comparison order-independent
     assert sorted(actual_paths) == sorted(expected_paths)
