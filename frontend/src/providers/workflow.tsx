@@ -9,7 +9,7 @@ import React, {
 } from "react"
 import {
   ApiError,
-  RegistryActionValidateResponse,
+  ValidationResult,
   WorkflowCommitResponse,
   WorkflowRead,
   workflowsCommitWorkflow,
@@ -41,10 +41,8 @@ type WorkflowContextType = {
     unknown
   >
   updateWorkflow: MutateFunction<void, ApiError, WorkflowUpdate, unknown>
-  validationErrors: RegistryActionValidateResponse[] | null
-  setValidationErrors: React.Dispatch<
-    SetStateAction<RegistryActionValidateResponse[] | null>
-  >
+  validationErrors: ValidationResult[] | null
+  setValidationErrors: React.Dispatch<SetStateAction<ValidationResult[] | null>>
 }
 type TracecatErrorMessage = {
   type?: string
@@ -66,7 +64,7 @@ export function WorkflowProvider({
 }) {
   const queryClient = useQueryClient()
   const [validationErrors, setValidationErrors] = useState<
-    RegistryActionValidateResponse[] | null
+    ValidationResult[] | null
   >(null)
 
   // Queries

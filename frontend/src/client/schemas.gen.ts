@@ -3122,42 +3122,6 @@ export const $RegistryActionUpdate = {
   description: "API update model for a registered action.",
 } as const
 
-export const $RegistryActionValidateResponse = {
-  properties: {
-    ok: {
-      type: "boolean",
-      title: "Ok",
-    },
-    message: {
-      type: "string",
-      title: "Message",
-    },
-    detail: {
-      anyOf: [
-        {},
-        {
-          type: "null",
-        },
-      ],
-      title: "Detail",
-    },
-    action_ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Action Ref",
-    },
-  },
-  type: "object",
-  required: ["ok", "message"],
-  title: "RegistryActionValidateResponse",
-} as const
-
 export const $RegistryActionValidationErrorInfo = {
   properties: {
     type: {
@@ -5248,6 +5212,43 @@ export const $UserUpdate = {
   title: "UserUpdate",
 } as const
 
+export const $ValidationDetail = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    loc: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "integer",
+              },
+              {
+                type: "string",
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Loc",
+    },
+  },
+  type: "object",
+  required: ["type", "msg"],
+  title: "ValidationDetail",
+} as const
+
 export const $ValidationError = {
   properties: {
     loc: {
@@ -5276,6 +5277,50 @@ export const $ValidationError = {
   type: "object",
   required: ["loc", "msg", "type"],
   title: "ValidationError",
+} as const
+
+export const $ValidationResult = {
+  properties: {
+    status: {
+      type: "string",
+      enum: ["success", "error"],
+      title: "Status",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+      default: "",
+    },
+    detail: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ValidationDetail",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
+    },
+    ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ref",
+    },
+  },
+  type: "object",
+  required: ["status"],
+  title: "ValidationResult",
+  description: "Base class for validation results.",
 } as const
 
 export const $WaitStrategy = {
@@ -5459,7 +5504,7 @@ export const $WorkflowCommitResponse = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistryActionValidateResponse",
+            $ref: "#/components/schemas/ValidationResult",
           },
           type: "array",
         },

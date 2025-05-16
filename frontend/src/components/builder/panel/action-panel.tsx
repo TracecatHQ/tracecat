@@ -4,11 +4,7 @@ import "react18-json-view/src/style.css"
 
 import React, { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import {
-  ActionUpdate,
-  ApiError,
-  RegistryActionValidateResponse,
-} from "@/client"
+import { ActionUpdate, ApiError, ValidationResult } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -99,6 +95,7 @@ import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { actionTypeToLabel } from "@/components/registry/icons"
+import { ValidationErrorView } from "@/components/validation-errors"
 
 // These are YAML strings
 const actionFormSchema = z.object({
@@ -218,8 +215,8 @@ export function ActionPanel({
     },
   })
 
-  const [actionValidationErrors, setActionValidationErrors] = useState<
-    RegistryActionValidateResponse[]
+  const [validationResults, setValidationResults] = useState<
+    ValidationResult[]
   >([])
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
@@ -228,7 +225,7 @@ export function ActionPanel({
   useEffect(() => {
     setActiveTab("inputs")
     setSaveState(SaveState.IDLE)
-    setActionValidationErrors([])
+    setValidationResults([])
   }, [actionId])
 
   // Set up the ref methods
@@ -260,7 +257,7 @@ export function ActionPanel({
       }
 
       setSaveState(SaveState.SAVING)
-      setActionValidationErrors([])
+      setValidationResults([])
 
       try {
         const params: ActionUpdate = {
@@ -324,7 +321,7 @@ export function ActionPanel({
       updateAction,
       methods,
       setSaveState,
-      setActionValidationErrors,
+      setValidationResults,
     ]
   )
 
@@ -342,12 +339,17 @@ export function ActionPanel({
       } catch (error) {
         console.error("Failed to save action", error)
         setSaveState(SaveState.ERROR)
-        setActionValidationErrors([
+        setValidationResults([
           {
-            ok: false,
-            message: "Failed to save action",
-            detail: String(error),
-            action_ref: slugify(action?.title ?? ""),
+            status: "error",
+            msg: "Failed to save action",
+            detail: [
+              {
+                type: "general",
+                msg: String(error),
+              },
+            ],
+            ref: slugify(action?.title ?? ""),
           },
         ])
       }
@@ -397,9 +399,10 @@ export function ActionPanel({
 
   // If there are validation errors, filter out the errors related to this action
   const finalValErrors = [
-    ...(actionValidationErrors || []),
+    ...(validationResults || []),
     ...(validationErrors || []),
-  ].filter((error) => error.action_ref === slugify(action.title))
+  ].filter((error) => error.ref === slugify(action.title))
+
   const ActionIcon = actionTypeToLabel[registryAction.type].icon
   const isInteractive = methods.watch("is_interactive")
   const interactionType = methods.watch("interaction.type")
@@ -840,13 +843,18 @@ export function ActionPanel({
                       </AccordionTrigger>
                       <AccordionContent>
                         <div className="flex flex-col space-y-4 px-4">
-                          {!!finalValErrors && finalValErrors.length > 0 && (
-                            <div className="flex items-center space-x-2">
-                              <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
-                              <span className="text-xs text-rose-500">
-                                Validation errors occurred, please see below.
-                              </span>
-                            </div>
+                          {finalValErrors.length > 0 && (
+                            <ValidationErrorView
+                              validationErrors={finalValErrors}
+                              side="left"
+                            >
+                              <div className="flex items-center space-x-2">
+                                <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
+                                <span className="pointer-events-none text-xs text-rose-500">
+                                  Hover to view errors.
+                                </span>
+                              </div>
+                            </ValidationErrorView>
                           )}
                           <span className="text-xs text-muted-foreground">
                             Define action inputs in YAML below.
@@ -871,20 +879,6 @@ export function ActionPanel({
                               </FormItem>
                             )}
                           />
-                          {!!finalValErrors && finalValErrors.length > 0 && (
-                            <div className="rounded-md border border-rose-400 bg-rose-100 p-4 font-mono text-xs text-rose-500">
-                              <span className="font-bold">
-                                Validation Errors
-                              </span>
-                              <Separator className="my-2 bg-rose-400" />
-                              {finalValErrors.map((error, index) => (
-                                <div key={index} className="mb-4">
-                                  <span>{error.message}</span>
-                                  <pre>{YAML.stringify(error.detail)}</pre>
-                                </div>
-                              ))}
-                            </div>
-                          )}
                         </div>
                       </AccordionContent>
                     </AccordionItem>

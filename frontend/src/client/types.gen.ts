@@ -1032,13 +1032,6 @@ export type RegistryActionUpdate = {
   options?: RegistryActionOptions | null
 }
 
-export type RegistryActionValidateResponse = {
-  ok: boolean
-  message: string
-  detail?: unknown | null
-  action_ref?: string | null
-}
-
 export type RegistryActionValidationErrorInfo = {
   type: TemplateActionValidationErrorType
   details: Array<string>
@@ -1700,11 +1693,29 @@ export type UserUpdate = {
   } | null
 }
 
+export type ValidationDetail = {
+  type: string
+  msg: string
+  loc?: Array<number | string> | null
+}
+
 export type ValidationError = {
   loc: Array<string | number>
   msg: string
   type: string
 }
+
+/**
+ * Base class for validation results.
+ */
+export type ValidationResult = {
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+}
+
+export type status2 = "success" | "error"
 
 export type WaitStrategy = "wait" | "detach"
 
@@ -1750,13 +1761,13 @@ export type WorkflowCommitResponse = {
   workflow_id: string
   status: "success" | "failure"
   message: string
-  errors?: Array<RegistryActionValidateResponse> | null
+  errors?: Array<ValidationResult> | null
   metadata?: {
     [key: string]: unknown
   } | null
 }
 
-export type status2 = "success" | "failure"
+export type status3 = "success" | "failure"
 
 /**
  * A workflow definition.
@@ -1953,7 +1964,7 @@ export type WorkflowExecutionRead = {
   }
 }
 
-export type status3 =
+export type status4 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"

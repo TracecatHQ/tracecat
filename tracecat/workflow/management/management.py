@@ -27,12 +27,12 @@ from tracecat.identifiers.workflow import (
     WF_ID_SHORT_PATTERN,
     WorkflowUUID,
 )
-from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.service import BaseService
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatValidationError,
 )
+from tracecat.validation.models import ValidationDetail, ValidationResult
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.models import (
@@ -206,38 +206,35 @@ class WorkflowsManagementService(BaseService):
     ) -> WorkflowDSLCreateResponse:
         """Create a new workflow from a Tracecat DSL data object."""
 
-        construction_errors = []
+        construction_errors: list[ValidationResult] = []
         try:
             # Convert the workflow into a WorkflowDefinition
             # XXX: When we commit from the workflow, we have action IDs
             dsl = DSLInput.model_validate(dsl_data)
             self.logger.info("Creating workflow from database")
-        except* TracecatValidationError as eg:
-            self.logger.error(eg.message, error=eg.exceptions)
-            construction_errors.extend(
-                RegistryActionValidateResponse.from_dsl_validation_error(e)  # type: ignore
-                for e in eg.exceptions
+        except TracecatValidationError as e:
+            self.logger.info("Custom validation error", error=e)
+            construction_errors.append(
+                ValidationResult(status="error", msg=str(e), detail=e.detail)
             )
-        except* ValidationError as eg:
-            self.logger.error(eg.message, error=eg.exceptions)
-            construction_errors.extend(
-                RegistryActionValidateResponse.from_pydantic_validation_error(e)  # type: ignore
-                for e in eg.exceptions
+        except ValidationError as e:
+            self.logger.info("Pydantic validation error", error=e)
+            construction_errors.append(
+                ValidationResult(
+                    status="error",
+                    msg=str(e),
+                    detail=ValidationDetail.list_from_pydantic(e),
+                )
             )
         if construction_errors:
             return WorkflowDSLCreateResponse(errors=construction_errors)
 
         if not skip_secret_validation:
             if val_errors := await validate_dsl(session=self.session, dsl=dsl):
-                self.logger.warning("Validation errors", errors=val_errors)
-                return WorkflowDSLCreateResponse(
-                    errors=[
-                        RegistryActionValidateResponse.from_validation_result(val_res)
-                        for val_res in val_errors
-                    ]
-                )
+                self.logger.info("Validation errors", errors=val_errors)
+                return WorkflowDSLCreateResponse(errors=list(val_errors))
 
-        self.logger.warning("Creating workflow from DSL", dsl=dsl)
+        self.logger.info("Creating workflow from DSL", dsl=dsl)
         try:
             workflow = await self._create_db_workflow_from_dsl(dsl)
             return WorkflowDSLCreateResponse(workflow=workflow)

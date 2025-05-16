@@ -101,7 +101,7 @@ async def secret_validator(
         )
         logger.info("Secret search results", defined_secret=defined_secret)
         if (n_found := len(defined_secret)) != 1:
-            logger.error(
+            logger.debug(
                 "Secret not found in SECRET context usage",
                 n_found=n_found,
                 secret_name=name,
