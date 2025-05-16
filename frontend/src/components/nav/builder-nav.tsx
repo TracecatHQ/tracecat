@@ -3,7 +3,7 @@
 import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { ApiError, ValidationResult } from "@/client"
+import { ApiError } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -65,6 +65,10 @@ import {
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
+import {
+  ValidationErrorMessage,
+  ValidationErrorView,
+} from "@/components/validation-errors"
 
 export function BuilderNav() {
   const {
@@ -98,6 +102,7 @@ export function BuilderNav() {
 
   const manualTriggerDisabled = workflow.version === null
   const workflowsPath = `/workspaces/${workspaceId}/workflows`
+
   return (
     <div className="flex w-full items-center">
       <div className="mr-4 min-w-0 flex-1">
@@ -137,58 +142,32 @@ export function BuilderNav() {
         />
         {/* Save button */}
         <div className="flex items-center space-x-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                onClick={handleCommit}
-                className={cn(
-                  "h-7 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
-                  validationErrors &&
-                    "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
-                )}
-              >
-                {validationErrors ? (
-                  <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
-                ) : (
-                  <SaveIcon className="mr-2 size-4" />
-                )}
-                Save
-              </Button>
-            </TooltipTrigger>
-
-            <TooltipContent
-              side="bottom"
-              className="w-fit p-0 text-xs shadow-lg"
+          <ValidationErrorView
+            side="bottom"
+            validationErrors={validationErrors || []}
+            noErrorTooltip={
+              <span>
+                Save workflow v{(workflow.version || 0) + 1} with your changes.
+              </span>
+            }
+          >
+            <Button
+              variant="outline"
+              onClick={handleCommit}
+              className={cn(
+                "h-7 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
+                validationErrors &&
+                  "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
+              )}
             >
               {validationErrors ? (
-                <div className="space-y-2 rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
-                  <span className="text-xs font-bold text-rose-500">
-                    Validation Errors
-                  </span>
-                  <div className="mt-1 space-y-1">
-                    {validationErrors.map((error, index) => (
-                      <div className="space-y-2" key={index}>
-                        <Separator className="bg-rose-400" />
-                        <ErrorMessage
-                          key={index}
-                          {...error}
-                          className="text-rose-500"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
               ) : (
-                <div className="p-2">
-                  <span>
-                    Save workflow v{(workflow.version || 0) + 1} with your
-                    changes.
-                  </span>
-                </div>
+                <SaveIcon className="mr-2 size-4" />
               )}
-            </TooltipContent>
-          </Tooltip>
+              Save
+            </Button>
+          </ValidationErrorView>
 
           <Badge
             variant="secondary"
@@ -202,41 +181,6 @@ export function BuilderNav() {
         <BuilderNavOptions workspaceId={workspaceId} workflowId={workflow.id} />
       </div>
     </div>
-  )
-}
-
-const isErrorDetailEmpty = (detail: unknown): boolean => {
-  if (detail === null || detail === undefined) return true
-  if (typeof detail === "object" && Object.keys(detail).length === 0)
-    return true
-  return false
-}
-
-function ErrorMessage({
-  msg,
-  detail,
-  className,
-}: ValidationResult & React.HTMLAttributes<HTMLPreElement>) {
-  // Replace newline characters with <br /> tags
-  const formattedMessage = msg?.split("\n").map((line, index) => (
-    <React.Fragment key={index}>
-      {line}
-      <br />
-    </React.Fragment>
-  ))
-
-  return (
-    <pre
-      className={cn("overflow-auto whitespace-pre-wrap text-wrap", className)}
-    >
-      {formattedMessage}
-      {!isErrorDetailEmpty(detail) && (
-        <React.Fragment>
-          <br />
-          {YAML.stringify(detail, null, 2)}
-        </React.Fragment>
-      )}
-    </pre>
   )
 }
 
