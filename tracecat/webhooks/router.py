@@ -48,7 +48,7 @@ async def incoming_webhook(
         default=False,
         description="Return an empty response. Assumes `echo` to be `True`.",
     ),
-    vendor: str = Query(
+    vendor: str | None = Query(
         default=None,
         description="Vendor specific webhook verification. Supported vendors: `okta`.",
     ),
