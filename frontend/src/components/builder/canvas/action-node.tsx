@@ -498,7 +498,7 @@ function ActionNodeContent({
               {validationErrors.length > 0 && (
                 <div className="hover:cursor-pointer">
                   <span
-                    className="ml-1 flex h-5 w-5 items-center justify-center rounded-full border border-rose-300 bg-rose-400 text-xs font-bold text-white shadow"
+                    className="ml-1 flex size-5 items-center justify-center rounded-full border border-rose-300 bg-rose-400 text-xs font-bold text-white shadow"
                     aria-label={`Found ${validationErrors.length} validation errors`}
                   >
                     {validationErrors.length}

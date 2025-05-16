@@ -42,9 +42,7 @@ type WorkflowContextType = {
   >
   updateWorkflow: MutateFunction<void, ApiError, WorkflowUpdate, unknown>
   validationErrors: ValidationResult[] | null
-  setValidationErrors: React.Dispatch<
-    SetStateAction<ValidationResult[] | null>
-  >
+  setValidationErrors: React.Dispatch<SetStateAction<ValidationResult[] | null>>
 }
 type TracecatErrorMessage = {
   type?: string

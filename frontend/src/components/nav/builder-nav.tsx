@@ -55,7 +55,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Tooltip,
@@ -65,10 +64,7 @@ import {
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
-import {
-  ValidationErrorMessage,
-  ValidationErrorView,
-} from "@/components/validation-errors"
+import { ValidationErrorView } from "@/components/validation-errors"
 
 export function BuilderNav() {
   const {
