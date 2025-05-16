@@ -37,7 +37,7 @@ class OktaVerificationResponse(TypedDict):
 
 # NOTE: Need to set response_model to None to avoid FastAPI trying to parse the response as JSON
 # We need empty status 200 responses for slash command APIs (e.g. Slack)
-@router.post("", response_model=None)
+@router.api_route("", response_model=None, methods=["GET", "POST"])
 async def incoming_webhook(
     *,
     workflow_id: AnyWorkflowIDPath,
@@ -70,6 +70,8 @@ async def incoming_webhook(
         payload=payload,
         trigger_type=TriggerType.WEBHOOK,
     )
+
+    # Response handling
     if echo:
         if empty_echo:
             return Response(status_code=200)

@@ -451,7 +451,9 @@ class Webhook(Resource, table=True):
         default_factory=id_factory("wh"), nullable=False, unique=True, index=True
     )
     status: str = "offline"  # "online" or "offline"
-    method: str = "POST"
+    methods: list[str] = Field(
+        default_factory=lambda: ["POST"], sa_column=Column(JSONB, nullable=False)
+    )
     filters: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
 
     # Relationships
@@ -475,6 +477,11 @@ class Webhook(Resource, table=True):
     def url(self) -> str:
         short_wf_id = WorkflowUUID.make_short(self.workflow_id)
         return f"{config.TRACECAT__PUBLIC_API_URL}/webhooks/{short_wf_id}/{self.secret}"
+
+    @computed_field
+    @property
+    def normalized_methods(self) -> tuple[str, ...]:
+        return tuple(m.lower() for m in self.methods)
 
 
 class Schedule(Resource, table=True):
