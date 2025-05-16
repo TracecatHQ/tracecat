@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from tracecat_registry.core.transform import (
@@ -8,6 +8,7 @@ from tracecat_registry.core.transform import (
     is_in,
     map,
     not_in,
+    reshape,
 )
 
 
@@ -320,3 +321,221 @@ def test_deduplicate(
     items: list[dict[str, Any]], keys: list[str], expected: list[dict[str, Any]]
 ) -> None:
     assert deduplicate(items, keys) == expected
+
+
+@pytest.mark.parametrize(
+    "value,on_null,expected,error",
+    [
+        # Simple scalar values
+        (None, "ignore", None, None),
+        (None, "drop", None, None),
+        (None, "check", None, ValueError),  # Detailed error with paths
+        (None, "raise", None, ValueError),  # Fast check with basic error
+        (123, "ignore", 123, None),
+        # Simple lists with None
+        ([1, None, 3], "ignore", [1, None, 3], None),
+        ([1, None, 3], "drop", [1, 3], None),
+        ([1, None, 3], "check", None, ValueError),  # Detailed error with paths
+        ([1, None, 3], "raise", None, ValueError),  # Fast check with basic error
+        # Dictionaries with None
+        ({"a": 1, "b": None, "c": 3}, "ignore", {"a": 1, "b": None, "c": 3}, None),
+        ({"a": 1, "b": None, "c": 3}, "drop", {"a": 1, "c": 3}, None),
+        (
+            {"a": 1, "b": None, "c": 3},
+            "check",
+            None,
+            ValueError,
+        ),  # Detailed error with paths
+        (
+            {"a": 1, "b": None, "c": 3},
+            "raise",
+            None,
+            ValueError,
+        ),  # Fast check with basic error
+        # Nested dictionaries
+        (
+            {"a": 1, "b": {"x": None, "y": 2}},
+            "ignore",
+            {"a": 1, "b": {"x": None, "y": 2}},
+            None,
+        ),
+        ({"a": 1, "b": {"x": None, "y": 2}}, "drop", {"a": 1, "b": {"y": 2}}, None),
+        (
+            {"a": 1, "b": {"x": None, "y": 2}},
+            "check",
+            None,
+            ValueError,
+        ),  # Detailed error with paths
+        (
+            {"a": 1, "b": {"x": None, "y": 2}},
+            "raise",
+            None,
+            ValueError,
+        ),  # Fast check with basic error
+        # List of objects
+        (
+            [{"id": 1, "val": None}, {"id": 2, "val": "test"}],
+            "ignore",
+            [{"id": 1, "val": None}, {"id": 2, "val": "test"}],
+            None,
+        ),
+        (
+            [{"id": 1, "val": None}, {"id": 2, "val": "test"}],
+            "drop",
+            [{"id": 1}, {"id": 2, "val": "test"}],
+            None,
+        ),
+        (
+            [{"id": 1, "val": None}, {"id": 2, "val": "test"}],
+            "check",
+            None,
+            ValueError,
+        ),  # Detailed error with paths
+        (
+            [{"id": 1, "val": None}, {"id": 2, "val": "test"}],
+            "raise",
+            None,
+            ValueError,
+        ),  # Fast check with basic error
+        # Complex nested structure with lists and dictionaries
+        (
+            {
+                "metadata": {"created_at": "2023-01-01", "updated_by": None},
+                "items": [
+                    {"id": 1, "nested": {"values": [1, None, 3]}},
+                    {"id": 2, "nested": {"values": [4, 5, 6]}},
+                ],
+            },
+            "ignore",
+            {
+                "metadata": {"created_at": "2023-01-01", "updated_by": None},
+                "items": [
+                    {"id": 1, "nested": {"values": [1, None, 3]}},
+                    {"id": 2, "nested": {"values": [4, 5, 6]}},
+                ],
+            },
+            None,
+        ),
+        (
+            {
+                "metadata": {"created_at": "2023-01-01", "updated_by": None},
+                "items": [
+                    {"id": 1, "nested": {"values": [1, None, 3]}},
+                    {"id": 2, "nested": {"values": [4, 5, 6]}},
+                ],
+            },
+            "drop",
+            {
+                "metadata": {"created_at": "2023-01-01"},
+                "items": [
+                    {"id": 1, "nested": {"values": [1, 3]}},
+                    {"id": 2, "nested": {"values": [4, 5, 6]}},
+                ],
+            },
+            None,
+        ),
+        (
+            {
+                "metadata": {"created_at": "2023-01-01", "updated_by": None},
+                "items": [
+                    {"id": 1, "nested": {"values": [1, None, 3]}},
+                    {"id": 2, "nested": {"values": [4, 5, 6]}},
+                ],
+            },
+            "check",
+            None,
+            ValueError,  # Detailed error with paths
+        ),
+        (
+            {
+                "metadata": {"created_at": "2023-01-01", "updated_by": None},
+                "items": [
+                    {"id": 1, "nested": {"values": [1, None, 3]}},
+                    {"id": 2, "nested": {"values": [4, 5, 6]}},
+                ],
+            },
+            "raise",
+            None,
+            ValueError,  # Fast check with basic error
+        ),
+    ],
+)
+def test_reshape(
+    value: Any,
+    on_null: Literal["drop", "raise", "check", "ignore"],
+    expected: Any,
+    error: type[Exception] | None,
+) -> None:
+    """Test the reshape function with various object structures and null handling modes."""
+    if error:
+        with pytest.raises(error):
+            reshape(value, on_null)
+    else:
+        result = reshape(value, on_null)
+        assert result == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected_paths",
+    [
+        # Simple values
+        (None, [""]),
+        # Simple list with None
+        ([1, None, 3], ["[1]"]),
+        # Dictionary with None
+        ({"a": 1, "b": None, "c": 3}, ["b"]),
+        # Nested dictionary
+        ({"a": 1, "b": {"x": None, "y": 2}}, ["b.x"]),
+        # List of objects
+        ([{"id": 1, "val": None}, {"id": 2, "val": "test"}], ["[0].val"]),
+        # Key with dots
+        ({"user.name": None, "normal": 1}, ['"user.name"']),
+        # Special characters in keys
+        ({"space key": None, "normal": 1}, ['"space key"']),
+        ({"special!@#$%^&*()": None}, ['"special!@#$%^&*()"']),
+        ({"mixed space.and.dots": None}, ['"mixed space.and.dots"']),
+        ({'quoted"key"': None}, ['"quoted\\"key\\""']),
+        # Nested special characters
+        (
+            {"user": {"first name": None, "last.name": None}},
+            ['user."first name"', 'user."last.name"'],
+        ),
+        # Special characters in nested structures with arrays
+        (
+            {"data": [{"complex key!": None}, {"normal": None}]},
+            ['data[0]."complex key!"', "data[1].normal"],
+        ),
+        # Complex nested structure with multiple nulls
+        (
+            {
+                "metadata": {"created_at": "2023-01-01", "updated_by": None},
+                "items": [
+                    {"id": 1, "nested": {"values": [1, None, 3]}},
+                    {"id": 2, "nested": None},
+                ],
+            },
+            ["metadata.updated_by", "items[0].nested.values[1]", "items[1].nested"],
+        ),
+    ],
+)
+def test_reshape_check_error_paths(value: Any, expected_paths: list[str]) -> None:
+    """Test that reshape correctly reports the dot notation paths to null values."""
+    with pytest.raises(ValueError) as excinfo:
+        reshape(value, "check")
+
+    error_msg = str(excinfo.value)
+    # Extract the paths from the error message
+    path_section = error_msg.split("Found null values in the following fields:")[1]
+    # Remove bullet points and whitespace
+    actual_paths = [
+        path.strip().lstrip("- ") for path in path_section.strip().split("\n")
+    ]
+    # Remove empty lines but keep empty paths (representing root level None)
+    actual_paths = [path for path in actual_paths if path is not None]
+
+    # For None at root level, check for special case
+    if value is None and len(actual_paths) == 0:
+        actual_paths = [""]
+
+    # Sort both expected and actual lists to make comparison order-independent
+    assert sorted(actual_paths) == sorted(expected_paths)
