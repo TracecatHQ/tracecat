@@ -99,6 +99,8 @@ import type {
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
   PublicCheckHealthResponse,
+  PublicIncomingWebhook1Data,
+  PublicIncomingWebhook1Response,
   PublicIncomingWebhookData,
   PublicIncomingWebhookResponse,
   PublicIncomingWebhookWaitData,
@@ -300,6 +302,46 @@ import type {
 export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/webhooks/{workflow_id}/{secret}",
+    path: {
+      secret: data.secret,
+      workflow_id: data.workflowId,
+    },
+    headers: {
+      "content-type": data.contentType,
+    },
+    query: {
+      echo: data.echo,
+      empty_echo: data.emptyEcho,
+      vendor: data.vendor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Incoming Webhook
+ * Webhook endpoint to trigger a workflow.
+ *
+ * This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
+ * The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
+ * @param data The data for the request.
+ * @param data.secret
+ * @param data.workflowId
+ * @param data.echo Echo back to the caller
+ * @param data.emptyEcho Return an empty response. Assumes `echo` to be `True`.
+ * @param data.vendor Vendor specific webhook verification. Supported vendors: `okta`.
+ * @param data.contentType
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const publicIncomingWebhook1 = (
+  data: PublicIncomingWebhook1Data
+): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
     method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
