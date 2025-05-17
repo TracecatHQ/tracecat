@@ -2241,6 +2241,107 @@ export const $InteractionInput = {
     "Input for the workflow interaction handler. This is used on the client side.",
 } as const
 
+export const $InteractionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      $ref: "#/components/schemas/InteractionType",
+    },
+    status: {
+      $ref: "#/components/schemas/InteractionStatus",
+    },
+    request_payload: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Request Payload",
+    },
+    response_payload: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Response Payload",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    wf_exec_id: {
+      type: "string",
+      pattern:
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+      title: "Wf Exec Id",
+    },
+    actor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actor",
+    },
+    action_ref: {
+      type: "string",
+      title: "Action Ref",
+    },
+    action_type: {
+      type: "string",
+      title: "Action Type",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "created_at",
+    "updated_at",
+    "type",
+    "status",
+    "request_payload",
+    "response_payload",
+    "wf_exec_id",
+    "actor",
+    "action_ref",
+    "action_type",
+  ],
+  title: "InteractionRead",
+  description: "Model for reading an interaction.",
+} as const
+
 export const $InteractionResult = {
   properties: {
     message: {
@@ -2264,31 +2365,9 @@ export const $InteractionResult = {
     "Output for the workflow interaction handler. This is used on the client side.",
 } as const
 
-export const $InteractionState = {
-  properties: {
-    type: {
-      $ref: "#/components/schemas/InteractionType",
-    },
-    action_ref: {
-      type: "string",
-      title: "Action Ref",
-    },
-    status: {
-      $ref: "#/components/schemas/InteractionStatus",
-    },
-    data: {
-      type: "object",
-      title: "Data",
-    },
-  },
-  type: "object",
-  required: ["type", "action_ref", "status"],
-  title: "InteractionState",
-} as const
-
 export const $InteractionStatus = {
   type: "string",
-  enum: ["idle", "pending", "completed"],
+  enum: ["idle", "pending", "error", "timed_out", "completed"],
   title: "InteractionStatus",
 } as const
 
@@ -6153,15 +6232,12 @@ export const $WorkflowExecutionRead = {
       title: "Events",
       description: "The events in the workflow execution",
     },
-    interaction_states: {
-      additionalProperties: {
-        $ref: "#/components/schemas/InteractionState",
+    interactions: {
+      items: {
+        $ref: "#/components/schemas/InteractionRead",
       },
-      propertyNames: {
-        format: "uuid",
-      },
-      type: "object",
-      title: "Interaction States",
+      type: "array",
+      title: "Interactions",
       description: "The interactions in the workflow execution",
     },
   },
@@ -6269,15 +6345,12 @@ export const $WorkflowExecutionReadCompact = {
       title: "Events",
       description: "Compact events in the workflow execution",
     },
-    interaction_states: {
-      additionalProperties: {
-        $ref: "#/components/schemas/InteractionState",
+    interactions: {
+      items: {
+        $ref: "#/components/schemas/InteractionRead",
       },
-      propertyNames: {
-        format: "uuid",
-      },
-      type: "object",
-      title: "Interaction States",
+      type: "array",
+      title: "Interactions",
       description: "The interactions in the workflow execution",
     },
   },

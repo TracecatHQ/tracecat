@@ -3,14 +3,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
-from temporalio import workflow
-
 from tracecat.contexts import ctx_interaction
 from tracecat.dsl.models import ActionStatement, TaskResult
-from tracecat.ee.interactions.enums import InteractionStatus
 from tracecat.ee.interactions.models import (
     InteractionContext,
-    InteractionState,
     ResponseInteraction,
 )
 
@@ -35,17 +31,15 @@ def maybe_interactive(
             case ResponseInteraction():
                 # We only support response interactions for now
                 # Open an interaction context
-                interaction_id = workflow.uuid4()
+                interaction_id = await wf.interactions.prepare_interaction(
+                    action_ref=task.ref,
+                    action_type=task.action,
+                    interaction_type=task.interaction.type,
+                )
                 context = InteractionContext(
                     interaction_id=interaction_id,
                     execution_id=wf.wf_exec_id,
                     action_ref=task.ref,
-                )
-                # Create an idle interaction state if it doesn't exist
-                wf.interactions.states[interaction_id] = InteractionState(
-                    type=task.interaction.type,
-                    action_ref=task.ref,
-                    status=InteractionStatus.IDLE,
                 )
                 token = ctx_interaction.set(context)
                 try:
@@ -54,7 +48,7 @@ def maybe_interactive(
                     ctx_interaction.reset(token)
                 # Apply the wait condition
                 interaction_result = await wf.interactions.wait_for_response(
-                    interaction_id
+                    interaction_id=interaction_id,
                 )
                 action_result.update(
                     interaction=interaction_result,

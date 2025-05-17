@@ -5,6 +5,7 @@ import temporalio.api.common.v1
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
+from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.logger import logger
 from tracecat.workflow.executions.enums import (
@@ -76,6 +77,8 @@ UTILITY_ACTIONS = {
     "parse_wait_until_activity",
     WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
     WorkflowsManagementService.get_error_handler_workflow_id.__name__,
+    InteractionService.create_interaction_activity.__name__,
+    InteractionService.update_interaction_activity.__name__,
 }
 
 

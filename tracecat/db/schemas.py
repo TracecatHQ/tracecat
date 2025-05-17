@@ -24,6 +24,7 @@ from tracecat.db.adapter import (
     SQLModelBaseOAuthAccount,
     SQLModelBaseUserDB,
 )
+from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -856,3 +857,49 @@ class CaseComment(Resource, table=True):
         )
     )
     case: Case = Relationship(back_populates="comments")
+
+
+class Interaction(Resource, table=True):
+    """Database model for storing workflow interaction state.
+
+    This table stores the state of interactions within workflows, allowing us
+    to query them without relying on Temporal's event replay.
+    """
+
+    __tablename__: str = "interaction"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    wf_exec_id: str = Field(index=True, description="Workflow execution ID")
+    action_ref: str = Field(description="Reference to the action step in the DSL")
+    action_type: str = Field(description="Type of action")
+    type: InteractionType = Field(description="Type of interaction")
+    status: InteractionStatus = Field(
+        default=InteractionStatus.PENDING,
+        index=True,
+        description="Status of the interaction",
+    )
+    request_payload: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Data sent for the interaction",
+    )
+    response_payload: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Data received from the interaction",
+    )
+    expires_at: datetime | None = Field(
+        default=None,
+        nullable=True,
+        description="Timestamp for when the interaction expires",
+    )
+    actor: str | None = Field(
+        default=None,
+        nullable=True,
+        description="ID of the user/actor who responded",
+    )

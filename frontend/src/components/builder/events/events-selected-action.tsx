@@ -3,7 +3,7 @@
 import React from "react"
 import {
   EventFailure,
-  InteractionState,
+  InteractionRead,
   WorkflowExecutionEventCompact,
   WorkflowExecutionReadCompact,
 } from "@/client"
@@ -41,7 +41,7 @@ export function ActionEvent({
   if (type === "interaction") {
     // Filter events to only include interaction events
     const interactionEvents = new Set(
-      Object.values(execution.interaction_states ?? {}).map((s) => s.action_ref)
+      execution.interactions?.map((s) => s.action_ref) ?? []
     )
     events = events.filter((e) => interactionEvents.has(e.action_ref))
   }
@@ -96,17 +96,17 @@ function ActionEventView({
     return noEvent
   }
   if (type === "interaction") {
-    const interactionState = Object.values(
-      execution.interaction_states ?? {}
-    ).find((s) => s.action_ref === selectedRef)
-    if (!interactionState) {
+    const interaction = execution.interactions?.find(
+      (s) => s.action_ref === selectedRef
+    )
+    if (!interaction) {
       // We reach this if we switch tabs or select an event that has no interaction state
       return noEvent
     }
     return (
       <ActionInteractionEventDetails
         eventRef={selectedRef}
-        interactionState={interactionState}
+        interaction={interaction}
       />
     )
   }
@@ -122,12 +122,12 @@ function ActionEventView({
 
 function ActionInteractionEventDetails({
   eventRef,
-  interactionState,
+  interaction,
 }: {
   eventRef: string
-  interactionState: InteractionState
+  interaction: InteractionRead
 }) {
-  if (interactionState.data === undefined) {
+  if (interaction.response_payload === null) {
     return (
       <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
         <CircleDot className="size-3 text-muted-foreground" />
@@ -138,7 +138,7 @@ function ActionInteractionEventDetails({
   return (
     <div className="flex flex-col gap-4">
       <JsonViewWithControls
-        src={interactionState.data}
+        src={interaction.response_payload}
         defaultExpanded={true}
         copyPrefix={`ACTIONS.${eventRef}.interaction`}
       />

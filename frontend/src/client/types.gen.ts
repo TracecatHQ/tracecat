@@ -698,6 +698,28 @@ export type InteractionInput = {
 }
 
 /**
+ * Model for reading an interaction.
+ */
+export type InteractionRead = {
+  id: string
+  created_at: string
+  updated_at: string
+  type: InteractionType
+  status: InteractionStatus
+  request_payload: {
+    [key: string]: unknown
+  } | null
+  response_payload: {
+    [key: string]: unknown
+  } | null
+  expires_at?: string | null
+  wf_exec_id: string
+  actor: string | null
+  action_ref: string
+  action_type: string
+}
+
+/**
  * Output for the workflow interaction handler. This is used on the client side.
  */
 export type InteractionResult = {
@@ -705,16 +727,12 @@ export type InteractionResult = {
   detail?: unknown | null
 }
 
-export type InteractionState = {
-  type: InteractionType
-  action_ref: string
-  status: InteractionStatus
-  data?: {
-    [key: string]: unknown
-  }
-}
-
-export type InteractionStatus = "idle" | "pending" | "completed"
+export type InteractionStatus =
+  | "idle"
+  | "pending"
+  | "error"
+  | "timed_out"
+  | "completed"
 
 export type InteractionType = "approval" | "response"
 
@@ -1959,9 +1977,7 @@ export type WorkflowExecutionRead = {
   /**
    * The interactions in the workflow execution
    */
-  interaction_states?: {
-    [key: string]: InteractionState
-  }
+  interactions?: Array<InteractionRead>
 }
 
 export type status4 =
@@ -2016,9 +2032,7 @@ export type WorkflowExecutionReadCompact = {
   /**
    * The interactions in the workflow execution
    */
-  interaction_states?: {
-    [key: string]: InteractionState
-  }
+  interactions?: Array<InteractionRead>
 }
 
 export type WorkflowExecutionReadMinimal = {
@@ -3307,7 +3321,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3320,7 +3334,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

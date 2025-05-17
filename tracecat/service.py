@@ -8,6 +8,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
 from tracecat.types.auth import Role
+from tracecat.types.exceptions import TracecatAuthorizationError
 
 
 class BaseService:
@@ -37,3 +38,15 @@ class BaseService:
             for method_name in dir(cls)
             if hasattr(getattr(cls, method_name), "__temporal_activity_definition")
         ]
+
+
+class BaseWorkspaceService(BaseService):
+    """Base class for services that require a workspace."""
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role)
+        if self.role.workspace_id is None:
+            raise TracecatAuthorizationError(
+                f"{self.service_name} service requires workspace"
+            )
+        self.workspace_id = self.role.workspace_id
