@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from typing import Any
 
 import lark
 import pytest
@@ -55,7 +56,7 @@ def test_validate_schema():
         "dict_of_int_to_float": {1: 1.0, 2: 2.0},
         "union_type": "test",
     }
-    model_instance = DynamicModel(**valid_data)
+    model_instance: Any = DynamicModel(**valid_data)
 
     logger.info(model_instance.model_dump_json(indent=2))
     logger.info(json.dumps(model_instance.model_json_schema(), indent=2))
@@ -113,7 +114,7 @@ def test_dynamic_model_with_optional_field_omitted():
         "nullable": None,
         "union_type": 123,
     }
-    model_instance_no_optional = DynamicModel(**valid_data_no_optional)
+    model_instance_no_optional: Any = DynamicModel(**valid_data_no_optional)
     assert model_instance_no_optional.nullable is None
     assert model_instance_no_optional.optional_with_default == 1
 
@@ -273,12 +274,12 @@ def test_validate_schema_with_enum(status, priority):
     model = create_expectation_model(mapped)
 
     # Test with provided priority
-    model_instance = model(status=status, priority=priority)
+    model_instance: Any = model(status=status, priority=priority)
     assert model_instance.status.__class__.__name__ == "EnumStatus"
     assert model_instance.priority.__class__.__name__ == "EnumPriority"
 
     # Test default priority
-    model_instance_default = model(status=status)
+    model_instance_default: Any = model(status=status)
     assert str(model_instance_default.priority) == "low"
 
 

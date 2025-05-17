@@ -3,11 +3,17 @@
 import "react18-json-view/src/style.css"
 
 import React from "react"
-import { ApiError, WebhookRead, WorkflowRead } from "@/client"
+import {
+  $WebhookMethod,
+  ApiError,
+  WebhookMethod,
+  WebhookRead,
+  WorkflowRead,
+} from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { CalendarClockIcon, PlusCircleIcon, WebhookIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -89,6 +95,8 @@ import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 
+const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
+
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   return (
     <div className="size-full overflow-auto">
@@ -162,7 +170,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
 }
 
 export function WebhookControls({
-  webhook: { url, status },
+  webhook: { url, status, methods = ["POST"] },
   workflowId,
 }: {
   webhook: WebhookRead
@@ -170,25 +178,106 @@ export function WebhookControls({
 }) {
   const { workspaceId } = useWorkspace()
   const { mutateAsync } = useUpdateWebhook(workspaceId, workflowId)
+
   const onCheckedChange = async (checked: boolean) => {
     await mutateAsync({
       status: checked ? "online" : "offline",
     })
   }
+
+  const onMethodsChange = async (newMethods: WebhookMethod[]) => {
+    if (newMethods.length === 0) {
+      console.log("No methods selected")
+      return
+    }
+
+    try {
+      await mutateAsync({
+        methods: newMethods,
+      })
+      toast({
+        title: "Webhook methods updated",
+        description: `The webhook will accept requests via: ${newMethods.sort().join(", ")}`,
+      })
+    } catch (error) {
+      console.log("Failed to update webhook methods", error)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Toggle Webhook</span>
-        </Label>
-        <Switch
-          checked={status === "online"}
-          onCheckedChange={onCheckedChange}
-          className="data-[state=checked]:bg-emerald-500"
-        />
+        <div className="flex items-center justify-between">
+          <Label
+            htmlFor="webhook-toggle"
+            className="flex items-center gap-2 text-xs font-medium"
+          >
+            <span>Toggle Webhook</span>
+          </Label>
+          <Switch
+            id="webhook-toggle"
+            checked={status === "online"}
+            onCheckedChange={onCheckedChange}
+            className="data-[state=checked]:bg-emerald-500"
+          />
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {status === "online"
+            ? "Webhook is currently active and receiving requests"
+            : "Webhook is disabled"}
+        </div>
       </div>
+
       <div className="space-y-2">
-        <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Label className="flex items-center gap-2 text-xs font-medium">
+          <span>Allowed HTTP Methods</span>
+        </Label>
+        <div className="relative w-full">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                className="w-full justify-between text-xs"
+              >
+                {methods.length > 0
+                  ? methods.sort().join(", ")
+                  : "Select HTTP methods"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              style={{ width: "var(--radix-dropdown-menu-trigger-width)" }}
+              align="start"
+              sideOffset={4}
+            >
+              {HTTP_METHODS.map((method) => (
+                <DropdownMenuItem
+                  key={method}
+                  onClick={() => {
+                    const newMethods = methods.includes(method)
+                      ? methods.filter((m) => m !== method)
+                      : [...methods, method]
+
+                    onMethodsChange(newMethods)
+                  }}
+                  className="w-full text-xs"
+                >
+                  <CheckIcon
+                    className={cn(
+                      "mr-2 size-4",
+                      methods.includes(method) ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  <span>{method}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="flex items-center gap-2 text-xs font-medium">
           <span>URL</span>
           <CopyButton value={url} toastMessage="Copied URL to clipboard" />
         </Label>
@@ -205,6 +294,7 @@ export function WebhookControls({
     </div>
   )
 }
+
 export function ScheduleControls({ workflowId }: { workflowId: string }) {
   const {
     schedules,

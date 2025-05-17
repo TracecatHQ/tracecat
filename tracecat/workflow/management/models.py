@@ -14,9 +14,9 @@ from tracecat.dsl.models import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import OwnerID, WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
-from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.tags.models import TagRead
 from tracecat.types.auth import Role
+from tracecat.validation.models import ValidationResult
 from tracecat.webhooks.models import WebhookRead
 from tracecat.workflow.actions.models import ActionRead
 
@@ -182,7 +182,7 @@ class WorkflowCommitResponse(BaseModel):
     workflow_id: WorkflowIDShort
     status: Literal["success", "failure"]
     message: str
-    errors: list[RegistryActionValidateResponse] | None = None
+    errors: list[ValidationResult] | None = None
     metadata: dict[str, Any] | None = None
 
     def to_orjson(self, status_code: int) -> ORJSONResponse:
@@ -193,7 +193,7 @@ class WorkflowCommitResponse(BaseModel):
 
 class WorkflowDSLCreateResponse(BaseModel):
     workflow: Workflow | None = None
-    errors: list[RegistryActionValidateResponse] | None = None
+    errors: list[ValidationResult] | None = None
 
 
 @dataclass

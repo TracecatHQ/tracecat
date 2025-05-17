@@ -7,8 +7,9 @@ import React, {
   useState,
 } from "react"
 import Link from "next/link"
-import { ActionRead } from "@/client"
+import { ActionRead, ValidationResult } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkflow } from "@/providers/workflow"
 import { QuestionMarkIcon } from "@radix-ui/react-icons"
 import {
   NodeToolbar,
@@ -97,15 +98,17 @@ export default React.memo(function ActionNode({
   selected,
   id,
 }: NodeProps<ActionNodeType>) {
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<ActionConfigError | null>(null)
   const {
     workflowId,
     getNode,
     workspaceId,
     reactFlow,
     sidebarRef,
+    actionPanelRef,
     setSelectedActionEventRef,
   } = useWorkflowBuilder()
+  const { validationErrors } = useWorkflow()
 
   const { toast } = useToast()
   // SAFETY: Node only exists if it's in the workflow
@@ -114,6 +117,13 @@ export default React.memo(function ActionNode({
     workspaceId,
     workflowId
   )
+  const actionValidationErrors = useMemo(() => {
+    return (
+      validationErrors?.filter(
+        (error) => error.ref === slugify(action?.title ?? "")
+      ) ?? []
+    )
+  }, [validationErrors, action])
   const { registryAction } = useGetRegistryAction(action?.type)
   const [showToolbar, setShowToolbar] = useState(false)
   const [isMouseOverNode, setIsMouseOverNode] = useState(false)
@@ -121,7 +131,6 @@ export default React.memo(function ActionNode({
   const nodeRef = useRef<HTMLDivElement>(null)
   const hideTimeoutRef = useRef<number>()
   const { breakpoint, style } = useActionNodeZoomBreakpoint()
-  const { actionPanelRef } = useWorkflowBuilder()
   // Clear timeout on unmount
   const expandActionPanel = useCallback(() => {
     if (actionPanelRef.current?.isCollapsed()) {
@@ -243,7 +252,10 @@ export default React.memo(function ActionNode({
         title: "Invalid action configuration",
         description,
       })
-      setError("Invalid configuration")
+      setError({
+        type: "configuration",
+        message: "Invalid configuration",
+      })
       return {}
     }
   }, [action, toast])
@@ -311,6 +323,7 @@ export default React.memo(function ActionNode({
               Icon={Icon}
               childWorkflowInfo={childWorkflowInfo}
               error={error}
+              validationErrors={actionValidationErrors}
             />
             <ActionTargetHandle
               action={action}
@@ -336,6 +349,12 @@ export default React.memo(function ActionNode({
     </TooltipProvider>
   )
 })
+
+interface ActionConfigError {
+  type: "configuration"
+  message: string
+}
+
 function ActionNodeContent({
   actionType,
   actionInputs,
@@ -348,6 +367,7 @@ function ActionNodeContent({
   workspaceId,
   childWorkflowInfo,
   error,
+  validationErrors,
 }: {
   actionType?: string
   actionInputs?: Record<string, unknown>
@@ -359,7 +379,8 @@ function ActionNodeContent({
   Icon: React.ReactNode
   workspaceId: string
   childWorkflowInfo: ChildWorkflowInfo
-  error: string | null
+  error: ActionConfigError | null
+  validationErrors: ValidationResult[]
 }) {
   const form = useFormContext()
 
@@ -466,7 +487,28 @@ function ActionNodeContent({
             </div>
           </TooltipTrigger>
           <TooltipContent side="top" align="center" sideOffset={5}>
-            <p>{error}</p>
+            <p>{error.message}</p>
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+      {validationErrors.length > 0 ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="absolute -right-1.5 -top-3.5 z-10 flex items-center">
+              {validationErrors.length > 0 && (
+                <div className="hover:cursor-pointer">
+                  <span
+                    className="ml-1 flex size-5 items-center justify-center rounded-full border border-rose-300 bg-rose-400 text-xs font-bold text-white shadow"
+                    aria-label={`Found ${validationErrors.length} validation errors`}
+                  >
+                    {validationErrors.length}
+                  </span>
+                </div>
+              )}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" align="center" sideOffset={5}>
+            <p>Found {validationErrors.length} validation errors.</p>
           </TooltipContent>
         </Tooltip>
       ) : null}

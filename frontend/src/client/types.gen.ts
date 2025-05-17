@@ -1032,13 +1032,6 @@ export type RegistryActionUpdate = {
   options?: RegistryActionOptions | null
 }
 
-export type RegistryActionValidateResponse = {
-  ok: boolean
-  message: string
-  detail?: unknown | null
-  action_ref?: string | null
-}
-
 export type RegistryActionValidationErrorInfo = {
   type: TemplateActionValidationErrorType
   details: Array<string>
@@ -1700,17 +1693,38 @@ export type UserUpdate = {
   } | null
 }
 
+export type ValidationDetail = {
+  type: string
+  msg: string
+  loc?: Array<number | string> | null
+}
+
 export type ValidationError = {
   loc: Array<string | number>
   msg: string
   type: string
 }
 
+/**
+ * Base class for validation results.
+ */
+export type ValidationResult = {
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+}
+
+export type status2 = "success" | "error"
+
 export type WaitStrategy = "wait" | "detach"
 
 export type WebhookCreate = {
   status?: WebhookStatus
-  method?: WebhookMethod
+  /**
+   * Methods to allow
+   */
+  methods?: Array<WebhookMethod>
   entrypoint_ref?: string | null
 }
 
@@ -1727,7 +1741,10 @@ export type WebhookRead = {
   filters: {
     [key: string]: unknown
   }
-  method: WebhookMethod
+  /**
+   * Methods to allow
+   */
+  methods?: Array<WebhookMethod>
   workflow_id: string
   url: string
 }
@@ -1736,7 +1753,7 @@ export type WebhookStatus = "online" | "offline"
 
 export type WebhookUpdate = {
   status?: WebhookStatus | null
-  method?: WebhookMethod | null
+  methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
 }
 
@@ -1744,13 +1761,13 @@ export type WorkflowCommitResponse = {
   workflow_id: string
   status: "success" | "failure"
   message: string
-  errors?: Array<RegistryActionValidateResponse> | null
+  errors?: Array<ValidationResult> | null
   metadata?: {
     [key: string]: unknown
   } | null
 }
 
-export type status2 = "success" | "failure"
+export type status3 = "success" | "failure"
 
 /**
  * A workflow definition.
@@ -1947,7 +1964,7 @@ export type WorkflowExecutionRead = {
   }
 }
 
-export type status3 =
+export type status4 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -2225,14 +2242,42 @@ export type login = {
 export type PublicIncomingWebhookData = {
   contentType?: string | null
   /**
-   * Echo the request payload back to the caller
+   * Echo back to the caller
    */
   echo?: boolean
+  /**
+   * Return an empty response. Assumes `echo` to be `True`.
+   */
+  emptyEcho?: boolean
   secret: string
+  /**
+   * Vendor specific webhook verification. Supported vendors: `okta`.
+   */
+  vendor?: string | null
   workflowId: string
 }
 
-export type PublicIncomingWebhookResponse = WorkflowExecutionCreateResponse
+export type PublicIncomingWebhookResponse = unknown
+
+export type PublicIncomingWebhook1Data = {
+  contentType?: string | null
+  /**
+   * Echo back to the caller
+   */
+  echo?: boolean
+  /**
+   * Return an empty response. Assumes `echo` to be `True`.
+   */
+  emptyEcho?: boolean
+  secret: string
+  /**
+   * Vendor specific webhook verification. Supported vendors: `okta`.
+   */
+  vendor?: string | null
+  workflowId: string
+}
+
+export type PublicIncomingWebhook1Response = unknown
 
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
@@ -3262,13 +3307,26 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionCreateResponse
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: PublicIncomingWebhook1Data
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
         /**
          * Validation Error
          */

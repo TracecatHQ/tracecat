@@ -10,6 +10,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 import sqlmodel
+import sqlmodel.sql.sqltypes
 
 from alembic import op
 

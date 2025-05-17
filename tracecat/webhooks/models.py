@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tracecat.db.schemas import Resource
 from tracecat.identifiers.workflow import WorkflowID
@@ -17,18 +17,22 @@ class WebhookRead(Resource):
     status: WebhookStatus
     entrypoint_ref: str | None = None
     filters: dict[str, Any]
-    method: WebhookMethod
+    methods: list[WebhookMethod] = Field(
+        default_factory=list, description="Methods to allow"
+    )
     workflow_id: WorkflowID
     url: str
 
 
 class WebhookCreate(BaseModel):
     status: WebhookStatus = "offline"
-    method: WebhookMethod = "POST"
+    methods: list[WebhookMethod] = Field(
+        default_factory=lambda: ["POST"], description="Methods to allow"
+    )
     entrypoint_ref: str | None = None
 
 
 class WebhookUpdate(BaseModel):
     status: WebhookStatus | None = None
-    method: WebhookMethod | None = None
+    methods: list[WebhookMethod] | None = None
     entrypoint_ref: str | None = None

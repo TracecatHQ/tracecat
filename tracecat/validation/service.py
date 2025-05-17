@@ -25,6 +25,7 @@ from tracecat.validation.models import (
     ExprValidationResult,
     RegistryValidationResult,
     SecretValidationResult,
+    ValidationDetail,
     ValidationResult,
 )
 
@@ -174,9 +175,9 @@ async def validate_registry_action_args(
                 validated = model.model_validate(args)
             validated_args = validated.model_dump()
         except ValidationError as e:
-            logger.warning(f"Validation error for UDF {action_name!r}. {e.errors()!r}")
+            logger.info("Validation error for action", action_name=action_name)
             raise RegistryValidationError(
-                f"Validation error for UDF {action_name!r}. {e.errors()!r}",
+                f"Validation error for action {action_name!r}. {e.errors()!r}",
                 key=action_name,
                 err=e,
             ) from e
@@ -194,26 +195,27 @@ async def validate_registry_action_args(
         )
     except RegistryValidationError as e:
         if isinstance(e.err, ValidationError):
-            detail = e.err.errors()
+            detail = ValidationDetail.list_from_pydantic(e.err)
         else:
-            detail = str(e.err) if e.err else None
-        logger.error(
-            "Error validating UDF args", action_name=action_name, error=e, detail=detail
+            detail = [ValidationDetail(type="general", msg=str(e.err))]
+        logger.info(
+            "Error validating action args",
+            action_name=action_name,
+            error=e,
+            detail=detail,
         )
         return RegistryValidationResult(
             status="error",
-            msg=f"Error validating UDF {action_name}",
+            msg=f"Error validating action {action_name}",
             detail=detail,
             ref=ref,
         )
     except KeyError:
         return RegistryValidationResult(
             status="error",
-            msg=f"Could not find UDF {action_name!r} in registry. Is this UDF registered?",
+            msg=f"Could not find action {action_name!r} in registry. Is this UDF registered?",
             ref=ref,
         )
-    except Exception as e:
-        raise e
 
 
 async def validate_dsl_args(
@@ -280,8 +282,10 @@ async def validate_dsl_args(
                 val_res.append(
                     ValidationResult(
                         status="error",
-                        msg=f"[{context_locator(act_stmt, 'for_each')}]\n\n"
-                        "Invalid `for_each` of type {type(act_stmt.for_each)}.",
+                        msg=(
+                            f"[{context_locator(act_stmt, 'for_each')}]\n\n"
+                            f"Invalid `for_each` of type {type(act_stmt.for_each)}."
+                        ),
                         ref=act_stmt.ref,
                     )
                 )

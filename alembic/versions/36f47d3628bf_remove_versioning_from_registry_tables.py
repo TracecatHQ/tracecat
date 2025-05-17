@@ -42,7 +42,7 @@ def downgrade() -> None:
         "registryrepository",
         sa.Column("version", sa.VARCHAR(), autoincrement=False, nullable=False),
     )
-    op.drop_constraint(None, "registryrepository", type_="unique")
+    op.drop_constraint(None, "registryrepository", type_="unique")  # type: ignore
     op.alter_column(
         "registryrepository", "origin", existing_type=sa.VARCHAR(), nullable=True
     )
