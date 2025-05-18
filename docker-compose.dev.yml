@@ -58,6 +58,8 @@ services:
       - ./registry:/app/registry
       - ./alembic:/app/alembic
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
+    depends_on:
+      - temporal
 
   worker:
     build:
@@ -91,6 +93,9 @@ services:
       - ./registry:/app/registry
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "tracecat/dsl/worker.py"]
+    depends_on:
+      - api
+      - temporal
 
   executor:
     build:
@@ -132,6 +137,8 @@ services:
         "8000",
         "--reload",
       ]
+    depends_on:
+      - temporal
 
   ui:
     build:
@@ -158,6 +165,8 @@ services:
       - ./frontend/.next:/app/.next
       - ./frontend/node_modules:/app/node_modules
     attach: false
+    depends_on:
+      - api
 
   postgres_db:
     image: postgres:16
