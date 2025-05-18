@@ -10,9 +10,12 @@ definition:
     - name: okta
       keys: ["OKTA_API_TOKEN"]
   expects:
-    - name: user_id
+    user_id:
       type: string
       description: The ID of the user to unsuspend.
+    base_url:
+      type: string
+      description: The base URL of the Okta API.
   steps:
     - ref: unsuspend_user
       action: core.http_request
