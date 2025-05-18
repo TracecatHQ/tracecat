@@ -38,4 +38,4 @@ definition:
           API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
         poll_retry_codes:
           - 404
-  returns: ${{ steps.get_scan_result.result }}
+  returns: ${{ steps.get_scan_result.result.data }}
