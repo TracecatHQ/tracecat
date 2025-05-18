@@ -58,8 +58,6 @@ services:
       - ./registry:/app/registry
       - ./alembic:/app/alembic
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
-    depends_on:
-      - executor
 
   worker:
     build:
@@ -155,8 +153,6 @@ services:
       NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
       NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
       NODE_ENV: ${NODE_ENV}
-    depends_on:
-      - api
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/.next:/app/.next
