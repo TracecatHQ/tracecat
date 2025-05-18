@@ -12,10 +12,10 @@ definition:
   expects:
     user_id:
       type: string
-      description: The ID of the user to unsuspend.
+      description: ID of the user to unsuspend.
     base_url:
       type: string
-      description: The base URL of the Okta API.
+      description: Okta organization URL.
   steps:
     - ref: unsuspend_user
       action: core.http_request
