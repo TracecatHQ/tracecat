@@ -24,4 +24,4 @@ definition:
         url: ${{ inputs.base_url }}/api/v1/users/${{ inputs.user_id }}/lifecycle/suspend
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
-  returns: ${{ steps.suspend_user.result }}
+  returns: ${{ steps.suspend_user.result.data }}

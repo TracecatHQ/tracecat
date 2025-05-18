@@ -24,4 +24,4 @@ definition:
         url: ${{ inputs.base_url }}/api/v1/users/${{ inputs.user_id }}/sessions
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
-  returns: ${{ steps.revoke_sessions.result }}
+  returns: ${{ steps.revoke_sessions.result.data }}
