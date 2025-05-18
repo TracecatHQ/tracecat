@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: Suspend User
+  title: Suspend user
   description: Suspend an Okta user.
   display_group: Okta
   doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/UserLifecycle/#tag/UserLifecycle/operation/suspendUser
