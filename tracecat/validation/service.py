@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from itertools import chain
 from typing import Any
 
@@ -23,10 +23,12 @@ from tracecat.types.exceptions import RegistryValidationError, TracecatNotFoundE
 from tracecat.validation.common import json_schema_to_pydantic, secret_validator
 from tracecat.validation.models import (
     ExprValidationResult,
+    GenericValidationResult,
     RegistryValidationResult,
     SecretValidationResult,
     ValidationDetail,
     ValidationResult,
+    ValidationResultType,
 )
 
 
@@ -222,12 +224,12 @@ async def validate_dsl_args(
     *,
     session: AsyncSession,
     dsl: DSLInput,
-) -> list[ValidationResult]:
+) -> list[GenericValidationResult | RegistryValidationResult]:
     """Validate arguemnts to the DSLInput.
 
     Check if the input arguemnts are either a templated expression or the correct type.
     """
-    val_res: list[ValidationResult] = []
+    val_res: list[GenericValidationResult | RegistryValidationResult] = []
     # Validate the actions
     for act_stmt in dsl.actions:
         # We validate the action args, but keep them as is
@@ -245,7 +247,8 @@ async def validate_dsl_args(
         # Validate `run_if`
         if act_stmt.run_if and not is_template_only(act_stmt.run_if):
             val_res.append(
-                ValidationResult(
+                GenericValidationResult(
+                    type=ValidationResultType.GENERIC,
                     status="error",
                     msg=f"[{context_locator(act_stmt, 'run_if')}]\n\n"
                     "`run_if` must only contain an expression.",
@@ -258,7 +261,8 @@ async def validate_dsl_args(
             case str():
                 if not is_template_only(act_stmt.for_each):
                     val_res.append(
-                        ValidationResult(
+                        GenericValidationResult(
+                            type=ValidationResultType.GENERIC,
                             status="error",
                             msg=f"[{context_locator(act_stmt, 'for_each')}]\n\n"
                             "`for_each` must be an expression or list of expressions.",
@@ -269,7 +273,8 @@ async def validate_dsl_args(
                 for expr in act_stmt.for_each:
                     if not is_template_only(expr) or not isinstance(expr, str):
                         val_res.append(
-                            ValidationResult(
+                            GenericValidationResult(
+                                type=ValidationResultType.GENERIC,
                                 status="error",
                                 msg=f"[{context_locator(act_stmt, 'for_each')}]\n\n"
                                 "`for_each` must be an expression or list of expressions.",
@@ -280,7 +285,8 @@ async def validate_dsl_args(
                 pass
             case _:
                 val_res.append(
-                    ValidationResult(
+                    GenericValidationResult(
+                        type=ValidationResultType.GENERIC,
                         status="error",
                         msg=(
                             f"[{context_locator(act_stmt, 'for_each')}]\n\n"
@@ -365,7 +371,7 @@ async def validate_dsl(
     if not any((validate_args, validate_expressions, validate_secrets)):
         return set()
 
-    iterables: list[Sequence[ValidationResult]] = []
+    iterables: list[ValidationResult] = []
 
     # Tier 2: Action Args validation
     if validate_args:
@@ -373,7 +379,7 @@ async def validate_dsl(
         logger.debug(
             f"{len(dsl_args_errs)} DSL args validation errors", errs=dsl_args_errs
         )
-        iterables.append(dsl_args_errs)
+        iterables.extend(ValidationResult.new(err) for err in dsl_args_errs)
 
     # Tier 3: Expression validation
     # When we reach this point, the inputs have been validated properly (ignoring templated expressions)
@@ -386,7 +392,7 @@ async def validate_dsl(
         logger.debug(
             f"{len(expr_errs)} DSL expression validation errors", errs=expr_errs
         )
-        iterables.append(expr_errs)
+        iterables.extend(ValidationResult.new(err) for err in expr_errs)
 
     # For secrets we also need to check if any used actions have undefined secrets
     if validate_secrets:
@@ -395,6 +401,6 @@ async def validate_dsl(
             f"{len(udf_missing_secrets)} DSL secret validation errors",
             errs=udf_missing_secrets,
         )
-        iterables.append(udf_missing_secrets)
+        iterables.extend(ValidationResult.new(err) for err in udf_missing_secrets)
 
-    return set(chain(*iterables))
+    return set(iterables)

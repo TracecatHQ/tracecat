@@ -29,7 +29,11 @@ from tracecat.logger import logger
 from tracecat.settings.service import get_setting
 from tracecat.tags.models import TagRead
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.validation.models import ValidationDetail, ValidationResult
+from tracecat.validation.models import (
+    ValidationDetail,
+    ValidationResult,
+    ValidationResultType,
+)
 from tracecat.validation.service import validate_dsl
 from tracecat.webhooks.models import WebhookCreate, WebhookRead, WebhookUpdate
 from tracecat.workflow.actions.models import ActionRead
@@ -316,12 +320,18 @@ async def commit_workflow(
     except TracecatValidationError as e:
         logger.info("Custom validation error in DSL", e=e)
         construction_errors.append(
-            ValidationResult(status="error", msg=str(e), detail=e.detail)
+            ValidationResult.new(
+                type=ValidationResultType.GENERIC,
+                status="error",
+                msg=str(e),
+                detail=e.detail,
+            )
         )
     except ValidationError as e:
         logger.info("Pydantic validation error in DSL", e=e)
         construction_errors.append(
-            ValidationResult(
+            ValidationResult.new(
+                type=ValidationResultType.GENERIC,
                 status="error",
                 msg=str(e),
                 detail=ValidationDetail.list_from_pydantic(e),
@@ -340,7 +350,7 @@ async def commit_workflow(
     # Now, we have to ensure that the arguments are sound
 
     if val_errors := await validate_dsl(session=session, dsl=dsl):
-        logger.warning("Validation errors", errors=val_errors)
+        logger.info("Validation errors", errors=val_errors)
         return WorkflowCommitResponse(
             workflow_id=workflow_id.short(),
             status="failure",
