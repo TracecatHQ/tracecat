@@ -605,7 +605,7 @@ function ActionNodeToolbar({
               }}
             >
               <LayoutListIcon className="mr-2 size-3" />
-              <span>View last input</span>
+              <span>Last input</span>
             </CommandItem>
             <CommandItem
               onSelect={() => {
@@ -615,7 +615,7 @@ function ActionNodeToolbar({
               }}
             >
               <CircleCheckBigIcon className="mr-2 size-3" />
-              <span>View last result</span>
+              <span>Last result</span>
             </CommandItem>
             {action?.is_interactive && (
               <CommandItem
@@ -626,7 +626,7 @@ function ActionNodeToolbar({
                 }}
               >
                 <MessagesSquare className="mr-2 size-3" />
-                <span>View last interaction</span>
+                <span>Last interaction</span>
               </CommandItem>
             )}
 
