@@ -216,7 +216,7 @@ class BaseExprValidator(Visitor):
         if fn_name not in functions.FUNCTION_MAPPING:
             self.add(
                 status="error",
-                msg=f"Unknown function name {str(fn_name)!r} ({is_mapped=})",
+                msg=f"Unknown function name {str(fn_name)!r}",
                 type=ExprType.FUNCTION,
             )
         else:
