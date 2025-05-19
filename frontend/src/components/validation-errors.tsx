@@ -3,6 +3,12 @@ import { ValidationDetail, ValidationResult } from "@/client"
 import { CornerDownRightIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import {
+  isExprValidationError,
+  isGeneralValidationError,
+  isSecretValidationError,
+  ValidationError,
+} from "@/lib/workflow"
 import { Separator } from "@/components/ui/separator"
 import {
   Tooltip,
@@ -49,27 +55,48 @@ export const ERROR_TYPE_TO_MESSAGE: Record<
 }
 
 export function ValidationErrorMessage({
-  msg,
-  detail,
+  error,
   className,
-}: ValidationResult & React.HTMLAttributes<HTMLPreElement>) {
+}: {
+  error: ValidationError
+  className?: string
+}) {
   // Replace newline characters with <br /> tags
-  const formattedMessage = msg?.split("\n").map((line, index) => (
+  const formattedMessage = error.msg?.split("\n").map((line, index) => (
     <React.Fragment key={index}>
       {line}
       <br />
     </React.Fragment>
   ))
 
+  console.log("ValidationErrorMessage", {
+    error,
+    formattedMessage,
+  })
   return (
     <pre
       className={cn("overflow-auto whitespace-pre-wrap text-wrap", className)}
     >
       {formattedMessage}
-      {detail && (
+      {isSecretValidationError(error) && (
+        <span>
+          Please go to Workspace &gt; Credentials and add the secret &quot;
+          {error.detail?.secret_name}&quot; under the &quot;
+          {error.detail?.environment}&quot; environment.
+        </span>
+      )}
+      {isExprValidationError(error) && (
         <React.Fragment>
           <br />
-          {detail?.map((d, index) => {
+          <span>Expression Type: {error.expression_type}</span>
+          <br />
+          <span>Expression: {error.msg}</span>
+        </React.Fragment>
+      )}
+      {isGeneralValidationError(error) && Array.isArray(error.detail) && (
+        <React.Fragment>
+          <br />
+          {error.detail?.map((d, index) => {
             const type = d.type as ValidationErrorType
             const MessageComponent =
               ERROR_TYPE_TO_MESSAGE[type] || ERROR_TYPE_TO_MESSAGE.default
@@ -88,7 +115,7 @@ export function ValidationErrorMessage({
 
 interface ValidationErrorViewProps
   extends PropsWithChildren<React.HTMLAttributes<HTMLDivElement>> {
-  validationErrors: ValidationResult[]
+  validationErrors: ValidationError[]
   noErrorTooltip?: React.ReactNode
   side?: "top" | "bottom" | "left" | "right"
 }
@@ -119,7 +146,7 @@ export function ValidationErrorView({
                   <Separator className="bg-rose-400" />
                   <ValidationErrorMessage
                     key={index}
-                    {...error}
+                    error={error}
                     className="text-rose-500"
                   />
                 </div>

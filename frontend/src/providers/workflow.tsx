@@ -9,7 +9,6 @@ import React, {
 } from "react"
 import {
   ApiError,
-  ValidationResult,
   WorkflowCommitResponse,
   WorkflowRead,
   workflowsCommitWorkflow,
@@ -26,6 +25,7 @@ import {
 import { AlertTriangleIcon } from "lucide-react"
 
 import { TracecatApiError } from "@/lib/errors"
+import { ValidationError } from "@/lib/workflow"
 import { toast } from "@/components/ui/use-toast"
 
 type WorkflowContextType = {
@@ -41,8 +41,8 @@ type WorkflowContextType = {
     unknown
   >
   updateWorkflow: MutateFunction<void, ApiError, WorkflowUpdate, unknown>
-  validationErrors: ValidationResult[] | null
-  setValidationErrors: React.Dispatch<SetStateAction<ValidationResult[] | null>>
+  validationErrors: ValidationError[] | null
+  setValidationErrors: React.Dispatch<SetStateAction<ValidationError[] | null>>
 }
 type TracecatErrorMessage = {
   type?: string
@@ -64,7 +64,7 @@ export function WorkflowProvider({
 }) {
   const queryClient = useQueryClient()
   const [validationErrors, setValidationErrors] = useState<
-    ValidationResult[] | null
+    ValidationError[] | null
   >(null)
 
   // Queries

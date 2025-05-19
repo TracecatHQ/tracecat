@@ -637,6 +637,35 @@ export type ExprContext =
   | "inputs"
   | "steps"
 
+export type ExprType =
+  | "generic"
+  | "action"
+  | "secret"
+  | "function"
+  | "input"
+  | "env"
+  | "local_vars"
+  | "literal"
+  | "typecast"
+  | "iterator"
+  | "ternary"
+  | "trigger"
+  | "template_action_step"
+  | "template_action_input"
+
+/**
+ * Result of visiting an expression node.
+ */
+export type ExprValidationResult = {
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+  expression_type: ExprType
+}
+
+export type status = "success" | "error"
+
 export type FolderDirectoryItem = {
   id: string
   name: string
@@ -1282,7 +1311,7 @@ export type ScheduleCreate = {
   timeout?: number
 }
 
-export type status = "online" | "offline"
+export type status2 = "online" | "offline"
 
 export type ScheduleSearch = {
   workflow_id?: string | null
@@ -1389,6 +1418,24 @@ export type SecretUpdate = {
     [key: string]: string
   } | null
   environment?: string | null
+}
+
+/**
+ * Detail of a secret validation result.
+ */
+export type SecretValidationDetail = {
+  environment: string
+  secret_name: string
+}
+
+/**
+ * Result of validating credentials.
+ */
+export type SecretValidationResult = {
+  status: "success" | "error"
+  msg?: string
+  detail?: SecretValidationDetail | null
+  ref?: string | null
 }
 
 export type SessionRead = {
@@ -1733,8 +1780,6 @@ export type ValidationResult = {
   ref?: string | null
 }
 
-export type status2 = "success" | "error"
-
 export type WaitStrategy = "wait" | "detach"
 
 export type WebhookCreate = {
@@ -1779,7 +1824,9 @@ export type WorkflowCommitResponse = {
   workflow_id: string
   status: "success" | "failure"
   message: string
-  errors?: Array<ValidationResult> | null
+  errors?: Array<
+    ValidationResult | SecretValidationResult | ExprValidationResult
+  > | null
   metadata?: {
     [key: string]: unknown
   } | null

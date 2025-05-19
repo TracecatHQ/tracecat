@@ -16,7 +16,11 @@ from tracecat.identifiers import OwnerID, WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
 from tracecat.tags.models import TagRead
 from tracecat.types.auth import Role
-from tracecat.validation.models import ValidationResult
+from tracecat.validation.models import (
+    ExprValidationResult,
+    SecretValidationResult,
+    ValidationResult,
+)
 from tracecat.webhooks.models import WebhookRead
 from tracecat.workflow.actions.models import ActionRead
 
@@ -182,7 +186,9 @@ class WorkflowCommitResponse(BaseModel):
     workflow_id: WorkflowIDShort
     status: Literal["success", "failure"]
     message: str
-    errors: list[ValidationResult] | None = None
+    errors: (
+        list[ValidationResult | SecretValidationResult | ExprValidationResult] | None
+    ) = None
     metadata: dict[str, Any] | None = None
 
     def to_orjson(self, status_code: int) -> ORJSONResponse:

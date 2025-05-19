@@ -1,8 +1,40 @@
+import type {
+  ExprValidationResult,
+  SecretValidationResult,
+  ValidationResult,
+} from "@/client"
 import type { ReactFlowInstance, ReactFlowJsonObject } from "@xyflow/react"
 
 import { isEphemeral } from "@/components/builder/canvas/canvas"
 
 export const CHILD_WORKFLOW_ACTION_TYPE = "core.workflow.execute" as const
+
+export type ValidationError =
+  | ValidationResult
+  | SecretValidationResult
+  | ExprValidationResult
+
+export function isSecretValidationError(
+  error: ValidationError
+): error is SecretValidationResult {
+  return Boolean(
+    error.status === "error" &&
+      error.detail &&
+      "environment" in error.detail &&
+      "secret_name" in error.detail
+  )
+}
+export function isExprValidationError(
+  error: ValidationError
+): error is ExprValidationResult {
+  return Boolean(error.status === "error" && "expression_type" in error)
+}
+
+export function isGeneralValidationError(
+  error: ValidationError
+): error is ValidationResult {
+  return !isSecretValidationError(error) && !isExprValidationError(error)
+}
 
 /**
  * Prune the React Flow instance to remove ephemeral nodes and edges.
