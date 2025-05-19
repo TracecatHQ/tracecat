@@ -9,7 +9,7 @@ from asyncpg.exceptions import (
     UndefinedTableError,
 )
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import DBAPIError, IntegrityError, ProgrammingError
+from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tenacity import (
@@ -652,7 +652,7 @@ class BaseTablesService(BaseService):
 
         try:
             row = result.mappings().one()
-        except sa.exc.NoResultFound:
+        except NoResultFound:
             raise TracecatNotFoundError(
                 f"Row {row_id} not found in table {table.name}"
             ) from None
@@ -1086,7 +1086,7 @@ class TableEditorService(BaseService):
 
         try:
             row = result.mappings().one()
-        except sa.exc.NoResultFound:
+        except NoResultFound:
             raise TracecatNotFoundError(
                 f"Row {row_id} not found in table {self.table_name}"
             ) from None
