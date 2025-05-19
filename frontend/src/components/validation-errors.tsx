@@ -1,14 +1,8 @@
 import React, { PropsWithChildren } from "react"
-import { ValidationDetail } from "@/client"
+import { ValidationDetail, ValidationResult } from "@/client"
 import { CornerDownRightIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import {
-  isExprValidationError,
-  isGeneralValidationError,
-  isSecretValidationError,
-  ValidationError,
-} from "@/lib/workflow"
 import { Separator } from "@/components/ui/separator"
 import {
   Tooltip,
@@ -58,7 +52,7 @@ export function ValidationErrorMessage({
   error,
   className,
 }: {
-  error: ValidationError
+  error: ValidationResult
   className?: string
 }) {
   // Replace newline characters with <br /> tags
@@ -73,19 +67,20 @@ export function ValidationErrorMessage({
     error,
     formattedMessage,
   })
+
   return (
     <pre
       className={cn("overflow-auto whitespace-pre-wrap text-wrap", className)}
     >
       {formattedMessage}
-      {isSecretValidationError(error) && (
+      {error.type === "secret" && (
         <span>
           Please go to Workspace &gt; Credentials and add the secret &quot;
           {error.detail?.secret_name}&quot; under the &quot;
           {error.detail?.environment}&quot; environment.
         </span>
       )}
-      {isExprValidationError(error) && (
+      {error.type === "expression" && (
         <React.Fragment>
           <br />
           <span>Expression Type: {error.expression_type}</span>
@@ -93,29 +88,30 @@ export function ValidationErrorMessage({
           <span>Expression: {error.msg}</span>
         </React.Fragment>
       )}
-      {isGeneralValidationError(error) && Array.isArray(error.detail) && (
-        <React.Fragment>
-          <br />
-          {error.detail?.map((d, index) => {
-            const type = d.type as ValidationErrorType
-            const MessageComponent =
-              ERROR_TYPE_TO_MESSAGE[type] || ERROR_TYPE_TO_MESSAGE.default
-            return (
-              <React.Fragment key={index}>
-                <MessageComponent detail={d} />
-                <br />
-              </React.Fragment>
-            )
-          })}
-        </React.Fragment>
-      )}
+      {["generic", "registry", "action_template"].includes(error.type ?? "") &&
+        Array.isArray(error.detail) && (
+          <React.Fragment>
+            <br />
+            {error.detail?.map((d, index) => {
+              const type = d.type as ValidationErrorType
+              const MessageComponent =
+                ERROR_TYPE_TO_MESSAGE[type] || ERROR_TYPE_TO_MESSAGE.default
+              return (
+                <React.Fragment key={index}>
+                  <MessageComponent detail={d} />
+                  <br />
+                </React.Fragment>
+              )
+            })}
+          </React.Fragment>
+        )}
     </pre>
   )
 }
 
 interface ValidationErrorViewProps
   extends PropsWithChildren<React.HTMLAttributes<HTMLDivElement>> {
-  validationErrors: ValidationError[]
+  validationErrors: ValidationResult[]
   noErrorTooltip?: React.ReactNode
   side?: "top" | "bottom" | "left" | "right"
 }
