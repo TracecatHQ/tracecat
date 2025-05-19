@@ -3,12 +3,7 @@
 import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import {
-  ApiError,
-  ExprValidationResult,
-  SecretValidationResult,
-  ValidationResult,
-} from "@/client"
+import { ApiError } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"

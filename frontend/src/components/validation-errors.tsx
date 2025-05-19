@@ -1,5 +1,5 @@
 import React, { PropsWithChildren } from "react"
-import { ValidationDetail, ValidationResult } from "@/client"
+import { ValidationDetail } from "@/client"
 import { CornerDownRightIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
