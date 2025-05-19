@@ -8,7 +8,7 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import WorkflowDefinition
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLInput, get_trigger_type_from_search_attr
 from tracecat.ee.interactions.models import InteractionRead
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID
@@ -121,6 +121,9 @@ async def get_workflow_execution(
         history_length=execution.history_length,
         events=events,
         interactions=interactions,
+        trigger_type=get_trigger_type_from_search_attr(
+            execution.typed_search_attributes, execution.id
+        ),
     )
 
 
@@ -154,6 +157,9 @@ async def get_workflow_execution_compact(
         history_length=execution.history_length,
         events=compact_events,
         interactions=interactions,
+        trigger_type=get_trigger_type_from_search_attr(
+            execution.typed_search_attributes, execution.id
+        ),
     )
 
 

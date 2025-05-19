@@ -21,7 +21,11 @@ from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
-from tracecat.dsl.common import ChildWorkflowMemo, DSLRunArgs
+from tracecat.dsl.common import (
+    ChildWorkflowMemo,
+    DSLRunArgs,
+    get_trigger_type_from_search_attr,
+)
 from tracecat.dsl.enums import JoinStrategy, PlatformAction, WaitStrategy
 from tracecat.dsl.models import (
     ActionErrorInfo,
@@ -88,6 +92,7 @@ class WorkflowExecutionBase(BaseModel):
     task_queue: str
     history_length: int = Field(..., description="Number of events in the history")
     parent_wf_exec_id: WorkflowExecutionID | None = None
+    trigger_type: TriggerType
 
 
 class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
@@ -104,6 +109,9 @@ class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
             task_queue=execution.task_queue,
             history_length=execution.history_length,
             parent_wf_exec_id=execution.parent_id,
+            trigger_type=get_trigger_type_from_search_attr(
+                execution.typed_search_attributes, execution.id
+            ),
         )
 
 

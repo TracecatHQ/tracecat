@@ -184,17 +184,25 @@ def build_query(
             legacy_wf_id = workflow_id.to_legacy()
             wf_id_query += f" OR WorkflowId STARTS_WITH '{legacy_wf_id}'"
         query.append(f"({wf_id_query})")
+    trigger_type_query = []
     if trigger_types:
-        if len(trigger_types) == 1:
-            query.append(
-                f"{TemporalSearchAttr.TRIGGER_TYPE.value} = '{trigger_types.pop().value}'"
-            )
-        else:
-            query.append(
-                f"{TemporalSearchAttr.TRIGGER_TYPE.value} IN ({', '.join(f"'{t.value}'" for t in trigger_types)})"
-            )
-    if triggered_by_user_id is not None:
-        query.append(
-            f"{TemporalSearchAttr.TRIGGERED_BY_USER_ID.value} = '{str(triggered_by_user_id)}'"
-        )
+        for trigger_type in trigger_types:
+            if trigger_type == TriggerType.MANUAL:
+                # Manual trigger type is a special case that requires a user ID
+                if triggered_by_user_id is not None:
+                    trigger_type_query.append(
+                        f"({TemporalSearchAttr.TRIGGER_TYPE.value} = '{TriggerType.MANUAL}' AND {TemporalSearchAttr.TRIGGERED_BY_USER_ID.value} = '{str(triggered_by_user_id)}')"
+                    )
+                else:
+                    logger.warning(
+                        "Manual trigger type specified but no user ID provided. This is likely a bug.",
+                        workflow_id=workflow_id,
+                    )
+            else:
+                # All other trigger types are simple
+                trigger_type_query.append(
+                    f"({TemporalSearchAttr.TRIGGER_TYPE.value} = '{trigger_type.value}')"
+                )
+        if trigger_type_query:
+            query.append(f"({' OR '.join(trigger_type_query)})")
     return " AND ".join(query)
