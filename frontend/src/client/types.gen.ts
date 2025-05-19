@@ -657,6 +657,7 @@ export type ExprType =
  * Result of visiting an expression node.
  */
 export type ExprValidationResult = {
+  type?: "expression"
   status: "success" | "error"
   msg?: string
   detail?: Array<ValidationDetail> | null
@@ -675,6 +676,17 @@ export type FolderDirectoryItem = {
   updated_at: string
   type: "folder"
   num_items: number
+}
+
+/**
+ * Result of validating a generic input.
+ */
+export type GenericValidationResult = {
+  type?: "generic"
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
 }
 
 export type GetWorkflowDefinitionActivityInputs = {
@@ -1141,6 +1153,20 @@ export type RegistrySecret = {
 }
 
 /**
+ * Result of validating a registry action's arguments.
+ */
+export type RegistryValidationResult = {
+  type?: "registry"
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+  validated_args?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
  * Configuration for a response interaction.
  */
 export type ResponseInteraction = {
@@ -1432,6 +1458,7 @@ export type SecretValidationDetail = {
  * Result of validating credentials.
  */
 export type SecretValidationResult = {
+  type?: "secret"
   status: "success" | "error"
   msg?: string
   detail?: SecretValidationDetail | null
@@ -1696,6 +1723,19 @@ export type TemplateActionDefinition = {
       }
 }
 
+/**
+ * Result of visiting an expression node.
+ */
+export type TemplateActionExprValidationResult = {
+  type?: "action_template"
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+  expression_type: ExprType
+  loc: string
+}
+
 export type TemplateActionValidationErrorType =
   | "ACTION_NOT_FOUND"
   | "ACTION_NAME_CONFLICT"
@@ -1770,15 +1810,12 @@ export type ValidationError = {
   type: string
 }
 
-/**
- * Base class for validation results.
- */
-export type ValidationResult = {
-  status: "success" | "error"
-  msg?: string
-  detail?: Array<ValidationDetail> | null
-  ref?: string | null
-}
+export type ValidationResult =
+  | GenericValidationResult
+  | SecretValidationResult
+  | ExprValidationResult
+  | TemplateActionExprValidationResult
+  | RegistryValidationResult
 
 export type WaitStrategy = "wait" | "detach"
 
@@ -1824,9 +1861,7 @@ export type WorkflowCommitResponse = {
   workflow_id: string
   status: "success" | "failure"
   message: string
-  errors?: Array<
-    ValidationResult | SecretValidationResult | ExprValidationResult
-  > | null
+  errors?: Array<ValidationResult> | null
   metadata?: {
     [key: string]: unknown
   } | null
@@ -3368,7 +3403,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3381,7 +3416,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
