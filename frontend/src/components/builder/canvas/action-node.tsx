@@ -357,8 +357,6 @@ interface ActionConfigError {
 
 function ActionNodeContent({
   actionType,
-  actionInputs,
-  actionIsInteractive = false,
   actionIsLoading,
   submitHandler,
   style,
