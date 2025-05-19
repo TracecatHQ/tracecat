@@ -26,6 +26,7 @@ dependencies = [
     "ansible==11.1.0",
     "boto3==1.37.3",
     "crowdstrike-falconpy==1.4.4",
+    "diskcache==5.6.3",
     "dnspython==2.6.1",
     "docker==7.1.0",
     "fpdf2==2.8.2",
@@ -35,12 +36,12 @@ dependencies = [
     "marshmallow==3.26.1",
     "nh3==0.2.18",
     "ollama==0.4.8",
-    "pydantic-ai-slim[openai,anthropic,bedrock,vertexai]==0.2.3",
+    "pydantic-ai-slim[openai,anthropic,bedrock,vertexai,mcp]==0.2.3",
     "pymongo==4.8.0",
     "slack-sdk==3.28.0",
     "tenacity==8.3.0",
-    "types-boto3[sts,s3]==1.37.3",
     "types-aioboto3[sts,s3]==14.3.0",
+    "types-boto3[sts,s3]==1.37.3",
 ]
 dynamic = ["version"]
 
