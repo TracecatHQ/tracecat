@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 from dotenv import load_dotenv
-from pydantic_ai.messages import TextPart, UserPromptPart
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from tracecat_registry.integrations.pydantic_ai import _parse_message_history, call
 
 load_dotenv()
@@ -79,13 +79,15 @@ load_dotenv()
 def test_parse_message_history(model_provider: str, messages: list[dict[str, Any]]):
     parsed_messages = _parse_message_history(messages)
     expected_messages = [
-        UserPromptPart(content="What is the capital of the moon?"),
-        TextPart(content="The Moon's capital is Tranquility Base."),
+        ModelRequest(
+            parts=[UserPromptPart(content="What is the capital of the moon?")],
+        ),
+        ModelResponse(
+            parts=[TextPart(content="The Moon's capital is Tranquility Base.")],
+        ),
     ]
-    assert parsed_messages[0].content == expected_messages[0].content  # type: ignore
-    assert parsed_messages[1].content == expected_messages[1].content  # type: ignore
-    assert isinstance(parsed_messages[0], UserPromptPart)
-    assert isinstance(parsed_messages[1], TextPart)
+    assert parsed_messages[0].parts[0].content == expected_messages[0].parts[0].content  # type: ignore
+    assert parsed_messages[1].parts[0].content == expected_messages[1].parts[0].content  # type: ignore
 
 
 def test_pydantic_ai_call():

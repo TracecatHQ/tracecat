@@ -2,7 +2,13 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.agent import AgentRunResult
 import orjson
-from pydantic_ai.messages import ModelMessage, UserPromptPart, TextPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    UserPromptPart,
+    TextPart,
+    ModelRequest,
+    ModelResponse,
+)
 
 from pydantic_ai.models.openai import OpenAIModel, OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -13,6 +19,7 @@ from pydantic_ai.providers.bedrock import BedrockProvider
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from pydantic_ai.providers.google_vertex import GoogleVertexProvider
+from pydantic_ai.mcp import MCPServerHTTP
 
 from pydantic_ai.settings import ModelSettings
 
@@ -58,19 +65,20 @@ def _parse_message_history(message_history: list[dict[str, Any]]) -> list[ModelM
             raise ValueError(f"Message has no parsable content: {message}")
 
         if message["role"] == "user":
-            messages.append(UserPromptPart(content=content_value))
+            messages.append(ModelRequest(parts=[UserPromptPart(content=content_value)]))
         elif message["role"] in ["assistant", "model"]:
-            messages.append(TextPart(content=content_value))
+            messages.append(ModelResponse(parts=[TextPart(content=content_value)]))
     return messages
 
 
-def _build_agent(
+def build_agent(
     model_name: str,
     model_provider: str,
     model_settings: dict[str, Any] | None,
     base_url: str | None,
     instructions: str | None,
     output_type: str | dict[str, Any] | None,
+    mcp_servers: list[MCPServerHTTP] | None = None,
 ) -> Agent:
     match model_provider:
         case "openai":
@@ -136,11 +144,13 @@ def _build_agent(
                 f"Invalid JSONSchema: {output_type}. Missing top-level `name` or `title` field."
             )
 
+    mcp_servers = mcp_servers or []
     agent = Agent(
         model=model,
         instructions=instructions,
         output_type=response_format,
         model_settings=ModelSettings(**model_settings) if model_settings else None,
+        mcp_servers=mcp_servers,
     )
 
     return agent
@@ -185,7 +195,7 @@ def call(
     base_url: Annotated[str | None, Doc("Base URL for the model")] = None,
 ) -> Any:
     """Call an LLM via Pydantic AI agent."""
-    agent = _build_agent(
+    agent = build_agent(
         model_name=model_name,
         model_provider=model_provider,
         model_settings=model_settings,
