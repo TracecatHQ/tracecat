@@ -63,11 +63,6 @@ export function ValidationErrorMessage({
     </React.Fragment>
   ))
 
-  console.log("ValidationErrorMessage", {
-    error,
-    formattedMessage,
-  })
-
   return (
     <pre
       className={cn("overflow-auto whitespace-pre-wrap text-wrap", className)}
@@ -80,15 +75,9 @@ export function ValidationErrorMessage({
           {error.detail?.environment}&quot; environment.
         </span>
       )}
-      {error.type === "expression" && (
-        <React.Fragment>
-          <br />
-          <span>Expression Type: {error.expression_type}</span>
-          <br />
-          <span>Expression: {error.msg}</span>
-        </React.Fragment>
-      )}
-      {["generic", "registry", "action_template"].includes(error.type ?? "") &&
+      {["generic", "registry", "action_template", "expression"].includes(
+        error.type ?? ""
+      ) &&
         Array.isArray(error.detail) && (
           <React.Fragment>
             <br />
