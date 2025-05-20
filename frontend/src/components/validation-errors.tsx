@@ -46,10 +46,11 @@ export const ERROR_TYPE_TO_MESSAGE: Record<
         <CornerDownRightIcon className="mr-2 mt-[1px] size-3" />
       </div>
       <div className="flex flex-col">
-        <div className="flex items-center">
-          <span>In →</span>
-          <span className="ml-2 text-xs">{detail.loc?.join(".")}</span>
-        </div>
+        {detail.loc && (
+          <div className="flex items-center">
+            <span>In {detail.loc?.join(" → ")}</span>
+          </div>
+        )}
         <span>
           {detail.msg} ({detail.type})
         </span>
