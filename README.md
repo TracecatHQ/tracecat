@@ -63,6 +63,8 @@ Or check out existing open source templates in [our repo](https://github.com/Tra
 ## Open Source vs Enterprise
 
 This repo is available under the AGPL-3.0 license with the exception of the `ee` directory. The `ee` directory contains paid enterprise features requiring a Tracecat Enterprise license.
+The purpose of the Enterprise Edition is to provide additional and powerful features which require specific investments in research and development.
+You can enable the Enterprise Edition directly in the settings of the platform.
 
 *If you are interested in Tracecat's Enterprise self-hosted or managed Cloud offering, check out [our website](https://tracecat.com) or [book a meeting with us](https://cal.com/team/tracecat).*
 
