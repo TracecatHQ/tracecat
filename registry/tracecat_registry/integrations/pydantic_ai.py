@@ -74,10 +74,10 @@ def _parse_message_history(message_history: list[dict[str, Any]]) -> list[ModelM
 def build_agent(
     model_name: str,
     model_provider: str,
-    model_settings: dict[str, Any] | None,
-    base_url: str | None,
-    instructions: str | None,
-    output_type: str | dict[str, Any] | None,
+    model_settings: dict[str, Any] | None = None,
+    base_url: str | None = None,
+    instructions: str | None = None,
+    output_type: str | dict[str, Any] | None = None,
     mcp_servers: list[MCPServerHTTP] | None = None,
 ) -> Agent:
     match model_provider:
