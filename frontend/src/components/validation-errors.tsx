@@ -47,8 +47,8 @@ export const ERROR_TYPE_TO_MESSAGE: Record<
       </div>
       <div className="flex flex-col">
         <div className="flex items-center">
-          <span>At →</span>
-          <strong className="ml-2 text-xs">{detail.loc?.join(".")}</strong>
+          <span>In →</span>
+          <span className="ml-2 text-xs">{detail.loc?.join(".")}</span>
         </div>
         <span>
           {detail.msg} ({detail.type})
