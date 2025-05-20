@@ -82,7 +82,7 @@ with workflow.unsafe.imports_passed_through():
         TracecatNotFoundError,
         TracecatValidationError,
     )
-    from tracecat.validation.models import ValidationResult
+    from tracecat.validation.models import DSLValidationResult
     from tracecat.workflow.executions.enums import TriggerType
     from tracecat.workflow.executions.models import ErrorHandlerWorkflowInput
     from tracecat.workflow.management.definitions import (
@@ -800,7 +800,7 @@ class DSLWorkflow:
 
     async def _validate_trigger_inputs(
         self, trigger_inputs: TriggerInputs
-    ) -> ValidationResult:
+    ) -> DSLValidationResult:
         """Validate trigger inputs.
 
         Note

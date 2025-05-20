@@ -7,11 +7,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.dsl.models import TriggerInputs
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
-from tracecat.validation.models import (
-    DSLValidationResult,
-    ValidationDetail,
-    ValidationResult,
-)
+from tracecat.validation.models import DSLValidationResult, ValidationDetail
 
 
 def validate_trigger_inputs(
@@ -60,8 +56,8 @@ class ValidateTriggerInputsActivityInputs(BaseModel):
 @activity.defn
 async def validate_trigger_inputs_activity(
     inputs: ValidateTriggerInputsActivityInputs,
-) -> ValidationResult:
+) -> DSLValidationResult:
     res = validate_trigger_inputs(
         inputs.dsl, inputs.trigger_inputs, raise_exceptions=True
     )
-    return ValidationResult.new(res)
+    return res
