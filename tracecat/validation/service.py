@@ -312,18 +312,19 @@ async def validate_dsl_expressions(
     )
 
     validators = {ExprType.SECRET: secret_validator}
+    results: list[ExprValidationResult] = []
     # This batches all the coros inside the taskgroup
     # and launches them concurrently on __aexit__
-    async with GatheringTaskGroup() as tg:
-        # Actions
-        visitor = ExprValidator(
-            task_group=tg,
-            validation_context=validation_context,
-            validators=validators,  # type: ignore
-            # Validate against the specified environment
-            environment=dsl.config.environment,
-        )
-        for act_stmt in dsl.actions:
+    for act_stmt in dsl.actions:
+        async with GatheringTaskGroup() as tg:
+            # New visitor for each action
+            visitor = ExprValidator(
+                task_group=tg,
+                validation_context=validation_context,
+                validators=validators,  # type: ignore
+                # Validate against the specified environment
+                environment=dsl.config.environment,
+            )
             # Validate action args
             for expr in extract_expressions(act_stmt.args):
                 expr.validate(
@@ -357,16 +358,18 @@ async def validate_dsl_expressions(
                             exclude=exclude,
                             ref=act_stmt.ref,
                         )
-    details = visitor.details
-    return [
-        ExprValidationResult(
-            status="error",
-            msg=f"Found {len(details)} validation errors",
-            detail=details,
-            ref=act_stmt.ref,
-            expression_type=ExprType.GENERIC,
+        details = visitor.details
+        results.append(
+            ExprValidationResult(
+                status="error",
+                msg=f"Found {len(details)} validation errors",
+                detail=details,
+                ref=act_stmt.ref,
+                expression_type=ExprType.GENERIC,
+            )
         )
-    ]
+
+    return results
 
 
 async def validate_dsl(

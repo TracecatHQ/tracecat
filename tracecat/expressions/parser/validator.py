@@ -343,7 +343,7 @@ class ExprValidator(BaseExprValidator):
         if ref not in self._context.action_refs:
             self.add(
                 status="error",
-                msg=f"Invalid action reference {ref!r} in ACTION expression {jsonpath!r}",
+                msg=f"Invalid action reference {ref!r} in `{ExprContext.ACTIONS.value}.{jsonpath}`",
                 type=ExprType.ACTION,
             )
         # Check prop
@@ -354,8 +354,8 @@ class ExprValidator(BaseExprValidator):
             self.add(
                 status="error",
                 msg=(
-                    f"Invalid property {prop!r} for action reference {ref!r} in ACTION expression {jsonpath!r}."
-                    f"\nUse one of {', '.join(map(repr, valid_props_list))}."
+                    f"Invalid attribute {prop!r} follows action reference {ref!r} in `{ExprContext.ACTIONS.value}.{jsonpath}`."
+                    f"\nAttributes following the action reference must be one of {', '.join(map(repr, valid_props_list))}."
                     f"\ne.g. `{ref}.{valid_props_list[0]}`"
                 ),
                 type=ExprType.ACTION,
