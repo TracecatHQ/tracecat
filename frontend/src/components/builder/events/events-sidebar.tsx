@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import { $TriggerType, TriggerType } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -18,8 +18,6 @@ import {
   useLocalStorage,
   useOrgAppSettings,
 } from "@/lib/hooks"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -232,14 +230,13 @@ function BuilderSidebarEventsList({
       >
         <div className="sticky top-0 z-10 mt-0.5 bg-background">
           <ScrollArea className="w-full whitespace-nowrap rounded-md">
-            <TabsList className="inline-flex h-8 w-full items-center justify-start bg-transparent p-0">
+            <TabsList className="inline-flex h-8 flex-1 items-center justify-start bg-transparent p-0">
               {tabItems.map((tab) => (
                 <TabsTrigger
                   key={tab.value}
                   value={tab.value}
                   className="flex h-full min-w-20 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none sm:min-w-16 md:min-w-20"
                 >
-                  {/* TODO(chris): Please adjust this */}
                   <tab.icon className="mr-2 size-4 sm:mr-1" />
                   <span className="hidden sm:inline">{tab.label}</span>
                   <span className="sm:hidden">{tab.label.slice(0, 4)}</span>
