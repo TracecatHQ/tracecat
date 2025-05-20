@@ -358,16 +358,16 @@ async def validate_dsl_expressions(
                             exclude=exclude,
                             ref=act_stmt.ref,
                         )
-        details = visitor.details
-        results.append(
-            ExprValidationResult(
-                status="error",
-                msg=f"Found {len(details)} validation errors",
-                detail=details,
-                ref=act_stmt.ref,
-                expression_type=ExprType.GENERIC,
+        if details := visitor.details:
+            results.append(
+                ExprValidationResult(
+                    status="error",
+                    msg=f"Found {len(details)} expression errors",
+                    detail=details,
+                    ref=act_stmt.ref,
+                    expression_type=ExprType.GENERIC,
+                )
             )
-        )
 
     return results
 
