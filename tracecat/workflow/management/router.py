@@ -321,7 +321,7 @@ async def commit_workflow(
         logger.info("Custom validation error in DSL", e=e)
         construction_errors.append(
             ValidationResult.new(
-                type=ValidationResultType.GENERIC,
+                type=ValidationResultType.DSL,
                 status="error",
                 msg=str(e),
                 detail=e.detail,
@@ -331,7 +331,7 @@ async def commit_workflow(
         logger.info("Pydantic validation error in DSL", e=e)
         construction_errors.append(
             ValidationResult.new(
-                type=ValidationResultType.GENERIC,
+                type=ValidationResultType.DSL,
                 status="error",
                 msg=str(e),
                 detail=ValidationDetail.list_from_pydantic(e),

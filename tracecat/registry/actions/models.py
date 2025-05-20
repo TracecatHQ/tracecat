@@ -29,7 +29,7 @@ from tracecat.types.exceptions import (
     TracecatValidationError,
 )
 from tracecat.validation.models import (
-    RegistryValidationResult,
+    ActionValidationResult,
     TemplateActionExprValidationResult,
     ValidationDetail,
 )
@@ -491,7 +491,7 @@ class RegistryActionValidateResponse(BaseModel):
 
     @staticmethod
     def from_validation_result(
-        result: RegistryValidationResult,
+        result: ActionValidationResult,
     ) -> RegistryActionValidateResponse:
         return RegistryActionValidateResponse(
             ok=result.status == "success",
@@ -616,5 +616,5 @@ class RegistryActionValidationErrorInfo(BaseModel):
             type=TemplateActionValidationErrorType.EXPRESSION_VALIDATION_ERROR,
             details=[v.msg],
             is_template=is_template,
-            loc_primary=v.loc,
+            loc_primary=".".join(map(str, v.loc)),
         )

@@ -401,7 +401,7 @@ export function ActionPanel({
   const finalValErrors = [
     ...(validationResults || []),
     ...(validationErrors || []),
-  ].filter((error) => error.ref === slugify(action.title))
+  ].filter((e) => e.ref === slugify(action.title))
 
   const ActionIcon = actionTypeToLabel[registryAction.type].icon
   const isInteractive = methods.watch("is_interactive")
@@ -847,6 +847,7 @@ export function ActionPanel({
                             <ValidationErrorView
                               validationErrors={finalValErrors}
                               side="left"
+                              className="max-w-[600px]"
                             >
                               <div className="flex items-center space-x-2">
                                 <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />

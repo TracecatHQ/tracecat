@@ -33,7 +33,7 @@ from tracecat.types.exceptions import (
     TracecatValidationError,
 )
 from tracecat.validation.models import (
-    GenericValidationResult,
+    DSLValidationResult,
     ValidationDetail,
     ValidationResult,
 )
@@ -210,7 +210,7 @@ class WorkflowsManagementService(BaseService):
     ) -> WorkflowDSLCreateResponse:
         """Create a new workflow from a Tracecat DSL data object."""
 
-        construction_errors: list[GenericValidationResult] = []
+        construction_errors: list[DSLValidationResult] = []
         try:
             # Convert the workflow into a WorkflowDefinition
             # XXX: When we commit from the workflow, we have action IDs
@@ -219,12 +219,12 @@ class WorkflowsManagementService(BaseService):
         except TracecatValidationError as e:
             self.logger.info("Custom validation error", error=e)
             construction_errors.append(
-                GenericValidationResult(status="error", msg=str(e), detail=e.detail)
+                DSLValidationResult(status="error", msg=str(e), detail=e.detail)
             )
         except ValidationError as e:
             self.logger.info("Pydantic validation error", error=e)
             construction_errors.append(
-                GenericValidationResult(
+                DSLValidationResult(
                     status="error",
                     msg=str(e),
                     detail=ValidationDetail.list_from_pydantic(e),

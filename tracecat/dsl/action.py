@@ -68,6 +68,7 @@ class DSLActivities:
                     session=session,
                     action_name=input.task.action,
                     args=input.task.args,
+                    action_ref=input.task.ref,
                 )
 
                 if result.status == "error":

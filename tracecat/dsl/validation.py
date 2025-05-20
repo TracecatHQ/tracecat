@@ -8,7 +8,7 @@ from tracecat.dsl.models import TriggerInputs
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
 from tracecat.validation.models import (
-    GenericValidationResult,
+    DSLValidationResult,
     ValidationDetail,
     ValidationResult,
 )
@@ -20,11 +20,11 @@ def validate_trigger_inputs(
     *,
     raise_exceptions: bool = False,
     model_name: str = "TriggerInputsValidator",
-) -> GenericValidationResult:
+) -> DSLValidationResult:
     if not dsl.entrypoint.expects:
         # If there's no expected trigger input schema, we don't validate it
         # as its ignored anyways
-        return GenericValidationResult(
+        return DSLValidationResult(
             status="success", msg="No trigger input schema, skipping validation."
         )
     logger.trace(
@@ -43,12 +43,12 @@ def validate_trigger_inputs(
         except ValidationError as e:
             if raise_exceptions:
                 raise
-            return GenericValidationResult(
+            return DSLValidationResult(
                 status="error",
                 msg=f"Validation error in trigger inputs ({e.title}). Please refer to the schema for more details.",
                 detail=ValidationDetail.list_from_pydantic(e),
             )
-    return GenericValidationResult(status="success", msg="Trigger inputs are valid.")
+    return DSLValidationResult(status="success", msg="Trigger inputs are valid.")
 
 
 class ValidateTriggerInputsActivityInputs(BaseModel):

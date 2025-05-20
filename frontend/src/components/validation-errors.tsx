@@ -13,6 +13,7 @@ import {
 export const VALIDATION_ERROR_TYPES = [
   "pydantic.missing",
   "pydantic.invalid_type",
+  "pydantic.extra_forbidden",
 ] as const
 export type ValidationErrorType = (typeof VALIDATION_ERROR_TYPES)[number]
 
@@ -32,12 +33,21 @@ export const ERROR_TYPE_TO_MESSAGE: Record<
       Invalid type: {detail.msg} ({detail.loc})
     </div>
   ),
-  default: ({ detail }) => (
+  "pydantic.extra_forbidden": ({ detail }) => (
     <div className="flex items-center">
       <CornerDownRightIcon className="mr-2 size-3" />
+      <span>Unrecognized field:</span>
+      <strong className="ml-2 text-xs">{detail.loc?.join(".")}</strong>
+    </div>
+  ),
+  default: ({ detail }) => (
+    <div className="flex items-center">
+      <div className="flex flex-col items-start justify-start">
+        <CornerDownRightIcon className="mr-2 size-3" />
+      </div>
       <div className="flex flex-col">
         <div className="flex items-center">
-          <span>At field:</span>
+          <span>At →</span>
           <strong className="ml-2 text-xs">{detail.loc?.join(".")}</strong>
         </div>
         <span>
@@ -46,6 +56,18 @@ export const ERROR_TYPE_TO_MESSAGE: Record<
       </div>
     </div>
   ),
+}
+
+function ValidationDetails({ error }: { error: ValidationResult }) {
+  if (Array.isArray(error.detail)) {
+    return error.detail?.map((d, index) => {
+      const type = d.type as ValidationErrorType
+      const MessageComponent =
+        ERROR_TYPE_TO_MESSAGE[type] || ERROR_TYPE_TO_MESSAGE["default"]
+      return <MessageComponent key={index} detail={d} />
+    })
+  }
+  return null
 }
 
 export function ValidationErrorMessage({
@@ -63,37 +85,57 @@ export function ValidationErrorMessage({
     </React.Fragment>
   ))
 
+  const rest: ValidationResult["type"][] = ["dsl", "action_template"]
   return (
     <pre
       className={cn("overflow-auto whitespace-pre-wrap text-wrap", className)}
     >
-      {formattedMessage}
-      {error.type === "secret" && (
-        <span>
-          Please go to Workspace &gt; Credentials and add the secret &quot;
-          {error.detail?.secret_name}&quot; under the &quot;
-          {error.detail?.environment}&quot; environment.
-        </span>
-      )}
-      {["generic", "registry", "action_template", "expression"].includes(
-        error.type ?? ""
-      ) &&
-        Array.isArray(error.detail) && (
+      <div className="flex flex-col space-y-1">
+        {error.type === "secret" && (
           <React.Fragment>
-            <br />
-            {error.detail?.map((d, index) => {
-              const type = d.type as ValidationErrorType
-              const MessageComponent =
-                ERROR_TYPE_TO_MESSAGE[type] || ERROR_TYPE_TO_MESSAGE.default
-              return (
-                <React.Fragment key={index}>
-                  <MessageComponent detail={d} />
-                  <br />
-                </React.Fragment>
-              )
-            })}
+            <span>{formattedMessage}</span>
           </React.Fragment>
         )}
+        {error.type === "expression" && (
+          <React.Fragment>
+            {error.ref && (
+              <span>
+                In action → <strong>{error.ref}</strong>
+              </span>
+            )}
+            {error.expression && <span>Expression → {error.expression}</span>}
+            <span>{formattedMessage}</span>
+            <ValidationDetails error={error} />
+          </React.Fragment>
+        )}
+        {error.type === "action" && (
+          <React.Fragment>
+            {error.ref && (
+              <span>
+                In action → <strong>{error.ref}</strong>
+              </span>
+            )}
+            <span>{formattedMessage}</span>
+            <ValidationDetails error={error} />
+          </React.Fragment>
+        )}
+        {/* Handle the rest */}
+        {rest.includes(error.type) && (
+          <React.Fragment>
+            <>
+              {error.ref ? (
+                <span>
+                  In action → <strong>{error.ref}</strong>
+                </span>
+              ) : (
+                <span>Couldn&apos;t determine action</span>
+              )}
+            </>
+            <span>{formattedMessage}</span>
+            <ValidationDetails error={error} />
+          </React.Fragment>
+        )}
+      </div>
     </pre>
   )
 }
@@ -110,6 +152,7 @@ export function ValidationErrorView({
   noErrorTooltip,
   children,
   side = "bottom",
+  className,
   ...props
 }: ValidationErrorViewProps) {
   return (
@@ -117,26 +160,31 @@ export function ValidationErrorView({
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent
         side={side}
-        className="w-fit p-0 text-xs shadow-lg"
+        className={cn("w-fit p-0 text-xs shadow-lg", className)}
         {...props}
       >
         {validationErrors && validationErrors.length > 0 ? (
-          <div className="space-y-2 rounded-md border border-rose-300 bg-rose-100 p-2 font-mono tracking-tighter">
-            <span className="text-xs font-bold text-rose-500">
-              Validation Errors
-            </span>
-            <div className="mt-1 space-y-1">
-              {validationErrors.map((error, index) => (
+          <div className="rounded-md border border-rose-300 bg-rose-100 font-mono tracking-tighter text-rose-500">
+            <div className="m-2">
+              <span className="text-xs font-bold">
+                Found {validationErrors.length} validation errors
+              </span>
+            </div>
+            {validationErrors
+              .sort((a, b) => {
+                if (a.ref === b.ref) return 0
+                if (!a.ref) return 1
+                if (!b.ref) return -1
+                return a.ref.localeCompare(b.ref)
+              })
+              .map((error, index) => (
                 <div className="space-y-2" key={index}>
-                  <Separator className="bg-rose-400" />
-                  <ValidationErrorMessage
-                    key={index}
-                    error={error}
-                    className="text-rose-500"
-                  />
+                  <Separator className="bg-rose-300" />
+                  <div className="m-2 pb-2">
+                    <ValidationErrorMessage key={index} error={error} />
+                  </div>
                 </div>
               ))}
-            </div>
           </div>
         ) : (
           <div className="p-2">{noErrorTooltip}</div>

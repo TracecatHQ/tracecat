@@ -21,6 +21,9 @@ class ValidationDetail:
     msg: str
     loc: tuple[int | str, ...] | None = None
 
+    def __hash__(self) -> int:
+        return hash((self.type, self.msg, self.loc))
+
     @classmethod
     def list_from_pydantic(cls, err: PydanticValidationError) -> list[ValidationDetail]:
         return [
@@ -32,10 +35,10 @@ class ValidationDetail:
 class ValidationResultType(StrEnum):
     """Type of a validation error."""
 
-    GENERIC = "generic"
+    DSL = "dsl"
     SECRET = "secret"
     EXPRESSION = "expression"
-    REGISTRY = "registry"
+    ACTION = "action"
     ACTION_TEMPLATE = "action_template"
 
 
@@ -55,16 +58,17 @@ class BaseValidationResult(BaseModel):
         return hash((self.status, self.msg, detail))
 
 
-class GenericValidationResult(BaseValidationResult):
+class DSLValidationResult(BaseValidationResult):
     """Result of validating a generic input."""
 
-    type: Literal[ValidationResultType.GENERIC] = ValidationResultType.GENERIC
+    type: Literal[ValidationResultType.DSL] = ValidationResultType.DSL
 
 
-class RegistryValidationResult(BaseValidationResult):
+class ActionValidationResult(BaseValidationResult):
     """Result of validating a registry action's arguments."""
 
-    type: Literal[ValidationResultType.REGISTRY] = ValidationResultType.REGISTRY
+    type: Literal[ValidationResultType.ACTION] = ValidationResultType.ACTION
+    action_type: str
     validated_args: Mapping[str, Any] | None = None
 
 
@@ -72,6 +76,7 @@ class ExprValidationResult(BaseValidationResult):
     """Result of visiting an expression node."""
 
     type: Literal[ValidationResultType.EXPRESSION] = ValidationResultType.EXPRESSION
+    expression: str | None = None
     expression_type: ExprType
 
 
@@ -81,7 +86,7 @@ class TemplateActionExprValidationResult(ExprValidationResult):
     type: Literal[ValidationResultType.ACTION_TEMPLATE] = (
         ValidationResultType.ACTION_TEMPLATE
     )
-    loc: str
+    loc: tuple[str | int, ...]
 
 
 class SecretValidationResult(BaseValidationResult):
@@ -99,11 +104,11 @@ class SecretValidationDetail(TypedDict):
 
 
 ValidationResultVariant = (
-    GenericValidationResult
+    DSLValidationResult
     | SecretValidationResult
     | ExprValidationResult
     | TemplateActionExprValidationResult
-    | RegistryValidationResult
+    | ActionValidationResult
 )
 
 
@@ -121,16 +126,16 @@ class ValidationResult(RootModel):
     ) -> ValidationResult:
         if len(kwargs) > 0:
             match type_ := kwargs.get("type"):
-                case ValidationResultType.GENERIC:
-                    return cls(root=GenericValidationResult(**kwargs))
+                case ValidationResultType.DSL:
+                    return cls(root=DSLValidationResult(**kwargs))
                 case ValidationResultType.SECRET:
                     return cls(root=SecretValidationResult(**kwargs))
                 case ValidationResultType.EXPRESSION:
                     return cls(root=ExprValidationResult(**kwargs))
                 case ValidationResultType.ACTION_TEMPLATE:
                     return cls(root=TemplateActionExprValidationResult(**kwargs))
-                case ValidationResultType.REGISTRY:
-                    return cls(root=RegistryValidationResult(**kwargs))
+                case ValidationResultType.ACTION:
+                    return cls(root=ActionValidationResult(**kwargs))
                 case _:
                     raise ValueError(f"Invalid root type: {type_}")
         elif result is not None:

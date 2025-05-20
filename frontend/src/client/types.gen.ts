@@ -135,6 +135,23 @@ export type ActionUpdate = {
 }
 
 /**
+ * Result of validating a registry action's arguments.
+ */
+export type ActionValidationResult = {
+  type?: "action"
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+  action_type: string
+  validated_args?: {
+    [key: string]: unknown
+  } | null
+}
+
+export type status = "success" | "error"
+
+/**
  * Settings for the app.
  */
 export type AppSettingsRead = {
@@ -560,6 +577,17 @@ export type DSLRunArgs = {
   schedule_id?: string | null
 }
 
+/**
+ * Result of validating a generic input.
+ */
+export type DSLValidationResult = {
+  type?: "dsl"
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+}
+
 export type EditorActionRead = {
   type: string
   ref: string
@@ -662,10 +690,9 @@ export type ExprValidationResult = {
   msg?: string
   detail?: Array<ValidationDetail> | null
   ref?: string | null
+  expression?: string | null
   expression_type: ExprType
 }
-
-export type status = "success" | "error"
 
 export type FolderDirectoryItem = {
   id: string
@@ -676,17 +703,6 @@ export type FolderDirectoryItem = {
   updated_at: string
   type: "folder"
   num_items: number
-}
-
-/**
- * Result of validating a generic input.
- */
-export type GenericValidationResult = {
-  type?: "generic"
-  status: "success" | "error"
-  msg?: string
-  detail?: Array<ValidationDetail> | null
-  ref?: string | null
 }
 
 export type GetWorkflowDefinitionActivityInputs = {
@@ -1150,20 +1166,6 @@ export type RegistrySecret = {
   keys?: Array<string> | null
   optional_keys?: Array<string> | null
   optional?: boolean
-}
-
-/**
- * Result of validating a registry action's arguments.
- */
-export type RegistryValidationResult = {
-  type?: "registry"
-  status: "success" | "error"
-  msg?: string
-  detail?: Array<ValidationDetail> | null
-  ref?: string | null
-  validated_args?: {
-    [key: string]: unknown
-  } | null
 }
 
 /**
@@ -1732,8 +1734,9 @@ export type TemplateActionExprValidationResult = {
   msg?: string
   detail?: Array<ValidationDetail> | null
   ref?: string | null
+  expression?: string | null
   expression_type: ExprType
-  loc: string
+  loc: Array<string | number>
 }
 
 export type TemplateActionValidationErrorType =
@@ -1811,11 +1814,11 @@ export type ValidationError = {
 }
 
 export type ValidationResult =
-  | GenericValidationResult
+  | DSLValidationResult
   | SecretValidationResult
   | ExprValidationResult
   | TemplateActionExprValidationResult
-  | RegistryValidationResult
+  | ActionValidationResult
 
 export type WaitStrategy = "wait" | "detach"
 
