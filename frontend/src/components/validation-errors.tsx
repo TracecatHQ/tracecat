@@ -41,9 +41,9 @@ export const ERROR_TYPE_TO_MESSAGE: Record<
     </div>
   ),
   default: ({ detail }) => (
-    <div className="flex items-center">
+    <div className="flex items-start">
       <div className="flex flex-col items-start justify-start">
-        <CornerDownRightIcon className="mr-2 size-3" />
+        <CornerDownRightIcon className="mr-2 mt-[1px] size-3" />
       </div>
       <div className="flex flex-col">
         <div className="flex items-center">
@@ -90,7 +90,7 @@ export function ValidationErrorMessage({
     <pre
       className={cn("overflow-auto whitespace-pre-wrap text-wrap", className)}
     >
-      <div className="flex flex-col space-y-1">
+      <div className="flex flex-col space-y-2">
         {error.type === "secret" && (
           <React.Fragment>
             <span>{formattedMessage}</span>
