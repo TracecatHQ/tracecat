@@ -1,7 +1,8 @@
 import orjson
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, Field
 from pydantic_core import to_jsonable_python
 
+import httpx
 from tracecat_registry.integrations.pydantic_ai import build_agent
 from tracecat_registry.integrations.slack_sdk import call_method
 
@@ -27,10 +28,12 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 from pydantic_ai.result import FinalResult
-from tracecat_registry.integrations.slack_sdk import format_buttons
+from tracecat_registry.integrations.slack_sdk import format_buttons, slack_secret
 
 
 from tracecat_registry import registry, RegistrySecret, secrets
+
+from tracecat.logger import logger
 
 
 BLOCKS_CACHE = dc.FanoutCache(shards=8, timeout=0.05)  # key=ts
@@ -38,12 +41,65 @@ MESSAGE_CACHE = dc.FanoutCache(shards=8, timeout=0.05)  # key=thread_ts
 TOOL_CALLS_CACHE = dc.FanoutCache(shards=8, timeout=0.05)  # key=thread_ts
 
 
-mcp_secret = RegistrySecret(name="mcp", optional_keys=["MCP_HTTP_HEADERS"])
+mcp_secret = RegistrySecret(
+    name="mcp",
+    optional_keys=["MCP_HTTP_HEADERS"],
+    optional=True,
+)
 """MCP headers.
 
 - name: `mcp`
 - optional_keys:
     - `MCP_HTTP_HEADERS`: Optional HTTP headers to send to the MCP server.
+"""
+
+anthropic_secret = RegistrySecret(
+    name="anthropic",
+    optional_keys=["ANTHROPIC_API_KEY"],
+    optional=True,
+)
+"""Anthropic API key.
+
+- name: `anthropic`
+- optional_keys:
+    - `ANTHROPIC_API_KEY`: Optional Anthropic API key.
+"""
+
+openai_secret = RegistrySecret(
+    name="openai",
+    optional_keys=["OPENAI_API_KEY"],
+    optional=True,
+)
+"""OpenAI API key.
+
+- name: `openai`
+- optional_keys:
+    - `OPENAI_API_KEY`: Optional OpenAI API key.
+"""
+
+gemini_secret = RegistrySecret(
+    name="gemini",
+    optional_keys=["GEMINI_API_KEY"],
+    optional=True,
+)
+"""Gemini API key.
+
+- name: `gemini`
+- optional_keys:
+    - `GEMINI_API_KEY`: Optional Gemini API key.
+"""
+
+
+bedrock_secret = RegistrySecret(
+    name="bedrock",
+    optional_keys=["BEDROCK_API_KEY"],
+    optional=True,
+)
+"""Bedrock API key.
+
+- name: `bedrock`
+- optional_keys:
+    - `BEDROCK_API_KEY`: Optional Bedrock API key.
 """
 
 
@@ -60,9 +116,10 @@ class SlackEventData(BaseModel):
     text: str
     user: str
     type: str
-    ts: str
+    blocks: list[dict[str, Any]]
     channel: str
-    thread_ts: str
+    ts: str
+    thread_ts: str | None = Field(default=None)
 
 
 class SlackEventPayload(BaseModel):
@@ -90,6 +147,16 @@ class SlackEventPayload(BaseModel):
     def ts(self) -> str:
         """Get the message timestamp."""
         return self.event.ts
+
+    @property
+    def user_prompt(self) -> str:
+        """Get the user prompt."""
+        return self.event.text
+
+    @property
+    def blocks(self) -> list[dict[str, Any]]:
+        """Get the message blocks."""
+        return self.event.blocks
 
 
 class SlackInteractionPayload(BaseModel):
@@ -197,6 +264,17 @@ async def _run_agent(
     channel_id: str,
     thread_ts: str,
 ) -> End[FinalResult[str]] | FunctionToolCallEvent | FunctionToolResultEvent:
+    log = logger.bind(
+        thread_ts=thread_ts,
+        ts=ts,
+        channel_id=channel_id,
+    )
+    log.info(
+        "Starting agent run",
+        user_prompt=user_prompt,
+        message_history_length=len(message_history) if message_history else 0,
+    )
+
     async with agent.run_mcp_servers():
         async with agent.iter(
             user_prompt=user_prompt, message_history=message_history
@@ -204,6 +282,7 @@ async def _run_agent(
             async for node in run:
                 blocks: list[dict[str, Any]] = BLOCKS_CACHE.get(ts, [])  # type: ignore
                 if Agent.is_model_request_node(node):
+                    log.info("Processing model request node")
                     message_parts = []
                     async with node.stream(run.ctx) as handle_stream:
                         async for event in handle_stream:
@@ -214,6 +293,7 @@ async def _run_agent(
 
                     if ts is not None and len(blocks) > 0:
                         # Update message (identify by ts) directly
+                        log.info("Updating existing message")
                         msg = await _update_message(
                             blocks=blocks,
                             ts=ts,
@@ -222,6 +302,7 @@ async def _run_agent(
                         )
                     else:
                         # Post new message to thread or start a new conversation in channel
+                        log.info("Posting new message")
                         msg = await _post_message(
                             message_parts=message_parts,
                             channel_id=channel_id,
@@ -233,15 +314,19 @@ async def _run_agent(
                     _add_assistant_message(thread_ts, "".join(message_parts))
 
                 elif Agent.is_call_tools_node(node):
+                    log.info("Processing tool call node")
                     async with node.stream(run.ctx) as handle_stream:
                         async for event in handle_stream:
                             if isinstance(event, FunctionToolCallEvent):
                                 # Request approval for tool call
                                 tool_name = event.part.tool_name
                                 tool_args = event.part.args
-                                tool_call_id = (
-                                    event.call_id
-                                )  # Also used to identify the Slack block
+                                tool_call_id = event.call_id
+                                log.info(
+                                    "Requesting tool call approval",
+                                    tool_name=tool_name,
+                                    tool_call_id=tool_call_id,
+                                )
                                 msg = await _request_tool_approval(
                                     blocks=blocks,
                                     ts=ts,
@@ -260,6 +345,10 @@ async def _run_agent(
                                 )
 
                                 # Exit the stream and wait for user response
+                                log.info(
+                                    "Waiting for tool call approval",
+                                    tool_call_id=tool_call_id,
+                                )
                                 return event
 
                             elif isinstance(
@@ -269,6 +358,11 @@ async def _run_agent(
                                 tool_result = event.result.content
                                 tool_name = event.result.tool_name
                                 tool_call_id = event.tool_call_id
+                                log.info(
+                                    "Processing tool call result",
+                                    tool_name=tool_name,
+                                    tool_call_id=tool_call_id,
+                                )
                                 msg = await _update_tool_approval(
                                     blocks=blocks,
                                     ts=ts,
@@ -284,13 +378,14 @@ async def _run_agent(
                                 )
 
                 elif Agent.is_end_node(node):
+                    log.info("Processing end node")
                     # Send final message
                     tip = "Tip: Mention `@Tracecat Bot` in the thread to continue the conversation."
                     blocks = BLOCKS_CACHE.get(ts, [])  # type: ignore
                     if len(blocks) == 0:
-                        raise ValueError(
-                            "Unexpected end of conversation. No message response from agent."
-                        )
+                        error_msg = "Unexpected end of conversation. No message response from agent."
+                        log.error(error_msg)
+                        raise ValueError(error_msg)
 
                     blocks.append(
                         {"type": "section", "text": {"type": "mrkdwn", "text": tip}}
@@ -303,12 +398,13 @@ async def _run_agent(
                             "blocks": blocks,
                         },
                     )
+                    log.info("Agent run completed successfully")
                     return node
 
     if not isinstance(node, End):
-        raise ValueError(
-            f"Unexpected end of conversation. Agent stream ended with non-final result: {to_jsonable_python(node)!r}."
-        )
+        error_msg = f"Unexpected end of conversation. Agent stream ended with non-final result: {to_jsonable_python(node)!r}."
+        log.error(error_msg)
+        raise ValueError(error_msg)
 
     return node
 
@@ -318,42 +414,70 @@ async def _run_agent(
     description="Chat with a MCP server using Slack.",
     display_group="MCP",
     doc_url="https://docs.pydantic.ai/mcp/server/http/",
-    secrets=[mcp_secret],
+    secrets=[
+        mcp_secret,
+        anthropic_secret,
+        openai_secret,
+        gemini_secret,
+        bedrock_secret,
+        slack_secret,
+    ],
     namespace="experimental.mcp",
 )
 async def chat_slack(
     trigger: Annotated[dict[str, Any] | None, Doc("Webhook trigger payload")],
-    user_id: Annotated[
-        str, Doc("Slack user ID of the user who is interacting with the bot.")
-    ],
     channel_id: Annotated[
         str,
         Doc(
             "Slack channel ID of the channel where the user is interacting with the bot."
         ),
     ],
-    url: Annotated[str, Doc("URL of the MCP server.")],
-    timeout: Annotated[int, Doc("Initial connection timeout in seconds.")],
     agent_settings: Annotated[dict[str, Any], Doc("Agent settings")],
+    base_url: Annotated[str, Doc("Base URL of the MCP server.")],
+    timeout: Annotated[int, Doc("Initial connection timeout in seconds.")] = 10,
 ) -> list[dict[str, Any]]:
-    headers = orjson.loads(secrets.get("MCP_HTTP_HEADERS"))
-    server = MCPServerHTTP(url, headers=headers, timeout=timeout)
+    log = logger.bind(
+        channel_id=channel_id,
+        event_type="slack_chat",
+    )
+    log.info("Starting Slack chat handler")
+
+    headers = secrets.get("MCP_HTTP_HEADERS")
+    if headers is not None:
+        headers = orjson.loads(headers)
+    server = MCPServerHTTP(base_url, headers=headers, timeout=timeout)
     agent = build_agent(**agent_settings, mcp_servers=[server])
 
     slack_event = None
     slack_payload = None
     if isinstance(trigger, str):
         slack_payload = orjson.loads(trigger)
+        log.info("Received Slack interaction payload")
     else:
         slack_event = trigger
+        log.info("Received Slack event")
 
     if slack_event is not None:
         # App mentions (can either be a new conversation or a continuation)
         slack_event_payload = SlackEventPayload.model_validate(slack_event)
-        thread_ts = slack_event_payload.event.thread_ts
-        ts = slack_event_payload.event.ts
-        user_prompt = slack_event_payload.event.text
+        thread_ts = slack_event_payload.thread_ts
+        ts = slack_event_payload.ts
+        user_prompt = slack_event_payload.user_prompt
         message_history = _get_message_history(thread_ts)
+
+        log = log.bind(
+            thread_ts=thread_ts,
+            ts=ts,
+            user_prompt=user_prompt,
+            event_type="app_mention",
+        )
+        log.info(
+            "Processing app mention",
+            message_history_length=len(message_history) if message_history else 0,
+        )
+
+        # Add user message to message history
+        _add_user_message(thread_ts, user_prompt)
 
     elif slack_payload is not None:
         # Approval buttons (assume the user has already started a conversation)
@@ -366,11 +490,27 @@ async def chat_slack(
         message_history = _get_message_history(thread_ts)
         blocks: list[dict[str, Any]] = BLOCKS_CACHE.get(ts, [])  # type: ignore
         if len(blocks) == 0:
-            raise ValueError(f"No message history found for timestamp: {ts}.")
+            error_msg = f"No message history found for timestamp: {ts}."
+            log.error(error_msg)
+            raise ValueError(error_msg)
 
         tool_call_id: str | None = TOOL_CALLS_CACHE.get(thread_ts)  # type: ignore
         if tool_call_id is None:
-            raise ValueError(f"No tool call request found for thread: {thread_ts}.")
+            error_msg = f"No tool call request found for thread: {thread_ts}."
+            log.error(error_msg)
+            raise ValueError(error_msg)
+
+        log = log.bind(
+            thread_ts=thread_ts,
+            ts=ts,
+            tool_call_id=tool_call_id,
+            event_type="interaction",
+            action_value=slack_interaction_payload.action_value,
+        )
+        log.info(
+            "Processing interaction",
+            message_history_length=len(message_history) if message_history else 0,
+        )
 
         await _disable_buttons(
             blocks=blocks,
@@ -381,21 +521,33 @@ async def chat_slack(
         )
 
     else:
-        raise ValueError(
-            "Either `slack_event` or `slack_payload` must be provided. Got null values for both."
-        )
+        error_msg = "Either `slack_event` or `slack_payload` must be provided. Got null values for both."
+        log.error(error_msg)
+        raise ValueError(error_msg)
 
     # Run the agent and handle its response
-    result = await _run_agent(
-        agent=agent,
-        ts=ts,
-        user_id=user_id,
-        user_prompt=user_prompt,
-        message_history=message_history,
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-    )
+    try:
+        result = await _run_agent(
+            agent=agent,
+            ts=ts,
+            user_prompt=user_prompt,
+            message_history=message_history,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+        )
+    except ExceptionGroup as e:
+        # Extract the first error from the exception group
+        exc = e.exceptions[0]
+        if isinstance(exc, httpx.ConnectError):
+            raise ConnectionError(f"Failed to connect to MCP server: {exc!s}") from exc
+        else:
+            log.exception(e)
+            raise RuntimeError(f"Unexpected error while running agent: {e!r}") from e
+    except Exception as e:
+        log.exception(e)
+        raise RuntimeError(f"Unexpected error while running agent: {e!r}") from e
 
+    log.info("Slack chat handler completed")
     return to_jsonable_python(result)
 
 
@@ -498,7 +650,6 @@ async def _request_tool_approval(
     tool_name: str,
     tool_args: str | dict[str, Any],
     tool_call_id: str,
-    user_id: str,
     channel_id: str,
 ) -> SlackMessage:
     """Request approval from the user on Slack.
@@ -509,13 +660,13 @@ async def _request_tool_approval(
         [
             {
                 "text": "➡️ Run tool",
-                "action_id": f"run:{user_id}",
+                "action_id": f"run:{tool_call_id}",
                 "value": "run",
                 "style": "primary",
             },
             {
                 "text": "Skip",
-                "action_id": f"skip:{user_id}",
+                "action_id": f"skip:{tool_call_id}",
                 "value": "skip",
             },
         ]
