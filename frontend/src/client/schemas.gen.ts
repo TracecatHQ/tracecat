@@ -6224,6 +6224,9 @@ export const $WorkflowExecutionRead = {
       ],
       title: "Parent Wf Exec Id",
     },
+    trigger_type: {
+      $ref: "#/components/schemas/TriggerType",
+    },
     events: {
       items: {
         $ref: "#/components/schemas/WorkflowExecutionEvent",
@@ -6250,6 +6253,7 @@ export const $WorkflowExecutionRead = {
     "workflow_type",
     "task_queue",
     "history_length",
+    "trigger_type",
     "events",
   ],
   title: "WorkflowExecutionRead",
@@ -6337,6 +6341,9 @@ export const $WorkflowExecutionReadCompact = {
       ],
       title: "Parent Wf Exec Id",
     },
+    trigger_type: {
+      $ref: "#/components/schemas/TriggerType",
+    },
     events: {
       items: {
         $ref: "#/components/schemas/WorkflowExecutionEventCompact",
@@ -6363,6 +6370,7 @@ export const $WorkflowExecutionReadCompact = {
     "workflow_type",
     "task_queue",
     "history_length",
+    "trigger_type",
     "events",
   ],
   title: "WorkflowExecutionReadCompact",
@@ -6450,6 +6458,9 @@ export const $WorkflowExecutionReadMinimal = {
       ],
       title: "Parent Wf Exec Id",
     },
+    trigger_type: {
+      $ref: "#/components/schemas/TriggerType",
+    },
   },
   type: "object",
   required: [
@@ -6460,6 +6471,7 @@ export const $WorkflowExecutionReadMinimal = {
     "workflow_type",
     "task_queue",
     "history_length",
+    "trigger_type",
   ],
   title: "WorkflowExecutionReadMinimal",
 } as const

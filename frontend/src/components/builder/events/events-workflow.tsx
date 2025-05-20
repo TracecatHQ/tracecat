@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react"
 import Link from "next/link"
 import {
+  TriggerType,
   WorkflowExecutionEventCompact,
   WorkflowExecutionEventStatus,
   WorkflowExecutionReadCompact,
@@ -8,7 +9,7 @@ import {
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
-import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import { DotsHorizontalIcon, QuestionMarkIcon } from "@radix-ui/react-icons"
 import {
   AlarmClockCheckIcon,
   AlarmClockOffIcon,
@@ -27,7 +28,10 @@ import {
   LoaderIcon,
   ScanEyeIcon,
   SquareArrowOutUpRightIcon,
+  UserIcon,
+  WebhookIcon,
   WorkflowIcon,
+  ZapIcon,
 } from "lucide-react"
 
 import { executionId } from "@/lib/event-history"
@@ -60,6 +64,32 @@ export function WorkflowEventsHeader({
   const parentExecId = parentExec ? executionId(parentExec) : null
   return (
     <div className="space-y-2 p-4 text-xs text-muted-foreground">
+      {/* Trigger type */}
+      <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <ZapIcon className="size-3" />
+          <span>Trigger type</span>
+        </div>
+        <div className="ml-auto">
+          <Tooltip delayDuration={500}>
+            <TooltipTrigger>
+              <Badge
+                variant="secondary"
+                className="flex items-center gap-1 text-foreground/70"
+              >
+                {getTriggerTypeIcon(execution.trigger_type)}
+                <span>
+                  {execution.trigger_type.charAt(0).toUpperCase() +
+                    execution.trigger_type.slice(1)}
+                </span>
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="font-mono tracking-tight">
+              {execution.id}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-2">
           <CircleDot className="size-3" />
@@ -426,5 +456,45 @@ export function getWorkflowEventIcon(
       return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
     default:
       throw new Error("Invalid status")
+  }
+}
+
+export function getTriggerTypeIcon(
+  triggerType: TriggerType,
+  className?: string
+) {
+  switch (triggerType) {
+    case "manual":
+      return (
+        <div className="relative rounded-full bg-blue-400">
+          <UserIcon
+            className={cn("size-3 scale-[0.8] stroke-white", className)}
+            strokeWidth={2.5}
+          />
+        </div>
+      )
+    case "scheduled":
+      return (
+        <div className="relative rounded-full bg-amber-500">
+          <CalendarSearchIcon
+            className={cn("size-3 scale-[0.7] stroke-white", className)}
+            strokeWidth={2.5}
+          />
+        </div>
+      )
+    case "webhook":
+      return (
+        <div className="relative rounded-full bg-purple-400">
+          <WebhookIcon
+            className={cn("size-3 scale-[0.7] stroke-white", className)}
+            strokeWidth={2.5}
+          />
+        </div>
+      )
+    default:
+      console.error(`Unknown trigger type: ${triggerType}`)
+      return (
+        <QuestionMarkIcon className={cn("size-3 text-gray-600", className)} />
+      )
   }
 }

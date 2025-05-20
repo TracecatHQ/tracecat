@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/tooltip"
 import { WorkflowCanvas } from "@/components/builder/canvas/canvas"
 import { BuilderSidebarEvents } from "@/components/builder/events/events-sidebar"
+import { EventsSidebarToolbar } from "@/components/builder/events/events-sidebar-toolbar"
 import { BuilderPanel } from "@/components/builder/panel/builder-panel"
 
 interface BuilderProps {
@@ -88,9 +89,10 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
           collapsible={true}
           minSize={24}
           maxSize={48}
-          className="h-full"
+          className="relative h-full"
         >
           <BuilderSidebarEvents />
+          <EventsSidebarToolbar />
         </ResizablePanel>
         <TooltipProvider>
           <Tooltip>

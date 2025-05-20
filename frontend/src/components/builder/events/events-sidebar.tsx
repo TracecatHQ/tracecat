@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
+import { $TriggerType, TriggerType } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import {
@@ -13,7 +14,8 @@ import { ImperativePanelHandle } from "react-resizable-panels"
 
 import {
   useCompactWorkflowExecution,
-  useLastManualExecution,
+  useLastExecution,
+  useLocalStorage,
   useOrgAppSettings,
 } from "@/lib/hooks"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
@@ -28,6 +30,9 @@ import {
 } from "@/components/builder/events/events-workflow"
 import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+
+// Define the available trigger types for UI generation
+const AVAILABLE_TRIGGER_TYPES: readonly TriggerType[] = $TriggerType.enum
 
 export type EventsSidebarTabs =
   | "workflow-events"
@@ -54,13 +59,15 @@ export function BuilderSidebarEvents() {
   const [activeTab, setActiveTab] =
     useState<EventsSidebarTabs>("workflow-events")
   const [open, setOpen] = useState(false)
+  const [selectedTriggerTypes, setSelectedTriggerTypes] = useLocalStorage<
+    TriggerType[]
+  >("selected-trigger-types", [...AVAILABLE_TRIGGER_TYPES])
 
-  // Only fetch last execution if we don't have a current execution ID
   const { lastExecution, lastExecutionIsLoading, lastExecutionError } =
-    useLastManualExecution(
-      // Pass undefined if currentExecutionId exists, otherwise pass workflowId if it exists
-      currentExecutionId ? undefined : workflowId || undefined
-    )
+    useLastExecution({
+      workflowId: currentExecutionId ? undefined : workflowId,
+      triggerTypes: selectedTriggerTypes,
+    })
 
   // Determine which execution ID to use
   // Prefer currentExecutionId (from direct trigger) over lastExecution.id (from query)
@@ -72,6 +79,7 @@ export function BuilderSidebarEvents() {
     executionIdUsed: executionId,
     lastExecIsLoading: lastExecutionIsLoading,
     lastExecError: lastExecutionError,
+    selectedTriggers: selectedTriggerTypes,
   })
 
   // Set up the ref methods
@@ -81,7 +89,6 @@ export function BuilderSidebarEvents() {
       sidebarRef.current.getActiveTab = () => activeTab
       sidebarRef.current.setOpen = (newOpen: boolean) => {
         setOpen(newOpen)
-        // If the panel has a collapse method, use it
         if (sidebarRef.current?.collapse && sidebarRef.current?.expand) {
           newOpen ? sidebarRef.current.expand() : sidebarRef.current.collapse()
         }
@@ -223,14 +230,13 @@ function BuilderSidebarEventsList({
       >
         <div className="sticky top-0 z-10 mt-0.5 bg-background">
           <ScrollArea className="w-full whitespace-nowrap rounded-md">
-            <TabsList className="inline-flex h-8 w-full items-center justify-start bg-transparent p-0">
+            <TabsList className="inline-flex h-8 flex-1 items-center justify-start bg-transparent p-0">
               {tabItems.map((tab) => (
                 <TabsTrigger
                   key={tab.value}
                   value={tab.value}
                   className="flex h-full min-w-20 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none sm:min-w-16 md:min-w-20"
                 >
-                  {/* TODO(chris): Please adjust this */}
                   <tab.icon className="mr-2 size-4 sm:mr-1" />
                   <span className="hidden sm:inline">{tab.label}</span>
                   <span className="sm:hidden">{tab.label.slice(0, 4)}</span>

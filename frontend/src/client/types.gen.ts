@@ -1970,6 +1970,7 @@ export type WorkflowExecutionRead = {
    */
   history_length: number
   parent_wf_exec_id?: string | null
+  trigger_type: TriggerType
   /**
    * The events in the workflow execution
    */
@@ -2025,6 +2026,7 @@ export type WorkflowExecutionReadCompact = {
    */
   history_length: number
   parent_wf_exec_id?: string | null
+  trigger_type: TriggerType
   /**
    * Compact events in the workflow execution
    */
@@ -2071,6 +2073,7 @@ export type WorkflowExecutionReadMinimal = {
    */
   history_length: number
   parent_wf_exec_id?: string | null
+  trigger_type: TriggerType
 }
 
 export type WorkflowExecutionTerminate = {

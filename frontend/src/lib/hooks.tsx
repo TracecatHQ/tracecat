@@ -142,6 +142,7 @@ import {
   tagsUpdateTag,
   TagsUpdateTagData,
   triggersUpdateWebhook,
+  TriggerType,
   usersUsersPatchCurrentUser,
   UserUpdate,
   WebhookUpdate,
@@ -737,7 +738,13 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
   }
 }
 
-export function useLastManualExecution(workflowId?: string) {
+export function useLastExecution({
+  workflowId,
+  triggerTypes,
+}: {
+  workflowId?: string | null
+  triggerTypes: TriggerType[]
+}) {
   const { workspaceId } = useWorkspace()
   const {
     data: lastExecution,
@@ -745,14 +752,14 @@ export function useLastManualExecution(workflowId?: string) {
     error: lastExecutionError,
   } = useQuery<WorkflowExecutionReadMinimal | null, TracecatApiError>({
     enabled: !!workflowId,
-    queryKey: ["last-manual-execution", workflowId],
+    queryKey: ["last-execution", workflowId, triggerTypes?.sort().join(",")],
     queryFn: async () => {
       const executions = await workflowExecutionsListWorkflowExecutions({
         workspaceId,
         workflowId,
-        trigger: ["manual"],
         limit: 1,
         userId: "current",
+        trigger: triggerTypes,
       })
 
       return executions.length > 0 ? executions[0] : null

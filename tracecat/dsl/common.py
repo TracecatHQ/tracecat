@@ -20,7 +20,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 from temporalio import workflow
-from temporalio.common import SearchAttributeKey
+from temporalio.common import SearchAttributeKey, TypedSearchAttributes
 
 from tracecat.db.schemas import Action
 from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy, WaitStrategy
@@ -426,13 +426,19 @@ def dsl_execution_error_from_exception(e: BaseException) -> DSLExecutionError:
 
 def get_trigger_type(info: workflow.Info) -> TriggerType:
     search_attributes = info.typed_search_attributes
+    return get_trigger_type_from_search_attr(search_attributes, info.workflow_id)
+
+
+def get_trigger_type_from_search_attr(
+    search_attributes: TypedSearchAttributes, temporal_workflow_id: str
+) -> TriggerType:
     trigger_type = search_attributes.get(
         SearchAttributeKey.for_keyword(TemporalSearchAttr.TRIGGER_TYPE.value)
     )
     if trigger_type is None:
         logger.warning(
             "Couldn't find trigger type, using manual as fallback",
-            workflow_id=info.workflow_id,
+            workflow_id=temporal_workflow_id,
         )
-        trigger_type = TriggerType.MANUAL
+        return TriggerType.MANUAL
     return TriggerType(trigger_type)
