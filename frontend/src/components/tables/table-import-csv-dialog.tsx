@@ -36,9 +36,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { toast } from "@/components/ui/use-toast"
 import { Spinner } from "@/components/loading/spinner"
-import { Table, TableCell, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 const BYTES_PER_MB = 1024 * 1024
 const FILE_SIZE_LIMIT_MB = 5
@@ -289,56 +296,62 @@ interface CsvPreviewProps {
 }
 
 function CsvPreview({ csvData }: CsvPreviewProps) {
-
   return (
     <div className="space-y-4">
       <div className="text-sm font-medium">Preview (first 5 rows)</div>
-      <div className="rounded border max-h-60 overflow-auto">
+      <div className="max-h-60 overflow-auto rounded border">
         <Table className="min-w-full table-fixed">
           <TableHeader>
             <TableRow>
               {csvData.headers.map((header) => {
                 return (
-                <TableHead
-                  key={header}
-                  className="whitespace-nowrap sticky top-0 bg-muted/50 min-w-[160px]"
-                >
-                  {header}
-                </TableHead>
-              )})}
+                  <TableHead
+                    key={header}
+                    className="sticky top-0 min-w-[160px] whitespace-nowrap bg-muted/50"
+                  >
+                    {header}
+                  </TableHead>
+                )
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
             {csvData.preview.map((row, i) => {
               return (
-              <TableRow key={i}>
-                {csvData.headers.map((header) => {
-                  const cellValue = row[header];
-                  const isObject = typeof cellValue === 'object' && cellValue !== null;
-                  let displayValue;
-                  if (isObject) {
-                    const jsonString = JSON.stringify(cellValue);
-                    if (jsonString.length > 30) {
-                      displayValue = jsonString.substring(0, 27) + "...";
+                <TableRow key={i}>
+                  {csvData.headers.map((header) => {
+                    const cellValue = row[header]
+                    const isObject =
+                      typeof cellValue === "object" && cellValue !== null
+                    let displayValue
+                    if (isObject) {
+                      const jsonString = JSON.stringify(cellValue)
+                      if (jsonString.length > 30) {
+                        displayValue = jsonString.substring(0, 27) + "..."
+                      } else {
+                        displayValue = jsonString
+                      }
                     } else {
-                      displayValue = jsonString;
+                      displayValue = String(cellValue || "")
                     }
-                  } else {
-                    displayValue = String(cellValue || '');
-                  }
 
-
-                  return (
-                  <TableCell
-                    key={header}
-                    className="truncate min-w-[160px]"
-                    title={isObject ? JSON.stringify(cellValue) : String(cellValue || '')}
-                  >
-                    {displayValue}
-                  </TableCell>
-                )})}
-              </TableRow>
-            )})}
+                    return (
+                      <TableCell
+                        key={header}
+                        className="min-w-[160px] truncate"
+                        title={
+                          isObject
+                            ? JSON.stringify(cellValue)
+                            : String(cellValue || "")
+                        }
+                      >
+                        {displayValue}
+                      </TableCell>
+                    )
+                  })}
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </div>
