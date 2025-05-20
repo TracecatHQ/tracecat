@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { $TriggerType, TriggerType } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import {
@@ -13,9 +14,12 @@ import { ImperativePanelHandle } from "react-resizable-panels"
 
 import {
   useCompactWorkflowExecution,
-  useLastManualExecution,
+  useLastExecution,
+  useLocalStorage,
   useOrgAppSettings,
 } from "@/lib/hooks"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -28,6 +32,9 @@ import {
 } from "@/components/builder/events/events-workflow"
 import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+
+// Define the available trigger types for UI generation
+const AVAILABLE_TRIGGER_TYPES: readonly TriggerType[] = $TriggerType.enum
 
 export type EventsSidebarTabs =
   | "workflow-events"
@@ -54,13 +61,15 @@ export function BuilderSidebarEvents() {
   const [activeTab, setActiveTab] =
     useState<EventsSidebarTabs>("workflow-events")
   const [open, setOpen] = useState(false)
+  const [selectedTriggerTypes, setSelectedTriggerTypes] = useLocalStorage<
+    TriggerType[]
+  >("selected-trigger-types", [...AVAILABLE_TRIGGER_TYPES])
 
-  // Only fetch last execution if we don't have a current execution ID
   const { lastExecution, lastExecutionIsLoading, lastExecutionError } =
-    useLastManualExecution(
-      // Pass undefined if currentExecutionId exists, otherwise pass workflowId if it exists
-      currentExecutionId ? undefined : workflowId || undefined
-    )
+    useLastExecution({
+      workflowId: currentExecutionId ? undefined : workflowId,
+      triggerTypes: selectedTriggerTypes,
+    })
 
   // Determine which execution ID to use
   // Prefer currentExecutionId (from direct trigger) over lastExecution.id (from query)
@@ -72,6 +81,7 @@ export function BuilderSidebarEvents() {
     executionIdUsed: executionId,
     lastExecIsLoading: lastExecutionIsLoading,
     lastExecError: lastExecutionError,
+    selectedTriggers: selectedTriggerTypes,
   })
 
   // Set up the ref methods
@@ -81,7 +91,6 @@ export function BuilderSidebarEvents() {
       sidebarRef.current.getActiveTab = () => activeTab
       sidebarRef.current.setOpen = (newOpen: boolean) => {
         setOpen(newOpen)
-        // If the panel has a collapse method, use it
         if (sidebarRef.current?.collapse && sidebarRef.current?.expand) {
           newOpen ? sidebarRef.current.expand() : sidebarRef.current.collapse()
         }

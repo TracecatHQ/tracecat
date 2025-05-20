@@ -147,7 +147,11 @@ function getEventHistoryIcon(eventType: WorkflowEventType, className?: string) {
   switch (eventType) {
     /* === Workflow Execution Events === */
     case "WORKFLOW_EXECUTION_STARTED":
-      return <WorkflowIcon className={cn("fill-white stroke-sky-500/80", className)} />
+      return (
+        <WorkflowIcon
+          className={cn("fill-white stroke-sky-500/80", className)}
+        />
+      )
     case "WORKFLOW_EXECUTION_COMPLETED":
       return (
         <WorkflowIcon
@@ -155,7 +159,9 @@ function getEventHistoryIcon(eventType: WorkflowEventType, className?: string) {
         />
       )
     case "WORKFLOW_EXECUTION_FAILED":
-      return <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
+      return (
+        <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
+      )
     case "WORKFLOW_EXECUTION_CANCELED":
       return (
         <CircleMinusIcon
@@ -201,7 +207,9 @@ function getEventHistoryIcon(eventType: WorkflowEventType, className?: string) {
         />
       )
     case "CHILD_WORKFLOW_EXECUTION_FAILED":
-      return <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
+      return (
+        <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
+      )
     /* === Activity Task Events === */
     case "ACTIVITY_TASK_SCHEDULED":
       return (
@@ -220,7 +228,9 @@ function getEventHistoryIcon(eventType: WorkflowEventType, className?: string) {
         />
       )
     case "ACTIVITY_TASK_FAILED":
-      return <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
+      return (
+        <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
+      )
     case "ACTIVITY_TASK_TIMED_OUT":
       return (
         <AlarmClockOffIcon
@@ -236,7 +246,9 @@ function getEventHistoryIcon(eventType: WorkflowEventType, className?: string) {
       )
     case "WORKFLOW_EXECUTION_UPDATE_REJECTED":
       return (
-        <CircleXIcon className={cn("fill-indigo-500/50 stroke-white", className)} />
+        <CircleXIcon
+          className={cn("fill-indigo-500/50 stroke-white", className)}
+        />
       )
     case "WORKFLOW_EXECUTION_UPDATE_COMPLETED":
       return (
