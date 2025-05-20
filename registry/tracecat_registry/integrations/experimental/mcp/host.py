@@ -192,7 +192,6 @@ async def _run_agent(
     agent: Agent,
     *,
     ts: str,
-    user_id: str,
     user_prompt: str | None,
     message_history: list[ModelMessage] | None,
     channel_id: str,
@@ -249,7 +248,6 @@ async def _run_agent(
                                     tool_name=tool_name,
                                     tool_args=tool_args,
                                     tool_call_id=tool_call_id,
-                                    user_id=user_id,
                                     channel_id=channel_id,
                                 )
                                 ts, blocks = msg.ts, msg.blocks
@@ -324,10 +322,7 @@ async def _run_agent(
     namespace="experimental.mcp",
 )
 async def chat_slack(
-    slack_event: Annotated[dict[str, Any] | None, Doc("Slack event (app mentions)")],
-    slack_payload: Annotated[
-        dict[str, Any] | None, Doc("Slack interaction payload (approval buttons)")
-    ],
+    trigger: Annotated[dict[str, Any] | None, Doc("Webhook trigger payload")],
     user_id: Annotated[
         str, Doc("Slack user ID of the user who is interacting with the bot.")
     ],
@@ -344,6 +339,13 @@ async def chat_slack(
     headers = orjson.loads(secrets.get("MCP_HTTP_HEADERS"))
     server = MCPServerHTTP(url, headers=headers, timeout=timeout)
     agent = build_agent(**agent_settings, mcp_servers=[server])
+
+    slack_event = None
+    slack_payload = None
+    if isinstance(trigger, str):
+        slack_payload = orjson.loads(trigger)
+    else:
+        slack_event = trigger
 
     if slack_event is not None:
         # App mentions (can either be a new conversation or a continuation)
