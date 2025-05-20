@@ -35,35 +35,9 @@ Orchestrated using Temporal for scale and reliability.
 
 Deploy a local Tracecat stack using Docker Compose. View full instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/docker-compose).
 
-```bash
-# Download Tracecat
-git clone https://github.com/TracecatHQ/tracecat.git
-
-# Generate .env file
-./env.sh
-
-# Run Tracecat
-docker compose up -d
-```
-
-Go to [http://localhost](http://localhost) to access the UI. Sign-up with your email and password (min 12 characters). The first user to sign-up and login will be the superadmin for the instance. The API docs is accessible at [http://localhost/api/docs](http://localhost/api/docs).
-
 ### Run Tracecat on AWS Fargate
 
 **For advanced users:** deploy a production-ready Tracecat stack on AWS Fargate using Terraform. View full instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/aws-ecs).
-
-```bash
-# Download Terraform files
-git clone https://github.com/TracecatHQ/tracecat.git
-cd tracecat/deployments/aws
-
-# Create and add encryption keys to AWS Secrets Manager
-./scripts/create-aws-secrets.sh
-
-# Run Terraform to deploy Tracecat
-terraform init
-terraform apply
-```
 
 ### Run Tracecat on Kubernetes
 
@@ -89,9 +63,6 @@ Or check out existing open source templates in [our repo](https://github.com/Tra
 ## Open Source vs Enterprise
 
 This repo is available under the AGPL-3.0 license with the exception of the `ee` directory. The `ee` directory contains paid enterprise features requiring a Tracecat Enterprise license.
-
-Tracecat Enteprise builds on top of Tracecat OSS, optimized for mixed ETL and network workloads at enterprise scale.
-Powered by serverless workflow execution (AWS Lambda and Knative) and S3-compatible object storage.
 
 *If you are interested in Tracecat's Enterprise self-hosted or managed Cloud offering, check out [our website](https://tracecat.com) or [book a meeting with us](https://cal.com/team/tracecat).*
 

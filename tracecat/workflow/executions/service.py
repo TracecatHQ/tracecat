@@ -3,9 +3,8 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-import uuid
 from collections import OrderedDict
-from collections.abc import AsyncGenerator, Awaitable
+from collections.abc import AsyncGenerator, Awaitable, Sequence
 from typing import Any
 
 from temporalio.api.enums.v1 import EventType
@@ -26,12 +25,14 @@ from temporalio.service import RPCError
 
 from tracecat import config
 from tracecat.contexts import ctx_role
+from tracecat.db.schemas import Interaction
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
 from tracecat.dsl.models import TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.ee.interactions.models import InteractionInput, InteractionState
+from tracecat.ee.interactions.models import InteractionInput
+from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
@@ -90,10 +91,10 @@ class WorkflowExecutionsService:
     async def query_interaction_states(
         self,
         wf_exec_id: WorkflowExecutionID,
-    ) -> dict[uuid.UUID, InteractionState]:
+    ) -> Sequence[Interaction]:
         """Query the interaction states for a workflow execution."""
-        handle = self.handle(wf_exec_id)
-        return await handle.query(DSLWorkflow.get_interaction_states)
+        async with InteractionService.with_session(role=self.role) as svc:
+            return await svc.list_interactions(wf_exec_id=wf_exec_id)
 
     async def query_executions(
         self,

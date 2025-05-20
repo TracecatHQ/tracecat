@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.35.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.35.2}
     container_name: api
     restart: unless-stopped
     networks:
@@ -55,10 +55,10 @@ services:
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
-      - executor
+      - temporal
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.35.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.35.2}
     restart: unless-stopped
     networks:
       - core
@@ -90,9 +90,12 @@ services:
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "tracecat/dsl/worker.py"]
+    depends_on:
+      - api
+      - temporal
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.35.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.35.2}
     restart: unless-stopped
     networks:
       - core-db
@@ -123,8 +126,11 @@ services:
         "--port",
         "8000",
       ]
+    depends_on:
+      - temporal
+
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.35.0}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.35.2}
     container_name: ui
     restart: unless-stopped
     networks:

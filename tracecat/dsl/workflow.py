@@ -67,11 +67,7 @@ with workflow.unsafe.imports_passed_through():
         validate_trigger_inputs_activity,
     )
     from tracecat.ee.interactions.decorators import maybe_interactive
-    from tracecat.ee.interactions.models import (
-        InteractionInput,
-        InteractionResult,
-        InteractionState,
-    )
+    from tracecat.ee.interactions.models import InteractionInput, InteractionResult
     from tracecat.ee.interactions.service import InteractionManager
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
@@ -178,13 +174,8 @@ class DSLWorkflow:
 
         self.interactions = InteractionManager(self)
 
-    @workflow.query
-    def get_interaction_states(self) -> dict[uuid.UUID, InteractionState]:
-        """Get the interaction states."""
-        return self.interactions.states
-
     @workflow.update
-    def interaction_handler(self, input: InteractionInput) -> InteractionResult:
+    async def interaction_handler(self, input: InteractionInput) -> InteractionResult:
         """Handle interactions from the workflow and return a result."""
         return self.interactions.handle_interaction(input)
 

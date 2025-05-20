@@ -1,5 +1,11 @@
 import { InteractionStatus, WorkflowExecutionReadCompact } from "@/client"
-import { CircleCheck, Ellipsis, Loader2, MessagesSquare } from "lucide-react"
+import {
+  AlarmClockOffIcon,
+  CircleCheck,
+  CircleX,
+  Ellipsis,
+  MessagesSquare,
+} from "lucide-react"
 
 import { cn, undoSlugify } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -16,13 +22,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { Spinner } from "@/components/loading/spinner"
 
 export function WorkflowInteractions({
   execution,
 }: {
   execution: WorkflowExecutionReadCompact
 }) {
-  const states = execution.interaction_states
+  const interactions = execution.interactions || []
   return (
     <ScrollArea className="p-4 pt-0">
       <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -39,8 +46,8 @@ export function WorkflowInteractions({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {states && Object.keys(states).length > 0 ? (
-              Object.entries(states).map(
+            {interactions && Object.keys(interactions).length > 0 ? (
+              Object.entries(interactions).map(
                 ([id, { action_ref, type, status }]) => (
                   <TableRow key={id}>
                     <TableCell className="p-0 text-xs font-medium">
@@ -101,10 +108,14 @@ export function getInteractionStatusIcon(
         />
       )
     case "pending":
+      return <Spinner className={cn("size-3", className)} />
+    case "error":
+      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
+    case "timed_out":
       return (
-        <Loader2
-          className={cn("size-3 animate-spin stroke-blue-500/50", className)}
-          strokeWidth={3}
+        <AlarmClockOffIcon
+          className={cn("!size-3 stroke-rose-500", className)}
+          strokeWidth={2.5}
         />
       )
     case "completed":
