@@ -13,6 +13,7 @@ from typing_extensions import Doc
 
 from pydantic_ai.mcp import MCPServerHTTP
 from pydantic_ai.agent import Agent
+from pydantic_ai._agent_graph import AgentNode
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -295,7 +296,7 @@ async def _process_model_request_node(
     blocks: list[dict[str, Any]],
     channel_id: str,
     thread_ts: str,
-) -> tuple[list[dict[str, Any]], str, list[dict[str, Any]]]:
+) -> tuple[PartStartEvent | PartDeltaEvent | None, str, list[dict[str, Any]]]:
     """Process a model request node."""
     log = logger.bind(
         ts=ts,
@@ -339,22 +340,20 @@ async def _process_model_request_node(
         num_blocks=len(blocks),
     )
     BLOCKS_CACHE.set(ts, blocks)
-    messages = _add_assistant_message(thread_ts, "".join(message_parts))
-    return messages, ts, blocks
+    _add_assistant_message(thread_ts, "".join(message_parts))
+    return event, ts, blocks
 
 
 async def _process_call_tools_node(
     node,
     run,
+    is_approved: bool,
     ts: str,
     blocks: list[dict[str, Any]],
     channel_id: str,
     thread_ts: str,
 ) -> tuple[
-    FunctionToolCallEvent | FunctionToolResultEvent | None,
-    list[dict[str, Any]],
-    str,
-    list[dict[str, Any]],
+    FunctionToolCallEvent | FunctionToolResultEvent | None, str, list[dict[str, Any]]
 ]:
     log = logger.bind(
         ts=ts,
@@ -370,29 +369,34 @@ async def _process_call_tools_node(
                 tool_name = event.part.tool_name
                 tool_args = event.part.args
                 tool_call_id = event.call_id
-                msg = await _request_tool_approval(
-                    blocks=blocks,
-                    ts=ts,
-                    tool_name=tool_name,
-                    tool_args=tool_args,
-                    tool_call_id=tool_call_id,
-                    channel_id=channel_id,
-                )
-                ts, blocks = msg.ts, msg.blocks
+                if not is_approved:
+                    msg = await _request_tool_approval(
+                        blocks=blocks,
+                        ts=ts,
+                        tool_name=tool_name,
+                        tool_args=tool_args,
+                        tool_call_id=tool_call_id,
+                        channel_id=channel_id,
+                    )
+                    ts, blocks = msg.ts, msg.blocks
 
-                # Checkpoint
-                logger.info(
-                    "Caching Slack blocks",
-                    ts=ts,
-                    blocks=blocks,
-                    num_blocks=len(blocks),
+                    # Checkpoint
+                    logger.info(
+                        "Caching Slack blocks",
+                        ts=ts,
+                        blocks=blocks,
+                        num_blocks=len(blocks),
+                    )
+                    BLOCKS_CACHE.set(ts, blocks)
+                    TOOL_CALLS_CACHE.set(thread_ts, tool_call_id)
+                    return event, ts, blocks
+
+                _add_tool_call_request(
+                    thread_ts,
+                    tool_name,
+                    tool_args,
+                    tool_call_id,
                 )
-                BLOCKS_CACHE.set(ts, blocks)
-                TOOL_CALLS_CACHE.set(thread_ts, tool_call_id)
-                messages = _add_tool_call_request(
-                    thread_ts, tool_name, tool_args, tool_call_id
-                )
-                return event, messages, ts, blocks
 
             elif isinstance(event, FunctionToolResultEvent) and isinstance(
                 event.result, ToolReturnPart
@@ -423,33 +427,36 @@ async def _process_call_tools_node(
                 )
                 BLOCKS_CACHE.set(ts, blocks)
                 TOOL_CALLS_CACHE.delete(thread_ts)
-                messages = _add_tool_call_result(
+                _add_tool_call_result(
                     thread_ts,
                     tool_name,
                     tool_result,
                     tool_call_id,
                 )
-    return event, messages, ts, blocks
+    return event, ts, blocks
 
 
 async def _run_agent(
     agent: Agent,
     *,
     ts: str,
-    user_prompt: str | None,
+    is_approved: bool,
+    user_prompt: str,
     message_history: list[ModelMessage] | None,
     channel_id: str,
     thread_ts: str,
-) -> list[dict[str, Any]]:
+) -> list[AgentNode]:
     log = logger.bind(
         ts=ts,
         thread_ts=thread_ts,
         channel_id=channel_id,
     )
     log.info(
-        "Starting agent run", user_prompt=user_prompt, message_history=message_history
+        "🤖 Starting agent run",
+        user_prompt=user_prompt,
+        message_history=message_history,
     )
-    messages: list[dict[str, Any]] = []
+    new_nodes = []
     async with agent.run_mcp_servers():
         async with agent.iter(
             user_prompt=user_prompt, message_history=message_history
@@ -461,7 +468,7 @@ async def _run_agent(
                 )
                 if Agent.is_model_request_node(node):
                     log.info("Processing model request node", node=node)
-                    messages, ts, blocks = await _process_model_request_node(
+                    event, ts, blocks = await _process_model_request_node(
                         node=node,
                         run=run,
                         ts=ts,
@@ -472,9 +479,10 @@ async def _run_agent(
 
                 elif Agent.is_call_tools_node(node):
                     log.info("Processing call tools node", node=node)
-                    event, messages, ts, blocks = await _process_call_tools_node(
+                    event, ts, blocks = await _process_call_tools_node(
                         node=node,
                         run=run,
+                        is_approved=is_approved,
                         ts=ts,
                         blocks=blocks,
                         channel_id=channel_id,
@@ -482,7 +490,6 @@ async def _run_agent(
                     )
                     if isinstance(event, FunctionToolCallEvent):
                         log.info("Request human-in-the-loop for tool call", event=event)
-                        return messages
 
                 elif Agent.is_end_node(node):
                     blocks = BLOCKS_CACHE.get(ts, [])  # type: ignore
@@ -491,8 +498,8 @@ async def _run_agent(
                         ts=ts,
                         channel_id=channel_id,
                     )
-
-    return messages
+                new_nodes.append(node)
+    return new_nodes
 
 
 @registry.register(
@@ -563,6 +570,7 @@ async def chat_slack(
 
         # Add user message to message history
         _add_user_message(thread_ts, user_prompt)
+        is_approved = False
 
     elif slack_payload is not None:
         # Approval buttons (assume the user has already started a conversation)
@@ -571,7 +579,7 @@ async def chat_slack(
         )
         thread_ts = slack_interaction_payload.thread_ts
         ts = slack_interaction_payload.ts
-        user_prompt = None
+        user_prompt = "Run the tool."
         message_history = _get_message_history(thread_ts)
 
         # Get cached blocks and tool call ID
@@ -601,6 +609,7 @@ async def chat_slack(
             tool_call_id=tool_call_id,
             channel_id=channel_id,
         )
+        is_approved = slack_interaction_payload.action_value == "run"
 
     else:
         raise ValueError(
@@ -609,9 +618,10 @@ async def chat_slack(
 
     # Run the agent and handle its response
     try:
-        messages = await _run_agent(
+        new_nodes = await _run_agent(
             agent=agent,
             ts=ts,
+            is_approved=is_approved,
             user_prompt=user_prompt,
             message_history=message_history,
             channel_id=channel_id,
@@ -625,7 +635,7 @@ async def chat_slack(
         else:
             raise e
 
-    return messages
+    return to_jsonable_python(new_nodes)
 
 
 async def _post_message(
@@ -791,15 +801,15 @@ async def _update_tool_approval(
     channel_id: str,
 ):
     """Update the message with the result of the tool call."""
-    blocks = []
+    updated_blocks = []
     for block in blocks:
-        if block["block_id"] == f"tool_call:{tool_call_id}":
+        if block.get("block_id") == f"tool_call:{tool_call_id}":
             block = {
                 "type": "section",
                 "block_id": f"tool_call:{tool_call_id}",
                 "text": {"type": "mrkdwn", "text": f"✅ {tool_result}"},
             }
-        blocks.append(block)
+        updated_blocks.append(block)
 
     response = await call_method(
         "chat_update",
@@ -807,7 +817,7 @@ async def _update_tool_approval(
             "channel": channel_id,
             "ts": ts,
             "text": "Tool call completed",
-            "blocks": blocks,
+            "blocks": updated_blocks,
         },
     )
     return SlackMessage(ts=response["ts"], blocks=blocks)
