@@ -32,11 +32,7 @@ from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatValidationError,
 )
-from tracecat.validation.models import (
-    DSLValidationResult,
-    ValidationDetail,
-    ValidationResult,
-)
+from tracecat.validation.models import ValidationDetail, ValidationResult
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.models import (
@@ -210,7 +206,7 @@ class WorkflowsManagementService(BaseService):
     ) -> WorkflowDSLCreateResponse:
         """Create a new workflow from a Tracecat DSL data object."""
 
-        construction_errors: list[DSLValidationResult] = []
+        construction_errors: list[ValidationResult] = []
         try:
             # Convert the workflow into a WorkflowDefinition
             # XXX: When we commit from the workflow, we have action IDs
@@ -219,21 +215,19 @@ class WorkflowsManagementService(BaseService):
         except TracecatValidationError as e:
             self.logger.info("Custom validation error", error=e)
             construction_errors.append(
-                DSLValidationResult(status="error", msg=str(e), detail=e.detail)
+                ValidationResult(status="error", msg=str(e), detail=e.detail)
             )
         except ValidationError as e:
             self.logger.info("Pydantic validation error", error=e)
             construction_errors.append(
-                DSLValidationResult(
+                ValidationResult(
                     status="error",
                     msg=str(e),
                     detail=ValidationDetail.list_from_pydantic(e),
                 )
             )
         if construction_errors:
-            return WorkflowDSLCreateResponse(
-                errors=[ValidationResult.new(e) for e in construction_errors]
-            )
+            return WorkflowDSLCreateResponse(errors=construction_errors)
 
         if not skip_secret_validation:
             if val_errors := await validate_dsl(session=self.session, dsl=dsl):

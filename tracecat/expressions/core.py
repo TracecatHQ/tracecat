@@ -79,9 +79,8 @@ class Expression:
         self,
         visitor: BaseExprValidator,
         *,
-        loc: tuple[str | int, ...] | None = None,
+        loc: str | None = None,
         exclude: set[ExprType] | None = None,
-        ref: str | None = None,
     ) -> None:
         """Validate the expression."""
         # 1) Parse the expression into AST
@@ -94,9 +93,7 @@ class Expression:
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
-                msg=f"Error parsing expression `{self._expr}`\n\n{e}",
-                ref=ref,
-                expression=self._expr,
+                msg=f"[{loc or 'parser'}]\n\nError parsing expression `{self._expr}`\n\n{e}",
             )
 
         # 2) Validate the AST
@@ -105,9 +102,7 @@ class Expression:
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
-                msg=f"Error validating expression `{self._expr}`\n\n{e}",
-                ref=ref,
-                expression=self._expr,
+                msg=f"[{loc or 'validator'}]\n\nError validating expression `{self._expr}`\n\n{e}",
             )
 
     def extract(self, visitor: ExprExtractor) -> Mapping[ExprContext, set[str]]:

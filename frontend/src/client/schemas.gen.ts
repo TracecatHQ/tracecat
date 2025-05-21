@@ -502,71 +502,6 @@ export const $ActionUpdate = {
   title: "ActionUpdate",
 } as const
 
-export const $ActionValidationResult = {
-  properties: {
-    type: {
-      type: "string",
-      const: "action",
-      title: "Type",
-      default: "action",
-    },
-    status: {
-      type: "string",
-      enum: ["success", "error"],
-      title: "Status",
-    },
-    msg: {
-      type: "string",
-      title: "Msg",
-      default: "",
-    },
-    detail: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/ValidationDetail",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Detail",
-    },
-    ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Ref",
-    },
-    action_type: {
-      type: "string",
-      title: "Action Type",
-    },
-    validated_args: {
-      anyOf: [
-        {
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Validated Args",
-    },
-  },
-  type: "object",
-  required: ["status", "action_type"],
-  title: "ActionValidationResult",
-  description: "Result of validating a registry action's arguments.",
-} as const
-
 export const $AppSettingsRead = {
   properties: {
     app_registry_validation_enabled: {
@@ -1769,56 +1704,6 @@ export const $DSLRunArgs = {
   title: "DSLRunArgs",
 } as const
 
-export const $DSLValidationResult = {
-  properties: {
-    type: {
-      type: "string",
-      const: "dsl",
-      title: "Type",
-      default: "dsl",
-    },
-    status: {
-      type: "string",
-      enum: ["success", "error"],
-      title: "Status",
-    },
-    msg: {
-      type: "string",
-      title: "Msg",
-      default: "",
-    },
-    detail: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/ValidationDetail",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Detail",
-    },
-    ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Ref",
-    },
-  },
-  type: "object",
-  required: ["status"],
-  title: "DSLValidationResult",
-  description: "Result of validating a generic input.",
-} as const
-
 export const $EditorActionRead = {
   properties: {
     type: {
@@ -2117,91 +2002,6 @@ export const $ExprContext = {
   ],
   title: "ExprContext",
   description: "Expression contexts.",
-} as const
-
-export const $ExprType = {
-  type: "string",
-  enum: [
-    "generic",
-    "action",
-    "secret",
-    "function",
-    "input",
-    "env",
-    "local_vars",
-    "literal",
-    "typecast",
-    "iterator",
-    "ternary",
-    "trigger",
-    "template_action_step",
-    "template_action_input",
-  ],
-  title: "ExprType",
-} as const
-
-export const $ExprValidationResult = {
-  properties: {
-    type: {
-      type: "string",
-      const: "expression",
-      title: "Type",
-      default: "expression",
-    },
-    status: {
-      type: "string",
-      enum: ["success", "error"],
-      title: "Status",
-    },
-    msg: {
-      type: "string",
-      title: "Msg",
-      default: "",
-    },
-    detail: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/ValidationDetail",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Detail",
-    },
-    ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Ref",
-    },
-    expression: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Expression",
-    },
-    expression_type: {
-      $ref: "#/components/schemas/ExprType",
-    },
-  },
-  type: "object",
-  required: ["status", "expression_type"],
-  title: "ExprValidationResult",
-  description: "Result of visiting an expression node.",
 } as const
 
 export const $FolderDirectoryItem = {
@@ -4588,69 +4388,6 @@ Secret types
 - \`oauth2\`: OAuth2 Client Credentials (TBC)`,
 } as const
 
-export const $SecretValidationDetail = {
-  properties: {
-    environment: {
-      type: "string",
-      title: "Environment",
-    },
-    secret_name: {
-      type: "string",
-      title: "Secret Name",
-    },
-  },
-  type: "object",
-  required: ["environment", "secret_name"],
-  title: "SecretValidationDetail",
-  description: "Detail of a secret validation result.",
-} as const
-
-export const $SecretValidationResult = {
-  properties: {
-    type: {
-      type: "string",
-      const: "secret",
-      title: "Type",
-      default: "secret",
-    },
-    status: {
-      type: "string",
-      enum: ["success", "error"],
-      title: "Status",
-    },
-    msg: {
-      type: "string",
-      title: "Msg",
-      default: "",
-    },
-    detail: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/SecretValidationDetail",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Ref",
-    },
-  },
-  type: "object",
-  required: ["status"],
-  title: "SecretValidationResult",
-  description: "Result of validating credentials.",
-} as const
-
 export const $SessionRead = {
   properties: {
     id: {
@@ -5261,84 +4998,6 @@ export const $TemplateActionDefinition = {
   title: "TemplateActionDefinition",
 } as const
 
-export const $TemplateActionExprValidationResult = {
-  properties: {
-    type: {
-      type: "string",
-      const: "action_template",
-      title: "Type",
-      default: "action_template",
-    },
-    status: {
-      type: "string",
-      enum: ["success", "error"],
-      title: "Status",
-    },
-    msg: {
-      type: "string",
-      title: "Msg",
-      default: "",
-    },
-    detail: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/ValidationDetail",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Detail",
-    },
-    ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Ref",
-    },
-    expression: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Expression",
-    },
-    expression_type: {
-      $ref: "#/components/schemas/ExprType",
-    },
-    loc: {
-      items: {
-        anyOf: [
-          {
-            type: "string",
-          },
-          {
-            type: "integer",
-          },
-        ],
-      },
-      type: "array",
-      title: "Loc",
-    },
-  },
-  type: "object",
-  required: ["status", "expression_type", "loc"],
-  title: "TemplateActionExprValidationResult",
-  description: "Result of visiting an expression node.",
-} as const
-
 export const $TemplateActionValidationErrorType = {
   type: "string",
   enum: [
@@ -5700,35 +5359,47 @@ export const $ValidationError = {
 } as const
 
 export const $ValidationResult = {
-  oneOf: [
-    {
-      $ref: "#/components/schemas/DSLValidationResult",
+  properties: {
+    status: {
+      type: "string",
+      enum: ["success", "error"],
+      title: "Status",
     },
-    {
-      $ref: "#/components/schemas/SecretValidationResult",
+    msg: {
+      type: "string",
+      title: "Msg",
+      default: "",
     },
-    {
-      $ref: "#/components/schemas/ExprValidationResult",
+    detail: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ValidationDetail",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
     },
-    {
-      $ref: "#/components/schemas/TemplateActionExprValidationResult",
-    },
-    {
-      $ref: "#/components/schemas/ActionValidationResult",
-    },
-  ],
-  title: "ValidationResult",
-  discriminator: {
-    propertyName: "type",
-    mapping: {
-      action: "#/components/schemas/ActionValidationResult",
-      action_template:
-        "#/components/schemas/TemplateActionExprValidationResult",
-      dsl: "#/components/schemas/DSLValidationResult",
-      expression: "#/components/schemas/ExprValidationResult",
-      secret: "#/components/schemas/SecretValidationResult",
+    ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ref",
     },
   },
+  type: "object",
+  required: ["status"],
+  title: "ValidationResult",
+  description: "Base class for validation results.",
 } as const
 
 export const $WaitStrategy = {

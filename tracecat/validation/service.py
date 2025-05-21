@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from itertools import chain
 from typing import Any
 
@@ -10,7 +10,7 @@ from tracecat_registry import RegistrySecret
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryAction
-from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs
+from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs, context_locator
 from tracecat.dsl.enums import PlatformAction
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
@@ -22,9 +22,8 @@ from tracecat.secrets.service import SecretsService
 from tracecat.types.exceptions import RegistryValidationError, TracecatNotFoundError
 from tracecat.validation.common import json_schema_to_pydantic, secret_validator
 from tracecat.validation.models import (
-    ActionValidationResult,
     ExprValidationResult,
-    SecretValidationDetail,
+    RegistryValidationResult,
     SecretValidationResult,
     ValidationDetail,
     ValidationResult,
@@ -61,11 +60,11 @@ async def validate_single_secret(
             return [
                 SecretValidationResult(
                     status="error",
-                    msg=msg,
-                    detail=SecretValidationDetail(
-                        environment=environment,
-                        secret_name=registry_secret.name,
-                    ),
+                    msg=f"[{action.action}]\n\n{msg}",
+                    detail={
+                        "environment": environment,
+                        "secret_name": registry_secret.name,
+                    },
                 )
             ]
         # If the secret is optional, we just log and move on
@@ -154,9 +153,9 @@ async def validate_registry_action_args(
     *,
     session: AsyncSession,
     action_name: str,
-    action_ref: str,
     args: Mapping[str, Any],
-) -> ActionValidationResult:
+    ref: str | None = None,
+) -> RegistryValidationResult:
     """Validate arguments against a UDF spec."""
     # 1. read the schema from the db
     # 2. construct a pydantic model from the schema
@@ -184,16 +183,15 @@ async def validate_registry_action_args(
             ) from e
         except Exception as e:
             raise RegistryValidationError(
-                f"Unexpected error when validating input arguments for action {action_name!r}. {e}",
+                f"Unexpected error when validating input arguments for UDF {action_name!r}. {e}",
                 key=action_name,
             ) from e
 
-        return ActionValidationResult(
+        return RegistryValidationResult(
             status="success",
             msg="Arguments are valid.",
             validated_args=validated_args,
-            ref=action_ref,
-            action_type=action_name,
+            ref=ref,
         )
     except RegistryValidationError as e:
         if isinstance(e.err, ValidationError):
@@ -206,35 +204,32 @@ async def validate_registry_action_args(
             error=e,
             detail=detail,
         )
-        return ActionValidationResult(
+        return RegistryValidationResult(
             status="error",
             msg=f"Error validating action {action_name}",
             detail=detail,
-            ref=action_ref,
-            action_type=action_name,
+            ref=ref,
         )
     except KeyError:
-        return ActionValidationResult(
+        return RegistryValidationResult(
             status="error",
-            msg=f"Could not find action {action_name!r} in registry. Is this action registered?",
-            ref=action_ref,
-            action_type=action_name,
+            msg=f"Could not find action {action_name!r} in registry. Is this UDF registered?",
+            ref=ref,
         )
 
 
-async def validate_dsl_actions(
+async def validate_dsl_args(
     *,
     session: AsyncSession,
     dsl: DSLInput,
-) -> list[ActionValidationResult]:
+) -> list[ValidationResult]:
     """Validate arguemnts to the DSLInput.
 
     Check if the input arguemnts are either a templated expression or the correct type.
     """
-    val_res: list[ActionValidationResult] = []
+    val_res: list[ValidationResult] = []
     # Validate the actions
     for act_stmt in dsl.actions:
-        details: list[ValidationDetail] = []
         # We validate the action args, but keep them as is
         # These will be coerced properly when the workflow is run
         # We store the DSL as is to ensure compatibility with with string reprs
@@ -242,17 +237,19 @@ async def validate_dsl_actions(
             session=session,
             action_name=act_stmt.action,
             args=act_stmt.args,
-            action_ref=act_stmt.ref,
+            ref=act_stmt.ref,
         )
-        if result.status == "error" and result.detail:
-            details.extend(result.detail)
+        if result.status == "error":
+            result.msg = f"[{context_locator(act_stmt, 'inputs')}]\n\n{result.msg}"
+            val_res.append(result)
         # Validate `run_if`
         if act_stmt.run_if and not is_template_only(act_stmt.run_if):
-            details.append(
-                ValidationDetail(
-                    type="action",
-                    msg=f"`run_if` must only contain an expression. Got {act_stmt.run_if!r}.",
-                    loc=(act_stmt.ref, "run_if"),
+            val_res.append(
+                ValidationResult(
+                    status="error",
+                    msg=f"[{context_locator(act_stmt, 'run_if')}]\n\n"
+                    "`run_if` must only contain an expression.",
+                    ref=act_stmt.ref,
                 )
             )
         # Validate `for_each`
@@ -260,43 +257,39 @@ async def validate_dsl_actions(
         match act_stmt.for_each:
             case str():
                 if not is_template_only(act_stmt.for_each):
-                    details.append(
-                        ValidationDetail(
-                            type="action",
-                            msg=f"`for_each` must be an expression or list of expressions. Got {act_stmt.for_each!r}.",
-                            loc=(act_stmt.ref, "for_each"),
+                    val_res.append(
+                        ValidationResult(
+                            status="error",
+                            msg=f"[{context_locator(act_stmt, 'for_each')}]\n\n"
+                            "`for_each` must be an expression or list of expressions.",
+                            ref=act_stmt.ref,
                         )
                     )
             case list():
                 for expr in act_stmt.for_each:
                     if not is_template_only(expr) or not isinstance(expr, str):
-                        details.append(
-                            ValidationDetail(
-                                type="action",
-                                msg=f"`for_each` must be an expression or list of expressions. Got {act_stmt.for_each!r}.",
-                                loc=(act_stmt.ref, "for_each"),
+                        val_res.append(
+                            ValidationResult(
+                                status="error",
+                                msg=f"[{context_locator(act_stmt, 'for_each')}]\n\n"
+                                "`for_each` must be an expression or list of expressions.",
+                                ref=act_stmt.ref,
                             )
                         )
             case None:
                 pass
             case _:
-                details.append(
-                    ValidationDetail(
-                        type="action",
-                        msg=f"Invalid `for_each` of type {type(act_stmt.for_each)}.",
-                        loc=(act_stmt.ref, "for_each"),
+                val_res.append(
+                    ValidationResult(
+                        status="error",
+                        msg=(
+                            f"[{context_locator(act_stmt, 'for_each')}]\n\n"
+                            f"Invalid `for_each` of type {type(act_stmt.for_each)}."
+                        ),
+                        ref=act_stmt.ref,
                     )
                 )
-        if details:
-            val_res.append(
-                ActionValidationResult(
-                    status="error",
-                    msg=result.msg,
-                    ref=act_stmt.ref,
-                    detail=details,
-                    action_type=act_stmt.action,
-                )
-            )
+
     # Validate `returns`
     return val_res
 
@@ -312,26 +305,23 @@ async def validate_dsl_expressions(
     )
 
     validators = {ExprType.SECRET: secret_validator}
-    results: list[ExprValidationResult] = []
     # This batches all the coros inside the taskgroup
     # and launches them concurrently on __aexit__
-    for act_stmt in dsl.actions:
-        async with GatheringTaskGroup() as tg:
-            # New visitor for each action
-            visitor = ExprValidator(
-                task_group=tg,
-                validation_context=validation_context,
-                validators=validators,  # type: ignore
-                # Validate against the specified environment
-                environment=dsl.config.environment,
-            )
+    async with GatheringTaskGroup() as tg:
+        visitor = ExprValidator(
+            task_group=tg,
+            validation_context=validation_context,
+            validators=validators,  # type: ignore
+            # Validate against the specified environment
+            environment=dsl.config.environment,
+        )
+        for act_stmt in dsl.actions:
             # Validate action args
             for expr in extract_expressions(act_stmt.args):
                 expr.validate(
                     visitor,
-                    loc=(act_stmt.ref, "inputs"),
+                    loc=context_locator(act_stmt, "inputs"),
                     exclude=exclude,
-                    ref=act_stmt.ref,
                 )
 
             # Validate `run_if`
@@ -340,9 +330,8 @@ async def validate_dsl_expressions(
                 for expr in extract_expressions(act_stmt.run_if):
                     expr.validate(
                         visitor,
-                        loc=(act_stmt.ref, "run_if"),
+                        loc=context_locator(act_stmt, "run_if"),
                         exclude=exclude,
-                        ref=act_stmt.ref,
                     )
 
             # Validate `for_each`
@@ -354,22 +343,10 @@ async def validate_dsl_expressions(
                     for expr in extract_expressions(for_each_stmt):
                         expr.validate(
                             visitor,
-                            loc=(act_stmt.ref, "for_each"),
+                            loc=context_locator(act_stmt, "for_each"),
                             exclude=exclude,
-                            ref=act_stmt.ref,
                         )
-        if details := visitor.details:
-            results.append(
-                ExprValidationResult(
-                    status="error",
-                    msg=f"Found {len(details)} expression errors",
-                    detail=details,
-                    ref=act_stmt.ref,
-                    expression_type=ExprType.GENERIC,
-                )
-            )
-
-    return results
+    return visitor.errors()
 
 
 async def validate_dsl(
@@ -388,15 +365,15 @@ async def validate_dsl(
     if not any((validate_args, validate_expressions, validate_secrets)):
         return set()
 
-    iterables: list[ValidationResult] = []
+    iterables: list[Sequence[ValidationResult]] = []
 
     # Tier 2: Action Args validation
     if validate_args:
-        dsl_args_errs = await validate_dsl_actions(session=session, dsl=dsl)
+        dsl_args_errs = await validate_dsl_args(session=session, dsl=dsl)
         logger.debug(
             f"{len(dsl_args_errs)} DSL args validation errors", errs=dsl_args_errs
         )
-        iterables.extend(ValidationResult.new(err) for err in dsl_args_errs)
+        iterables.append(dsl_args_errs)
 
     # Tier 3: Expression validation
     # When we reach this point, the inputs have been validated properly (ignoring templated expressions)
@@ -409,7 +386,7 @@ async def validate_dsl(
         logger.debug(
             f"{len(expr_errs)} DSL expression validation errors", errs=expr_errs
         )
-        iterables.extend(ValidationResult.new(err) for err in expr_errs)
+        iterables.append(expr_errs)
 
     # For secrets we also need to check if any used actions have undefined secrets
     if validate_secrets:
@@ -418,6 +395,6 @@ async def validate_dsl(
             f"{len(udf_missing_secrets)} DSL secret validation errors",
             errs=udf_missing_secrets,
         )
-        iterables.extend(ValidationResult.new(err) for err in udf_missing_secrets)
+        iterables.append(udf_missing_secrets)
 
-    return set(iterables)
+    return set(chain(*iterables))

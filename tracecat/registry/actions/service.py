@@ -453,9 +453,9 @@ async def validate_action_template(
     for step in defn.steps:
         for field, value in step.args.items():
             for expr in extract_expressions(value):
-                expr.validate(validator, loc=("steps", step.ref, "args", field))
+                expr.validate(validator, loc=f"steps.{step.ref}.args.{field}")
     for expr in extract_expressions(defn.returns):
-        expr.validate(validator, loc=("returns",))
+        expr.validate(validator, loc="returns")
     expr_errs = set(validator.errors())
     log.warning("Expression validation errors", errors=expr_errs)
     val_errs.extend(

@@ -135,23 +135,6 @@ export type ActionUpdate = {
 }
 
 /**
- * Result of validating a registry action's arguments.
- */
-export type ActionValidationResult = {
-  type?: "action"
-  status: "success" | "error"
-  msg?: string
-  detail?: Array<ValidationDetail> | null
-  ref?: string | null
-  action_type: string
-  validated_args?: {
-    [key: string]: unknown
-  } | null
-}
-
-export type status = "success" | "error"
-
-/**
  * Settings for the app.
  */
 export type AppSettingsRead = {
@@ -577,17 +560,6 @@ export type DSLRunArgs = {
   schedule_id?: string | null
 }
 
-/**
- * Result of validating a generic input.
- */
-export type DSLValidationResult = {
-  type?: "dsl"
-  status: "success" | "error"
-  msg?: string
-  detail?: Array<ValidationDetail> | null
-  ref?: string | null
-}
-
 export type EditorActionRead = {
   type: string
   ref: string
@@ -664,35 +636,6 @@ export type ExprContext =
   | "var"
   | "inputs"
   | "steps"
-
-export type ExprType =
-  | "generic"
-  | "action"
-  | "secret"
-  | "function"
-  | "input"
-  | "env"
-  | "local_vars"
-  | "literal"
-  | "typecast"
-  | "iterator"
-  | "ternary"
-  | "trigger"
-  | "template_action_step"
-  | "template_action_input"
-
-/**
- * Result of visiting an expression node.
- */
-export type ExprValidationResult = {
-  type?: "expression"
-  status: "success" | "error"
-  msg?: string
-  detail?: Array<ValidationDetail> | null
-  ref?: string | null
-  expression?: string | null
-  expression_type: ExprType
-}
 
 export type FolderDirectoryItem = {
   id: string
@@ -1339,7 +1282,7 @@ export type ScheduleCreate = {
   timeout?: number
 }
 
-export type status2 = "online" | "offline"
+export type status = "online" | "offline"
 
 export type ScheduleSearch = {
   workflow_id?: string | null
@@ -1446,25 +1389,6 @@ export type SecretUpdate = {
     [key: string]: string
   } | null
   environment?: string | null
-}
-
-/**
- * Detail of a secret validation result.
- */
-export type SecretValidationDetail = {
-  environment: string
-  secret_name: string
-}
-
-/**
- * Result of validating credentials.
- */
-export type SecretValidationResult = {
-  type?: "secret"
-  status: "success" | "error"
-  msg?: string
-  detail?: SecretValidationDetail | null
-  ref?: string | null
 }
 
 export type SessionRead = {
@@ -1725,20 +1649,6 @@ export type TemplateActionDefinition = {
       }
 }
 
-/**
- * Result of visiting an expression node.
- */
-export type TemplateActionExprValidationResult = {
-  type?: "action_template"
-  status: "success" | "error"
-  msg?: string
-  detail?: Array<ValidationDetail> | null
-  ref?: string | null
-  expression?: string | null
-  expression_type: ExprType
-  loc: Array<string | number>
-}
-
 export type TemplateActionValidationErrorType =
   | "ACTION_NOT_FOUND"
   | "ACTION_NAME_CONFLICT"
@@ -1813,12 +1723,17 @@ export type ValidationError = {
   type: string
 }
 
-export type ValidationResult =
-  | DSLValidationResult
-  | SecretValidationResult
-  | ExprValidationResult
-  | TemplateActionExprValidationResult
-  | ActionValidationResult
+/**
+ * Base class for validation results.
+ */
+export type ValidationResult = {
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+}
+
+export type status2 = "success" | "error"
 
 export type WaitStrategy = "wait" | "detach"
 
@@ -3409,7 +3324,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3422,7 +3337,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

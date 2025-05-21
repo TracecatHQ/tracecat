@@ -18,8 +18,8 @@ def apply_masks_object[T](obj: T, masks: Iterable[str]) -> T:
         case str():
             return apply_masks(obj, masks)
         case Sequence():
-            return type(obj)(apply_masks_object(item, masks) for item in obj)  # type: ignore
+            return type(obj)(apply_masks_object(item, masks) for item in obj)
         case Mapping():
-            return type(obj)((k, apply_masks_object(v, masks)) for k, v in obj.items())  # type: ignore
+            return type(obj)((k, apply_masks_object(v, masks)) for k, v in obj.items())
         case _:
             return obj

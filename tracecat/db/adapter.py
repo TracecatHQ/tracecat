@@ -140,10 +140,7 @@ class SQLModelUserDatabaseAsync(Generic[UP, ID], BaseUserDatabase[UP, ID]):
         return user
 
     async def update_oauth_account(
-        self,
-        user: UP,
-        oauth_account: OAP,  # type: ignore
-        update_dict: dict[str, Any],
+        self, user: UP, oauth_account: OAP, update_dict: dict[str, Any]
     ) -> UP:
         if self.oauth_account_model is None:
             raise NotImplementedError()

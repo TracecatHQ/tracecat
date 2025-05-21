@@ -170,7 +170,9 @@ class ExprEvaluator(Transformer):
         )
         fn = functions.FUNCTION_MAPPING.get(fn_name)
         if fn is None:
-            raise TracecatExpressionError(f"Unknown function {fn_name!r}")
+            raise TracecatExpressionError(
+                f"Unknown function {fn_name!r}. ({is_mapped=})"
+            )
         final_fn = fn.map if is_mapped else fn
         result = final_fn(*fn_args)
         self.logger.trace(f"Function {fn_name!r} returned {result!r}")

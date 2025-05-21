@@ -25,7 +25,6 @@ from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.validation.models import (
     ExprValidationResult,
     TemplateActionExprValidationResult,
-    ValidationDetail,
 )
 
 T = TypeVar("T")
@@ -56,9 +55,8 @@ class BaseExprValidator(Visitor):
         strict: bool = True,
     ) -> None:
         self._results: list[ExprValidationResult] = []
-        self._validation_details: list[ValidationDetail] = []
         self._strict = strict
-        self._loc: tuple[str | int, ...] = ("expression",)
+        self._loc: str = "expression"
         self._environment = environment
         self._validators = validators or {}
         self.logger = logger.bind(visitor=self._visitor_name)
@@ -70,23 +68,10 @@ class BaseExprValidator(Visitor):
         status: Literal["success", "error"],
         msg: str = "",
         type: ExprType = ExprType.GENERIC,
-        ref: str | None = None,
-        expression: str | None = None,
     ) -> None:
         self._results.append(
             ExprValidationResult(
-                status=status,
-                msg=msg,
-                expression_type=type,
-                ref=ref,
-                expression=expression,
-            )
-        )
-        self._validation_details.append(
-            ValidationDetail(
-                loc=("expression", expression) if expression else ("expression",),
-                msg=msg,
-                type=type,
+                status=status, msg=f"[{self._loc}]\n\n{msg}", expression_type=type
             )
         )
 
@@ -98,16 +83,8 @@ class BaseExprValidator(Visitor):
         """Return all validation errors."""
         return [res for res in self.results() if res.status == "error"]
 
-    @property
-    def details(self) -> list[ValidationDetail]:
-        """Return all validation details."""
-        return self._validation_details
-
     def visit_with_locator(
-        self,
-        tree: Tree,
-        loc: tuple[str | int, ...] | None = None,
-        exclude: set[ExprType] | None = None,
+        self, tree: Tree, loc: str | None = None, exclude: set[ExprType] | None = None
     ) -> Any:
         self._loc = loc or self._loc
         self._exclude = exclude or set()
@@ -239,7 +216,7 @@ class BaseExprValidator(Visitor):
         if fn_name not in functions.FUNCTION_MAPPING:
             self.add(
                 status="error",
-                msg=f"Unknown function name {str(fn_name)!r}",
+                msg=f"Unknown function name {str(fn_name)!r} ({is_mapped=})",
                 type=ExprType.FUNCTION,
             )
         else:
@@ -343,21 +320,17 @@ class ExprValidator(BaseExprValidator):
         if ref not in self._context.action_refs:
             self.add(
                 status="error",
-                msg=f"Invalid action reference {ref!r} in `{ExprContext.ACTIONS.value}.{jsonpath}`",
+                msg=f"Invalid action reference {ref!r} in ACTION expression {jsonpath!r}",
                 type=ExprType.ACTION,
             )
         # Check prop
-        valid_props_list = list(TaskResult.__annotations__.keys())
-        valid_properties = "|".join(valid_props_list)
+        valid_properties = "|".join(TaskResult.__annotations__.keys())
         pattern = rf"({valid_properties})(\[(\d+|\*)\])?"  # e.g. "result[0], result[*], result"
         if not re.match(pattern, prop):
             self.add(
                 status="error",
-                msg=(
-                    f"Invalid attribute {prop!r} follows action reference {ref!r} in `{ExprContext.ACTIONS.value}.{jsonpath}`."
-                    f"\nAttributes following the action reference must be one of {', '.join(map(repr, valid_props_list))}."
-                    f"\ne.g. `{ref}.{valid_props_list[0]}`"
-                ),
+                msg=f"Invalid property {prop!r} for action reference {ref!r} in ACTION expression {jsonpath!r}."
+                f" Use one of {valid_properties}, e.g. `{ref}.{valid_properties[0]}`",
                 type=ExprType.ACTION,
             )
         else:

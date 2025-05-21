@@ -1,6 +1,6 @@
 from typing import Annotated, Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import BaseModel, Field, create_model
 from pydantic.alias_generators import to_camel
 
 from tracecat.expressions.common import ExprType
@@ -88,7 +88,7 @@ def json_schema_to_pydantic(
         fields[prop_name] = (field_type, Field(**field_params))
 
     model_name = schema.get("title", name)
-    return create_model(model_name, **fields, __config__=ConfigDict(extra="forbid"))
+    return create_model(model_name, **fields)
 
 
 async def secret_validator(

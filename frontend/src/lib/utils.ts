@@ -39,12 +39,11 @@ export const copyToClipboard = async ({
 export function slugify(value: string, delimiter: string = "_"): string {
   return value
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // Remove diacritics
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim()
-    .replace(/['`]/g, "_") // Replace quotes and apostrophes with underscore
-    .replace(/[^a-z0-9_ ]/g, "") // Remove other special chars except underscore
-    .replace(/\s+/g, delimiter) // Replace spaces with delimiter
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, delimiter)
 }
 
 export function undoSlugify(value: string, delimiter: string = "_"): string {
