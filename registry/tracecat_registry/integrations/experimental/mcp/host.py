@@ -400,15 +400,11 @@ async def _process_call_tools_node(
             elif isinstance(event, FunctionToolResultEvent) and isinstance(
                 event.result, ToolReturnPart
             ):
+                log.info("Processing tool call result", event=event)
                 # Update message with the result of the tool call
                 tool_result = event.result.content
                 tool_name = event.result.tool_name
                 tool_call_id = event.tool_call_id
-                log.info(
-                    "Processing tool call result",
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                )
                 msg = await _update_tool_approval(
                     blocks=blocks,
                     ts=ts,
@@ -669,13 +665,24 @@ async def _update_message(
 ) -> SlackMessage:
     """Send message parts to Slack."""
     message = "".join(message_parts)
-    blocks.append(
-        {
-            "type": "section",
-            "block_id": "message",
-            "text": {"type": "mrkdwn", "text": message},
+
+    # Check if most recent block is a tool call
+    block_id = blocks[-1].get("block_id", "")
+    if block_id.startswith("tool_call:"):
+        # TODO: Make it append with inc index (block_id suffix)
+        blocks[-1] = {
+            "type": "context",
+            "block_id": block_id,
+            "elements": [{"type": "mrkdwn", "text": f"⏳ {message}"}],
         }
-    )
+    else:
+        blocks.append(
+            {
+                "type": "section",
+                "block_id": "message",
+                "text": {"type": "mrkdwn", "text": message},
+            }
+        )
 
     response = await call_method(
         "chat_update",
@@ -803,15 +810,19 @@ async def _update_tool_approval(
     channel_id: str,
 ):
     """Update the message with the result of the tool call."""
-    updated_blocks = []
-    for block in blocks:
-        if block.get("block_id") == f"tool_call:{tool_call_id}":
-            block = {
-                "type": "section",
-                "block_id": f"tool_call:{tool_call_id}",
-                "text": {"type": "mrkdwn", "text": f"✅ {tool_result}"},
-            }
-        updated_blocks.append(block)
+    # Drop tool call block
+    updated_blocks = [
+        block
+        for block in blocks
+        if block.get("block_id") != f"tool_call:{tool_call_id}"
+    ]
+    updated_blocks.append(
+        {
+            "type": "context",
+            "block_id": f"tool_result:{tool_call_id}",
+            "elements": [{"type": "mrkdwn", "text": f"✅ {tool_result}"}],
+        }
+    )
 
     response = await call_method(
         "chat_update",
