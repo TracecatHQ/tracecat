@@ -40,12 +40,14 @@ class ExprValidator(BaseExprValidator):
     def __init__(
         self,
         validation_context: ExprValidationContext,
+        keep_success: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._context = validation_context
         self._task_group = GatheringTaskGroup()
         self._validation_details: list[ValidationDetail] = []
+        self._keep_success = keep_success
 
     async def __aenter__(self) -> Self:
         """Initialize the validator with a task group."""
@@ -112,10 +114,9 @@ class ExprValidator(BaseExprValidator):
         loc: tuple[str | int, ...] | None = None,
         expression: str | None = None,
     ) -> None:
-        if status == "error":
-            self._validation_details.append(
-                ValidationDetail(loc=loc, msg=msg, type=type)
-            )
+        if status == "success" and not self._keep_success:
+            return
+        self._validation_details.append(ValidationDetail(loc=loc, msg=msg, type=type))
 
     @override
     def results(self) -> list[ValidationDetail]:
