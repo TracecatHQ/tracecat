@@ -7,7 +7,7 @@ import React, {
   useState,
 } from "react"
 import Link from "next/link"
-import { ActionRead, ValidationResult } from "@/client"
+import { ActionRead, actionsCreateAction, ValidationResult } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { QuestionMarkIcon } from "@radix-ui/react-icons"
@@ -24,6 +24,7 @@ import {
   CircleCheckBigIcon,
   CircleHelp,
   CopyIcon,
+  CopyPlusIcon,
   LayoutListIcon,
   MessagesSquare,
   PencilIcon,
@@ -216,6 +217,55 @@ export default React.memo(function ActionNode({
     }
   }, [id, toast, workflowId, getNode, reactFlow])
 
+  const handleDuplicateNode = useCallback(async () => {
+    try {
+      if (!workflowId || !id || !action) {
+        throw new Error("Missing required data to duplicate node")
+      }
+
+      const originalNode = getNode(id)
+      if (!originalNode) {
+        console.error("Could not find node with ID", id)
+        throw new Error("Could not find node to duplicate")
+      }
+
+      // Create a new node based on the current one with position offset
+      const { id: newId } = await actionsCreateAction({
+        workspaceId,
+        requestBody: {
+          workflow_id: workflowId,
+          ...action,
+          title: `Copy of ${action.title}`,
+        },
+      })
+      const newNode = {
+        ...originalNode,
+        id: newId,
+        position: {
+          x: originalNode.position.x + 50,
+          y: originalNode.position.y + 50,
+        },
+        data: originalNode.data,
+        selected: false,
+      }
+
+      // Add the new node to the flow
+      reactFlow.addNodes(newNode)
+
+      toast({
+        title: "Node duplicated",
+        description: "The action node was duplicated successfully.",
+      })
+    } catch (error) {
+      console.error("An error occurred while duplicating Action node:", error)
+      toast({
+        title: "Error duplicating action node",
+        description: "Failed to duplicate action node.",
+        variant: "destructive",
+      })
+    }
+  }, [id, action, toast, workflowId, getNode, reactFlow])
+
   // Add this to track incoming edges
   const edges = useEdges()
   const incomingEdges = edges.filter((edge) => edge.target === id)
@@ -340,6 +390,7 @@ export default React.memo(function ActionNode({
                 setSelectedActionEventRef={setSelectedActionEventRef}
                 setIsMouseOverToolbar={setIsMouseOverToolbar}
                 handleDeleteNode={handleDeleteNode}
+                handleDuplicateNode={handleDuplicateNode}
               />
             )}
           </Card>
@@ -524,6 +575,7 @@ function ActionNodeToolbar({
   setSelectedActionEventRef,
   setIsMouseOverToolbar,
   handleDeleteNode,
+  handleDuplicateNode,
 }: {
   action: ActionRead
   childWorkflowInfo: ChildWorkflowInfo
@@ -533,6 +585,7 @@ function ActionNodeToolbar({
   setSelectedActionEventRef: (ref: string) => void
   setIsMouseOverToolbar: (isMouseOver: boolean) => void
   handleDeleteNode: () => void
+  handleDuplicateNode: () => void
 }) {
   const form = useFormContext()
   const { workspaceId } = useWorkflowBuilder()
@@ -593,6 +646,10 @@ function ActionNodeToolbar({
             <CommandItem onSelect={() => form.setFocus("title")}>
               <PencilIcon className="mr-2 size-3" />
               <span>Rename</span>
+            </CommandItem>
+            <CommandItem onSelect={handleDuplicateNode}>
+              <CopyPlusIcon className="mr-2 size-3" />
+              <span>Duplicate</span>
             </CommandItem>
             <CommandItem
               onSelect={() => {
