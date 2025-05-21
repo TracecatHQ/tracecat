@@ -220,13 +220,14 @@ export default React.memo(function ActionNode({
   const handleDuplicateNode = useCallback(async () => {
     try {
       if (!workflowId || !id || !action) {
-        throw new Error("Missing required data to duplicate node")
+        console.error("Missing required data to duplicate node")
+        return
       }
 
       const originalNode = getNode(id)
       if (!originalNode) {
         console.error("Could not find node with ID", id)
-        throw new Error("Could not find node to duplicate")
+        return
       }
 
       // Create a new node based on the current one with position offset
@@ -260,7 +261,7 @@ export default React.memo(function ActionNode({
       console.error("An error occurred while duplicating Action node:", error)
       toast({
         title: "Error duplicating action node",
-        description: "Failed to duplicate action node.",
+        description: `Failed to duplicate action node. ${error}`,
         variant: "destructive",
       })
     }
