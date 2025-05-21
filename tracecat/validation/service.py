@@ -12,6 +12,7 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs
 from tracecat.dsl.enums import PlatformAction
+from tracecat.ee.interactions.models import ResponseInteraction
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
 from tracecat.expressions.validator.validator import (
@@ -32,6 +33,14 @@ from tracecat.validation.models import (
     ValidationDetail,
     ValidationResult,
 )
+
+PERMITTED_INTERACTION_ACTIONS = [
+    "tools.slack.ask_text_input",
+    "tools.slack.lookup_user_by_email",
+    "tools.slack.post_notification",
+    "tools.slack.post_update",
+    "tools.slack.revoke_sessions",
+]
 
 
 async def validate_single_secret(
@@ -290,6 +299,28 @@ async def validate_dsl_actions(
                         type="action",
                         msg=f"Invalid `for_each` of type {type(act_stmt.for_each)}.",
                         loc=(act_stmt.ref, "for_each"),
+                    )
+                )
+        # Validate `interaction`
+        match act_stmt.interaction:
+            case ResponseInteraction():
+                if act_stmt.action not in PERMITTED_INTERACTION_ACTIONS:
+                    details.append(
+                        ValidationDetail(
+                            type="action",
+                            msg=f"Response interactions are only supported for the following actions:\n"
+                            f"{('\n'.join(f'- {x}' for x in PERMITTED_INTERACTION_ACTIONS))}\n",
+                            loc=(act_stmt.ref, "interaction"),
+                        )
+                    )
+            case None:
+                pass
+            case _:
+                details.append(
+                    ValidationDetail(
+                        type="action",
+                        msg=f"Unsupported `interaction` of type {type(act_stmt.interaction)}.",
+                        loc=(act_stmt.ref, "interaction"),
                     )
                 )
         if details:
