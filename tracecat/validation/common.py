@@ -16,7 +16,14 @@ def json_schema_to_pydantic(
     base_schema: dict[str, Any] | None = None,
     *,
     name: str = "DynamicModel",
+    root_config: ConfigDict | None = None,
 ) -> type[BaseModel]:
+    """Recursively convert a JSON schema to a Pydantic model.
+
+    This function will recursively convert a JSON schema to a Pydantic model.
+    It will also handle references to other schemas in the schema.
+    """
+
     if base_schema is None:
         base_schema = schema
 
@@ -88,7 +95,7 @@ def json_schema_to_pydantic(
         fields[prop_name] = (field_type, Field(**field_params))
 
     model_name = schema.get("title", name)
-    return create_model(model_name, **fields, __config__=ConfigDict(extra="forbid"))
+    return create_model(model_name, **fields, __config__=root_config)
 
 
 async def secret_validator(

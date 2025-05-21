@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from itertools import chain
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import ConfigDict, ValidationError
 from sqlalchemy.exc import MultipleResultsFound
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry import RegistrySecret
@@ -169,7 +169,9 @@ async def validate_registry_action_args(
                 service = RegistryActionsService(session)
                 action = await service.get_action(action_name=action_name)
                 interface = RegistryActionInterface(**action.interface)
-                model = json_schema_to_pydantic(interface["expects"])
+                model = json_schema_to_pydantic(
+                    interface["expects"], root_config=ConfigDict(extra="forbid")
+                )
                 # Note that we're allowing type coercion for the input arguments
                 # Use cases would be transforming a UTC string to a datetime object
                 # We return the validated input arguments as a dictionary
