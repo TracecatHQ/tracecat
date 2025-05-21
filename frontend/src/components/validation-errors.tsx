@@ -43,7 +43,7 @@ export const ERROR_TYPE_TO_MESSAGE: Record<
   default: ({ detail }) => (
     <div className="flex items-start">
       <div className="flex flex-col items-start justify-start">
-        <CornerDownRightIcon className="mr-2 mt-[1px] size-3" />
+        <CornerDownRightIcon className="mr-2 mt-px size-3" />
       </div>
       <div className="flex flex-col">
         {detail.loc && (

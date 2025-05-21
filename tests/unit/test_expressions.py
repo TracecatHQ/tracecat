@@ -10,7 +10,6 @@ from httpx import Response
 from pydantic import SecretStr
 
 from tracecat import config
-from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.schemas import BaseSecret
 from tracecat.expressions.common import (
     ExprContext,
@@ -27,20 +26,20 @@ from tracecat.expressions.eval import (
 )
 from tracecat.expressions.parser.core import ExprParser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
-from tracecat.expressions.parser.validator import (
+from tracecat.expressions.patterns import STANDALONE_TEMPLATE
+from tracecat.expressions.validator.validator import (
     ExpectedField,
     ExprValidationContext,
     ExprValidator,
     TemplateActionExprValidator,
     TemplateActionValidationContext,
 )
-from tracecat.expressions.patterns import STANDALONE_TEMPLATE
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.validation.common import get_validators
-from tracecat.validation.models import ExprValidationResult
+from tracecat.validation.models import ExprValidationResult, ValidationDetail
 
 
 @pytest.mark.parametrize(
@@ -972,6 +971,18 @@ def assert_validation_result(
         assert contains_detail in res.detail
 
 
+def assert_validation_detail(
+    res: ValidationDetail,
+    *,
+    type: ExprType,
+    contains_msg: str | None = None,
+    **kwargs: Any,
+):
+    assert res.type == type, f"Expected {type}, got {res.type}. {res}"
+    if contains_msg:
+        assert contains_msg in res.msg
+
+
 @pytest.mark.parametrize(
     "expr,expected",
     [
@@ -1054,11 +1065,6 @@ def assert_validation_result(
             },
             [
                 {
-                    "type": ExprType.TYPECAST,
-                    "status": "error",
-                    "contains_msg": "fails",
-                },
-                {
                     "type": ExprType.ACTION,
                     "status": "error",
                     "contains_msg": "invalid",
@@ -1067,6 +1073,11 @@ def assert_validation_result(
                     "type": ExprType.INPUT,
                     "status": "error",
                     "contains_msg": "invalid_inner",
+                },
+                {
+                    "type": ExprType.TYPECAST,
+                    "status": "error",
+                    "contains_msg": "fails",
                 },
             ],
         ),
@@ -1109,23 +1120,20 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
     )
     validators = get_validators()
 
-    async with GatheringTaskGroup() as tg:
-        visitor = ExprValidator(
-            task_group=tg,
-            validation_context=validation_context,
-            validators=validators,  # type: ignore
-        )
+    async with ExprValidator(
+        validation_context=validation_context,
+        validators=validators,
+    ) as visitor:
         exprs = extract_expressions(expr)
         for _expr in exprs:
             # This queues up all the coros in the taskgroup
             # and executes them concurrently on exit
             _expr.validate(visitor)
 
-    # NOTE: We are using results to get ALL validation results
-    errors = list(visitor.errors())
+    errors = sorted(set(visitor.errors()), key=lambda x: x.type)
 
     for actual, ex in zip(errors, expected, strict=True):
-        assert_validation_result(actual, **ex)
+        assert_validation_detail(actual, **ex)
 
 
 @pytest.mark.parametrize(
@@ -1441,28 +1449,26 @@ async def test_validate_workflow_key_expressions(expr, expected):
     )
     validators = get_validators()
 
-    async with GatheringTaskGroup() as tg:
-        visitor = ExprValidator(
-            task_group=tg,
-            validation_context=validation_context,
-            validators=validators,  # type: ignore
-        )
+    async with ExprValidator(
+        validation_context=validation_context,
+        validators=validators,
+        keep_success=True,
+    ) as visitor:
         exprs = extract_expressions(expr)
         for expr in exprs:
             expr.validate(visitor)
-
     validation_results = list(visitor.results())
 
     # Sort both lists by type and status to ensure consistent comparison
-    validation_results.sort(key=lambda x: (x.expression_type, x.status))
-    expected.sort(key=lambda x: (x["type"], x["status"]))
+    validation_results.sort(key=lambda x: x.type)
+    expected.sort(key=lambda x: x["type"])
 
     assert len(validation_results) == len(expected), (
         f"Expected {len(expected)} validation results, got {len(validation_results)}"
     )
 
     for actual, ex in zip(validation_results, expected, strict=True):
-        assert_validation_result(actual, **ex)
+        assert_validation_detail(actual, **ex)
 
 
 @pytest.mark.parametrize(
