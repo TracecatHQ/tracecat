@@ -39,7 +39,7 @@ from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.validation.common import get_validators
-from tracecat.validation.models import ExprValidationResult
+from tracecat.validation.models import ExprValidationResult, ValidationDetail
 
 
 @pytest.mark.parametrize(
@@ -971,6 +971,18 @@ def assert_validation_result(
         assert contains_detail in res.detail
 
 
+def assert_validation_detail(
+    res: ValidationDetail,
+    *,
+    type: ExprType,
+    contains_msg: str | None = None,
+    **kwargs: Any,
+):
+    assert res.type == type, f"Expected {type}, got {res.type}. {res}"
+    if contains_msg:
+        assert contains_msg in res.msg
+
+
 @pytest.mark.parametrize(
     "expr,expected",
     [
@@ -1053,11 +1065,6 @@ def assert_validation_result(
             },
             [
                 {
-                    "type": ExprType.TYPECAST,
-                    "status": "error",
-                    "contains_msg": "fails",
-                },
-                {
                     "type": ExprType.ACTION,
                     "status": "error",
                     "contains_msg": "invalid",
@@ -1066,6 +1073,11 @@ def assert_validation_result(
                     "type": ExprType.INPUT,
                     "status": "error",
                     "contains_msg": "invalid_inner",
+                },
+                {
+                    "type": ExprType.TYPECAST,
+                    "status": "error",
+                    "contains_msg": "fails",
                 },
             ],
         ),
@@ -1118,11 +1130,10 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
             # and executes them concurrently on exit
             _expr.validate(visitor)
 
-    # NOTE: We are using results to get ALL validation results
-    errors = list(visitor.errors())
+    errors = sorted(set(visitor.errors()), key=lambda x: x.type)
 
     for actual, ex in zip(errors, expected, strict=True):
-        assert_validation_result(actual, **ex)
+        assert_validation_detail(actual, **ex)
 
 
 @pytest.mark.parametrize(
@@ -1448,7 +1459,7 @@ async def test_validate_workflow_key_expressions(expr, expected):
     validation_results = list(visitor.results())
 
     # Sort both lists by type and status to ensure consistent comparison
-    validation_results.sort(key=lambda x: (x.expression_type, x.status))
+    validation_results.sort(key=lambda x: x.type)
     expected.sort(key=lambda x: (x["type"], x["status"]))
 
     assert len(validation_results) == len(expected), (
@@ -1456,7 +1467,7 @@ async def test_validate_workflow_key_expressions(expr, expected):
     )
 
     for actual, ex in zip(validation_results, expected, strict=True):
-        assert_validation_result(actual, **ex)
+        assert_validation_detail(actual, **ex)
 
 
 @pytest.mark.parametrize(

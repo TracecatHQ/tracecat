@@ -318,10 +318,7 @@ async def validate_dsl_expressions(
     )
 
     results: list[ExprValidationResult] = []
-    # This batches all the coros inside the taskgroup
-    # and launches them concurrently on __aexit__
     for act_stmt in dsl.actions:
-        # Validate against the specified environment
         async with ExprValidator(
             validation_context=validation_context,
             environment=dsl.config.environment,
@@ -359,7 +356,7 @@ async def validate_dsl_expressions(
                             exclude=exclude,
                             ref=act_stmt.ref,
                         )
-        if details := visitor.details():
+        if details := visitor.results():
             results.append(
                 ExprValidationResult(
                     status="error",

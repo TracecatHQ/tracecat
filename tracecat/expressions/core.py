@@ -94,9 +94,9 @@ class Expression:
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
-                msg=f"Error parsing expression `{self._expr}`\n\n{e}",
+                msg=str(e),
                 ref=ref,
-                expression=self._expr,
+                loc=("parsing", self._expr),
             )
 
         # 2) Validate the AST
@@ -105,9 +105,9 @@ class Expression:
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
-                msg=f"Error validating expression `{self._expr}`\n\n{e}",
+                msg=str(e),
                 ref=ref,
-                expression=self._expr,
+                loc=("validation", self._expr),
             )
 
     def extract(self, visitor: ExprExtractor) -> Mapping[ExprContext, set[str]]:

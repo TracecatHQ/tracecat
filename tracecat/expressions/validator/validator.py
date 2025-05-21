@@ -1,6 +1,5 @@
 import re
 from collections.abc import Iterator
-from itertools import chain
 from types import TracebackType
 from typing import Any, Literal, Self, TypeVar, override
 
@@ -17,8 +16,8 @@ from tracecat.secrets.models import SecretSearch
 from tracecat.secrets.service import SecretsService
 from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.validation.models import (
-    ExprValidationResult,
     TemplateActionExprValidationResult,
+    ValidationDetail,
 )
 
 T = TypeVar("T")
@@ -46,6 +45,7 @@ class ExprValidator(BaseExprValidator):
         super().__init__(**kwargs)
         self._context = validation_context
         self._task_group = GatheringTaskGroup()
+        self._validation_details: list[ValidationDetail] = []
 
     async def __aenter__(self) -> Self:
         """Initialize the validator with a task group."""
@@ -60,41 +60,6 @@ class ExprValidator(BaseExprValidator):
     ) -> None:
         """Clean up the task group."""
         await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
-
-    def results(self) -> Iterator[ExprValidationResult]:
-        """Return all validation results."""
-        yield from chain(self._task_group.results(), self._results)
-
-    def actions(self, node: Tree[Token]):
-        token = node.children[0]
-        self.logger.trace("Visit action expression", node=node, child=token)
-        if not isinstance(token, Token):
-            raise ValueError("Expected a string token")
-        jsonpath = token.lstrip(".")
-        # ACTIONS.<ref>.<prop> [INDEX] [ATTRIBUTE ACCESS]
-        ref, prop, *_ = jsonpath.split(".")
-        if ref not in self._context.action_refs:
-            self.add(
-                status="error",
-                msg=f"Invalid action reference {ref!r} in `{ExprContext.ACTIONS.value}.{jsonpath}`",
-                type=ExprType.ACTION,
-            )
-        # Check prop
-        valid_props_list = list(TaskResult.__annotations__.keys())
-        valid_properties = "|".join(valid_props_list)
-        pattern = rf"({valid_properties})(\[(\d+|\*)\])?"  # e.g. "result[0], result[*], result"
-        if not re.match(pattern, prop):
-            self.add(
-                status="error",
-                msg=(
-                    f"Invalid attribute {prop!r} follows action reference {ref!r} in `{ExprContext.ACTIONS.value}.{jsonpath}`."
-                    f"\nAttributes following the action reference must be one of {', '.join(map(repr, valid_props_list))}."
-                    f"\ne.g. `{ref}.{valid_props_list[0]}`"
-                ),
-                type=ExprType.ACTION,
-            )
-        else:
-            self.add(status="success", type=ExprType.ACTION)
 
     async def _secret_validator(
         self, *, name: str, key: str, loc: tuple[str | int, ...], environment: str
@@ -116,9 +81,8 @@ class ExprValidator(BaseExprValidator):
                     status="error",
                     msg=f"Found {n_found} secrets matching {name!r} in the {environment!r} environment.",
                     type=ExprType.SECRET,
-                    expression=f"{ExprContext.SECRETS.value}.{name}.{key}",
+                    loc=("expression", f"{ExprContext.SECRETS.value}.{name}.{key}"),
                 )
-
             # There should only be 1 secret
             decrypted_keys = service.decrypt_keys(defined_secret[0].encrypted_keys)
             defined_keys = {kv.key for kv in decrypted_keys}
@@ -134,8 +98,69 @@ class ExprValidator(BaseExprValidator):
                 status="error",
                 msg=f"Secret {name!r} is missing key: {key!r}",
                 type=ExprType.SECRET,
-                expression=f"{ExprContext.SECRETS.value}.{name}.{key}",
+                loc=("expression", f"{ExprContext.SECRETS.value}.{name}.{key}"),
             )
+        return None
+
+    @override
+    def add(
+        self,
+        status: Literal["success", "error"],
+        msg: str = "",
+        type: ExprType = ExprType.GENERIC,
+        ref: str | None = None,
+        loc: tuple[str | int, ...] | None = None,
+        expression: str | None = None,
+    ) -> None:
+        if status == "error":
+            self._validation_details.append(
+                ValidationDetail(loc=loc, msg=msg, type=type)
+            )
+
+    @override
+    def results(self) -> list[ValidationDetail]:
+        """Return all validation results."""
+        return self._validation_details
+
+    @override
+    def errors(self) -> list[ValidationDetail]:
+        """Return all validation errors."""
+        return self._validation_details
+
+    # Nodes
+
+    def actions(self, node: Tree[Token]):
+        token = node.children[0]
+        self.logger.trace("Visit action expression", node=node, child=token)
+        if not isinstance(token, Token):
+            raise ValueError("Expected a string token")
+        jsonpath = token.lstrip(".")
+        # ACTIONS.<ref>.<prop> [INDEX] [ATTRIBUTE ACCESS]
+        ref, prop, *_ = jsonpath.split(".")
+        if ref not in self._context.action_refs:
+            self.add(
+                status="error",
+                msg=f"Invalid action reference {ref!r} in `{ExprContext.ACTIONS.value}.{jsonpath}`",
+                type=ExprType.ACTION,
+                loc=("expression", f"{ExprContext.ACTIONS.value}.{jsonpath}"),
+            )
+        # Check prop
+        valid_props_list = list(TaskResult.__annotations__.keys())
+        valid_properties = "|".join(valid_props_list)
+        pattern = rf"({valid_properties})(\[(\d+|\*)\])?"  # e.g. "result[0], result[*], result"
+        if not re.match(pattern, prop):
+            self.add(
+                status="error",
+                msg=(
+                    f"Invalid attribute {prop!r} follows action reference {ref!r} in `{ExprContext.ACTIONS.value}.{jsonpath}`."
+                    f"\nAttributes following the action reference must be one of {', '.join(map(repr, valid_props_list))}."
+                    f"\ne.g. `{ref}.{valid_props_list[0]}`"
+                ),
+                type=ExprType.ACTION,
+                loc=("expression", f"{ExprContext.ACTIONS.value}.{jsonpath}"),
+            )
+        else:
+            self.add(status="success", type=ExprType.ACTION)
 
     def secrets(self, node: Tree[Token]):
         name_key = super().secrets(node)

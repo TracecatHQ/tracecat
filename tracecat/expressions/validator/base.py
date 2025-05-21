@@ -31,7 +31,6 @@ class BaseExprValidator(Visitor):
         strict: bool = True,
     ) -> None:
         self._results: list[ExprValidationResult] = []
-        self._validation_errors: list[ValidationDetail] = []
         self._strict = strict
         self._loc: tuple[str | int, ...] = ("expression",)
         self._environment = environment
@@ -46,7 +45,7 @@ class BaseExprValidator(Visitor):
         msg: str = "",
         type: ExprType = ExprType.GENERIC,
         ref: str | None = None,
-        expression: str | None = None,
+        loc: tuple[str | int, ...] | None = None,
     ) -> None:
         self._results.append(
             ExprValidationResult(
@@ -54,17 +53,9 @@ class BaseExprValidator(Visitor):
                 msg=msg,
                 expression_type=type,
                 ref=ref,
-                expression=expression,
+                expression=".".join(map(str, loc or self._loc)),
             )
         )
-        if status == "error":
-            self._validation_errors.append(
-                ValidationDetail(
-                    loc=("expression", expression) if expression else ("expression",),
-                    msg=msg,
-                    type=type,
-                )
-            )
 
     def results(self) -> Iterator[ExprValidationResult]:
         """Return all validation results."""
@@ -73,10 +64,6 @@ class BaseExprValidator(Visitor):
     def errors(self) -> list[ExprValidationResult]:
         """Return all validation errors."""
         return [res for res in self.results() if res.status == "error"]
-
-    def details(self) -> list[ValidationDetail]:
-        """Return all validation details."""
-        return self._validation_errors
 
     def visit_with_locator(
         self,
