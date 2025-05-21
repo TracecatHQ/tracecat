@@ -1,42 +1,16 @@
-import re
-from collections.abc import Awaitable, Iterator
-from itertools import chain
-from typing import Any, Literal, TypeVar, override
+from collections.abc import Awaitable, Callable, Iterator
+from typing import Any, Literal, override
 
 import jsonpath_ng.exceptions
 import jsonpath_ng.ext
 from lark import Token, Tree, Visitor, v_args
 from lark.exceptions import VisitError
-from pydantic import BaseModel, Field
 
-from tracecat.concurrency import GatheringTaskGroup
-from tracecat.dsl.models import TaskResult
 from tracecat.expressions import functions
-from tracecat.expressions.common import (
-    VISITOR_NODE_TO_EXPR_TYPE,
-    ExprContext,
-    ExprType,
-    eval_jsonpath,
-)
-from tracecat.expressions.expectations import ExpectedField
+from tracecat.expressions.common import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, ExprType
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.types.exceptions import TracecatExpressionError
-from tracecat.validation.models import (
-    ExprValidationResult,
-    TemplateActionExprValidationResult,
-    ValidationDetail,
-)
-
-T = TypeVar("T")
-
-
-class ExprValidationContext(BaseModel):
-    """Container for the validation context of an expression tree."""
-
-    action_refs: set[str]
-    inputs_context: Any = Field(default_factory=dict)
-    trigger_context: Any = Field(default_factory=dict)
+from tracecat.validation.models import ExprValidationResult, ValidationDetail
 
 
 class BaseExprValidator(Visitor):
@@ -50,13 +24,14 @@ class BaseExprValidator(Visitor):
 
     def __init__(
         self,
-        validators: dict[ExprType, Awaitable[ExprValidationResult]] | None = None,
+        validators: dict[ExprType, Callable[..., Awaitable[ValidationDetail]]]
+        | None = None,
         *,
         environment: str = DEFAULT_SECRETS_ENVIRONMENT,
         strict: bool = True,
     ) -> None:
         self._results: list[ExprValidationResult] = []
-        self._validation_details: list[ValidationDetail] = []
+        self._validation_errors: list[ValidationDetail] = []
         self._strict = strict
         self._loc: tuple[str | int, ...] = ("expression",)
         self._environment = environment
@@ -82,13 +57,14 @@ class BaseExprValidator(Visitor):
                 expression=expression,
             )
         )
-        self._validation_details.append(
-            ValidationDetail(
-                loc=("expression", expression) if expression else ("expression",),
-                msg=msg,
-                type=type,
+        if status == "error":
+            self._validation_errors.append(
+                ValidationDetail(
+                    loc=("expression", expression) if expression else ("expression",),
+                    msg=msg,
+                    type=type,
+                )
             )
-        )
 
     def results(self) -> Iterator[ExprValidationResult]:
         """Return all validation results."""
@@ -98,10 +74,9 @@ class BaseExprValidator(Visitor):
         """Return all validation errors."""
         return [res for res in self.results() if res.status == "error"]
 
-    @property
     def details(self) -> list[ValidationDetail]:
         """Return all validation details."""
-        return self._validation_details
+        return self._validation_errors
 
     def visit_with_locator(
         self,
@@ -309,200 +284,3 @@ class BaseExprValidator(Visitor):
     @v_args(inline=True)
     def jsonpath_segment(self, *args):
         self.logger.trace("Visiting jsonpath segment", args=args)
-
-
-class ExprValidator(BaseExprValidator):
-    """Expression validator for workflow actions."""
-
-    _visitor_name = "ExprValidator"
-    _expr_kind = "Workflow Actions"
-
-    def __init__(
-        self,
-        task_group: GatheringTaskGroup,
-        validation_context: ExprValidationContext,
-        validators: dict[ExprType, Awaitable[ExprValidationResult]] | None = None,
-        **kwargs: Any,
-    ) -> None:
-        super().__init__(validators, **kwargs)
-        self._context = validation_context
-        self._task_group = task_group
-
-    def results(self) -> Iterator[ExprValidationResult]:
-        """Return all validation results."""
-        yield from chain(self._task_group.results(), self._results)
-
-    def actions(self, node: Tree[Token]):
-        token = node.children[0]
-        self.logger.trace("Visit action expression", node=node, child=token)
-        if not isinstance(token, Token):
-            raise ValueError("Expected a string token")
-        jsonpath = token.lstrip(".")
-        # ACTIONS.<ref>.<prop> [INDEX] [ATTRIBUTE ACCESS]
-        ref, prop, *_ = jsonpath.split(".")
-        if ref not in self._context.action_refs:
-            self.add(
-                status="error",
-                msg=f"Invalid action reference {ref!r} in `{ExprContext.ACTIONS.value}.{jsonpath}`",
-                type=ExprType.ACTION,
-            )
-        # Check prop
-        valid_props_list = list(TaskResult.__annotations__.keys())
-        valid_properties = "|".join(valid_props_list)
-        pattern = rf"({valid_properties})(\[(\d+|\*)\])?"  # e.g. "result[0], result[*], result"
-        if not re.match(pattern, prop):
-            self.add(
-                status="error",
-                msg=(
-                    f"Invalid attribute {prop!r} follows action reference {ref!r} in `{ExprContext.ACTIONS.value}.{jsonpath}`."
-                    f"\nAttributes following the action reference must be one of {', '.join(map(repr, valid_props_list))}."
-                    f"\ne.g. `{ref}.{valid_props_list[0]}`"
-                ),
-                type=ExprType.ACTION,
-            )
-        else:
-            self.add(status="success", type=ExprType.ACTION)
-
-    def secrets(self, node: Tree[Token]):
-        name_key = super().secrets(node)
-        if name_key is None:
-            return
-        name, key = name_key
-        # Check that we've defined the secret in the SM
-        coro = self._validators[ExprType.SECRET](
-            name=name, key=key, environment=self._environment, loc=self._loc
-        )  # type: ignore
-        self._task_group.create_task(coro)
-
-    def inputs(self, node: Tree[Token]):
-        self.logger.trace("Visit input expression", node=node)
-        token = node.children[0]
-        if not isinstance(token, Token):
-            raise ValueError("Expected a string token")
-        jsonpath = token.lstrip(".")
-        try:
-            eval_jsonpath(
-                jsonpath,
-                self._context.inputs_context,
-                context_type=ExprContext.INPUTS,
-                strict=self._strict,
-            )
-            self.add(status="success", type=ExprType.INPUT)
-        except TracecatExpressionError as e:
-            return self.add(status="error", msg=str(e), type=ExprType.INPUT)
-
-    def trigger(self, node: Tree):
-        self.logger.trace("Visit trigger expression", node=node)
-        self.add(status="success", type=ExprType.TRIGGER)
-
-    def env(self, node: Tree):
-        self.logger.trace("Visit env expression", node=node)
-        self.add(status="success", type=ExprType.ENV)
-
-    def local_vars(self, node: Tree):
-        self.logger.trace("Visit local vars expression", node=node)
-        self.add(status="success", type=ExprType.LOCAL_VARS)
-
-    def iterator(self, node: Tree):
-        iter_var_assign_expr, collection, *_ = node.children
-        self.logger.trace(
-            "Visit iterator expression",
-            iter_var_expr=iter_var_assign_expr,
-            collection=collection,
-        )
-        if iter_var_assign_expr.data != "local_vars_assignment":
-            self.add(
-                status="error",
-                msg="Invalid variable assignment in `for_each`."
-                " Please use `var.my_variable`",
-                type=ExprType.ITERATOR,
-            )
-        blacklist = ("local_vars", "local_vars_assignment")
-        if collection.data in blacklist:
-            self.add(
-                status="error",
-                msg=f"You cannot use {', '.join(repr(e) for e in blacklist)} expressions in the `for_each` collection.",
-                type=ExprType.ITERATOR,
-            )
-
-
-class TemplateActionValidationContext(BaseModel):
-    """Context for template action expression validation."""
-
-    expects: dict[str, ExpectedField]  # From TemplateActionDefinition
-    step_refs: set[str]  # Valid step references
-
-
-class TemplateActionExprValidator(BaseExprValidator):
-    """Validator for template action expressions."""
-
-    _visitor_name = "TemplateActionExprValidator"
-    _expr_kind = "Template Actions"
-
-    def __init__(
-        self,
-        validation_context: TemplateActionValidationContext,
-        **kwargs: Any,
-    ) -> None:
-        super().__init__(**kwargs)
-        self._context = validation_context
-        self._results: list[TemplateActionExprValidationResult] = []  # Type override
-
-    @override
-    def results(self) -> Iterator[TemplateActionExprValidationResult]:
-        yield from self._results
-
-    @override
-    def errors(self) -> list[TemplateActionExprValidationResult]:
-        return [res for res in self.results() if res.status == "error"]
-
-    def add(
-        self,
-        status: Literal["success", "error"],
-        msg: str = "",
-        type: ExprType = ExprType.GENERIC,
-    ) -> None:
-        self._results.append(
-            TemplateActionExprValidationResult(
-                status=status,
-                msg=msg,
-                expression_type=type,
-                loc=self._loc,
-            )
-        )
-
-    def template_action_inputs(self, node: Tree[Token]) -> None:
-        """Validate template action input references."""
-        token = node.children[0]
-        if not isinstance(token, Token):
-            raise ValueError("Expected a string token")
-
-        jsonpath = token.lstrip(".")
-        input_field = jsonpath.split(".")[0]  # Get first segment
-
-        if input_field not in self._context.expects:
-            self.add(
-                status="error",
-                msg=f"Invalid input reference {input_field!r}. Valid inputs are: {list(self._context.expects.keys())}",
-                type=ExprType.TEMPLATE_ACTION_INPUT,
-            )
-        else:
-            self.add(status="success", type=ExprType.TEMPLATE_ACTION_INPUT)
-
-    def template_action_steps(self, node: Tree[Token]) -> None:
-        """Validate template action step references."""
-        token = node.children[0]
-        if not isinstance(token, Token):
-            raise ValueError("Expected a string token")
-
-        jsonpath = token.lstrip(".")
-        step_ref = jsonpath.split(".")[0]  # Get first segment
-
-        if step_ref not in self._context.step_refs:
-            self.add(
-                status="error",
-                msg=f"Invalid step reference {step_ref!r}. Valid steps are: {sorted(self._context.step_refs)}",
-                type=ExprType.TEMPLATE_ACTION_STEP,
-            )
-        else:
-            self.add(status="success", type=ExprType.TEMPLATE_ACTION_STEP)

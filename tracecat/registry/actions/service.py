@@ -12,7 +12,7 @@ from tracecat_registry import RegistrySecret
 from tracecat import config
 from tracecat.db.schemas import RegistryAction, RegistryRepository
 from tracecat.expressions.eval import extract_expressions
-from tracecat.expressions.parser.validator import (
+from tracecat.expressions.validator.validator import (
     TemplateActionExprValidator,
     TemplateActionValidationContext,
 )

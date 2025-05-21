@@ -10,7 +10,6 @@ from httpx import Response
 from pydantic import SecretStr
 
 from tracecat import config
-from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.schemas import BaseSecret
 from tracecat.expressions.common import (
     ExprContext,
@@ -27,14 +26,14 @@ from tracecat.expressions.eval import (
 )
 from tracecat.expressions.parser.core import ExprParser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
-from tracecat.expressions.parser.validator import (
+from tracecat.expressions.patterns import STANDALONE_TEMPLATE
+from tracecat.expressions.validator.validator import (
     ExpectedField,
     ExprValidationContext,
     ExprValidator,
     TemplateActionExprValidator,
     TemplateActionValidationContext,
 )
-from tracecat.expressions.patterns import STANDALONE_TEMPLATE
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
 from tracecat.secrets.models import SecretKeyValue
@@ -1109,12 +1108,10 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
     )
     validators = get_validators()
 
-    async with GatheringTaskGroup() as tg:
-        visitor = ExprValidator(
-            task_group=tg,
-            validation_context=validation_context,
-            validators=validators,  # type: ignore
-        )
+    async with ExprValidator(
+        validation_context=validation_context,
+        validators=validators,
+    ) as visitor:
         exprs = extract_expressions(expr)
         for _expr in exprs:
             # This queues up all the coros in the taskgroup
@@ -1441,16 +1438,13 @@ async def test_validate_workflow_key_expressions(expr, expected):
     )
     validators = get_validators()
 
-    async with GatheringTaskGroup() as tg:
-        visitor = ExprValidator(
-            task_group=tg,
-            validation_context=validation_context,
-            validators=validators,  # type: ignore
-        )
+    async with ExprValidator(
+        validation_context=validation_context,
+        validators=validators,
+    ) as visitor:
         exprs = extract_expressions(expr)
         for expr in exprs:
             expr.validate(visitor)
-
     validation_results = list(visitor.results())
 
     # Sort both lists by type and status to ensure consistent comparison

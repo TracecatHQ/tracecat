@@ -14,13 +14,16 @@ from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
-from tracecat.expressions.parser.validator import ExprValidationContext, ExprValidator
+from tracecat.expressions.validator.validator import (
+    ExprValidationContext,
+    ExprValidator,
+)
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.service import SecretsService
 from tracecat.types.exceptions import RegistryValidationError, TracecatNotFoundError
-from tracecat.validation.common import json_schema_to_pydantic, secret_validator
+from tracecat.validation.common import json_schema_to_pydantic
 from tracecat.validation.models import (
     ActionValidationResult,
     ExprValidationResult,
@@ -310,23 +313,19 @@ async def validate_dsl_expressions(
 ) -> list[ExprValidationResult]:
     """Validate the DSL expressions at commit time."""
     validation_context = ExprValidationContext(
-        action_refs={a.ref for a in dsl.actions}, inputs_context=dsl.inputs
+        action_refs={a.ref for a in dsl.actions},
+        inputs_context=dsl.inputs,
     )
 
-    validators = {ExprType.SECRET: secret_validator}
     results: list[ExprValidationResult] = []
     # This batches all the coros inside the taskgroup
     # and launches them concurrently on __aexit__
     for act_stmt in dsl.actions:
-        async with GatheringTaskGroup() as tg:
-            # New visitor for each action
-            visitor = ExprValidator(
-                task_group=tg,
-                validation_context=validation_context,
-                validators=validators,  # type: ignore
-                # Validate against the specified environment
-                environment=dsl.config.environment,
-            )
+        # Validate against the specified environment
+        async with ExprValidator(
+            validation_context=validation_context,
+            environment=dsl.config.environment,
+        ) as visitor:
             # Validate action args
             for expr in extract_expressions(act_stmt.args):
                 expr.validate(
@@ -360,7 +359,7 @@ async def validate_dsl_expressions(
                             exclude=exclude,
                             ref=act_stmt.ref,
                         )
-        if details := visitor.details:
+        if details := visitor.details():
             results.append(
                 ExprValidationResult(
                     status="error",
