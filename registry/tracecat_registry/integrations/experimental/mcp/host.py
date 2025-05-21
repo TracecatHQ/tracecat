@@ -13,7 +13,6 @@ from typing_extensions import Doc
 
 from pydantic_ai.mcp import MCPServerHTTP
 from pydantic_ai.agent import Agent
-from pydantic_ai._agent_graph import AgentNode
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -401,7 +400,6 @@ async def _process_call_tools_node(
             elif isinstance(event, FunctionToolResultEvent) and isinstance(
                 event.result, ToolReturnPart
             ):
-                log.info("Processing tool call result", event=event)
                 # Update message with the result of the tool call
                 tool_result = event.result.content
                 tool_name = event.result.tool_name
@@ -426,13 +424,14 @@ async def _process_call_tools_node(
                     num_blocks=len(blocks),
                 )
                 BLOCKS_CACHE.set(ts, blocks)
-                TOOL_CALLS_CACHE.delete(thread_ts)
                 _add_tool_call_result(
                     thread_ts,
                     tool_name,
                     tool_result,
                     tool_call_id,
                 )
+                is_approved = False
+
     return event, ts, blocks
 
 
@@ -445,7 +444,7 @@ async def _run_agent(
     message_history: list[ModelMessage] | None,
     channel_id: str,
     thread_ts: str,
-) -> list[AgentNode]:
+):
     log = logger.bind(
         ts=ts,
         thread_ts=thread_ts,
@@ -456,7 +455,6 @@ async def _run_agent(
         user_prompt=user_prompt,
         message_history=message_history,
     )
-    new_nodes = []
     async with agent.run_mcp_servers():
         async with agent.iter(
             user_prompt=user_prompt, message_history=message_history
@@ -488,8 +486,10 @@ async def _run_agent(
                         channel_id=channel_id,
                         thread_ts=thread_ts,
                     )
+                    is_approved = False
                     if isinstance(event, FunctionToolCallEvent):
                         log.info("Request human-in-the-loop for tool call", event=event)
+                        return
 
                 elif Agent.is_end_node(node):
                     blocks = BLOCKS_CACHE.get(ts, [])  # type: ignore
@@ -498,8 +498,7 @@ async def _run_agent(
                         ts=ts,
                         channel_id=channel_id,
                     )
-                new_nodes.append(node)
-    return new_nodes
+    return
 
 
 @registry.register(
@@ -528,7 +527,7 @@ async def chat_slack(
     agent_settings: Annotated[dict[str, Any], Doc("Agent settings")],
     base_url: Annotated[str, Doc("Base URL of the MCP server.")],
     timeout: Annotated[int, Doc("Initial connection timeout in seconds.")] = 10,
-) -> list[dict[str, Any]]:
+):
     log = logger.bind(
         channel_id=channel_id,
         event_type="slack_chat",
@@ -602,13 +601,16 @@ async def chat_slack(
         )
         log.info("Processing interaction")
 
-        await _disable_buttons(
+        msg = await _disable_buttons(
             blocks=blocks,
             ts=slack_interaction_payload.ts,
             action_value=slack_interaction_payload.action_value,
             tool_call_id=tool_call_id,
             channel_id=channel_id,
         )
+        ts, blocks = msg.ts, msg.blocks
+        log.info("Updated blocks", blocks=blocks, num_blocks=len(blocks))
+        BLOCKS_CACHE.set(ts, blocks)
         is_approved = slack_interaction_payload.action_value == "run"
 
     else:
@@ -618,7 +620,7 @@ async def chat_slack(
 
     # Run the agent and handle its response
     try:
-        new_nodes = await _run_agent(
+        await _run_agent(
             agent=agent,
             ts=ts,
             is_approved=is_approved,
@@ -635,7 +637,7 @@ async def chat_slack(
         else:
             raise e
 
-    return to_jsonable_python(new_nodes)
+    return
 
 
 async def _post_message(
@@ -789,7 +791,7 @@ async def _disable_buttons(
             "blocks": updated_blocks,
         },
     )
-    return SlackMessage(ts=response["ts"], blocks=blocks)
+    return SlackMessage(ts=response["ts"], blocks=updated_blocks)
 
 
 async def _update_tool_approval(
@@ -820,7 +822,7 @@ async def _update_tool_approval(
             "blocks": updated_blocks,
         },
     )
-    return SlackMessage(ts=response["ts"], blocks=blocks)
+    return SlackMessage(ts=response["ts"], blocks=updated_blocks)
 
 
 async def _send_final_message(
