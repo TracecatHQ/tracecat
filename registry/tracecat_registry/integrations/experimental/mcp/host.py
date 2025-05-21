@@ -288,6 +288,150 @@ def _add_tool_call_result(
     return messages
 
 
+async def _process_model_request_node(
+    node,
+    run,
+    ts: str,
+    blocks: list[dict[str, Any]],
+    channel_id: str,
+    thread_ts: str,
+) -> tuple[list[dict[str, Any]], str, list[dict[str, Any]]]:
+    """Process a model request node."""
+    log = logger.bind(
+        ts=ts,
+        thread_ts=thread_ts,
+        channel_id=channel_id,
+    )
+    log.info("Processing model request node", node=node)
+    message_parts = []
+    async with node.stream(run.ctx) as handle_stream:
+        async for event in handle_stream:
+            if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
+                message_parts.append(event.part.content)
+            elif isinstance(event, PartDeltaEvent) and isinstance(
+                event.delta, TextPartDelta
+            ):
+                message_parts.append(event.delta.content_delta)
+
+    if ts is not None and len(blocks) > 0:
+        # Update message (identify by ts) directly
+        log.info("Updating existing message", message_parts=message_parts)
+        msg = await _update_message(
+            blocks=blocks,
+            ts=ts,
+            message_parts=message_parts,
+            channel_id=channel_id,
+        )
+    else:
+        # Post new message to thread or start a new conversation in channel
+        log.info("Posting new message", message_parts=message_parts)
+        msg = await _post_message(
+            message_parts=message_parts,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+        )
+
+    # Checkpoint
+    ts, blocks = msg.ts, msg.blocks
+    log.info(
+        "Caching Slack blocks",
+        blocks=blocks,
+        num_blocks=len(blocks),
+    )
+    BLOCKS_CACHE.set(ts, blocks)
+    messages = _add_assistant_message(thread_ts, "".join(message_parts))
+    return messages, ts, blocks
+
+
+async def _process_call_tools_node(
+    node,
+    run,
+    ts: str,
+    blocks: list[dict[str, Any]],
+    channel_id: str,
+    thread_ts: str,
+) -> tuple[
+    FunctionToolCallEvent | FunctionToolResultEvent | None,
+    list[dict[str, Any]],
+    str,
+    list[dict[str, Any]],
+]:
+    log = logger.bind(
+        ts=ts,
+        thread_ts=thread_ts,
+        channel_id=channel_id,
+    )
+    log.info("Processing call tools node", node=node)
+    async with node.stream(run.ctx) as handle_stream:
+        async for event in handle_stream:
+            if isinstance(event, FunctionToolCallEvent):
+                log.info("Requesting tool call", event=event)
+                # Request approval for tool call
+                tool_name = event.part.tool_name
+                tool_args = event.part.args
+                tool_call_id = event.call_id
+                msg = await _request_tool_approval(
+                    blocks=blocks,
+                    ts=ts,
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    tool_call_id=tool_call_id,
+                    channel_id=channel_id,
+                )
+                ts, blocks = msg.ts, msg.blocks
+
+                # Checkpoint
+                logger.info(
+                    "Caching Slack blocks",
+                    ts=ts,
+                    blocks=blocks,
+                    num_blocks=len(blocks),
+                )
+                BLOCKS_CACHE.set(ts, blocks)
+                TOOL_CALLS_CACHE.set(thread_ts, tool_call_id)
+                messages = _add_tool_call_request(
+                    thread_ts, tool_name, tool_args, tool_call_id
+                )
+                return event, messages, ts, blocks
+
+            elif isinstance(event, FunctionToolResultEvent) and isinstance(
+                event.result, ToolReturnPart
+            ):
+                log.info("Processing tool call result", event=event)
+                # Update message with the result of the tool call
+                tool_result = event.result.content
+                tool_name = event.result.tool_name
+                tool_call_id = event.tool_call_id
+                log.info(
+                    "Processing tool call result",
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                )
+                msg = await _update_tool_approval(
+                    blocks=blocks,
+                    ts=ts,
+                    tool_result=tool_result,
+                    tool_call_id=tool_call_id,
+                    channel_id=channel_id,
+                )
+                ts, blocks = msg.ts, msg.blocks
+                logger.info(
+                    "Caching Slack blocks",
+                    ts=ts,
+                    blocks=blocks,
+                    num_blocks=len(blocks),
+                )
+                BLOCKS_CACHE.set(ts, blocks)
+                TOOL_CALLS_CACHE.delete(thread_ts)
+                messages = _add_tool_call_result(
+                    thread_ts,
+                    tool_name,
+                    tool_result,
+                    tool_call_id,
+                )
+    return event, messages, ts, blocks
+
+
 async def _run_agent(
     agent: Agent,
     *,
@@ -303,12 +447,9 @@ async def _run_agent(
         channel_id=channel_id,
     )
     log.info(
-        "Starting agent run",
-        user_prompt=user_prompt,
-        messages=message_history,
-        num_messages=len(message_history) if message_history else 0,
+        "Starting agent run", user_prompt=user_prompt, message_history=message_history
     )
-
+    messages: list[dict[str, Any]] = []
     async with agent.run_mcp_servers():
         async with agent.iter(
             user_prompt=user_prompt, message_history=message_history
@@ -320,130 +461,35 @@ async def _run_agent(
                 )
                 if Agent.is_model_request_node(node):
                     log.info("Processing model request node", node=node)
-                    message_parts = []
-                    async with node.stream(run.ctx) as handle_stream:
-                        async for event in handle_stream:
-                            if isinstance(event, PartStartEvent) and isinstance(
-                                event.part, TextPart
-                            ):
-                                message_parts.append(event.part.content)
-                            elif isinstance(event, PartDeltaEvent) and isinstance(
-                                event.delta, TextPartDelta
-                            ):
-                                message_parts.append(event.delta.content_delta)
-
-                    if ts is not None and len(blocks) > 0:
-                        # Update message (identify by ts) directly
-                        log.info(
-                            "Updating existing message", message_parts=message_parts
-                        )
-                        msg = await _update_message(
-                            blocks=blocks,
-                            ts=ts,
-                            message_parts=message_parts,
-                            channel_id=channel_id,
-                        )
-                    else:
-                        # Post new message to thread or start a new conversation in channel
-                        log.info("Posting new message", message_parts=message_parts)
-                        msg = await _post_message(
-                            message_parts=message_parts,
-                            channel_id=channel_id,
-                            thread_ts=thread_ts,
-                        )
-
-                    # Checkpoint
-                    ts, blocks = msg.ts, msg.blocks
-                    log.info(
-                        "Caching Slack blocks",
+                    messages, ts, blocks = await _process_model_request_node(
+                        node=node,
+                        run=run,
+                        ts=ts,
                         blocks=blocks,
-                        num_blocks=len(blocks),
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
                     )
-                    BLOCKS_CACHE.set(ts, blocks)
-                    messages = _add_assistant_message(thread_ts, "".join(message_parts))
 
                 elif Agent.is_call_tools_node(node):
                     log.info("Processing call tools node", node=node)
-                    async with node.stream(run.ctx) as handle_stream:
-                        async for event in handle_stream:
-                            if isinstance(event, FunctionToolCallEvent):
-                                log.info("Requesting tool call", event=event)
-                                # Request approval for tool call
-                                tool_name = event.part.tool_name
-                                tool_args = event.part.args
-                                tool_call_id = event.call_id
-                                msg = await _request_tool_approval(
-                                    blocks=blocks,
-                                    ts=ts,
-                                    tool_name=tool_name,
-                                    tool_args=tool_args,
-                                    tool_call_id=tool_call_id,
-                                    channel_id=channel_id,
-                                )
-                                ts, blocks = msg.ts, msg.blocks
-
-                                # Checkpoint
-                                logger.info(
-                                    "Caching Slack blocks",
-                                    ts=ts,
-                                    blocks=blocks,
-                                    num_blocks=len(blocks),
-                                )
-                                BLOCKS_CACHE.set(ts, blocks)
-                                TOOL_CALLS_CACHE.set(thread_ts, tool_call_id)
-                                messages = _add_tool_call_request(
-                                    thread_ts, tool_name, tool_args, tool_call_id
-                                )
-                                return messages
-
-                            elif isinstance(event, FunctionToolResultEvent):
-                                if isinstance(event.result, ToolReturnPart):
-                                    log.info("Processing tool call result", event=event)
-                                    # Update message with the result of the tool call
-                                    tool_result = event.result.content
-                                    tool_name = event.result.tool_name
-                                    tool_call_id = event.tool_call_id
-                                    log.info(
-                                        "Processing tool call result",
-                                        tool_name=tool_name,
-                                        tool_call_id=tool_call_id,
-                                    )
-                                    msg = await _update_tool_approval(
-                                        blocks=blocks,
-                                        ts=ts,
-                                        tool_result=tool_result,
-                                        tool_call_id=tool_call_id,
-                                        channel_id=channel_id,
-                                    )
-                                    ts, blocks = msg.ts, msg.blocks
-                                    logger.info(
-                                        "Caching Slack blocks",
-                                        ts=ts,
-                                        blocks=blocks,
-                                        num_blocks=len(blocks),
-                                    )
-                                    BLOCKS_CACHE.set(ts, blocks)
-                                    TOOL_CALLS_CACHE.delete(thread_ts)
-                                    messages = _add_tool_call_result(
-                                        thread_ts,
-                                        tool_name,
-                                        tool_result,
-                                        tool_call_id,
-                                    )
+                    event, messages, ts, blocks = await _process_call_tools_node(
+                        node=node,
+                        run=run,
+                        ts=ts,
+                        blocks=blocks,
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                    )
+                    if isinstance(event, FunctionToolCallEvent):
+                        log.info("Request human-in-the-loop for tool call", event=event)
+                        return messages
 
                 elif Agent.is_end_node(node):
-                    log.info("Processing end node", node=node)
-                    # Send final message
                     blocks = BLOCKS_CACHE.get(ts, [])  # type: ignore
                     await _send_final_message(
                         blocks=blocks,
                         ts=ts,
                         channel_id=channel_id,
-                    )
-                    log.info(
-                        "Agent run completed successfully",
-                        messages=messages,
-                        num_messages=len(messages),
                     )
 
     return messages
@@ -511,13 +557,9 @@ async def chat_slack(
         log = log.bind(
             thread_ts=thread_ts,
             ts=ts,
-            user_prompt=user_prompt,
             event_type="app_mention",
         )
-        log.info(
-            "Processing app mention",
-            message_history_length=len(message_history) if message_history else 0,
-        )
+        log.info("Processing app mention")
 
         # Add user message to message history
         _add_user_message(thread_ts, user_prompt)
@@ -548,13 +590,9 @@ async def chat_slack(
             thread_ts=thread_ts,
             ts=ts,
             tool_call_id=tool_call_id,
-            action_value=slack_interaction_payload.action_value,
             event_type="interaction",
         )
-        log.info(
-            "Processing interaction",
-            message_history_length=len(message_history) if message_history else 0,
-        )
+        log.info("Processing interaction")
 
         await _disable_buttons(
             blocks=blocks,
@@ -585,9 +623,7 @@ async def chat_slack(
         if isinstance(exc, httpx.ConnectError):
             raise ConnectionError(f"Failed to connect to MCP server: {exc!s}") from exc
         else:
-            raise RuntimeError(f"Unexpected error while running agent: {e!r}") from e
-    except Exception as e:
-        raise RuntimeError(f"Unexpected error while running agent: {e!r}") from e
+            raise e
 
     return messages
 
