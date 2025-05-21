@@ -119,9 +119,8 @@ export default React.memo(function ActionNode({
   )
   const actionValidationErrors = useMemo(() => {
     return (
-      validationErrors?.filter(
-        (error) => error.ref === slugify(action?.title ?? "")
-      ) ?? []
+      validationErrors?.filter((e) => e.ref === slugify(action?.title ?? "")) ??
+      []
     )
   }, [validationErrors, action])
   const { registryAction } = useGetRegistryAction(action?.type)
@@ -357,8 +356,6 @@ interface ActionConfigError {
 
 function ActionNodeContent({
   actionType,
-  actionInputs,
-  actionIsInteractive = false,
   actionIsLoading,
   submitHandler,
   style,
