@@ -1452,6 +1452,7 @@ async def test_validate_workflow_key_expressions(expr, expected):
     async with ExprValidator(
         validation_context=validation_context,
         validators=validators,
+        keep_success=True,
     ) as visitor:
         exprs = extract_expressions(expr)
         for expr in exprs:
@@ -1460,7 +1461,7 @@ async def test_validate_workflow_key_expressions(expr, expected):
 
     # Sort both lists by type and status to ensure consistent comparison
     validation_results.sort(key=lambda x: x.type)
-    expected.sort(key=lambda x: (x["type"], x["status"]))
+    expected.sort(key=lambda x: x["type"])
 
     assert len(validation_results) == len(expected), (
         f"Expected {len(expected)} validation results, got {len(validation_results)}"
