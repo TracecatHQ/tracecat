@@ -53,7 +53,6 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
-import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -89,8 +88,7 @@ export function CommentSection({
     )
   }
   return (
-    <div className="max-w- mx-auto w-full">
-      <Separator />
+    <div className="mx-auto w-full">
       <div className="space-y-4 p-4">
         {caseComments?.map((comment) => {
           const user = new User(comment.user ?? SYSTEM_USER)
