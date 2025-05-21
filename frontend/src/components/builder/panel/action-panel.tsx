@@ -34,6 +34,7 @@ import { z } from "zod"
 
 import { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
+import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
 import { cn, slugify } from "@/lib/utils"
 import {
   Accordion,
@@ -609,152 +610,155 @@ export function ActionPanel({
                     </AccordionItem>
 
                     {/* Interaction */}
-                    {appSettings?.app_interactions_enabled && (
-                      <AccordionItem value="action-interaction">
-                        <AccordionTrigger className="px-4 text-xs font-bold">
-                          <div className="flex items-center">
-                            <MessagesSquare className="mr-3 size-4" />
-                            <span>Interaction</span>
-                          </div>
-                        </AccordionTrigger>
-                        <AccordionContent>
-                          <div className="my-4 space-y-2 px-4">
-                            {/* Toggle for enabling interaction */}
-                            <FormField
-                              control={methods.control}
-                              name="is_interactive"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <div className="flex items-center gap-2">
-                                    <FormControl>
-                                      <Switch
-                                        checked={field.value}
-                                        onCheckedChange={field.onChange}
-                                      />
-                                    </FormControl>
-                                    <FormLabel className="text-xs">
-                                      Enable interaction
-                                    </FormLabel>
-                                  </div>
-                                  <FormMessage className="whitespace-pre-line" />
-                                </FormItem>
-                              )}
-                            />
-
-                            {/* Interaction settings - only shown when interaction is enabled */}
-                            {isInteractive && (
-                              <>
-                                <FormField
-                                  control={methods.control}
-                                  name="interaction.type"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel className="text-xs">
-                                        Type
-                                      </FormLabel>
+                    {appSettings?.app_interactions_enabled &&
+                      PERMITTED_INTERACTION_ACTIONS.includes(
+                        registryAction.action as (typeof PERMITTED_INTERACTION_ACTIONS)[number]
+                      ) && (
+                        <AccordionItem value="action-interaction">
+                          <AccordionTrigger className="px-4 text-xs font-bold">
+                            <div className="flex items-center">
+                              <MessagesSquare className="mr-3 size-4" />
+                              <span>Interaction</span>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent>
+                            <div className="my-4 space-y-2 px-4">
+                              {/* Toggle for enabling interaction */}
+                              <FormField
+                                control={methods.control}
+                                name="is_interactive"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <div className="flex items-center gap-2">
                                       <FormControl>
-                                        <Select
-                                          value={field.value}
-                                          onValueChange={field.onChange}
-                                        >
-                                          <SelectTrigger className="text-xs">
-                                            <SelectValue
-                                              placeholder="Select a type..."
-                                              className="text-xs"
-                                            />
-                                          </SelectTrigger>
-                                          <SelectContent className="w-full text-xs">
-                                            <SelectItem
-                                              value="response"
-                                              className="text-xs"
-                                            >
-                                              Response
-                                            </SelectItem>
-                                            <SelectItem
-                                              value="approval"
-                                              className="text-xs"
-                                              disabled
-                                            >
-                                              <span>Approval</span>
-                                              <Badge
-                                                variant="outline"
-                                                className="ml-4 text-xs font-normal"
-                                              >
-                                                Coming soon
-                                              </Badge>
-                                            </SelectItem>
-                                            <SelectItem
-                                              value="mfa"
-                                              className="text-xs"
-                                              disabled
-                                            >
-                                              <span>
-                                                Multi-factor Authentication
-                                              </span>
-                                              <Badge
-                                                variant="outline"
-                                                className="ml-4 text-xs font-normal"
-                                              >
-                                                Coming soon
-                                              </Badge>
-                                            </SelectItem>
-                                            <SelectItem
-                                              value="form"
-                                              className="text-xs"
-                                              disabled
-                                            >
-                                              <span>Form</span>
-                                              <Badge
-                                                variant="outline"
-                                                className="ml-4 text-xs font-normal"
-                                              >
-                                                Coming soon
-                                              </Badge>
-                                            </SelectItem>
-                                          </SelectContent>
-                                        </Select>
+                                        <Switch
+                                          checked={field.value}
+                                          onCheckedChange={field.onChange}
+                                        />
                                       </FormControl>
-                                      <FormMessage className="whitespace-pre-line" />
-                                    </FormItem>
-                                  )}
-                                />
-
-                                {interactionType === "response" && (
-                                  <div className="space-y-2">
-                                    <FormDescription className="text-xs">
-                                      The action will only complete when it
-                                      receives a response.
-                                    </FormDescription>
-                                    <FormField
-                                      control={methods.control}
-                                      name="interaction.timeout"
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel className="text-xs">
-                                            Timeout
-                                          </FormLabel>
-                                          <FormControl>
-                                            <Input
-                                              disabled
-                                              type="number"
-                                              value={field.value || ""}
-                                              onChange={field.onChange}
-                                              placeholder="Timeout in seconds"
-                                              className="text-xs"
-                                            />
-                                          </FormControl>
-                                          <FormMessage className="whitespace-pre-line" />
-                                        </FormItem>
-                                      )}
-                                    />
-                                  </div>
+                                      <FormLabel className="text-xs">
+                                        Enable interaction
+                                      </FormLabel>
+                                    </div>
+                                    <FormMessage className="whitespace-pre-line" />
+                                  </FormItem>
                                 )}
-                              </>
-                            )}
-                          </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    )}
+                              />
+
+                              {/* Interaction settings - only shown when interaction is enabled */}
+                              {isInteractive && (
+                                <>
+                                  <FormField
+                                    control={methods.control}
+                                    name="interaction.type"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel className="text-xs">
+                                          Type
+                                        </FormLabel>
+                                        <FormControl>
+                                          <Select
+                                            value={field.value}
+                                            onValueChange={field.onChange}
+                                          >
+                                            <SelectTrigger className="text-xs">
+                                              <SelectValue
+                                                placeholder="Select a type..."
+                                                className="text-xs"
+                                              />
+                                            </SelectTrigger>
+                                            <SelectContent className="w-full text-xs">
+                                              <SelectItem
+                                                value="response"
+                                                className="text-xs"
+                                              >
+                                                Response
+                                              </SelectItem>
+                                              <SelectItem
+                                                value="approval"
+                                                className="text-xs"
+                                                disabled
+                                              >
+                                                <span>Approval</span>
+                                                <Badge
+                                                  variant="outline"
+                                                  className="ml-4 text-xs font-normal"
+                                                >
+                                                  Coming soon
+                                                </Badge>
+                                              </SelectItem>
+                                              <SelectItem
+                                                value="mfa"
+                                                className="text-xs"
+                                                disabled
+                                              >
+                                                <span>
+                                                  Multi-factor Authentication
+                                                </span>
+                                                <Badge
+                                                  variant="outline"
+                                                  className="ml-4 text-xs font-normal"
+                                                >
+                                                  Coming soon
+                                                </Badge>
+                                              </SelectItem>
+                                              <SelectItem
+                                                value="form"
+                                                className="text-xs"
+                                                disabled
+                                              >
+                                                <span>Form</span>
+                                                <Badge
+                                                  variant="outline"
+                                                  className="ml-4 text-xs font-normal"
+                                                >
+                                                  Coming soon
+                                                </Badge>
+                                              </SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </FormControl>
+                                        <FormMessage className="whitespace-pre-line" />
+                                      </FormItem>
+                                    )}
+                                  />
+
+                                  {interactionType === "response" && (
+                                    <div className="space-y-2">
+                                      <FormDescription className="text-xs">
+                                        The action will only complete when it
+                                        receives a response.
+                                      </FormDescription>
+                                      <FormField
+                                        control={methods.control}
+                                        name="interaction.timeout"
+                                        render={({ field }) => (
+                                          <FormItem>
+                                            <FormLabel className="text-xs">
+                                              Timeout
+                                            </FormLabel>
+                                            <FormControl>
+                                              <Input
+                                                disabled
+                                                type="number"
+                                                value={field.value || ""}
+                                                onChange={field.onChange}
+                                                placeholder="Timeout in seconds"
+                                                className="text-xs"
+                                              />
+                                            </FormControl>
+                                            <FormMessage className="whitespace-pre-line" />
+                                          </FormItem>
+                                        )}
+                                      />
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      )}
 
                     {/* Schema */}
                     <AccordionItem value="action-schema">
