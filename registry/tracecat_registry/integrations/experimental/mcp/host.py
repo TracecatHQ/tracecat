@@ -1,5 +1,5 @@
 import orjson
-from pydantic import BaseModel, model_validator, Field
+from pydantic import BaseModel, model_validator, Field, computed_field
 from pydantic_core import to_jsonable_python
 
 import httpx
@@ -50,6 +50,9 @@ TOOL_CALLS_CACHE = dc.FanoutCache(
 APPROVED_TOOLS_CACHE = dc.FanoutCache(
     directory=".cache/approved_tools", shards=8, timeout=0.05
 )  # key=tool_name
+TOOL_RESULTS_CACHE = dc.FanoutCache(
+    directory=".cache/tool_results", shards=8, timeout=0.05
+)  # key=tool_call_id
 
 
 def _hash_tool_call(name: str, args: str | dict[str, Any]) -> str:
@@ -187,27 +190,33 @@ class SlackInteractionPayload(BaseModel):
     user: dict[str, Any]
     message: dict[str, Any]
     actions: list[dict[str, Any]]
+    trigger_id: str | None = None
 
+    @computed_field
     @property
     def user_id(self) -> str:
         """Get the ID of the user who interacted."""
         return self.user["id"]
 
+    @computed_field
     @property
     def thread_ts(self) -> str:
         """Get the thread timestamp."""
         return self.message.get("thread_ts") or self.message["ts"]
 
+    @computed_field
     @property
     def ts(self) -> str:
         """Get the timestamp of the action block that was clicked."""
         return self.message["ts"]
 
+    @computed_field
     @property
     def blocks(self) -> list[dict[str, Any]]:
         """Get the message blocks."""
         return self.message["blocks"]
 
+    @computed_field
     @property
     def action_value(self) -> str:
         """Get the action value of the interaction."""
@@ -216,7 +225,13 @@ class SlackInteractionPayload(BaseModel):
                 "Expected one action in Slack interaction payload."
                 f"Got {len(self.actions)} actions: {self.actions}."
             )
+        action_id = self.actions[0]["action_id"]
         value = self.actions[0]["value"]
+
+        # Handle view_result action differently
+        if action_id.startswith("view_result:"):
+            return "view_result"
+
         if value not in ("run", "skip"):
             raise ValueError(
                 f"Invalid action value. Expected 'run' or 'skip'. Got {value!r}."
@@ -359,7 +374,7 @@ async def _process_model_request_node(
     _add_assistant_message(thread_ts, "".join(message_parts))
 
     if event is None:
-        raise ValueError("No event was returned from the model request node.")
+        log.warning("No event was returned from the model request node.")
 
     return event, ts, blocks
 
@@ -371,7 +386,9 @@ async def _process_call_tools_node(
     blocks: list[dict[str, Any]],
     channel_id: str,
     thread_ts: str,
-) -> tuple[FunctionToolCallEvent | FunctionToolResultEvent, str, list[dict[str, Any]]]:
+) -> tuple[
+    FunctionToolCallEvent | FunctionToolResultEvent | None, str, list[dict[str, Any]]
+]:
     log = logger.bind(
         ts=ts,
         thread_ts=thread_ts,
@@ -461,7 +478,7 @@ async def _process_call_tools_node(
                 )
 
     if event is None:
-        raise ValueError("No event was returned from the call tools node.")
+        log.warning("No event was returned from the call tools node.")
 
     return event, ts, blocks
 
@@ -614,6 +631,40 @@ async def chat_slack(
         )
         thread_ts = slack_interaction_payload.thread_ts
         ts = slack_interaction_payload.ts
+
+        # Check if this is a view_result action
+        if slack_interaction_payload.action_value == "view_result":
+            log = log.bind(
+                thread_ts=thread_ts,
+                ts=ts,
+                event_type="view_result",
+            )
+            log.info("Processing view_result interaction")
+
+            # Get the tool result from the button value
+            result_id = slack_interaction_payload.actions[0]["value"]
+            tool_call_id = slack_interaction_payload.actions[0]["action_id"].split(
+                ":", 1
+            )[1]
+
+            # Open a modal to display the tool result
+            trigger_id = slack_interaction_payload.trigger_id
+            if trigger_id is not None:
+                await _open_tool_result_modal(
+                    trigger_id=trigger_id,
+                    tool_result=result_id,  # Pass the result ID, not the actual result
+                    tool_call_id=tool_call_id,
+                )
+            else:
+                log.error("Cannot open modal: missing trigger_id")
+
+            # Return early, as we don't need to run the agent for this interaction
+            return {
+                "thread_ts": thread_ts,
+                "ts": ts,
+                "action": "view_result",
+            }
+
         user_prompt = "Run the tool."
         message_history = _get_message_history(thread_ts)
 
@@ -866,11 +917,27 @@ async def _update_tool_approval(
 ):
     """Update the message with the result of the tool call."""
     updated_blocks = [*blocks]
+
+    # Store the result in cache instead of the button
+    result_id = f"{tool_call_id}_{uuid.uuid4().hex[:8]}"
+    TOOL_RESULTS_CACHE.set(result_id, tool_result)
+
     updated_blocks.append(
         {
-            "type": "context",
+            "type": "actions",
             "block_id": f"tool_result:{tool_call_id}",
-            "elements": [{"type": "mrkdwn", "text": f"🆗 {tool_result}"}],
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🆗 View tool result",
+                        "emoji": True,
+                    },
+                    "value": result_id,
+                    "action_id": f"view_result:{tool_call_id}",
+                }
+            ],
         }
     )
 
@@ -884,6 +951,52 @@ async def _update_tool_approval(
         },
     )
     return SlackMessage(ts=response["ts"], blocks=updated_blocks)
+
+
+async def _open_tool_result_modal(
+    trigger_id: str,
+    tool_result: str,
+    tool_call_id: str,
+):
+    """Open a modal with the tool result."""
+    # Get the actual result from cache if this is a result_id
+    if tool_result.startswith(tool_call_id + "_"):
+        actual_result = TOOL_RESULTS_CACHE.get(tool_result)
+        if actual_result is not None:
+            tool_result = str(actual_result)
+
+    # Create modal view with a limit on text length to prevent Slack errors
+    # Slack has various limits including 3000 chars for text blocks
+    max_length = 2900  # Safe limit for modal text blocks
+    is_truncated = len(tool_result) > max_length
+    if is_truncated:
+        tool_result = tool_result[:max_length] + "..."
+
+    modal_blocks = [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*Tool Call ID:* `{tool_call_id}`"},
+        },
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"```\n{tool_result}\n```"},
+        },
+    ]
+
+    modal_view = {
+        "type": "modal",
+        "title": {"type": "plain_text", "text": "Tool Result"},
+        "blocks": modal_blocks,
+    }
+
+    # Open the modal
+    await call_method(
+        "views_open",
+        params={
+            "trigger_id": trigger_id,
+            "view": modal_view,
+        },
+    )
 
 
 async def _send_final_message(
