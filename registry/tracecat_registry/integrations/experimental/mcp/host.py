@@ -713,9 +713,10 @@ async def _update_message(
     message = "".join(message_parts)
 
     # Check if most recent block is a tool call
+    updated_blocks = [*blocks]
     block_id = blocks[-1].get("block_id", "")
     if block_id.startswith("tool_call:"):
-        blocks.append(
+        updated_blocks.append(
             {
                 "type": "context",
                 "block_id": f"tool_call:{uuid.uuid1()}",
@@ -723,7 +724,7 @@ async def _update_message(
             }
         )
     else:
-        blocks.append(
+        updated_blocks.append(
             {
                 "type": "section",
                 "block_id": "message",
@@ -737,10 +738,10 @@ async def _update_message(
             "channel": channel_id,
             "ts": ts,
             "text": message,
-            "blocks": blocks,
+            "blocks": updated_blocks,
         },
     )
-    return SlackMessage(ts=response["ts"], blocks=blocks)
+    return SlackMessage(ts=response["ts"], blocks=updated_blocks)
 
 
 async def _request_tool_approval(
@@ -772,7 +773,9 @@ async def _request_tool_approval(
         ],
         block_id=f"tool_call:{tool_call_id}",
     )
-    blocks.extend(
+
+    updated_blocks = [*blocks]
+    updated_blocks.extend(
         [
             {
                 "type": "section",
@@ -784,18 +787,18 @@ async def _request_tool_approval(
             buttons,
         ]
     )
-    logger.info("Posting tool call approval", blocks=blocks)
+    logger.info("Posting tool call approval", blocks=updated_blocks)
     response = await call_method(
         "chat_update",
         params={
             "channel": channel_id,
             "ts": ts,
             "text": "Requesting tool call approval",
-            "blocks": blocks,
+            "blocks": updated_blocks,
         },
     )
     interaction_ts = response["ts"]
-    return SlackMessage(ts=interaction_ts, blocks=blocks)
+    return SlackMessage(ts=interaction_ts, blocks=updated_blocks)
 
 
 async def _receive_approval(
@@ -862,8 +865,8 @@ async def _update_tool_approval(
     channel_id: str,
 ):
     """Update the message with the result of the tool call."""
-    # Drop tool call block
-    blocks.append(
+    updated_blocks = [*blocks]
+    updated_blocks.append(
         {
             "type": "context",
             "block_id": f"tool_result:{tool_call_id}",
@@ -877,10 +880,10 @@ async def _update_tool_approval(
             "channel": channel_id,
             "ts": ts,
             "text": "Tool call completed",
-            "blocks": blocks,
+            "blocks": updated_blocks,
         },
     )
-    return SlackMessage(ts=response["ts"], blocks=blocks)
+    return SlackMessage(ts=response["ts"], blocks=updated_blocks)
 
 
 async def _send_final_message(
@@ -895,7 +898,8 @@ async def _send_final_message(
     bot_name = (await call_method("users_info", params={"user": bot_id}))["user"][
         "name"
     ]
-    blocks.append(
+    updated_blocks = [*blocks]
+    updated_blocks.append(
         {
             "type": "section",
             "text": {
@@ -905,6 +909,7 @@ async def _send_final_message(
         }
     )
     response = await call_method(
-        "chat_update", params={"channel": channel_id, "ts": ts, "blocks": blocks}
+        "chat_update",
+        params={"channel": channel_id, "ts": ts, "blocks": updated_blocks},
     )
-    return SlackMessage(ts=response["ts"], blocks=blocks)
+    return SlackMessage(ts=response["ts"], blocks=updated_blocks)
