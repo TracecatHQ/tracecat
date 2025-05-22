@@ -1,12 +1,8 @@
 import asyncio
-import json
 import os
 import uuid
 from collections.abc import AsyncGenerator, Iterator
-from pathlib import Path
-from typing import Any
 
-import httpx
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -17,12 +13,13 @@ from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
-from tracecat.db.schemas import User, Workspace
+from tracecat.db.schemas import Workspace
+from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
-from tracecat.types.auth import AccessLevel, Role
-from tracecat.workspaces.models import WorkspaceReadMinimal
+from tracecat.types.auth import AccessLevel, Role, system_role
+from tracecat.workspaces.service import WorkspaceService
 
 
 @pytest.fixture
@@ -182,9 +179,8 @@ def mock_org_id() -> uuid.UUID:
     return uuid.UUID("00000000-0000-4444-aaaa-000000000000")
 
 
-# NOTE: Don't auto-use this fixture unless necessary
-@pytest.fixture(scope="session")
-def test_role(test_workspace, mock_org_id):
+@pytest.fixture(scope="function")
+async def test_role(test_workspace, mock_org_id):
     """Create a test role for the test session and set `ctx_role`."""
     service_role = Role(
         type="service",
@@ -192,12 +188,15 @@ def test_role(test_workspace, mock_org_id):
         workspace_id=test_workspace.id,
         service_id="tracecat-runner",
     )
-    ctx_role.set(service_role)
-    return service_role
+    token = ctx_role.set(service_role)
+    try:
+        yield service_role
+    finally:
+        ctx_role.reset(token)
 
 
-@pytest.fixture(scope="session")
-def test_admin_role(test_workspace, mock_org_id):
+@pytest.fixture(scope="function")
+async def test_admin_role(test_workspace, mock_org_id):
     """Create a test role for the test session and set `ctx_role`."""
     admin_role = Role(
         type="user",
@@ -206,163 +205,40 @@ def test_admin_role(test_workspace, mock_org_id):
         access_level=AccessLevel.ADMIN,
         service_id="tracecat-runner",
     )
-    return admin_role
+    yield admin_role
 
 
-@pytest.fixture(scope="session")
-def test_config_path(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    tmp_path = tmp_path_factory.mktemp("config")
-    config_path = tmp_path / "test_config.json"
-    yield config_path
-
-
-@pytest.fixture(scope="session")
-def authed_client_controls(test_config_path: Path):
-    def _read_config() -> dict[str, Any]:
-        try:
-            with test_config_path.open() as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {}
-
-    def get_client():
-        url = os.environ["TRACECAT__PUBLIC_API_URL"]
-        if cookies_data := _read_config().get("cookies"):
-            return httpx.Client(base_url=url, cookies=httpx.Cookies(cookies_data))
-        raise ValueError("No cookies found in config")
-
-    def cfg_write(key: str, value: Any | None = None):
-        config_data = _read_config()
-        if value:
-            config_data[key] = value
-        else:
-            config_data.pop(key, None)
-        with test_config_path.open(mode="w") as f:
-            json.dump(config_data, f, indent=2)
-
-    def cfg_read(key: str) -> Any | None:
-        return _read_config().get(key)
-
-    return get_client, cfg_write, cfg_read
-
-
-@pytest.fixture(scope="session")
-def test_admin_user(env_sandbox, authed_client_controls):
-    from tracecat.auth.models import UserCreate, UserRole
-    # Login
-
-    url = os.environ["TRACECAT__PUBLIC_API_URL"]
-    get_client, cfg_write, cfg_read = authed_client_controls
-    email = "testing@tracecat.com"
-    password = "1234567890qwer"
-
-    try:
-        with httpx.Client(base_url=url) as client:
-            response = client.post(
-                "/auth/register",
-                json=UserCreate(
-                    email=email,
-                    password=password,
-                    role=UserRole.ADMIN,
-                    first_name="Test",
-                    last_name="User",
-                ).model_dump(mode="json"),
-            )
-            response.raise_for_status()
-        logger.info("Registered test admin user", email=email)
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 409:
-            logger.info("Test admin user already registered", email=email)
-
-    # Login
-    try:
-        with httpx.Client(base_url=url) as client:
-            response = client.post(
-                "/auth/login",
-                data={"username": email, "password": password},
-            )
-            response.raise_for_status()
-            cfg_write("cookies", dict(response.cookies))
-
-        # Current user
-        logger.info("Getting current user", read_cfg=cfg_read("cookies"))
-
-        with get_client() as client:
-            response = client.get("/users/me")
-            response.raise_for_status()
-            user_data = response.json()
-            user = User(**user_data)
-        logger.info("Logged into admin user", user=user)
-        yield user
-    finally:
-        # Logout
-        logger.info("Logging out of test session")
-        with get_client() as client:
-            response = client.post("/auth/logout")
-            response.raise_for_status()
-
-
-@pytest.fixture(scope="session")
-def test_workspace(test_admin_user, authed_client_controls):
+@pytest.fixture(scope="function")
+async def test_workspace():
     """Create a test workspace for the test session."""
-
-    get_client, cfg_write, cfg_read = authed_client_controls
-    # Login
     workspace_name = "__test_workspace"
-    workspace: WorkspaceReadMinimal | None = None
 
-    try:
-        # First, try to delete any existing test workspace
-        with get_client() as client:
-            # Get all workspaces
-            response = client.get("/workspaces")
-            response.raise_for_status()
-            workspaces = response.json()
-
-            # Find and delete test workspace if it exists
-            for ws in workspaces:
-                if ws["name"] == workspace_name:
-                    logger.info("Found existing test workspace, deleting it first")
-                    delete_response = client.delete(f"/workspaces/{ws['id']}")
-                    delete_response.raise_for_status()
-                    break
+    async with WorkspaceService.with_session(role=system_role()) as svc:
+        # Check if test workspace already exists
+        existing_workspaces = await svc.admin_list_workspaces()
+        for ws in existing_workspaces:
+            if ws.name == workspace_name:
+                logger.info("Found existing test workspace, deleting it first")
+                await svc.delete_workspace(ws.id)
 
         # Create new test workspace
-        with get_client() as client:
-            response = client.post(
-                "/workspaces",
-                json={"name": workspace_name},
-            )
-            response.raise_for_status()
-            workspace = WorkspaceReadMinimal(**response.json())
+        workspace = await svc.create_workspace(name=workspace_name)
 
         logger.info("Created test workspace", workspace=workspace)
-        cfg_write("workspace", workspace.model_dump(mode="json"))
 
-        yield workspace
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 409:
-            logger.info("Test workspace already exists")
-            workspace = cfg_read("workspace")
-            if not workspace:
-                raise ValueError(
-                    "Unexpected error when retrieving workspace. Workspace either doesn't exist or there was a conflict."
-                    "Please check the logs for more information, or try viewing the database directly."
-                ) from e
-            yield WorkspaceReadMinimal(**workspace.model_dump())
-    finally:
-        # NOTE: This will remove all test assets created from the DB
-        logger.info("Teardown test workspace")
-        if workspace:
-            with get_client() as client:
-                response = client.delete(f"/workspaces/{workspace.id}")
-                response.raise_for_status()
+        try:
+            yield workspace
+        finally:
+            # Clean up the workspace
+            logger.info("Teardown test workspace")
+            try:
+                await svc.delete_workspace(workspace.id)
+            except Exception as e:
+                logger.error(f"Error during workspace cleanup: {e}")
 
 
 @pytest.fixture(scope="function")
 def temporal_client():
-    from tracecat.dsl.client import get_temporal_client
-
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
@@ -377,32 +253,29 @@ def temporal_client():
 async def db_session_with_repo(test_role):
     """Fixture that creates a db session and temporary repository."""
 
-    async with get_async_session_context_manager() as session:
-        rr_service = RegistryReposService(session, role=test_role)
-        db_repo = await rr_service.create_repository(
+    async with RegistryReposService.with_session(role=test_role) as svc:
+        db_repo = await svc.create_repository(
             RegistryRepositoryCreate(
                 origin="git+ssh://git@github.com/TracecatHQ/dummy-repo.git"
             )
         )
         try:
-            yield session, db_repo.id
+            yield svc.session, db_repo.id
         finally:
             try:
-                await rr_service.delete_repository(db_repo)
+                await svc.delete_repository(db_repo)
                 logger.info("Cleaned up db repo")
             except Exception as e:
                 logger.error("Error cleaning up repo", e=e)
 
 
 @pytest.fixture
-async def svc_workspace(
-    session: AsyncSession,
-) -> AsyncGenerator[Workspace, None]:
+async def svc_workspace(session: AsyncSession) -> AsyncGenerator[Workspace, None]:
     """Service test fixture. Create a function scoped test workspace."""
     workspace = Workspace(
         name="test-workspace",
         owner_id=config.TRACECAT__DEFAULT_ORG_ID,
-    )  # type: ignore
+    )
     session.add(workspace)
     await session.commit()
     try:
