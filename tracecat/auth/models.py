@@ -27,7 +27,6 @@ class UserRead(schemas.BaseUser[uuid.UUID]):
 
 
 class UserCreate(schemas.BaseUserCreate):
-    role: UserRole = UserRole.BASIC
     first_name: str | None = None
     last_name: str | None = None
 
