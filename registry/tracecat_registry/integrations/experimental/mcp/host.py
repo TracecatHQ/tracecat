@@ -11,6 +11,8 @@ import diskcache as dc
 from typing import Annotated, Any, Self
 from typing_extensions import Doc
 
+import hashlib
+
 from pydantic_ai.mcp import MCPServerHTTP
 from pydantic_ai.agent import Agent
 from pydantic_ai.messages import (
@@ -44,6 +46,20 @@ MESSAGE_CACHE = dc.FanoutCache(
 TOOL_CALLS_CACHE = dc.FanoutCache(
     directory=".cache/tool_calls", shards=8, timeout=0.05
 )  # key=thread_ts
+APPROVED_TOOLS_CACHE = dc.FanoutCache(
+    directory=".cache/approved_tools", shards=8, timeout=0.05
+)  # key=tool_name
+
+
+def _hash_tool_call(name: str, args: str | dict[str, Any]) -> str:
+    """Hash a tool call.
+
+    Note: we cannot use the tool call ID because it is not stored in
+    the message history the first time it is requested (i.e. because of HiTL).
+    The second time it is requested, a new tool call ID is generated even
+    though the tool call name and arguments are the same.
+    """
+    return hashlib.md5(f"{name}:{args}".encode()).hexdigest()
 
 
 mcp_secret = RegistrySecret(
@@ -295,7 +311,7 @@ async def _process_model_request_node(
     blocks: list[dict[str, Any]],
     channel_id: str,
     thread_ts: str,
-) -> tuple[PartStartEvent | PartDeltaEvent | None, str, list[dict[str, Any]]]:
+) -> tuple[PartStartEvent | PartDeltaEvent, str, list[dict[str, Any]]]:
     """Process a model request node."""
     log = logger.bind(
         ts=ts,
@@ -340,26 +356,28 @@ async def _process_model_request_node(
     )
     BLOCKS_CACHE.set(ts, blocks)
     _add_assistant_message(thread_ts, "".join(message_parts))
+
+    if event is None:
+        raise ValueError("No event was returned from the model request node.")
+
     return event, ts, blocks
 
 
 async def _process_call_tools_node(
     node,
     run,
-    is_approved: bool,
     ts: str,
     blocks: list[dict[str, Any]],
     channel_id: str,
     thread_ts: str,
-) -> tuple[
-    FunctionToolCallEvent | FunctionToolResultEvent | None, str, list[dict[str, Any]]
-]:
+) -> tuple[FunctionToolCallEvent | FunctionToolResultEvent, str, list[dict[str, Any]]]:
     log = logger.bind(
         ts=ts,
         thread_ts=thread_ts,
         channel_id=channel_id,
     )
     log.info("Processing call tools node", node=node)
+    event = None
     async with node.stream(run.ctx) as handle_stream:
         async for event in handle_stream:
             if isinstance(event, FunctionToolCallEvent):
@@ -368,7 +386,21 @@ async def _process_call_tools_node(
                 tool_name = event.part.tool_name
                 tool_args = event.part.args
                 tool_call_id = event.call_id
-                if not is_approved:
+                tool_call_hash = _hash_tool_call(tool_name, tool_args)
+                is_approved = APPROVED_TOOLS_CACHE.get(tool_call_hash)
+                if is_approved:
+                    log.info(
+                        "Approved tool call. Resetting cache for tool call request.",
+                        tool_call_hash=tool_call_hash,
+                    )
+                    APPROVED_TOOLS_CACHE.delete(tool_call_hash)
+                    _add_tool_call_request(
+                        thread_ts,
+                        tool_name,
+                        tool_args,
+                        tool_call_id,
+                    )
+                else:
                     msg = await _request_tool_approval(
                         blocks=blocks,
                         ts=ts,
@@ -387,15 +419,15 @@ async def _process_call_tools_node(
                         num_blocks=len(blocks),
                     )
                     BLOCKS_CACHE.set(ts, blocks)
-                    TOOL_CALLS_CACHE.set(thread_ts, tool_call_id)
+                    TOOL_CALLS_CACHE.set(
+                        thread_ts,
+                        {
+                            "tool_call_id": tool_call_id,
+                            "tool_name": tool_name,
+                            "tool_args": tool_args,
+                        },
+                    )
                     return event, ts, blocks
-
-                _add_tool_call_request(
-                    thread_ts,
-                    tool_name,
-                    tool_args,
-                    tool_call_id,
-                )
 
             elif isinstance(event, FunctionToolResultEvent) and isinstance(
                 event.result, ToolReturnPart
@@ -426,7 +458,9 @@ async def _process_call_tools_node(
                     tool_result,
                     tool_call_id,
                 )
-                is_approved = False
+
+    if event is None:
+        raise ValueError("No event was returned from the call tools node.")
 
     return event, ts, blocks
 
@@ -435,12 +469,11 @@ async def _run_agent(
     agent: Agent,
     *,
     ts: str,
-    is_approved: bool,
     user_prompt: str,
     message_history: list[ModelMessage] | None,
     channel_id: str,
     thread_ts: str,
-):
+) -> dict[str, Any]:
     log = logger.bind(
         ts=ts,
         thread_ts=thread_ts,
@@ -476,16 +509,14 @@ async def _run_agent(
                     event, ts, blocks = await _process_call_tools_node(
                         node=node,
                         run=run,
-                        is_approved=is_approved,
                         ts=ts,
                         blocks=blocks,
                         channel_id=channel_id,
                         thread_ts=thread_ts,
                     )
-                    is_approved = False
                     if isinstance(event, FunctionToolCallEvent):
                         log.info("Request human-in-the-loop for tool call", event=event)
-                        return
+                        break
 
                 elif Agent.is_end_node(node):
                     blocks = BLOCKS_CACHE.get(ts, [])  # type: ignore
@@ -494,7 +525,16 @@ async def _run_agent(
                         ts=ts,
                         channel_id=channel_id,
                     )
-    return
+
+    blocks = BLOCKS_CACHE.get(ts, [])  # type: ignore
+    all_messages = MESSAGE_CACHE.get(thread_ts, [])  # type: ignore
+    result = {
+        "blocks": blocks,
+        "all_messages": all_messages,
+        "thread_ts": thread_ts,
+        "ts": ts,
+    }
+    return result
 
 
 @registry.register(
@@ -565,7 +605,6 @@ async def chat_slack(
 
         # Add user message to message history
         _add_user_message(thread_ts, user_prompt)
-        is_approved = False
 
     elif slack_payload is not None:
         # Approval buttons (assume the user has already started a conversation)
@@ -579,35 +618,42 @@ async def chat_slack(
 
         # Get cached blocks and tool call ID
         blocks: list[dict[str, Any]] | None = BLOCKS_CACHE.get(ts)  # type: ignore
-        tool_call_id: str | None = TOOL_CALLS_CACHE.get(thread_ts)  # type: ignore
+        tool_call: dict[str, str] | None = TOOL_CALLS_CACHE.get(thread_ts)  # type: ignore
         if blocks is None:
             raise ValueError(f"No cached blocks found for timestamp {ts}")
-        if tool_call_id is None:
+        if tool_call is None:
             raise ValueError(
                 f"No cached tool call ID found for thread timestamp {thread_ts}"
             )
         log.info("Retrieved cached blocks", blocks=blocks, num_blocks=len(blocks))
-        log.info("Retrieved cached tool call ID", tool_call_id=tool_call_id)
+        log.info("Retrieved cached tool call ID", tool_call=tool_call)
+
+        tool_call_id = tool_call["tool_call_id"]
+        tool_name = tool_call["tool_name"]
+        tool_args = tool_call["tool_args"]
 
         log = log.bind(
             thread_ts=thread_ts,
             ts=ts,
             tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            tool_args=tool_args,
             event_type="interaction",
         )
         log.info("Processing interaction")
 
-        msg = await _disable_buttons(
+        msg = await _receive_approval(
             blocks=blocks,
             ts=slack_interaction_payload.ts,
             action_value=slack_interaction_payload.action_value,
+            tool_name=tool_name,
+            tool_args=tool_args,
             tool_call_id=tool_call_id,
             channel_id=channel_id,
         )
         ts, blocks = msg.ts, msg.blocks
         log.info("Updated blocks", blocks=blocks, num_blocks=len(blocks))
         BLOCKS_CACHE.set(ts, blocks)
-        is_approved = slack_interaction_payload.action_value == "run"
 
     else:
         raise ValueError(
@@ -616,10 +662,9 @@ async def chat_slack(
 
     # Run the agent and handle its response
     try:
-        await _run_agent(
+        result = await _run_agent(
             agent=agent,
             ts=ts,
-            is_approved=is_approved,
             user_prompt=user_prompt,
             message_history=message_history,
             channel_id=channel_id,
@@ -633,7 +678,7 @@ async def chat_slack(
         else:
             raise e
 
-    return
+    return result
 
 
 async def _post_message(
@@ -751,17 +796,20 @@ async def _request_tool_approval(
     return SlackMessage(ts=interaction_ts, blocks=blocks)
 
 
-async def _disable_buttons(
+async def _receive_approval(
     blocks: list[dict[str, Any]],
     ts: str,
     *,
     action_value: str,
+    tool_name: str,
+    tool_args: str | dict[str, Any],
     tool_call_id: str,
     channel_id: str,
 ) -> SlackMessage:
     """Disable the buttons for a tool call."""
     msg = None
     updated_blocks = []
+    tool_call_hash = _hash_tool_call(tool_name, tool_args)
     for block in blocks:
         if block.get("block_id") == f"tool_call:{tool_call_id}":
             if action_value == "run":
@@ -771,6 +819,7 @@ async def _disable_buttons(
                     "block_id": f"tool_call:{tool_call_id}",
                     "elements": [{"type": "mrkdwn", "text": msg}],
                 }
+                APPROVED_TOOLS_CACHE.set(tool_call_hash, True)
             elif action_value == "skip":
                 msg = "⏭️ Skipped tool."
                 block = {
@@ -778,6 +827,7 @@ async def _disable_buttons(
                     "block_id": f"tool_call:{tool_call_id}",
                     "elements": [{"type": "mrkdwn", "text": msg}],
                 }
+                APPROVED_TOOLS_CACHE.set(tool_call_hash, False)
             else:
                 raise ValueError(
                     f"Invalid Slack action value. Got {action_value!r}. Expected 'run' or 'skip'."
