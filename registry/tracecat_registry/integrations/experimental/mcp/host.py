@@ -35,6 +35,7 @@ from tracecat_registry.integrations.slack_sdk import format_buttons, slack_secre
 from tracecat_registry import registry, RegistrySecret, secrets
 
 from tracecat.logger import logger
+import uuid
 
 
 BLOCKS_CACHE = dc.FanoutCache(
@@ -714,12 +715,13 @@ async def _update_message(
     # Check if most recent block is a tool call
     block_id = blocks[-1].get("block_id", "")
     if block_id.startswith("tool_call:"):
-        # TODO: Make it append with inc index (block_id suffix)
-        blocks[-1] = {
-            "type": "context",
-            "block_id": block_id,
-            "elements": [{"type": "mrkdwn", "text": f"⏳ {message}"}],
-        }
+        blocks.append(
+            {
+                "type": "context",
+                "block_id": f"tool_call:{uuid.uuid1()}",
+                "elements": [{"type": "mrkdwn", "text": f"⏳ {message}"}],
+            }
+        )
     else:
         blocks.append(
             {
@@ -861,16 +863,11 @@ async def _update_tool_approval(
 ):
     """Update the message with the result of the tool call."""
     # Drop tool call block
-    updated_blocks = [
-        block
-        for block in blocks
-        if block.get("block_id") != f"tool_call:{tool_call_id}"
-    ]
-    updated_blocks.append(
+    blocks.append(
         {
             "type": "context",
             "block_id": f"tool_result:{tool_call_id}",
-            "elements": [{"type": "mrkdwn", "text": f"✅ {tool_result}"}],
+            "elements": [{"type": "mrkdwn", "text": f"🆗 {tool_result}"}],
         }
     )
 
@@ -880,10 +877,10 @@ async def _update_tool_approval(
             "channel": channel_id,
             "ts": ts,
             "text": "Tool call completed",
-            "blocks": updated_blocks,
+            "blocks": blocks,
         },
     )
-    return SlackMessage(ts=response["ts"], blocks=updated_blocks)
+    return SlackMessage(ts=response["ts"], blocks=blocks)
 
 
 async def _send_final_message(
