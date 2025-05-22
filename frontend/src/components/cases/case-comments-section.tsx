@@ -4,10 +4,8 @@ import type React from "react"
 import { useState } from "react"
 import { CaseCommentRead } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { formatDistanceToNow } from "date-fns"
 import {
   ArrowUpIcon,
-  Clock,
   MoreHorizontal,
   PaperclipIcon,
   PencilIcon,
@@ -33,7 +31,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -48,21 +45,14 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form"
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
+import {
+  CaseEventTimestemp,
+  CaseUserAvatar,
+} from "@/components/cases/case-panel-common"
 
 export function CommentSection({
   caseId,
@@ -93,80 +83,20 @@ export function CommentSection({
         {caseComments?.map((comment) => {
           const user = new User(comment.user ?? SYSTEM_USER)
           const displayName = user.getDisplayName()
-          const username = user.email.split("@")[0]
           const isEditing = editingCommentId === comment.id
 
           return (
             <div key={comment.id} className="group flex gap-3">
-              <HoverCard>
-                <HoverCardTrigger asChild>
-                  <Avatar className="size-8 cursor-default">
-                    <AvatarFallback className="bg-primary/10 text-xs text-primary">
-                      {displayName.substring(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                </HoverCardTrigger>
-                <HoverCardContent className="w-auto" side="top">
-                  <div className="flex items-center gap-4">
-                    <Avatar className="size-16">
-                      <AvatarFallback className="bg-primary/10 text-lg text-primary">
-                        {displayName.substring(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base font-medium">
-                          {displayName}
-                        </span>
-                        <span className="text-muted-foreground">
-                          ({username})
-                        </span>
-                        {user.role && (
-                          <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium capitalize text-primary">
-                            {user.role}
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {user.email}
-                      </span>
-                    </div>
-                  </div>
-                </HoverCardContent>
-              </HoverCard>
+              <CaseUserAvatar user={user} />
               <div className="flex-1 space-y-1">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     {/* This should be user name */}
                     <span className="text-sm font-medium">{displayName}</span>
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger className="cursor-default">
-                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Clock className="size-3" />
-                            {formatDistanceToNow(new Date(comment.created_at), {
-                              addSuffix: true,
-                            })}
-                            {comment.last_edited_at && (
-                              <span className="ml-1">(edited)</span>
-                            )}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          Created:{" "}
-                          {new Date(comment.created_at).toLocaleString()}
-                          {comment.last_edited_at && (
-                            <>
-                              <br />
-                              Edited:{" "}
-                              {new Date(
-                                comment.last_edited_at
-                              ).toLocaleString()}
-                            </>
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                    <CaseEventTimestemp
+                      createdAt={comment.created_at}
+                      lastEditedAt={comment.last_edited_at}
+                    />
                   </div>
                   {!isEditing && (
                     <CommentActionsWithEditing
