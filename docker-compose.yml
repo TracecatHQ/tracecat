@@ -202,7 +202,6 @@ services:
       - TEMPORAL_CORS_ORIGINS=http://localhost:8080
     depends_on:
       - temporal
-    attach: false
 
 volumes:
   core-db:
