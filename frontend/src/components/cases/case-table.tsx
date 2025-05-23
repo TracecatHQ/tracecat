@@ -97,7 +97,7 @@ export default function CaseTable() {
         {
           column: "status",
           title: "Status",
-          options: STATUSES,
+          options: Object.values(STATUSES),
         },
         {
           column: "priority",

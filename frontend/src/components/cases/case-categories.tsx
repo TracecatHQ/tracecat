@@ -25,50 +25,50 @@ const palette = {
   sky: "bg-sky-100 border-sky-400/70 text-sky-700/80",
 }
 
-export const STATUSES: CaseBadgeProps<CaseStatus>[] = [
-  {
+export const STATUSES: Record<CaseStatus, CaseBadgeProps<CaseStatus>> = {
+  unknown: {
     value: "unknown",
     label: "Unknown",
     icon: CircleHelpIcon,
     color: palette.gray,
   },
-  {
+  new: {
     value: "new",
     label: "New",
     icon: FlagTriangleRightIcon,
     color: palette.yellow,
   },
-  {
+  in_progress: {
     value: "in_progress",
     label: "In Progress",
     icon: TrafficConeIcon,
     color: palette.sky,
   },
-  {
+  resolved: {
     value: "resolved",
     label: "Resolved",
     icon: CheckCircleIcon,
     color: palette.emerald,
   },
-  {
+  closed: {
     value: "closed",
     label: "Closed",
     icon: CheckCircleIcon,
     color: palette.fuchsia,
   },
-  {
+  other: {
     value: "other",
     label: "Other",
     icon: CircleIcon,
     color: palette.yellow,
   },
-  {
+  on_hold: {
     value: "on_hold",
     label: "On Hold",
     icon: CirclePauseIcon,
     color: palette.orange,
   },
-]
+} as const
 
 export const PRIORITIES: CaseBadgeProps<CasePriority>[] = [
   {

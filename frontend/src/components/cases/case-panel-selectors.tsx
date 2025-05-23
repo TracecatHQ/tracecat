@@ -39,7 +39,7 @@ export function StatusSelect({ status, onValueChange }: StatusSelectProps) {
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {STATUSES.map((props) => (
+        {Object.values(STATUSES).map((props) => (
           <SelectItem
             key={props.value}
             value={props.value}

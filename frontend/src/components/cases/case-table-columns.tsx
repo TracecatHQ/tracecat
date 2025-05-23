@@ -95,7 +95,7 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
     ),
     cell: ({ row }) => {
       const status = row.getValue<CaseReadMinimal["status"]>("status")
-      const props = STATUSES.find((s) => s.value === status)
+      const props = STATUSES[status]
       if (!props) {
         return null
       }
