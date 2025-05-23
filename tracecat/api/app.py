@@ -26,7 +26,7 @@ from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.users import (
     FastAPIUsersException,
-    InvalidDomainException,
+    InvalidEmailException,
     auth_backend,
     fastapi_users,
 )
@@ -124,7 +124,7 @@ def fastapi_users_auth_exception_handler(request: Request, exc: FastAPIUsersExce
         path=request.url.path,
     )
     match exc:
-        case InvalidDomainException():
+        case InvalidEmailException():
             status_code = status.HTTP_400_BAD_REQUEST
         case _:
             status_code = status.HTTP_401_UNAUTHORIZED

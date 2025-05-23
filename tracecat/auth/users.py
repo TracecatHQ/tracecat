@@ -51,8 +51,11 @@ from tracecat.workspaces.models import WorkspaceMembershipCreate
 from tracecat.workspaces.service import WorkspaceService
 
 
-class InvalidDomainException(FastAPIUsersException):
-    """Exception raised on registration with an invalid domain."""
+class InvalidEmailException(FastAPIUsersException):
+    """Exception raised on registration with an invalid email."""
+
+    def __init__(self) -> None:
+        super().__init__("Please enter a valid email address.")
 
 
 class PermissionsException(FastAPIUsersException):
@@ -141,7 +144,11 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         request: Request | None = None,
     ) -> User:
         await self.validate_email(user_create.email)
-        return await super().create(user_create, safe, request)
+        try:
+            return await super().create(user_create, safe, request)
+        except UserAlreadyExists:
+            # NOTE(security): Bypass fastapi users exception handler
+            raise InvalidEmailException() from None
 
     async def on_after_login(
         self,
@@ -406,4 +413,4 @@ def validate_email(
     logger.info(f"Domain: {domain}")
 
     if allowed_domains and domain not in allowed_domains:
-        raise InvalidDomainException("Please enter a valid email address.")
+        raise InvalidEmailException()
