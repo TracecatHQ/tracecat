@@ -55,6 +55,10 @@ class InvalidDomainException(FastAPIUsersException):
     """Exception raised on registration with an invalid domain."""
 
 
+class PermissionsException(FastAPIUsersException):
+    """Exception raised on permissions error."""
+
+
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     reset_password_token_secret = config.USER_AUTH_SECRET
     verification_token_secret = config.USER_AUTH_SECRET
@@ -63,6 +67,31 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         super().__init__(user_db)
         self.logger = logger.bind(unit="UserManager")
         self.role = bootstrap_role()
+
+    async def update(
+        self,
+        user_update: UserUpdate,
+        user: User,
+        safe: bool = False,
+        request: Request | None = None,
+    ):
+        """Update a user with user privileges."""
+        # NOTE(security): Prevent unprivileged users from changing role or is_superuser fields
+        blacklist = ("role", "is_superuser")
+        set_fields = user_update.model_fields_set
+        if is_unprivileged(user) and any(field in set_fields for field in blacklist):
+            raise PermissionsException("Operation not permitted")
+
+        return await super().update(user_update, user, safe=True, request=request)
+
+    async def admin_update(
+        self,
+        user_update: UserUpdate,
+        user: User,
+        request: Request | None = None,
+    ):
+        """Update a user with admin privileges. This is only used to bootstrap the first user."""
+        return await super().update(user_update, user, safe=False, request=request)
 
     async def validate_password(self, password: str, user: User) -> None:
         if len(password) < config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH:
@@ -143,7 +172,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             if len(users) == 1:
                 # This is the only user in the org, make them the superuser
                 update_params = UserUpdate(is_superuser=True, role=UserRole.ADMIN)
-                await self.update(user_update=update_params, user=user)
+                # NOTE(security): Bypass safety to create superuser
+                await self.admin_update(user_update=update_params, user=user)
                 self.logger.info("Promoted user to superuser", user=user.email)
             elif await get_setting("app_create_workspace_on_register", default=True):
                 # Check if we should auto-create a workspace for the user
