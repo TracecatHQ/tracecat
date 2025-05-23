@@ -116,7 +116,7 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       if (!priority) {
         return null
       }
-      const props = PRIORITIES.find((p) => p.value === priority)!
+      const props = PRIORITIES[priority]
 
       return <CaseBadge {...props} />
     },
@@ -137,7 +137,7 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
         return null
       }
 
-      const props = SEVERITIES.find((s) => s.value === severity)
+      const props = SEVERITIES[severity]
       if (!props) {
         return null
       }

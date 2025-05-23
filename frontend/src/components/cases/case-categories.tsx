@@ -70,92 +70,92 @@ export const STATUSES: Record<CaseStatus, CaseBadgeProps<CaseStatus>> = {
   },
 } as const
 
-export const PRIORITIES: CaseBadgeProps<CasePriority>[] = [
-  {
+export const PRIORITIES: Record<CasePriority, CaseBadgeProps<CasePriority>> = {
+  unknown: {
     label: "Unknown",
     value: "unknown",
     icon: CircleHelpIcon,
     color: palette.gray,
   },
-  {
+  low: {
     label: "Low",
     value: "low",
     icon: SignalMediumIcon,
     color: palette.yellow,
   },
-  {
+  medium: {
     label: "Medium",
     value: "medium",
     icon: SignalHighIcon,
     color: palette.orange,
   },
-  {
+  high: {
     label: "High",
     value: "high",
     icon: SignalIcon,
     color: palette.red,
   },
-  {
+  critical: {
     label: "Critical",
     value: "critical",
     icon: AlertTriangleIcon,
     color: palette.fuchsia,
   },
-  {
+  other: {
     label: "Other",
     value: "other",
     icon: CircleIcon,
     color: palette.red,
   },
-]
+} as const
 
-export const SEVERITIES: CaseBadgeProps<CaseSeverity>[] = [
-  {
+export const SEVERITIES: Record<CaseSeverity, CaseBadgeProps<CaseSeverity>> = {
+  unknown: {
     label: "Unknown",
     value: "unknown",
     icon: CircleHelpIcon,
     color: palette.gray,
   },
-  {
+  informational: {
     label: "Informational",
     value: "informational",
     icon: InfoIcon,
     color: palette.sky,
   },
-  {
+  low: {
     label: "Low",
     value: "low",
     icon: SignalMediumIcon,
     color: palette.yellow,
   },
-  {
+  medium: {
     label: "Medium",
     value: "medium",
     icon: SignalHighIcon,
     color: palette.orange,
   },
-  {
+  high: {
     label: "High",
     value: "high",
     icon: SignalIcon,
     color: palette.red,
   },
-  {
+  critical: {
     label: "Critical",
     value: "critical",
     icon: AlertTriangleIcon,
     color: palette.fuchsia,
   },
-  {
+  fatal: {
     label: "Fatal",
     value: "fatal",
     icon: AlertTriangleIcon,
     color: palette.red,
   },
-  {
+  other: {
     label: "Other",
     value: "other",
     icon: CircleIcon,
     color: palette.sky,
   },
-]
+}
