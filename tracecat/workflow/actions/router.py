@@ -68,6 +68,10 @@ async def create_action(
         type=params.type,
         title=params.title,
         description="",  # Default to empty string
+        inputs=params.inputs,
+        control_flow=params.control_flow.model_dump() if params.control_flow else {},
+        is_interactive=params.is_interactive,
+        interaction=params.interaction.model_dump() if params.interaction else None,
     )
     # Check if a clashing action ref exists
     statement = select(Action).where(
