@@ -7,6 +7,7 @@ from tracecat_registry.integrations.pydantic_ai import build_agent
 from tracecat_registry.integrations.slack_sdk import call_method
 
 import diskcache as dc
+import json
 
 from typing import Annotated, Any, Self
 from typing_extensions import Doc
@@ -116,15 +117,23 @@ gemini_secret = RegistrySecret(
 
 
 bedrock_secret = RegistrySecret(
-    name="bedrock",
-    optional_keys=["BEDROCK_API_KEY"],
+    name="amazon_bedrock",
+    optional_keys=[
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_REGION",
+    ],
     optional=True,
 )
 """Bedrock API key.
 
-- name: `bedrock`
+- name: `amazon_bedrock`
 - optional_keys:
-    - `BEDROCK_API_KEY`: Optional Bedrock API key.
+    - `AWS_ACCESS_KEY_ID`: Optional AWS access key ID.
+    - `AWS_SECRET_ACCESS_KEY`: Optional AWS secret access key.
+    - `AWS_SESSION_TOKEN`: Optional AWS session token.
+    - `AWS_REGION`: Optional AWS region.
 """
 
 
@@ -218,6 +227,17 @@ class SlackInteractionPayload(BaseModel):
 
     @computed_field
     @property
+    def action_id(self) -> str:
+        """Get the action ID of the interaction."""
+        if len(self.actions) != 1:
+            raise ValueError(
+                "Expected one action in Slack interaction payload."
+                f"Got {len(self.actions)} actions: {self.actions}."
+            )
+        return self.actions[0]["action_id"]
+
+    @computed_field
+    @property
     def action_value(self) -> str:
         """Get the action value of the interaction."""
         if len(self.actions) != 1:
@@ -237,6 +257,28 @@ class SlackInteractionPayload(BaseModel):
                 f"Invalid action value. Expected 'run' or 'skip'. Got {value!r}."
             )
         return value
+
+    @computed_field
+    @property
+    def tool_call_id(self) -> str | None:
+        """Extract tool call ID from action_id if it's a view_result action."""
+        action_id = self.action_id
+        if action_id.startswith("view_result:"):
+            return action_id.split(":", 1)[1]
+        return None
+
+    @computed_field
+    @property
+    def result_id(self) -> str | None:
+        """Extract result ID from value if it's a view_result action."""
+        if len(self.actions) != 1:
+            raise ValueError(
+                "Expected one action in Slack interaction payload."
+                f"Got {len(self.actions)} actions: {self.actions}."
+            )
+        if self.action_value == "view_result":
+            return self.actions[0]["value"]
+        return None
 
 
 def _get_message_history(thread_ts: str) -> list[ModelMessage]:
@@ -640,23 +682,7 @@ async def chat_slack(
                 event_type="view_result",
             )
             log.info("Processing view_result interaction")
-
-            # Get the tool result from the button value
-            result_id = slack_interaction_payload.actions[0]["value"]
-            tool_call_id = slack_interaction_payload.actions[0]["action_id"].split(
-                ":", 1
-            )[1]
-
-            # Open a modal to display the tool result
-            trigger_id = slack_interaction_payload.trigger_id
-            if trigger_id is not None:
-                await _open_tool_result_modal(
-                    trigger_id=trigger_id,
-                    tool_result=result_id,  # Pass the result ID, not the actual result
-                    tool_call_id=tool_call_id,
-                )
-            else:
-                log.error("Cannot open modal: missing trigger_id")
+            await _handle_view_result_modal(slack_interaction_payload)
 
             # Return early, as we don't need to run the agent for this interaction
             return {
@@ -733,6 +759,20 @@ async def chat_slack(
     return result
 
 
+def _update_last_tool_block(last_block: dict[str, Any]) -> dict[str, Any]:
+    updated_block = last_block.copy()  # Create a copy to avoid side effects
+    # Drop block ID
+    updated_block.pop("block_id", None)
+    # Replace hourglass emoji with ok emoji
+    if updated_block.get("type") == "context":
+        updated_block["elements"][0]["text"] = (
+            updated_block["elements"][0]["text"]
+            .replace("⏳", "🆗")
+            .replace(":hourglass_flowing_sand:", ":ok:")
+        )
+    return updated_block
+
+
 async def _post_message(
     message_parts: list[str],
     channel_id: str,
@@ -767,6 +807,10 @@ async def _update_message(
     updated_blocks = [*blocks]
     block_id = blocks[-1].get("block_id", "")
     if block_id.startswith("tool_call:"):
+        # Replace hourglass emoji with ok emoji
+        last_block = updated_blocks[-1]
+        updated_block = _update_last_tool_block(last_block)
+        updated_blocks[-1] = updated_block
         updated_blocks.append(
             {
                 "type": "context",
@@ -774,6 +818,7 @@ async def _update_message(
                 "elements": [{"type": "mrkdwn", "text": f"⏳ {message}"}],
             }
         )
+
     else:
         updated_blocks.append(
             {
@@ -832,7 +877,7 @@ async def _request_tool_approval(
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"> *⚙️ {tool_name}*\n> ```\n{orjson.dumps(tool_args, option=orjson.OPT_INDENT_2).decode()}\n```",
+                    "text": f"> *⚙️ {tool_name}*\n> ```\n{json.dumps(tool_args, indent=2)}\n```",
                 },
             },
             buttons,
@@ -922,6 +967,12 @@ async def _update_tool_approval(
     result_id = f"{tool_call_id}_{uuid.uuid4().hex[:8]}"
     TOOL_RESULTS_CACHE.set(result_id, tool_result)
 
+    # Replace hourglass emoji with ok emoji
+    last_block = updated_blocks[-1]
+    updated_block = _update_last_tool_block(last_block)
+    updated_blocks[-1] = updated_block
+
+    # Add view result button
     updated_blocks.append(
         {
             "type": "actions",
@@ -931,7 +982,7 @@ async def _update_tool_approval(
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "🆗 View tool result",
+                        "text": "✅ View tool result",
                         "emoji": True,
                     },
                     "value": result_id,
@@ -959,12 +1010,6 @@ async def _open_tool_result_modal(
     tool_call_id: str,
 ):
     """Open a modal with the tool result."""
-    # Get the actual result from cache if this is a result_id
-    if tool_result.startswith(tool_call_id + "_"):
-        actual_result = TOOL_RESULTS_CACHE.get(tool_result)
-        if actual_result is not None:
-            tool_result = str(actual_result)
-
     # Create modal view with a limit on text length to prevent Slack errors
     # Slack has various limits including 3000 chars for text blocks
     max_length = 2900  # Safe limit for modal text blocks
@@ -988,8 +1033,6 @@ async def _open_tool_result_modal(
         "title": {"type": "plain_text", "text": "Tool Result"},
         "blocks": modal_blocks,
     }
-
-    # Open the modal
     await call_method(
         "views_open",
         params={
@@ -1026,3 +1069,47 @@ async def _send_final_message(
         params={"channel": channel_id, "ts": ts, "blocks": updated_blocks},
     )
     return SlackMessage(ts=response["ts"], blocks=updated_blocks)
+
+
+async def _handle_view_result_modal(payload: SlackInteractionPayload) -> None:
+    """Handle opening a modal to display tool results.
+
+    Args:
+        slack_interaction_payload: The validated Slack interaction payload
+
+    Raises:
+        ValueError: If required data is missing
+        RuntimeError: If there's an error opening the modal
+    """
+    # Use computed properties instead of direct data manipulation
+    result_id = payload.result_id
+    tool_call_id = payload.tool_call_id
+
+    if result_id is None or tool_call_id is None:
+        error_msg = "Missing result_id or tool_call_id from interaction payload"
+        raise ValueError(error_msg)
+
+    # Process trigger_id immediately to avoid expiration
+    # Trigger IDs expire within 3 seconds of the user action
+    trigger_id = payload.trigger_id
+    if trigger_id is None:
+        error_msg = "Cannot open modal: missing trigger_id"
+        raise ValueError(error_msg)
+
+    # Load result from cache first, before any other async operations
+    tool_result = None
+    if result_id.startswith(tool_call_id + "_"):
+        cached_result = TOOL_RESULTS_CACHE.get(result_id)
+        if cached_result is not None:
+            tool_result = str(cached_result)
+
+    # If we couldn't get a result from cache, use a placeholder
+    if tool_result is None:
+        tool_result = "Unable to retrieve tool result from cache."
+
+    # Open modal with minimal delay
+    await _open_tool_result_modal(
+        trigger_id=trigger_id,
+        tool_result=tool_result,
+        tool_call_id=tool_call_id,
+    )
