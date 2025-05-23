@@ -406,4 +406,4 @@ def validate_email(
     logger.info(f"Domain: {domain}")
 
     if allowed_domains and domain not in allowed_domains:
-        raise InvalidDomainException(f"You cannot register with the domain {domain!r}")
+        raise InvalidDomainException("Please enter a valid email address.")
