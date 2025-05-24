@@ -655,9 +655,9 @@ class AgentRunError(RuntimeError):
         bedrock_secret,
         slack_secret,
     ],
-    namespace="experimental.mcp",
+    namespace="mcp.host",
 )
-async def chat_slack(
+async def slackbot(
     trigger: Annotated[dict[str, Any] | None, Doc("Webhook trigger payload")],
     channel_id: Annotated[
         str,
