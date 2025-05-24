@@ -23,6 +23,7 @@ from pydantic_ai.messages import (
     PartDeltaEvent,
     TextPartDelta,
     ModelMessagesTypeAdapter,
+    ToolCallPartDelta,
     ModelMessage,
     ModelRequest,
     ModelResponse,
@@ -378,14 +379,19 @@ async def _process_model_request_node(
     )
     log.info("Processing model request node", node=node)
     message_parts = []
+    new_tool_call = False
     async with node.stream(run.ctx) as handle_stream:
         async for event in handle_stream:
             if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
                 message_parts.append(event.part.content)
-            elif isinstance(event, PartDeltaEvent) and isinstance(
-                event.delta, TextPartDelta
-            ):
-                message_parts.append(event.delta.content_delta)
+            elif isinstance(event, PartDeltaEvent):
+                if isinstance(event.delta, TextPartDelta):
+                    message_parts.append(event.delta.content_delta)
+                elif isinstance(event.delta, ToolCallPartDelta):
+                    # If the LLM is starting a tool call stream,
+                    # we need to break the "context" block
+                    message_parts.append(event.delta.args_delta)
+                    new_tool_call = True
 
     if ts is not None and len(blocks) > 0:
         # Update message (identify by ts) directly
@@ -393,6 +399,7 @@ async def _process_model_request_node(
         msg = await _update_message(
             blocks=blocks,
             ts=ts,
+            new_tool_call=new_tool_call,
             message_parts=message_parts,
             channel_id=channel_id,
         )
@@ -597,11 +604,49 @@ async def _run_agent(
     return result
 
 
+class AgentRunError(RuntimeError):
+    """Error raised when the agent run fails."""
+
+    def __init__(
+        self,
+        exc_cls: type[Exception],
+        exc_msg: str,
+        message_history: list[dict] | None = None,
+    ):
+        self.exc_cls = exc_cls
+        self.exc_msg = exc_msg
+        self.message_history = message_history
+
+        # Build comprehensive error message with debug info
+        msg_parts = [f"Agent run failed with unhandled error: {exc_cls.__name__}"]
+
+        if exc_msg or message_history:
+            msg_parts.append("")  # Empty line before details
+
+        if exc_msg:
+            msg_parts.extend(
+                [
+                    "Error details:",
+                    f"  Type: {exc_cls.__name__}",
+                    f"  Message: {exc_msg}",
+                ]
+            )
+
+        if message_history:
+            if exc_msg:
+                msg_parts.append("")  # Space between sections
+            msg_parts.extend(
+                ["Agent message history:", json.dumps(message_history, indent=2)]
+            )
+
+        super().__init__("\n".join(msg_parts))
+
+
 @registry.register(
     default_title="(Experimental) MCP Slack chatbot",
     description="Chat with a MCP server using Slack.",
     display_group="MCP",
-    doc_url="https://docs.pydantic.ai/mcp/server/http/",
+    doc_url="https://ai.pydantic.dev/mcp/client/",
     secrets=[
         mcp_secret,
         anthropic_secret,
@@ -691,47 +736,60 @@ async def chat_slack(
                 "action": "view_result",
             }
 
-        user_prompt = "Run the tool."
-        message_history = _get_message_history(thread_ts)
+        else:
+            # Get message history
+            message_history = _get_message_history(thread_ts)
 
-        # Get cached blocks and tool call ID
-        blocks: list[dict[str, Any]] | None = BLOCKS_CACHE.get(ts)  # type: ignore
-        tool_call: dict[str, str] | None = TOOL_CALLS_CACHE.get(thread_ts)  # type: ignore
-        if blocks is None:
-            raise ValueError(f"No cached blocks found for timestamp {ts}")
-        if tool_call is None:
-            raise ValueError(
-                f"No cached tool call ID found for thread timestamp {thread_ts}"
+            # Get cached blocks and tool call ID
+            blocks: list[dict[str, Any]] | None = BLOCKS_CACHE.get(ts)  # type: ignore
+            tool_call: dict[str, str] | None = TOOL_CALLS_CACHE.get(thread_ts)  # type: ignore
+            if blocks is None:
+                raise ValueError(f"No cached blocks found for timestamp {ts}")
+            if tool_call is None:
+                raise ValueError(
+                    f"No cached tool call ID found for thread timestamp {thread_ts}"
+                )
+            log.info("Retrieved cached blocks", blocks=blocks, num_blocks=len(blocks))
+            log.info("Retrieved cached tool call ID", tool_call=tool_call)
+
+            tool_call_id = tool_call["tool_call_id"]
+            tool_name = tool_call["tool_name"]
+            tool_args = tool_call["tool_args"]
+
+            log = log.bind(
+                thread_ts=thread_ts,
+                ts=ts,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                event_type="interaction",
             )
-        log.info("Retrieved cached blocks", blocks=blocks, num_blocks=len(blocks))
-        log.info("Retrieved cached tool call ID", tool_call=tool_call)
+            log.info("Processing interaction")
 
-        tool_call_id = tool_call["tool_call_id"]
-        tool_name = tool_call["tool_name"]
-        tool_args = tool_call["tool_args"]
-
-        log = log.bind(
-            thread_ts=thread_ts,
-            ts=ts,
-            tool_call_id=tool_call_id,
-            tool_name=tool_name,
-            tool_args=tool_args,
-            event_type="interaction",
-        )
-        log.info("Processing interaction")
-
-        msg = await _receive_approval(
-            blocks=blocks,
-            ts=slack_interaction_payload.ts,
-            action_value=slack_interaction_payload.action_value,
-            tool_name=tool_name,
-            tool_args=tool_args,
-            tool_call_id=tool_call_id,
-            channel_id=channel_id,
-        )
-        ts, blocks = msg.ts, msg.blocks
-        log.info("Updated blocks", blocks=blocks, num_blocks=len(blocks))
-        BLOCKS_CACHE.set(ts, blocks)
+            msg = await _receive_approval(
+                blocks=blocks,
+                ts=slack_interaction_payload.ts,
+                action_value=slack_interaction_payload.action_value,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                tool_call_id=tool_call_id,
+                channel_id=channel_id,
+            )
+            ts, blocks = msg.ts, msg.blocks
+            log.info("Updated blocks", blocks=blocks, num_blocks=len(blocks))
+            if slack_interaction_payload.action_value == "run":
+                user_prompt = (
+                    "Run the previously approved tool call now. "
+                    "Return the complete result in a structured format. "
+                    "Summarize key findings briefly."
+                )
+            else:
+                user_prompt = (
+                    "The user declined the tool call. "
+                    "Acknowledge this politely and continue helping with their original request. "
+                    "Only suggest alternative approaches if you cannot answer their question without tools."
+                )
+            BLOCKS_CACHE.set(ts, blocks)
 
     else:
         raise ValueError(
@@ -754,9 +812,86 @@ async def chat_slack(
         if isinstance(exc, httpx.ConnectError):
             raise ConnectionError(f"Failed to connect to MCP server: {exc!s}") from exc
         else:
-            raise e
+            blocks = BLOCKS_CACHE.get(ts, [])  # type: ignore
+            await _post_error_message(
+                blocks=blocks,
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+            )
+            raise AgentRunError(
+                exc_cls=type(exc),
+                exc_msg=str(exc),
+                message_history=MESSAGE_CACHE.get(thread_ts, []),  # type: ignore
+            ) from exc
+    except Exception as e:
+        blocks = BLOCKS_CACHE.get(ts, [])  # type: ignore
+        await _post_error_message(
+            blocks=blocks,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+        )
+        raise AgentRunError(
+            exc_cls=type(e),
+            exc_msg=str(e),
+            message_history=MESSAGE_CACHE.get(thread_ts, []),  # type: ignore
+        ) from e
 
     return result
+
+
+async def _post_error_message(
+    blocks: list[dict[str, Any]] | None,
+    channel_id: str,
+    thread_ts: str,
+) -> None:
+    """Post an error message to Slack."""
+
+    bot_id = (await call_method("auth_test"))["user_id"]
+    bot_name = (await call_method("users_info", params={"user": bot_id}))["user"][
+        "name"
+    ]
+    msg = (
+        "‼️ Unexpected error occurred. "
+        f"Please wait a moment and mention `@{bot_name}` in the thread to continue the conversation."
+    )
+
+    if blocks is not None and len(blocks) > 0:
+        # Check if the last block is a tool call
+        updated_blocks = [*blocks]
+        last_block = blocks[-1]
+        if last_block.get("block_id", "").startswith("tool_call:"):
+            # Replace the last block with a section block
+            # Replace hourglass emoji with red cross emoji
+            last_block["elements"][0]["text"] = (
+                last_block["elements"][0]["text"]
+                .replace("⏳", "❌")
+                .replace(":hourglass_flowing_sand:", "x")
+            )
+            # Update the last block
+            updated_blocks[-1] = last_block
+            # Update the blocks
+            await call_method(
+                "chat_update",
+                params={
+                    "channel": channel_id,
+                    "thread_ts": thread_ts,
+                    "blocks": updated_blocks,
+                },
+            )
+
+    await call_method(
+        "chat_postMessage",
+        params={
+            "channel": channel_id,
+            "thread_ts": thread_ts,
+            "blocks": [
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": msg}],
+                }
+            ],
+        },
+    )
 
 
 def _update_last_tool_block(last_block: dict[str, Any]) -> dict[str, Any]:
@@ -797,6 +932,7 @@ async def _update_message(
     blocks: list[dict[str, Any]],
     ts: str,
     *,
+    new_tool_call: bool,
     message_parts: list[str],
     channel_id: str,
 ) -> SlackMessage:
@@ -805,20 +941,20 @@ async def _update_message(
 
     # Check if most recent block is a tool call
     updated_blocks = [*blocks]
-    block_id = blocks[-1].get("block_id", "")
-    if block_id.startswith("tool_call:"):
+    last_block = blocks[-1]
+    if last_block.get("block_id", "").startswith("tool_call:"):
         # Replace hourglass emoji with ok emoji
-        last_block = updated_blocks[-1]
         updated_block = _update_last_tool_block(last_block)
         updated_blocks[-1] = updated_block
-        updated_blocks.append(
-            {
-                "type": "context",
-                "block_id": f"tool_call:{uuid.uuid1()}",
-                "elements": [{"type": "mrkdwn", "text": f"⏳ {message}"}],
-            }
-        )
-
+        if not new_tool_call:
+            # Add new context block
+            updated_blocks.append(
+                {
+                    "type": "context",
+                    "block_id": f"tool_call:{uuid.uuid1()}",
+                    "elements": [{"type": "mrkdwn", "text": f"⏳ {message}"}],
+                }
+            )
     else:
         updated_blocks.append(
             {

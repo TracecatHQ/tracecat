@@ -79,6 +79,7 @@ def build_agent(
     instructions: str | None = None,
     output_type: str | dict[str, Any] | None = None,
     mcp_servers: list[MCPServerHTTP] | None = None,
+    retries: Annotated[int, Doc("Number of retries")] = 3,
 ) -> Agent:
     match model_provider:
         case "openai":
@@ -151,6 +152,7 @@ def build_agent(
         output_type=response_format,
         model_settings=ModelSettings(**model_settings) if model_settings else None,
         mcp_servers=mcp_servers,
+        retries=retries,
     )
 
     return agent
@@ -192,6 +194,7 @@ def call(
     message_history: Annotated[
         list[dict[str, Any]] | None, Doc("Message history")
     ] = None,
+    retries: Annotated[int, Doc("Number of retries")] = 3,
     base_url: Annotated[str | None, Doc("Base URL for the model")] = None,
 ) -> Any:
     """Call an LLM via Pydantic AI agent."""
@@ -202,6 +205,7 @@ def call(
         base_url=base_url,
         instructions=instructions,
         output_type=output_type,
+        retries=retries,
     )
     messages: list[ModelMessage] | None = None
     if message_history:
