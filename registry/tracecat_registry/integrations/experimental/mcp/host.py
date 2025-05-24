@@ -823,7 +823,7 @@ async def _update_message(
         updated_blocks.append(
             {
                 "type": "section",
-                "block_id": "message",
+                "block_id": f"message:{uuid.uuid1()}",
                 "text": {"type": "mrkdwn", "text": message},
             }
         )
