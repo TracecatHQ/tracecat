@@ -816,6 +816,7 @@ async def slackbot(
             await _post_error_message(
                 blocks=blocks,
                 channel_id=channel_id,
+                ts=ts,
                 thread_ts=thread_ts,
             )
             raise AgentRunError(
@@ -828,6 +829,7 @@ async def slackbot(
         await _post_error_message(
             blocks=blocks,
             channel_id=channel_id,
+            ts=ts,
             thread_ts=thread_ts,
         )
         raise AgentRunError(
@@ -841,6 +843,8 @@ async def slackbot(
 
 async def _post_error_message(
     blocks: list[dict[str, Any]] | None,
+    ts: str,
+    *,
     channel_id: str,
     thread_ts: str,
 ) -> None:
@@ -874,7 +878,7 @@ async def _post_error_message(
                 "chat_update",
                 params={
                     "channel": channel_id,
-                    "thread_ts": thread_ts,
+                    "ts": ts,
                     "blocks": updated_blocks,
                 },
             )
