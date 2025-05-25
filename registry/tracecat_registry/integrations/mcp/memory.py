@@ -23,22 +23,22 @@ class ShortTermMemory(ABC):
     """
 
     @abstractmethod
-    async def get_messages(self, conversation_id: str) -> list[ModelMessage]:
+    def get_messages(self, conversation_id: str) -> list[ModelMessage]:
         """Get the message history for a conversation."""
         pass
 
     @abstractmethod
-    async def add_user_message(self, conversation_id: str, content: str) -> None:
+    def add_user_message(self, conversation_id: str, content: str) -> None:
         """Add a user message to the conversation."""
         pass
 
     @abstractmethod
-    async def add_assistant_message(self, conversation_id: str, content: str) -> None:
+    def add_assistant_message(self, conversation_id: str, content: str) -> None:
         """Add an assistant message to the conversation."""
         pass
 
     @abstractmethod
-    async def add_tool_call(
+    def add_tool_call(
         self,
         conversation_id: str,
         tool_name: str,
@@ -49,14 +49,14 @@ class ShortTermMemory(ABC):
         pass
 
     @abstractmethod
-    async def add_tool_result(
-        self, conversation_id: str, tool_name: str, result: str, tool_call_id: str
+    def add_tool_result(
+        self, conversation_id: str, tool_name: str, tool_result: str, tool_call_id: str
     ) -> None:
         """Add a tool result to the conversation."""
         pass
 
     @abstractmethod
-    async def clear_conversation(self, conversation_id: str) -> None:
+    def clear_conversation(self, conversation_id: str) -> None:
         """Clear all messages for a conversation."""
         pass
 
@@ -69,26 +69,26 @@ class FanoutCacheMemory(ShortTermMemory):
     ):
         self.cache = dc.FanoutCache(directory=directory, shards=shards, timeout=timeout)
 
-    async def get_messages(self, conversation_id: str) -> list[ModelMessage]:
+    def get_messages(self, conversation_id: str) -> list[ModelMessage]:
         """Get the message history for a conversation."""
         messages = self.cache.get(conversation_id, [])
         return ModelMessagesTypeAdapter.validate_python(messages)
 
-    async def add_user_message(self, conversation_id: str, content: str) -> None:
+    def add_user_message(self, conversation_id: str, content: str) -> None:
         """Add a user message to the conversation."""
         messages: list[dict[str, Any]] = self.cache.get(conversation_id, [])  # type: ignore
         user_prompt = ModelRequest.user_text_prompt(user_prompt=content)
         messages.append(to_jsonable_python(user_prompt))
         self.cache.set(conversation_id, messages)
 
-    async def add_assistant_message(self, conversation_id: str, content: str) -> None:
+    def add_assistant_message(self, conversation_id: str, content: str) -> None:
         """Add an assistant message to the conversation."""
         messages: list[dict[str, Any]] = self.cache.get(conversation_id, [])  # type: ignore
         assistant_response = ModelResponse(parts=[TextPart(content=content)])
         messages.append(to_jsonable_python(assistant_response))
         self.cache.set(conversation_id, messages)
 
-    async def add_tool_call(
+    def add_tool_call(
         self,
         conversation_id: str,
         tool_name: str,
@@ -104,20 +104,20 @@ class FanoutCacheMemory(ShortTermMemory):
         messages.append(to_jsonable_python(tool_call))
         self.cache.set(conversation_id, messages)
 
-    async def add_tool_result(
-        self, conversation_id: str, tool_name: str, result: str, tool_call_id: str
+    def add_tool_result(
+        self, conversation_id: str, tool_name: str, tool_result: str, tool_call_id: str
     ) -> None:
         """Add a tool result to the conversation."""
         messages: list[dict[str, Any]] = self.cache.get(conversation_id, [])  # type: ignore
         parts = [
             ToolReturnPart(
-                tool_name=tool_name, content=result, tool_call_id=tool_call_id
+                tool_name=tool_name, content=tool_result, tool_call_id=tool_call_id
             )
         ]
         tool_result_msg = ModelRequest(parts=parts)  # type: ignore
         messages.append(to_jsonable_python(tool_result_msg))
         self.cache.set(conversation_id, messages)
 
-    async def clear_conversation(self, conversation_id: str) -> None:
+    def clear_conversation(self, conversation_id: str) -> None:
         """Clear all messages for a conversation."""
         self.cache.delete(conversation_id)
