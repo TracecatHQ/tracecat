@@ -24,6 +24,7 @@ from pydantic_ai.mcp import MCPServerHTTP
 from pydantic_ai.settings import ModelSettings
 
 from tracecat.validation.common import json_schema_to_pydantic
+from tracecat_registry import RegistrySecret
 
 
 from tracecat_registry.integrations.aws_boto3 import get_sync_session
@@ -46,6 +47,85 @@ SUPPORTED_OUTPUT_TYPES = {
     "list[int]": list[int],
     "list[str]": list[str],
 }
+
+
+mcp_secret = RegistrySecret(
+    name="mcp",
+    optional_keys=["MCP_HTTP_HEADERS"],
+    optional=True,
+)
+"""MCP headers.
+
+- name: `mcp`
+- optional_keys:
+    - `MCP_HTTP_HEADERS`: Optional HTTP headers to send to the MCP server.
+"""
+
+anthropic_secret = RegistrySecret(
+    name="anthropic",
+    optional_keys=["ANTHROPIC_API_KEY"],
+    optional=True,
+)
+"""Anthropic API key.
+
+- name: `anthropic`
+- optional_keys:
+    - `ANTHROPIC_API_KEY`: Optional Anthropic API key.
+"""
+
+openai_secret = RegistrySecret(
+    name="openai",
+    optional_keys=["OPENAI_API_KEY"],
+    optional=True,
+)
+"""OpenAI API key.
+
+- name: `openai`
+- optional_keys:
+    - `OPENAI_API_KEY`: Optional OpenAI API key.
+"""
+
+gemini_secret = RegistrySecret(
+    name="gemini",
+    optional_keys=["GEMINI_API_KEY"],
+    optional=True,
+)
+"""Gemini API key.
+
+- name: `gemini`
+- optional_keys:
+    - `GEMINI_API_KEY`: Optional Gemini API key.
+"""
+
+
+bedrock_secret = RegistrySecret(
+    name="amazon_bedrock",
+    optional_keys=[
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_REGION",
+    ],
+    optional=True,
+)
+"""Bedrock API key.
+
+- name: `amazon_bedrock`
+- optional_keys:
+    - `AWS_ACCESS_KEY_ID`: Optional AWS access key ID.
+    - `AWS_SECRET_ACCESS_KEY`: Optional AWS secret access key.
+    - `AWS_SESSION_TOKEN`: Optional AWS session token.
+    - `AWS_REGION`: Optional AWS region.
+"""
+
+
+PYDANTIC_AI_REGISTRY_SECRETS = [
+    mcp_secret,
+    anthropic_secret,
+    openai_secret,
+    gemini_secret,
+    bedrock_secret,
+]
 
 
 def _parse_message_history(message_history: list[dict[str, Any]]) -> list[ModelMessage]:
@@ -74,12 +154,13 @@ def _parse_message_history(message_history: list[dict[str, Any]]) -> list[ModelM
 def build_agent(
     model_name: str,
     model_provider: str,
-    model_settings: dict[str, Any] | None = None,
     base_url: str | None = None,
     instructions: str | None = None,
     output_type: str | dict[str, Any] | None = None,
+    model_settings: dict[str, Any] | None = None,
     mcp_servers: list[MCPServerHTTP] | None = None,
     retries: Annotated[int, Doc("Number of retries")] = 3,
+    **kwargs: Any,
 ) -> Agent:
     match model_provider:
         case "openai":
@@ -153,6 +234,7 @@ def build_agent(
         model_settings=ModelSettings(**model_settings) if model_settings else None,
         mcp_servers=mcp_servers,
         retries=retries,
+        **kwargs,
     )
 
     return agent
