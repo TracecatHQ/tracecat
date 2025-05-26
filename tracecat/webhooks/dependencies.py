@@ -116,38 +116,43 @@ async def parse_webhook_payload(
     if not body:
         return None
 
-    match content_type:
-        case "application/x-ndjson" | "application/jsonlines" | "application/jsonl":
-            # Newline delimited json
-            try:
-                lines = body.splitlines()
-                result = [orjson.loads(line) for line in lines]
-            except orjson.JSONDecodeError as e:
-                logger.error("Failed to parse ndjson payload", error=e)
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid ndjson payload",
-                ) from e
-        case "application/x-www-form-urlencoded":
-            try:
-                form_data = await request.form()
-                result = dict(form_data)
-            except Exception as e:
-                logger.error("Failed to parse form data payload", error=e)
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid form data payload",
-                ) from e
-        case _:
-            # Interpret everything else as json
-            try:
-                result = orjson.loads(body)
-            except orjson.JSONDecodeError as e:
-                logger.error("Failed to parse json payload", error=e)
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid json payload",
-                ) from e
+    # Normalize content type for comparison (lowercase and strip whitespace)
+    normalized_content_type = content_type.lower().strip() if content_type else ""
+
+    if any(
+        ct in normalized_content_type
+        for ct in ["application/x-ndjson", "application/jsonlines", "application/jsonl"]
+    ):
+        # Newline delimited json
+        try:
+            lines = body.splitlines()
+            result = [orjson.loads(line) for line in lines]
+        except orjson.JSONDecodeError as e:
+            logger.error("Failed to parse ndjson payload", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid ndjson payload",
+            ) from e
+    elif "application/x-www-form-urlencoded" in normalized_content_type:
+        try:
+            form_data = await request.form()
+            result = dict(form_data)
+        except Exception as e:
+            logger.error("Failed to parse form data payload", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid form data payload",
+            ) from e
+    else:
+        # Interpret everything else as json
+        try:
+            result = orjson.loads(body)
+        except orjson.JSONDecodeError as e:
+            logger.error("Failed to parse json payload", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid json payload",
+            ) from e
 
     return cast(TriggerInputs, result)
 
