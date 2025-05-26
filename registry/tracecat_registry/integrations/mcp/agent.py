@@ -58,13 +58,23 @@ class ToolResultNodeResult(BaseModel):
 @dataclass
 class MCPHostDeps:
     conversation_id: str  # e.g. `thread_ts` in Slack
-    message_id: str  # e.g. `ts` in Slack
+    message_id: str | None = None  # e.g. `ts` in Slack (None for conversation start)
 
 
 class MCPHostResult(BaseModel):
     conversation_id: str
     message_id: str
     message_history: list[ModelMessage]
+    last_result: (
+        ModelRequestNodeResult
+        | ToolCallRequestResult
+        | ToolResultNodeResult
+        | EmptyNodeResult
+    )
+
+
+class MessageStartResult(BaseModel):
+    message_id: str
 
 
 class MCPHost(ABC):
@@ -88,39 +98,39 @@ class MCPHost(ABC):
         self._approved_tool_calls = approved_tool_calls
 
     @abstractmethod
-    def post_conversation_start(self, deps: MCPHostDeps) -> None:
+    async def post_message_start(self, deps: MCPHostDeps) -> MessageStartResult:
         pass
 
     @abstractmethod
-    def post_message(self, result: ModelRequestNodeResult, deps: MCPHostDeps) -> None:
+    async def update_message(
+        self, result: ModelRequestNodeResult, deps: MCPHostDeps
+    ) -> None:
         pass
 
     @abstractmethod
-    def update_message(self, result: ModelRequestNodeResult, deps: MCPHostDeps) -> None:
-        pass
-
-    @abstractmethod
-    def request_tool_approval(
+    async def request_tool_approval(
         self, result: ToolCallRequestResult, deps: MCPHostDeps
     ) -> None:
         pass
 
     @abstractmethod
-    def post_tool_approval(
+    async def post_tool_approval(
         self, result: ToolCallRequestResult, approved: bool, deps: MCPHostDeps
     ) -> None:
         pass
 
     @abstractmethod
-    def post_tool_result(self, result: ToolResultNodeResult, deps: MCPHostDeps) -> None:
+    async def post_tool_result(
+        self, result: ToolResultNodeResult, deps: MCPHostDeps
+    ) -> None:
         pass
 
     @abstractmethod
-    def post_conversation_end(self, deps: MCPHostDeps) -> None:
+    async def post_message_end(self, deps: MCPHostDeps) -> None:
         pass
 
     @abstractmethod
-    def post_error_message(self, exc: Exception, deps: MCPHostDeps) -> None:
+    async def post_error_message(self, exc: Exception, deps: MCPHostDeps) -> None:
         pass
 
     def is_approved_tool_call(
@@ -213,21 +223,21 @@ class MCPHost(ABC):
 
         return EmptyNodeResult(node_type="tool_call")
 
-    def _post_error_message_safe(
+    async def _post_error_message_safe(
         self, exc: Exception, deps: MCPHostDeps
     ) -> Exception | None:
         """Safely post error message and return any exception that occurred during posting."""
         try:
-            self.post_error_message(exc, deps)
+            await self.post_error_message(exc, deps)
             return None
         except Exception as post_exc:
             return post_exc
 
-    def _handle_exception_with_error_posting(
+    async def _handle_exception_with_error_posting(
         self, exc: Exception, deps: MCPHostDeps
     ) -> NoReturn:
         """Handle exception by posting error message safely and raising appropriate chained exception."""
-        post_error_exc = self._post_error_message_safe(exc, deps)
+        post_error_exc = await self._post_error_message_safe(exc, deps)
 
         # Create the main exception
         main_exc = (
@@ -254,6 +264,32 @@ class MCPHost(ABC):
 
         raise main_exc from exc
 
+    async def _run_agent(
+        self,
+        user_prompt: str,
+        deps: MCPHostDeps,
+        message_history: list[ModelMessage] | None = None,
+    ):
+        async with self.agent.run_mcp_servers():
+            async with self.agent.iter(
+                user_prompt=user_prompt,
+                message_history=message_history,
+                deps=deps,  # type: ignore
+            ) as run:
+                async for node in run:
+                    if Agent.is_model_request_node(node):
+                        result = await self._process_model_request_node(node, run)
+                        if isinstance(result, ModelRequestNodeResult):
+                            await self.update_message(result, deps)
+                    elif Agent.is_call_tools_node(node):
+                        result = await self._process_call_tools_node(node, run)
+                    elif Agent.is_end_node(node):
+                        result = EmptyNodeResult(node_type="end")
+                        await self.post_message_end(deps)
+                    else:
+                        raise ValueError(f"Unknown node type: {node}")
+        return result
+
     async def run(
         self,
         user_prompt: str,
@@ -262,38 +298,27 @@ class MCPHost(ABC):
     ) -> MCPHostResult:
         try:
             conversation_id = deps.conversation_id
-            async with self.agent.run_mcp_servers():
-                async with self.agent.iter(
-                    user_prompt=user_prompt,
-                    message_history=message_history,
-                    deps=deps,  # type: ignore
-                ) as run:
-                    if self.is_new_conversation(conversation_id):
-                        self.post_conversation_start(deps)
+            message_id = deps.message_id
+            if not message_id:
+                if self.is_new_conversation(conversation_id):
+                    start_message = await self.post_message_start(deps)
+                    message_id = start_message.message_id
+                else:
+                    raise ValueError()
 
-                    async for node in run:
-                        if Agent.is_model_request_node(node):
-                            result = await self._process_model_request_node(node, run)
-                            if isinstance(result, ModelRequestNodeResult):
-                                if self.is_new_conversation(conversation_id):
-                                    self.post_message(result, deps)
-                                else:
-                                    self.update_message(result, deps)
-                        elif Agent.is_call_tools_node(node):
-                            result = await self._process_call_tools_node(node, run)
-                        elif Agent.is_end_node(node):
-                            result = EmptyNodeResult(node_type="end")
-                            self.post_conversation_end(deps)
-                        else:
-                            raise ValueError(f"Unknown node type: {node}")
+            result = await self._run_agent(
+                user_prompt=user_prompt, deps=deps, message_history=message_history
+            )
+
         except ExceptionGroup as e:
-            self._handle_exception_with_error_posting(e.exceptions[0], deps)
+            await self._handle_exception_with_error_posting(e.exceptions[0], deps)
         except Exception as e:
-            self._handle_exception_with_error_posting(e, deps)
+            await self._handle_exception_with_error_posting(e, deps)
         else:
             return MCPHostResult(
                 conversation_id=deps.conversation_id,
-                message_id=deps.message_id,
+                last_result=result,
+                message_id=message_id,
                 message_history=to_jsonable_python(
                     self.memory.get_messages(deps.conversation_id)
                 ),
