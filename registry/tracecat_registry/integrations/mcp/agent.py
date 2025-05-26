@@ -289,10 +289,11 @@ class MCPHost(ABC, Generic[DepsT]):
         self,
         node: ModelRequestNode[None, str],
         run: AgentRun,
+        deps: DepsT,  # TODO: Revisit typing - pass deps directly for now due to PydanticAI GraphAgentDeps wrapper complexity
     ) -> ModelRequestNodeResult | EmptyNodeResult:
         text_parts = []
         tool_call_parts = []
-        conversation_id = run.ctx.deps.conversation_id  # type: ignore
+        conversation_id = deps.conversation_id
         async with node.stream(run.ctx) as handle_stream:
             async for event in handle_stream:
                 if isinstance(event, PartStartEvent) and isinstance(
@@ -324,8 +325,9 @@ class MCPHost(ABC, Generic[DepsT]):
         self,
         node: CallToolsNode[None, str],
         run: AgentRun,
+        deps: DepsT,  # TODO: Revisit typing - pass deps directly for now due to PydanticAI GraphAgentDeps wrapper complexity
     ) -> ToolCallRequestResult | ToolResultNodeResult | EmptyNodeResult:
-        conversation_id = run.ctx.deps.conversation_id  # type: ignore
+        conversation_id = deps.conversation_id
 
         async with node.stream(run.ctx) as handle_stream:
             async for event in handle_stream:
@@ -396,6 +398,7 @@ class MCPHost(ABC, Generic[DepsT]):
                 message_history=to_jsonable_python(
                     self.memory.get_messages(deps.conversation_id)
                 ),
+                deps=deps,
             )
         )
 
@@ -407,6 +410,7 @@ class MCPHost(ABC, Generic[DepsT]):
                 message_history=to_jsonable_python(
                     self.memory.get_messages(deps.conversation_id)
                 ),
+                deps=deps,
             )
 
         raise main_exc from exc
@@ -422,17 +426,17 @@ class MCPHost(ABC, Generic[DepsT]):
             async with self.agent.iter(
                 user_prompt=user_prompt,
                 message_history=message_history,
-                deps=deps,  # type: ignore
+                deps=deps,  # type: ignore  # TODO: Revisit typing - PydanticAI GraphAgentDeps wrapper complexity
             ) as run:
                 async for node in run:
                     if Agent.is_user_prompt_node(node):
                         result = UserPromptNodeResult(user_prompt=user_prompt)
                     elif Agent.is_model_request_node(node):
-                        result = await self._process_model_request_node(node, run)
+                        result = await self._process_model_request_node(node, run, deps)
                         if isinstance(result, ModelRequestNodeResult):
                             await self.update_message(result, deps)
                     elif Agent.is_call_tools_node(node):
-                        result = await self._process_call_tools_node(node, run)
+                        result = await self._process_call_tools_node(node, run, deps)
                     elif Agent.is_end_node(node):
                         output = node.data.output
                         result = EndNodeResult(output=output)
@@ -447,32 +451,24 @@ class MCPHost(ABC, Generic[DepsT]):
         deps: DepsT,
         message_history: list[ModelMessage] | None = None,
     ) -> MCPHostResult:
-        try:
-            conversation_id = deps.conversation_id
-            message_id = deps.message_id
-            if not message_id:
-                if self.is_new_conversation(conversation_id):
-                    start_message = await self.post_message_start(deps)
-                    message_id = start_message.message_id
-                else:
-                    raise ValueError(
-                        "`message_id` is required for non-new conversations"
-                    )
+        conversation_id = deps.conversation_id
+        message_id = deps.message_id
+        if not message_id:
+            if self.is_new_conversation(conversation_id):
+                start_message = await self.post_message_start(deps)
+                message_id = start_message.message_id
+            else:
+                raise ValueError("`message_id` is required for non-new conversations")
 
-            result = await self._run_agent(
-                user_prompt=user_prompt, deps=deps, message_history=message_history
-            )
+        result = await self._run_agent(
+            user_prompt=user_prompt, deps=deps, message_history=message_history
+        )
 
-        except ExceptionGroup as e:
-            await self._handle_exception_with_error_posting(e.exceptions[0], deps)
-        except Exception as e:
-            await self._handle_exception_with_error_posting(e, deps)
-        else:
-            return MCPHostResult(
-                conversation_id=deps.conversation_id,
-                last_result=to_jsonable_python(result),
-                message_id=message_id,
-                message_history=to_jsonable_python(
-                    self.memory.get_messages(deps.conversation_id)
-                ),
-            )
+        return MCPHostResult(
+            conversation_id=deps.conversation_id,
+            last_result=to_jsonable_python(result),
+            message_id=message_id,
+            message_history=to_jsonable_python(
+                self.memory.get_messages(deps.conversation_id)
+            ),
+        )

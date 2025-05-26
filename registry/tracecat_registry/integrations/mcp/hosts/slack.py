@@ -35,17 +35,33 @@ INTERACTION_CACHE = dc.FanoutCache(
 
 
 @dataclass
-class SlackMCPHostDeps:
+class SlackMCPHostDeps(MCPHostDeps):
     """Slack-specific dependencies extending MCPHostDeps."""
 
-    conversation_id: str
-    """`thread_ts` thread timestamp in Slack."""
     user_id: str
     """Slack user ID who initiated the conversation."""
     channel_id: str
     """Slack channel ID where the conversation is happening."""
-    message_id: str | None = None
-    """`ts` message timestamp in Slack (None for conversation start)."""
+
+    @property
+    def thread_ts(self) -> str:
+        """Convenience property for conversation_id using Slack terminology."""
+        return self.conversation_id
+
+    @thread_ts.setter
+    def thread_ts(self, value: str) -> None:
+        """Set conversation_id using Slack terminology."""
+        self.conversation_id = value
+
+    @property
+    def ts(self) -> str | None:
+        """Convenience property for message_id using Slack terminology."""
+        return self.message_id
+
+    @ts.setter
+    def ts(self, value: str | None) -> None:
+        """Set message_id using Slack terminology."""
+        self.message_id = value
 
 
 class SlackMessage(BaseModel):
@@ -192,7 +208,23 @@ class SlackInteractionPayload(BaseModel):
         return None
 
 
-class SlackMCPHost(MCPHost):
+class SlackHandlerResult(BaseModel):
+    """Result from Slack event handlers that continue to agent processing."""
+
+    deps: SlackMCPHostDeps
+    user_prompt: str
+    message_history: list[Any]
+
+
+class SlackViewResultResponse(BaseModel):
+    """Response from view result interactions that return immediately."""
+
+    thread_ts: str
+    ts: str | None
+    action: str
+
+
+class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
     """Slack implementation of MCPHost."""
 
     def __init__(
@@ -205,7 +237,6 @@ class SlackMCPHost(MCPHost):
     ) -> None:
         # Initialize memory
         memory = FanoutCacheMemory()
-
         super().__init__(
             model_name=model_name,
             model_provider=model_provider,
@@ -213,24 +244,13 @@ class SlackMCPHost(MCPHost):
             mcp_servers=mcp_servers,
             model_settings=model_settings,
             approved_tool_calls=approved_tool_calls,
+            deps_type=SlackMCPHostDeps,
         )
 
         # Slack-specific caches
         self.blocks_cache = dc.FanoutCache(
             directory=".cache/blocks", shards=8, timeout=0.05
         )  # key=ts
-
-    def is_approved_tool_call(
-        self, tool_name: str, tool_args: str | dict[str, Any]
-    ) -> bool:
-        """Check if a tool call is approved, including dynamic approval cache."""
-        # First check the static approved list
-        if super().is_approved_tool_call(tool_name, tool_args):
-            return True
-
-        # For dynamic approvals, we need the conversation context
-        # This will be checked in the agent run context where we have access to deps
-        return False
 
     async def post_message_start(self, deps: MCPHostDeps) -> MessageStartResult:
         """Called when a new model request / assistant message starts."""
@@ -254,7 +274,7 @@ class SlackMCPHost(MCPHost):
         bot_name = bot_user_info["user"]["name"]
 
         # Create initial context message (no notifications)
-        msg = f"`@{bot_name}` is conversing with `@{user_name}`"
+        msg = f"_@{user_name} requested a conversation with @{bot_name}_"
 
         blocks = [
             {
@@ -608,7 +628,7 @@ class SlackMCPHost(MCPHost):
 
         msg = (
             "‼️ Unexpected error occurred. "
-            "Please wait a moment and mention the bot in the thread to continue the conversation."
+            "Please wait a moment then restart the conversation by mentioning the bot in the thread."
         )
 
         if blocks:
@@ -752,16 +772,16 @@ def _parse_trigger_payload(
 
 async def _handle_app_mention(
     slack_event: dict[str, Any], slack_host: SlackMCPHost, log: Any
-) -> tuple[SlackMCPHostDeps, str, list]:
+) -> SlackHandlerResult:
     """Handle Slack app mention events."""
     slack_event_payload = SlackEventPayload.model_validate(slack_event)
 
     # Create SlackMCPHostDeps
     deps = SlackMCPHostDeps(
         conversation_id=slack_event_payload.thread_ts,
+        message_id=None,  # Will be set by post_message_start
         user_id=slack_event_payload.event.user,
         channel_id=slack_event_payload.event.channel,
-        message_id=None,  # Will be set by post_message_start
     )
 
     user_prompt = slack_event_payload.user_prompt
@@ -777,7 +797,11 @@ async def _handle_app_mention(
     # Add user message to memory
     slack_host.memory.add_user_message(deps.conversation_id, user_prompt)
 
-    return deps, user_prompt, message_history
+    return SlackHandlerResult(
+        deps=deps,
+        user_prompt=user_prompt,
+        message_history=message_history,
+    )
 
 
 async def _handle_view_result_interaction(
@@ -785,13 +809,13 @@ async def _handle_view_result_interaction(
     slack_host: SlackMCPHost,
     channel_id: str,
     log: Any,
-) -> dict[str, Any]:
+) -> SlackViewResultResponse:
     """Handle view result button interactions."""
     deps = SlackMCPHostDeps(
         conversation_id=slack_interaction_payload.thread_ts,
+        message_id=slack_interaction_payload.ts,
         user_id=slack_interaction_payload.user_id,
         channel_id=channel_id,
-        message_id=slack_interaction_payload.ts,
     )
 
     log = log.bind(
@@ -803,11 +827,11 @@ async def _handle_view_result_interaction(
 
     await slack_host.handle_view_result_modal(slack_interaction_payload)
 
-    return {
-        "thread_ts": deps.conversation_id,
-        "ts": deps.message_id,
-        "action": "view_result",
-    }
+    return SlackViewResultResponse(
+        thread_ts=deps.conversation_id,
+        ts=deps.message_id,
+        action="view_result",
+    )
 
 
 async def _handle_tool_approval_interaction(
@@ -815,13 +839,13 @@ async def _handle_tool_approval_interaction(
     slack_host: SlackMCPHost,
     channel_id: str,
     log: Any,
-) -> tuple[SlackMCPHostDeps, str, list]:
+) -> SlackHandlerResult:
     """Handle tool approval/rejection button interactions."""
     deps = SlackMCPHostDeps(
         conversation_id=slack_interaction_payload.thread_ts,
+        message_id=slack_interaction_payload.ts,
         user_id=slack_interaction_payload.user_id,
         channel_id=channel_id,
-        message_id=slack_interaction_payload.ts,
     )
 
     message_history = slack_host.memory.get_messages(deps.conversation_id)
@@ -840,10 +864,7 @@ async def _handle_tool_approval_interaction(
     await slack_host.post_tool_approval(
         result=ToolCallRequestResult(name=tool_name, args=tool_args),
         approved=slack_interaction_payload.action_value == "run",
-        deps=MCPHostDeps(
-            conversation_id=deps.conversation_id,
-            message_id=deps.message_id,
-        ),
+        deps=deps,
     )
 
     # If approved, add to the approved tool calls for this agent run
@@ -872,12 +893,16 @@ async def _handle_tool_approval_interaction(
             "Only suggest alternative approaches if you cannot answer their question without tools."
         )
 
-    return deps, user_prompt, message_history
+    return SlackHandlerResult(
+        deps=deps,
+        user_prompt=user_prompt,
+        message_history=message_history,
+    )
 
 
 async def _handle_slack_interaction(
     slack_payload: dict[str, Any], slack_host: SlackMCPHost, channel_id: str, log: Any
-) -> tuple[SlackMCPHostDeps, str, list] | dict[str, Any]:
+) -> SlackHandlerResult | SlackViewResultResponse:
     """Handle Slack button interactions (view result or tool approval)."""
     slack_interaction_payload = SlackInteractionPayload.model_validate(slack_payload)
 
@@ -932,46 +957,38 @@ async def slackbot(
     # Handle different types of Slack events
     if slack_event is not None:
         log.info("Received Slack event")
-        deps, user_prompt, message_history = await _handle_app_mention(
-            slack_event, slack_host, log
-        )
+        handler_result = await _handle_app_mention(slack_event, slack_host, log)
+        deps = handler_result.deps
+        user_prompt = handler_result.user_prompt
+        message_history = handler_result.message_history
+
     elif slack_payload is not None:
         log.info("Received Slack interaction payload")
-        result = await _handle_slack_interaction(
+        interaction_result = await _handle_slack_interaction(
             slack_payload, slack_host, channel_id, log
         )
 
         # If it's a view_result interaction, return early
-        if isinstance(result, dict):
-            return result
+        if isinstance(interaction_result, SlackViewResultResponse):
+            return {
+                "thread_ts": interaction_result.thread_ts,
+                "ts": interaction_result.ts,
+                "action": interaction_result.action,
+            }
 
-        deps, user_prompt, message_history = result
+        deps = interaction_result.deps
+        user_prompt = interaction_result.user_prompt
+        message_history = interaction_result.message_history
     else:
         raise ValueError(
             "Either `slack_event` or `slack_payload` must be provided. Got null values for both."
         )
 
     # Run the agent
-    try:
-        # Cast to MCPHostDeps for the base class run method
-        mcp_deps = MCPHostDeps(
-            conversation_id=deps.conversation_id,
-            message_id=deps.message_id,
-        )
+    result = await slack_host.run(
+        user_prompt=user_prompt,
+        deps=deps,
+        message_history=message_history,
+    )
 
-        result = await slack_host.run(
-            user_prompt=user_prompt,
-            deps=mcp_deps,
-            message_history=message_history,
-        )
-
-        return {
-            "conversation_id": result.conversation_id,
-            "message_id": result.message_id,
-            "message_history": result.message_history,
-            "last_result": result.last_result,
-        }
-
-    except Exception as e:
-        log.error("Agent run failed", error=str(e))
-        raise
+    return result.model_dump()
