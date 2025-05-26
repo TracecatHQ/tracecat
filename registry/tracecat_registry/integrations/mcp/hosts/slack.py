@@ -1,13 +1,16 @@
 import json
 import uuid
-from typing import Any
+from typing import Any, Annotated
 from dataclasses import dataclass
-from typing_extensions import Self
+from typing_extensions import Self, Doc
 
 import diskcache as dc
+import orjson
 from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic_ai.mcp import MCPServerHTTP
 
 from tracecat.logger import logger
+from tracecat_registry import registry, secrets
 from tracecat_registry.integrations.mcp.agent import (
     MCPHost,
     MCPHostDeps,
@@ -17,7 +20,18 @@ from tracecat_registry.integrations.mcp.agent import (
     MessageStartResult,
 )
 from tracecat_registry.integrations.mcp.memory import FanoutCacheMemory
-from tracecat_registry.integrations.slack_sdk import call_method, format_buttons
+from tracecat_registry.integrations.slack_sdk import (
+    call_method,
+    format_buttons,
+    slack_secret,
+)
+from tracecat_registry.integrations.pydantic_ai import PYDANTIC_AI_REGISTRY_SECRETS
+
+
+# Global cache for Slack UI state (button interactions)
+INTERACTION_CACHE = dc.FanoutCache(
+    directory=".cache/slack_interactions", shards=8, timeout=0.05
+)  # key=thread_ts, stores tool call info for button interactions
 
 
 @dataclass
@@ -206,6 +220,18 @@ class SlackMCPHost(MCPHost):
             directory=".cache/blocks", shards=8, timeout=0.05
         )  # key=ts
 
+    def is_approved_tool_call(
+        self, tool_name: str, tool_args: str | dict[str, Any]
+    ) -> bool:
+        """Check if a tool call is approved, including dynamic approval cache."""
+        # First check the static approved list
+        if super().is_approved_tool_call(tool_name, tool_args):
+            return True
+
+        # For dynamic approvals, we need the conversation context
+        # This will be checked in the agent run context where we have access to deps
+        return False
+
     async def post_message_start(self, deps: MCPHostDeps) -> MessageStartResult:
         """Called when a new model request / assistant message starts."""
         # Cast to SlackMCPHostDeps for Slack-specific fields
@@ -342,6 +368,16 @@ class SlackMCPHost(MCPHost):
 
         # Generate a tool call ID for this request
         tool_call_id = str(uuid.uuid4())
+
+        # Cache the tool call info for later retrieval
+        INTERACTION_CACHE.set(
+            slack_deps.conversation_id,
+            {
+                "tool_call_id": tool_call_id,
+                "tool_name": result.name,
+                "tool_args": result.args,
+            },
+        )
 
         buttons = format_buttons(
             [
@@ -690,3 +726,254 @@ class SlackMCPHost(MCPHost):
                 "view": modal_view,
             },
         )
+
+
+def _setup_mcp_server(base_url: str, timeout: int) -> MCPServerHTTP:
+    """Setup and configure the MCP server."""
+    headers = secrets.get("MCP_HTTP_HEADERS")
+    if headers is not None:
+        headers = orjson.loads(headers)
+    return MCPServerHTTP(base_url, headers=headers, timeout=timeout)
+
+
+def _parse_trigger_payload(
+    trigger: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Parse the trigger payload to extract Slack event or interaction payload."""
+    if not isinstance(trigger, dict):
+        raise ValueError(f"Invalid trigger type. Expected JSON object. Got {trigger!r}")
+
+    if "payload" in trigger:
+        slack_payload = orjson.loads(trigger["payload"])
+        return None, slack_payload
+    else:
+        return trigger, None
+
+
+async def _handle_app_mention(
+    slack_event: dict[str, Any], slack_host: SlackMCPHost, log: Any
+) -> tuple[SlackMCPHostDeps, str, list]:
+    """Handle Slack app mention events."""
+    slack_event_payload = SlackEventPayload.model_validate(slack_event)
+
+    # Create SlackMCPHostDeps
+    deps = SlackMCPHostDeps(
+        conversation_id=slack_event_payload.thread_ts,
+        user_id=slack_event_payload.event.user,
+        channel_id=slack_event_payload.event.channel,
+        message_id=None,  # Will be set by post_message_start
+    )
+
+    user_prompt = slack_event_payload.user_prompt
+    message_history = slack_host.memory.get_messages(deps.conversation_id)
+
+    log = log.bind(
+        thread_ts=deps.conversation_id,
+        ts=slack_event_payload.ts,
+        event_type="app_mention",
+    )
+    log.info("Processing app mention")
+
+    # Add user message to memory
+    slack_host.memory.add_user_message(deps.conversation_id, user_prompt)
+
+    return deps, user_prompt, message_history
+
+
+async def _handle_view_result_interaction(
+    slack_interaction_payload: SlackInteractionPayload,
+    slack_host: SlackMCPHost,
+    channel_id: str,
+    log: Any,
+) -> dict[str, Any]:
+    """Handle view result button interactions."""
+    deps = SlackMCPHostDeps(
+        conversation_id=slack_interaction_payload.thread_ts,
+        user_id=slack_interaction_payload.user_id,
+        channel_id=channel_id,
+        message_id=slack_interaction_payload.ts,
+    )
+
+    log = log.bind(
+        thread_ts=deps.conversation_id,
+        ts=deps.message_id,
+        event_type="view_result",
+    )
+    log.info("Processing view_result interaction")
+
+    await slack_host.handle_view_result_modal(slack_interaction_payload)
+
+    return {
+        "thread_ts": deps.conversation_id,
+        "ts": deps.message_id,
+        "action": "view_result",
+    }
+
+
+async def _handle_tool_approval_interaction(
+    slack_interaction_payload: SlackInteractionPayload,
+    slack_host: SlackMCPHost,
+    channel_id: str,
+    log: Any,
+) -> tuple[SlackMCPHostDeps, str, list]:
+    """Handle tool approval/rejection button interactions."""
+    deps = SlackMCPHostDeps(
+        conversation_id=slack_interaction_payload.thread_ts,
+        user_id=slack_interaction_payload.user_id,
+        channel_id=channel_id,
+        message_id=slack_interaction_payload.ts,
+    )
+
+    message_history = slack_host.memory.get_messages(deps.conversation_id)
+
+    # Get cached tool call info
+    tool_call: dict[str, Any] | None = INTERACTION_CACHE.get(deps.conversation_id)  # type: ignore
+    if tool_call is None:
+        raise ValueError(
+            f"No cached tool call ID found for thread timestamp {deps.conversation_id}"
+        )
+
+    tool_name = tool_call["tool_name"]
+    tool_args = tool_call["tool_args"]
+
+    # Update the UI to show approval status
+    await slack_host.post_tool_approval(
+        result=ToolCallRequestResult(name=tool_name, args=tool_args),
+        approved=slack_interaction_payload.action_value == "run",
+        deps=MCPHostDeps(
+            conversation_id=deps.conversation_id,
+            message_id=deps.message_id,
+        ),
+    )
+
+    # If approved, add to the approved tool calls for this agent run
+    if slack_interaction_payload.action_value == "run":
+        from tracecat_registry.integrations.mcp.agent import hash_tool_call
+
+        tool_hash = hash_tool_call(tool_name, tool_args)
+        if slack_host._approved_tool_calls is None:
+            slack_host._approved_tool_calls = []
+        slack_host._approved_tool_calls.append(tool_hash)
+
+    log = log.bind(
+        thread_ts=deps.conversation_id,
+        ts=deps.message_id,
+        tool_name=tool_name,
+        event_type="interaction",
+    )
+    log.info("Processing tool approval interaction")
+
+    # Generate appropriate user prompt based on action
+    if slack_interaction_payload.action_value == "run":
+        user_prompt = (
+            "Run the previously approved tool call now. "
+            "Return the complete result in a structured format. "
+            "Summarize key findings briefly."
+        )
+    else:
+        user_prompt = (
+            "The user declined the tool call. "
+            "Acknowledge this politely and continue helping with their original request. "
+            "Only suggest alternative approaches if you cannot answer their question without tools."
+        )
+
+    return deps, user_prompt, message_history
+
+
+async def _handle_slack_interaction(
+    slack_payload: dict[str, Any], slack_host: SlackMCPHost, channel_id: str, log: Any
+) -> tuple[SlackMCPHostDeps, str, list] | dict[str, Any]:
+    """Handle Slack button interactions (view result or tool approval)."""
+    slack_interaction_payload = SlackInteractionPayload.model_validate(slack_payload)
+
+    # Check if this is a view_result action
+    if slack_interaction_payload.action_value == "view_result":
+        return await _handle_view_result_interaction(
+            slack_interaction_payload, slack_host, channel_id, log
+        )
+    else:
+        return await _handle_tool_approval_interaction(
+            slack_interaction_payload, slack_host, channel_id, log
+        )
+
+
+@registry.register(
+    default_title="(Experimental) MCP Slack chatbot",
+    description="Chat with a MCP server using Slack.",
+    display_group="MCP",
+    doc_url="https://ai.pydantic.dev/mcp/client/",
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, slack_secret],
+    namespace="mcp.host",
+)
+async def slackbot(
+    trigger: Annotated[dict[str, Any] | None, Doc("Webhook trigger payload")],
+    channel_id: Annotated[
+        str,
+        Doc(
+            "Slack channel ID of the channel where the user is interacting with the bot."
+        ),
+    ],
+    agent_settings: Annotated[dict[str, Any], Doc("Agent settings")],
+    base_url: Annotated[str, Doc("Base URL of the MCP server.")],
+    timeout: Annotated[int, Doc("Initial connection timeout in seconds.")] = 10,
+) -> dict[str, Any]:
+    """MCP Slack chatbot using the new SlackMCPHost architecture."""
+    log = logger.bind(
+        channel_id=channel_id,
+        event_type="slack_chat",
+    )
+    log.info("Starting Slack chat handler")
+
+    # Setup MCP server and host
+    server = _setup_mcp_server(base_url, timeout)
+    slack_host = SlackMCPHost(mcp_servers=[server], **agent_settings)
+
+    # Parse trigger payload
+    slack_event, slack_payload = _parse_trigger_payload(trigger)
+
+    # Handle different types of Slack events
+    if slack_event is not None:
+        log.info("Received Slack event")
+        deps, user_prompt, message_history = await _handle_app_mention(
+            slack_event, slack_host, log
+        )
+    elif slack_payload is not None:
+        log.info("Received Slack interaction payload")
+        result = await _handle_slack_interaction(
+            slack_payload, slack_host, channel_id, log
+        )
+
+        # If it's a view_result interaction, return early
+        if isinstance(result, dict):
+            return result
+
+        deps, user_prompt, message_history = result
+    else:
+        raise ValueError(
+            "Either `slack_event` or `slack_payload` must be provided. Got null values for both."
+        )
+
+    # Run the agent
+    try:
+        # Cast to MCPHostDeps for the base class run method
+        mcp_deps = MCPHostDeps(
+            conversation_id=deps.conversation_id,
+            message_id=deps.message_id,
+        )
+
+        result = await slack_host.run(
+            user_prompt=user_prompt,
+            deps=mcp_deps,
+            message_history=message_history,
+        )
+
+        return {
+            "conversation_id": result.conversation_id,
+            "message_id": result.message_id,
+            "message_history": result.message_history,
+            "last_result": result.last_result,
+        }
+
+    except Exception as e:
+        log.error("Agent run failed", error=str(e))
+        raise
