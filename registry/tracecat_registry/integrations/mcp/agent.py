@@ -19,7 +19,7 @@ from pydantic_ai.messages import (
     TextPart,
     ToolReturnPart,
 )
-from typing import Any, Literal, NoReturn, TypeVar
+from typing import Any, Literal, NoReturn, TypeVar, Generic
 from typing_extensions import Self
 from pydantic_ai.agent import ModelRequestNode, AgentRun, CallToolsNode
 import diskcache as dc
@@ -31,6 +31,8 @@ from tracecat_registry.integrations.mcp.memory import ShortTermMemory
 
 # Generic type variable for tool result content
 T = TypeVar("T", bound=str | dict[str, Any])
+# Generic type variable for dependency types
+DepsT = TypeVar("DepsT", bound="MCPHostDeps")
 
 
 def hash_tool_call(tool_name: str, tool_args: str | dict[str, Any]) -> str:
@@ -55,6 +57,10 @@ def hash_tool_call(tool_name: str, tool_args: str | dict[str, Any]) -> str:
 
 class EmptyNodeResult(BaseModel):
     node_type: Literal["model_request", "tool_call", "tool_result", "end"]
+
+
+class UserPromptNodeResult(BaseModel):
+    user_prompt: str
 
 
 class ModelRequestNodeResult(BaseModel):
@@ -84,8 +90,17 @@ class EndNodeResult(BaseModel):
 
 @dataclass
 class MCPHostDeps:
-    conversation_id: str  # e.g. `thread_ts` in Slack
-    message_id: str | None = None  # e.g. `ts` in Slack (None for conversation start)
+    conversation_id: str
+    """Conversation ID refers to a full message history (short term memory).
+
+    For example, in Slack, this is the `thread_ts`.
+    """
+    message_id: str | None
+    """Message ID refers to a set of messages that are part of an assistant's response.
+
+    We use this ID to stream updates to the user in a single "block" of messages.
+    For example, in Slack, this is the `ts` of a single message in a thread.
+    """
 
 
 class MCPHostResult(BaseModel):
@@ -104,7 +119,7 @@ class MessageStartResult(BaseModel):
     message_id: str
 
 
-class MCPHost(ABC):
+class MCPHost(ABC, Generic[DepsT]):
     def __init__(
         self,
         model_name: str,
@@ -113,13 +128,14 @@ class MCPHost(ABC):
         mcp_servers: list[MCPServerHTTP],
         model_settings: dict[str, Any] | None = None,
         approved_tool_calls: list[str] | None = None,
+        deps_type: type[DepsT] | None = None,
     ) -> None:
         self.agent = build_agent(
             model_name=model_name,
             model_provider=model_provider,
             model_settings=model_settings,
             mcp_servers=mcp_servers,
-            dep_type=MCPHostDeps,
+            deps_type=deps_type or MCPHostDeps,
         )
         self.memory = memory
         # Tool results cache - TODO: Make this an ABC interface in the future
@@ -129,39 +145,35 @@ class MCPHost(ABC):
         self._approved_tool_calls = approved_tool_calls
 
     @abstractmethod
-    async def post_message_start(self, deps: MCPHostDeps) -> MessageStartResult:
+    async def post_message_start(self, deps: DepsT) -> MessageStartResult:
         pass
 
     @abstractmethod
-    async def update_message(
-        self, result: ModelRequestNodeResult, deps: MCPHostDeps
-    ) -> Self:
+    async def update_message(self, result: ModelRequestNodeResult, deps: DepsT) -> Self:
         pass
 
     @abstractmethod
     async def request_tool_approval(
-        self, result: ToolCallRequestResult, deps: MCPHostDeps
+        self, result: ToolCallRequestResult, deps: DepsT
     ) -> Self:
         pass
 
     @abstractmethod
     async def post_tool_approval(
-        self, result: ToolCallRequestResult, approved: bool, deps: MCPHostDeps
+        self, result: ToolCallRequestResult, approved: bool, deps: DepsT
     ) -> Self:
         pass
 
     @abstractmethod
-    async def post_tool_result(
-        self, result: ToolResultNodeResult, deps: MCPHostDeps
-    ) -> Self:
+    async def post_tool_result(self, result: ToolResultNodeResult, deps: DepsT) -> Self:
         pass
 
     @abstractmethod
-    async def post_message_end(self, deps: MCPHostDeps) -> Self:
+    async def post_message_end(self, deps: DepsT) -> Self:
         pass
 
     @abstractmethod
-    async def post_error_message(self, exc: Exception, deps: MCPHostDeps) -> Self:
+    async def post_error_message(self, exc: Exception, deps: DepsT) -> Self:
         pass
 
     def is_approved_tool_call(
@@ -244,7 +256,19 @@ class MCPHost(ABC):
         )
 
     def is_new_conversation(self, conversation_id: str) -> bool:
-        return len(self.memory.get_messages(conversation_id)) == 0
+        messages = self.memory.get_messages(conversation_id)
+        # A conversation is new if:
+        # 1. No messages at all, OR
+        # 2. Only one message and it's a user prompt (the current mention)
+        if len(messages) == 0:
+            return True
+        elif len(messages) == 1:
+            # Check if the single message is a user prompt
+            message = messages[0]
+            if hasattr(message, "parts") and len(message.parts) == 1:
+                part = message.parts[0]
+                return hasattr(part, "part_kind") and part.part_kind == "user-prompt"
+        return False
 
     def store_tool_result(self, call_id: str, content: str | dict[str, Any]) -> Self:
         """Store a tool result for later retrieval.
@@ -347,7 +371,7 @@ class MCPHost(ABC):
         return EmptyNodeResult(node_type="tool_call")
 
     async def _post_error_message_safe(
-        self, exc: Exception, deps: MCPHostDeps
+        self, exc: Exception, deps: DepsT
     ) -> Exception | None:
         """Safely post error message and return any exception that occurred during posting."""
         try:
@@ -357,7 +381,7 @@ class MCPHost(ABC):
             return post_exc
 
     async def _handle_exception_with_error_posting(
-        self, exc: Exception, deps: MCPHostDeps
+        self, exc: Exception, deps: DepsT
     ) -> NoReturn:
         """Handle exception by posting error message safely and raising appropriate chained exception."""
         post_error_exc = await self._post_error_message_safe(exc, deps)
@@ -390,9 +414,10 @@ class MCPHost(ABC):
     async def _run_agent(
         self,
         user_prompt: str,
-        deps: MCPHostDeps,
+        deps: DepsT,
         message_history: list[ModelMessage] | None = None,
     ):
+        result = EmptyNodeResult(node_type="model_request")
         async with self.agent.run_mcp_servers():
             async with self.agent.iter(
                 user_prompt=user_prompt,
@@ -400,7 +425,9 @@ class MCPHost(ABC):
                 deps=deps,  # type: ignore
             ) as run:
                 async for node in run:
-                    if Agent.is_model_request_node(node):
+                    if Agent.is_user_prompt_node(node):
+                        result = UserPromptNodeResult(user_prompt=user_prompt)
+                    elif Agent.is_model_request_node(node):
                         result = await self._process_model_request_node(node, run)
                         if isinstance(result, ModelRequestNodeResult):
                             await self.update_message(result, deps)
@@ -417,7 +444,7 @@ class MCPHost(ABC):
     async def run(
         self,
         user_prompt: str,
-        deps: MCPHostDeps,
+        deps: DepsT,
         message_history: list[ModelMessage] | None = None,
     ) -> MCPHostResult:
         try:
@@ -428,7 +455,9 @@ class MCPHost(ABC):
                     start_message = await self.post_message_start(deps)
                     message_id = start_message.message_id
                 else:
-                    raise ValueError()
+                    raise ValueError(
+                        "`message_id` is required for non-new conversations"
+                    )
 
             result = await self._run_agent(
                 user_prompt=user_prompt, deps=deps, message_history=message_history
