@@ -1,0 +1,44 @@
+type: action
+definition:
+  name: ingest_event
+  namespace: tools.wazuh
+  title: Ingest Event into Wazuh
+  description: Sends a raw log event to the Wazuh manager via the /events API endpoint for analysis.
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.ingest_controller.post_event
+  author: null
+  expects:
+    base_url:
+      type: str
+      description: Base URL of the Wazuh API (e.g. https://wazuh-prod.aukfood.net:55000)
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+    auth_token_exp_timeout:
+      type: int
+      description: Duration for the authentication token's validity (in seconds).
+      default: 900
+    log_event:
+      type: str
+      description: Raw log string to send to the Wazuh manager.
+  steps:
+    - ref: get_access_token
+      action: tools.wazuh.get_access_token
+      args:
+        url: ${{ inputs.base_url }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        auth_token_exp_timeout: ${{ inputs.auth_token_exp_timeout }}
+    - ref: ingest_event
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/events
+        method: POST
+        headers:
+          Content-Type: application/json
+          Authorization: Bearer ${{ steps.get_access_token.result }}
+        payload:
+          events:
+            - ${{ inputs.log_event }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.ingest_event.result }}
