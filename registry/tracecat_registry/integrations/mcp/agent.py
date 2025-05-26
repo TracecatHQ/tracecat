@@ -90,13 +90,13 @@ class MCPHost(ABC):
         model_provider: str,
         memory: ShortTermMemory,
         mcp_servers: list[MCPServerHTTP],
+        model_settings: dict[str, Any] | None = None,
         approved_tool_calls: list[str] | None = None,
-        agent_settings: dict[str, Any] | None = None,
     ) -> None:
         self.agent = build_agent(
             model_name=model_name,
             model_provider=model_provider,
-            model_settings=agent_settings,
+            model_settings=model_settings,
             mcp_servers=mcp_servers,
             dep_type=MCPHostDeps,
         )
@@ -149,6 +149,77 @@ class MCPHost(ABC):
         return (
             self._approved_tool_calls is not None
             and hash_tool_call(tool_name, tool_args) in self._approved_tool_calls
+        )
+
+    def add_approved_tool_call(
+        self, tool_name: str, tool_args: str | dict[str, Any]
+    ) -> Self:
+        """Add a tool call to the approved list for this agent run.
+
+        Args:
+            tool_name: Name of the tool
+            tool_args: Arguments for the tool call
+
+        Returns:
+            Self for method chaining
+        """
+        if self._approved_tool_calls is None:
+            self._approved_tool_calls = []
+
+        tool_hash = hash_tool_call(tool_name, tool_args)
+        if tool_hash not in self._approved_tool_calls:
+            self._approved_tool_calls.append(tool_hash)
+
+        return self
+
+    def remove_approved_tool_call(
+        self, tool_name: str, tool_args: str | dict[str, Any]
+    ) -> Self:
+        """Remove a tool call from the approved list.
+
+        Args:
+            tool_name: Name of the tool
+            tool_args: Arguments for the tool call
+
+        Returns:
+            Self for method chaining
+        """
+        if self._approved_tool_calls is not None:
+            tool_hash = hash_tool_call(tool_name, tool_args)
+            if tool_hash in self._approved_tool_calls:
+                self._approved_tool_calls.remove(tool_hash)
+
+        return self
+
+    def clear_approved_tool_calls(self) -> Self:
+        """Clear all approved tool calls.
+
+        Returns:
+            Self for method chaining
+        """
+        self._approved_tool_calls = []
+        return self
+
+    def get_approved_tool_calls(self) -> list[str]:
+        """Get a copy of the approved tool calls list.
+
+        Returns:
+            List of approved tool call hashes
+        """
+        return (
+            list(self._approved_tool_calls)
+            if self._approved_tool_calls is not None
+            else []
+        )
+
+    def has_approved_tool_calls(self) -> bool:
+        """Check if there are any approved tool calls.
+
+        Returns:
+            True if there are approved tool calls, False otherwise
+        """
+        return (
+            self._approved_tool_calls is not None and len(self._approved_tool_calls) > 0
         )
 
     def is_new_conversation(self, conversation_id: str) -> bool:

@@ -200,8 +200,8 @@ class SlackMCPHost(MCPHost):
         model_name: str,
         model_provider: str,
         mcp_servers: list,
+        model_settings: dict[str, Any] | None = None,
         approved_tool_calls: list[str] | None = None,
-        agent_settings: dict[str, Any] | None = None,
     ) -> None:
         # Initialize memory
         memory = FanoutCacheMemory()
@@ -211,8 +211,8 @@ class SlackMCPHost(MCPHost):
             model_provider=model_provider,
             memory=memory,
             mcp_servers=mcp_servers,
+            model_settings=model_settings,
             approved_tool_calls=approved_tool_calls,
-            agent_settings=agent_settings,
         )
 
         # Slack-specific caches
@@ -848,12 +848,7 @@ async def _handle_tool_approval_interaction(
 
     # If approved, add to the approved tool calls for this agent run
     if slack_interaction_payload.action_value == "run":
-        from tracecat_registry.integrations.mcp.agent import hash_tool_call
-
-        tool_hash = hash_tool_call(tool_name, tool_args)
-        if slack_host._approved_tool_calls is None:
-            slack_host._approved_tool_calls = []
-        slack_host._approved_tool_calls.append(tool_hash)
+        slack_host.add_approved_tool_call(tool_name, tool_args)
 
     log = log.bind(
         thread_ts=deps.conversation_id,
@@ -898,7 +893,7 @@ async def _handle_slack_interaction(
 
 
 @registry.register(
-    default_title="(Experimental) MCP Slack chatbot",
+    default_title="MCP Slackbot",
     description="Chat with a MCP server using Slack.",
     display_group="MCP",
     doc_url="https://ai.pydantic.dev/mcp/client/",
@@ -913,7 +908,8 @@ async def slackbot(
             "Slack channel ID of the channel where the user is interacting with the bot."
         ),
     ],
-    agent_settings: Annotated[dict[str, Any], Doc("Agent settings")],
+    model_name: Annotated[str, Doc("Name of the model to use.")],
+    model_provider: Annotated[str, Doc("Provider of the model to use.")],
     base_url: Annotated[str, Doc("Base URL of the MCP server.")],
     timeout: Annotated[int, Doc("Initial connection timeout in seconds.")] = 10,
 ) -> dict[str, Any]:
@@ -926,7 +922,9 @@ async def slackbot(
 
     # Setup MCP server and host
     server = _setup_mcp_server(base_url, timeout)
-    slack_host = SlackMCPHost(mcp_servers=[server], **agent_settings)
+    slack_host = SlackMCPHost(
+        mcp_servers=[server], model_name=model_name, model_provider=model_provider
+    )
 
     # Parse trigger payload
     slack_event, slack_payload = _parse_trigger_payload(trigger)
