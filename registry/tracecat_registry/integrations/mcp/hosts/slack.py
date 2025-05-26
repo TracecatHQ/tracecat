@@ -2,10 +2,10 @@ import json
 import uuid
 from typing import Any
 from dataclasses import dataclass
+from typing_extensions import Self
 
 import diskcache as dc
 from pydantic import BaseModel, Field, computed_field, model_validator
-from typing_extensions import Self
 
 from tracecat.logger import logger
 from tracecat_registry.integrations.mcp.agent import (
@@ -188,7 +188,7 @@ class SlackMCPHost(MCPHost):
         mcp_servers: list,
         approved_tool_calls: list[str] | None = None,
         agent_settings: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         # Initialize memory
         memory = FanoutCacheMemory()
 
@@ -205,11 +205,6 @@ class SlackMCPHost(MCPHost):
         self.blocks_cache = dc.FanoutCache(
             directory=".cache/blocks", shards=8, timeout=0.05
         )  # key=ts
-        # TODO: Implement this as an ABC class to interface with a global interactions table in the future
-        # Should be managed directly by the MCPHost class
-        self.tool_results_cache = dc.FanoutCache(
-            directory=".cache/tool_results", shards=8, timeout=0.05
-        )  # key=tool_call_id
 
     async def post_message_start(self, deps: MCPHostDeps) -> MessageStartResult:
         """Called when a new model request / assistant message starts."""
@@ -233,7 +228,7 @@ class SlackMCPHost(MCPHost):
         bot_name = bot_user_info["user"]["name"]
 
         # Create initial context message (no notifications)
-        msg = f"@{bot_name} is conversing with @{user_name}"
+        msg = f"`@{bot_name}` is conversing with `@{user_name}`"
 
         blocks = [
             {
@@ -267,7 +262,7 @@ class SlackMCPHost(MCPHost):
 
     async def update_message(
         self, result: ModelRequestNodeResult, deps: MCPHostDeps
-    ) -> None:
+    ) -> Self:
         """Update an existing message in Slack."""
         slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
         if slack_deps is None:
@@ -331,9 +326,11 @@ class SlackMCPHost(MCPHost):
             message=message,
         )
 
+        return self
+
     async def request_tool_approval(
         self, result: ToolCallRequestResult, deps: MCPHostDeps
-    ) -> None:
+    ) -> Self:
         """Request approval for a tool call via Slack buttons."""
         slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
         if slack_deps is None:
@@ -397,9 +394,11 @@ class SlackMCPHost(MCPHost):
             tool_call_id=tool_call_id,
         )
 
+        return self
+
     async def post_tool_approval(
         self, result: ToolCallRequestResult, approved: bool, deps: MCPHostDeps
-    ) -> None:
+    ) -> Self:
         """Update the message after tool approval/rejection."""
         slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
         if slack_deps is None:
@@ -449,9 +448,11 @@ class SlackMCPHost(MCPHost):
             approved=approved,
         )
 
+        return self
+
     async def post_tool_result(
         self, result: ToolResultNodeResult, deps: MCPHostDeps
-    ) -> None:
+    ) -> Self:
         """Post the result of a tool call."""
         slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
         if slack_deps is None:
@@ -461,14 +462,6 @@ class SlackMCPHost(MCPHost):
         if not isinstance(blocks, list):
             blocks = []
         updated_blocks = [*blocks]
-
-        # Store the result in cache for modal display
-        result_id = (
-            f"{result.call_id}_{uuid.uuid4().hex[:8]}"
-            if result.call_id
-            else str(uuid.uuid4())
-        )
-        self.tool_results_cache.set(result_id, result.content)
 
         # Replace hourglass emoji with ok emoji in the last block
         if updated_blocks:
@@ -482,7 +475,7 @@ class SlackMCPHost(MCPHost):
                 )
             updated_blocks[-1] = last_block
 
-        # Add view result button
+        # Add view result button (tool result is already cached in base class)
         if result.call_id:
             updated_blocks.append(
                 {
@@ -496,7 +489,7 @@ class SlackMCPHost(MCPHost):
                                 "text": "✅ View tool result",
                                 "emoji": True,
                             },
-                            "value": result_id,
+                            "value": result.call_id,  # Use call_id directly
                             "action_id": f"view_result:{result.call_id}",
                         }
                     ],
@@ -520,10 +513,12 @@ class SlackMCPHost(MCPHost):
             thread_ts=slack_deps.conversation_id,
             ts=slack_deps.message_id,
             tool_name=result.name,
-            result_id=result_id,
+            result_id=result.call_id,
         )
 
-    async def post_message_end(self, deps: MCPHostDeps) -> None:
+        return self
+
+    async def post_message_end(self, deps: MCPHostDeps) -> Self:
         """Post a final message when the conversation ends."""
         slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
         if slack_deps is None:
@@ -563,7 +558,9 @@ class SlackMCPHost(MCPHost):
             ts=slack_deps.message_id,
         )
 
-    async def post_error_message(self, exc: Exception, deps: MCPHostDeps) -> None:
+        return self
+
+    async def post_error_message(self, exc: Exception, deps: MCPHostDeps) -> Self:
         """Post an error message to Slack."""
         slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
         if slack_deps is None:
@@ -627,22 +624,23 @@ class SlackMCPHost(MCPHost):
             error=str(exc),
         )
 
+        return self
+
     async def handle_view_result_modal(self, payload: SlackInteractionPayload) -> None:
         """Handle opening a modal to display tool results."""
-        result_id = payload.result_id
+        # For view_result actions, the value is the call_id
+        call_id = payload.result_id  # This is actually the call_id now
         tool_call_id = payload.tool_call_id
 
-        if result_id is None or tool_call_id is None:
-            raise ValueError(
-                "Missing result_id or tool_call_id from interaction payload"
-            )
+        if call_id is None or tool_call_id is None:
+            raise ValueError("Missing call_id or tool_call_id from interaction payload")
 
         trigger_id = payload.trigger_id
         if trigger_id is None:
             raise ValueError("Cannot open modal: missing trigger_id")
 
-        # Load result from cache
-        tool_result = self.tool_results_cache.get(result_id)
+        # Load result from base class cache using call_id
+        tool_result = self.get_tool_result(call_id)
         if tool_result is None:
             tool_result = "Unable to retrieve tool result from cache."
         else:

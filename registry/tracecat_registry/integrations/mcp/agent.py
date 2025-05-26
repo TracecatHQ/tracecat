@@ -18,12 +18,18 @@ from pydantic_ai.messages import (
     TextPart,
     ToolReturnPart,
 )
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal, NoReturn, TypeVar
+from typing_extensions import Self
 from pydantic_ai.agent import ModelRequestNode, AgentRun, CallToolsNode
+import diskcache as dc
 
 from tracecat_registry.integrations.pydantic_ai import build_agent
 from tracecat_registry.integrations.mcp.exceptions import AgentRunError
 from tracecat_registry.integrations.mcp.memory import ShortTermMemory
+
+
+# Generic type variable for tool result content
+T = TypeVar("T", bound=str | dict[str, Any])
 
 
 def hash_tool_call(tool_name: str, tool_args: str | dict[str, Any]) -> str:
@@ -86,7 +92,7 @@ class MCPHost(ABC):
         mcp_servers: list[MCPServerHTTP],
         approved_tool_calls: list[str] | None = None,
         agent_settings: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         self.agent = build_agent(
             model_name=model_name,
             model_provider=model_provider,
@@ -95,6 +101,10 @@ class MCPHost(ABC):
             dep_type=MCPHostDeps,
         )
         self.memory = memory
+        # Tool results cache - TODO: Make this an ABC interface in the future
+        self.tool_results_cache = dc.FanoutCache(
+            directory=".cache/tool_results", shards=8, timeout=0.05
+        )
         self._approved_tool_calls = approved_tool_calls
 
     @abstractmethod
@@ -104,33 +114,33 @@ class MCPHost(ABC):
     @abstractmethod
     async def update_message(
         self, result: ModelRequestNodeResult, deps: MCPHostDeps
-    ) -> None:
+    ) -> Self:
         pass
 
     @abstractmethod
     async def request_tool_approval(
         self, result: ToolCallRequestResult, deps: MCPHostDeps
-    ) -> None:
+    ) -> Self:
         pass
 
     @abstractmethod
     async def post_tool_approval(
         self, result: ToolCallRequestResult, approved: bool, deps: MCPHostDeps
-    ) -> None:
+    ) -> Self:
         pass
 
     @abstractmethod
     async def post_tool_result(
         self, result: ToolResultNodeResult, deps: MCPHostDeps
-    ) -> None:
+    ) -> Self:
         pass
 
     @abstractmethod
-    async def post_message_end(self, deps: MCPHostDeps) -> None:
+    async def post_message_end(self, deps: MCPHostDeps) -> Self:
         pass
 
     @abstractmethod
-    async def post_error_message(self, exc: Exception, deps: MCPHostDeps) -> None:
+    async def post_error_message(self, exc: Exception, deps: MCPHostDeps) -> Self:
         pass
 
     def is_approved_tool_call(
@@ -143,6 +153,21 @@ class MCPHost(ABC):
 
     def is_new_conversation(self, conversation_id: str) -> bool:
         return len(self.memory.get_messages(conversation_id)) == 0
+
+    def store_tool_result(self, call_id: str, content: str | dict[str, Any]) -> Self:
+        """Store a tool result for later retrieval.
+
+        Returns self for method chaining.
+        """
+        self.tool_results_cache.set(call_id, content)
+        return self
+
+    def get_tool_result(self, call_id: str) -> Any:
+        """Retrieve a stored tool result by call_id.
+
+        Returns the stored content or None if not found.
+        """
+        return self.tool_results_cache.get(call_id)
 
     async def _process_model_request_node(
         self,
@@ -212,7 +237,13 @@ class MCPHost(ABC):
                     result = ToolResultNodeResult(
                         name=event.result.tool_name,
                         content=event.result.content,
+                        call_id=event.tool_call_id,
                     )
+
+                    # Cache the tool result for platform-specific access (e.g., modals)
+                    if event.tool_call_id:
+                        self.store_tool_result(event.tool_call_id, event.result.content)
+
                     self.memory.add_tool_result(
                         conversation_id=conversation_id,
                         tool_name=event.result.tool_name,
