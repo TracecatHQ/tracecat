@@ -61,6 +61,10 @@ class ToolResultNodeResult(BaseModel):
     call_id: str | None = None  # Only specified if tool call is approved
 
 
+class EndNodeResult(BaseModel):
+    output: str
+
+
 @dataclass
 class MCPHostDeps:
     conversation_id: str  # e.g. `thread_ts` in Slack
@@ -386,7 +390,8 @@ class MCPHost(ABC):
                     elif Agent.is_call_tools_node(node):
                         result = await self._process_call_tools_node(node, run)
                     elif Agent.is_end_node(node):
-                        result = EmptyNodeResult(node_type="end")
+                        output = node.data.output
+                        result = EndNodeResult(output=output)
                         await self.post_message_end(deps)
                     else:
                         raise ValueError(f"Unknown node type: {node}")
@@ -419,7 +424,7 @@ class MCPHost(ABC):
         else:
             return MCPHostResult(
                 conversation_id=deps.conversation_id,
-                last_result=result,
+                last_result=to_jsonable_python(result),
                 message_id=message_id,
                 message_history=to_jsonable_python(
                     self.memory.get_messages(deps.conversation_id)
