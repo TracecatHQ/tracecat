@@ -460,9 +460,14 @@ class MCPHost(ABC, Generic[DepsT]):
             else:
                 raise ValueError("`message_id` is required for non-new conversations")
 
-        result = await self._run_agent(
-            user_prompt=user_prompt, deps=deps, message_history=message_history
-        )
+        try:
+            result = await self._run_agent(
+                user_prompt=user_prompt, deps=deps, message_history=message_history
+            )
+        except ExceptionGroup as e:
+            await self._handle_exception_with_error_posting(e.exceptions[0], deps)
+        except Exception as e:
+            await self._handle_exception_with_error_posting(e, deps)
 
         return MCPHostResult(
             conversation_id=deps.conversation_id,
