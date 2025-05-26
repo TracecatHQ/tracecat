@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import hashlib
 import httpx
+import json
 from dataclasses import dataclass
 from pydantic import BaseModel
 from pydantic_ai import Agent
@@ -33,7 +34,23 @@ T = TypeVar("T", bound=str | dict[str, Any])
 
 
 def hash_tool_call(tool_name: str, tool_args: str | dict[str, Any]) -> str:
-    return hashlib.md5(f"{tool_name}:{tool_args}".encode()).hexdigest()
+    """Generate a consistent hash for a tool call.
+
+    Args:
+        tool_name: Name of the tool
+        tool_args: Arguments for the tool call (string or dict)
+
+    Returns:
+        MD5 hash of the tool call
+    """
+    if isinstance(tool_args, dict):
+        # Convert to JSON-serializable format and sort keys for consistency
+        serializable_args = to_jsonable_python(tool_args)
+        args_str = json.dumps(serializable_args, sort_keys=True, separators=(",", ":"))
+    else:
+        args_str = str(tool_args)
+
+    return hashlib.md5(f"{tool_name}:{args_str}".encode()).hexdigest()
 
 
 class EmptyNodeResult(BaseModel):
