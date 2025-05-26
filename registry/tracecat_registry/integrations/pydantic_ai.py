@@ -160,6 +160,7 @@ def build_agent(
     model_settings: dict[str, Any] | None = None,
     mcp_servers: list[MCPServerHTTP] | None = None,
     retries: Annotated[int, Doc("Number of retries")] = 3,
+    deps_type: type[Any] | None = None,
     **kwargs: Any,
 ) -> Agent:
     match model_provider:
@@ -227,16 +228,21 @@ def build_agent(
             )
 
     mcp_servers = mcp_servers or []
-    agent = Agent(
-        model=model,
-        instructions=instructions,
-        output_type=response_format,
-        model_settings=ModelSettings(**model_settings) if model_settings else None,
-        mcp_servers=mcp_servers,
-        retries=retries,
+    agent_kwargs = {
+        "model": model,
+        "instructions": instructions,
+        "output_type": response_format,
+        "model_settings": ModelSettings(**model_settings) if model_settings else None,
+        "mcp_servers": mcp_servers,
+        "retries": retries,
         **kwargs,
-    )
+    }
 
+    # Only add deps_type if it's provided
+    if deps_type is not None:
+        agent_kwargs["deps_type"] = deps_type
+
+    agent = Agent(**agent_kwargs)
     return agent
 
 
