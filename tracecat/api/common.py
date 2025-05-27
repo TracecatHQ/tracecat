@@ -1,4 +1,8 @@
-from fastapi import Request, status
+import contextlib
+import threading
+
+import uvloop
+from fastapi import FastAPI, Request, status
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from temporalio.api.enums.v1 import IndexedValueType
@@ -141,3 +145,18 @@ async def remove_temporal_search_attributes():
             namespace=namespace,
             search_attributes=["TracecatTriggerType", "TracecatTriggeredByUserId"],
         )
+
+
+@contextlib.contextmanager
+def setup_builder_loop(app: FastAPI):
+    logger.info("Setting up builder loop")
+    builder_loop = uvloop.new_event_loop()
+    thread = threading.Thread(target=builder_loop.run_forever, daemon=True)
+    thread.start()
+    app.state.builder_loop = builder_loop
+    try:
+        yield
+    finally:
+        logger.info("Stopping builder loop")
+        builder_loop.call_soon_threadsafe(builder_loop.stop)
+        thread.join()

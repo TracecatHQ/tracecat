@@ -1,0 +1,56 @@
+title: San Francisco Weather Report
+description: A workflow that fetches current weather in San Francisco, formats it, and sends a Slack message.
+
+entrypoint:
+  expects:
+    slack_channel:
+      type: str
+      description: The Slack channel to send the weather report to.
+      default: "general"
+
+actions:
+  - ref: fetch_weather
+    action: core.http_request
+    args:
+      url: "https://api.open-meteo.com/v1/forecast?latitude=37.7749&longitude=-122.4194&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch"
+      method: "GET"
+      headers:
+        Content-Type: "application/json"
+
+  - ref: format_weather
+    action: core.transform.reshape
+    args:
+      value:
+        city: "San Francisco"
+        date: ${{ FN.format_datetime(FN.now(), "%A, %B %d, %Y") }}
+        current_temp: ${{ ACTIONS.fetch_weather.result.data.current.temperature_2m }}
+        feels_like: ${{ ACTIONS.fetch_weather.result.data.current.apparent_temperature }}
+        humidity: ${{ ACTIONS.fetch_weather.result.data.current.relative_humidity_2m }}
+        wind_speed: ${{ ACTIONS.fetch_weather.result.data.current.wind_speed_10m }}
+        wind_direction: ${{ ACTIONS.fetch_weather.result.data.current.wind_direction_10m }}
+        precipitation: ${{ ACTIONS.fetch_weather.result.data.current.precipitation }}
+        weather_code: ${{ ACTIONS.fetch_weather.result.data.current.weather_code }}
+        temp_unit: "°F"
+        wind_unit: "mph"
+        precip_unit: "inch"
+
+  - ref: create_message_text
+    action: core.transform.reshape
+    args:
+      value: |
+        :sunny: *Weather Report for ${{ ACTIONS.format_weather.result.city }}*
+        _${{ ACTIONS.format_weather.result.date }}_
+
+        :thermometer: Temperature: ${{ ACTIONS.format_weather.result.current_temp }}${{ ACTIONS.format_weather.result.temp_unit }} (Feels like: ${{ ACTIONS.format_weather.result.feels_like }}${{ ACTIONS.format_weather.result.temp_unit }})
+        :droplet: Humidity: ${{ ACTIONS.format_weather.result.humidity }}%
+        :wind_blowing_face: Wind: ${{ ACTIONS.format_weather.result.wind_speed }} ${{ ACTIONS.format_weather.result.wind_unit }} from ${{ ACTIONS.format_weather.result.wind_direction }}°
+        :umbrella_with_rain_drops: Precipitation: ${{ ACTIONS.format_weather.result.precipitation }} ${{ ACTIONS.format_weather.result.precip_unit }}
+
+  - ref: send_slack_message
+    action: tools.slack.post_message
+    args:
+      token: ${{ SECRETS.slack.token }}
+      channel: ${{ TRIGGER.slack_channel }}
+      text: ${{ ACTIONS.create_message_text.result }}
+
+returns: ${{ ACTIONS.send_slack_message.result }}

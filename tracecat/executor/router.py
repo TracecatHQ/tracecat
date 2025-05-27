@@ -8,7 +8,9 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.config import TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
 from tracecat.contexts import ctx_logger
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.dsl.models import RunActionInput
+from tracecat.dsl.models import (
+    RunActionInput,
+)
 from tracecat.executor.models import ExecutorActionErrorInfo
 from tracecat.executor.service import dispatch_action_on_cluster
 from tracecat.logger import logger

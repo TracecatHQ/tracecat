@@ -19,7 +19,7 @@ async def list_functions(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace="yes",
+        require_workspace="no",
     ),
 ):
     functions = []

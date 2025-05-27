@@ -61,3 +61,17 @@ class CloudpickleProcessPoolExecutor(ProcessPoolExecutor):
         logger.info("Serializing function")
         ser_fn = cloudpickle.dumps(fn)
         return super().submit(_run_serialized_fn, ser_fn, *args, **kwargs)
+
+
+async def run_coro_threadsafe[T](
+    coro: Awaitable[T],
+    *,
+    loop: asyncio.AbstractEventLoop | None = None,
+    other_loop: asyncio.AbstractEventLoop,
+) -> T:
+    """Run a coroutine in the builder event loop"""
+    loop = loop or asyncio.get_event_loop()
+
+    fut = asyncio.run_coroutine_threadsafe(coro, other_loop)
+    wrapped_fut = asyncio.wrap_future(fut, loop=loop)
+    return await wrapped_fut
