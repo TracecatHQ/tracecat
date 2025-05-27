@@ -422,6 +422,18 @@ class MCPHost(ABC, Generic[DepsT]):
                             await self.update_message(result, deps)
                     elif Agent.is_call_tools_node(node):
                         result = await self._process_call_tools_node(node, run, deps)
+
+                        if isinstance(result, ToolCallRequestResult):
+                            # Request tool approval
+                            await self.request_tool_approval(result, deps)
+                            return result
+
+                        elif isinstance(result, ToolResultNodeResult):
+                            # Post tool result
+                            await self.post_tool_result(result, deps)
+                            # Continue processing the next node
+                            continue
+
                     elif Agent.is_end_node(node):
                         output = node.data.output
                         result = EndNodeResult(output=output)
