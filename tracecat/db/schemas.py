@@ -15,6 +15,7 @@ from tracecat import config
 from tracecat.auth.models import UserRole
 from tracecat.authz.models import WorkspaceRole
 from tracecat.cases.enums import (
+    CaseEventType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -811,6 +812,13 @@ class Case(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
+    events: list["CaseEvent"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
     assignee_id: uuid.UUID | None = Field(
         default=None,
         description="The ID of the user who is assigned to the case.",
@@ -857,6 +865,43 @@ class CaseComment(Resource, table=True):
         )
     )
     case: Case = Relationship(back_populates="comments")
+
+
+class CaseEvent(Resource, table=True):
+    """A activity record for a case.
+
+    Uses a tagged union pattern where the 'type' field indicates the kind of activity,
+    and the 'data' field contains variant-specific information for that activity type.
+    """
+
+    __tablename__: str = "case_event"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    type: CaseEventType = Field(..., description="The type of event")
+    # Variant-specific data for this activity type
+    data: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Variant-specific data for this event type",
+    )
+    user_id: uuid.UUID | None = Field(
+        default=None,
+        description="The ID of the user who made the event. If null, the event is system generated.",
+    )
+    # Relationships
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("cases.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    case: Case = Relationship(back_populates="events")
 
 
 class Interaction(Resource, table=True):
