@@ -146,5 +146,5 @@ export function getWorkflowExecutionUrl(
   wf: string,
   exec: string
 ) {
-  return `${baseUrl}/workspaces/${workspaceId}/workflows/${wf}/executions/${exec}`
+  return `${baseUrl}/workspaces/${encodeURIComponent(workspaceId)}/workflows/${encodeURIComponent(wf)}/executions/${encodeURIComponent(exec)}`
 }
