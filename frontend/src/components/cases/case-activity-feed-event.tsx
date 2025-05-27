@@ -258,56 +258,38 @@ export function FieldsChangedEvent({
   actor: User
 }) {
   return (
-    <div className="flex items-center space-x-2 text-xs">
-      <EventIcon icon={BracesIcon} />
-      <span>
-        <EventActor user={actor} /> changed fields
-      </span>
-      <InlineDotSeparator />
-      <div>
-        {event.changes.map(({ field, old, new: newVal }) => {
-          return (
-            <FieldChangeDiff key={field} field={field} old={old} new={newVal} />
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function FieldChangeDiff<T = unknown>({
-  field,
-  old: oldVal,
-  new: newVal,
-}: {
-  field: string
-  old: T
-  new: T
-}) {
-  if (oldVal === newVal) {
-    return null
-  }
-
-  return (
-    <span key={field} className="flex max-w-sm items-center space-x-2 text-xs">
-      <span className="font-medium">{field}:</span>
-      {!!oldVal && (
-        <>
-          <span className="truncate text-xs">
-            <span className="text-muted-foreground line-through">
-              {JSON.stringify(oldVal)}
-            </span>
+    <TooltipProvider>
+      <div className="flex items-center space-x-2 text-xs">
+        <EventIcon icon={BracesIcon} />
+        <div className="flex flex-wrap items-center gap-1">
+          <span>
+            <EventActor user={actor} /> changed fields
           </span>
-          <span className="text-muted-foreground">→</span>
-        </>
-      )}
-      <span className="truncate text-xs">
-        {!newVal ? (
-          <span className="text-muted-foreground/70">Unset</span>
-        ) : (
-          <span>{JSON.stringify(newVal)}</span>
-        )}
-      </span>
-    </span>
+          {event.changes.map(({ field, old, new: newVal }) => (
+            <>
+              <InlineDotSeparator />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="max-w-32 truncate text-xs hover:cursor-default hover:underline">
+                    {field}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <span className="flex items-center gap-1">
+                    {!!old && (
+                      <>
+                        <span>{JSON.stringify(old)}</span>
+                        <span>→</span>
+                      </>
+                    )}
+                    {!!newVal && <span>{JSON.stringify(newVal)}</span>}
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            </>
+          ))}
+        </div>
+      </div>
+    </TooltipProvider>
   )
 }

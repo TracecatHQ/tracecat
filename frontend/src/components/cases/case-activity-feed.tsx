@@ -44,7 +44,7 @@ function ActivityFeedEvent({
 
   return (
     <div className="relative">
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center space-x-1">
         {/* Status events */}
         {event.type === "status_changed" && (
           <StatusChangedEvent event={event} actor={actor} />
@@ -113,25 +113,29 @@ function WorkflowExecutionInfo({ wfExecId }: { wfExecId: string }) {
   const url = baseUrl
     ? getWorkflowExecutionUrl(baseUrl, workspaceId, wf, exec)
     : null
-  return url ? (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Link
-            href={url}
-            className="hover:text-foreground hover:underline"
-            target="_blank"
-          >
-            via workflow
-          </Link>
-        </TooltipTrigger>
-        <TooltipContent className="flex items-center gap-2">
-          Open workflow execution <ExternalLinkIcon className="size-3" />
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  ) : (
-    <span>via workflow</span>
+  return (
+    <div className="text-xs text-muted-foreground">
+      {url ? (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                href={url}
+                className="hover:text-foreground hover:underline"
+                target="_blank"
+              >
+                via workflow
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent className="flex items-center gap-2">
+              Open workflow execution <ExternalLinkIcon className="size-3" />
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        <span>via workflow</span>
+      )}
+    </div>
   )
 }
 
