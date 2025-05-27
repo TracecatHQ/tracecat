@@ -128,5 +128,5 @@ export function CaseEventTimestamp({
 }
 
 export function InlineDotSeparator() {
-  return <div className="size-[3px] rounded-full bg-muted-foreground/70" />
+  return <div className="size-[2px] rounded-full bg-muted-foreground/70" />
 }
