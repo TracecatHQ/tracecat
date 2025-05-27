@@ -11,7 +11,6 @@ import {
 import { useWorkspace } from "@/providers/workspace"
 import { format, formatDistanceToNow } from "date-fns"
 import {
-  Activity,
   ActivityIcon,
   Braces,
   List,
@@ -28,6 +27,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { CaseActivityFeed } from "@/components/cases/case-activity-feed"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
@@ -178,20 +178,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
               <CommentSection caseId={caseId} workspaceId={workspaceId} />
             </TabsContent>
             <TabsContent value="activity" className="p-4">
-              <div className="flex size-full flex-col items-center justify-center">
-                <div className="flex flex-col items-center gap-4 p-6 text-center">
-                  <div className="rounded-full bg-muted p-3">
-                    <Activity className="size-6 text-muted-foreground" />
-                  </div>
-                  <div className="space-y-1">
-                    <h4 className="text-sm font-semibold">No activity yet</h4>
-                    <p className="text-xs text-muted-foreground">
-                      Activity will be shown here as changes are made to the
-                      case
-                    </p>
-                  </div>
-                </div>
-              </div>
+              <CaseActivityFeed caseId={caseId} workspaceId={workspaceId} />
             </TabsContent>
             <TabsContent value="attachments" className="p-4">
               <div className="flex size-full flex-col items-center justify-center">

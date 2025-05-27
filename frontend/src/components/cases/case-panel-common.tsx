@@ -1,8 +1,8 @@
 import type React from "react"
-import { formatDistanceToNow } from "date-fns"
 import { Clock } from "lucide-react"
 
 import { User } from "@/lib/auth"
+import { cn, shortTimeAgo } from "@/lib/utils"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   HoverCard,
@@ -16,20 +16,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
-export function CaseUserAvatar({ user }: { user: User }) {
+export function UserHoverCard({
+  user,
+  children,
+}: {
+  user: User
+  children?: React.ReactNode
+}) {
   const displayName = user.getDisplayName()
   const avatarText = displayName.substring(0, 1).toUpperCase()
   const username = user.email.split("@")[0]
 
   return (
     <HoverCard>
-      <HoverCardTrigger asChild>
-        <Avatar className="size-8 cursor-default">
-          <AvatarFallback className="bg-primary/10 text-xs text-primary">
-            {avatarText}
-          </AvatarFallback>
-        </Avatar>
-      </HoverCardTrigger>
+      <HoverCardTrigger asChild>{children}</HoverCardTrigger>
       <HoverCardContent className="w-auto" side="top">
         <div className="flex items-center gap-4">
           <Avatar className="size-16">
@@ -54,13 +54,51 @@ export function CaseUserAvatar({ user }: { user: User }) {
     </HoverCard>
   )
 }
+export function CaseUserAvatar({
+  user,
+  className,
+  size = "md",
+}: {
+  user: User
+  className?: string
+  size?: "sm" | "md" | "lg"
+}) {
+  const displayName = user.getDisplayName()
+  const avatarText = displayName.substring(0, 1).toUpperCase()
+  return (
+    <UserHoverCard user={user}>
+      <Avatar
+        className={cn(
+          "cursor-default",
+          className,
+          size === "sm" && "size-4",
+          size === "md" && "size-8",
+          size === "lg" && "size-12"
+        )}
+      >
+        <AvatarFallback
+          className={cn(
+            "bg-primary/10 text-primary",
+            size === "sm" && "text-xs",
+            size === "md" && "text-sm",
+            size === "lg" && "text-lg"
+          )}
+        >
+          {avatarText}
+        </AvatarFallback>
+      </Avatar>
+    </UserHoverCard>
+  )
+}
 
 export function CaseEventTimestemp({
   createdAt,
   lastEditedAt,
+  showIcon = true,
 }: {
   createdAt: string
   lastEditedAt?: string | null
+  showIcon?: boolean
 }) {
   const createdAtDate = new Date(createdAt)
   const lastEditedAtDate = lastEditedAt ? new Date(lastEditedAt) : undefined
@@ -69,16 +107,14 @@ export function CaseEventTimestemp({
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger className="cursor-default">
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Clock className="size-3" />
-            {formatDistanceToNow(createdAtDate, {
-              addSuffix: true,
-            })}
+          <span className="flex items-center gap-1 text-xs text-muted-foreground  hover:text-foreground">
+            {showIcon && <Clock className="size-3" />}
+            {shortTimeAgo(createdAtDate)}
             {lastEditedAt && <span className="ml-1">(edited)</span>}
           </span>
         </TooltipTrigger>
         <TooltipContent>
-          Created: {createdAtDate.toLocaleString()}
+          {createdAtDate.toLocaleString()}
           {lastEditedAtDate && (
             <>
               <br />
@@ -89,4 +125,8 @@ export function CaseEventTimestemp({
       </Tooltip>
     </TooltipProvider>
   )
+}
+
+export function InlineDotSeparator() {
+  return <div className="size-[3px] rounded-full bg-muted-foreground/70" />
 }
