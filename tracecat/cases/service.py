@@ -19,20 +19,17 @@ from tracecat.cases.models import (
     CaseUpdate,
 )
 from tracecat.db.schemas import Case, CaseComment, CaseFields, User
-from tracecat.service import BaseService
+from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TableEditorService, TablesService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
 
 
-class CasesService(BaseService):
+class CasesService(BaseWorkspaceService):
     service_name = "cases"
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
-        if self.role.workspace_id is None:
-            raise TracecatAuthorizationError("Cases service requires workspace")
-        self.workspace_id = self.role.workspace_id
         self.tables = TablesService(session=self.session, role=self.role)
         self.fields = CaseFieldsService(session=self.session, role=self.role)
 
@@ -220,7 +217,7 @@ class CasesService(BaseService):
         await self.session.commit()
 
 
-class CaseFieldsService(BaseService):
+class CaseFieldsService(BaseWorkspaceService):
     """Service that manages the fields table."""
 
     service_name = "case_fields"
@@ -229,9 +226,6 @@ class CaseFieldsService(BaseService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
-        if self.role.workspace_id is None:
-            raise TracecatAuthorizationError("Case fields service requires workspace")
-        self.workspace_id = self.role.workspace_id
         self.editor = TableEditorService(
             session=self.session,
             role=self.role,
@@ -345,16 +339,10 @@ class CaseFieldsService(BaseService):
             ) from e
 
 
-class CaseCommentsService(BaseService):
+class CaseCommentsService(BaseWorkspaceService):
     """Service for managing case comments."""
 
     service_name = "case_comments"
-
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        super().__init__(session, role)
-        if self.role.workspace_id is None:
-            raise TracecatAuthorizationError("Case comments service requires workspace")
-        self.workspace_id = self.role.workspace_id
 
     async def get_comment(self, comment_id: uuid.UUID) -> CaseComment | None:
         """Get a comment by ID.
