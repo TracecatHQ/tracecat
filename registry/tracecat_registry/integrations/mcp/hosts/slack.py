@@ -252,21 +252,16 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
             directory=".cache/blocks", shards=8, timeout=0.05
         )  # key=ts
 
-    async def post_message_start(self, deps: MCPHostDeps) -> MessageStartResult:
+    async def post_message_start(self, deps: SlackMCPHostDeps) -> MessageStartResult:
         """Called when a new model request / assistant message starts."""
-        # Cast to SlackMCPHostDeps for Slack-specific fields
-        slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
-        if slack_deps is None:
-            raise ValueError("SlackMCPHost requires SlackMCPHostDeps")
-
-        thread_ts = slack_deps.conversation_id
+        thread_ts = deps.conversation_id
 
         # Get bot and user info to avoid triggering notifications
         bot_info = await call_method("auth_test")
         bot_id = bot_info["user_id"]
 
         # Get user info for display name
-        user_info = await call_method("users_info", params={"user": slack_deps.user_id})
+        user_info = await call_method("users_info", params={"user": deps.user_id})
         user_name = user_info["user"]["name"]
 
         # Get bot info for display name
@@ -274,7 +269,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         bot_name = bot_user_info["user"]["name"]
 
         # Create initial context message (no notifications)
-        msg = f"_@{user_name} requested a conversation with @{bot_name}_"
+        msg = f"_@{user_name} requested a conversation with <@{bot_id}|{bot_name}>_"
 
         blocks = [
             {
@@ -287,7 +282,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         response = await call_method(
             "chat_postMessage",
             params={
-                "channel": slack_deps.channel_id,
+                "channel": deps.channel_id,
                 "thread_ts": thread_ts,
                 "blocks": blocks,
             },
@@ -307,15 +302,11 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         return MessageStartResult(message_id=message_id)
 
     async def update_message(
-        self, result: ModelRequestNodeResult, deps: MCPHostDeps
+        self, result: ModelRequestNodeResult, deps: SlackMCPHostDeps
     ) -> Self:
         """Update an existing message in Slack."""
-        slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
-        if slack_deps is None:
-            raise ValueError("SlackMCPHost requires SlackMCPHostDeps")
-
         message = "".join(result.text_parts)
-        blocks = self.blocks_cache.get(slack_deps.message_id, [])
+        blocks = self.blocks_cache.get(deps.message_id, [])
         if not isinstance(blocks, list):
             blocks = []
 
@@ -357,32 +348,28 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         await call_method(
             "chat_update",
             params={
-                "channel": slack_deps.channel_id,
-                "ts": slack_deps.message_id,
+                "channel": deps.channel_id,
+                "ts": deps.message_id,
                 "blocks": updated_blocks,
             },
         )
 
-        self.blocks_cache.set(slack_deps.message_id, updated_blocks)
+        self.blocks_cache.set(deps.message_id, updated_blocks)
 
         logger.info(
             "Updated message",
-            thread_ts=slack_deps.conversation_id,
-            ts=slack_deps.message_id,
+            thread_ts=deps.conversation_id,
+            ts=deps.message_id,
             message=message,
         )
 
         return self
 
     async def request_tool_approval(
-        self, result: ToolCallRequestResult, deps: MCPHostDeps
+        self, result: ToolCallRequestResult, deps: SlackMCPHostDeps
     ) -> Self:
         """Request approval for a tool call via Slack buttons."""
-        slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
-        if slack_deps is None:
-            raise ValueError("SlackMCPHost requires SlackMCPHostDeps")
-
-        blocks = self.blocks_cache.get(slack_deps.message_id, [])
+        blocks = self.blocks_cache.get(deps.message_id, [])
         if not isinstance(blocks, list):
             blocks = []
 
@@ -391,7 +378,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
 
         # Cache the tool call info for later retrieval
         INTERACTION_CACHE.set(
-            slack_deps.conversation_id,
+            deps.conversation_id,
             {
                 "tool_call_id": tool_call_id,
                 "tool_name": result.name,
@@ -434,18 +421,18 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         await call_method(
             "chat_update",
             params={
-                "channel": slack_deps.channel_id,
-                "ts": slack_deps.message_id,
+                "channel": deps.channel_id,
+                "ts": deps.message_id,
                 "blocks": updated_blocks,
             },
         )
 
-        self.blocks_cache.set(slack_deps.message_id, updated_blocks)
+        self.blocks_cache.set(deps.message_id, updated_blocks)
 
         logger.info(
             "Requested tool approval",
-            thread_ts=slack_deps.conversation_id,
-            ts=slack_deps.message_id,
+            thread_ts=deps.conversation_id,
+            ts=deps.message_id,
             tool_name=result.name,
             tool_call_id=tool_call_id,
         )
@@ -453,14 +440,10 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         return self
 
     async def post_tool_approval(
-        self, result: ToolCallRequestResult, approved: bool, deps: MCPHostDeps
+        self, result: ToolCallRequestResult, approved: bool, deps: SlackMCPHostDeps
     ) -> Self:
         """Update the message after tool approval/rejection."""
-        slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
-        if slack_deps is None:
-            raise ValueError("SlackMCPHost requires SlackMCPHostDeps")
-
-        blocks = self.blocks_cache.get(slack_deps.message_id, [])
+        blocks = self.blocks_cache.get(deps.message_id, [])
         if not isinstance(blocks, list):
             blocks = []
         updated_blocks = []
@@ -488,18 +471,18 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         await call_method(
             "chat_update",
             params={
-                "channel": slack_deps.channel_id,
-                "ts": slack_deps.message_id,
+                "channel": deps.channel_id,
+                "ts": deps.message_id,
                 "blocks": updated_blocks,
             },
         )
 
-        self.blocks_cache.set(slack_deps.message_id, updated_blocks)
+        self.blocks_cache.set(deps.message_id, updated_blocks)
 
         logger.info(
             "Posted tool approval",
-            thread_ts=slack_deps.conversation_id,
-            ts=slack_deps.message_id,
+            thread_ts=deps.conversation_id,
+            ts=deps.message_id,
             tool_name=result.name,
             approved=approved,
         )
@@ -507,14 +490,10 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         return self
 
     async def post_tool_result(
-        self, result: ToolResultNodeResult, deps: MCPHostDeps
+        self, result: ToolResultNodeResult, deps: SlackMCPHostDeps
     ) -> Self:
         """Post the result of a tool call."""
-        slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
-        if slack_deps is None:
-            raise ValueError("SlackMCPHost requires SlackMCPHostDeps")
-
-        blocks = self.blocks_cache.get(slack_deps.message_id, [])
+        blocks = self.blocks_cache.get(deps.message_id, [])
         if not isinstance(blocks, list):
             blocks = []
         updated_blocks = [*blocks]
@@ -556,31 +535,27 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         await call_method(
             "chat_update",
             params={
-                "channel": slack_deps.channel_id,
-                "ts": slack_deps.message_id,
+                "channel": deps.channel_id,
+                "ts": deps.message_id,
                 "blocks": updated_blocks,
             },
         )
 
-        self.blocks_cache.set(slack_deps.message_id, updated_blocks)
+        self.blocks_cache.set(deps.message_id, updated_blocks)
 
         logger.info(
             "Posted tool result",
-            thread_ts=slack_deps.conversation_id,
-            ts=slack_deps.message_id,
+            thread_ts=deps.conversation_id,
+            ts=deps.message_id,
             tool_name=result.name,
             result_id=result.call_id,
         )
 
         return self
 
-    async def post_message_end(self, deps: MCPHostDeps) -> Self:
+    async def post_message_end(self, deps: SlackMCPHostDeps) -> Self:
         """Post a final message when the conversation ends."""
-        slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
-        if slack_deps is None:
-            raise ValueError("SlackMCPHost requires SlackMCPHostDeps")
-
-        blocks = self.blocks_cache.get(slack_deps.message_id, [])
+        blocks = self.blocks_cache.get(deps.message_id, [])
         if not isinstance(blocks, list):
             blocks = []
         updated_blocks = [*blocks]
@@ -600,29 +575,25 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         await call_method(
             "chat_update",
             params={
-                "channel": slack_deps.channel_id,
-                "ts": slack_deps.message_id,
+                "channel": deps.channel_id,
+                "ts": deps.message_id,
                 "blocks": updated_blocks,
             },
         )
 
-        self.blocks_cache.set(slack_deps.message_id, updated_blocks)
+        self.blocks_cache.set(deps.message_id, updated_blocks)
 
         logger.info(
             "Posted message end",
-            thread_ts=slack_deps.conversation_id,
-            ts=slack_deps.message_id,
+            thread_ts=deps.conversation_id,
+            ts=deps.message_id,
         )
 
         return self
 
-    async def post_error_message(self, exc: Exception, deps: MCPHostDeps) -> Self:
+    async def post_error_message(self, exc: Exception, deps: SlackMCPHostDeps) -> Self:
         """Post an error message to Slack."""
-        slack_deps = deps if isinstance(deps, SlackMCPHostDeps) else None
-        if slack_deps is None:
-            raise ValueError("SlackMCPHost requires SlackMCPHostDeps")
-
-        blocks = self.blocks_cache.get(slack_deps.message_id, [])
+        blocks = self.blocks_cache.get(deps.message_id, [])
         if not isinstance(blocks, list):
             blocks = []
 
@@ -648,13 +619,13 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
                 await call_method(
                     "chat_update",
                     params={
-                        "channel": slack_deps.channel_id,
-                        "ts": slack_deps.message_id,
+                        "channel": deps.channel_id,
+                        "ts": deps.message_id,
                         "blocks": updated_blocks,
                     },
                 )
 
-                self.blocks_cache.set(slack_deps.message_id, updated_blocks)
+                self.blocks_cache.set(deps.message_id, updated_blocks)
 
         # Post error context block as a separate message in the thread
         error_blocks = [
@@ -667,16 +638,16 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         await call_method(
             "chat_postMessage",
             params={
-                "channel": slack_deps.channel_id,
-                "thread_ts": slack_deps.conversation_id,
+                "channel": deps.channel_id,
+                "thread_ts": deps.conversation_id,
                 "blocks": error_blocks,
             },
         )
 
         logger.error(
             "Posted error message",
-            thread_ts=slack_deps.conversation_id,
-            ts=slack_deps.message_id,
+            thread_ts=deps.conversation_id,
+            ts=deps.message_id,
             error=str(exc),
         )
 

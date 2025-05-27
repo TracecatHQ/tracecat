@@ -108,10 +108,12 @@ class MCPHostResult(BaseModel):
     message_id: str
     message_history: list[ModelMessage]
     last_result: (
-        ModelRequestNodeResult
+        EmptyNodeResult
+        | UserPromptNodeResult
+        | ModelRequestNodeResult
         | ToolCallRequestResult
         | ToolResultNodeResult
-        | EmptyNodeResult
+        | EndNodeResult
     )
 
 
@@ -398,7 +400,6 @@ class MCPHost(ABC, Generic[DepsT]):
                 message_history=to_jsonable_python(
                     self.memory.get_messages(deps.conversation_id)
                 ),
-                deps=deps,
             )
         )
 
@@ -410,7 +411,6 @@ class MCPHost(ABC, Generic[DepsT]):
                 message_history=to_jsonable_python(
                     self.memory.get_messages(deps.conversation_id)
                 ),
-                deps=deps,
             )
 
         raise main_exc from exc
@@ -451,29 +451,37 @@ class MCPHost(ABC, Generic[DepsT]):
         deps: DepsT,
         message_history: list[ModelMessage] | None = None,
     ) -> MCPHostResult:
-        conversation_id = deps.conversation_id
-        message_id = deps.message_id
-        if not message_id:
-            if self.is_new_conversation(conversation_id):
-                start_message = await self.post_message_start(deps)
-                message_id = start_message.message_id
-            else:
-                raise ValueError("`message_id` is required for non-new conversations")
-
         try:
+            conversation_id = deps.conversation_id
+            message_id = deps.message_id
+
+            # Ensure we have a valid message_id before proceeding
+            if not message_id:
+                if self.is_new_conversation(conversation_id):
+                    start_message = await self.post_message_start(deps)
+                    message_id = start_message.message_id
+                    # Update deps with the new message_id
+                    deps.message_id = message_id
+                else:
+                    raise ValueError(
+                        "`message_id` is required for non-new conversations"
+                    )
+
+            if not deps.message_id:
+                raise ValueError("Failed to obtain a valid message_id")
+
             result = await self._run_agent(
                 user_prompt=user_prompt, deps=deps, message_history=message_history
             )
+
+            return MCPHostResult(
+                conversation_id=deps.conversation_id,
+                last_result=result,
+                message_id=message_id,
+                message_history=self.memory.get_messages(deps.conversation_id),
+            )
+
         except ExceptionGroup as e:
             await self._handle_exception_with_error_posting(e.exceptions[0], deps)
         except Exception as e:
             await self._handle_exception_with_error_posting(e, deps)
-
-        return MCPHostResult(
-            conversation_id=deps.conversation_id,
-            last_result=to_jsonable_python(result),
-            message_id=message_id,
-            message_history=to_jsonable_python(
-                self.memory.get_messages(deps.conversation_id)
-            ),
-        )
