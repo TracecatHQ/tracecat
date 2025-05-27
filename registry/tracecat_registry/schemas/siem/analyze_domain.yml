@@ -1,3 +1,0 @@
-domain:
-  type: str
-  description: Domain to analyze or scan.

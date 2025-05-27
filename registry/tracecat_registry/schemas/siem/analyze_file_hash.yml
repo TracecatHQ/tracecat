@@ -1,3 +1,0 @@
-file_hash:
-  type: str
-  description: File hash to analyze or scan.
