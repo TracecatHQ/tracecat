@@ -126,9 +126,6 @@ export function StatusChangedEvent({
         <EventActor user={actor} /> changed status from {oldStatus.label} to{" "}
         {newStatus.label}
       </span>
-      {/* <CaseBadge {...STATUSES[event.old]} /> */}
-      {/* <span>to</span> */}
-      {/* <CaseBadge {...STATUSES[event.new]} /> */}
     </div>
   )
 }
@@ -153,9 +150,6 @@ export function PriorityChangedEvent({
         <EventActor user={actor} /> changed priority from {oldSeverity.label} to{" "}
         {newPriority.label}
       </span>
-      {/* <CaseBadge {...PRIORITIES[event.old]} />
-      <span>to</span>
-      <CaseBadge {...PRIORITIES[event.new]} /> */}
     </div>
   )
 }
@@ -180,9 +174,6 @@ export function SeverityChangedEvent({
         <EventActor user={actor} /> changed severity from {oldSeverity.label} to{" "}
         {newSeverity.label}
       </span>
-      {/* <CaseBadge {...SEVERITIES[event.old]} />
-      <span>to</span>
-      <CaseBadge {...SEVERITIES[event.new]} /> */}
     </div>
   )
 }
