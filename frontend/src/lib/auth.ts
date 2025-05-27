@@ -3,11 +3,11 @@ import { AxiosError } from "axios"
 
 import { client } from "@/lib/api"
 
-export const SYSTEM_USER: UserRead = {
+export const SYSTEM_USER_READ: UserRead = {
   id: "system",
   email: "system@tracecat.com",
   role: "admin",
-  first_name: "System",
+  first_name: "Tracecat",
   last_name: "",
   settings: {},
 }
@@ -125,3 +125,5 @@ export class User {
     return getDisplayName(this.user)
   }
 }
+
+export const SYSTEM_USER = new User(SYSTEM_USER_READ)
