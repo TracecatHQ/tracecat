@@ -50,7 +50,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import {
-  CaseEventTimestemp,
+  CaseEventTimestamp,
   CaseUserAvatar,
 } from "@/components/cases/case-panel-common"
 
@@ -93,7 +93,7 @@ export function CommentSection({
                   <div className="flex items-center gap-2">
                     {/* This should be user name */}
                     <span className="text-sm font-medium">{displayName}</span>
-                    <CaseEventTimestemp
+                    <CaseEventTimestamp
                       createdAt={comment.created_at}
                       lastEditedAt={comment.last_edited_at}
                     />

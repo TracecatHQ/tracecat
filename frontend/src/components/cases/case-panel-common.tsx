@@ -91,7 +91,7 @@ export function CaseUserAvatar({
   )
 }
 
-export function CaseEventTimestemp({
+export function CaseEventTimestamp({
   createdAt,
   lastEditedAt,
   showIcon = true,

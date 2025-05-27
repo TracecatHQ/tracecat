@@ -29,7 +29,7 @@ import {
   StatusChangedEvent,
 } from "@/components/cases/case-activity-feed-event"
 import {
-  CaseEventTimestemp,
+  CaseEventTimestamp,
   InlineDotSeparator,
 } from "@/components/cases/case-panel-common"
 
@@ -95,7 +95,7 @@ function ActivityFeedEvent({
         {/* Add a dot separator */}
         <InlineDotSeparator />
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <CaseEventTimestemp createdAt={event.created_at} showIcon={false} />
+          <CaseEventTimestamp createdAt={event.created_at} showIcon={false} />
           {event.wf_exec_id && (
             <WorkflowExecutionInfo wfExecId={event.wf_exec_id} />
           )}
