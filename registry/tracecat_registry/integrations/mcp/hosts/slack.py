@@ -932,12 +932,14 @@ async def slackbot(
         deps = handler_result.deps
         user_prompt = handler_result.user_prompt
         message_history = handler_result.message_history
+        new_message = True
 
     elif slack_payload is not None:
         log.info("Received Slack interaction payload")
         interaction_result = await _handle_slack_interaction(
             slack_payload, slack_host, channel_id, log
         )
+        new_message = False
 
         # If it's a view_result interaction, return early
         if isinstance(interaction_result, SlackViewResultResponse):
@@ -958,6 +960,7 @@ async def slackbot(
     # Run the agent
     result = await slack_host.run(
         user_prompt=user_prompt,
+        new_message=new_message,
         deps=deps,
         message_history=message_history,
     )

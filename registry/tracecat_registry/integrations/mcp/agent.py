@@ -257,21 +257,6 @@ class MCPHost(ABC, Generic[DepsT]):
             self._approved_tool_calls is not None and len(self._approved_tool_calls) > 0
         )
 
-    def is_new_conversation(self, conversation_id: str) -> bool:
-        messages = self.memory.get_messages(conversation_id)
-        # A conversation is new if:
-        # 1. No messages at all, OR
-        # 2. Only one message and it's a user prompt (the current mention)
-        if len(messages) == 0:
-            return True
-        elif len(messages) == 1:
-            # Check if the single message is a user prompt
-            message = messages[0]
-            if hasattr(message, "parts") and len(message.parts) == 1:
-                part = message.parts[0]
-                return hasattr(part, "part_kind") and part.part_kind == "user-prompt"
-        return False
-
     def store_tool_result(self, call_id: str, content: str | dict[str, Any]) -> Self:
         """Store a tool result for later retrieval.
 
@@ -448,24 +433,18 @@ class MCPHost(ABC, Generic[DepsT]):
     async def run(
         self,
         user_prompt: str,
+        new_message: bool,
         deps: DepsT,
         message_history: list[ModelMessage] | None = None,
     ) -> MCPHostResult:
         try:
-            conversation_id = deps.conversation_id
-            message_id = deps.message_id
-
             # Ensure we have a valid message_id before proceeding
-            if not message_id:
-                if self.is_new_conversation(conversation_id):
+            if not deps.message_id:
+                if new_message:
                     start_message = await self.post_message_start(deps)
                     message_id = start_message.message_id
                     # Update deps with the new message_id
                     deps.message_id = message_id
-                else:
-                    raise ValueError(
-                        "`message_id` is required for non-new conversations"
-                    )
 
             if not deps.message_id:
                 raise ValueError("Failed to obtain a valid message_id")
@@ -477,7 +456,7 @@ class MCPHost(ABC, Generic[DepsT]):
             return MCPHostResult(
                 conversation_id=deps.conversation_id,
                 last_result=result,
-                message_id=message_id,
+                message_id=deps.message_id,
                 message_history=self.memory.get_messages(deps.conversation_id),
             )
 
