@@ -1,0 +1,3 @@
+ip_address:
+  type: str
+  description: IPv4 or IPv6 address to analyze or scan.
