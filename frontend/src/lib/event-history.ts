@@ -139,3 +139,12 @@ export function isDSLRunArgs(actionInput: unknown): actionInput is DSLRunArgs {
     (actionInput as DSLRunArgs).wf_id !== undefined
   )
 }
+
+export function getWorkflowExecutionUrl(
+  baseUrl: string,
+  workspaceId: string,
+  wf: string,
+  exec: string
+) {
+  return `${baseUrl}/workspaces/${workspaceId}/workflows/${wf}/executions/${exec}`
+}
