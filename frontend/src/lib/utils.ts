@@ -73,7 +73,7 @@ export function capitalizeFirst(str: string) {
 }
 
 export function shortTimeAgo(date: Date) {
-  const diffMs = Date.now() - date.getTime()
+  const diffMs = Math.max(Date.now() - date.getTime(), 0)
   const diffSec = Math.floor(diffMs / 1000)
 
   if (diffSec < 60) return "just now"
