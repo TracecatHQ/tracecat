@@ -445,9 +445,13 @@ async def list_events_with_users(
         events.append(evt)
 
     # Get users
-    users = [
-        UserRead.model_validate(u, from_attributes=True)
-        for u in await search_users(session=session, user_ids=user_ids)
-    ]
+    users = (
+        [
+            UserRead.model_validate(u, from_attributes=True)
+            for u in await search_users(session=session, user_ids=user_ids)
+        ]
+        if user_ids
+        else []
+    )
 
     return CaseEventsWithUsers(events=events, users=users)
