@@ -6,13 +6,17 @@ from sqlalchemy.exc import DBAPIError
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.models import UserRead
+from tracecat.auth.users import search_users
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
+    AssigneeChangedEventRead,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentUpdate,
     CaseCreate,
     CaseCustomFieldRead,
+    CaseEventRead,
+    CaseEventsWithUsers,
     CaseFieldCreate,
     CaseFieldRead,
     CaseFieldUpdate,
@@ -20,7 +24,11 @@ from tracecat.cases.models import (
     CaseReadMinimal,
     CaseUpdate,
 )
-from tracecat.cases.service import CaseCommentsService, CaseFieldsService, CasesService
+from tracecat.cases.service import (
+    CaseCommentsService,
+    CaseFieldsService,
+    CasesService,
+)
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.types.auth import AccessLevel, Role
 
@@ -388,3 +396,58 @@ async def delete_field(
     """Delete a case field."""
     service = CaseFieldsService(session, role)
     await service.delete_field(field_id)
+
+
+# Case Events
+
+
+@cases_router.get(
+    "/{case_id}/events",
+    status_code=status.HTTP_200_OK,
+    response_model_exclude_none=True,
+)
+async def list_events_with_users(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+) -> CaseEventsWithUsers:
+    """List all users for a case."""
+    service = CasesService(session, role)
+    case = await service.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+    db_events = await service.events.list_events(case)
+    # Get user ids
+    user_ids: set[uuid.UUID] = set()
+    events: list[CaseEventRead] = []
+
+    for db_evt in db_events:
+        evt = CaseEventRead.model_validate(
+            {
+                "type": db_evt.type,
+                "user_id": db_evt.user_id,
+                "created_at": db_evt.created_at,
+                **db_evt.data,
+            }
+        )
+        root_evt = evt.root
+        if isinstance(root_evt, AssigneeChangedEventRead):
+            if root_evt.old is not None:
+                user_ids.add(root_evt.old)
+            if root_evt.new is not None:
+                user_ids.add(root_evt.new)
+        if root_evt.user_id is not None:
+            user_ids.add(root_evt.user_id)
+        events.append(evt)
+
+    # Get users
+    users = [
+        UserRead.model_validate(u, from_attributes=True)
+        for u in await search_users(session=session, user_ids=user_ids)
+    ]
+
+    return CaseEventsWithUsers(events=events, users=users)
