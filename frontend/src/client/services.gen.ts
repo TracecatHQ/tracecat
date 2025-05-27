@@ -52,6 +52,8 @@ import type {
   CasesListCasesResponse,
   CasesListCommentsData,
   CasesListCommentsResponse,
+  CasesListEventsWithUsersData,
+  CasesListEventsWithUsersResponse,
   CasesListFieldsData,
   CasesListFieldsResponse,
   CasesSearchCasesData,
@@ -303,7 +305,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -343,7 +345,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -3329,6 +3331,33 @@ export const casesDeleteComment = (
     path: {
       case_id: data.caseId,
       comment_id: data.commentId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Events With Users
+ * List all users for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseEventsWithUsers Successful Response
+ * @throws ApiError
+ */
+export const casesListEventsWithUsers = (
+  data: CasesListEventsWithUsersData
+): CancelablePromise<CasesListEventsWithUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/events",
+    path: {
+      case_id: data.caseId,
     },
     query: {
       workspace_id: data.workspaceId,
