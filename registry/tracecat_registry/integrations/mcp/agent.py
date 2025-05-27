@@ -161,12 +161,6 @@ class MCPHost(ABC, Generic[DepsT]):
         pass
 
     @abstractmethod
-    async def post_tool_approval(
-        self, result: ToolCallRequestResult, approved: bool, deps: DepsT
-    ) -> Self:
-        pass
-
-    @abstractmethod
     async def post_tool_result(self, result: ToolResultNodeResult, deps: DepsT) -> Self:
         pass
 

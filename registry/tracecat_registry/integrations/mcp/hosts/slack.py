@@ -952,6 +952,7 @@ async def slackbot(
         deps = interaction_result.deps
         user_prompt = interaction_result.user_prompt
         message_history = interaction_result.message_history
+
     else:
         raise ValueError(
             "Either `slack_event` or `slack_payload` must be provided. Got null values for both."
