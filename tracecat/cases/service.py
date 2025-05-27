@@ -175,10 +175,6 @@ class CasesService(BaseWorkspaceService):
         if params.fields:
             await self.fields.create_field_values(case, params.fields)
 
-        # Record case creation activity
-        if self.role.user_id is None:
-            raise TracecatException("User ID required for activity creation")
-
         run_ctx = ctx_run.get()
         await self.events.create_event(
             case=case,
