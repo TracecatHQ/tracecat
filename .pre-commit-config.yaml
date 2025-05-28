@@ -3,8 +3,6 @@
 default_language_version:
   python: python3.12
 default_install_hook_types: [pre-commit, commit-msg]
-verbose: true # Enable verbose output globally
-
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
