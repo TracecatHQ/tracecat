@@ -268,8 +268,8 @@ class MCPHost(ABC, Generic[DepsT]):
 
     async def _process_model_request_node(
         self,
-        node: ModelRequestNode[None, str],
-        run: AgentRun,
+        node: ModelRequestNode[DepsT, str],
+        run: AgentRun[DepsT, str],
         deps: DepsT,  # TODO: Revisit typing - pass deps directly for now due to PydanticAI GraphAgentDeps wrapper complexity
     ) -> ModelRequestNodeResult | EmptyNodeResult:
         text_parts = []
@@ -304,9 +304,9 @@ class MCPHost(ABC, Generic[DepsT]):
 
     async def _process_call_tools_node(
         self,
-        node: CallToolsNode[None, str],
-        run: AgentRun,
-        deps: DepsT,  # TODO: Revisit typing - pass deps directly for now due to PydanticAI GraphAgentDeps wrapper complexity
+        node: CallToolsNode[DepsT, str],
+        run: AgentRun[DepsT, str],
+        deps: DepsT,
     ) -> ToolCallRequestResult | ToolResultNodeResult | EmptyNodeResult:
         conversation_id = deps.conversation_id
 
@@ -405,7 +405,7 @@ class MCPHost(ABC, Generic[DepsT]):
             async with self.agent.iter(
                 user_prompt=user_prompt,
                 message_history=message_history,
-                deps=deps,  # type: ignore  # TODO: Revisit typing - PydanticAI GraphAgentDeps wrapper complexity
+                deps=deps,
             ) as run:
                 async for node in run:
                     if Agent.is_user_prompt_node(node):
