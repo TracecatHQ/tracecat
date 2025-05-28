@@ -15,6 +15,7 @@ from tracecat.executor.service import _run_action_direct, run_template_action
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat_registry.integrations.pydantic_ai import build_agent
 
 
 async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
@@ -138,17 +139,28 @@ async def create_tool_from_registry(action_name: str) -> Tool:
 class TracecatAgentBuilder:
     """Builder for creating Pydantic AI agents with Tracecat tool calling."""
 
-    def __init__(self, model: str):
-        self.model = model
+    def __init__(
+        self,
+        model_name: str,
+        model_provider: str,
+        base_url: str | None = None,
+        instructions: str | None = None,
+        output_type: str | dict[str, Any] | None = None,
+        model_settings: dict[str, Any] | None = None,
+        retries: int = 3,
+        deps_type: type[Any] | None = None,
+    ):
+        self.model_name = model_name
+        self.model_provider = model_provider
+        self.base_url = base_url
+        self.instructions = instructions
+        self.output_type = output_type
+        self.model_settings = model_settings
+        self.retries = retries
+        self.deps_type = deps_type
         self.tools: list[Tool] = []
-        self.system_prompt: str | None = None
         self.namespace_filters: list[str] = []
         self.action_filters: list[str] = []
-
-    def with_system_prompt(self, prompt: str) -> "TracecatAgentBuilder":
-        """Set the system prompt for the agent."""
-        self.system_prompt = prompt
-        return self
 
     def with_namespace_filter(self, namespace: str) -> "TracecatAgentBuilder":
         """Add a namespace filter for tools (e.g., 'tools.slack')."""
@@ -194,20 +206,23 @@ class TracecatAgentBuilder:
                 )
                 continue
 
-        # Create the agent
-        if self.system_prompt:
-            agent = Agent(
-                self.model,
-                tools=self.tools,
-                system_prompt=self.system_prompt,
-            )
-        else:
-            agent = Agent(
-                self.model,
-                tools=self.tools,
-            )
+        # Create the agent using build_agent
+        agent = build_agent(
+            model_name=self.model_name,
+            model_provider=self.model_provider,
+            base_url=self.base_url,
+            instructions=self.instructions,
+            output_type=self.output_type,
+            model_settings=self.model_settings,
+            retries=self.retries,
+            deps_type=self.deps_type,
+            tools=self.tools,
+        )
 
         logger.info(
-            "Built Tracecat agent", model=self.model, tool_count=len(self.tools)
+            "Built Tracecat agent",
+            model=self.model_name,
+            provider=self.model_provider,
+            tool_count=len(self.tools),
         )
         return agent
