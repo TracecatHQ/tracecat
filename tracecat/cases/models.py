@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field, RootModel, computed_field
 
 from tracecat.auth.models import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
@@ -281,3 +281,67 @@ class Change[OldType: Any, NewType: Any](BaseModel):
 class CaseEventsWithUsers(BaseModel):
     events: list[CaseEventRead] = Field(..., description="The events for the case.")
     users: list[UserRead] = Field(..., description="The users for the case.")
+
+
+# File Attachments
+
+
+class FileRead(BaseModel):
+    """Read model for a file."""
+
+    id: uuid.UUID
+    sha256: str
+    original_filename: str
+    mime_type: str
+    size_bytes: int
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None = None
+    virus_scan_status: str
+    owner_id: uuid.UUID
+
+    @computed_field
+    @property
+    def is_deleted(self) -> bool:
+        """Check if file is soft deleted."""
+        return self.deleted_at is not None
+
+    @computed_field
+    @property
+    def blob_path(self) -> str:
+        """Generate the blob storage path."""
+        return f"blob/{self.sha256}"
+
+
+class FileCreate(BaseModel):
+    """Create model for file upload."""
+
+    original_filename: str = Field(..., max_length=255)
+    mime_type: str = Field(..., max_length=100)
+    size_bytes: int = Field(..., gt=0)
+    sha256: str = Field(..., max_length=64)
+
+
+class CaseAttachmentRead(BaseModel):
+    """Read model for case attachment."""
+
+    id: uuid.UUID
+    case_id: uuid.UUID
+    file_id: uuid.UUID
+    attached_by: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+    file: FileRead
+
+
+class CaseAttachmentCreate(BaseModel):
+    """Create model for case attachment."""
+
+    file_id: uuid.UUID
+
+
+class CaseAttachmentList(BaseModel):
+    """List response for case attachments."""
+
+    attachments: list[CaseAttachmentRead]
+    total: int

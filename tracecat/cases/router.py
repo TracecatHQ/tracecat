@@ -1,15 +1,19 @@
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import DBAPIError
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.models import UserRead
 from tracecat.auth.users import search_users
+from tracecat.cases.attachments import FileAttachmentsService, FileValidationError
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     AssigneeChangedEventRead,
+    CaseAttachmentList,
+    CaseAttachmentRead,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentUpdate,
@@ -23,6 +27,7 @@ from tracecat.cases.models import (
     CaseRead,
     CaseReadMinimal,
     CaseUpdate,
+    FileRead,
 )
 from tracecat.cases.service import (
     CaseCommentsService,
@@ -455,3 +460,194 @@ async def list_events_with_users(
     )
 
     return CaseEventsWithUsers(events=events, users=users)
+
+
+# File Attachments
+
+
+@cases_router.get("/{case_id}/attachments")
+async def list_case_attachments(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+) -> CaseAttachmentList:
+    """List all file attachments for a case."""
+    cases_svc = CasesService(session, role)
+    case = await cases_svc.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+
+    attachments_svc = FileAttachmentsService(session, role)
+    attachments = await attachments_svc.list_case_attachments(case)
+
+    attachment_reads = []
+    for attachment in attachments:
+        # Manually load the file relationship since SQLModel doesn't auto-load
+        file = await attachments_svc.get_file(attachment.file_id)
+        if file:
+            file_read = FileRead.model_validate(file, from_attributes=True)
+            attachment_read = CaseAttachmentRead.model_validate(
+                attachment, from_attributes=True
+            )
+            attachment_read.file = file_read
+            attachment_reads.append(attachment_read)
+
+    return CaseAttachmentList(
+        attachments=attachment_reads,
+        total=len(attachment_reads),
+    )
+
+
+@cases_router.post("/{case_id}/attachments", status_code=status.HTTP_201_CREATED)
+async def upload_file_to_case(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    file: UploadFile = File(...),
+) -> CaseAttachmentRead:
+    """Upload a file and attach it to a case."""
+    cases_svc = CasesService(session, role)
+    case = await cases_svc.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+
+    attachments_svc = FileAttachmentsService(session, role)
+
+    try:
+        # Upload file
+        file_record = await attachments_svc.upload_file(file)
+
+        # Attach to case
+        attachment = await attachments_svc.attach_file_to_case(
+            case=case,
+            file=file_record,
+            user_id=role.user_id,
+        )
+
+        # Return the attachment with file info
+        file_read = FileRead.model_validate(file_record, from_attributes=True)
+        attachment_read = CaseAttachmentRead.model_validate(
+            attachment, from_attributes=True
+        )
+        attachment_read.file = file_read
+
+        return attachment_read
+
+    except FileValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@cases_router.delete(
+    "/{case_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def remove_case_attachment(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    attachment_id: uuid.UUID,
+) -> None:
+    """Remove a file attachment from a case."""
+    cases_svc = CasesService(session, role)
+    case = await cases_svc.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+
+    attachments_svc = FileAttachmentsService(session, role)
+    attachment = await attachments_svc.get_case_attachment(attachment_id)
+    if attachment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Attachment with ID {attachment_id} not found",
+        )
+
+    # Verify attachment belongs to this case
+    if attachment.case_id != case_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Attachment does not belong to this case",
+        )
+
+    await attachments_svc.remove_attachment_from_case(attachment)
+
+
+@cases_router.get("/files/{file_id}/download")
+async def download_file(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    file_id: uuid.UUID,
+) -> StreamingResponse:
+    """Download a file by its ID."""
+    attachments_svc = FileAttachmentsService(session, role)
+    file = await attachments_svc.get_file(file_id)
+    if file is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File with ID {file_id} not found",
+        )
+
+    if file.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="File has been deleted",
+        )
+
+    try:
+        content, filename, mime_type = await attachments_svc.download_file(file)
+
+        def iterfile():
+            yield content
+
+        return StreamingResponse(
+            iterfile(),
+            media_type=mime_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(content)),
+            },
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download file: {str(e)}",
+        )
+
+
+@cases_router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_file(
+    *,
+    role: WorkspaceAdminUser,  # Admin only for file deletion
+    session: AsyncDBSession,
+    file_id: uuid.UUID,
+) -> None:
+    """Soft delete a file (admin only)."""
+    attachments_svc = FileAttachmentsService(session, role)
+    file = await attachments_svc.get_file(file_id)
+    if file is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File with ID {file_id} not found",
+        )
+
+    if file.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="File has already been deleted",
+        )
+
+    await attachments_svc.soft_delete_file(file)
