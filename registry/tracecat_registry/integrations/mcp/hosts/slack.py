@@ -822,7 +822,10 @@ async def _handle_tool_approval_interaction(
     message_history = slack_host.memory.get_messages(deps.conversation_id)
 
     # Get cached tool call info
-    tool_call: dict[str, Any] | None = INTERACTION_CACHE.get(deps.conversation_id)  # type: ignore
+    cached_value = INTERACTION_CACHE.get(deps.conversation_id)
+    tool_call: dict[str, Any] | None = (
+        cached_value if isinstance(cached_value, dict) else None
+    )
     if tool_call is None:
         raise ValueError(
             f"No cached tool call ID found for thread timestamp {deps.conversation_id}"
