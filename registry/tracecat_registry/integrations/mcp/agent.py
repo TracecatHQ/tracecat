@@ -270,7 +270,7 @@ class MCPHost(ABC, Generic[DepsT]):
         self,
         node: ModelRequestNode[DepsT, str],
         run: AgentRun[DepsT, str],
-        deps: DepsT,  # TODO: Revisit typing - pass deps directly for now due to PydanticAI GraphAgentDeps wrapper complexity
+        deps: DepsT,
     ) -> ModelRequestNodeResult | EmptyNodeResult:
         text_parts = []
         tool_call_parts = []
