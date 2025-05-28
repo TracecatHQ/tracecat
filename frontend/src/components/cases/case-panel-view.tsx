@@ -10,11 +10,24 @@ import {
 } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import { format, formatDistanceToNow } from "date-fns"
-import { Braces, List, PlayCircle, UserCircle2 } from "lucide-react"
+import {
+  ActivityIcon,
+  Braces,
+  List,
+  MessageCircleIcon,
+  Paperclip,
+  PaperclipIcon,
+  PlayCircle,
+  Plus,
+  UserCircle2,
+} from "lucide-react"
 
 import { useGetCase, useUpdateCase } from "@/lib/hooks"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { CaseActivityFeed } from "@/components/cases/case-activity-feed"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
@@ -135,8 +148,65 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
           <div className="space-y-2">
             <CasePanelDescription caseData={caseData} updateCase={updateCase} />
           </div>
-
-          <CommentSection caseId={caseId} workspaceId={workspaceId} />
+          <Tabs defaultValue="comments" className="w-full">
+            <div className="w-full border-b">
+              <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
+                <TabsTrigger
+                  className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  value="comments"
+                >
+                  <MessageCircleIcon className="mr-2 size-4" />
+                  <span>Comments</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  value="activity"
+                >
+                  <ActivityIcon className="mr-2 size-4" />
+                  <span>Activity</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  value="attachments"
+                >
+                  <PaperclipIcon className="mr-2 size-4" />
+                  <span>Attachments</span>
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent value="comments" className="p-4">
+              <CommentSection caseId={caseId} workspaceId={workspaceId} />
+            </TabsContent>
+            <TabsContent value="activity" className="p-4">
+              <CaseActivityFeed caseId={caseId} workspaceId={workspaceId} />
+            </TabsContent>
+            <TabsContent value="attachments" className="p-4">
+              <div className="flex size-full flex-col items-center justify-center">
+                <div className="flex flex-col items-center gap-4 p-6 text-center">
+                  <div className="rounded-full bg-muted p-3">
+                    <Paperclip className="size-6 text-muted-foreground" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-semibold">
+                      No attachments yet
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      Get started by adding your first attachment
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-1.5"
+                    disabled
+                  >
+                    <Plus className="size-4" />
+                    Add Attachment
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Right column - Details & Custom Fields */}

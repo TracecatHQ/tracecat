@@ -1,6 +1,6 @@
 import contextlib
 import uuid
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Annotated, cast
 
@@ -30,7 +30,7 @@ from fastapi_users.exceptions import (
 from fastapi_users.openapi import OpenAPIResponseType
 from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tracecat import config
@@ -401,6 +401,18 @@ async def get_user_db_sqlmodel(
 
 async def list_users(*, session: SQLModelAsyncSession) -> Sequence[User]:
     statement = select(User)
+    result = await session.exec(statement)
+    return result.all()
+
+
+async def search_users(
+    *,
+    session: SQLModelAsyncSession,
+    user_ids: Iterable[uuid.UUID] | None = None,
+) -> Sequence[User]:
+    statement = select(User)
+    if user_ids:
+        statement = statement.where(col(User.id).in_(user_ids))
     result = await session.exec(statement)
     return result.all()
 
