@@ -3,6 +3,8 @@
 
 # Tracecat-related files
 .tracecat/
+.dev/
+.llm/
 
 # UV
 uv.lock
