@@ -2,3 +2,6 @@
 ip_address:
   type: str
   description: The IP address to block.
+device_id:
+  type: str
+  description: The device ID to apply this rule to.
