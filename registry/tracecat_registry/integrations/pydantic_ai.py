@@ -30,11 +30,15 @@ from tracecat_registry import RegistrySecret
 from tracecat_registry.integrations.aws_boto3 import get_sync_session
 
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeVar
 
 from typing_extensions import Doc
 
 from tracecat_registry import registry, secrets
+
+
+# Type variable for agent dependencies
+AgentDepsT = TypeVar("AgentDepsT")
 
 
 SUPPORTED_OUTPUT_TYPES = {
@@ -160,9 +164,8 @@ def build_agent(
     model_settings: dict[str, Any] | None = None,
     mcp_servers: list[MCPServerHTTP] | None = None,
     retries: Annotated[int, Doc("Number of retries")] = 3,
-    deps_type: type[Any] | None = None,
-    **kwargs: Any,
-) -> Agent:
+    deps_type: type[AgentDepsT] | None = None,
+) -> Agent[AgentDepsT, Any]:
     match model_provider:
         case "openai":
             model = OpenAIModel(
@@ -228,6 +231,7 @@ def build_agent(
             )
 
     mcp_servers = mcp_servers or []
+
     agent_kwargs = {
         "model": model,
         "instructions": instructions,
@@ -235,10 +239,9 @@ def build_agent(
         "model_settings": ModelSettings(**model_settings) if model_settings else None,
         "mcp_servers": mcp_servers,
         "retries": retries,
-        **kwargs,
     }
 
-    # Only add deps_type if it's provided
+    # Only add deps_type if it's not None
     if deps_type is not None:
         agent_kwargs["deps_type"] = deps_type
 
