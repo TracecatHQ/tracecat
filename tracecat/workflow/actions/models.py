@@ -69,6 +69,21 @@ class ActionCreate(BaseModel):
     workflow_id: AnyWorkflowID
     type: str
     title: str = Field(..., min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=1000)
+    inputs: str = Field(default="", max_length=300000)
+    control_flow: ActionControlFlow | None = Field(
+        default=None, json_schema_extra={"mode": "json"}
+    )
+    is_interactive: bool = Field(default=False)
+    interaction: ActionInteraction | None = None
+
+    @field_validator("inputs", mode="after")
+    def validate_inputs(cls, v: str) -> str:
+        try:
+            yaml.safe_load(v)
+        except yaml.YAMLError:
+            raise ValueError("Action input contains invalid YAML") from None
+        return v
 
 
 class ActionUpdate(BaseModel):

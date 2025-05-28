@@ -100,6 +100,72 @@ export const $ActionCreate = {
       minLength: 1,
       title: "Title",
     },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    inputs: {
+      type: "string",
+      maxLength: 300000,
+      title: "Inputs",
+      default: "",
+    },
+    control_flow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ActionControlFlow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      mode: "json",
+    },
+    is_interactive: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Interactive",
+    },
+    interaction: {
+      anyOf: [
+        {
+          oneOf: [
+            {
+              $ref: "#/components/schemas/ResponseInteraction",
+            },
+            {
+              $ref: "#/components/schemas/ApprovalInteraction",
+            },
+          ],
+          description: "An interaction configuration",
+          discriminator: {
+            propertyName: "type",
+            mapping: {
+              approval: "#/components/schemas/ApprovalInteraction",
+              response: "#/components/schemas/ResponseInteraction",
+            },
+          },
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Interaction",
+    },
   },
   type: "object",
   required: ["workflow_id", "type", "title"],
