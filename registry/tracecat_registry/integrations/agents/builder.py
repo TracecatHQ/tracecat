@@ -1,4 +1,4 @@
-"""Pydantic AI agents with tool calling (actions and in-line functions)
+"""Pydantic AI agents with tool calling.
 
 We use agent-wide dynamic tool preparation (deny-all by default):
 https://ai.pydantic.dev/tools/#prepare-tools
@@ -19,16 +19,6 @@ from tracecat_registry.integrations.pydantic_ai import build_agent
 
 
 async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
-    """
-    Call a Tracecat action directly using the current execution context.
-
-    This assumes we're running inside an environment where:
-    - Secrets are already available in the environment (via env_sandbox)
-    - Context variables are set (ctx_role, ctx_run, etc.)
-    """
-    logger.info("Calling Tracecat action", action_name=action_name, args=args)
-
-    # Load action from registry
     async with RegistryActionsService.with_session() as service:
         reg_action = await service.get_action(action_name)
         bound_action = service.get_bound(reg_action, mode="execution")
@@ -50,8 +40,6 @@ async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
             action=bound_action,
             args=args,
         )
-
-    logger.info("Action executed successfully", action_name=action_name)
     return result
 
 
@@ -75,7 +63,9 @@ async def create_tool_from_registry(action_name: str) -> Tool:
         return await call_tracecat_action(action_name, kwargs)
 
     # Set function metadata for PydanticAI
-    tool_func.__name__ = bound_action.name.replace(".", "_")
+    tool_name = bound_action.namespace.split(".", maxsplit=1)[-1]
+    func_name = bound_action.name
+    tool_func.__name__ = f"{tool_name}_{func_name}"
 
     # Extract description - PydanticAI uses this as the tool description
     if bound_action.is_template and bound_action.template_action:
@@ -128,6 +118,19 @@ async def create_tool_from_registry(action_name: str) -> Tool:
 
     # Set the function signature - PydanticAI will extract schema from this
     tool_func.__signature__ = inspect.Signature(sig_params)
+
+    # Also set __annotations__ for PydanticAI type hint extraction
+    annotations = {}
+    for field_name, field_info in model_fields.items():
+        annotation = field_info.annotation
+        # Handle default factory case for annotations
+        if field_info.default_factory is not None:
+            annotation = Union[annotation, None]
+        annotations[field_name] = annotation
+
+    # Set return type annotation
+    annotations["return"] = Any
+    tool_func.__annotations__ = annotations
 
     # Create the Tool - PydanticAI will automatically extract:
     # - Tool name from function name
@@ -199,12 +202,8 @@ class TracecatAgentBuilder:
             try:
                 tool = await create_tool_from_registry(action_name)
                 self.tools.append(tool)
-                logger.debug("Created tool from registry", action=action_name)
             except Exception as e:
-                logger.warning(
-                    "Failed to create tool", action=action_name, error=str(e)
-                )
-                continue
+                raise ValueError(f"Failed to create tool from registry: {e}") from e
 
         # Create the agent using build_agent
         agent = build_agent(
