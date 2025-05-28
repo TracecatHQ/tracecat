@@ -50,7 +50,11 @@ class ShortTermMemory(ABC):
 
     @abstractmethod
     def add_tool_result(
-        self, conversation_id: str, tool_name: str, tool_result: str, tool_call_id: str
+        self,
+        conversation_id: str,
+        tool_name: str,
+        tool_result: str | dict[str, Any],
+        tool_call_id: str,
     ) -> None:
         """Add a tool result to the conversation."""
         pass
