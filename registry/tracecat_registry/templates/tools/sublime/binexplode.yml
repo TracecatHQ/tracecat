@@ -20,6 +20,7 @@ definition:
     base_url:
       type: str
       description: Base URL of the Sublime API.
+      default: https://platform.sublime.security
   steps:
     - ref: binexplode_scan
       action: core.http_request
@@ -27,8 +28,7 @@ definition:
         url: https://${{ inputs.base_url }}/v0/binexplode/scan
         method: POST
         headers:
-          Key: ${{ SECRETS.sublime.SUBLIME_API_KEY }}
-          User-Agent: tracecat
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
         payload:
           file_contents: ${{ inputs.file_base64 }}
           file_name: ${{ inputs.file_name }}
@@ -43,8 +43,7 @@ definition:
         url: https://${{ inputs.base_url }}/v0/binexplode/scan/${{ steps.get_task_id.result }}
         method: GET
         headers:
-          Key: ${{ SECRETS.sublime.SUBLIME_API_KEY }}
-          User-Agent: tracecat
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
         poll_condition: >
           lambda x: x.get('data', {}).get('task_response', {}).get('state') == 'completed'
   returns: ${{ steps.get_scan_results.result.data.results }}

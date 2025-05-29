@@ -1,0 +1,32 @@
+type: action
+definition:
+  name: analyze_eml
+  namespace: tools.sublime
+  title: Analyze EML
+  description: Analyze an EML message against active detection rules and ML attack score in Sublime.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/analyzemessage
+  secrets:
+    - name: sublime
+      keys:
+        - SUBLIME_API_KEY
+  expects:
+    eml_base64:
+      type: str
+      description: Base64-encoded EML file.
+    base_url:
+      type: str
+      description: Base URL of the Sublime API.
+      default: https://platform.sublime.security
+  steps:
+    - ref: analyze_eml
+      action: core.http_request
+      args:
+        url: https://${{ inputs.base_url }}/v0/eml/analyze
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload:
+          file_contents: ${{ inputs.eml_base64 }}
+          run_active_detection_rules: True
+  returns: ${{ steps.analyze_eml.result.data }}
