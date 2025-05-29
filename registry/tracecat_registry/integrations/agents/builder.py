@@ -5,10 +5,12 @@ https://ai.pydantic.dev/tools/#prepare-tools
 """
 
 import inspect
+import textwrap
 from typing import Any, Union
 
 from pydantic_ai import Agent
 from pydantic_ai.tools import Tool
+from pydantic_core import PydanticUndefined
 
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import _run_action_direct, run_template_action
@@ -16,6 +18,43 @@ from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat_registry.integrations.pydantic_ai import build_agent
+
+
+def generate_google_style_docstring(description: str | None, model_cls: type) -> str:
+    """Generate a Google-style docstring from a description and Pydantic model.
+
+    Args:
+        description: The base description for the function
+        model_cls: The Pydantic model class containing parameter information
+
+    Returns:
+        A properly formatted Google-style docstring with Args section
+
+    Raises:
+        ValueError: If description is None
+    """
+    if description is None:
+        raise ValueError("Tool description cannot be None")
+
+    # Extract parameter descriptions from the model's JSON schema
+    param_lines = []
+
+    if hasattr(model_cls, "model_json_schema"):
+        schema = model_cls.model_json_schema()
+        properties = schema.get("properties", {})
+
+        for prop_name, prop_info in properties.items():
+            # Get description from schema, fall back to a placeholder if missing
+            prop_desc = prop_info.get("description", f"Parameter {prop_name}")
+            param_lines.append(f"{prop_name}: {prop_desc}")
+
+    # Build the complete docstring
+    if param_lines:
+        params_section = "\n".join(param_lines)
+        indented_params = textwrap.indent(params_section, "    ")
+        return f"{description}\n\nArgs:\n{indented_params}"
+    else:
+        return f"{description}\n\nArgs:\n    None"
 
 
 async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
@@ -43,71 +82,79 @@ async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
     return result
 
 
-async def create_tool_from_registry(action_name: str) -> Tool:
+def _extract_action_metadata(bound_action) -> tuple[str, type]:
+    """Extract description and model class from a bound action.
+
+    Args:
+        bound_action: The bound action from the registry
+
+    Returns:
+        Tuple of (description, model_cls)
+
+    Raises:
+        ValueError: If template action is not set or description is missing
     """
-    Create a Pydantic AI Tool directly from the registry.
-
-    This properly extracts:
-    - Function docstring as tool description
-    - Parameter types and descriptions from Pydantic models
-    - Default values and optional parameters
-    """
-
-    # Load action from registry to get signature
-    async with RegistryActionsService.with_session() as service:
-        reg_action = await service.get_action(action_name)
-        bound_action = service.get_bound(reg_action, mode="execution")
-
-    # Create the tool function
-    async def tool_func(**kwargs) -> Any:
-        return await call_tracecat_action(action_name, kwargs)
-
-    # Set function metadata for PydanticAI
-    tool_name = bound_action.namespace.split(".", maxsplit=1)[-1]
-    func_name = bound_action.name
-    tool_func.__name__ = f"{tool_name}_{func_name}"
-
-    # Extract description - PydanticAI uses this as the tool description
-    if bound_action.is_template and bound_action.template_action:
-        # For templates, use the template description
-        tool_func.__doc__ = (
-            bound_action.template_action.definition.description
-            or bound_action.description
-        )
-    else:
-        # For UDFs, use the action description
-        tool_func.__doc__ = bound_action.description
-
-    # Extract function signature with proper type annotations
     if bound_action.is_template:
         if not bound_action.template_action:
             raise ValueError("Template action is not set")
 
-        # For templates, use the expects field to create the signature
+        # Use template description with fallback
+        description = (
+            bound_action.template_action.definition.description
+            or bound_action.description
+        )
+
+        # Get the model from expects
         expects = bound_action.template_action.definition.expects
-        temp_model = create_expectation_model(
+        model_cls = create_expectation_model(
             expects, bound_action.template_action.definition.action.replace(".", "__")
         )
-        model_fields = temp_model.model_fields
     else:
-        # For UDFs, use the args_cls directly
-        model_fields = bound_action.args_cls.model_fields
+        # Use UDF description and args_cls
+        description = bound_action.description
+        model_cls = bound_action.args_cls
 
-    # Convert to function signature with proper annotations
+    return description, model_cls
+
+
+def _create_function_signature(
+    model_cls: type,
+) -> tuple[inspect.Signature, dict[str, Any]]:
+    """Create function signature and annotations from a Pydantic model.
+
+    Args:
+        model_cls: The Pydantic model class
+
+    Returns:
+        Tuple of (signature, annotations)
+    """
     sig_params = []
-    for field_name, field_info in model_fields.items():
+    annotations = {}
+
+    for field_name, field_info in model_cls.model_fields.items():
+        # Use the Pydantic field's annotation directly
         annotation = field_info.annotation
 
-        # Handle default values
-        if field_info.default is not ...:
+        # Handle defaults from Pydantic field
+        if field_info.default is not PydanticUndefined:
+            # Field has an explicit default value
             default = field_info.default
         elif field_info.default_factory is not None:
+            # Field has a default factory
             default = None
-            # Make the annotation optional if it has a default factory
-            annotation = Union[annotation, None]
+            # Only wrap in Union if not already optional
+            # Check if the annotation is already a Union type with None
+            if hasattr(annotation, "__args__") and type(None) in annotation.__args__:
+                # Already optional, don't double-wrap
+                pass
+            else:
+                # Make optional types explicit for clarity
+                annotation = Union[annotation, None]
         else:
+            # Required field
             default = inspect.Parameter.empty
 
+        # Create parameter
         param = inspect.Parameter(
             name=field_name,
             kind=inspect.Parameter.KEYWORD_ONLY,
@@ -115,28 +162,74 @@ async def create_tool_from_registry(action_name: str) -> Tool:
             default=default,
         )
         sig_params.append(param)
-
-    # Set the function signature - PydanticAI will extract schema from this
-    tool_func.__signature__ = inspect.Signature(sig_params)
-
-    # Also set __annotations__ for PydanticAI type hint extraction
-    annotations = {}
-    for field_name, field_info in model_fields.items():
-        annotation = field_info.annotation
-        # Handle default factory case for annotations
-        if field_info.default_factory is not None:
-            annotation = Union[annotation, None]
         annotations[field_name] = annotation
 
-    # Set return type annotation
+    # Add return annotation
     annotations["return"] = Any
+
+    return inspect.Signature(sig_params), annotations
+
+
+def _generate_tool_function_name(namespace: str, name: str) -> str:
+    """Generate a function name from namespace and action name.
+
+    Args:
+        namespace: The action namespace (e.g., "tools.slack")
+        name: The action name (e.g., "post_message")
+
+    Returns:
+        Generated function name (e.g., "slack_post_message")
+    """
+    # Extract the last part of namespace after splitting by "."
+    tool_name = namespace.split(".", maxsplit=1)[-1]
+    return f"{tool_name}_{name}"
+
+
+async def create_tool_from_registry(action_name: str) -> Tool:
+    """Create a Pydantic AI Tool directly from the registry.
+
+    Args:
+        action_name: Full action name (e.g., "core.http_request")
+
+    Returns:
+        A configured Pydantic AI Tool
+
+    Raises:
+        ValueError: If action has no description or template action is invalid
+    """
+    # Load action from registry
+    async with RegistryActionsService.with_session() as service:
+        reg_action = await service.get_action(action_name)
+        bound_action = service.get_bound(reg_action, mode="execution")
+
+    # Create wrapper function that calls the action
+    async def tool_func(**kwargs) -> Any:
+        return await call_tracecat_action(action_name, kwargs)
+
+    # Set function name
+    tool_func.__name__ = _generate_tool_function_name(
+        bound_action.namespace, bound_action.name
+    )
+
+    # Extract metadata from the bound action
+    description, model_cls = _extract_action_metadata(bound_action)
+
+    # Validate description
+    if not description:
+        raise ValueError(f"Action '{action_name}' has no description")
+
+    # Create function signature and annotations
+    signature, annotations = _create_function_signature(model_cls)
+    tool_func.__signature__ = signature
     tool_func.__annotations__ = annotations
 
-    # Create the Tool - PydanticAI will automatically extract:
-    # - Tool name from function name
-    # - Tool description from function docstring
-    # - Parameter schema from function signature and annotations
-    return Tool(tool_func)
+    # Generate Google-style docstring
+    tool_func.__doc__ = generate_google_style_docstring(description, model_cls)
+
+    # Create tool with enforced documentation standards
+    return Tool(
+        tool_func, docstring_format="google", require_parameter_descriptions=True
+    )
 
 
 class TracecatAgentBuilder:
