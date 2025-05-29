@@ -6,18 +6,27 @@ https://ai.pydantic.dev/tools/#prepare-tools
 
 import inspect
 import textwrap
-from typing import Any, Union
+from typing import Any, Union, Annotated
+from typing_extensions import Doc
+from timeit import timeit
 
 from pydantic_ai import Agent
+from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.tools import Tool
-from pydantic_core import PydanticUndefined
+from pydantic_core import PydanticUndefined, to_jsonable_python
 
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import _run_action_direct, run_template_action
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat_registry.integrations.pydantic_ai import build_agent
+from tracecat_registry.integrations.pydantic_ai import (
+    PYDANTIC_AI_REGISTRY_SECRETS,
+    build_agent,
+)
+
+from tracecat_registry import registry
+from tracecat.types.exceptions import RegistryError
 
 
 def generate_google_style_docstring(description: str | None, model_cls: type) -> str:
@@ -263,9 +272,19 @@ class TracecatAgentBuilder:
         self.namespace_filters.append(namespace)
         return self
 
+    def with_namespace_filters(self, namespaces: list[str]) -> "TracecatAgentBuilder":
+        """Add a list of namespace filters for tools (e.g., ['tools.slack', 'tools.email'])."""
+        self.namespace_filters.extend(namespaces)
+        return self
+
     def with_action_filter(self, action_name: str) -> "TracecatAgentBuilder":
         """Add a specific action name filter (e.g., 'tools.slack.send_message')."""
         self.action_filters.append(action_name)
+        return self
+
+    def with_action_filters(self, action_names: list[str]) -> "TracecatAgentBuilder":
+        """Add a list of action name filters (e.g., ['tools.slack.send_message', 'tools.email.send_email'])."""
+        self.action_filters.extend(action_names)
         return self
 
     def with_custom_tool(self, tool: Tool) -> "TracecatAgentBuilder":
@@ -283,6 +302,9 @@ class TracecatAgentBuilder:
             else:
                 actions = await service.list_actions(include_marked=True)
 
+        # Collect failed action names
+        failed_actions: list[str] = []
+
         # Create tools from registry actions
         for reg_action in actions:
             action_name = f"{reg_action.namespace}.{reg_action.name}"
@@ -295,8 +317,15 @@ class TracecatAgentBuilder:
             try:
                 tool = await create_tool_from_registry(action_name)
                 self.tools.append(tool)
-            except Exception as e:
-                raise ValueError(f"Failed to create tool from registry: {e}") from e
+            except RegistryError:
+                failed_actions.append(action_name)
+
+        # If there were failures, raise simple error
+        if failed_actions:
+            failed_list = "\n".join(f"- {action}" for action in failed_actions)
+            raise ValueError(
+                f"Unknown namespaces or action names. Please double check the following:\n{failed_list}"
+            )
 
         # Create the agent using build_agent
         agent = build_agent(
@@ -318,3 +347,59 @@ class TracecatAgentBuilder:
             tool_count=len(self.tools),
         )
         return agent
+
+
+@registry.register(
+    default_title="AI agent",
+    description="AI agent with tool calling capabilities. Returns the output and full message history.",
+    display_group="AI",
+    doc_url="https://ai.pydantic.dev/agents/",
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
+    namespace="ai",
+)
+async def agent(
+    user_prompt: Annotated[str, Doc("User prompt to the agent.")],
+    model_name: Annotated[str, Doc("Name of the model to use.")],
+    model_provider: Annotated[str, Doc("Provider of the model to use.")],
+    namespaces: Annotated[
+        list[str], Doc("Namespaces (e.g. 'tools.slack') to include in the agent.")
+    ],
+    actions: Annotated[
+        list[str],
+        Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
+    ],
+    instructions: Annotated[str | None, Doc("Instructions for the agent.")] = None,
+    include_usage: Annotated[
+        bool, Doc("Whether to include usage information in the output.")
+    ] = False,
+    base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
+) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
+    builder = TracecatAgentBuilder(
+        model_name=model_name,
+        model_provider=model_provider,
+        base_url=base_url,
+        instructions=instructions,
+    )
+    agent = (
+        await builder.with_namespace_filters(namespaces)
+        .with_action_filters(actions)
+        .build()
+    )
+
+    start_time = timeit()
+    # NOTE: This is a blocking call, but it's the only way to
+    # get the agent to run as Bedrock doesn't support async agents.
+    result: AgentRunResult = agent.run_sync(user_prompt=user_prompt)
+    end_time = timeit()
+
+    output = result.output
+    message_history = to_jsonable_python(result.all_messages())
+    agent_output = {
+        "output": output,
+        "message_history": message_history,
+        "duration": end_time - start_time,
+    }
+    if include_usage:
+        agent_output["usage"] = to_jsonable_python(result.usage())
+
+    return agent_output
