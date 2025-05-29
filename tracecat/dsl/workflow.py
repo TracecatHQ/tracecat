@@ -379,7 +379,7 @@ class DSLWorkflow:
         )
 
         self.scheduler = DSLScheduler(
-            executor=self.execute_task,  # type: ignore
+            executor=self.execute_task,
             dsl=self.dsl,
             context=self.context,
         )

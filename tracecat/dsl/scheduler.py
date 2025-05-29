@@ -1,6 +1,6 @@
 import asyncio
 from collections import defaultdict
-from collections.abc import Coroutine
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic_core import to_json
@@ -31,7 +31,7 @@ class DSLScheduler:
     def __init__(
         self,
         *,
-        executor: Coroutine[Any, Any, Any],
+        executor: Callable[[ActionStatement], Awaitable[Any]],
         dsl: DSLInput,
         skip_strategy: SkipStrategy = SkipStrategy.PROPAGATE,
         context: ExecutionContext,
