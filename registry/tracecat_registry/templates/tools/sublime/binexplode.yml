@@ -1,0 +1,50 @@
+type: action
+definition:
+  name: scan_file
+  namespace: tools.sublime
+  title: Scan file with BinExplode
+  description: Scan a file with BinExplode. Returns
+  doc_url: https://docs.sublime.security/reference/postscan-1
+  display_group: Sublime
+  secrets:
+    - name: sublime
+      keys:
+        - SUBLIME_API_KEY
+  expects:
+    file_base64:
+      type: str
+      description: Base64-encoded file.
+    file_name:
+      type: str
+      description: Name of the file.
+    base_url:
+      type: str
+      description: Base URL of the Sublime API.
+  steps:
+    - ref: binexplode_scan
+      action: core.http_request
+      args:
+        url: https://${{ inputs.base_url }}/v0/binexplode/scan
+        method: POST
+        headers:
+          Key: ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+          User-Agent: tracecat
+        payload:
+          file_contents: ${{ inputs.file_base64 }}
+          file_name: ${{ inputs.file_name }}
+    - ref: get_task_id
+      action: core.transform.reshape
+      args:
+        value: ${{ steps.binexplode_scan.result.data.task_id }}
+    # https://docs.sublime.security/reference/getscan-1
+    - ref: get_scan_results
+      action: core.http_poll
+      args:
+        url: https://${{ inputs.base_url }}/v0/binexplode/scan/${{ steps.get_task_id.result }}
+        method: GET
+        headers:
+          Key: ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+          User-Agent: tracecat
+        poll_condition: >
+          lambda x: x.get('data', {}).get('task_response', {}).get('state') == 'completed'
+  returns: ${{ steps.get_scan_results.result.data.results }}
