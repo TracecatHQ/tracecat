@@ -22,7 +22,7 @@ definition:
     - ref: score_eml
       action: core.http_request
       args:
-        url: https://${{ inputs.base_url }}/v0/eml/score
+        url: ${{ inputs.base_url }}/v0/messages/attack_score
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}

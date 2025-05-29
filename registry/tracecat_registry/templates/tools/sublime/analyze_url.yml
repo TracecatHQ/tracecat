@@ -23,7 +23,7 @@ definition:
     - ref: analyze_url
       action: core.http_request
       args:
-        url: https://${{ inputs.base_url }}/v0/enrichment/link_analysis/evaluate
+        url: ${{ inputs.base_url }}/v0/enrichment/link_analysis/evaluate
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
