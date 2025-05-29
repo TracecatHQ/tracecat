@@ -1,15 +1,19 @@
 """Tests for agent builder functionality."""
 
 import inspect
+from typing import Any
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 from pydantic_ai.tools import Tool
-from pydantic_core import PydanticUndefined
 
 from registry.tracecat_registry.integrations.agents.builder import (
     TracecatAgentBuilder,
+    _create_function_signature,
+    _extract_action_metadata,
+    _generate_tool_function_name,
     create_tool_from_registry,
+    generate_google_style_docstring,
 )
 from tracecat.types.exceptions import RegistryError
 
@@ -34,6 +38,11 @@ class TestCreateToolFromRegistry:
         # Verify the function has a docstring
         assert tool.function.__doc__ is not None
         assert "http request" in tool.function.__doc__.lower()
+
+        # Verify Args section is present with parameter descriptions
+        assert "Args:" in tool.function.__doc__
+        assert "url:" in tool.function.__doc__  # Check for parameter documentation
+        assert "method:" in tool.function.__doc__
 
         # Verify the function signature has the expected parameters
         sig = inspect.signature(tool.function)
@@ -83,6 +92,11 @@ class TestCreateToolFromRegistry:
         assert tool.function.__doc__ is not None
         assert "Post a message to a Slack channel" in tool.function.__doc__
 
+        # Verify Args section is present with parameter descriptions
+        assert "Args:" in tool.function.__doc__
+        assert "channel:" in tool.function.__doc__  # Check for parameter documentation
+        assert "text:" in tool.function.__doc__
+
         # Verify the function signature has the expected parameters
         sig = inspect.signature(tool.function)
         params = sig.parameters
@@ -90,7 +104,7 @@ class TestCreateToolFromRegistry:
         # Check required parameters exist
         assert "channel" in params
         channel_param = params["channel"]
-        assert channel_param.default == PydanticUndefined  # Required
+        assert channel_param.default == inspect.Parameter.empty  # Required field
 
         # Check optional parameters have defaults
         assert "text" in params
@@ -166,6 +180,38 @@ class TestCreateToolFromRegistry:
         ):  # Registry raises RegistryError for missing actions
             await create_tool_from_registry(action_name)
 
+    async def test_action_without_description_raises_error(self, test_role):
+        """Test that actions without descriptions raise ValueError."""
+        action_name = "test.action"
+
+        # Mock the bound action returned by get_bound
+        mock_bound_action = Mock()
+        mock_bound_action.namespace = "test"
+        mock_bound_action.name = "action"
+        mock_bound_action.is_template = False
+        mock_bound_action.description = None  # No description
+        mock_bound_action.args_cls = Mock()
+        mock_bound_action.args_cls.model_fields = {}
+
+        # Mock the registry action (different from bound action)
+        mock_reg_action = Mock()
+
+        with patch(
+            "registry.tracecat_registry.integrations.agents.builder.RegistryActionsService"
+        ) as mock_service_cls:
+            mock_service = Mock()  # Use regular Mock, not AsyncMock for the service
+            mock_service.get_action = AsyncMock(return_value=mock_reg_action)
+            mock_service.get_bound = Mock(return_value=mock_bound_action)
+
+            mock_context = AsyncMock()
+            mock_context.__aenter__.return_value = mock_service
+            mock_service_cls.with_session.return_value = mock_context
+
+            with pytest.raises(
+                ValueError, match="Action 'test.action' has no description"
+            ):
+                await create_tool_from_registry(action_name)
+
     @pytest.mark.parametrize(
         "action_name,expected_func_name",
         [
@@ -187,6 +233,124 @@ class TestCreateToolFromRegistry:
             # We're mainly testing the name generation logic
             pytest.skip(f"Action {action_name} not available in test environment")
 
+    async def test_google_style_docstring_generation(self, test_role):
+        """Test that docstrings are generated with Args section from JSON schema."""
+        action_name = "core.http_request"
+
+        tool = await create_tool_from_registry(action_name)
+        docstring = tool.function.__doc__
+
+        # Ensure docstring exists
+        assert docstring is not None, "Tool function should have a docstring"
+
+        # Print the actual docstring for visibility
+        print("\n" + "=" * 60)
+        print(f"Generated docstring for {action_name}:")
+        print("=" * 60)
+        print(docstring)
+        print("=" * 60 + "\n")
+
+        # Split docstring into lines for detailed verification
+        lines = docstring.split("\n")
+
+        # First line should be the description
+        assert len(lines) > 0
+        assert "HTTP request" in lines[0]
+
+        # Find Args section
+        args_index = None
+        for i, line in enumerate(lines):
+            if line.strip() == "Args:":
+                args_index = i
+                break
+
+        assert args_index is not None, "Args section not found in docstring"
+
+        # Verify at least some expected parameters are documented
+        params_section = "\n".join(lines[args_index:])
+
+        # Check for required parameters with type annotations
+        assert "url:" in params_section
+        assert "method:" in params_section
+
+        # Check for optional parameters with defaults
+        assert "headers:" in params_section
+        # The new cleaner format doesn't duplicate default values in docstrings
+        # since they're already in the function signature
+
+    async def test_google_style_docstring_slack_example(self, test_role):
+        """Test and display docstring for a Slack template action."""
+        action_name = "tools.slack.post_message"
+
+        tool = await create_tool_from_registry(action_name)
+        docstring = tool.function.__doc__
+
+        # Ensure docstring exists
+        assert docstring is not None, "Tool function should have a docstring"
+
+        # Print the actual docstring for visibility
+        print("\n" + "=" * 60)
+        print(f"Generated docstring for {action_name}:")
+        print("=" * 60)
+        print(docstring)
+        print("=" * 60 + "\n")
+
+        # Verify it has the expected structure
+        assert "Post a message to a Slack channel" in docstring
+        assert "Args:" in docstring
+        assert "channel:" in docstring
+        assert "text:" in docstring
+        assert "blocks:" in docstring
+
+    async def test_parameter_description_enforcement(self, test_role):
+        """Test that tools are created with parameter description enforcement."""
+        action_name = "core.http_request"
+
+        tool = await create_tool_from_registry(action_name)
+
+        # Verify the tool has the correct configuration
+        assert tool.docstring_format == "google"
+        assert tool.require_parameter_descriptions is True
+
+        # Verify all parameters have descriptions in the docstring
+        docstring = tool.function.__doc__
+        assert docstring is not None
+
+        # The Args section should contain all parameter descriptions
+        assert "Args:" in docstring
+        assert "url: The destination of the HTTP request" in docstring
+        assert "method: HTTP request method" in docstring
+        assert "headers: HTTP request headers" in docstring
+
+    def test_generate_google_style_docstring(self):
+        """Test the generate_google_style_docstring function with a valid model."""
+        from pydantic import BaseModel, Field
+
+        # Test with a simple model
+        class SimpleModel(BaseModel):
+            name: str = Field(description="The user's name")
+            age: int = Field(description="The user's age")
+            email: str | None = Field(None, description="The user's email address")
+
+        # Test with a description
+        docstring = generate_google_style_docstring("Create a new user", SimpleModel)
+
+        assert docstring.startswith("Create a new user")
+        assert "\n\nArgs:\n" in docstring
+        assert "    name: The user's name" in docstring
+        assert "    age: The user's age" in docstring
+        assert "    email: The user's email address" in docstring
+
+    def test_generate_google_style_docstring_none_description_raises_error(self):
+        """Test that None description raises ValueError."""
+        from pydantic import BaseModel, Field
+
+        class SimpleModel(BaseModel):
+            name: str = Field(description="The user's name")
+
+        with pytest.raises(ValueError, match="Tool description cannot be None"):
+            generate_google_style_docstring(None, SimpleModel)
+
 
 @pytest.mark.anyio
 class TestTracecatAgentBuilder:
@@ -195,28 +359,41 @@ class TestTracecatAgentBuilder:
     @pytest.fixture
     def mock_registry_deps(self):
         """Fixture that provides commonly mocked dependencies for agent builder tests."""
-        with patch.multiple(
-            "registry.tracecat_registry.integrations.agents.builder",
-            RegistryActionsService=Mock(),
-            create_tool_from_registry=Mock(),
-            build_agent=Mock(),
-        ) as mocks:
-            # Configure service mock
-            mock_service = AsyncMock()
-            mocks[
-                "RegistryActionsService"
-            ].with_session.return_value.__aenter__.return_value = mock_service
+        # Create mocks for the dependencies
+        mock_service = AsyncMock()
+        mock_registry_service = Mock()
 
-            # Configure tool creation mock
-            mocks["create_tool_from_registry"].return_value = Tool(lambda: None)
+        # Mock the async context manager pattern
+        mock_context_manager = AsyncMock()
+        mock_context_manager.__aenter__.return_value = mock_service
+        mock_context_manager.__aexit__.return_value = None
+        mock_registry_service.with_session.return_value = mock_context_manager
 
-            # Configure agent builder mock
-            mocks["build_agent"].return_value = Mock()
+        mock_create_tool = AsyncMock()
+        mock_create_tool.return_value = Tool(lambda: None)
 
-            # Add the service instance to mocks for easy access
-            mocks["service"] = mock_service
+        mock_build_agent = Mock()
+        mock_build_agent.return_value = Mock()
 
-            yield mocks
+        # Apply patches
+        with patch(
+            "registry.tracecat_registry.integrations.agents.builder.RegistryActionsService",
+            mock_registry_service,
+        ):
+            with patch(
+                "registry.tracecat_registry.integrations.agents.builder.create_tool_from_registry",
+                mock_create_tool,
+            ):
+                with patch(
+                    "registry.tracecat_registry.integrations.agents.builder.build_agent",
+                    mock_build_agent,
+                ):
+                    yield {
+                        "RegistryActionsService": mock_registry_service,
+                        "create_tool_from_registry": mock_create_tool,
+                        "build_agent": mock_build_agent,
+                        "service": mock_service,
+                    }
 
     async def test_builder_initialization(self):
         """Test that TracecatAgentBuilder initializes correctly."""
@@ -309,11 +486,20 @@ class TestTracecatAgentBuilder:
         ).with_namespace_filter("tools.slack")
 
         # Mock registry actions - some match filter, some don't
-        mock_actions = [
-            Mock(namespace="tools.slack", name="post_message"),
-            Mock(namespace="core", name="http_request"),
-            Mock(namespace="tools.slack", name="lookup_user"),
-        ]
+        # Need to create proper mock objects with namespace and name as strings
+        mock_action1 = Mock()
+        mock_action1.namespace = "tools.slack"
+        mock_action1.name = "post_message"
+
+        mock_action2 = Mock()
+        mock_action2.namespace = "core"
+        mock_action2.name = "http_request"
+
+        mock_action3 = Mock()
+        mock_action3.namespace = "tools.slack"
+        mock_action3.name = "lookup_user"
+
+        mock_actions = [mock_action1, mock_action2, mock_action3]
 
         mock_registry_deps["service"].list_actions.return_value = mock_actions
 
@@ -328,3 +514,154 @@ class TestTracecatAgentBuilder:
             expected_calls, any_order=True
         )
         assert mock_registry_deps["create_tool_from_registry"].call_count == 2
+
+
+@pytest.mark.anyio
+class TestAgentBuilderHelpers:
+    """Test suite for agent builder helper functions."""
+
+    def test_generate_tool_function_name(self):
+        """Test function name generation from namespace and action name."""
+        # Test simple namespace
+        assert (
+            _generate_tool_function_name("core", "http_request") == "core_http_request"
+        )
+
+        # Test nested namespace - should take last part
+        assert (
+            _generate_tool_function_name("tools.slack", "post_message")
+            == "slack_post_message"
+        )
+
+        # Test deeply nested namespace
+        assert (
+            _generate_tool_function_name("tools.aws.boto3", "s3_list_objects")
+            == "aws.boto3_s3_list_objects"
+        )
+
+        # Test single-word actions
+        assert _generate_tool_function_name("core", "transform") == "core_transform"
+
+    def test_create_function_signature_with_required_params(self):
+        """Test function signature creation with required parameters."""
+        from pydantic import BaseModel, Field
+
+        class TestModel(BaseModel):
+            name: str = Field(description="User name")
+            age: int = Field(description="User age")
+
+        signature, annotations = _create_function_signature(TestModel)
+
+        # Check signature parameters
+        params = list(signature.parameters.values())
+        assert len(params) == 2
+
+        # Check first parameter
+        assert params[0].name == "name"
+        assert params[0].annotation is str
+        assert params[0].default == inspect.Parameter.empty  # Required field
+        assert params[0].kind == inspect.Parameter.KEYWORD_ONLY
+
+        # Check second parameter
+        assert params[1].name == "age"
+        assert params[1].annotation is int
+        assert params[1].default == inspect.Parameter.empty  # Required field
+
+        # Check annotations
+        assert annotations["name"] is str
+        assert annotations["age"] is int
+        assert annotations["return"] is Any
+
+    def test_create_function_signature_with_optional_params(self):
+        """Test function signature creation with optional parameters."""
+        from pydantic import BaseModel, Field
+
+        class TestModel(BaseModel):
+            name: str = Field(description="User name")
+            email: str | None = Field(None, description="User email")
+            active: bool = Field(True, description="Is active")
+
+        signature, annotations = _create_function_signature(TestModel)
+
+        params = list(signature.parameters.values())
+        assert len(params) == 3
+
+        # Required parameter
+        assert params[0].name == "name"
+        assert params[0].default == inspect.Parameter.empty  # Required field
+
+        # Optional with None default
+        assert params[1].name == "email"
+        assert params[1].default is None
+        # The field is already str | None, so it should not be double-wrapped
+        assert annotations["email"] == str | None
+
+        # Optional with non-None default
+        assert params[2].name == "active"
+        assert params[2].default is True
+        assert annotations["active"] is bool
+
+    def test_extract_action_metadata_udf(self):
+        """Test metadata extraction from a UDF action."""
+        # Mock a UDF bound action
+        mock_action = Mock()
+        mock_action.is_template = False
+        mock_action.description = "Test UDF action"
+        mock_action.args_cls = Mock()
+
+        description, model_cls = _extract_action_metadata(mock_action)
+
+        assert description == "Test UDF action"
+        assert model_cls == mock_action.args_cls
+
+    def test_extract_action_metadata_template(self):
+        """Test metadata extraction from a template action."""
+        # Mock a template bound action
+        mock_action = Mock()
+        mock_action.is_template = True
+        mock_action.template_action = Mock()
+        mock_action.template_action.definition = Mock()
+        mock_action.template_action.definition.description = "Template description"
+        mock_action.template_action.definition.action = "tools.slack.post_message"
+        mock_action.template_action.definition.expects = {}
+        mock_action.description = "Fallback description"
+
+        with patch(
+            "registry.tracecat_registry.integrations.agents.builder.create_expectation_model"
+        ) as mock_create:
+            mock_model = Mock()
+            mock_create.return_value = mock_model
+
+            description, model_cls = _extract_action_metadata(mock_action)
+
+            assert description == "Template description"
+            assert model_cls == mock_model
+            mock_create.assert_called_once_with({}, "tools__slack__post_message")
+
+    def test_extract_action_metadata_template_fallback(self):
+        """Test metadata extraction uses fallback description when template description is None."""
+        mock_action = Mock()
+        mock_action.is_template = True
+        mock_action.template_action = Mock()
+        mock_action.template_action.definition = Mock()
+        mock_action.template_action.definition.description = (
+            None  # No template description
+        )
+        mock_action.template_action.definition.action = "tools.slack.post_message"
+        mock_action.template_action.definition.expects = {}
+        mock_action.description = "Fallback description"
+
+        with patch(
+            "registry.tracecat_registry.integrations.agents.builder.create_expectation_model"
+        ):
+            description, _ = _extract_action_metadata(mock_action)
+            assert description == "Fallback description"
+
+    def test_extract_action_metadata_template_not_set(self):
+        """Test metadata extraction raises error when template action is not set."""
+        mock_action = Mock()
+        mock_action.is_template = True
+        mock_action.template_action = None
+
+        with pytest.raises(ValueError, match="Template action is not set"):
+            _extract_action_metadata(mock_action)
