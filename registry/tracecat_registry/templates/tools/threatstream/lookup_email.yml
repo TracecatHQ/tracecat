@@ -13,7 +13,7 @@ definition:
   expects:
     email:
       type: str
-      description: Email to lookup.
+      description: Email address to lookup.
   steps:
     - ref: get_reputation
       action: core.http_request
