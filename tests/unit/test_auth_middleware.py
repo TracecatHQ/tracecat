@@ -3,7 +3,7 @@
 import time
 import uuid
 from statistics import mean
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, Request
@@ -84,10 +84,12 @@ async def test_auth_cache_reduces_database_queries(mocker):
     mock_membership1 = MagicMock(spec=Membership)
     mock_membership1.workspace_id = workspace_id_1
     mock_membership1.role = WorkspaceRole.EDITOR
+    mock_membership1.user_id = mock_user.id
 
     mock_membership2 = MagicMock(spec=Membership)
     mock_membership2.workspace_id = workspace_id_2
     mock_membership2.role = WorkspaceRole.ADMIN
+    mock_membership2.user_id = mock_user.id
 
     # Track database calls
     db_call_count = 0
@@ -124,6 +126,7 @@ async def test_auth_cache_reduces_database_queries(mocker):
         "memberships": {},
         "membership_checked": False,
         "all_memberships": [],
+        "user_id": None,
     }
 
     # Mock session
@@ -301,3 +304,163 @@ async def test_performance_improvement(mocker):
     # these differences would be much more dramatic:
     # - 10 API calls × 100ms = 1 second without caching
     # - 1 API call × 100ms = 100ms with caching (10x improvement)
+
+
+@pytest.mark.anyio
+async def test_cache_user_id_validation():
+    """Test that cache validates user ID to prevent cross-user data leakage."""
+    from tracecat.authz.service import MembershipService
+
+    # Create two different users
+    user1 = MagicMock(spec=User)
+    user1.id = uuid.uuid4()
+    user1.role = UserRole.BASIC
+
+    user2 = MagicMock(spec=User)
+    user2.id = uuid.uuid4()
+    user2.role = UserRole.BASIC
+
+    workspace_id = uuid.uuid4()
+
+    # Create memberships for both users
+    membership1 = MagicMock(spec=Membership)
+    membership1.user_id = user1.id
+    membership1.workspace_id = workspace_id
+    membership1.role = WorkspaceRole.ADMIN
+
+    membership2 = MagicMock(spec=Membership)
+    membership2.user_id = user2.id
+    membership2.workspace_id = workspace_id
+    membership2.role = WorkspaceRole.EDITOR
+
+    # Mock the service
+    mock_service = MagicMock(spec=MembershipService)
+    mock_service.list_user_memberships = AsyncMock(
+        side_effect=lambda user_id: [membership1]
+        if user_id == user1.id
+        else [membership2]
+    )
+    mock_service.get_membership = AsyncMock(
+        side_effect=lambda workspace_id, user_id: membership1
+        if user_id == user1.id
+        else membership2
+    )
+
+    # Create request with cache
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = {
+        "memberships": {},
+        "membership_checked": False,
+        "all_memberships": [],
+        "user_id": None,
+    }
+
+    # Set up mocks
+    with (
+        patch("tracecat.auth.credentials.MembershipService", return_value=mock_service),
+        patch("tracecat.auth.credentials.is_unprivileged", return_value=True),
+        patch.dict(
+            "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
+            {UserRole.BASIC: AccessLevel.BASIC},
+        ),
+    ):
+        # Common parameters for _role_dependency
+        common_params = {
+            "request": request,
+            "session": AsyncMock(),
+            "workspace_id": workspace_id,
+            "api_key": None,
+            "allow_user": True,
+            "allow_service": False,
+            "require_workspace": "yes",
+            "min_access_level": None,
+            "require_workspace_roles": None,
+        }
+
+        # First check with user1 - should populate cache
+        role1 = await _role_dependency(user=user1, **common_params)
+
+        # Verify cache is populated with user1's data
+        assert request.state.auth_cache["user_id"] == user1.id
+        assert len(request.state.auth_cache["memberships"]) == 1
+
+        # Now try to access with user2 - should NOT use user1's cached data
+        role2 = await _role_dependency(user=user2, **common_params)
+
+        # Verify user2 got their own membership, not user1's cached data
+        assert role2.workspace_role == WorkspaceRole.EDITOR  # user2's role
+        assert role1.workspace_role == WorkspaceRole.ADMIN  # user1's role was different
+
+
+@pytest.mark.anyio
+async def test_cache_size_limit():
+    """Test that cache has size limits to prevent memory exhaustion."""
+    from tracecat.authz.service import MembershipService
+
+    # Create user with excessive memberships
+    user = MagicMock(spec=User)
+    user.id = uuid.uuid4()
+    user.role = UserRole.BASIC
+
+    # Create 1500 memberships (exceeds MAX_CACHED_MEMBERSHIPS = 1000)
+    memberships = [
+        MagicMock(
+            spec=Membership,
+            user_id=user.id,
+            workspace_id=uuid.uuid4(),
+            role=WorkspaceRole.EDITOR,
+        )
+        for _ in range(1500)
+    ]
+
+    # The workspace we're checking
+    target_workspace_id = memberships[500].workspace_id
+
+    # Mock the service
+    mock_service = MagicMock(spec=MembershipService)
+    mock_service.list_user_memberships = AsyncMock(return_value=memberships)
+
+    # Create request with cache
+    request = MagicMock(spec=Request)
+    request.state = MagicMock()
+    request.state.auth_cache = {
+        "memberships": {},
+        "membership_checked": False,
+        "all_memberships": [],
+        "user_id": None,
+    }
+
+    # Set up mocks
+    with (
+        patch("tracecat.auth.credentials.MembershipService", return_value=mock_service),
+        patch("tracecat.auth.credentials.is_unprivileged", return_value=True),
+        patch.dict(
+            "tracecat.auth.credentials.USER_ROLE_TO_ACCESS_LEVEL",
+            {UserRole.BASIC: AccessLevel.BASIC},
+        ),
+    ):
+        # Check with excessive memberships
+        role = await _role_dependency(
+            request=request,
+            session=AsyncMock(),
+            workspace_id=target_workspace_id,
+            user=user,
+            api_key=None,
+            allow_user=True,
+            allow_service=False,
+            require_workspace="yes",
+            min_access_level=None,
+            require_workspace_roles=None,
+        )
+
+        # Verify cache was NOT populated due to size limit
+        assert (
+            len(request.state.auth_cache["memberships"]) == 0
+        )  # Cache should be empty
+        assert (
+            request.state.auth_cache["membership_checked"] is False
+        )  # Should not be marked as checked
+
+        # But the role should still be valid (fallback worked)
+        assert role.workspace_id == target_workspace_id
