@@ -339,7 +339,7 @@ def dep_from_edge_components(src_ref: str, edge_type: EdgeType) -> str:
     return f"{src_ref}.{edge_type.value}"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DSLEdge:
     src: str
     dst: str
