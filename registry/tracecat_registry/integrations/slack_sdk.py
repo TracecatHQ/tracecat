@@ -3,6 +3,7 @@
 from typing import Annotated, Any, Literal, cast
 import asyncio
 
+import os
 from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.errors import SlackApiError
@@ -41,7 +42,8 @@ async def call_method(
         Field(..., description="Slack Python SDK method parameters"),
     ] = None,
 ) -> dict[str, Any]:
-    bot_token = secrets.get("SLACK_BOT_TOKEN")
+    # We use os.getenv to allow for testing without having to mock the secrets manager
+    bot_token = secrets.get("SLACK_BOT_TOKEN") or os.getenv("SLACK_BOT_TOKEN")
     client = AsyncWebClient(token=bot_token)
     params = params or {}
     result: AsyncSlackResponse = await getattr(client, sdk_method)(**params)

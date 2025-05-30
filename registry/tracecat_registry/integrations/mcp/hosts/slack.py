@@ -326,7 +326,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
 
             # Check if this is a new tool call
             new_tool_call = len(result.tool_call_parts) > 0
-            if not new_tool_call:
+            if not new_tool_call and message.strip():  # Only add if message is not empty
                 # Add new context block
                 updated_blocks.append(
                     {
@@ -336,13 +336,15 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
                     }
                 )
         else:
-            updated_blocks.append(
-                {
-                    "type": "section",
-                    "block_id": f"message:{uuid.uuid1()}",
-                    "text": {"type": "mrkdwn", "text": message},
-                }
-            )
+            # Only add section block if message is not empty
+            if message.strip():
+                updated_blocks.append(
+                    {
+                        "type": "section",
+                        "block_id": f"message:{uuid.uuid1()}",
+                        "text": {"type": "mrkdwn", "text": message},
+                    }
+                )
 
         # Update the Slack message
         await call_method(
