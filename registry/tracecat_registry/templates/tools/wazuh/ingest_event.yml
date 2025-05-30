@@ -10,7 +10,7 @@ definition:
   expects:
     base_url:
       type: str
-      description: Base URL of the Wazuh API (e.g. https://wazuh-prod.aukfood.net:55000)
+      description: Base URL of the Wazuh API
     verify_ssl:
       type: bool
       description: Whether to verify SSL certificates.
