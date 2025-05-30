@@ -576,7 +576,7 @@ async def http_request(
                 status_code=e.response.status_code,
                 error_message=error_message,
             )
-            raise TracecatException(error_message)
+            raise TracecatException(error_message) from e
         except httpx.ReadTimeout as e:
             logger.error(f"HTTP request timed out after {timeout} seconds.")
             raise e
