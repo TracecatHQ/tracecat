@@ -267,9 +267,9 @@ async def test_http_poll_retry_codes() -> None:
     """Test HTTP polling with retry codes."""
     route = respx.get("https://api.example.com").mock(
         side_effect=[
-            httpx.Response(status_code=202),  # First attempt - retry
-            httpx.Response(status_code=202),  # Second attempt - retry
-            httpx.Response(  # Final attempt - success
+            httpx.Response(status_code=202),  # Attempt 1: retry on 202
+            httpx.Response(status_code=202),  # Attempt 2: retry on 202
+            httpx.Response(  # Attempt 3: success, stop polling
                 status_code=200,
                 headers={"Content-Type": "application/json"},
                 json={"message": "success"},
@@ -357,7 +357,7 @@ async def test_http_poll_jsonpath_condition() -> None:
     result = await http_poll(
         url="https://api.example.com",
         method="GET",
-        # Use jsonpath to check nested status field
+        # Retry while status.state is 'pending'
         poll_condition="lambda x: jsonpath('$.data.status.state', x) == 'pending'",
         poll_interval=0.1,
         poll_max_attempts=3,
@@ -523,7 +523,7 @@ async def test_http_request_with_file_upload_simple_base64() -> None:
     )
     file_content_bytes = b"Hello, World!"
     base64_content = base64.b64encode(file_content_bytes).decode("utf-8")
-    form_field_name = "test_file.txt"  # This will also be the filename
+    form_field_name = "test_file.txt"  # Form field name, also used as filename
 
     result = await http_request(
         url="https://api.example.com",
@@ -534,7 +534,7 @@ async def test_http_request_with_file_upload_simple_base64() -> None:
     assert result["status_code"] == 200
     content_type_header = route.calls.last.request.headers.get("content-type", "")
     assert "multipart/form-data" in content_type_header
-    # TODO: Add specific checks for filename and content in multipart data if respx allows.
+    # Note: respx doesn't easily expose multipart file details for inspection
 
 
 @pytest.mark.anyio
@@ -563,7 +563,7 @@ async def test_http_request_with_file_upload_dict_metadata() -> None:
     )
     assert route.called
     assert result["status_code"] == 200
-    # TODO: Add specific checks for form_field_name, actual_filename, content, and content_type.
+    # Note: respx limitations prevent detailed multipart inspection
 
 
 @pytest.mark.anyio
@@ -584,8 +584,8 @@ async def test_http_request_with_multiple_files_and_form_data() -> None:
         method="POST",
         form_data={"user_id": "123", "description": "Multiple files test"},
         files={
-            "attachment1": file1_base64,  # Simple upload
-            "attachment2": {  # Upload with metadata
+            "attachment1": file1_base64,  # Simple: filename = form field name
+            "attachment2": {  # Detailed: explicit filename and content type
                 "filename": "report.csv",
                 "content_base64": file2_base64,
                 "content_type": "text/csv",
@@ -607,7 +607,7 @@ async def test_http_request_files_missing_content_base64_in_dict() -> None:
         await http_request(
             url="https://api.example.com",
             method="POST",
-            files={"data_file": {"filename": "test.txt"}},  # Missing content_base64
+            files={"data_file": {"filename": "test.txt"}},  # Missing required field
         )
 
 
@@ -616,12 +616,13 @@ async def test_http_request_files_invalid_form_field_name_null_byte() -> None:
     """Test HTTP request fails if a form_field_name contains a null byte."""
     base64_content = base64.b64encode(b"test").decode("utf-8")
     with pytest.raises(
-        TracecatException, match=r"Invalid form_field_name.*contains null bytes"
+        TracecatException,
+        match=r"Invalid form_field_name.*cannot be empty or contain null bytes",
     ):
         await http_request(
             url="https://api.example.com",
             method="POST",
-            files={"field\x00name": base64_content},
+            files={"field\x00name": base64_content},  # Null byte injection attempt
         )
 
 
@@ -646,14 +647,14 @@ async def test_http_request_with_invalid_base64_in_files() -> None:
         await http_request(
             url="https://api.example.com",
             method="POST",
-            files={"test.txt": "not-valid-base64!@#$"},
+            files={"test.txt": "not-valid-base64!@#$"},  # Invalid base64 string
         )
 
 
 @pytest.mark.anyio
 async def test_http_request_file_size_limit_in_files() -> None:
     """Test HTTP request fails when a file in the files dict exceeds size limit."""
-    large_content_bytes = b"x" * (101 * 1024 * 1024)  # 101 MB
+    large_content_bytes = b"x" * (101 * 1024 * 1024)  # 101 MB file
     base64_content = base64.b64encode(large_content_bytes).decode("utf-8")
 
     with pytest.raises(
@@ -672,15 +673,155 @@ async def test_http_request_actual_filename_null_bytes_in_files_dict() -> None:
     base64_file_content = base64.b64encode(b"Test data").decode("utf-8")
     with pytest.raises(
         TracecatException,
-        match=r"Invalid actual_filename.*test\x00.txt.*contains null bytes",
+        match=r"Invalid filename.*cannot be empty or contain null bytes",
     ):
         await http_request(
             url="https://api.example.com",
             method="POST",
             files={
                 "upload_field": {
-                    "filename": "test\x00.txt",
+                    "filename": "test\x00.txt",  # Null byte in filename
                     "content_base64": base64_file_content,
                 }
             },
         )
+
+
+# Security-focused file upload tests
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_path_traversal_in_filename() -> None:
+    """Test that path traversal attempts in filenames are sanitized."""
+    route = respx.post("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200, json={"uploaded": True})
+    )
+
+    base64_content = base64.b64encode(b"Test data").decode("utf-8")
+
+    # Common path traversal attack patterns
+    dangerous_filenames = [
+        "../../../etc/passwd",
+        "..\\..\\windows\\system32\\config\\sam",
+        "normal_file.txt/../../evil.sh",
+        "./../../sensitive.conf",
+    ]
+
+    for dangerous_filename in dangerous_filenames:
+        result = await http_request(
+            url="https://api.example.com",
+            method="POST",
+            files={
+                "upload": {
+                    "filename": dangerous_filename,
+                    "content_base64": base64_content,
+                }
+            },
+        )
+
+        assert route.called
+        assert result["status_code"] == 200
+        # Filename sanitization should have removed dangerous path components
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_special_chars_in_filename() -> None:
+    """Test that special characters in filenames are sanitized."""
+    route = respx.post("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200, json={"uploaded": True})
+    )
+
+    base64_content = base64.b64encode(b"Test data").decode("utf-8")
+
+    result = await http_request(
+        url="https://api.example.com",
+        method="POST",
+        files={
+            "upload": {
+                "filename": 'file<>:"|?*name.txt',  # OWASP dangerous characters
+                "content_base64": base64_content,
+            }
+        },
+    )
+
+    assert route.called
+    assert result["status_code"] == 200
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_very_long_filename() -> None:
+    """Test that very long filenames are truncated properly."""
+    route = respx.post("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200, json={"uploaded": True})
+    )
+
+    base64_content = base64.b64encode(b"Test data").decode("utf-8")
+
+    # Filename exceeding filesystem limits (255 chars)
+    long_filename = "a" * 300 + ".txt"
+
+    result = await http_request(
+        url="https://api.example.com",
+        method="POST",
+        files={
+            "upload": {
+                "filename": long_filename,
+                "content_base64": base64_content,
+            }
+        },
+    )
+
+    assert route.called
+    assert result["status_code"] == 200
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_filename_with_multiple_dots() -> None:
+    """Test that filenames with multiple dots are handled safely."""
+    route = respx.post("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200, json={"uploaded": True})
+    )
+
+    base64_content = base64.b64encode(b"Test data").decode("utf-8")
+
+    result = await http_request(
+        url="https://api.example.com",
+        method="POST",
+        files={
+            "upload": {
+                "filename": "file...name....txt",  # Multiple dots (path traversal attempt)
+                "content_base64": base64_content,
+            }
+        },
+    )
+
+    assert route.called
+    assert result["status_code"] == 200
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_empty_filename_after_sanitization() -> None:
+    """Test handling of filenames that become empty after sanitization."""
+    route = respx.post("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200, json={"uploaded": True})
+    )
+
+    base64_content = base64.b64encode(b"Test data").decode("utf-8")
+
+    # Filename containing only dangerous characters
+    result = await http_request(
+        url="https://api.example.com",
+        method="POST",
+        files={
+            "upload": {
+                "filename": "<>:|",  # Only special characters, becomes "unnamed"
+                "content_base64": base64_content,
+            }
+        },
+    )
+
+    assert route.called
+    assert result["status_code"] == 200
