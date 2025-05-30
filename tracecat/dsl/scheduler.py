@@ -1,7 +1,8 @@
 import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Self
 
 from pydantic_core import to_json
 from temporalio import workflow
@@ -21,6 +22,28 @@ from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
 
 
+class ScopeID(str):
+    """Hierarchical scope identifier: 'root/explode_1/item_2'"""
+
+    @classmethod
+    def new(cls, explode_ref: str, item_index: int) -> Self:
+        """Create a scope ID for an exploded item"""
+        return cls(f"{explode_ref}/{item_index}")
+
+    @classmethod
+    def global_scope(cls) -> Self:
+        """Return the global scope identifier"""
+        return cls("global")
+
+
+@dataclass(frozen=True, slots=True)
+class Task:
+    """Unique identifier for a task instance within a specific scope"""
+
+    ref: str
+    scope_id: ScopeID | None = None  # None for global scope
+
+
 class DSLScheduler:
     """Manage only scheduling of tasks in a topological-like order."""
 
@@ -38,35 +61,23 @@ class DSLScheduler:
     ):
         self.dsl = dsl
         self.context = context
+        self.executor = executor
+        self.skip_strategy = skip_strategy
+        self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
         self.tasks: dict[str, ActionStatement] = {}
-        self.queue: asyncio.Queue[str] = asyncio.Queue()
-        self.indegrees: dict[str, int] = {}
-        self.adj: dict[str, set[AdjDst]] = defaultdict(set)
         """Graph connectivity information."""
+        self.queue: asyncio.Queue[Task] = asyncio.Queue()
+        self.indegrees: dict[Task, int] = {}
         self.completed_tasks: set[str] = set()
         self.edges: dict[DSLEdge, EdgeMarker] = defaultdict(lambda: EdgeMarker.PENDING)
-        """Marked edges are used to track the state of edges in the graph.
-
-        When a task succeeds/fails, we need to update all its outgoing edges.
-        This is because we are eliminating node executions from the graph
-        - if task `a` succeeds
-            - edges `a.error -> b` should be marked as skipped
-            - all child edges `a -> <child>` should be marked as completed (taken?)
-        - if task `a` fails
-            - edges `a.success -> b` should be marked as skipped
-            - edges `a.error -> b` should be marked as completed
-
-        """
-        self.skip_strategy = skip_strategy
         self.task_exceptions: dict[str, TaskExceptionInfo] = {}
 
-        self.executor = executor
-        self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
+        self.adj: dict[str, set[AdjDst]] = defaultdict(set)
 
         for task in dsl.actions:
             self.tasks[task.ref] = task
             # This remains the same regardless of error paths, as each error path counts as an indegree
-            self.indegrees[task.ref] = len(task.depends_on)
+            self.indegrees[Task(task.ref)] = len(task.depends_on)
             for dep_ref in task.depends_on:
                 src_ref, edge_type = self._get_edge_components(dep_ref)
                 self.adj[src_ref].add((task.ref, edge_type))
@@ -262,16 +273,17 @@ class DSLScheduler:
                 else:
                     self._mark_edge(edge, EdgeMarker.VISITED)
                 # Mark the edge as processed
-                self.indegrees[next_ref] -= 1
+                next_task = Task(next_ref)
+                self.indegrees[next_task] -= 1
                 self.logger.debug(
-                    "Indegree", next_ref=next_ref, indegree=self.indegrees[next_ref]
+                    "Indegree", next_ref=next_ref, indegree=self.indegrees[next_task]
                 )
-                if self.indegrees[next_ref] == 0:
+                if self.indegrees[next_task] == 0:
                     # Schedule the next task
                     self.logger.debug(
                         "Adding task to queue; mark visited", next_ref=next_ref
                     )
-                    tg.create_task(self.queue.put(next_ref))
+                    tg.create_task(self.queue.put(next_task))
         self.logger.trace(
             "Queued tasks",
             visited_tasks=list(self.completed_tasks),
@@ -279,24 +291,25 @@ class DSLScheduler:
             queue_size=self.queue.qsize(),
         )
 
-    async def _schedule_task(self, ref: str) -> None:
+    async def _schedule_task(self, task: Task) -> None:
         """Schedule a task for execution."""
-        task = self.tasks[ref]
+        ref = task.ref
+        task_defn = self.tasks[ref]
         try:
             # 1) Skip propagation (force-skip) takes highest precedence over reachability
-            if self._skip_should_propagate(task):
+            if self._skip_should_propagate(task_defn):
                 self.logger.info("Task should be force-skipped, propagating", ref=ref)
                 return await self._handle_skip_path(ref)
 
             # 2) Then we check if the task is reachable - i.e. do we have
             # enough successful paths to reach this task?
-            if not self._is_reachable(task):
+            if not self._is_reachable(task_defn):
                 self.logger.info("Task cannot proceed, unreachable", ref=ref)
-                raise TaskUnreachable(f"Task {ref!r} is unreachable")
+                raise TaskUnreachable(f"Task {task} is unreachable")
 
             # 3) At this point the task is reachable and not force-skipped.
             # Check if the task should self-skip based on its `run_if` condition
-            if self._task_should_skip(task):
+            if self._task_should_skip(task_defn):
                 self.logger.info("Task should self-skip", ref=ref)
                 return await self._handle_skip_path(ref)
 
@@ -305,7 +318,9 @@ class DSLScheduler:
             # NOTE: If an exception is thrown from this coroutine, it signals that
             # the task failed after all attempts. Adding the exception to the task
             # exceptions set will cause the workflow to fail.
-            await self.executor(task)  # type: ignore
+            await self.executor(task_defn)
+            # NOTE: Moved this here to handle single success path
+            await self._handle_success_path(ref)
         except Exception as e:
             kind = e.__class__.__name__
             non_retryable = getattr(e, "non_retryable", True)
@@ -313,11 +328,9 @@ class DSLScheduler:
                 f"{kind} in DSLScheduler", ref=ref, error=e, non_retryable=non_retryable
             )
             await self._handle_error_path(ref, e)
-        else:
-            await self._handle_success_path(ref)
         finally:
             # 5) Regardless of the outcome, the task is now complete
-            self.logger.info("Task completed", ref=ref)
+            self.logger.info("Task completed", task=task)
             self.completed_tasks.add(ref)
 
     async def start(self) -> dict[str, TaskExceptionInfo] | None:
