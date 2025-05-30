@@ -3,6 +3,8 @@
 # This will cause class types to be resolved as strings
 
 from collections.abc import Callable
+import base64
+import binascii
 import tempfile
 from json import JSONDecodeError
 from typing import Annotated, Any, Literal, TypedDict
@@ -22,11 +24,31 @@ from tracecat.expressions.common import build_safe_lambda
 from tracecat.logger import logger
 from typing_extensions import Doc
 
+from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES
 from tracecat.types.exceptions import TracecatException
 from tracecat_registry import RegistrySecret, registry, secrets
 
 RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
+
+
+class FileUploadData(TypedDict, total=False):
+    """Detailed file upload data structure."""
+
+    filename: str  # The actual filename to be used in Content-Disposition
+    content_base64: str  # Base64 encoded file content
+    content_type: str | None  # Optional MIME type for the file
+
+
+Files = Annotated[
+    dict[str, str | FileUploadData] | None,  # Key is the form_field_name
+    Doc(
+        "Files to upload using multipart/form-data. "
+        "The dictionary key is the form field name. "
+        "The value can be a simple base64 encoded string (filename defaults to form field name), "
+        "or a dictionary with 'filename', 'content_base64', and optional 'content_type'."
+    ),
+]
 
 ssl_secret = RegistrySecret(
     name="ssl",
@@ -250,6 +272,84 @@ def _http_status_error_to_message(e: httpx.HTTPStatusError) -> str:
         return f"HTTP request failed with status {e.response.status_code}. Details:\n\n```\n{details}\n```"
 
 
+def _process_file_uploads(
+    files: Files, action_name: str = "http_action"
+) -> dict[str, tuple[str, bytes] | tuple[str, bytes, str]] | None:
+    """Processes a dictionary of files for multipart/form-data upload.
+
+    Args:
+        files: Dictionary where key is form_field_name and value is either
+               a base64 string or a FileUploadData dictionary.
+        action_name: Name of the calling action for error messages.
+
+    Returns:
+        A dictionary formatted for httpx's files parameter, or None if no files.
+    Raises:
+        ValueError: For invalid inputs, encoding errors, or size violations.
+    """
+    if not files:
+        return None
+
+    processed_httpx_files = {}
+    for form_field_name, file_input in files.items():
+        if not form_field_name or "\x00" in form_field_name:
+            raise ValueError(
+                f"Invalid form_field_name '{form_field_name}' in {action_name}: cannot be empty or contain null bytes."
+            )
+
+        actual_filename: str
+        content_base64: str
+        content_type: str | None = None
+
+        if isinstance(file_input, str):
+            actual_filename = form_field_name  # Default filename to form field name
+            content_base64 = file_input
+        elif isinstance(file_input, dict):
+            if "content_base64" not in file_input:
+                raise ValueError(
+                    f"Missing 'content_base64' for form field '{form_field_name}' in {action_name}."
+                )
+            content_base64 = file_input["content_base64"]
+            # Use provided filename, default to form_field_name if 'filename' is missing or empty
+            actual_filename = file_input.get("filename") or form_field_name
+            content_type = file_input.get("content_type")
+        else:
+            raise TypeError(
+                f"Invalid file input type for form field '{form_field_name}' in {action_name}. "
+                f"Expected base64 string or dictionary, got {type(file_input).__name__}."
+            )
+
+        if not actual_filename or "\x00" in actual_filename:
+            raise ValueError(
+                f"Invalid actual_filename '{actual_filename}' for form field '{form_field_name}' in {action_name}: "
+                f"cannot be empty or contain null bytes."
+            )
+
+        try:
+            decoded_content = base64.b64decode(content_base64, validate=True)
+        except binascii.Error as e:
+            raise ValueError(
+                f"Invalid base64 data for file '{actual_filename}' (form field '{form_field_name}') in {action_name}: {str(e)}"
+            ) from e
+
+        if len(decoded_content) > TRACECAT__MAX_FILE_SIZE_BYTES:
+            raise ValueError(
+                f"File '{actual_filename}' (form field '{form_field_name}') in {action_name} exceeds maximum size limit of "
+                f"{TRACECAT__MAX_FILE_SIZE_BYTES // 1024 // 1024}MB."
+            )
+
+        if content_type:
+            processed_httpx_files[form_field_name] = (
+                actual_filename,
+                decoded_content,
+                content_type,
+            )
+        else:
+            processed_httpx_files[form_field_name] = (actual_filename, decoded_content)
+
+    return processed_httpx_files
+
+
 @registry.register(
     namespace="core",
     description="Perform a HTTP request to a given URL.",
@@ -263,6 +363,7 @@ async def http_request(
     params: Params = None,
     payload: Payload = None,
     form_data: FormData = None,
+    files: Files = None,
     auth: Auth = None,
     timeout: Timeout = 10.0,
     follow_redirects: FollowRedirects = False,
@@ -272,6 +373,13 @@ async def http_request(
     """Perform a HTTP request to a given URL."""
 
     basic_auth = httpx.BasicAuth(**auth) if auth else None
+
+    try:
+        # Use the new _process_file_uploads function
+        httpx_files_param = _process_file_uploads(files, action_name="http_request")
+    except ValueError as e:
+        logger.error(f"File processing error in http_request: {str(e)}")
+        raise TracecatException(str(e)) from e
 
     client_cert_str = secrets.get("SSL_CLIENT_CERT")
     client_key_str = secrets.get("SSL_CLIENT_KEY")
@@ -299,6 +407,7 @@ async def http_request(
                     params=params,
                     json=payload,
                     data=form_data,
+                    files=httpx_files_param,
                 )
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -407,6 +516,8 @@ async def http_poll(
         retry=(
             retry_if_result(retry_status_code) | retry_if_result(user_defined_predicate)
         ),
+        # Reraise critical errors immediately without retrying
+        reraise=True,
     )
     async def call() -> httpx.Response:
         client_cert_str = secrets.get("SSL_CLIENT_CERT")

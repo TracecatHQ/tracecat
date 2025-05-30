@@ -1,5 +1,7 @@
 """Tests for HTTP actions."""
 
+import base64
+
 import httpx
 import pytest
 import respx
@@ -509,3 +511,176 @@ async def test_http_poll_complex_condition() -> None:
 
     assert route.call_count == 2
     assert result["headers"]["x-status"] == "completed"
+
+
+# Test file upload functionality
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_with_file_upload_simple_base64() -> None:
+    """Test HTTP request with a simple base64 string file upload."""
+    route = respx.post("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200, json={"uploaded": True})
+    )
+    file_content_bytes = b"Hello, World!"
+    base64_content = base64.b64encode(file_content_bytes).decode("utf-8")
+    form_field_name = "test_file.txt"  # This will also be the filename
+
+    result = await http_request(
+        url="https://api.example.com",
+        method="POST",
+        files={form_field_name: base64_content},
+    )
+    assert route.called
+    assert result["status_code"] == 200
+    content_type_header = route.calls.last.request.headers.get("content-type", "")
+    assert "multipart/form-data" in content_type_header
+    # TODO: Add specific checks for filename and content in multipart data if respx allows.
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_with_file_upload_dict_metadata() -> None:
+    """Test HTTP request with file upload using a dictionary with metadata."""
+    route = respx.post("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200, json={"uploaded": True})
+    )
+    file_content_bytes = b"Custom field test!"
+    base64_content = base64.b64encode(file_content_bytes).decode("utf-8")
+    form_field_name = "logUpload"
+    actual_filename = "custom_field_file.log"
+    mime_type = "text/plain"
+
+    result = await http_request(
+        url="https://api.example.com",
+        method="POST",
+        files={
+            form_field_name: {
+                "filename": actual_filename,
+                "content_base64": base64_content,
+                "content_type": mime_type,
+            }
+        },
+    )
+    assert route.called
+    assert result["status_code"] == 200
+    # TODO: Add specific checks for form_field_name, actual_filename, content, and content_type.
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_with_multiple_files_and_form_data() -> None:
+    """Test HTTP request with multiple files and additional form data."""
+    route = respx.post("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200, json={"success": True})
+    )
+
+    file1_bytes = b"Test file content 1"
+    file1_base64 = base64.b64encode(file1_bytes).decode("utf-8")
+    file2_bytes = b"Test file content 2 - CSV data,col2\nval1,val2"
+    file2_base64 = base64.b64encode(file2_bytes).decode("utf-8")
+
+    result = await http_request(
+        url="https://api.example.com",
+        method="POST",
+        form_data={"user_id": "123", "description": "Multiple files test"},
+        files={
+            "attachment1": file1_base64,  # Simple upload
+            "attachment2": {  # Upload with metadata
+                "filename": "report.csv",
+                "content_base64": file2_base64,
+                "content_type": "text/csv",
+            },
+        },
+    )
+    assert route.called
+    assert result["status_code"] == 200
+    content_type_header = route.calls.last.request.headers.get("content-type", "")
+    assert "multipart/form-data" in content_type_header
+
+
+@pytest.mark.anyio
+async def test_http_request_files_missing_content_base64_in_dict() -> None:
+    """Test HTTP request fails if 'content_base64' is missing in a file dict."""
+    with pytest.raises(
+        TracecatException, match=r"Missing 'content_base64' for form field 'data_file'"
+    ):
+        await http_request(
+            url="https://api.example.com",
+            method="POST",
+            files={"data_file": {"filename": "test.txt"}},  # Missing content_base64
+        )
+
+
+@pytest.mark.anyio
+async def test_http_request_files_invalid_form_field_name_null_byte() -> None:
+    """Test HTTP request fails if a form_field_name contains a null byte."""
+    base64_content = base64.b64encode(b"test").decode("utf-8")
+    with pytest.raises(
+        TracecatException, match=r"Invalid form_field_name.*contains null bytes"
+    ):
+        await http_request(
+            url="https://api.example.com",
+            method="POST",
+            files={"field\x00name": base64_content},
+        )
+
+
+@pytest.mark.anyio
+async def test_http_request_files_empty_form_field_name() -> None:
+    """Test HTTP request fails if a form_field_name is empty."""
+    base64_content = base64.b64encode(b"test").decode("utf-8")
+    with pytest.raises(
+        TracecatException, match=r"Invalid form_field_name.*cannot be empty"
+    ):
+        await http_request(
+            url="https://api.example.com", method="POST", files={"": base64_content}
+        )
+
+
+@pytest.mark.anyio
+async def test_http_request_with_invalid_base64_in_files() -> None:
+    """Test HTTP request with invalid base64 data in the files dictionary."""
+    with pytest.raises(
+        TracecatException, match=r"Invalid base64 data for file 'test.txt'"
+    ):
+        await http_request(
+            url="https://api.example.com",
+            method="POST",
+            files={"test.txt": "not-valid-base64!@#$"},
+        )
+
+
+@pytest.mark.anyio
+async def test_http_request_file_size_limit_in_files() -> None:
+    """Test HTTP request fails when a file in the files dict exceeds size limit."""
+    large_content_bytes = b"x" * (101 * 1024 * 1024)  # 101 MB
+    base64_content = base64.b64encode(large_content_bytes).decode("utf-8")
+
+    with pytest.raises(
+        TracecatException, match=r"File 'large_file.dat'.*exceeds maximum size limit"
+    ):
+        await http_request(
+            url="https://api.example.com",
+            method="POST",
+            files={"large_file.dat": base64_content},
+        )
+
+
+@pytest.mark.anyio
+async def test_http_request_actual_filename_null_bytes_in_files_dict() -> None:
+    """Test HTTP request fails with null bytes in actual_filename within a file dict."""
+    base64_file_content = base64.b64encode(b"Test data").decode("utf-8")
+    with pytest.raises(
+        TracecatException,
+        match=r"Invalid actual_filename.*test\x00.txt.*contains null bytes",
+    ):
+        await http_request(
+            url="https://api.example.com",
+            method="POST",
+            files={
+                "upload_field": {
+                    "filename": "test\x00.txt",
+                    "content_base64": base64_file_content,
+                }
+            },
+        )

@@ -204,3 +204,8 @@ TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
     os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES", 1024 * 1024)
 )
 """The maximum size of a payload in bytes the executor can return. Defaults to 1MB"""
+
+TRACECAT__MAX_FILE_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_FILE_SIZE_BYTES", 100 * 1024 * 1024)  # Default 100MB
+)
+"""The maximum size for file handling (e.g., uploads, downloads) in bytes. Defaults to 100MB."""
