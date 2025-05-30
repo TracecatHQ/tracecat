@@ -33,11 +33,6 @@ INTERACTION_CACHE = dc.FanoutCache(
     directory=".cache/slack_interactions", shards=8, timeout=0.05
 )  # key=thread_ts, stores tool call info for button interactions
 
-# Global cache for approved tool calls per conversation
-APPROVED_TOOLS_CACHE = dc.FanoutCache(
-    directory=".cache/slack_approved_tools", shards=8, timeout=0.05
-)  # key=thread_ts, stores list of approved tool hashes
-
 
 @dataclass
 class SlackMCPHostDeps(MCPHostDeps):
@@ -238,7 +233,6 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         model_provider: str,
         mcp_servers: list,
         model_settings: dict[str, Any] | None = None,
-        approved_tool_calls: list[str] | None = None,
     ) -> None:
         # Initialize memory
         memory = FanoutCacheMemory()
@@ -248,7 +242,6 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
             memory=memory,
             mcp_servers=mcp_servers,
             model_settings=model_settings,
-            approved_tool_calls=approved_tool_calls,
             deps_type=SlackMCPHostDeps,
         )
 
@@ -594,9 +587,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
 
         self.blocks_cache.set(deps.message_id, updated_blocks)
         
-        # Clear conversation caches
-        INTERACTION_CACHE.delete(deps.conversation_id)
-        APPROVED_TOOLS_CACHE.delete(deps.conversation_id)
+        # Note: Keeping caches persistent - will implement time-based cleanup later
 
         logger.info(
             "Posted message end",
@@ -660,9 +651,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
             },
         )
         
-        # Clear conversation caches on error
-        INTERACTION_CACHE.delete(deps.conversation_id)
-        APPROVED_TOOLS_CACHE.delete(deps.conversation_id)
+        # Note: Keeping caches persistent - will implement time-based cleanup later
 
         logger.error(
             "Posted error message",
@@ -910,12 +899,11 @@ async def _handle_tool_approval_interaction(
     # If approved, add to the approved tool calls for this agent run
     if slack_interaction_payload.action_value == "run":
         # Add the exact tool call to approved list
-        slack_host.add_approved_tool_call(tool_name, tool_args)
+        slack_host.add_approved_tool_call(deps.conversation_id, tool_name, tool_args)
         
-        # Save approved tools to cache for future runs
-        approved_tools = slack_host.get_approved_tool_calls()
-        APPROVED_TOOLS_CACHE.set(deps.conversation_id, approved_tools)
-        log.info(f"Saved {len(approved_tools)} approved tool calls to cache", 
+        # Get approved tools count for logging
+        approved_tools = slack_host.get_approved_tool_calls(deps.conversation_id)
+        log.info(f"Saved {len(approved_tools)} approved tool calls to memory", 
                 conversation_id=deps.conversation_id)
 
     log = log.bind(
@@ -1004,34 +992,11 @@ async def slackbot(
     # Parse trigger payload first to determine conversation_id
     slack_event, slack_payload = _parse_trigger_payload(trigger)
     
-    # Load approved tools from cache for this conversation
-    conversation_id = None
-    if slack_event:
-        try:
-            event_payload = SlackEventPayload.model_validate(slack_event)
-            conversation_id = event_payload.thread_ts
-        except Exception:
-            pass
-    elif slack_payload:
-        try:
-            interaction_payload = SlackInteractionPayload.model_validate(slack_payload)
-            conversation_id = interaction_payload.thread_ts
-        except Exception:
-            pass
-    
-    approved_tool_calls = None
-    if conversation_id:
-        cached_approved = APPROVED_TOOLS_CACHE.get(conversation_id)
-        if isinstance(cached_approved, list):
-            approved_tool_calls = cached_approved
-            log.info(f"Loaded {len(approved_tool_calls)} approved tool calls from cache", 
-                    conversation_id=conversation_id)
-    
+    # Note: Approved tools are now managed by the memory system automatically
     slack_host = SlackMCPHost(
         mcp_servers=[server], 
         model_name=model_name, 
         model_provider=model_provider,
-        approved_tool_calls=approved_tool_calls
     )
 
     # Handle different types of Slack events
