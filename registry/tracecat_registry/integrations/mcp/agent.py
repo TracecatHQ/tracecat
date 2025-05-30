@@ -463,6 +463,12 @@ class MCPHost(ABC, Generic[DepsT]):
                     message_id = start_message.message_id
                     # Update deps with the new message_id
                     deps.message_id = message_id
+                else:
+                    # Log when we expect to have a message_id but don't
+                    raise ValueError(
+                        f"No message_id provided and new_message=False. "
+                        f"deps={deps}, conversation_id={deps.conversation_id}"
+                    )
 
             if not deps.message_id:
                 raise ValueError("Failed to obtain a valid message_id")

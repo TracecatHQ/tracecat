@@ -33,6 +33,11 @@ INTERACTION_CACHE = dc.FanoutCache(
     directory=".cache/slack_interactions", shards=8, timeout=0.05
 )  # key=thread_ts, stores tool call info for button interactions
 
+# Global cache for approved tool calls per conversation
+APPROVED_TOOLS_CACHE = dc.FanoutCache(
+    directory=".cache/slack_approved_tools", shards=8, timeout=0.05
+)  # key=thread_ts, stores list of approved tool hashes
+
 
 @dataclass
 class SlackMCPHostDeps(MCPHostDeps):
@@ -321,6 +326,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
                     last_block["elements"][0]["text"]
                     .replace("⏳", "🆗")
                     .replace(":hourglass_flowing_sand:", ":ok:")
+                    .replace("Running tool...", "Tool run complete")
                 )
             updated_blocks[-1] = last_block
 
@@ -378,13 +384,14 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         # Generate a tool call ID for this request
         tool_call_id = str(uuid.uuid4())
 
-        # Cache the tool call info for later retrieval
+        # Cache the tool call info AND message_id for later retrieval
         INTERACTION_CACHE.set(
             deps.conversation_id,
             {
                 "tool_call_id": tool_call_id,
                 "tool_name": result.name,
                 "tool_args": result.args,
+                "message_id": deps.message_id,  # Store the message_id to continue updating it
             },
         )
 
@@ -505,14 +512,16 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
             last_block = updated_blocks[-1].copy()
             last_block.pop("block_id", None)
             if last_block.get("type") == "context":
+                # Replace emoji and update the text
                 last_block["elements"][0]["text"] = (
                     last_block["elements"][0]["text"]
                     .replace("⏳", "🆗")
                     .replace(":hourglass_flowing_sand:", ":ok:")
+                    .replace("Running tool...", "Tool run complete")
                 )
             updated_blocks[-1] = last_block
 
-        # Add view result button (tool result is already cached in base class)
+        # Always add view tool result button (no inline display)
         if result.call_id:
             updated_blocks.append(
                 {
@@ -523,7 +532,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
                             "type": "button",
                             "text": {
                                 "type": "plain_text",
-                                "text": "✅ View tool result",
+                                "text": "📄 View tool result",
                                 "emoji": True,
                             },
                             "value": result.call_id,  # Use call_id directly
@@ -584,6 +593,10 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         )
 
         self.blocks_cache.set(deps.message_id, updated_blocks)
+        
+        # Clear conversation caches
+        INTERACTION_CACHE.delete(deps.conversation_id)
+        APPROVED_TOOLS_CACHE.delete(deps.conversation_id)
 
         logger.info(
             "Posted message end",
@@ -614,6 +627,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
                     last_block["elements"][0]["text"]
                     .replace("⏳", "❌")
                     .replace(":hourglass_flowing_sand:", "x")
+                    .replace("Running tool...", "Tool failed")
                 )
                 updated_blocks[-1] = last_block
 
@@ -645,6 +659,10 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
                 "blocks": error_blocks,
             },
         )
+        
+        # Clear conversation caches on error
+        INTERACTION_CACHE.delete(deps.conversation_id)
+        APPROVED_TOOLS_CACHE.delete(deps.conversation_id)
 
         logger.error(
             "Posted error message",
@@ -852,9 +870,22 @@ async def _handle_tool_approval_interaction(
     log: Any,
 ) -> SlackHandlerResult:
     """Handle tool approval/rejection button interactions."""
+    # Get cached tool call info first to retrieve the original message_id
+    cached_value = INTERACTION_CACHE.get(slack_interaction_payload.thread_ts)
+    tool_call: dict[str, Any] | None = (
+        cached_value if isinstance(cached_value, dict) else None
+    )
+    if tool_call is None:
+        raise ValueError(
+            f"No cached tool call ID found for thread timestamp {slack_interaction_payload.thread_ts}"
+        )
+
+    # Use the cached message_id to continue updating the same message
+    original_message_id = tool_call.get("message_id", slack_interaction_payload.ts)
+    
     deps = SlackMCPHostDeps(
         conversation_id=slack_interaction_payload.thread_ts,
-        message_id=slack_interaction_payload.ts,
+        message_id=original_message_id,  # Use the original message_id from cache
         user_id=slack_interaction_payload.user_id,
         channel_id=channel_id,
     )
@@ -865,16 +896,6 @@ async def _handle_tool_approval_interaction(
         # We might want to raise an error here or return a specific response
         # to stop further processing, for now, we'll let it continue
         # but the agent will likely fail or act unpredictably.
-
-    # Get cached tool call info
-    cached_value = INTERACTION_CACHE.get(deps.conversation_id)
-    tool_call: dict[str, Any] | None = (
-        cached_value if isinstance(cached_value, dict) else None
-    )
-    if tool_call is None:
-        raise ValueError(
-            f"No cached tool call ID found for thread timestamp {deps.conversation_id}"
-        )
 
     tool_name = tool_call["tool_name"]
     tool_args = tool_call["tool_args"]
@@ -888,7 +909,14 @@ async def _handle_tool_approval_interaction(
 
     # If approved, add to the approved tool calls for this agent run
     if slack_interaction_payload.action_value == "run":
+        # Add the exact tool call to approved list
         slack_host.add_approved_tool_call(tool_name, tool_args)
+        
+        # Save approved tools to cache for future runs
+        approved_tools = slack_host.get_approved_tool_calls()
+        APPROVED_TOOLS_CACHE.set(deps.conversation_id, approved_tools)
+        log.info(f"Saved {len(approved_tools)} approved tool calls to cache", 
+                conversation_id=deps.conversation_id)
 
     log = log.bind(
         thread_ts=deps.conversation_id,
@@ -898,12 +926,18 @@ async def _handle_tool_approval_interaction(
     )
     log.info("Processing tool approval interaction")
 
+    # Clear the interaction cache after processing
+    INTERACTION_CACHE.delete(slack_interaction_payload.thread_ts)
+
     # Generate appropriate user prompt based on action
     if slack_interaction_payload.action_value == "run":
+        # Make the prompt very specific about which tool was approved
+        tool_args_str = json.dumps(tool_args, indent=2) if isinstance(tool_args, dict) else str(tool_args)
         user_prompt = (
-            "Run the previously approved tool call now. "
-            "Return the complete result in a structured format. "
-            "Summarize key findings briefly."
+            f"The user has approved the execution of the '{tool_name}' tool with these exact arguments:\n"
+            f"```json\n{tool_args_str}\n```\n"
+            f"This specific tool call has been pre-approved. Execute it now and provide the result to the user. "
+            f"Do not create a new or different tool call."
         )
     else:
         user_prompt = (
@@ -966,12 +1000,39 @@ async def slackbot(
 
     # Setup MCP server and host
     server = _setup_mcp_server(base_url, timeout)
-    slack_host = SlackMCPHost(
-        mcp_servers=[server], model_name=model_name, model_provider=model_provider
-    )
-
-    # Parse trigger payload
+    
+    # Parse trigger payload first to determine conversation_id
     slack_event, slack_payload = _parse_trigger_payload(trigger)
+    
+    # Load approved tools from cache for this conversation
+    conversation_id = None
+    if slack_event:
+        try:
+            event_payload = SlackEventPayload.model_validate(slack_event)
+            conversation_id = event_payload.thread_ts
+        except Exception:
+            pass
+    elif slack_payload:
+        try:
+            interaction_payload = SlackInteractionPayload.model_validate(slack_payload)
+            conversation_id = interaction_payload.thread_ts
+        except Exception:
+            pass
+    
+    approved_tool_calls = None
+    if conversation_id:
+        cached_approved = APPROVED_TOOLS_CACHE.get(conversation_id)
+        if isinstance(cached_approved, list):
+            approved_tool_calls = cached_approved
+            log.info(f"Loaded {len(approved_tool_calls)} approved tool calls from cache", 
+                    conversation_id=conversation_id)
+    
+    slack_host = SlackMCPHost(
+        mcp_servers=[server], 
+        model_name=model_name, 
+        model_provider=model_provider,
+        approved_tool_calls=approved_tool_calls
+    )
 
     # Handle different types of Slack events
     if slack_event is not None:
