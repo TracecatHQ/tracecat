@@ -48,7 +48,7 @@ class ScopeID(str):
 
 @dataclass(frozen=True, slots=True)
 class Task:
-    """Unique identifier for a task instance within a specific scope"""
+    """Task instance"""
 
     ref: str
     scope_id: ScopeID | None = None  # None for global scope
@@ -57,8 +57,14 @@ class Task:
 @dataclass(frozen=True, slots=True)
 class DSLEdge:
     src: str
+    """The source task reference"""
     dst: str
+    """The destination task reference"""
     type: EdgeType
+    """The edge type"""
+
+    scope_id: ScopeID | None = None  # None for global scope
+    """The scope ID of the edge"""
 
     def __repr__(self) -> str:
         return f"{self.src}-[{self.type.value}]->{self.dst}"
@@ -79,16 +85,21 @@ class DSLScheduler:
         skip_strategy: SkipStrategy = SkipStrategy.PROPAGATE,
         context: ExecutionContext,
     ):
+        # Static
         self.dsl = dsl
         self.context = context
         self.executor = executor
         self.skip_strategy = skip_strategy
         self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
-
-        # Const: Definitions
         self.tasks: dict[str, ActionStatement] = {}
+        """Task definitions"""
+        self.adj: dict[str, set[AdjDst]] = defaultdict(set)
+        """Adjacency list of task dependencies"""
+
+        # Dynamic: Handle instances
         # Mut: Queue is used to schedule tasks
         self.queue: asyncio.Queue[Task] = asyncio.Queue()
+
         # Mut: Use to
         self.indegrees: dict[Task, int] = {}
         # Mut
@@ -98,8 +109,6 @@ class DSLScheduler:
         self.edges: dict[DSLEdge, EdgeMarker] = defaultdict(lambda: EdgeMarker.PENDING)
         # Mut
         self.task_exceptions: dict[str, TaskExceptionInfo] = {}
-        # Const. Map task ref to its dependencies
-        self.adj: dict[str, set[AdjDst]] = defaultdict(set)
 
         for task in dsl.actions:
             self.tasks[task.ref] = task
@@ -136,18 +145,20 @@ class DSLScheduler:
     def __repr__(self) -> str:
         return to_json(self.__dict__, fallback=str, indent=2).decode()
 
-    async def _handle_error_path(self, ref: str, exc: Exception) -> None:
+    async def _handle_error_path(self, task: Task, exc: Exception) -> None:
+        ref = task.ref
         self.logger.debug(
             "Handling error path", ref=ref, type=exc.__class__.__name__, exc=exc
         )
         # Prune any non-error paths and queue the rest
         non_err_edges: set[DSLEdge] = {
-            DSLEdge(src=ref, dst=dst, type=edge_type)
+            DSLEdge(src=ref, dst=dst, type=edge_type, scope_id=task.scope_id)
             for dst, edge_type in self.adj[ref]
             if edge_type != EdgeType.ERROR
         }
+        """These are outgoing edges that are not error edges."""
         if len(non_err_edges) < len(self.adj[ref]):
-            await self._queue_tasks(ref, unreachable=non_err_edges)
+            await self._queue_tasks(task, unreachable=non_err_edges)
         else:
             self.logger.info("Task failed with no error paths", ref=ref)
             # XXX: This can sometimes return null because the exception isn't an ApplicationError
@@ -264,27 +275,29 @@ class DSLScheduler:
                 exception=exc, details=details
             )
 
-    async def _handle_success_path(self, ref: str) -> None:
+    async def _handle_success_path(self, task: Task) -> None:
+        ref = task.ref
         self.logger.debug("Handling success path", ref=ref)
         # Prune any non-success paths and queue the rest
-        non_ok_edges: set[DSLEdge] = {
-            DSLEdge(src=ref, dst=dst, type=edge_type)
+        non_ok_edges = {
+            DSLEdge(src=ref, dst=dst, type=edge_type, scope_id=task.scope_id)
             for dst, edge_type in self.adj[ref]
             if edge_type != EdgeType.SUCCESS
         }
-        await self._queue_tasks(ref, unreachable=non_ok_edges)
+        await self._queue_tasks(task, unreachable=non_ok_edges)
 
-    async def _handle_skip_path(self, task_ref: str) -> None:
+    async def _handle_skip_path(self, task: Task) -> None:
+        ref = task.ref
         self.logger.debug("Handling skip path")
         # If we skip a task, we need to mark all its outgoing edges as skipped
-        all_edges: set[DSLEdge] = {
-            DSLEdge(src=task_ref, dst=dst, type=edge_type)
-            for dst, edge_type in self.adj[task_ref]
+        all_edges = {
+            DSLEdge(src=ref, dst=dst, type=edge_type, scope_id=task.scope_id)
+            for dst, edge_type in self.adj[ref]
         }
-        await self._queue_tasks(task_ref, unreachable=all_edges)
+        await self._queue_tasks(task, unreachable=all_edges)
 
     async def _queue_tasks(
-        self, ref: str, unreachable: set[DSLEdge] | None = None
+        self, task: Task, unreachable: set[DSLEdge] | None = None
     ) -> None:
         """Queue the next tasks that are ready to run."""
         # Update child indegrees
@@ -301,6 +314,8 @@ class DSLScheduler:
 
         # This allows us to have diamond-shaped graphs where some branches can be skipped
         # but at the join point, if any parent was not skipped, then the child can still be executed.
+        ref = task.ref
+        scope_id = task.scope_id
         next_tasks = self.adj[ref]
         self.logger.warning(
             "Queueing tasks",
@@ -313,16 +328,22 @@ class DSLScheduler:
         async with asyncio.TaskGroup() as tg:
             for next_ref, edge_type in next_tasks:
                 self.logger.debug("Processing next task", ref=ref, next_ref=next_ref)
-                edge = DSLEdge(src=ref, dst=next_ref, type=edge_type)
+                edge = DSLEdge(src=ref, dst=next_ref, type=edge_type, scope_id=scope_id)
                 if unreachable and edge in unreachable:
                     self._mark_edge(edge, EdgeMarker.SKIPPED)
                 else:
                     self._mark_edge(edge, EdgeMarker.VISITED)
                 # Mark the edge as processed
-                next_task = Task(next_ref)
+                # Task inherits the current scope
+                next_task = Task(next_ref, task.scope_id)
+                # We dynamically add the indegree of the next task to the indegrees dict
+                if next_task not in self.indegrees:
+                    self.indegrees[next_task] = len(self.tasks[next_ref].depends_on)
                 self.indegrees[next_task] -= 1
                 self.logger.debug(
-                    "Indegree", next_ref=next_ref, indegree=self.indegrees[next_task]
+                    "Indegree",
+                    next_task=next_task,
+                    indegree=self.indegrees[next_task],
                 )
                 if self.indegrees[next_task] == 0:
                     # Schedule the next task
@@ -344,21 +365,21 @@ class DSLScheduler:
         self.logger.warning("Scheduling task", task=task)
         try:
             # 1) Skip propagation (force-skip) takes highest precedence over reachability
-            if self._skip_should_propagate(task_defn):
-                self.logger.info("Task should be force-skipped, propagating", ref=ref)
-                return await self._handle_skip_path(ref)
+            if self._skip_should_propagate(task):
+                self.logger.info("Task should be force-skipped, propagating", task=task)
+                return await self._handle_skip_path(task)
 
             # 2) Then we check if the task is reachable - i.e. do we have
             # enough successful paths to reach this task?
-            if not self._is_reachable(task_defn):
-                self.logger.info("Task cannot proceed, unreachable", ref=ref)
+            if not self._is_reachable(task):
+                self.logger.info("Task cannot proceed, unreachable", task=task)
                 raise TaskUnreachable(f"Task {task} is unreachable")
 
             # 3) At this point the task is reachable and not force-skipped.
             # Check if the task should self-skip based on its `run_if` condition
             if self._task_should_skip(task_defn):
                 self.logger.info("Task should self-skip", ref=ref)
-                return await self._handle_skip_path(ref)
+                return await self._handle_skip_path(task)
 
             # 4) If we made it here, the task is reachable and not force-skipped.
 
@@ -378,14 +399,14 @@ class DSLScheduler:
             # exceptions set will cause the workflow to fail.
             await self.executor(task_defn)
             # NOTE: Moved this here to handle single success path
-            await self._handle_success_path(ref)
+            await self._handle_success_path(task)
         except Exception as e:
             kind = e.__class__.__name__
             non_retryable = getattr(e, "non_retryable", True)
             self.logger.warning(
                 f"{kind} in DSLScheduler", ref=ref, error=e, non_retryable=non_retryable
             )
-            await self._handle_error_path(ref, e)
+            await self._handle_error_path(task, e)
         finally:
             # 5) Regardless of the outcome, the task is now complete
             self.logger.info("Task completed", task=task)
@@ -455,7 +476,7 @@ class DSLScheduler:
         )
         return None
 
-    def _is_reachable(self, task: ActionStatement) -> bool:
+    def _is_reachable(self, task: Task) -> bool:
         """Check whether a task is reachable based on its dependencies' outcomes.
 
         Args:
@@ -469,7 +490,8 @@ class DSLScheduler:
         """
 
         logger.debug("Check task reachability", task=task, marked_edges=self.edges)
-        n_deps = len(task.depends_on)
+        defn = self.tasks[task.ref]
+        n_deps = len(defn.depends_on)
         if n_deps == 0:
             # Root nodes are always reachable
             return True
@@ -477,31 +499,41 @@ class DSLScheduler:
             logger.debug("Task has only 1 dependency", task=task)
             # If there's only 1 dependency, the node is reachable only if the
             # dependency was successful ignoring the join strategy.
-            dep_ref = task.depends_on[0]
-            return self._edge_has_marker(dep_ref, task.ref, EdgeMarker.VISITED)
+            dep_ref = defn.depends_on[0]
+            return self._edge_has_marker(
+                dep_ref, task.ref, EdgeMarker.VISITED, task.scope_id
+            )
         else:
             # If there's more than 1 dependency, the node is reachable depending
             # on the join strategy
             n_success_paths = sum(
-                self._edge_has_marker(dep_ref, task.ref, EdgeMarker.VISITED)
-                for dep_ref in task.depends_on
+                self._edge_has_marker(
+                    dep_ref, task.ref, EdgeMarker.VISITED, task.scope_id
+                )
+                for dep_ref in defn.depends_on
             )
-            if task.join_strategy == JoinStrategy.ANY:
+            if defn.join_strategy == JoinStrategy.ANY:
                 return n_success_paths > 0
-            if task.join_strategy == JoinStrategy.ALL:
+            if defn.join_strategy == JoinStrategy.ALL:
                 return n_success_paths == n_deps
-            raise ValueError(f"Invalid join strategy: {task.join_strategy}")
+            raise ValueError(f"Invalid join strategy: {defn.join_strategy}")
 
     def _edge_has_marker(
-        self, src_ref_path: str, dst_ref: str, marker: EdgeMarker
+        self,
+        src_ref_path: str,
+        dst_ref: str,
+        marker: EdgeMarker,
+        scope_id: ScopeID | None = None,
     ) -> bool:
-        edge = self._get_edge_by_refs(src_ref_path, dst_ref)
+        edge = self._get_edge_by_refs(src_ref_path, dst_ref, scope_id)
         return self.edges[edge] == marker
 
     def _get_edge_components(self, ref_path: str) -> AdjDst:
         return edge_components_from_dep(ref_path)
 
-    def _get_edge_by_refs(self, src_ref_path: str, dst_ref: str) -> DSLEdge:
+    def _get_edge_by_refs(
+        self, src_ref_path: str, dst_ref: str, scope_id: ScopeID | None = None
+    ) -> DSLEdge:
         """Get an edge by its source and destination references.
 
         Args:
@@ -512,13 +544,13 @@ class DSLScheduler:
             The edge
         """
         base_src_ref, edge_type = self._get_edge_components(src_ref_path)
-        return DSLEdge(src=base_src_ref, dst=dst_ref, type=edge_type)
+        return DSLEdge(src=base_src_ref, dst=dst_ref, type=edge_type, scope_id=scope_id)
 
     def _mark_edge(self, edge: DSLEdge, marker: EdgeMarker) -> None:
         logger.debug("Marking edge", edge=edge, marker=marker)
         self.edges[edge] = marker
 
-    def _skip_should_propagate(self, task: ActionStatement) -> bool:
+    def _skip_should_propagate(self, task: Task) -> bool:
         """Check if a task's skip should propagate to its dependents.
 
         Args:
@@ -529,11 +561,11 @@ class DSLScheduler:
         """
         # If all of a task's dependencies are skipped, then the task should be skipped
         # regardless of its `run_if` condition.
-        deps = task.depends_on
+        deps = self.tasks[task.ref].depends_on
         if not deps:
             return False
         return all(
-            self._edge_has_marker(dep_ref, task.ref, EdgeMarker.SKIPPED)
+            self._edge_has_marker(dep_ref, task.ref, EdgeMarker.SKIPPED, task.scope_id)
             for dep_ref in deps
         )
 
@@ -548,6 +580,7 @@ class DSLScheduler:
         """
         # Evaluate the `run_if` condition
         if task.run_if is not None:
+            # TODO: WE NEED TO HANDLE SCOPE-AWARE EXPRESSIONS HERE
             expr = TemplateExpression(task.run_if, operand=self.context)
             self.logger.debug("`run_if` condition", task_run_if=task.run_if)
             if not bool(expr.result()):
@@ -588,7 +621,7 @@ class DSLScheduler:
         if not boundary:
             self.logger.warning("No scope boundary found for explode", ref=ref)
             # Fall back to legacy behavior for now
-            await self._handle_success_path(ref)
+            # await self._handle_success_path(ref)
             return
 
         scopes: list[ScopeID] = []
@@ -646,7 +679,7 @@ class DSLScheduler:
             self.logger.warning("Implode without corresponding explode", ref=task.ref)
             # Execute normally
             await self.executor(task)
-            await self._handle_success_path(task.ref)
+            # await self._handle_success_path(task.ref)
             return
 
         exploded_scopes = self.explode_contexts.get(explode_ref, [])
@@ -654,7 +687,7 @@ class DSLScheduler:
         # For now, just execute the implode task normally
         # TODO: Check if all exploded instances are complete and collect results
         await self.executor(task)
-        await self._handle_success_path(task.ref)
+        # await self._handle_success_path(task.ref)
 
         self.logger.info(
             "Implode completed",
