@@ -9,8 +9,18 @@ from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
 from tracecat.contexts import ctx_logger
-from tracecat.dsl.common import AdjDst, DSLEdge, DSLInput, edge_components_from_dep
-from tracecat.dsl.enums import EdgeMarker, EdgeType, JoinStrategy, SkipStrategy
+from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
+from tracecat.dsl.control_flow import (
+    ExplodeArgs,
+    ScopeAnalyzer,
+)
+from tracecat.dsl.enums import (
+    EdgeMarker,
+    EdgeType,
+    JoinStrategy,
+    PlatformAction,
+    SkipStrategy,
+)
 from tracecat.dsl.models import (
     ActionErrorInfo,
     ActionStatement,
@@ -44,8 +54,18 @@ class Task:
     scope_id: ScopeID | None = None  # None for global scope
 
 
+@dataclass(frozen=True, slots=True)
+class DSLEdge:
+    src: str
+    dst: str
+    type: EdgeType
+
+    def __repr__(self) -> str:
+        return f"{self.src}-[{self.type.value}]->{self.dst}"
+
+
 class DSLScheduler:
-    """Manage only scheduling of tasks in a topological-like order."""
+    """Manage only scheduling and control flow of tasks in a topological-like order."""
 
     _queue_wait_timeout = 1
     skip_strategy: SkipStrategy
@@ -64,14 +84,21 @@ class DSLScheduler:
         self.executor = executor
         self.skip_strategy = skip_strategy
         self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
-        self.tasks: dict[str, ActionStatement] = {}
-        """Graph connectivity information."""
-        self.queue: asyncio.Queue[Task] = asyncio.Queue()
-        self.indegrees: dict[Task, int] = {}
-        self.completed_tasks: set[Task] = set()
-        self.edges: dict[DSLEdge, EdgeMarker] = defaultdict(lambda: EdgeMarker.PENDING)
-        self.task_exceptions: dict[str, TaskExceptionInfo] = {}
 
+        # Const: Definitions
+        self.tasks: dict[str, ActionStatement] = {}
+        # Mut: Queue is used to schedule tasks
+        self.queue: asyncio.Queue[Task] = asyncio.Queue()
+        # Mut: Use to
+        self.indegrees: dict[Task, int] = {}
+        # Mut
+        self.completed_tasks: set[Task] = set()
+        # Mut: This tracks the state of edges between tasks
+        # This is no longer correct because we now have multiple edges between tasks
+        self.edges: dict[DSLEdge, EdgeMarker] = defaultdict(lambda: EdgeMarker.PENDING)
+        # Mut
+        self.task_exceptions: dict[str, TaskExceptionInfo] = {}
+        # Const. Map task ref to its dependencies
         self.adj: dict[str, set[AdjDst]] = defaultdict(set)
 
         for task in dsl.actions:
@@ -82,13 +109,32 @@ class DSLScheduler:
                 src_ref, edge_type = self._get_edge_components(dep_ref)
                 self.adj[src_ref].add((task.ref, edge_type))
 
-        self.logger.debug(
+        # Scope management
+        self.scopes: dict[ScopeID, dict[str, Any]] = {}
+        self.scope_hierarchy: dict[ScopeID, ScopeID | None] = {}
+        self.explode_contexts: dict[str, list[ScopeID]] = {}  # explode_ref -> scope_ids
+
+        # Discover scope boundaries
+        self.scope_boundaries = ScopeAnalyzer(dsl).discover_scope_boundaries()
+
+        # Pre-compute which tasks need scoping
+        self.scoped_tasks = set()
+        for boundary in self.scope_boundaries.values():
+            self.scoped_tasks.update(boundary.scoped_tasks)
+
+        self.logger.warning(
             "Scheduler config",
+            scope_boundaries=self.scope_boundaries,
+            scoped_tasks=self.scoped_tasks,
             adj=self.adj,
             indegrees=self.indegrees,
             tasks=self.tasks,
             edges=self.edges,
+            scheduler=self,
         )
+
+    def __repr__(self) -> str:
+        return to_json(self.__dict__, fallback=str, indent=2).decode()
 
     async def _handle_error_path(self, ref: str, exc: Exception) -> None:
         self.logger.debug(
@@ -256,7 +302,7 @@ class DSLScheduler:
         # This allows us to have diamond-shaped graphs where some branches can be skipped
         # but at the join point, if any parent was not skipped, then the child can still be executed.
         next_tasks = self.adj[ref]
-        self.logger.debug(
+        self.logger.warning(
             "Queueing tasks",
             ref=ref,
             marked_edges=self.edges,
@@ -295,6 +341,7 @@ class DSLScheduler:
         """Schedule a task for execution."""
         ref = task.ref
         task_defn = self.tasks[ref]
+        self.logger.warning("Scheduling task", task=task)
         try:
             # 1) Skip propagation (force-skip) takes highest precedence over reachability
             if self._skip_should_propagate(task_defn):
@@ -314,7 +361,18 @@ class DSLScheduler:
                 return await self._handle_skip_path(ref)
 
             # 4) If we made it here, the task is reachable and not force-skipped.
-            # Time to execute the task!
+
+            # -- If this is a control flow action (explode/implode), we need to
+            # handle it differently.
+            if task_defn.action == PlatformAction.TRANSFORM_EXPLODE:
+                # Handle explode with proper scope creation
+                return await self._handle_explode(task_defn)
+
+            if task_defn.action == PlatformAction.TRANSFORM_IMPLODE:
+                # Handle implode with synchronization
+                return await self._handle_implode(task_defn)
+
+            # -- Otherwise, time to execute the task!
             # NOTE: If an exception is thrown from this coroutine, it signals that
             # the task failed after all attempts. Adding the exception to the task
             # exceptions set will cause the workflow to fail.
@@ -345,7 +403,8 @@ class DSLScheduler:
 
         while not self.task_exceptions and (
             not self.queue.empty()
-            or len(self.completed_tasks) < len(self.tasks)
+            # NOTE: I'm unsure if this will still hold, as task cardinality is no longer constant
+            # or len(self.completed_tasks) < len(self.tasks)
             or pending_tasks
         ):
             self.logger.debug(
@@ -375,6 +434,7 @@ class DSLScheduler:
                 exceptions=self.task_exceptions,
                 n_visited=len(self.completed_tasks),
                 n_tasks=len(self.tasks),
+                scheduler=self,
             )
             # Cancel all pending tasks and wait for them to complete
             for task in pending_tasks:
@@ -494,3 +554,118 @@ class DSLScheduler:
                 self.logger.info("Task `run_if` condition was not met, skipped")
                 return True
         return False
+
+    async def _handle_explode(self, task_defn: ActionStatement) -> None:
+        """
+        Handle explode action with proper scope creation.
+
+        When exploding a collection, len(collection) scopes are created.
+        Each scope has a unique scope ID and contains a single item from the collection.
+
+        The tasks in each scope are queued in the order of the collection.
+
+        The tasks in each scope are executed in the order of the collection.
+
+        """
+        ref = task_defn.ref
+        self.logger.info("EXPLODE", ref=ref)
+
+        args = ExplodeArgs(**task_defn.args)
+        collection = TemplateExpression(args.collection, operand=self.context).result()
+
+        if not isinstance(collection, list):
+            raise ApplicationError("Collection is not a list", non_retryable=True)
+
+        if not collection:
+            # TODO: proper handling
+            self.logger.warning("Empty collection for explode", ref=ref)
+            # Handle empty collection - mark explode as completed and continue
+            # await self._handle_success_path(ref)
+            return
+
+        # Get scope boundary information
+        boundary = self.scope_boundaries.get(ref)
+        if not boundary:
+            self.logger.warning("No scope boundary found for explode", ref=ref)
+            # Fall back to legacy behavior for now
+            await self._handle_success_path(ref)
+            return
+
+        scopes: list[ScopeID] = []
+
+        # Create scope for each collection item
+        for i, item in enumerate(collection):
+            scope_id = ScopeID.new(ref, i)
+            self.logger.info("Creating scope", scope_id=scope_id, item=item)
+            scopes.append(scope_id)
+
+            # Initialize scope with iterator variable
+            self.scopes[scope_id] = {args.to: item}
+            # NOTE: We probably want to manage this with a contextvar
+            # so we can stack this meaningfully
+            self.scope_hierarchy[scope_id] = None  # Global scope parent
+
+            # Create tasks for all tasks in this scope
+            for ref in boundary.scoped_tasks:
+                task_defn = self.tasks[ref]
+                task = Task(ref, scope_id)
+                # Calculate scope-aware indegrees (same as original for now)
+                self.indegrees[task] = len(task_defn.depends_on)
+
+        # Track explode context for implode synchronization
+        self.explode_contexts[ref] = scopes
+
+        # Queue initial tasks in each scope
+        self.logger.warning("Queueing initial tasks", ref=ref, scopes=scopes)
+        for scope_id in scopes:
+            # Find tasks that should be queued (those with no dependencies within scope)
+            for task_ref in boundary.scoped_tasks:
+                task = Task(task_ref, scope_id)
+                if self.indegrees.get(task, 0) == 0:
+                    # Queue this task instance (for now, just queue the task ref)
+                    self.queue.put_nowait(task)
+
+        self.logger.warning(
+            "Explode completed",
+            ref=ref,
+            collection_size=len(collection),
+            scopes_created=len(scopes),
+            scheduler=self,
+        )
+
+    async def _handle_implode(self, task: ActionStatement) -> None:
+        """Handle implode with proper synchronization"""
+        self.logger.info("IMPLODE", ref=task.ref)
+
+        # For now, implement a basic implode that just executes the task
+        # TODO: Add proper result collection from exploded scopes
+
+        # Find the corresponding explode operation
+        explode_ref = self._find_upstream_explode(task.ref)
+        if not explode_ref:
+            self.logger.warning("Implode without corresponding explode", ref=task.ref)
+            # Execute normally
+            await self.executor(task)
+            await self._handle_success_path(task.ref)
+            return
+
+        exploded_scopes = self.explode_contexts.get(explode_ref, [])
+
+        # For now, just execute the implode task normally
+        # TODO: Check if all exploded instances are complete and collect results
+        await self.executor(task)
+        await self._handle_success_path(task.ref)
+
+        self.logger.info(
+            "Implode completed",
+            ref=task.ref,
+            explode_ref=explode_ref,
+            scopes_processed=len(exploded_scopes),
+        )
+
+    def _find_upstream_explode(self, task_ref: str) -> str | None:
+        """Find the explode task that feeds into this task"""
+        for explode_ref, boundary in self.scope_boundaries.items():
+            if boundary.implode_ref == task_ref:
+                return explode_ref
+        return None
