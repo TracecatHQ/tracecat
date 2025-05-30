@@ -62,6 +62,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Deno
+        uses: denoland/setup-deno@v2.0.3
+        with:
+          cache: true
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
