@@ -68,7 +68,7 @@ class DSLScheduler:
         """Graph connectivity information."""
         self.queue: asyncio.Queue[Task] = asyncio.Queue()
         self.indegrees: dict[Task, int] = {}
-        self.completed_tasks: set[str] = set()
+        self.completed_tasks: set[Task] = set()
         self.edges: dict[DSLEdge, EdgeMarker] = defaultdict(lambda: EdgeMarker.PENDING)
         self.task_exceptions: dict[str, TaskExceptionInfo] = {}
 
@@ -331,7 +331,7 @@ class DSLScheduler:
         finally:
             # 5) Regardless of the outcome, the task is now complete
             self.logger.info("Task completed", task=task)
-            self.completed_tasks.add(ref)
+            self.completed_tasks.add(task)
 
     async def start(self) -> dict[str, TaskExceptionInfo] | None:
         """Run the scheduler and return any exceptions that occurred."""
