@@ -71,7 +71,7 @@ class FanoutCacheMemory(ShortTermMemory):
     def __init__(
         self, directory: str = ".cache/messages", shards: int = 8, timeout: float = 0.05
     ):
-        self.cache = dc.FanoutCache(directory=directory, shards=shards, timeout=timeout)
+        self.cache = dc.FanoutCache(directory=directory, shards=shards, timeout=timeout, expire=21600)
 
     def get_messages(self, conversation_id: str) -> list[ModelMessage]:
         """Get the message history for a conversation."""

@@ -30,7 +30,7 @@ from tracecat_registry.integrations.pydantic_ai import PYDANTIC_AI_REGISTRY_SECR
 
 # Global cache for Slack UI state (button interactions)
 INTERACTION_CACHE = dc.FanoutCache(
-    directory=".cache/slack_interactions", shards=8, timeout=0.05
+    directory=".cache/slack_interactions", shards=8, timeout=0.05, expire=21600
 )  # key=thread_ts, stores tool call info for button interactions
 
 
@@ -247,7 +247,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
 
         # Slack-specific caches
         self.blocks_cache = dc.FanoutCache(
-            directory=".cache/blocks", shards=8, timeout=0.05
+            directory=".cache/blocks", shards=8, timeout=0.05, expire=21600
         )  # key=ts
 
     async def post_message_start(self, deps: SlackMCPHostDeps) -> MessageStartResult:
