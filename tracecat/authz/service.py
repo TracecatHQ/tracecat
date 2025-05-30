@@ -46,13 +46,26 @@ class MembershipService(BaseService):
         result = await self.session.exec(statement)
         return result.first()
 
+    async def list_user_memberships(self, user_id: UserID) -> Sequence[Membership]:
+        """List all workspace memberships for a specific user.
+
+        This is used by the authorization middleware to cache user permissions.
+        """
+        statement = select(Membership).where(Membership.user_id == user_id)
+        result = await self.session.exec(statement)
+        return result.all()
+
     @require_workspace_role(WorkspaceRole.ADMIN)
     async def create_membership(
         self,
         workspace_id: WorkspaceID,
         params: WorkspaceMembershipCreate,
     ) -> None:
-        """Create a workspace membership."""
+        """Create a workspace membership.
+
+        Note: The authorization cache is request-scoped, so changes will be
+        reflected in subsequent requests automatically.
+        """
         membership = Membership(
             user_id=params.user_id,
             workspace_id=workspace_id,
@@ -65,7 +78,11 @@ class MembershipService(BaseService):
     async def update_membership(
         self, membership: Membership, params: WorkspaceMembershipUpdate
     ) -> None:
-        """Update a workspace membership."""
+        """Update a workspace membership.
+
+        Note: The authorization cache is request-scoped, so changes will be
+        reflected in subsequent requests automatically.
+        """
         for key, value in params.model_dump(exclude_unset=True).items():
             setattr(membership, key, value)
         self.session.add(membership)
@@ -75,7 +92,11 @@ class MembershipService(BaseService):
     async def delete_membership(
         self, workspace_id: WorkspaceID, user_id: UserID
     ) -> None:
-        """Delete a workspace membership."""
+        """Delete a workspace membership.
+
+        Note: The authorization cache is request-scoped, so changes will be
+        reflected in subsequent requests automatically.
+        """
         if membership := await self.get_membership(workspace_id, user_id):
             await self.session.delete(membership)
             await self.session.commit()
