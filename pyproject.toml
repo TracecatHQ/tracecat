@@ -119,6 +119,7 @@ log_level = "ERROR"
 log_cli = true
 log_cli_level = "ERROR"
 markers = [
+    "anyio: marks tests as requiring the anyio pytest plugin",
     "webtest: marks tests that require the web",
     "slow: marks tests as slow",
     "dbtest: marks tests that make database calls",
