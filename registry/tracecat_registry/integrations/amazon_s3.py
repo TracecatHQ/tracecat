@@ -2,11 +2,14 @@
 
 import re
 from typing import Annotated
+import base64
+import binascii
 
 from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry
 from tracecat_registry.integrations.aws_boto3 import get_session
+from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES
 
 # Add this at the top with other constants
 BUCKET_REGEX = re.compile(r"^[a-z0-9][a-z0-9.-]*[a-z0-9]$")
@@ -81,3 +84,48 @@ async def download_object(
             return body.decode("utf-8")
         else:
             raise ValueError(f"Unexpected body type. Expected bytes, got {type(body)}")
+
+
+@registry.register(
+    default_title="Put object",
+    description="Put an object to S3.",
+    display_group="Amazon S3",
+    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.put_object",
+    namespace="tools.amazon_s3",
+    secrets=[s3_secret],
+)
+async def upload_object(
+    bucket: Annotated[str, Field(..., description="S3 bucket name.")],
+    key: Annotated[str, Field(..., description="S3 object key.")],
+    file_data: Annotated[
+        str, Field(..., description="Base64 encoded content of the file to upload.")
+    ],
+) -> None:
+    """Uploads an object to S3. The object key is validated and content decoded.
+
+    Args:
+        bucket: S3 bucket name.
+        key: S3 object key. Will be validated for null bytes.
+        file_data: Base64 encoded string of the file content.
+    Raises:
+        ValueError: If key is invalid, file_data is not valid base64, or file exceeds size limit.
+    """
+    if not key or "\x00" in key:
+        raise ValueError(
+            f"Invalid S3 object key '{key}': cannot be empty or contain null bytes."
+        )
+
+    try:
+        content_bytes = base64.b64decode(file_data, validate=True)
+    except binascii.Error as e:
+        raise ValueError(f"Invalid base64 data for S3 object '{key}': {str(e)}") from e
+
+    if len(content_bytes) > TRACECAT__MAX_FILE_SIZE_BYTES:
+        raise ValueError(
+            f"S3 object '{key}' exceeds maximum size limit of "
+            f"{TRACECAT__MAX_FILE_SIZE_BYTES // 1024 // 1024}MB."
+        )
+
+    session = await get_session()
+    async with session.client("s3") as s3_client:
+        await s3_client.put_object(Bucket=bucket, Key=key, Body=content_bytes)
