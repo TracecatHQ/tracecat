@@ -536,7 +536,7 @@ async def http_request(
     try:
         # Process and validate file uploads
         httpx_files_param = _process_file_uploads(files, action_name="http_request")
-    except ValueError as e:
+    except (ValueError, TypeError) as e:
         logger.error(f"File processing error in http_request: {str(e)}")
         raise TracecatException(str(e)) from e
 
