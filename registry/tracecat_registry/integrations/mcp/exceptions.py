@@ -2,6 +2,14 @@ import json
 import dataclasses
 
 
+class ConversationNotFoundError(RuntimeError):
+    """Error raised when the agent run fails because of a conversation not found in memory."""
+
+    def __init__(self, deps: object):
+        self.deps = deps
+        super().__init__(f"Conversation not found in memory: {deps}")
+
+
 class AgentRunError(RuntimeError):
     """Error raised when the agent run fails."""
 

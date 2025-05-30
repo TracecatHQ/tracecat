@@ -653,7 +653,38 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
 
         return self
 
-    async def handle_view_result_modal(self, payload: SlackInteractionPayload) -> None:
+    async def post_memory_miss(self, deps: SlackMCPHostDeps) -> Self:
+        """Post a message to Slack if memory cache is missed."""
+        msg = (
+            "⚠️ Past conversation expired or not found. "
+            "Please start a new conversation in a different thread."
+        )
+        error_blocks = [
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": msg}],
+            }
+        ]
+
+        await call_method(
+            "chat_postMessage",
+            params={
+                "channel": deps.channel_id,
+                "thread_ts": deps.conversation_id,
+                "blocks": error_blocks,
+            },
+        )
+
+        logger.warning(
+            "Posted memory miss message",
+            thread_ts=deps.conversation_id,
+            ts=deps.message_id,
+        )
+        return self
+
+    async def handle_view_result_modal(
+        self, payload: SlackInteractionPayload, deps: SlackMCPHostDeps
+    ) -> None:
         """Handle opening a modal to display tool results."""
         # For view_result actions, the value is the call_id
         call_id = payload.result_id  # This is actually the call_id now
@@ -669,10 +700,17 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         # Load result from base class cache using call_id
         tool_result = self.get_tool_result(call_id)
         if tool_result is None:
-            tool_result = "Unable to retrieve tool result from cache."
-        else:
-            tool_result = str(tool_result)
+            # Tool result not found in cache, post memory miss message and exit
+            await self.post_memory_miss(deps)
+            logger.warning(
+                "Tool result cache miss for modal view.",
+                thread_ts=deps.conversation_id,
+                call_id=call_id,
+                tool_call_id=tool_call_id,
+            )
+            raise ValueError(f"Tool result not found in cache")
 
+        tool_result = str(tool_result)
         # Open modal with the tool result
         await self._open_tool_result_modal(
             trigger_id=trigger_id,
@@ -796,7 +834,7 @@ async def _handle_view_result_interaction(
     )
     log.info("Processing view_result interaction")
 
-    await slack_host.handle_view_result_modal(slack_interaction_payload)
+    await slack_host.handle_view_result_modal(slack_interaction_payload, deps)
 
     return SlackViewResultResponse(
         thread_ts=deps.conversation_id,
@@ -820,6 +858,11 @@ async def _handle_tool_approval_interaction(
     )
 
     message_history = slack_host.memory.get_messages(deps.conversation_id)
+    if not message_history:
+        await slack_host.post_memory_miss(deps)
+        # We might want to raise an error here or return a specific response
+        # to stop further processing, for now, we'll let it continue
+        # but the agent will likely fail or act unpredictably.
 
     # Get cached tool call info
     cached_value = INTERACTION_CACHE.get(deps.conversation_id)
