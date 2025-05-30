@@ -115,7 +115,7 @@ Perform an HTTP request to a given URL.
     - The value can be:
         1.  A simple **base64 encoded string** representing the file content. In this case, the `form_field_name` will also be used as the filename in the `Content-Disposition` header.
         2.  A **dictionary (`FileUploadData`)** with the following keys:
-            - `filename` (str, required): The actual filename to be sent in the `Content-Disposition` header (e.g., `"mydocument.pdf"`). If not provided or empty, the `form_field_name` will be used.
++            - `filename` (str): The actual filename to be sent in the `Content-Disposition` header (e.g., `"mydocument.pdf"`). If not provided or empty, the `form_field_name` will be used.
             - `content_base64` (str, required): The base64 encoded string of the file content.
             - `content_type` (str, optional): The MIME type of the file (e.g., `"application/pdf"`, `"image/png"`). If not provided, `httpx` will attempt to guess it.
 - `auth` (dict[str, str], optional): Basic auth credentials with `username` and `password` keys.
