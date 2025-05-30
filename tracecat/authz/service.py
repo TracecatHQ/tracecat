@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from async_lru import alru_cache
 from sqlmodel import select
 
 from tracecat.authz.controls import require_workspace_role
@@ -13,6 +14,35 @@ from tracecat.workspaces.models import (
     WorkspaceMembershipCreate,
     WorkspaceMembershipUpdate,
 )
+
+
+# Simple cache for membership lookups - 5 minute TTL
+@alru_cache(ttl=300, maxsize=1024)
+async def _get_membership_cached(
+    workspace_id: str, user_id: str
+) -> tuple[bool, WorkspaceRole | None]:
+    """Cache membership lookups to avoid repeated database queries.
+
+    Args:
+        workspace_id: The workspace ID as a string
+        user_id: The user ID as a string
+
+    Returns:
+        tuple: (exists, role) where exists is True if membership exists
+    """
+    # Import here to avoid circular dependency
+    from tracecat.db.engine import get_async_session_context_manager
+
+    async with get_async_session_context_manager() as session:
+        statement = select(Membership).where(
+            Membership.user_id == user_id, Membership.workspace_id == workspace_id
+        )
+        result = await session.exec(statement)
+        membership = result.first()
+
+        if membership:
+            return True, membership.role
+        return False, None
 
 
 class MembershipService(BaseService):
@@ -46,6 +76,17 @@ class MembershipService(BaseService):
         result = await self.session.exec(statement)
         return result.first()
 
+    async def get_membership_cached(
+        self, workspace_id: WorkspaceID, user_id: UserID
+    ) -> tuple[bool, WorkspaceRole | None]:
+        """Get membership status with caching.
+
+        Returns:
+            tuple: (exists, role) where exists is True if membership exists
+        """
+        # Convert UUIDs to strings for cache key
+        return await _get_membership_cached(str(workspace_id), str(user_id))
+
     @require_workspace_role(WorkspaceRole.ADMIN)
     async def create_membership(
         self,
@@ -61,6 +102,9 @@ class MembershipService(BaseService):
         self.session.add(membership)
         await self.session.commit()
 
+        # Clear cache after creating membership
+        _get_membership_cached.cache_clear()
+
     @require_workspace_role(WorkspaceRole.ADMIN)
     async def update_membership(
         self, membership: Membership, params: WorkspaceMembershipUpdate
@@ -71,6 +115,9 @@ class MembershipService(BaseService):
         self.session.add(membership)
         await self.session.commit()
 
+        # Clear cache after updating membership
+        _get_membership_cached.cache_clear()
+
     @require_workspace_role(WorkspaceRole.ADMIN)
     async def delete_membership(
         self, workspace_id: WorkspaceID, user_id: UserID
@@ -79,3 +126,6 @@ class MembershipService(BaseService):
         if membership := await self.get_membership(workspace_id, user_id):
             await self.session.delete(membership)
             await self.session.commit()
+
+            # Clear cache after deleting membership
+            _get_membership_cached.cache_clear()

@@ -139,12 +139,13 @@ async def _role_dependency(
     if user and allow_user:
         if is_unprivileged(user) and workspace_id is not None:
             # Unprivileged user trying to target a workspace
-            # 1. Check if they are a member of the workspace
+            # Use cached membership check for better performance
             svc = MembershipService(session)
-            membership = await svc.get_membership(
+            is_member, member_role = await svc.get_membership_cached(
                 workspace_id=workspace_id, user_id=user.id
             )
-            if membership is None:
+
+            if not is_member:
                 logger.warning(
                     "User is not a member of this workspace",
                     user=user,
@@ -153,13 +154,11 @@ async def _role_dependency(
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
                 )
-            # 2. Check if they have the appropriate workspace role
+
+            # Check if they have the appropriate workspace role
             if isinstance(require_workspace_roles, WorkspaceRole):
                 require_workspace_roles = [require_workspace_roles]
-            if (
-                require_workspace_roles
-                and membership.role not in require_workspace_roles
-            ):
+            if require_workspace_roles and member_role not in require_workspace_roles:
                 logger.warning(
                     "User does not have the appropriate workspace role",
                     user=user,
@@ -171,7 +170,7 @@ async def _role_dependency(
                     detail="You cannot perform this operation",
                 )
             # User has appropriate workspace role
-            workspace_role = membership.role
+            workspace_role = member_role
         else:
             # Privileged user doesn't need workspace role verification
             workspace_role = None

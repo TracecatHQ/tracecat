@@ -76,6 +76,7 @@ dev = [
     "pytest-mock==3.14.0",
     "pytest-repeat==0.9.3",
     "pytest==8.3.2",
+    "pytest-benchmark==5.1.0",
     "python-dotenv==1.0.1",
     "respx==0.22.0",
     "ruff==0.9.1",
