@@ -16,8 +16,8 @@ from tracecat.workspaces.models import (
 )
 
 
-# Simple cache for membership lookups - 5 minute TTL
-@alru_cache(ttl=300, maxsize=1024)
+# Simple cache for membership lookups - 1 hour TTL
+@alru_cache(ttl=3600, maxsize=1024)
 async def _get_membership_cached(
     workspace_id: str, user_id: str
 ) -> tuple[bool, WorkspaceRole | None]:
