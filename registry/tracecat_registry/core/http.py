@@ -25,7 +25,12 @@ from tracecat.expressions.common import build_safe_lambda
 from tracecat.logger import logger
 from typing_extensions import Doc
 
-from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES
+from tracecat.config import (
+    TRACECAT__MAX_FILE_SIZE_BYTES,
+    TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES,
+    TRACECAT__MAX_UPLOAD_FILES_COUNT,
+)
+
 from tracecat.types.exceptions import TracecatException
 from tracecat_registry import RegistrySecret, registry, secrets
 
@@ -472,7 +477,14 @@ def _process_file_uploads(
     if not files:
         return None
 
+    if len(files) > TRACECAT__MAX_UPLOAD_FILES_COUNT:
+        raise ValueError(
+            f"Number of files ({len(files)}) exceeds the maximum allowed limit "
+            f"of {TRACECAT__MAX_UPLOAD_FILES_COUNT} in {action_name}."
+        )
+
     processed_httpx_files = {}
+    current_aggregate_size = 0
 
     for form_field_name, file_input in files.items():
         # Validate form field name (used in HTTP headers)
@@ -492,6 +504,15 @@ def _process_file_uploads(
             form_field_name,
             action_name,
         )
+
+        current_aggregate_size += len(validated_file.decoded_content)
+        if current_aggregate_size > TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES:
+            raise ValueError(
+                f"Total size of files ({current_aggregate_size / 1024 / 1024:.2f}MB) "
+                f"exceeds the aggregate limit of "
+                f"{TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES / 1024 / 1024:.2f}MB "
+                f"in {action_name}."
+            )
 
         # Format for httpx multipart upload
         if parsed_file.content_type:

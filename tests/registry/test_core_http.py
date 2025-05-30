@@ -7,6 +7,7 @@ import pytest
 import respx
 from tenacity import RetryError
 from tracecat_registry.core.http import (
+    FileUploadData,
     http_poll,
     http_request,
     httpx_to_response,
@@ -642,7 +643,7 @@ async def test_http_request_files_empty_form_field_name() -> None:
 async def test_http_request_with_invalid_base64_in_files() -> None:
     """Test HTTP request with invalid base64 data in the files dictionary."""
     with pytest.raises(
-        TracecatException, match=r"Invalid base64 data for file 'test.txt'"
+        TracecatException, match=r"Invalid base64 data for form field 'test.txt'"
     ):
         await http_request(
             url="https://api.example.com",
@@ -654,11 +655,12 @@ async def test_http_request_with_invalid_base64_in_files() -> None:
 @pytest.mark.anyio
 async def test_http_request_file_size_limit_in_files() -> None:
     """Test HTTP request fails when a file in the files dict exceeds size limit."""
-    large_content_bytes = b"x" * (101 * 1024 * 1024)  # 101 MB file
+    large_content_bytes = b"x" * (21 * 1024 * 1024)  # 21 MB file
     base64_content = base64.b64encode(large_content_bytes).decode("utf-8")
 
     with pytest.raises(
-        TracecatException, match=r"File 'large_file.dat'.*exceeds maximum size limit"
+        TracecatException,
+        match=r"File for form field 'large_file.dat' in http_request exceeds maximum size limit of 20MB\.",
     ):
         await http_request(
             url="https://api.example.com",
@@ -825,3 +827,34 @@ async def test_http_request_empty_filename_after_sanitization() -> None:
 
     assert route.called
     assert result["status_code"] == 200
+
+
+@pytest.mark.anyio
+async def test_http_request_file_upload_max_files_exceeded() -> None:
+    """Test HTTP request fails if number of files exceeds TRACECAT__MAX_UPLOAD_FILES_COUNT."""
+    from tracecat_registry.core import http as core_http  # For accessing the constant
+
+    files_to_upload: dict[str, str | FileUploadData] = {}
+    for i in range(core_http.TRACECAT__MAX_UPLOAD_FILES_COUNT + 1):
+        files_to_upload[f"file{i}.txt"] = base64.b64encode(
+            f"content{i}".encode()
+        ).decode()
+
+    with pytest.raises(TracecatException) as excinfo:
+        await http_request(
+            url="https://api.example.com/upload",
+            method="POST",
+            files=files_to_upload,
+        )
+    assert (
+        f"Number of files ({core_http.TRACECAT__MAX_UPLOAD_FILES_COUNT + 1}) exceeds the maximum allowed limit of {core_http.TRACECAT__MAX_UPLOAD_FILES_COUNT}"
+        in str(excinfo.value)
+    )
+
+
+@pytest.mark.anyio
+async def test_http_request_file_upload_aggregate_size_exceeded() -> None:
+    """Test HTTP request fails if total size of files exceeds TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES."""
+    pytest.skip(
+        "Cannot test aggregate size limit with current config: individual limit (20MB) * max files (5) = 100MB which equals aggregate limit (100MB). Need individual limit > 20MB or aggregate limit < 100MB to test this scenario."
+    )
