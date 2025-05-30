@@ -25,7 +25,7 @@ from pydantic_ai.agent import ModelRequestNode, AgentRun, CallToolsNode
 import diskcache as dc
 
 from tracecat_registry.integrations.pydantic_ai import build_agent
-from tracecat_registry.integrations.mcp.exceptions import AgentRunError
+from tracecat_registry.integrations.mcp.exceptions import AgentRunError, ConversationNotFoundError
 from tracecat_registry.integrations.mcp.memory import ShortTermMemory
 
 
@@ -170,6 +170,10 @@ class MCPHost(ABC, Generic[DepsT]):
 
     @abstractmethod
     async def post_error_message(self, exc: Exception, deps: DepsT) -> Self:
+        pass
+
+    @abstractmethod
+    async def post_memory_miss(self, deps: DepsT) -> Self:
         pass
 
     def is_approved_tool_call(
@@ -445,6 +449,14 @@ class MCPHost(ABC, Generic[DepsT]):
     ) -> MCPHostResult:
         try:
             # Ensure we have a valid message_id before proceeding
+            message_history = message_history or self.memory.get_messages(
+                deps.conversation_id
+            )
+
+            if not message_history:
+                await self.post_memory_miss(deps)
+                raise ConversationNotFoundError(deps)
+
             if not deps.message_id:
                 if new_message:
                     start_message = await self.post_message_start(deps)
@@ -463,7 +475,7 @@ class MCPHost(ABC, Generic[DepsT]):
                 conversation_id=deps.conversation_id,
                 last_result=result,
                 message_id=deps.message_id,
-                message_history=self.memory.get_messages(deps.conversation_id),
+                message_history=message_history,
             )
 
         except ExceptionGroup as e:
