@@ -30,6 +30,7 @@ async def _call_misp_enrichment(
     default_title="Enrich MISP Event",
     description="Enrich an existing MISP event using selected enrichment modules.",
     display_group="MISP",
+    doc_url="https://www.misp-project.org/openapi/#tag/Events/operation/enrichEvent",
     namespace="tools.misp",
     secrets=[misp_secret],
 )
@@ -45,6 +46,7 @@ async def enrich_misp_event(
     default_title="Enrich MISP Attribute",
     description="Enrich a specific attribute in a MISP event using selected enrichment modules.",
     display_group="MISP",
+    doc_url="https://www.misp-project.org/openapi/#tag/Attributes/operation/enrichAttribute",
     namespace="tools.misp",
     secrets=[misp_secret],
 )

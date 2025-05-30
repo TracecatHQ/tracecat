@@ -29,6 +29,7 @@ def get_category_for_ioc_type(ioc_type: str) -> str:
     default_title="Create MISP Event from IOC",
     description="Ingests a generic alert into MISP by creating an event and adding an IOC as attribute.",
     display_group="MISP",
+    doc_url="https://www.misp-project.org/openapi/#tag/Events/operation/addEvent",
     namespace="tools.misp",
     secrets=[misp_secret],
 )

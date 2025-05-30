@@ -35,6 +35,7 @@ def get_category_for_ioc_type(ioc_type: str) -> str:
     default_title="Add Attribute to MISP Event",
     description="Adds a custom attribute to an existing MISP event. Supports manual or inferred category.",
     display_group="MISP",
+    doc_url="https://www.misp-project.org/openapi/#tag/Attributes/operation/addAttribute",
     namespace="tools.misp",
     secrets=[misp_secret],
 )

@@ -28,7 +28,7 @@ async def _post_to_misp(
     default_title="Search IOC in MISP",
     description="Query MISP for a given IOC (IP, domain, hash, etc.) and check if it matches any known attributes.",
     display_group="MISP",
-    doc_url="https://www.circl.lu/doc/misp/automation/#searching-events",
+    doc_url="https://www.misp-project.org/openapi/#tag/Events/operation/searchEvents",
     namespace="tools.misp",
     secrets=[misp_secret],
 )
