@@ -80,14 +80,22 @@ class FanoutCacheMemory(ShortTermMemory):
 
     def add_user_message(self, conversation_id: str, content: str) -> None:
         """Add a user message to the conversation."""
-        messages: list[dict[str, Any]] = self.cache.get(conversation_id, [])  # type: ignore
+        cached_value = self.cache.get(conversation_id, [])
+        messages: list[dict[str, Any]] = (
+            cached_value if isinstance(cached_value, list) else []
+        )
+
         user_prompt = ModelRequest.user_text_prompt(user_prompt=content)
         messages.append(to_jsonable_python(user_prompt))
         self.cache.set(conversation_id, messages)
 
     def add_assistant_message(self, conversation_id: str, content: str) -> None:
         """Add an assistant message to the conversation."""
-        messages: list[dict[str, Any]] = self.cache.get(conversation_id, [])  # type: ignore
+        cached_value = self.cache.get(conversation_id, [])
+        messages: list[dict[str, Any]] = (
+            cached_value if isinstance(cached_value, list) else []
+        )
+
         assistant_response = ModelResponse(parts=[TextPart(content=content)])
         messages.append(to_jsonable_python(assistant_response))
         self.cache.set(conversation_id, messages)
@@ -100,11 +108,15 @@ class FanoutCacheMemory(ShortTermMemory):
         tool_call_id: str,
     ) -> None:
         """Add a tool call to the conversation."""
-        messages: list[dict[str, Any]] = self.cache.get(conversation_id, [])  # type: ignore
-        parts = [
-            ToolCallPart(tool_name=tool_name, args=tool_args, tool_call_id=tool_call_id)
-        ]
-        tool_call = ModelResponse(parts=parts)  # type: ignore
+        cached_value = self.cache.get(conversation_id, [])
+        messages: list[dict[str, Any]] = (
+            cached_value if isinstance(cached_value, list) else []
+        )
+
+        tool_call_part = ToolCallPart(
+            tool_name=tool_name, args=tool_args, tool_call_id=tool_call_id
+        )
+        tool_call = ModelResponse(parts=[tool_call_part])
         messages.append(to_jsonable_python(tool_call))
         self.cache.set(conversation_id, messages)
 
@@ -112,13 +124,15 @@ class FanoutCacheMemory(ShortTermMemory):
         self, conversation_id: str, tool_name: str, tool_result: str, tool_call_id: str
     ) -> None:
         """Add a tool result to the conversation."""
-        messages: list[dict[str, Any]] = self.cache.get(conversation_id, [])  # type: ignore
-        parts = [
-            ToolReturnPart(
-                tool_name=tool_name, content=tool_result, tool_call_id=tool_call_id
-            )
-        ]
-        tool_result_msg = ModelRequest(parts=parts)  # type: ignore
+        cached_value = self.cache.get(conversation_id, [])
+        messages: list[dict[str, Any]] = (
+            cached_value if isinstance(cached_value, list) else []
+        )
+
+        tool_return_part = ToolReturnPart(
+            tool_name=tool_name, content=tool_result, tool_call_id=tool_call_id
+        )
+        tool_result_msg = ModelRequest(parts=[tool_return_part])
         messages.append(to_jsonable_python(tool_result_msg))
         self.cache.set(conversation_id, messages)
 
