@@ -9,7 +9,7 @@ from tracecat_registry import registry
 class PythonScriptOutput(TypedDict):
     """Internal representation of script execution output."""
 
-    result: Any
+    output: Any
     stdout: str
     stderr: str
     success: bool
@@ -119,7 +119,7 @@ async def run_python(
                 script_result = script_result.to_py()
 
             internal_output = PythonScriptOutput(
-                result=script_result,
+                output=script_result,
                 stdout=stdout_capture.getvalue(),
                 stderr=stderr_capture.getvalue(),
                 success=True,
@@ -127,7 +127,7 @@ async def run_python(
             )
         except asyncio.TimeoutError:
             internal_output = PythonScriptOutput(
-                result=None,
+                output=None,
                 stdout=stdout_capture.getvalue(),
                 stderr=stderr_capture.getvalue(),
                 success=False,
@@ -135,7 +135,7 @@ async def run_python(
             )
         except Exception as e:
             internal_output = PythonScriptOutput(
-                result=None,
+                output=None,
                 stdout=stdout_capture.getvalue(),
                 stderr=stderr_capture.getvalue(),
                 success=False,
@@ -155,7 +155,7 @@ async def run_python(
         logger.error(f"Script stderr:\n{internal_output['stderr'].strip()}")
 
     if internal_output["success"]:
-        return internal_output["result"]
+        return internal_output["output"]
     else:
         error_message = internal_output["error"] or "Unknown script execution error"
         logger.error(f"Script execution failed: {error_message}")
@@ -210,7 +210,7 @@ async function main() {{
         }}
         console.log(JSON.stringify({{
             success: true,
-            result: scriptResult,
+            output: scriptResult,
             stdout: stdout_acc,
             stderr: stderr_acc,
             error: null
@@ -218,7 +218,7 @@ async function main() {{
     }} catch (error) {{
         console.log(JSON.stringify({{
             success: false,
-            result: null,
+            output: null,
             stdout: stdout_acc,
             stderr: stderr_acc,
             error: error.toString()
@@ -229,7 +229,7 @@ async function main() {{
 main().catch(err => {{
     console.log(JSON.stringify({{
         success: false,
-        result: null,
+        output: null,
         stdout: "",
         stderr: `Node.js wrapper error: ${{err.toString()}}`,
         error: `Node.js wrapper error: ${{err.toString()}}`
@@ -267,7 +267,7 @@ main().catch(err => {{
 
         if process.returncode != 0:
             return PythonScriptOutput(
-                result=None,
+                output=None,
                 stdout="",
                 stderr=f"Node.js process exited with code {process.returncode}. Stderr: {stderr}",
                 success=False,
@@ -277,7 +277,7 @@ main().catch(err => {{
         if stdout:
             output_data = json.loads(stdout)
             return PythonScriptOutput(
-                result=output_data.get("result"),
+                output=output_data.get("output"),
                 stdout=output_data.get("stdout", ""),
                 stderr=output_data.get("stderr", ""),
                 success=output_data.get("success", False),
@@ -285,7 +285,7 @@ main().catch(err => {{
             )
         else:
             return PythonScriptOutput(
-                result=None,
+                output=None,
                 stdout="",
                 stderr=stderr or "No output from Pyodide execution via Node.js.",
                 success=False,
@@ -293,7 +293,7 @@ main().catch(err => {{
             )
     except asyncio.TimeoutError:
         return PythonScriptOutput(
-            result=None,
+            output=None,
             stdout="",
             stderr="",
             success=False,
@@ -301,7 +301,7 @@ main().catch(err => {{
         )
     except json.JSONDecodeError as jde:
         return PythonScriptOutput(
-            result=None,
+            output=None,
             stdout=stdout,
             stderr=stderr,
             success=False,
@@ -309,7 +309,7 @@ main().catch(err => {{
         )
     except Exception as e:
         return PythonScriptOutput(
-            result=None,
+            output=None,
             stdout="",
             stderr=str(e),
             success=False,

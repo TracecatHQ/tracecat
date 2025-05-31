@@ -67,7 +67,7 @@ class TestPythonExecution:
             ) as mock_subprocess_runner:
                 # Simulate successful subprocess execution
                 mock_subprocess_runner.return_value = {
-                    "result": expected_result,
+                    "output": expected_result,
                     "stdout": f"Processing: {inputs_data['item_name']}, quantity: {inputs_data['qty']}",
                     "stderr": "",
                     "success": True,
@@ -192,7 +192,7 @@ class TestPythonExecution:
         expected_node_stdout = json.dumps(
             {
                 "success": True,
-                "result": 42,
+                "output": 42,
                 "stdout": "Hello from subprocess\n",
                 "stderr": "",
                 "error": None,
@@ -251,7 +251,7 @@ class TestPythonExecution:
         expected_node_stdout = json.dumps(
             {
                 "success": False,
-                "result": None,
+                "output": None,
                 "stdout": "",
                 "stderr": "Exception: Subprocess Test Error\n",
                 "error": "Exception: Subprocess Test Error",
