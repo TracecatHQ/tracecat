@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from concurrent.futures import Future, ProcessPoolExecutor
 from typing import Any, TypeVar, override
 
@@ -61,3 +61,19 @@ class CloudpickleProcessPoolExecutor(ProcessPoolExecutor):
         logger.info("Serializing function")
         ser_fn = cloudpickle.dumps(fn)
         return super().submit(_run_serialized_fn, ser_fn, *args, **kwargs)
+
+
+async def cooperative[T](
+    it: Iterable[T], *, delay: float = 0
+) -> AsyncGenerator[T, None]:
+    """Yield items from an iterable in a cooperative manner.
+
+    This is useful for yielding back to the event loop to avoid Temporal deadlock.
+
+    Args:
+        it: The iterable to yield items from.
+        duration: The duration to sleep between yielding items.
+    """
+    for item in it:
+        yield item
+        await asyncio.sleep(delay)
