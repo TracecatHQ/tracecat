@@ -35,6 +35,8 @@ permissions:
 
 env:
   UV_SYSTEM_PYTHON: 1
+  DENO_VERSION: "2.1.4"
+  PYODIDE_VERSION: "0.26.4"
 
 jobs:
   test-all:
@@ -65,7 +67,40 @@ jobs:
       - name: Install Deno
         uses: denoland/setup-deno@v2.0.3
         with:
-          cache: true
+          deno-version: ${{ env.DENO_VERSION }}
+
+      - name: Cache Deno dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.deno
+            ~/.cache/deno
+            node_modules
+          key: ${{ runner.os }}-deno-${{ env.DENO_VERSION }}-pyodide-${{ env.PYODIDE_VERSION }}
+
+      - name: Warm up Pyodide
+        run: |
+          # Create a simple script to pre-cache pyodide
+          mkdir -p node_modules
+          cat > warmup.js << 'EOF'
+          import { loadPyodide } from "npm:pyodide@${{ env.PYODIDE_VERSION }}";
+
+          async function main() {
+            console.log("Loading Pyodide...");
+            const pyodide = await loadPyodide();
+            console.log("Pyodide loaded successfully");
+            console.log("Python version:", await pyodide.runPythonAsync("import sys; sys.version"));
+          }
+
+          main().catch(console.error);
+          EOF
+
+          # Run with minimal permissions
+          deno run -N -R=node_modules -W=node_modules --node-modules-dir=auto warmup.js
+
+          # Set environment variables for tests
+          echo "DENO_DIR=$HOME/.deno" >> $GITHUB_ENV
+          echo "NODE_MODULES_DIR=$(pwd)/node_modules" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
