@@ -819,6 +819,13 @@ class Case(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
+    attachments: list["CaseAttachment"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
     assignee_id: uuid.UUID | None = Field(
         default=None,
         description="The ID of the user who is assigned to the case.",
@@ -948,3 +955,100 @@ class Interaction(Resource, table=True):
         nullable=True,
         description="ID of the user/actor who responded",
     )
+
+
+class File(Resource, table=True):
+    """A file entity with content-addressable storage using SHA256."""
+
+    __tablename__: str = "file"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    sha256: str = Field(
+        ...,
+        max_length=64,
+        index=True,
+        description="SHA256 hash for content-addressable storage and deduplication",
+    )
+    original_filename: str = Field(
+        ...,
+        max_length=255,
+        description="Original filename when uploaded",
+    )
+    mime_type: str = Field(
+        ...,
+        max_length=100,
+        description="MIME type of the file",
+    )
+    size_bytes: int = Field(
+        ...,
+        description="File size in bytes",
+    )
+    deleted_at: datetime | None = Field(
+        default=None,
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+        description="Timestamp for soft deletion",
+    )
+    virus_scan_status: str = Field(
+        default="pending",
+        max_length=20,
+        description="Virus scan status: pending, clean, infected",
+    )
+    # Relationships
+    attachments: list["CaseAttachment"] = Relationship(
+        back_populates="file",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+    @computed_field
+    @property
+    def is_deleted(self) -> bool:
+        """Check if file is soft deleted."""
+        return self.deleted_at is not None
+
+    @computed_field
+    @property
+    def blob_path(self) -> str:
+        """Generate the blob storage path."""
+        return f"blob/{self.sha256}"
+
+
+class CaseAttachment(SQLModel, TimestampMixin, table=True):
+    """Link table between cases and files."""
+
+    __tablename__: str = "case_attachment"
+    __table_args__ = (
+        UniqueConstraint("case_id", "file_id", name="uq_case_attachment_case_file"),
+    )
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("cases.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    file_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("file.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    # Relationships
+    case: Case = Relationship(back_populates="attachments")
+    file: File = Relationship(back_populates="attachments")
