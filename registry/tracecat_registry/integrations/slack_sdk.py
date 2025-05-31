@@ -3,7 +3,6 @@
 from typing import Annotated, Any, Literal, cast
 import asyncio
 
-import os
 from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.errors import SlackApiError

@@ -325,7 +325,9 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
 
             # Check if this is a new tool call
             new_tool_call = len(result.tool_call_parts) > 0
-            if not new_tool_call and message.strip():  # Only add if message is not empty
+            if (
+                not new_tool_call and message.strip()
+            ):  # Only add if message is not empty
                 # Add new context block
                 updated_blocks.append(
                     {
@@ -586,7 +588,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         )
 
         self.blocks_cache.set(deps.message_id, updated_blocks)
-        
+
         # Note: Keeping caches persistent - will implement time-based cleanup later
 
         logger.info(
@@ -650,7 +652,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
                 "blocks": error_blocks,
             },
         )
-        
+
         # Note: Keeping caches persistent - will implement time-based cleanup later
 
         logger.error(
@@ -717,7 +719,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
                 call_id=call_id,
                 tool_call_id=tool_call_id,
             )
-            raise ValueError(f"Tool result not found in cache")
+            raise ValueError("Tool result not found in cache")
 
         tool_result = str(tool_result)
         # Open modal with the tool result
@@ -871,7 +873,7 @@ async def _handle_tool_approval_interaction(
 
     # Use the cached message_id to continue updating the same message
     original_message_id = tool_call.get("message_id", slack_interaction_payload.ts)
-    
+
     deps = SlackMCPHostDeps(
         conversation_id=slack_interaction_payload.thread_ts,
         message_id=original_message_id,  # Use the original message_id from cache
@@ -900,11 +902,13 @@ async def _handle_tool_approval_interaction(
     if slack_interaction_payload.action_value == "run":
         # Add the exact tool call to approved list
         slack_host.add_approved_tool_call(deps.conversation_id, tool_name, tool_args)
-        
+
         # Get approved tools count for logging
         approved_tools = slack_host.get_approved_tool_calls(deps.conversation_id)
-        log.info(f"Saved {len(approved_tools)} approved tool calls to memory", 
-                conversation_id=deps.conversation_id)
+        log.info(
+            f"Saved {len(approved_tools)} approved tool calls to memory",
+            conversation_id=deps.conversation_id,
+        )
 
     log = log.bind(
         thread_ts=deps.conversation_id,
@@ -920,7 +924,11 @@ async def _handle_tool_approval_interaction(
     # Generate appropriate user prompt based on action
     if slack_interaction_payload.action_value == "run":
         # Make the prompt very specific about which tool was approved
-        tool_args_str = json.dumps(tool_args, indent=2) if isinstance(tool_args, dict) else str(tool_args)
+        tool_args_str = (
+            json.dumps(tool_args, indent=2)
+            if isinstance(tool_args, dict)
+            else str(tool_args)
+        )
         user_prompt = (
             f"The user has approved the execution of the '{tool_name}' tool with these exact arguments:\n"
             f"```json\n{tool_args_str}\n```\n"
@@ -988,14 +996,14 @@ async def slackbot(
 
     # Setup MCP server and host
     server = _setup_mcp_server(base_url, timeout)
-    
+
     # Parse trigger payload first to determine conversation_id
     slack_event, slack_payload = _parse_trigger_payload(trigger)
-    
+
     # Note: Approved tools are now managed by the memory system automatically
     slack_host = SlackMCPHost(
-        mcp_servers=[server], 
-        model_name=model_name, 
+        mcp_servers=[server],
+        model_name=model_name,
         model_provider=model_provider,
     )
 

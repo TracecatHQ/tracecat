@@ -25,7 +25,10 @@ from pydantic_ai.agent import ModelRequestNode, AgentRun, CallToolsNode
 import diskcache as dc
 
 from tracecat_registry.integrations.pydantic_ai import build_agent
-from tracecat_registry.integrations.mcp.exceptions import AgentRunError, ConversationNotFoundError
+from tracecat_registry.integrations.mcp.exceptions import (
+    AgentRunError,
+    ConversationNotFoundError,
+)
 from tracecat_registry.integrations.mcp.memory import ShortTermMemory
 
 
@@ -204,7 +207,7 @@ class MCPHost(ABC, Generic[DepsT]):
         approved_tools = self.approved_tool_calls_cache.get(conversation_id, [])
         if not isinstance(approved_tools, list):
             approved_tools = []
-        
+
         tool_hash = hash_tool_call(tool_name, tool_args)
         if tool_hash not in approved_tools:
             approved_tools.append(tool_hash)
@@ -227,7 +230,7 @@ class MCPHost(ABC, Generic[DepsT]):
         approved_tools = self.approved_tool_calls_cache.get(conversation_id, [])
         if not isinstance(approved_tools, list):
             approved_tools = []
-            
+
         tool_hash = hash_tool_call(tool_name, tool_args)
         if tool_hash in approved_tools:
             approved_tools.remove(tool_hash)
@@ -338,7 +341,9 @@ class MCPHost(ABC, Generic[DepsT]):
                     tool_args = event.part.args
                     tool_call_id = event.part.tool_call_id
 
-                    if not self.is_approved_tool_call(conversation_id, tool_name, tool_args):
+                    if not self.is_approved_tool_call(
+                        conversation_id, tool_name, tool_args
+                    ):
                         return ToolCallRequestResult(
                             name=tool_name,
                             args=tool_args,

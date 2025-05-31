@@ -3,20 +3,19 @@
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import time
 import uuid
-import shutil
-from typing import Any, AsyncGenerator, Generator, Union
+from collections.abc import AsyncGenerator, Generator
 from unittest.mock import patch
 
-import httpx
 import pytest
 from dotenv import load_dotenv
 from slack_sdk.web.async_client import AsyncWebClient
+from tracecat_registry.integrations.mcp.hosts.slack import slackbot
 
 from tracecat.logger import logger
-from tracecat_registry.integrations.mcp.hosts.slack import slackbot
 
 # Load environment variables
 load_dotenv()
@@ -34,12 +33,14 @@ def mock_slack_secrets():
     slack_token = os.getenv("SLACK_BOT_TOKEN")
     if not slack_token:
         pytest.skip("SLACK_BOT_TOKEN not set in environment")
-    
+
     with patch("tracecat_registry.integrations.slack_sdk.secrets.get") as mock_get:
+
         def side_effect(key):
             if key == "SLACK_BOT_TOKEN":
                 return slack_token
             return None
+
         mock_get.side_effect = side_effect
         yield mock_get
 
@@ -50,15 +51,16 @@ pytestmark = [
         not SLACK_BOT_TOKEN or not SLACK_CHANNEL_ID,
         reason="SLACK_BOT_TOKEN and SLACK_CHANNEL_ID must be set in .env file",
     ),
-    pytest.mark.usefixtures("mock_slack_secrets")
+    pytest.mark.usefixtures("mock_slack_secrets"),
 ]
 
 
 @pytest.fixture(scope="session")
-def mcp_server() -> Generator[Union[subprocess.Popen, None], None, None]:
+def mcp_server() -> Generator[subprocess.Popen | None, None, None]:
     """Start the MCP server in the background for the test session."""
     # Check if server is already running by checking if port is open
     import socket
+
     def is_port_open(host: str, port: int) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(1)
@@ -164,7 +166,7 @@ async def test_simple_app_mention_with_tool_call(
     """Test a simple app mention that triggers a tool call."""
     # Use a unique thread timestamp for this test - must be valid Slack timestamp format
     unique_thread_ts = f"{time.time():.6f}"
-    
+
     app_mention_event = {
         "type": "event_callback",
         "event": {
@@ -217,7 +219,7 @@ async def test_simple_app_mention_with_tool_call(
         # This is likely a ToolCallRequestResult - verify it's requesting tool approval
         assert last_result["name"] == "run_python_code"
         assert "args" in last_result
-    
+
     # Give Slack time to process the message
     await asyncio.sleep(2)
 
@@ -232,8 +234,10 @@ async def test_simple_app_mention_with_tool_call(
         assert len(messages) >= 1  # At least the initial message
 
         # Find the bot's response message
-        bot_messages = [msg for msg in messages if "blocks" in msg and msg.get("bot_id")]
-        
+        bot_messages = [
+            msg for msg in messages if "blocks" in msg and msg.get("bot_id")
+        ]
+
         if bot_messages:
             # Check for expected blocks in the bot's message
             bot_message = bot_messages[0]
@@ -249,9 +253,15 @@ async def test_simple_app_mention_with_tool_call(
                 # Check for run and skip buttons
                 actions = action_blocks[0]["elements"]
                 assert len(actions) >= 2
-                assert any("Run tool" in action.get("text", {}).get("text", "") for action in actions)
-                assert any("Skip" in action.get("text", {}).get("text", "") for action in actions)
-    
+                assert any(
+                    "Run tool" in action.get("text", {}).get("text", "")
+                    for action in actions
+                )
+                assert any(
+                    "Skip" in action.get("text", {}).get("text", "")
+                    for action in actions
+                )
+
     except Exception as e:
         # If we can't fetch the conversation, log the error but don't fail the test
         # since the main functionality (slackbot result) is what we're testing
@@ -269,7 +279,7 @@ async def test_tool_approval_flow(
     """Test the complete tool approval flow."""
     # Use a unique thread timestamp for this test - must be valid Slack timestamp format
     unique_thread_ts = f"{time.time():.6f}"
-    
+
     app_mention_event = {
         "type": "event_callback",
         "event": {
@@ -315,31 +325,33 @@ async def test_tool_approval_flow(
     last_result = result1["last_result"]
     assert isinstance(last_result, dict)
     assert last_result.get("name") == "run_python_code"
-    
+
     # Give Slack time to process
     await asyncio.sleep(2)
 
     # For the tool approval test, we'll simulate finding a tool call ID
     # In a real scenario, we'd parse the Slack message to get this
     tool_call_id = str(uuid.uuid4())
-    
+
     # Step 2: Approve the tool call
     interaction_payload = {
-        "payload": json.dumps({
-            "type": "block_actions",
-            "user": {"id": test_user_id},
-            "message": {
-                "ts": result1["message_id"],
-                "thread_ts": unique_thread_ts,
-                "blocks": [],
-            },
-            "actions": [
-                {
-                    "action_id": f"run:{tool_call_id}",
-                    "value": "run",
-                }
-            ],
-        })
+        "payload": json.dumps(
+            {
+                "type": "block_actions",
+                "user": {"id": test_user_id},
+                "message": {
+                    "ts": result1["message_id"],
+                    "thread_ts": unique_thread_ts,
+                    "blocks": [],
+                },
+                "actions": [
+                    {
+                        "action_id": f"run:{tool_call_id}",
+                        "value": "run",
+                    }
+                ],
+            }
+        )
     }
 
     try:
@@ -354,11 +366,11 @@ async def test_tool_approval_flow(
 
         # Should have executed the tool and gotten a result
         assert "last_result" in result2
-        
+
         # The result might be different types depending on the execution state
         last_result2 = result2["last_result"]
         assert isinstance(last_result2, dict)
-        
+
     except Exception as e:
         # Tool approval flow might fail due to missing cached interaction state
         # This is expected in isolated tests - log but don't fail
@@ -386,7 +398,7 @@ async def test_various_prompts(
     """Test various prompts that should trigger tool calls."""
     # Use a unique thread timestamp for each test - must be valid Slack timestamp format
     unique_thread_ts = f"{time.time():.6f}"
-    
+
     event = {
         "type": "event_callback",
         "event": {
@@ -428,7 +440,7 @@ async def test_various_prompts(
     last_result = result["last_result"]
     if isinstance(last_result, dict) and "name" in last_result:
         assert last_result["name"] == expected_tool
-    
+
     # Verify we get a proper response structure
     assert "conversation_id" in result
     assert "message_id" in result
@@ -444,7 +456,7 @@ async def test_error_handling(
 ):
     """Test error handling when MCP server is not available."""
     unique_thread_ts = f"{time.time():.6f}"
-    
+
     event = {
         "type": "event_callback",
         "event": {
@@ -480,7 +492,7 @@ async def test_interaction_payload_tool_approval(
 ):
     """Test the complete interaction flow: app mention -> tool request -> button click -> execution."""
     unique_thread_ts = f"{time.time():.6f}"
-    
+
     # Step 1: Initial app mention that should trigger a tool call
     app_mention_event = {
         "type": "event_callback",
@@ -500,7 +512,10 @@ async def test_interaction_payload_tool_approval(
                             "type": "rich_text_section",
                             "elements": [
                                 {"type": "user", "user_id": bot_user_id},
-                                {"type": "text", "text": " Calculate 5 factorial using Python"},
+                                {
+                                    "type": "text",
+                                    "text": " Calculate 5 factorial using Python",
+                                },
                             ],
                         }
                     ],
@@ -523,63 +538,68 @@ async def test_interaction_payload_tool_approval(
     last_result = result1["last_result"]
     assert isinstance(last_result, dict)
     assert last_result.get("name") == "run_python_code"
-    
+
     # Extract the conversation details for the interaction
     conversation_id = result1["conversation_id"]
     message_id = result1["message_id"]
-    
+
     # Give time for Slack to process
     await asyncio.sleep(2)
-    
+
     # Step 2: Simulate clicking the "Run tool" button
     # Generate a tool call ID (in real scenarios, this would come from the cached interaction)
     tool_call_id = str(uuid.uuid4())
-    
+
     interaction_payload = {
-        "payload": json.dumps({
-            "type": "block_actions",
-            "user": {"id": test_user_id},
-            "trigger_id": f"trigger_{time.time()}",
-            "message": {
-                "ts": message_id,
-                "thread_ts": conversation_id,
-                "blocks": [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"> *⚙️ run_python_code*\n> ```\n{json.dumps(last_result.get('args', {}), indent=2)}\n```",
+        "payload": json.dumps(
+            {
+                "type": "block_actions",
+                "user": {"id": test_user_id},
+                "trigger_id": f"trigger_{time.time()}",
+                "message": {
+                    "ts": message_id,
+                    "thread_ts": conversation_id,
+                    "blocks": [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"> *⚙️ run_python_code*\n> ```\n{json.dumps(last_result.get('args', {}), indent=2)}\n```",
+                            },
                         },
-                    },
+                        {
+                            "type": "actions",
+                            "block_id": f"tool_call:{tool_call_id}",
+                            "elements": [
+                                {
+                                    "type": "button",
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": "➡️ Run tool",
+                                    },
+                                    "action_id": f"run:{tool_call_id}",
+                                    "value": "run",
+                                    "style": "primary",
+                                },
+                                {
+                                    "type": "button",
+                                    "text": {"type": "plain_text", "text": "Skip"},
+                                    "action_id": f"skip:{tool_call_id}",
+                                    "value": "skip",
+                                },
+                            ],
+                        },
+                    ],
+                },
+                "actions": [
                     {
-                        "type": "actions",
-                        "block_id": f"tool_call:{tool_call_id}",
-                        "elements": [
-                            {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "➡️ Run tool"},
-                                "action_id": f"run:{tool_call_id}",
-                                "value": "run",
-                                "style": "primary",
-                            },
-                            {
-                                "type": "button", 
-                                "text": {"type": "plain_text", "text": "Skip"},
-                                "action_id": f"skip:{tool_call_id}",
-                                "value": "skip",
-                            },
-                        ],
-                    },
+                        "action_id": f"run:{tool_call_id}",
+                        "value": "run",
+                        "type": "button",
+                    }
                 ],
-            },
-            "actions": [
-                {
-                    "action_id": f"run:{tool_call_id}",
-                    "value": "run",
-                    "type": "button",
-                }
-            ],
-        })
+            }
+        )
     }
 
     try:
@@ -596,29 +616,30 @@ async def test_interaction_payload_tool_approval(
         assert "last_result" in result2
         assert "conversation_id" in result2
         assert result2["conversation_id"] == conversation_id
-        
+
         # The result should be different from the initial tool request
         last_result2 = result2["last_result"]
         assert isinstance(last_result2, dict)
-        
+
         # Should either be a ToolResultNodeResult or another step in the conversation
         print(f"Final result type: {last_result2}")
-        
+
         # Step 3: Verify the tool status was updated
         await asyncio.sleep(2)
-        
+
         # Check the final message state
         response = await slack_client.conversations_replies(
             channel=SLACK_CHANNEL_ID,
             ts=conversation_id,
         )
-        
+
         # Find the bot's message
         bot_messages = [
-            msg for msg in response["messages"]
+            msg
+            for msg in response["messages"]
             if msg.get("ts") == message_id and "blocks" in msg
         ]
-        
+
         if bot_messages:
             blocks = bot_messages[0]["blocks"]
             # Look for the "Tool run complete" status
@@ -629,23 +650,35 @@ async def test_interaction_payload_tool_approval(
                     text = block["elements"][0].get("text", "")
                     if "Tool run complete" in text:
                         tool_complete_found = True
-                        assert "🆗" in text, "Should have OK emoji with 'Tool run complete'"
-                        assert "Running tool..." not in text, "Should not have 'Running tool...' anymore"
+                        assert "🆗" in text, (
+                            "Should have OK emoji with 'Tool run complete'"
+                        )
+                        assert "Running tool..." not in text, (
+                            "Should not have 'Running tool...' anymore"
+                        )
                         print(f"Found tool complete status: {text}")
                 elif block.get("type") == "actions":
                     # Check for view tool result button
                     for element in block.get("elements", []):
                         if element.get("text", {}).get("text") == "📄 View tool result":
                             view_result_button_found = True
-                            assert element.get("action_id", "").startswith("view_result:"), "Should have proper action_id"
+                            assert element.get("action_id", "").startswith(
+                                "view_result:"
+                            ), "Should have proper action_id"
                             break
-            
-            assert tool_complete_found, "Should have 'Tool run complete' status in the final message"
-            assert view_result_button_found, "Should have 'View tool result' button in the final message"
-        
+
+            assert tool_complete_found, (
+                "Should have 'Tool run complete' status in the final message"
+            )
+            assert view_result_button_found, (
+                "Should have 'View tool result' button in the final message"
+            )
+
     except Exception as e:
         # Log the error but don't fail - interaction state might not be cached properly in tests
-        logger.warning(f"Tool approval interaction test failed (may be expected in isolated tests): {e}")
+        logger.warning(
+            f"Tool approval interaction test failed (may be expected in isolated tests): {e}"
+        )
 
 
 @pytest.mark.anyio
@@ -658,7 +691,7 @@ async def test_multi_step_tool_chain(
 ):
     """Test a complex multi-step workflow that triggers multiple tools in sequence."""
     unique_thread_ts = f"{time.time():.6f}"
-    
+
     # Create a complex prompt that should trigger multiple steps
     complex_prompt = (
         f"<@{bot_user_id}> Please help me with a multi-step calculation:\n"
@@ -667,7 +700,7 @@ async def test_multi_step_tool_chain(
         "3. Finally calculate the square root of that number\n"
         "Show me each step."
     )
-    
+
     app_mention_event = {
         "type": "event_callback",
         "event": {
@@ -686,7 +719,10 @@ async def test_multi_step_tool_chain(
                             "type": "rich_text_section",
                             "elements": [
                                 {"type": "user", "user_id": bot_user_id},
-                                {"type": "text", "text": " " + complex_prompt.split("> ")[1]},
+                                {
+                                    "type": "text",
+                                    "text": " " + complex_prompt.split("> ")[1],
+                                },
                             ],
                         }
                     ],
@@ -708,25 +744,27 @@ async def test_multi_step_tool_chain(
     assert "last_result" in result
     last_result = result["last_result"]
     assert isinstance(last_result, dict)
-    
+
     # Should be requesting to run Python code
     if "name" in last_result:
         assert last_result["name"] == "run_python_code"
-        
+
         # The args should contain code for the multi-step calculation
         args = last_result.get("args", {})
         if isinstance(args, dict):
             python_code = args.get("python_code", "")
             # Should contain some mathematical operations
-            assert any(op in python_code.lower() for op in ["3", "4", "+", "*", "sqrt", "math"])
-    
+            assert any(
+                op in python_code.lower() for op in ["3", "4", "+", "*", "sqrt", "math"]
+            )
+
     # Verify the conversation structure
     assert "conversation_id" in result
     assert "message_id" in result
     assert result["conversation_id"] == unique_thread_ts
 
 
-@pytest.mark.anyio 
+@pytest.mark.anyio
 async def test_skip_tool_interaction(
     mcp_server: subprocess.Popen,
     slack_client: AsyncWebClient,
@@ -736,7 +774,7 @@ async def test_skip_tool_interaction(
 ):
     """Test skipping a tool call via interaction payload."""
     unique_thread_ts = f"{time.time():.6f}"
-    
+
     # Step 1: App mention that triggers a tool call
     app_mention_event = {
         "type": "event_callback",
@@ -756,7 +794,10 @@ async def test_skip_tool_interaction(
                             "type": "rich_text_section",
                             "elements": [
                                 {"type": "user", "user_id": bot_user_id},
-                                {"type": "text", "text": " What's the current date and time?"},
+                                {
+                                    "type": "text",
+                                    "text": " What's the current date and time?",
+                                },
                             ],
                         }
                     ],
@@ -778,33 +819,35 @@ async def test_skip_tool_interaction(
     assert "last_result" in result1
     last_result = result1["last_result"]
     assert isinstance(last_result, dict)
-    
+
     conversation_id = result1["conversation_id"]
     message_id = result1["message_id"]
-    
+
     await asyncio.sleep(2)
-    
+
     # Step 2: Simulate clicking "Skip" button
     tool_call_id = str(uuid.uuid4())
-    
+
     skip_interaction_payload = {
-        "payload": json.dumps({
-            "type": "block_actions",
-            "user": {"id": test_user_id},
-            "trigger_id": f"trigger_{time.time()}",
-            "message": {
-                "ts": message_id,
-                "thread_ts": conversation_id,
-                "blocks": [],
-            },
-            "actions": [
-                {
-                    "action_id": f"skip:{tool_call_id}",
-                    "value": "skip",
-                    "type": "button",
-                }
-            ],
-        })
+        "payload": json.dumps(
+            {
+                "type": "block_actions",
+                "user": {"id": test_user_id},
+                "trigger_id": f"trigger_{time.time()}",
+                "message": {
+                    "ts": message_id,
+                    "thread_ts": conversation_id,
+                    "blocks": [],
+                },
+                "actions": [
+                    {
+                        "action_id": f"skip:{tool_call_id}",
+                        "value": "skip",
+                        "type": "button",
+                    }
+                ],
+            }
+        )
     }
 
     try:
@@ -821,7 +864,7 @@ async def test_skip_tool_interaction(
         assert "last_result" in result2
         assert "conversation_id" in result2
         assert result2["conversation_id"] == conversation_id
-        
+
     except Exception as e:
         # Expected in isolated tests due to missing cached interaction state
         logger.warning(f"Skip tool interaction test failed (expected in tests): {e}")
@@ -837,29 +880,31 @@ async def test_view_tool_result_interaction(
 ):
     """Test the 'View tool result' button interaction."""
     unique_thread_ts = f"{time.time():.6f}"
-    
+
     # Simulate a view_result interaction payload
     call_id = str(uuid.uuid4())
     tool_call_id = str(uuid.uuid4())
-    
+
     view_result_payload = {
-        "payload": json.dumps({
-            "type": "block_actions",
-            "user": {"id": test_user_id},
-            "trigger_id": f"trigger_{time.time()}",
-            "message": {
-                "ts": f"{time.time():.6f}",
-                "thread_ts": unique_thread_ts,
-                "blocks": [],
-            },
-            "actions": [
-                {
-                    "action_id": f"view_result:{tool_call_id}",
-                    "value": call_id,  # This is the call_id for the cached result
-                    "type": "button",
-                }
-            ],
-        })
+        "payload": json.dumps(
+            {
+                "type": "block_actions",
+                "user": {"id": test_user_id},
+                "trigger_id": f"trigger_{time.time()}",
+                "message": {
+                    "ts": f"{time.time():.6f}",
+                    "thread_ts": unique_thread_ts,
+                    "blocks": [],
+                },
+                "actions": [
+                    {
+                        "action_id": f"view_result:{tool_call_id}",
+                        "value": call_id,  # This is the call_id for the cached result
+                        "type": "button",
+                    }
+                ],
+            }
+        )
     }
 
     try:
@@ -875,14 +920,16 @@ async def test_view_tool_result_interaction(
         # Should return a view result response
         assert isinstance(result, dict)
         assert "thread_ts" in result or "conversation_id" in result
-        
+
         # Should indicate this was a view_result action
         if "action" in result:
             assert result["action"] == "view_result"
-        
+
     except Exception as e:
         # Expected to fail since we don't have a cached tool result for the call_id
-        logger.warning(f"View tool result test failed (expected without cached result): {e}")
+        logger.warning(
+            f"View tool result test failed (expected without cached result): {e}"
+        )
         assert "not found in cache" in str(e) or "Tool result" in str(e)
 
 
@@ -896,7 +943,7 @@ async def test_tool_result_modal_button(
 ):
     """Test that tool results show a 'View tool result' button instead of inline display."""
     unique_thread_ts = f"{time.time():.6f}"
-    
+
     # Use a calculation that requires Python execution
     app_mention_event = {
         "type": "event_callback",
@@ -916,7 +963,10 @@ async def test_tool_result_modal_button(
                             "type": "rich_text_section",
                             "elements": [
                                 {"type": "user", "user_id": bot_user_id},
-                                {"type": "text", "text": " Calculate the factorial of 7 using Python"},
+                                {
+                                    "type": "text",
+                                    "text": " Calculate the factorial of 7 using Python",
+                                },
                             ],
                         }
                     ],
@@ -939,7 +989,7 @@ async def test_tool_result_modal_button(
     assert "last_result" in result1
     last_result = result1["last_result"]
     assert isinstance(last_result, dict)
-    
+
     # Check if it's a tool call request or if it went straight to completion
     if "name" in last_result:
         # Tool was requested
@@ -952,13 +1002,14 @@ async def test_tool_result_modal_button(
     else:
         # AI might have completed without tools (unlikely for factorial)
         assert "output" in last_result
-    
+
     # Check the message structure
     assert "conversation_id" in result1
     assert "message_id" in result1
-    
+
     # Note: In a complete test with tool approval simulation,
     # we would verify that only a "View tool result" button appears, not inline results
+
 
 @pytest.mark.anyio
 async def test_tool_approval_same_message_update(
@@ -970,7 +1021,7 @@ async def test_tool_approval_same_message_update(
 ):
     """Test that tool approval and execution updates the same message, not creating a new one."""
     unique_thread_ts = f"{time.time():.6f}"
-    
+
     # Step 1: Initial app mention
     app_mention_event = {
         "type": "event_callback",
@@ -990,7 +1041,10 @@ async def test_tool_approval_same_message_update(
                             "type": "rich_text_section",
                             "elements": [
                                 {"type": "user", "user_id": bot_user_id},
-                                {"type": "text", "text": " Calculate 6 + 7 using Python"},
+                                {
+                                    "type": "text",
+                                    "text": " Calculate 6 + 7 using Python",
+                                },
                             ],
                         }
                     ],
@@ -1011,50 +1065,53 @@ async def test_tool_approval_same_message_update(
     # Should have created a message with tool approval request
     assert "message_id" in result1
     original_message_id = result1["message_id"]
-    
+
     # Step 2: Check that Slack message was created
     await asyncio.sleep(2)
-    
+
     try:
         response = await slack_client.conversations_replies(
             channel=SLACK_CHANNEL_ID,
             ts=unique_thread_ts,
         )
-        
+
         # Find the bot's message
         bot_messages = [
-            msg for msg in response["messages"] 
+            msg
+            for msg in response["messages"]
             if msg.get("ts") == original_message_id and "blocks" in msg
         ]
         assert len(bot_messages) == 1, "Should have exactly one bot message"
-        
+
         # Count initial blocks
         initial_block_count = len(bot_messages[0]["blocks"])
-        
+
     except Exception as e:
         logger.warning(f"Could not fetch initial conversation: {e}")
         initial_block_count = 0
-    
+
     # Step 3: Simulate tool approval (clicking "Run tool")
     tool_call_id = str(uuid.uuid4())
     interaction_payload = {
-        "payload": json.dumps({
-            "type": "block_actions",
-            "user": {"id": test_user_id},
-            "trigger_id": f"trigger_{time.time()}",
-            "message": {
-                "ts": original_message_id,  # This is the message with buttons
-                "thread_ts": unique_thread_ts,
-                "blocks": [],
-            },
-            "actions": [
-                {
-                    "action_id": f"run:{tool_call_id}",
-                    "value": "run",
-                    "type": "button",
-                }
-            ],
-        })
+        "payload": json.dumps(
+            {
+                "type": "block_actions",
+                "user": {"id": test_user_id},
+                "trigger_id": f"trigger_{time.time()}",
+                "message": {
+                    "ts": original_message_id,  # This is the message with buttons
+                    "thread_ts": unique_thread_ts,
+                    "blocks": [],
+                },
+                "actions": [
+                    {
+                        "action_id": f"run:{tool_call_id}",
+                        "value": "run",
+                        "type": "button",
+                    }
+                ],
+            }
+        )
     }
 
     try:
@@ -1074,61 +1131,69 @@ async def test_tool_approval_same_message_update(
             f"but got {result2['message_id']}. "
             "Bot should update the same message, not create a new one!"
         )
-        
+
         # Step 4: Verify the message was updated, not replaced
         await asyncio.sleep(2)
-        
+
         response = await slack_client.conversations_replies(
             channel=SLACK_CHANNEL_ID,
             ts=unique_thread_ts,
         )
-        
+
         # Should still have the same message, just updated
         bot_messages_after = [
-            msg for msg in response["messages"] 
+            msg
+            for msg in response["messages"]
             if msg.get("ts") == original_message_id and "blocks" in msg
         ]
         assert len(bot_messages_after) == 1, "Should still have exactly one bot message"
-        
+
         # Should have more blocks after tool execution
         final_block_count = len(bot_messages_after[0]["blocks"])
         assert final_block_count > initial_block_count, (
             f"Message should have been updated with more blocks. "
             f"Initial: {initial_block_count}, Final: {final_block_count}"
         )
-        
+
         # Check that "Running tool..." was replaced with "Tool run complete"
         final_blocks = bot_messages_after[0]["blocks"]
         tool_status_found = False
         view_result_button_found = False
-        
+
         for block in final_blocks:
             if block.get("type") == "context" and block.get("elements"):
                 text = block["elements"][0].get("text", "")
                 if "Tool run complete" in text:
                     tool_status_found = True
                     assert "🆗" in text, "Should have OK emoji with 'Tool run complete'"
-                    assert "Running tool..." not in text, "Should not have 'Running tool...' text anymore"
+                    assert "Running tool..." not in text, (
+                        "Should not have 'Running tool...' text anymore"
+                    )
             elif block.get("type") == "actions":
                 # Check for view tool result button
                 for element in block.get("elements", []):
                     if element.get("text", {}).get("text") == "📄 View tool result":
                         view_result_button_found = True
-                        assert element.get("action_id", "").startswith("view_result:"), "Should have proper action_id"
+                        assert element.get("action_id", "").startswith(
+                            "view_result:"
+                        ), "Should have proper action_id"
                         break
-        
-        assert tool_status_found, "Should have found 'Tool run complete' status in the message blocks"
-        assert view_result_button_found, "Should have found 'View tool result' button in the message blocks"
-        
+
+        assert tool_status_found, (
+            "Should have found 'Tool run complete' status in the message blocks"
+        )
+        assert view_result_button_found, (
+            "Should have found 'View tool result' button in the message blocks"
+        )
+
         # Verify no new messages were created
         all_bot_messages = [
-            msg for msg in response["messages"]
-            if "blocks" in msg and msg.get("bot_id")
+            msg for msg in response["messages"] if "blocks" in msg and msg.get("bot_id")
         ]
         assert len(all_bot_messages) == 1, (
             f"Should have exactly 1 bot message, but found {len(all_bot_messages)}. "
             "Bot created a new message instead of updating the existing one!"
         )
-        
+
     except Exception as e:
-        logger.warning(f"Tool approval test section failed: {e}")    
+        logger.warning(f"Tool approval test section failed: {e}")
