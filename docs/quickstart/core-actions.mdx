@@ -11,9 +11,10 @@ import SecretsExample from '/snippets/secrets-example.mdx'
 </Tip>
 
 <Note>
-  This tutorial covers the three most commonly used core actions: `core.transform.reshape`, `core.http_request`, and `core.http_poll`.
+  This tutorial covers the four most commonly used core actions: `core.transform.reshape`, `core.http_request`, `core.http_poll`, and `core.script.run_python`.
 
   To learn about the other core actions, check out the following tutorials:
+  - [Script actions](/quickstart/script-actions)
   - [Data transforms](/tutorials/data-transforms)
   - [Child workflows](/tutorials/child-workflows)
   - [Wait until](/tutorials/wait-retry-until)
@@ -23,12 +24,13 @@ Core actions are the building blocks of Tracecat workflows and action templates.
 All core actions are under the `core` namespace.
 They are distinct from pre-built integrations in the `tools` namespace, which are pre-configured for specific 3rd-party tools.
 
-There are four sub-namespaces under `core`:
+There are five sub-namespaces under `core`:
 
 - `core`
 - `core.transform`
 - `core.workflow`
 - `core.require`
+- `core.script`
 
 `core` actions are the most commonly used actions in Tracecat.
 They include:
@@ -38,6 +40,7 @@ They include:
 | `core.transform.reshape` | `Reshape` | Reshape and manipulate data. |
 | `core.http_request` | `HTTP Request` | Make a HTTP request. |
 | `core.http_poll` | `HTTP Polling` | Poll a REST API until a condition is met. |
+| `core.script.run_python` | `Run Python script` | Execute custom Python code in a secure sandbox. |
 
 ## Reshape
 

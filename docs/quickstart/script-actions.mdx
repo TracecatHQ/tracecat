@@ -1,0 +1,69 @@
+---
+title: Script actions
+description: Execute custom Python scripts in secure, sandboxed environments.
+icon: code
+---
+
+## Python Script Action
+
+Use the `core.script.run_python` action to execute Python code in a sandboxed WebAssembly environment using Pyodide.
+This ensures isolation from the host system while providing access to popular Python libraries.
+
+<Note>
+- Scripts must contain at least one function
+- If multiple functions exist, one must be named `main`
+- The function's return value becomes the action output
+- The output must be JSON serializable (e.g. str, int, float, bool, list, dict)
+</Note>
+
+You can include 3rd-party Python packages in your script by adding them to the `dependencies` field.
+
+### Configuration
+
+| Field | Type | Description | Required |
+|-------|------|-------------|----------|
+| `script` | string | Python code with at least one function | ✅ |
+| `inputs` | object | Key-value pairs injected as global variables | ❌ |
+| `dependencies` | array | List of Python packages to install | ❌ |
+| `timeout_seconds` | integer | Maximum execution time (default: 30) | ❌ |
+
+### Examples
+
+The following examples show valid inputs for the `Run Python script` action.
+
+<CodeGroup>
+  ```python Simple function (no inputs)
+  script: |
+    def main():
+      # Simple arithmetic
+      result = 10 * 5 + 3
+      return result
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python Simple function (with inputs)
+  script: |
+    def main(a: int, b: int):
+      # Simple arithmetic
+      result = a * b + 3
+      return result
+  inputs:
+    a: 10
+    b: 5
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python Multiple functions (with inputs)
+  script: |
+    def calculate_tax(amount: float, rate: float):
+      return amount * rate
+
+    def main():
+      # When multiple functions exist, 'main' is called
+      subtotal = 100.0
+      tax = calculate_tax(subtotal, 0.08)
+      return subtotal + tax
+  ```
+</CodeGroup>
