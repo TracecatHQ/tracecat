@@ -62,6 +62,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Deno
+        uses: denoland/setup-deno@v2.0.3
+        with:
+          cache: true
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -104,4 +109,6 @@ jobs:
       - name: Run tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         run: uv run pytest tests/${{ matrix.test_group }} -ra

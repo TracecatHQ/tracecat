@@ -1,3 +1,6 @@
+# Node modules (for deno)
+node_modules/
+
 # Kubernetes
 *.kube
 

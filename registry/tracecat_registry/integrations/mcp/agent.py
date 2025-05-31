@@ -25,7 +25,10 @@ from pydantic_ai.agent import ModelRequestNode, AgentRun, CallToolsNode
 import diskcache as dc
 
 from tracecat_registry.integrations.pydantic_ai import build_agent
-from tracecat_registry.integrations.mcp.exceptions import AgentRunError, ConversationNotFoundError
+from tracecat_registry.integrations.mcp.exceptions import (
+    AgentRunError,
+    ConversationNotFoundError,
+)
 from tracecat_registry.integrations.mcp.memory import ShortTermMemory
 
 
@@ -129,7 +132,6 @@ class MCPHost(ABC, Generic[DepsT]):
         memory: ShortTermMemory,
         mcp_servers: list[MCPServerHTTP],
         model_settings: dict[str, Any] | None = None,
-        approved_tool_calls: list[str] | None = None,
         deps_type: type[DepsT] | None = None,
     ) -> None:
         self.agent = build_agent(
@@ -142,9 +144,12 @@ class MCPHost(ABC, Generic[DepsT]):
         self.memory = memory
         # Tool results cache - TODO: Make this an ABC interface in the future
         self.tool_results_cache = dc.FanoutCache(
-            directory=".cache/tool_results", shards=8, timeout=0.05
+            directory=".cache/tool_results", shards=8, timeout=0.05, expire=21600
         )
-        self._approved_tool_calls = approved_tool_calls
+        # Approved tool calls cache per conversation
+        self.approved_tool_calls_cache = dc.FanoutCache(
+            directory=".cache/approved_tools", shards=8, timeout=0.05, expire=21600
+        )
 
     @abstractmethod
     async def post_message_start(self, deps: DepsT) -> MessageStartResult:
@@ -177,83 +182,98 @@ class MCPHost(ABC, Generic[DepsT]):
         pass
 
     def is_approved_tool_call(
-        self, tool_name: str, tool_args: str | dict[str, Any]
+        self, conversation_id: str, tool_name: str, tool_args: str | dict[str, Any]
     ) -> bool:
-        return (
-            self._approved_tool_calls is not None
-            and hash_tool_call(tool_name, tool_args) in self._approved_tool_calls
-        )
+        """Check if a tool call is approved for this conversation."""
+        approved_tools = self.approved_tool_calls_cache.get(conversation_id, [])
+        if not isinstance(approved_tools, list):
+            approved_tools = []
+        tool_hash = hash_tool_call(tool_name, tool_args)
+        return tool_hash in approved_tools
 
     def add_approved_tool_call(
-        self, tool_name: str, tool_args: str | dict[str, Any]
+        self, conversation_id: str, tool_name: str, tool_args: str | dict[str, Any]
     ) -> Self:
-        """Add a tool call to the approved list for this agent run.
+        """Add a tool call to the approved list for this conversation.
 
         Args:
+            conversation_id: The conversation ID
             tool_name: Name of the tool
             tool_args: Arguments for the tool call
 
         Returns:
             Self for method chaining
         """
-        if self._approved_tool_calls is None:
-            self._approved_tool_calls = []
+        approved_tools = self.approved_tool_calls_cache.get(conversation_id, [])
+        if not isinstance(approved_tools, list):
+            approved_tools = []
 
         tool_hash = hash_tool_call(tool_name, tool_args)
-        if tool_hash not in self._approved_tool_calls:
-            self._approved_tool_calls.append(tool_hash)
-
+        if tool_hash not in approved_tools:
+            approved_tools.append(tool_hash)
+            self.approved_tool_calls_cache.set(conversation_id, approved_tools)
         return self
 
     def remove_approved_tool_call(
-        self, tool_name: str, tool_args: str | dict[str, Any]
+        self, conversation_id: str, tool_name: str, tool_args: str | dict[str, Any]
     ) -> Self:
-        """Remove a tool call from the approved list.
+        """Remove a tool call from the approved list for this conversation.
 
         Args:
+            conversation_id: The conversation ID
             tool_name: Name of the tool
             tool_args: Arguments for the tool call
 
         Returns:
             Self for method chaining
         """
-        if self._approved_tool_calls is not None:
-            tool_hash = hash_tool_call(tool_name, tool_args)
-            if tool_hash in self._approved_tool_calls:
-                self._approved_tool_calls.remove(tool_hash)
+        approved_tools = self.approved_tool_calls_cache.get(conversation_id, [])
+        if not isinstance(approved_tools, list):
+            approved_tools = []
 
+        tool_hash = hash_tool_call(tool_name, tool_args)
+        if tool_hash in approved_tools:
+            approved_tools.remove(tool_hash)
+            self.approved_tool_calls_cache.set(conversation_id, approved_tools)
         return self
 
-    def clear_approved_tool_calls(self) -> Self:
-        """Clear all approved tool calls.
+    def clear_approved_tool_calls(self, conversation_id: str) -> Self:
+        """Clear all approved tool calls for this conversation.
+
+        Args:
+            conversation_id: The conversation ID
 
         Returns:
             Self for method chaining
         """
-        self._approved_tool_calls = []
+        self.approved_tool_calls_cache.set(conversation_id, [])
         return self
 
-    def get_approved_tool_calls(self) -> list[str]:
-        """Get a copy of the approved tool calls list.
+    def get_approved_tool_calls(self, conversation_id: str) -> list[str]:
+        """Get a copy of the approved tool calls list for this conversation.
+
+        Args:
+            conversation_id: The conversation ID
 
         Returns:
             List of approved tool call hashes
         """
-        return (
-            list(self._approved_tool_calls)
-            if self._approved_tool_calls is not None
-            else []
-        )
+        approved_tools = self.approved_tool_calls_cache.get(conversation_id, [])
+        return approved_tools if isinstance(approved_tools, list) else []
 
-    def has_approved_tool_calls(self) -> bool:
-        """Check if there are any approved tool calls.
+    def has_approved_tool_calls(self, conversation_id: str) -> bool:
+        """Check if there are any approved tool calls for this conversation.
+
+        Args:
+            conversation_id: The conversation ID
 
         Returns:
             True if there are approved tool calls, False otherwise
         """
-        return (
-            self._approved_tool_calls is not None and len(self._approved_tool_calls) > 0
-        )
+        approved_tools = self.approved_tool_calls_cache.get(conversation_id, [])
+        if not isinstance(approved_tools, list):
+            approved_tools = []
+        return len(approved_tools) > 0
 
     def store_tool_result(self, call_id: str, content: str | dict[str, Any]) -> Self:
         """Store a tool result for later retrieval.
@@ -321,7 +341,9 @@ class MCPHost(ABC, Generic[DepsT]):
                     tool_args = event.part.args
                     tool_call_id = event.part.tool_call_id
 
-                    if not self.is_approved_tool_call(tool_name, tool_args):
+                    if not self.is_approved_tool_call(
+                        conversation_id, tool_name, tool_args
+                    ):
                         return ToolCallRequestResult(
                             name=tool_name,
                             args=tool_args,
@@ -463,6 +485,12 @@ class MCPHost(ABC, Generic[DepsT]):
                     message_id = start_message.message_id
                     # Update deps with the new message_id
                     deps.message_id = message_id
+                else:
+                    # Log when we expect to have a message_id but don't
+                    raise ValueError(
+                        f"No message_id provided and new_message=False. "
+                        f"deps={deps}, conversation_id={deps.conversation_id}"
+                    )
 
             if not deps.message_id:
                 raise ValueError("Failed to obtain a valid message_id")
