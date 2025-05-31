@@ -100,9 +100,7 @@ The following examples show valid inputs for the `Run Python script` action.
 <CodeGroup>
   ```python Input parameter mapping
   script: |
-    def main(user_name, age, city, country):
-      # Parameters map directly to input keys
-      # Missing parameters get None (country not provided)
+    def main(user_name: str, age: int, city: str, country: str = "USA"):
       if country is None:
         return f"{user_name} ({age}) lives in {city}"
       else:
@@ -111,6 +109,5 @@ The following examples show valid inputs for the `Run Python script` action.
     user_name: "Alice"
     age: 30
     city: "New York"
-    # country parameter will receive None
   ```
 </CodeGroup>
