@@ -20,6 +20,7 @@ from typing import Any, Literal
 import pytest
 import yaml
 from pydantic import SecretStr
+from pydantic_core import to_json
 from temporalio.api.enums.v1.workflow_pb2 import ParentClosePolicy
 from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -38,6 +39,7 @@ from tracecat.dsl.common import (
     DSLInput,
     DSLRunArgs,
 )
+from tracecat.dsl.control_flow import ExplodeArgs, ImplodeArgs
 from tracecat.dsl.enums import LoopStrategy, WaitStrategy
 from tracecat.dsl.models import (
     ActionStatement,
@@ -3181,3 +3183,92 @@ async def test_workflow_detached_child_workflow(
 
         results = tg.results()
         assert results == [1001, 1002, 1003]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_workflow_explode(test_role: Role, temporal_client: Client):
+    """
+    Test that a workflow can explode a collection.
+    """
+    test_name = f"{test_workflow_explode.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+    dsl = DSLInput(
+        title="Parent",
+        description="Test parent workflow can call child correctly",
+        entrypoint=DSLEntrypoint(ref="parent"),
+        actions=[
+            # This doesn't output any result
+            ActionStatement(
+                ref="explode",
+                action="core.transform.explode",
+                args=ExplodeArgs(
+                    collection="${{ [[1,2], [3,4]] }}",
+                ).model_dump(),
+            ),
+            ActionStatement(
+                ref="explode2",
+                action="core.transform.explode",
+                depends_on=["explode"],
+                args=ExplodeArgs(
+                    collection="${{ ACTIONS.explode.result }}",
+                ).model_dump(),
+            ),
+            # Go parallel
+            ActionStatement(
+                ref="reshape",
+                action="core.transform.reshape",
+                depends_on=["explode2"],
+                args={"value": "${{ FN.add(ACTIONS.explode2.result, 1) }}"},
+            ),
+            # ActionStatement(
+            #     ref="reshape2",
+            #     action="core.transform.reshape",
+            #     depends_on=["explode2"],
+            #     args={"value": "${{ FN.add(ACTIONS.explode2.result, 2) }}"},
+            # ),
+            # How do we now handle the parallel execution streams?
+            ActionStatement(
+                ref="implode",
+                action="core.transform.implode",
+                depends_on=["reshape"],
+                args=ImplodeArgs(
+                    # When an execution stream hits an implode matching
+                    # the current
+                    # This will grab the result of the reshape action
+                    # in its execution scope
+                    items="${{ ACTIONS.reshape.result }}",
+                ).model_dump(),
+            ),
+            ActionStatement(
+                ref="implode2",
+                action="core.transform.implode",
+                depends_on=["implode"],
+                args=ImplodeArgs(items="${{ ACTIONS.implode.result }}").model_dump(),
+            ),
+        ],
+    )
+    run_args = DSLRunArgs(
+        dsl=dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    async with Worker(
+        temporal_client,
+        task_queue=queue,
+        activities=get_activities(),
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=retry_policies["workflow:fail_fast"],
+        )
+        assert result is not None
+
+    logger.info(f"result: {to_json(result, indent=2).decode()}")
