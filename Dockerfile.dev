@@ -5,11 +5,20 @@ ENV UV_SYSTEM_PYTHON=1
 ENV HOST=0.0.0.0
 ENV PORT=8000
 
+# Version configuration
+ENV DENO_VERSION=2.1.4
+ENV PYODIDE_VERSION=0.26.4
+ENV DENO_SHA256=3e8b6e153879b3e61ad9c8df77b07c26b95f859308cf34fe87d17ea2ba9c4b4e
+
 # Install packages
 COPY scripts/install-packages.sh .
 RUN chmod +x install-packages.sh && \
     ./install-packages.sh && \
     rm install-packages.sh
+
+# Set deno environment variables to use pre-cached modules
+ENV DENO_DIR="/root/.deno"
+ENV NODE_MODULES_DIR="/opt/node_modules"
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -29,6 +38,10 @@ RUN chmod +x /app/entrypoint.sh
 # Install package and registry in editable mode
 RUN uv pip install -e .
 RUN uv pip install -e ./registry
+
+# Create deno cache directory and link pre-cached modules
+RUN mkdir -p /root/.deno && \
+    ln -s /opt/deno-cache/* /root/.deno/ 2>/dev/null || true
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 

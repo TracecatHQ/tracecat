@@ -4,6 +4,11 @@ ENV UV_SYSTEM_PYTHON=1
 ENV HOST=0.0.0.0
 ENV PORT=8000
 
+# Version configuration
+ENV DENO_VERSION=2.1.4
+ENV PYODIDE_VERSION=0.26.4
+ENV DENO_SHA256=3e8b6e153879b3e61ad9c8df77b07c26b95f859308cf34fe87d17ea2ba9c4b4e
+
 # Install required apt packages
 COPY scripts/install-packages.sh .
 RUN chmod +x install-packages.sh && \
@@ -24,10 +29,19 @@ RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.local && \
     chown -R apiuser:apiuser /home/apiuser/.cache /home/apiuser/.local && \
     chmod -R 755 /home/apiuser/.cache /home/apiuser/.local
 
+# Create deno cache directory for apiuser
+RUN mkdir -p /home/apiuser/.deno && \
+    chown -R apiuser:apiuser /home/apiuser/.deno && \
+    chmod -R 755 /home/apiuser/.deno
+
 ENV PYTHONUSERBASE="/home/apiuser/.local"
 ENV UV_CACHE_DIR="/home/apiuser/.cache/uv"
 ENV PYTHONPATH=/home/apiuser/.local:$PYTHONPATH
 ENV PATH=/home/apiuser/.local/bin:$PATH
+
+# Set deno environment variables to use pre-cached modules
+ENV DENO_DIR="/home/apiuser/.deno"
+ENV NODE_MODULES_DIR="/opt/node_modules"
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -51,6 +65,9 @@ RUN uv pip install ./registry
 
 # Ensure apiuser has write permissions to necessary directories
 RUN chown -R apiuser:apiuser /tmp /home/apiuser
+
+# Link pre-cached deno modules to user's deno directory (read-only)
+RUN ln -s /opt/deno-cache/* /home/apiuser/.deno/ 2>/dev/null || true
 
 # Change to the non-root user
 USER apiuser

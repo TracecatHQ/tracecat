@@ -363,8 +363,11 @@ def _create_deno_script(
     script_json = json.dumps(script)
     dependencies_json = json.dumps(dependencies or [])
 
+    # Get pyodide version from environment variable with fallback
+    pyodide_version = os.environ.get("PYODIDE_VERSION", "0.26.4")
+
     return f"""
-import {{ loadPyodide }} from "npm:pyodide";
+import {{ loadPyodide }} from "npm:pyodide@{pyodide_version}";
 
 async function main() {{
     const pyodide = await loadPyodide();
@@ -552,16 +555,31 @@ async def _run_python_script_subprocess(
 
         # Run Deno with minimal permissions for security
         # Following the pydantic-ai MCP secure implementation pattern
+        node_modules_dir = os.environ.get("NODE_MODULES_DIR", "auto")
+
         deno_args = [
             deno_path,
             "run",
-            # Restrict read access to only necessary directories
-            f"--allow-read=node_modules,{temp_dir}",
-            # Always allow write to node_modules for caching (even without network)
-            "--allow-write=node_modules",
-            # Use local node_modules directory for package management
-            "--node-modules-dir=auto",
         ]
+
+        # Set read permissions based on whether we're using pre-cached modules
+        if node_modules_dir != "auto":
+            # Using pre-cached modules, allow read access to them
+            deno_args.extend(
+                [
+                    f"--allow-read={node_modules_dir},{temp_dir}",
+                    f"--node-modules-dir={node_modules_dir}",
+                ]
+            )
+        else:
+            # Using auto mode, need write access for downloading
+            deno_args.extend(
+                [
+                    f"--allow-read=node_modules,{temp_dir}",
+                    "--allow-write=node_modules",
+                    "--node-modules-dir=auto",
+                ]
+            )
 
         # Only add network permissions if explicitly allowed
         if allow_network:
