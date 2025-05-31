@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from registry.tracecat_registry.core.python import (
-    _run_python_script_subprocess,
+    PythonScriptExecutionError,
+    PythonScriptOutputError,
+    PythonScriptTimeoutError,
+    PythonScriptValidationError,
     run_python,
 )
 
@@ -22,24 +25,28 @@ class TestPythonExecution:
     @pytest.mark.asyncio
     async def test_run_python_basic_pyodide_env(self, mock_logger):
         """Test basic script execution in simulated Pyodide environment."""
-        script_content = "print('Hello from Pyodide')\nvalue = 10 * 2\nvalue"
+        script_content = """
+def main():
+    print('Hello from Pyodide')
+    value = 10 * 2
+    return value
+"""
 
         # Simulate being in Pyodide env by making eval_code_async available
         with patch(
             "registry.tracecat_registry.core.python.eval_code_async",
             new_callable=AsyncMock,
         ) as mock_eval_code_async:
-            mock_eval_code_async.return_value = (
-                20  # Mock the return of the last expression
-            )
+            mock_eval_code_async.return_value = 20  # Mock the return of the function
 
             result = await run_python(script=script_content, inputs={"input_var": 5})
 
             assert result == 20
             mock_eval_code_async.assert_called_once()
-            # Check globals passed to eval_code_async
+            # Check that execution_code was passed to eval_code_async
             args, kwargs = mock_eval_code_async.call_args
-            assert args[0] == script_content
+            assert "def main():" in args[0]
+            assert "__result = main()" in args[0]
             assert kwargs["globals"]["input_var"] == 5
             assert kwargs["globals"]["__name__"] == "__main__"
 
@@ -49,9 +56,11 @@ class TestPythonExecution:
     @pytest.mark.asyncio
     async def test_run_python_with_inputs_data_subprocess(self, mock_logger):
         """Test script with inputs data using subprocess fallback."""
-        script_content = (
-            "print(f'Processing: {item_name}, quantity: {qty}')\nqty * price"
-        )
+        script_content = """
+def process_item():
+    print(f'Processing: {item_name}, quantity: {qty}')
+    return qty * price
+"""
         inputs_data = {"item_name": "TestItem", "qty": 10, "price": 2.5}
         expected_result = 25.0
 
@@ -77,12 +86,14 @@ class TestPythonExecution:
                 result = await run_python(script=script_content, inputs=inputs_data)
 
                 assert result == expected_result
-                mock_subprocess_runner.assert_called_once_with(
-                    script_content,
-                    inputs_data,
-                    None,
-                    30,  # Default packages and timeout
-                )
+                mock_subprocess_runner.assert_called_once()
+                call_args = mock_subprocess_runner.call_args[0]
+                assert "def process_item():" in call_args[0]
+                assert "__result = process_item()" in call_args[0]
+                assert call_args[1] == inputs_data
+                assert call_args[2] is None
+                assert call_args[3] == 30
+
                 mock_logger.info.assert_any_call(
                     f"Script stdout:\nProcessing: {inputs_data['item_name']}, quantity: {inputs_data['qty']}"
                 )
@@ -90,46 +101,50 @@ class TestPythonExecution:
     @pytest.mark.asyncio
     async def test_run_python_script_timeout_pyodide(self, mock_logger):
         """Test script timeout in Pyodide environment."""
-        script_content = "import time\ntime.sleep(5)"
+        script_content = """
+def main():
+    import time
+    time.sleep(5)
+    return "Done"
+"""
         with patch(
             "registry.tracecat_registry.core.python.eval_code_async",
             new_callable=AsyncMock,
         ) as mock_eval_code_async:
             mock_eval_code_async.side_effect = asyncio.TimeoutError
 
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(PythonScriptTimeoutError) as exc_info:
                 await run_python(script=script_content, timeout_seconds=1)
 
             assert "timed out" in str(exc_info.value).lower()
-            mock_logger.error.assert_any_call(
-                "Script stderr:\n"
-            )  # Pyodide path might have empty stderr on timeout before script produces it
-            mock_logger.error.assert_any_call(
-                "Script execution failed: Script execution timed out after 1 seconds"
-            )
 
     @pytest.mark.asyncio
     async def test_run_python_script_error_pyodide(self, mock_logger):
         """Test script error (exception) in Pyodide environment."""
-        script_content = "raise ValueError('custom error')"
+        script_content = """
+def main():
+    raise ValueError('custom error')
+    return "Should not reach here"
+"""
         with patch(
             "registry.tracecat_registry.core.python.eval_code_async",
             new_callable=AsyncMock,
         ) as mock_eval_code_async:
             mock_eval_code_async.side_effect = ValueError("custom error")
 
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(PythonScriptExecutionError) as exc_info:
                 await run_python(script=script_content)
 
             assert "custom error" in str(exc_info.value)
-            # In this direct exception case, stdout/stderr might be empty if error is early
-            mock_logger.error.assert_any_call("Script stderr:\n")
-            mock_logger.error.assert_any_call("Script execution failed: custom error")
 
     @pytest.mark.asyncio
     async def test_run_python_dependency_loading_pyodide(self, mock_logger):
         """Test dependency loading in Pyodide environment."""
-        script_content = "import numpy as np\nnp.array([1,2,3]).sum()"
+        script_content = """
+def main():
+    import numpy as np
+    return np.array([1,2,3]).sum()
+"""
 
         with (
             patch(
@@ -155,7 +170,11 @@ class TestPythonExecution:
     @pytest.mark.asyncio
     async def test_run_python_dependency_install_fail_pyodide(self, mock_logger):
         """Test handling of dependency installation failure in Pyodide."""
-        script_content = "import non_existent_pkg\nnon_existent_pkg.do()"
+        script_content = """
+def main():
+    import non_existent_pkg
+    return non_existent_pkg.do()
+"""
 
         with (
             patch(
@@ -173,7 +192,7 @@ class TestPythonExecution:
                 "No module named non_existent_pkg"
             )
 
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(PythonScriptExecutionError) as exc_info:
                 await run_python(
                     script=script_content, dependencies=["non_existent_pkg"]
                 )
@@ -183,11 +202,67 @@ class TestPythonExecution:
             )
             assert "No module named non_existent_pkg" in str(exc_info.value)
 
+    @pytest.mark.asyncio
+    async def test_script_validation_no_function(self, mock_logger):
+        """Test validation for scripts with no function."""
+        script_content = """
+x = 10
+print("This script has no function")
+x * 2
+"""
+        with pytest.raises(PythonScriptValidationError) as exc_info:
+            await run_python(script=script_content)
+
+        assert "must contain at least one function" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_script_validation_multiple_functions_no_main(self, mock_logger):
+        """Test validation for scripts with multiple functions but no main."""
+        script_content = """
+def func1():
+    return "Function 1"
+
+def func2():
+    return "Function 2"
+"""
+        with pytest.raises(PythonScriptValidationError) as exc_info:
+            await run_python(script=script_content)
+
+        assert "When script contains multiple functions" in str(exc_info.value)
+        assert "one must be named 'main'" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_script_with_multiple_functions_with_main(self, mock_logger):
+        """Test execution of script with multiple functions including main."""
+        script_content = """
+def helper():
+    return "Helper function"
+
+def main():
+    result = helper()
+    return f"Main called: {result}"
+"""
+        with patch(
+            "registry.tracecat_registry.core.python.eval_code_async",
+            new_callable=AsyncMock,
+        ) as mock_eval_code_async:
+            mock_eval_code_async.return_value = "Main called: Helper function"
+
+            result = await run_python(script=script_content)
+
+            assert result == "Main called: Helper function"
+            mock_eval_code_async.assert_called_once()
+
     # --- Tests for _run_python_script_subprocess (fallback mechanism) ---
     @pytest.mark.asyncio
     async def test_subprocess_fallback_basic_execution(self, mock_logger):
         """Test basic script execution via Node.js subprocess fallback."""
-        script = "print('Hello from subprocess')\nmy_val = 42\nmy_val"
+        script = """
+def main():
+    print('Hello from subprocess')
+    my_val = 42
+    return my_val
+"""
         inputs_data = {"x": 10}
         expected_node_stdout = json.dumps(
             {
@@ -209,10 +284,6 @@ class TestPythonExecution:
             mock_process.returncode = 0
             mock_create_subprocess.return_value = mock_process
 
-            # Call the internal subprocess runner directly for this test unit
-            await _run_python_script_subprocess(script, inputs_data, None, 10)
-
-            # Now test run_python which uses the above
             # Need to path eval_code_async to make run_python choose the fallback
         with (
             patch(
@@ -238,8 +309,6 @@ class TestPythonExecution:
             assert result == 42
             mock_logger.info.assert_any_call("Script stdout:\nHello from subprocess")
             # Check that tempfile.NamedTemporaryFile was used to write node script
-            # This is harder to check directly without more intrusive mocks or inspecting fs
-            # We trust the Node.js script content is formed correctly if subprocess is called with 'node' and a path.
             call_args = mock_create_subprocess_for_run_python.call_args[0]
             assert call_args[0] == "node"
             assert call_args[1].endswith(".js")
@@ -247,7 +316,11 @@ class TestPythonExecution:
     @pytest.mark.asyncio
     async def test_subprocess_fallback_script_error(self, mock_logger):
         """Test script error reporting from Node.js subprocess fallback."""
-        script = "raise Exception('Subprocess Test Error')"
+        script = """
+def main():
+    raise Exception('Subprocess Test Error')
+    return "Should not reach here"
+"""
         expected_node_stdout = json.dumps(
             {
                 "success": False,
@@ -272,21 +345,22 @@ class TestPythonExecution:
             )
             mock_create_subprocess.return_value = mock_process
 
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(PythonScriptExecutionError) as exc_info:
                 await run_python(script=script, inputs=None)
 
             assert "Subprocess Test Error" in str(exc_info.value)
             mock_logger.error.assert_any_call(
                 "Script stderr:\nException: Subprocess Test Error"
             )
-            mock_logger.error.assert_any_call(
-                "Script execution failed: Exception: Subprocess Test Error"
-            )
 
     @pytest.mark.asyncio
     async def test_subprocess_fallback_node_process_error(self, mock_logger):
         """Test when the Node.js process itself fails for the fallback."""
-        script = "print('hello')"
+        script = """
+def main():
+    print('hello')
+    return "Hello World"
+"""
 
         with (
             patch(
@@ -303,22 +377,21 @@ class TestPythonExecution:
             mock_process.returncode = 1  # Node process failed
             mock_create_subprocess.return_value = mock_process
 
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(PythonScriptExecutionError) as exc_info:
                 await run_python(script=script, inputs=None)
 
             assert "Node.js process error" in str(exc_info.value)
             assert "Node.js critical error" in str(exc_info.value)
-            mock_logger.error.assert_any_call(
-                "Script stderr:\nNode.js process exited with code 1. Stderr: Node.js critical error"
-            )
-            mock_logger.error.assert_any_call(
-                "Script execution failed: Node.js process error. Stderr: Node.js critical error"
-            )
 
     @pytest.mark.asyncio
     async def test_subprocess_fallback_timeout(self, mock_logger):
         """Test script timeout with the Node.js subprocess fallback."""
-        script = "import time; time.sleep(5)"
+        script = """
+def main():
+    import time
+    time.sleep(5)
+    return "Done"
+"""
         with (
             patch(
                 "registry.tracecat_registry.core.python.eval_code_async",
@@ -331,20 +404,20 @@ class TestPythonExecution:
             mock_process.communicate.side_effect = asyncio.TimeoutError
             mock_create_subprocess.return_value = mock_process
 
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(PythonScriptTimeoutError) as exc_info:
                 await run_python(script=script, inputs=None, timeout_seconds=1)
 
             assert "timed out" in str(exc_info.value).lower()
             assert "subprocess" in str(exc_info.value).lower()
-            # Logger might not get specific stderr if subprocess communication itself times out
-            mock_logger.error.assert_any_call(
-                "Script execution failed: Script execution (subprocess) timed out after 1 seconds"
-            )
 
     @pytest.mark.asyncio
     async def test_subprocess_json_decode_error(self, mock_logger):
         """Test handling of invalid JSON output from the Node.js subprocess."""
-        script = "print('hello')"
+        script = """
+def main():
+    print('hello')
+    return "Hello World"
+"""
         invalid_json_stdout = "This is not JSON"
 
         with (
@@ -362,13 +435,7 @@ class TestPythonExecution:
             mock_process.returncode = 0
             mock_create_subprocess.return_value = mock_process
 
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(PythonScriptOutputError) as exc_info:
                 await run_python(script=script, inputs=None)
 
             assert "Failed to decode JSON output" in str(exc_info.value)
-            mock_logger.error.assert_any_call(
-                "Script stderr:\n"
-            )  # Stderr from node might be empty
-            mock_logger.error.assert_any_call(
-                f"Script execution failed: Failed to decode JSON output from Node.js: Expecting value: line 1 column 1 (char 0). stdout: {invalid_json_stdout}"
-            )
