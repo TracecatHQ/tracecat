@@ -2,17 +2,19 @@ import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Self
+from functools import cached_property
+from typing import Any, ClassVar, Self
 
 from pydantic_core import to_json
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
-from tracecat.contexts import ctx_logger
+from tracecat.concurrency import cooperative
+from tracecat.contexts import ctx_logger, ctx_scope_id
 from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
 from tracecat.dsl.control_flow import (
     ExplodeArgs,
-    ScopeAnalyzer,
+    ImplodeArgs,
 )
 from tracecat.dsl.enums import (
     EdgeMarker,
@@ -26,24 +28,40 @@ from tracecat.dsl.models import (
     ActionStatement,
     ExecutionContext,
     TaskExceptionInfo,
+    TaskResult,
 )
+from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
 
 
 class ScopeID(str):
-    """Hierarchical scope identifier: 'root/explode_1/item_2'"""
+    """Hierarchical scope identifier: 'explode_1:2/explode_2:0'"""
+
+    __scope_delim: ClassVar[str] = "/"
+    __idx_delim: ClassVar[str] = ":"
 
     @classmethod
-    def new(cls, explode_ref: str, item_index: int) -> Self:
-        """Create a scope ID for an exploded item"""
-        return cls(f"{explode_ref}/{item_index}")
+    def new(cls, ref: str, index: int, *, base_scope_id: Self | None = None) -> Self:
+        """Create a scope ID for an inherited explode item"""
+        new_scope = cls(f"{ref}{cls.__idx_delim}{index}")
+        if base_scope_id is None:
+            return new_scope
+        return cls(f"{base_scope_id}{cls.__scope_delim}{new_scope}")
 
-    @classmethod
-    def global_scope(cls) -> Self:
-        """Return the global scope identifier"""
-        return cls("global")
+    @cached_property
+    def scopes(self) -> list[str]:
+        """Get the list of scopes in the scope ID"""
+        return self.split(self.__scope_delim)
+
+    @cached_property
+    def leaf_scope(self) -> tuple[str, int]:
+        """Get the leaf scope ID"""
+        ref, index, *rest = self.scopes[-1].split(self.__idx_delim)
+        if rest:
+            raise ValueError(f"Invalid scope ID: {self}")
+        return ref, int(index)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,13 +85,30 @@ class DSLEdge:
     """The scope ID of the edge"""
 
     def __repr__(self) -> str:
-        return f"{self.src}-[{self.type.value}]->{self.dst}"
+        return (
+            f"{self.src}-[{self.type.value}]->{self.dst} ({self.scope_id or 'global'})"
+        )
+
+
+class Counter:
+    __slots__ = ("value",)
+
+    def __init__(self, start: int = 0) -> None:
+        self.value = start
+
+    def next(self) -> int:
+        """Get the next value and increment the counter."""
+        current = self.value
+        self.value += 1
+        return current
+
+    def __repr__(self) -> str:
+        return f"Counter(value={self.value})"
 
 
 class DSLScheduler:
     """Manage only scheduling and control flow of tasks in a topological-like order."""
 
-    _queue_wait_timeout = 1
     skip_strategy: SkipStrategy
     """Decide how to handle tasks that are marked for skipping."""
 
@@ -119,22 +154,26 @@ class DSLScheduler:
                 self.adj[src_ref].add((task.ref, edge_type))
 
         # Scope management
-        self.scopes: dict[ScopeID, dict[str, Any]] = {}
+        self.scopes: dict[ScopeID, ExecutionContext] = {}
         self.scope_hierarchy: dict[ScopeID, ScopeID | None] = {}
-        self.explode_contexts: dict[str, list[ScopeID]] = {}  # explode_ref -> scope_ids
+        """Points to the parent scope ID for each scope ID"""
+        self.task_scopes: defaultdict[Task, list[ScopeID]] = defaultdict(list)
+        self.scope_counters: defaultdict[str, Counter] = defaultdict(Counter)
+        """Used to create unique scope IDs for each explode iteration"""
+        self.open_scopes_counter: dict[Task, int] = {}
+        """Used to track the number of scopes that have been closed for an explode"""
 
-        # Discover scope boundaries
-        self.scope_boundaries = ScopeAnalyzer(dsl).discover_scope_boundaries()
+        # # Discover scope boundaries
+        # self.scope_boundaries = ScopeAnalyzer(dsl).discover_scope_boundaries()
 
-        # Pre-compute which tasks need scoping
-        self.scoped_tasks = set()
-        for boundary in self.scope_boundaries.values():
-            self.scoped_tasks.update(boundary.scoped_tasks)
+        # # Pre-compute which tasks need scoping
+        # self.scoped_tasks = set()
+        # for boundary in self.scope_boundaries.values():
+        #     self.scoped_tasks.update(boundary.scoped_tasks)
 
         self.logger.warning(
             "Scheduler config",
-            scope_boundaries=self.scope_boundaries,
-            scoped_tasks=self.scoped_tasks,
+            # scope_boundaries=self.scope_boundaries,
             adj=self.adj,
             indegrees=self.indegrees,
             tasks=self.tasks,
@@ -319,7 +358,7 @@ class DSLScheduler:
         next_tasks = self.adj[ref]
         self.logger.warning(
             "Queueing tasks",
-            ref=ref,
+            task=task,
             marked_edges=self.edges,
             visited_tasks=self.completed_tasks,
             next_tasks=next_tasks,
@@ -387,17 +426,21 @@ class DSLScheduler:
             # handle it differently.
             if task_defn.action == PlatformAction.TRANSFORM_EXPLODE:
                 # Handle explode with proper scope creation
-                return await self._handle_explode(task_defn)
+                return await self._handle_explode(task)
 
             if task_defn.action == PlatformAction.TRANSFORM_IMPLODE:
                 # Handle implode with synchronization
-                return await self._handle_implode(task_defn)
+                return await self._handle_implode(task)
 
             # -- Otherwise, time to execute the task!
             # NOTE: If an exception is thrown from this coroutine, it signals that
             # the task failed after all attempts. Adding the exception to the task
             # exceptions set will cause the workflow to fail.
-            await self.executor(task_defn)
+            token = ctx_scope_id.set(task.scope_id)
+            try:
+                await self.executor(task_defn)
+            finally:
+                ctx_scope_id.reset(token)
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
@@ -588,7 +631,7 @@ class DSLScheduler:
                 return True
         return False
 
-    async def _handle_explode(self, task_defn: ActionStatement) -> None:
+    async def _handle_explode(self, task: Task) -> None:
         """
         Handle explode action with proper scope creation.
 
@@ -600,105 +643,228 @@ class DSLScheduler:
         The tasks in each scope are executed in the order of the collection.
 
         """
-        ref = task_defn.ref
-        self.logger.info("EXPLODE", ref=ref)
+        defn = self.tasks[task.ref]
+        curr_scope_id = task.scope_id
+        self.logger.info("EXPLODE", task=task)
 
-        args = ExplodeArgs(**task_defn.args)
-        collection = TemplateExpression(args.collection, operand=self.context).result()
+        args = ExplodeArgs(**defn.args)
+        context = self.get_context(curr_scope_id)
+        collection = TemplateExpression(args.collection, operand=context).result()
 
         if not isinstance(collection, list):
-            raise ApplicationError("Collection is not a list", non_retryable=True)
+            raise ApplicationError(
+                f"Collection is not a list: {type(collection)}: {collection}",
+                non_retryable=True,
+            )
 
         if not collection:
             # TODO: proper handling
-            self.logger.warning("Empty collection for explode", ref=ref)
+            self.logger.warning("Empty collection for explode", task=task)
             # Handle empty collection - mark explode as completed and continue
             # await self._handle_success_path(ref)
             return
 
-        # Get scope boundary information
-        boundary = self.scope_boundaries.get(ref)
-        if not boundary:
-            self.logger.warning("No scope boundary found for explode", ref=ref)
-            # Fall back to legacy behavior for now
-            # await self._handle_success_path(ref)
-            return
-
+        # New scopes
         scopes: list[ScopeID] = []
 
+        logger.warning("Exploding collection", task=task, collection=collection)
+
         # Create scope for each collection item
-        for i, item in enumerate(collection):
-            scope_id = ScopeID.new(ref, i)
-            self.logger.info("Creating scope", scope_id=scope_id, item=item)
+        async for i, item in cooperative(enumerate(collection)):
+            scope_id = ScopeID.new(task.ref, i, base_scope_id=curr_scope_id)
+            self.logger.info("Creating scope", scope_id=scope_id, item=item, task=task)
             scopes.append(scope_id)
 
-            # Initialize scope with iterator variable
-            self.scopes[scope_id] = {args.to: item}
-            # NOTE: We probably want to manage this with a contextvar
-            # so we can stack this meaningfully
-            self.scope_hierarchy[scope_id] = None  # Global scope parent
+            # Initialize scope with single item
+            self.scopes[scope_id] = {
+                ExprContext.ACTIONS: {
+                    task.ref: TaskResult(
+                        result=item,
+                        result_typename=type(item).__name__,
+                    ),
+                }
+            }
+            self.scope_hierarchy[scope_id] = curr_scope_id
 
             # Create tasks for all tasks in this scope
-            for ref in boundary.scoped_tasks:
-                task_defn = self.tasks[ref]
-                task = Task(ref, scope_id)
-                # Calculate scope-aware indegrees (same as original for now)
-                self.indegrees[task] = len(task_defn.depends_on)
+            new_scoped_task = Task(task.ref, scope_id)
+            # This will queue the task for execution scope
+            # TODO: Handle unreachable tasks??
+            coro = self._queue_tasks(new_scoped_task, unreachable=None)
+            _ = asyncio.create_task(coro)
 
-        # Track explode context for implode synchronization
-        self.explode_contexts[ref] = scopes
-
+        self.task_scopes[task] = scopes
+        self.open_scopes_counter[task] = len(scopes)
         # Queue initial tasks in each scope
-        self.logger.warning("Queueing initial tasks", ref=ref, scopes=scopes)
-        for scope_id in scopes:
-            # Find tasks that should be queued (those with no dependencies within scope)
-            for task_ref in boundary.scoped_tasks:
-                task = Task(task_ref, scope_id)
-                if self.indegrees.get(task, 0) == 0:
-                    # Queue this task instance (for now, just queue the task ref)
-                    self.queue.put_nowait(task)
+        self.logger.warning(
+            "Queueing initial tasks",
+            task=task,
+            scopes=scopes,
+            open_scopes_counter=self.open_scopes_counter[task],
+            task_scopes_size=len(self.task_scopes[task]),
+            scope_counters_value=self.scope_counters[task.ref].value,
+        )
 
+        # Get the next tasks to queue
         self.logger.warning(
             "Explode completed",
-            ref=ref,
+            task=task,
             collection_size=len(collection),
             scopes_created=len(scopes),
-            scheduler=self,
         )
 
-    async def _handle_implode(self, task: ActionStatement) -> None:
-        """Handle implode with proper synchronization"""
-        self.logger.info("IMPLODE", ref=task.ref)
+    def get_context(self, scope_id: ScopeID | None = None) -> ExecutionContext:
+        if scope_id is None:
+            return self.context
+        return self.scopes[scope_id]
 
-        # For now, implement a basic implode that just executes the task
-        # TODO: Add proper result collection from exploded scopes
+    async def _handle_implode(self, task: Task) -> None:
+        """Handle implode with proper synchronization.
 
-        # Find the corresponding explode operation
-        explode_ref = self._find_upstream_explode(task.ref)
-        if not explode_ref:
-            self.logger.warning("Implode without corresponding explode", ref=task.ref)
-            # Execute normally
-            await self.executor(task)
-            # await self._handle_success_path(task.ref)
-            return
+        Think of this as a synchronization barrier for a collection of execution streams.
 
-        exploded_scopes = self.explode_contexts.get(explode_ref, [])
+        Logic:
+        - Implode is given a jsonpath. Get the item from the current scope. This will be returned to the parent scope.
+        - We need to know the cardinality of the exploded collection so that we can reconstruct the collection in the parent scope.
 
-        # For now, just execute the implode task normally
-        # TODO: Check if all exploded instances are complete and collect results
-        await self.executor(task)
-        # await self._handle_success_path(task.ref)
 
+        Gotchas:
+        - Implode must not be used in the global scope.
+        """
+        scope_id = task.scope_id
+        if scope_id is None:
+            raise ApplicationError(
+                "Implode must not be used in the global scope", non_retryable=True
+            )
+        # We are inside an execution stream. Use implode to synchronize with the other execution streams.
+
+        im_ref = task.ref
+        stmt = self.tasks[im_ref]
+        args = ImplodeArgs(**stmt.args)
+        current_context = self.get_context(scope_id)
+        items = TemplateExpression(args.items, operand=current_context).result()
+        self.logger.info("IMPLODE", task=task, args=args, items=items)
+
+        # Once we have the item, we go down 1 level in the scope hierarchy
+        # and set the item as the result of the action in that scope
+        # We do this for each item in the collection
+        parent_scope_id = self.scope_hierarchy[scope_id]
+        parent_context = self.get_context(parent_scope_id)
+        parent_action_context = parent_context[ExprContext.ACTIONS]
+
+        # We set the item as the result of the action in that scope
+        # We should actually be placing this in parent.result[i]
+
+        # This operation should return the top level scope
+        ex_ref, scope_index = scope_id.leaf_scope
+        parent_ex_task = Task(ex_ref, parent_scope_id)
+        if im_ref not in parent_action_context:
+            # We need to initialize the result with the cardinality of the explode
+            # This is the number of execution streams that will be synchronized by this implode
+            size = len(self.task_scopes[parent_ex_task])
+            result = [None for _ in range(size)]
+            parent_action_context[im_ref] = TaskResult(
+                result=result,
+                result_typename=type(result).__name__,
+            )
+
+        parent_action_context[im_ref]["result"][scope_index] = items
+        self.open_scopes_counter[parent_ex_task] -= 1
         self.logger.info(
-            "Implode completed",
-            ref=task.ref,
-            explode_ref=explode_ref,
-            scopes_processed=len(exploded_scopes),
+            "Set item as result",
+            task=task,
+            scope_id=scope_id,
+            parent_action_context=parent_action_context,
         )
 
-    def _find_upstream_explode(self, task_ref: str) -> str | None:
-        """Find the explode task that feeds into this task"""
-        for explode_ref, boundary in self.scope_boundaries.items():
-            if boundary.implode_ref == task_ref:
-                return explode_ref
+        if self.open_scopes_counter[parent_ex_task] == 0:
+            # We have closed all execution streams for this explode. The implode is now complete.
+            # We now continue the workflow in the parent scope.
+            self.logger.info("Implode complete", task=task)
+            # TODO: Handle unreachable tasks??
+            await self._queue_tasks(Task(im_ref, parent_scope_id), unreachable=None)
+        else:
+            self.logger.info(
+                "The execution stream is complete but the implode isn't.",
+                task=task,
+                remaining_open_scopes=self.open_scopes_counter[parent_ex_task],
+            )
+
+    def get_scope_aware_action_result(
+        self, action_ref: str, scope_id: ScopeID | None = None
+    ) -> Any | None:
+        """
+        Resolve an action expression in a scope-aware manner.
+
+        Traverses from the current scope up through the hierarchy until it finds
+        the action result or reaches the global scope.
+
+        Args:
+            action_ref: The action reference to resolve (e.g., "webhook", "transform_1")
+            scope_id: The current scope ID to start resolution from. If None, uses global scope.
+
+        Returns:
+            The action result if found, None otherwise.
+
+        Example:
+            # In a scoped context
+            result = scheduler.resolve_action_expression("webhook", current_scope_id)
+
+            # In global context
+            result = scheduler.resolve_action_expression("webhook")
+
+        Performance
+        -----------
+        WE SHOULD TOTALLY CACHE THIS FUNCTION BTW
+        """
+        self.logger.debug(
+            "Resolving action expression",
+            action_ref=action_ref,
+            scope_id=scope_id,
+            available_scopes=list(self.scopes.keys()),
+        )
+
+        # Start from the current scope and work upwards
+        current_scope = scope_id
+
+        while current_scope is not None:
+            # Check if the action exists in the current scope
+            scope_context = self.scopes.get(current_scope)
+            if scope_context is not None:
+                actions_context = scope_context.get(ExprContext.ACTIONS, {})
+                if action_ref in actions_context:
+                    self.logger.debug(
+                        "Found action in scope",
+                        action_ref=action_ref,
+                        scope_id=current_scope,
+                        result=actions_context[action_ref],
+                    )
+                    return actions_context[action_ref]
+
+            # Move to parent scope
+            current_scope = self.scope_hierarchy.get(current_scope)
+            self.logger.trace(
+                "Moving to parent scope",
+                action_ref=action_ref,
+                parent_scope=current_scope,
+            )
+
+        # Finally, check the global context
+        global_actions = self.context.get(ExprContext.ACTIONS, {})
+        if action_ref in global_actions:
+            self.logger.debug(
+                "Found action in global context",
+                action_ref=action_ref,
+                result=global_actions[action_ref],
+            )
+            return global_actions[action_ref]
+
+        # Action not found in any scope
+        self.logger.warning(
+            "Action not found in any scope",
+            action_ref=action_ref,
+            scope_id=scope_id,
+            available_global_actions=list(global_actions.keys()),
+            available_scopes=list(self.scopes.keys()),
+        )
         return None

@@ -25,11 +25,18 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
     from pydantic import ValidationError
+    from pydantic_core import to_json
     from slugify import slugify
 
     from tracecat import config, identifiers
     from tracecat.concurrency import GatheringTaskGroup
-    from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
+    from tracecat.contexts import (
+        ctx_interaction,
+        ctx_logger,
+        ctx_role,
+        ctx_run,
+        ctx_scope_id,
+    )
     from tracecat.dsl.action import (
         DSLActivities,
         ValidateActionActivityInput,
@@ -61,7 +68,7 @@ with workflow.unsafe.imports_passed_through():
         TaskResult,
         TriggerInputs,
     )
-    from tracecat.dsl.scheduler import DSLScheduler
+    from tracecat.dsl.scheduler import DSLScheduler, ScopeID
     from tracecat.dsl.validation import (
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
@@ -71,6 +78,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.ee.interactions.service import InteractionManager
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
+    from tracecat.expressions.core import extract_expressions
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
     from tracecat.logger import logger
@@ -183,6 +191,12 @@ class DSLWorkflow:
     def validate_interaction_handler(self, input: InteractionInput) -> None:
         """Validate the interaction handler."""
         return self.interactions.validate_interaction(input)
+
+    def get_context(self, scope_id: ScopeID | None = None) -> ExecutionContext:
+        """Get the current execution context."""
+        if scope_id is None:
+            return self.context
+        return self.scheduler.scopes[scope_id]
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
@@ -409,7 +423,7 @@ class DSLWorkflow:
             )
 
         try:
-            self.logger.info("DSL workflow completed")
+            self.logger.info("DSL workflow completed", scheduler=self.scheduler)
             return self._handle_return()
         except TracecatExpressionError as e:
             raise ApplicationError(
@@ -524,6 +538,7 @@ class DSLWorkflow:
 
         logger.info("Begin task execution", task_ref=task.ref)
         task_result = TaskResult(result=None, result_typename=type(None).__name__)
+        scope_id = ctx_scope_id.get()
 
         try:
             # Handle timing control flow logic
@@ -600,7 +615,13 @@ class DSLWorkflow:
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
             logger.trace("Setting action result", task_result=task_result)
-            self.context[ExprContext.ACTIONS][task.ref] = task_result  # type: ignore
+            context = self.get_context(scope_id)
+            logger.warning(
+                "Setting action result in current context",
+                scope_id=scope_id,
+                context=context,
+            )
+            context[ExprContext.ACTIONS][task.ref] = task_result
         return task_result
 
     ERROR_TYPE_TO_MESSAGE = {
@@ -903,13 +924,28 @@ class DSLWorkflow:
         )
 
     async def _run_action(self, task: ActionStatement) -> Any:
+        # XXX(perf): We shouldn't pass the full execution context to the activity
+        # We should only keep the contexts that are needed for the action
+        scope_id = ctx_scope_id.get()
+        expr_ctxs = extract_expressions(task.model_dump())
+        new_action_context: dict[str, Any] = {}
+        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
+            res = self.scheduler.get_scope_aware_action_result(action_ref, scope_id)
+            new_action_context[action_ref] = res
+
+        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+
+        self.logger.warning(
+            f"New action context: {to_json(new_context, indent=2).decode()}"
+        )
+
         arg = RunActionInput(
             task=task,
             run_context=self.run_context,
-            exec_context=self.context,
+            exec_context=new_context,
             interaction_context=ctx_interaction.get(),
         )
-        self.logger.debug("Running action", action=task.action)
+        self.logger.warning("Running action", action=task.action, scope_id=scope_id)
 
         return await workflow.execute_activity(
             DSLActivities.run_action_activity,

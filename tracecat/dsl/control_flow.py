@@ -4,22 +4,17 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
-from tracecat.dsl.enums import PlatformAction
 from tracecat.expressions.validation import ExpressionStr
 
 
 class ExplodeArgs(BaseModel):
-    to: str = Field(
-        ..., description="The variable name used to reference each exploded item"
-    )
     collection: ExpressionStr = Field(..., description="The collection to explode")
-    scope_id: str = Field(..., description="Unique identifier for this explode scope")
 
 
 class ImplodeArgs(BaseModel):
     """Arguments for implode operations"""
 
-    scope_id: str = Field(..., description="The scope ID to collect results from")
+    items: ExpressionStr = Field(..., description="The jsonpath to select items from")
 
 
 @dataclass(slots=True)
@@ -64,41 +59,40 @@ class ScopeAnalyzer:
                 adj[src_ref].add((task.ref, edge_type))
         return adj
 
-    def discover_scope_boundaries(self) -> dict[str, ScopeBoundary]:
-        """Find all explode/implode pairs and their enclosed tasks"""
-        implode_tasks: dict[str, str] = {}
-        for task in self.dsl.actions:
-            if task.action == PlatformAction.TRANSFORM_IMPLODE:
-                args = ImplodeArgs(**task.args)
-                implode_tasks[args.scope_id] = task.ref
+    # def discover_scope_boundaries(self) -> dict[str, ScopeBoundary]:
+    #     """Find all explode/implode pairs and their enclosed tasks"""
+    #     implode_tasks: dict[str, str] = {}
+    #     for task in self.dsl.actions:
+    #         if task.action == PlatformAction.TRANSFORM_IMPLODE:
+    #             args = ImplodeArgs(**task.args)
+    #             implode_tasks[args.path] = task.ref
 
-        scope_boundaries: dict[str, ScopeBoundary] = {}
+    #     scope_boundaries: dict[str, ScopeBoundary] = {}
 
-        for task in self.dsl.actions:
-            if task.action != PlatformAction.TRANSFORM_EXPLODE:
-                continue
+    #     for task in self.dsl.actions:
+    #         if task.action != PlatformAction.TRANSFORM_EXPLODE:
+    #             continue
 
-            # Get explode args to find scope ID
-            args = ExplodeArgs(**task.args)
-            scope_id = args.scope_id
-            # Find corresponding implode(s) that use this scope ID
-            implode_ref = implode_tasks.get(scope_id)
+    #         # Get explode args to find scope ID
+    #         args = ExplodeArgs(**task.args)
+    #         # Find corresponding implode(s) that use this scope ID
+    #         implode_ref = implode_tasks.get(scope_id)
 
-            # Find all tasks between explode and implode
-            if implode_ref:
-                scoped_tasks = self._find_tasks_between(task.ref, implode_ref)
-            else:
-                # If no implode found, include all reachable tasks from explode
-                scoped_tasks = self._find_all_reachable_tasks(task.ref)
+    #         # Find all tasks between explode and implode
+    #         if implode_ref:
+    #             scoped_tasks = self._find_tasks_between(task.ref, implode_ref)
+    #         else:
+    #             # If no implode found, include all reachable tasks from explode
+    #             scoped_tasks = self._find_all_reachable_tasks(task.ref)
 
-            scope_boundaries[task.ref] = ScopeBoundary(
-                explode_ref=task.ref,
-                implode_ref=implode_ref,
-                scoped_tasks=scoped_tasks,
-                scope_id=scope_id,
-            )
+    #         scope_boundaries[task.ref] = ScopeBoundary(
+    #             explode_ref=task.ref,
+    #             implode_ref=implode_ref,
+    #             scoped_tasks=scoped_tasks,
+    #             scope_id=scope_id,
+    #         )
 
-        return scope_boundaries
+    #     return scope_boundaries
 
     def _find_tasks_between(self, explode_ref: str, implode_ref: str) -> set[str]:
         """Find all tasks reachable from explode but not beyond implode"""
