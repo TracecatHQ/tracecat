@@ -1,10 +1,16 @@
-from typing import Annotated, Any, TypedDict
-from tracecat.logger import logger
-from typing_extensions import Doc
+import asyncio
 import json
+import os
 import re
+import shutil
+import sys
+import tempfile
+from io import StringIO
+from typing import Annotated, Any, TypedDict
 
+from tracecat.logger import logger
 from tracecat_registry import registry
+from typing_extensions import Doc
 
 
 class PythonScriptOutput(TypedDict):
@@ -20,31 +26,58 @@ class PythonScriptOutput(TypedDict):
 class PythonScriptError(Exception):
     """Base exception for Python script execution errors."""
 
-    pass
-
 
 class PythonScriptTimeoutError(PythonScriptError):
     """Exception raised when a Python script execution times out."""
-
-    pass
 
 
 class PythonScriptValidationError(PythonScriptError):
     """Exception raised when a Python script fails validation."""
 
-    pass
-
 
 class PythonScriptExecutionError(PythonScriptError):
     """Exception raised when a Python script fails during execution."""
-
-    pass
 
 
 class PythonScriptOutputError(PythonScriptError):
     """Exception raised when a Python script output cannot be processed."""
 
-    pass
+
+def _extract_user_friendly_error(error_msg: str) -> str:
+    """
+    Extract a clean, user-friendly error message from Python tracebacks.
+
+    This extracts just the Python error representation (e.g., "ValueError: some_msg")
+    without the technical traceback details that are not useful for end users
+    in a no-code platform.
+
+    Args:
+        error_msg: The raw error message, potentially containing a full traceback.
+
+    Returns:
+        A clean error message suitable for end users.
+    """
+    if "PythonError:" not in error_msg:
+        return error_msg
+
+    # Split into lines and process in reverse (exception is usually at the end)
+    lines = [line.strip() for line in error_msg.split("\n") if line.strip()]
+
+    for line in reversed(lines):
+        # Skip traceback-related lines
+        match line:
+            case line if line.startswith(("File ", "  ", "Traceback")):
+                continue
+            case line if ":" not in line:
+                continue
+            case _:
+                # If it has the format "SomethingError: message", it's likely a Python exception
+                exception_type = line.split(":", 1)[0].strip()
+                if exception_type.endswith(("Error", "Exception")):
+                    return line
+
+    # Fallback to original message if no clean exception found
+    return error_msg
 
 
 def _validate_script(script: str) -> tuple[bool, str | None]:
@@ -72,7 +105,7 @@ def _validate_script(script: str) -> tuple[bool, str | None]:
 
 @registry.register(
     default_title="Run Python script",
-    description="Execute a Python script in a sandboxed WebAssembly environment.",
+    description="Execute a Python script in a secure, sandboxed WebAssembly environment using Pyodide.",
     display_group="Run script",
     namespace="core.script",
 )
@@ -83,7 +116,8 @@ async def run_python(
             "Python script to execute. Must contain at least one function. "
             "If multiple functions are defined, one must be named 'main'. "
             "The function's return value is the output of this operation. "
-            "The script runs in a sandboxed WebAssembly environment."
+            "The script runs in a secure, sandboxed WebAssembly environment "
+            "isolated from the host operating system."
         ),
     ],
     inputs: Annotated[
@@ -106,7 +140,11 @@ async def run_python(
     ] = 30,
 ) -> Any:
     """
-    Executes a Python script as a function in a sandboxed WebAssembly environment using Pyodide.
+    Executes a Python script in a secure, sandboxed WebAssembly environment using Pyodide.
+
+    The code is executed using Pyodide in Deno and is therefore isolated from the rest
+    of the operating system. This prevents the script from accessing files or resources
+    on the host system.
 
     The script must contain at least one function. If multiple functions are defined, one must be
     named 'main', which will be called. If only one function is defined, it will be called.
@@ -132,12 +170,9 @@ async def run_python(
     # Validate script
     is_valid, error_message = _validate_script(script)
     if not is_valid:
+        assert error_message is not None  # Should never be None when is_valid is False
         logger.error(f"Script validation failed: {error_message}")
         raise PythonScriptValidationError(error_message)
-
-    import asyncio
-    import sys
-    from io import StringIO
 
     in_pyodide_env = False
     try:
@@ -205,14 +240,16 @@ __result  # Return the result
                 success=True,
                 error=None,
             )
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as timeout_error:
             error_msg = f"Script execution timed out after {timeout_seconds} seconds"
             logger.error(error_msg)
-            raise PythonScriptTimeoutError(error_msg)
+            raise PythonScriptTimeoutError(error_msg) from timeout_error
         except Exception as e:
-            error_msg = str(e)
+            error_msg = _extract_user_friendly_error(str(e))
             logger.error(f"Script execution failed: {error_msg}")
-            raise PythonScriptExecutionError(f"Script execution failed: {error_msg}")
+            raise PythonScriptExecutionError(
+                f"Script execution failed: {error_msg}"
+            ) from e
         finally:
             sys.stdout = old_stdout
             sys.stderr = old_stderr
@@ -234,22 +271,31 @@ __result  # Return the result
         raise PythonScriptExecutionError(f"Script execution failed: {error_message}")
 
 
-async def _run_python_script_subprocess(
-    script: str,
-    inputs: dict[str, Any] | None,
-    dependencies: list[str] | None,
-    timeout_seconds: int,
-) -> PythonScriptOutput:
-    import tempfile
-    import asyncio
+def _create_deno_script(
+    script: str, inputs: dict[str, Any] | None, dependencies: list[str] | None
+) -> str:
+    """
+    Create the Deno TypeScript script that loads Pyodide and executes Python code.
 
-    node_script_template = """\
-const {{ loadPyodide }} = require("pyodide");
+    Args:
+        script: The Python script code to execute.
+        inputs: Dictionary of variables to inject into the script globals.
+        dependencies: List of Python packages to install via Pyodide.
+
+    Returns:
+        The complete Deno TypeScript script as a string.
+    """
+    escaped_script = (
+        script.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+    )
+
+    return f"""
+import {{ loadPyodide }} from "npm:pyodide";
 
 async function main() {{
     const pyodide = await loadPyodide();
 
-    const dependencies = {dependencies_json};
+    const dependencies = {json.dumps(dependencies or [])};
     if (dependencies && dependencies.length > 0) {{
         try {{
             await pyodide.loadPackage(dependencies);
@@ -258,7 +304,7 @@ async function main() {{
         }}
     }}
 
-    const scriptInputs = {inputs_json};
+    const scriptInputs = {json.dumps(inputs or {})};
     if (scriptInputs) {{
         for (const [key, value] of Object.entries(scriptInputs)) {{
             pyodide.globals.set(key, value);
@@ -268,10 +314,10 @@ async function main() {{
     let stdout_acc = "";
     let stderr_acc = "";
     pyodide.setStdout({{
-        batched: (msg) => {{ stdout_acc += msg + "\n"; }}
+        batched: (msg) => {{ stdout_acc += msg + "\\n"; }}
     }});
     pyodide.setStderr({{
-        batched: (msg) => {{ stderr_acc += msg + "\n"; }}
+        batched: (msg) => {{ stderr_acc += msg + "\\n"; }}
     }});
 
     let scriptResult = null;
@@ -303,87 +349,173 @@ main().catch(err => {{
         success: false,
         output: null,
         stdout: "",
-        stderr: `Node.js wrapper error: ${{err.toString()}}`,
-        error: `Node.js wrapper error: ${{err.toString()}}`
+        stderr: `Deno wrapper error: ${{err.toString()}}`,
+        error: `Deno wrapper error: ${{err.toString()}}`
     }}));
-}});\n"""
+}});
+"""
 
-    escaped_script = (
-        script.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-    )
 
-    node_script = node_script_template.format(
-        dependencies_json=json.dumps(dependencies or []),
-        inputs_json=json.dumps(inputs or {}),
-        escaped_script=escaped_script,
-    )
+def _parse_subprocess_output(stdout: str) -> PythonScriptOutput:
+    """
+    Parse the stdout from Deno subprocess to extract the JSON result.
+
+    This handles cases where package installation messages are mixed with JSON output
+    by looking for the last valid JSON object in the output.
+
+    Args:
+        stdout: The raw stdout from the Deno subprocess.
+
+    Returns:
+        Parsed PythonScriptOutput.
+
+    Raises:
+        PythonScriptExecutionError: If execution failed with a clean error message.
+        PythonScriptOutputError: If JSON parsing fails.
+    """
+    if not stdout:
+        error_msg = "No output from Pyodide Deno script."
+        logger.error(error_msg)
+        raise PythonScriptExecutionError(error_msg)
+
+    try:
+        # Handle case where package installation messages are mixed with JSON output
+        # Look for the last line that contains valid JSON
+        json_line = None
+        for line in reversed(stdout.split("\n")):
+            line = line.strip()
+            if line.startswith("{") and line.endswith("}"):
+                try:
+                    json.loads(line)  # Validate it's valid JSON
+                    json_line = line
+                    break
+                except json.JSONDecodeError:
+                    continue
+
+        if not json_line:
+            # Fallback: try parsing the entire stdout as JSON
+            json_line = stdout
+
+        output_data = json.loads(json_line)
+
+        # Check if execution was successful
+        if not output_data.get("success", False):
+            # Extract clean error message for users
+            raw_error = output_data.get("error", "Unknown error occurred")
+            clean_error = _extract_user_friendly_error(raw_error)
+
+            logger.error(f"Script execution failed: {clean_error}")
+            raise PythonScriptExecutionError(f"Script execution failed: {clean_error}")
+
+        return PythonScriptOutput(
+            output=output_data.get("output"),
+            stdout=output_data.get("stdout", ""),
+            stderr=output_data.get("stderr", ""),
+            success=output_data.get("success", False),
+            error=output_data.get("error"),
+        )
+
+    except json.JSONDecodeError as jde:
+        error_msg = f"Failed to decode JSON output from Deno: {jde}. stdout: {stdout}"
+        logger.error(error_msg)
+        raise PythonScriptOutputError(error_msg) from jde
+
+
+async def _run_python_script_subprocess(
+    script: str,
+    inputs: dict[str, Any] | None,
+    dependencies: list[str] | None,
+    timeout_seconds: int,
+) -> PythonScriptOutput:
+    """
+    Execute Python script via Deno subprocess using Pyodide.
+
+    This function creates a temporary TypeScript file that loads Pyodide
+    and executes the Python script in a secure WebAssembly sandbox.
+
+    Args:
+        script: The Python script code to execute.
+        inputs: Dictionary of variables to inject into the script globals.
+        dependencies: List of Python packages to install via Pyodide.
+        timeout_seconds: Maximum execution time before timeout.
+
+    Returns:
+        PythonScriptOutput containing the execution results.
+
+    Raises:
+        PythonScriptExecutionError: If Deno is not found or execution fails.
+        PythonScriptTimeoutError: If execution times out.
+        PythonScriptOutputError: If output cannot be parsed.
+    """
+    # Check if Deno is available
+    deno_path = shutil.which("deno")
+    if not deno_path:
+        error_msg = "Deno executable not found in PATH. Please install Deno to run Python scripts."
+        logger.error(error_msg)
+        raise PythonScriptExecutionError(error_msg)
+
+    deno_script = _create_deno_script(script, inputs, dependencies)
+
     temp_file_path = ""
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".js", delete=False) as f:
-            f.write(node_script)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ts", delete=False) as f:
+            f.write(deno_script)
             temp_file_path = f.name
 
+        # Run Deno with minimal permissions for security
+        # Following the pydantic-ai MCP secure implementation pattern
         process = await asyncio.create_subprocess_exec(
-            "node",
+            deno_path,
+            "run",
+            # Network access only for downloading Pyodide and Python packages
+            "--allow-net",
+            # Read access restricted to node_modules only
+            "--allow-read=node_modules",
+            # Write access restricted to node_modules only for caching
+            "--allow-write=node_modules",
+            # Use local node_modules directory for package management
+            "--node-modules-dir=auto",
             temp_file_path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=os.getcwd(),
         )
 
         try:
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 process.communicate(), timeout=timeout_seconds + 5
             )
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as timeout_error:
             error_msg = f"Script execution (subprocess) timed out after {timeout_seconds} seconds"
             logger.error(error_msg)
-            raise PythonScriptTimeoutError(error_msg)
+            raise PythonScriptTimeoutError(error_msg) from timeout_error
 
         stdout = stdout_bytes.decode().strip()
         stderr = stderr_bytes.decode().strip()
 
         if process.returncode != 0:
-            error_msg = f"Node.js process error. Stderr: {stderr}"
+            error_msg = f"Deno process error. Stderr: {stderr}"
             logger.error(error_msg)
             raise PythonScriptExecutionError(error_msg)
 
-        if stdout:
-            try:
-                output_data = json.loads(stdout)
-                return PythonScriptOutput(
-                    output=output_data.get("output"),
-                    stdout=output_data.get("stdout", ""),
-                    stderr=output_data.get("stderr", ""),
-                    success=output_data.get("success", False),
-                    error=output_data.get("error"),
-                )
-            except json.JSONDecodeError as jde:
-                error_msg = f"Failed to decode JSON output from Node.js: {jde}. stdout: {stdout}"
-                logger.error(error_msg)
-                raise PythonScriptOutputError(error_msg)
-        else:
-            error_msg = stderr or "No output from Pyodide Node.js script."
-            logger.error(error_msg)
-            raise PythonScriptExecutionError(error_msg)
+        return _parse_subprocess_output(stdout)
 
+    except (
+        PythonScriptTimeoutError,
+        PythonScriptExecutionError,
+        PythonScriptOutputError,
+    ):
+        # Re-raise our custom exceptions as-is
+        raise
     except Exception as e:
-        if isinstance(
-            e,
-            (
-                PythonScriptTimeoutError,
-                PythonScriptExecutionError,
-                PythonScriptOutputError,
-            ),
-        ):
-            raise
         error_msg = f"Failed to execute script via subprocess: {str(e)}"
         logger.error(error_msg)
-        raise PythonScriptExecutionError(error_msg)
+        raise PythonScriptExecutionError(error_msg) from e
     finally:
         if temp_file_path:
             try:
-                import os
-
                 os.unlink(temp_file_path)
-            except (OSError, NameError):
+            except OSError:
+                # File cleanup failed, but this is not critical
+                logger.warning(f"Failed to clean up temporary file: {temp_file_path}")
                 pass
