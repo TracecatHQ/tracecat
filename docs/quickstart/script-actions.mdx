@@ -62,10 +62,14 @@ The following examples show valid inputs for the `Run Python script` action.
     def calculate_tax(amount, rate):
       return amount * rate
 
+    def add_fixed_tax(amount, add_on=10):
+      return amount + add_on
+
     def main(subtotal, tax_rate):
       # When multiple functions exist, 'main' is called
       tax = calculate_tax(subtotal, tax_rate)
-      return subtotal + tax
+      total = add_fixed_tax(subtotal, 10)
+      return total + tax
   inputs:
     subtotal: 100.0
     tax_rate: 0.08
