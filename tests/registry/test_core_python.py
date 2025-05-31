@@ -652,6 +652,23 @@ def main(value):
         result = await run_python(script=script, inputs=inputs)
         assert result == 20  # (5 * 2) + 10
 
+    @pytest.mark.anyio
+    async def test_extra_input_fields_are_ignored(self):
+        """Test that extra input fields not matching function parameters are silently ignored."""
+        script = """
+def main(name, age):
+    return f"{name} is {age} years old"
+"""
+        inputs = {
+            "name": "Alice",
+            "age": 30,
+            "city": "NYC",  # This extra field should be ignored
+            "country": "USA",  # This extra field should be ignored
+            "occupation": "Engineer",  # This extra field should be ignored
+        }
+        result = await run_python(script=script, inputs=inputs)
+        assert result == "Alice is 30 years old"
+
 
 def print_deno_installation_instructions():
     """Print instructions for installing Deno."""

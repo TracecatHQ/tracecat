@@ -33,6 +33,8 @@ You can include 3rd-party Python packages in your script by adding them to the `
 - Keys must match the parameter names in the function signature
 - Missing parameters will receive `None`
 - Functions must have parameters to receive inputs
+- Extra input fields that don't match function parameters are ignored
+- If your function has `def main(name, age):` but inputs include `{"name": "Alice", "age": 30, "city": "NYC"}`, the `city` field will be ignored without error.
 </Note>
 
 ### Examples
