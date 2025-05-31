@@ -60,6 +60,8 @@ dependencies = [
     "uv==0.4.10",
     "uvicorn>=0.33.0,<0.34",
     "virtualenv==20.27.0",
+    "tracecat_registry",
+    "tracecat_mcp",
 ]
 dynamic = ["version"]
 
@@ -127,3 +129,7 @@ markers = [
     "llm: marks tests that perform LLM calls",
     "ollama: mark tests that require Ollama",
 ]
+
+[tool.uv.sources]
+tracecat_registry = { path = "registry", editable = true }
+tracecat_mcp = { path = "tracecat-mcp", editable = true }

@@ -76,16 +76,26 @@ class TracecatUUID[ShortID: str](UUID):
         _handler: Any,
     ) -> CoreSchema:
         """Generate Pydantic core schema for validation and serialization."""
+        # This validator handles parsing from various string formats or UUID objects
+        # into an instance of `cls`.
+        main_validator = core_schema.no_info_plain_validator_function(cls.new)
+
         return core_schema.json_or_python_schema(
-            json_schema=core_schema.no_info_plain_validator_function(cls.new),
+            # For JSON schema generation, we explicitly state this should be a string.
+            # Pydantic will use this for the schema, and `main_validator` for parsing.
+            json_schema=core_schema.str_schema(),
             python_schema=core_schema.union_schema(
                 [
-                    core_schema.is_instance_schema(cls),
-                    core_schema.no_info_plain_validator_function(cls.new),
+                    core_schema.is_instance_schema(
+                        cls
+                    ),  # Allow already-instantiated objects
+                    main_validator,  # Allow parsing via cls.new
                 ]
             ),
             serialization=core_schema.plain_serializer_function_ser_schema(
-                str,
+                # When serializing to JSON, convert the instance to its standard string representation.
+                lambda v: str(v),
+                info_arg=False,
                 return_schema=core_schema.str_schema(),
                 when_used="json",
             ),

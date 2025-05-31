@@ -228,7 +228,7 @@ class BaseExprValidator(Visitor):
                 type=ExprType.TYPECAST,
             )
 
-        self.logger.warning("Typecast expression", typename=typename, children=children)
+        self.logger.trace("Typecast expression", typename=typename, children=children)
         # If the child is a literal, we can typecast it directly
         child = children[0]
         if not isinstance(child, Tree):

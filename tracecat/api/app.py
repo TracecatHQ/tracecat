@@ -17,6 +17,7 @@ from tracecat.api.common import (
     bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
+    setup_builder_loop,
     tracecat_exception_handler,
 )
 from tracecat.auth.dependencies import require_auth_type_enabled
@@ -30,6 +31,7 @@ from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
 )
+from tracecat.builder.router import router as builder_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
 from tracecat.contexts import ctx_role
@@ -76,7 +78,8 @@ async def lifespan(app: FastAPI):
         await setup_org_settings(session, role)
         await reload_registry(session, role)
         await setup_workspace_defaults(session, role)
-    yield
+    with setup_builder_loop(app):
+        yield
 
 
 async def setup_org_settings(session: AsyncSession, admin_role: Role):
@@ -186,6 +189,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(cases_router)
     app.include_router(case_fields_router)
     app.include_router(workflow_folders_router)
+    app.include_router(builder_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

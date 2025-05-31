@@ -1,0 +1,13 @@
+title: Echo
+description: A simple workflow to echo a string.
+entrypoint:
+  expects:
+    word:
+      type: str
+      description: The word to echo.
+actions:
+  - ref: echo
+    action: core.transform.reshape
+    args:
+      value: ${{ TRIGGER.word }}
+returns: ${{ ACTIONS.echo.result }}

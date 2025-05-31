@@ -1,0 +1,136 @@
+definition:
+  title: San Francisco Weather Alert
+  description: Pull current weather data for San Francisco, format it nicely, and send to Slack
+
+  entrypoint:
+    ref: get_weather
+
+  actions:
+    - ref: get_weather
+      action: core.http_request
+      args:
+        url: "https://api.open-meteo.com/v1/forecast"
+        method: "GET"
+        params:
+          latitude: 37.7749
+          longitude: -122.4194
+          current: "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m"
+          temperature_unit: "fahrenheit"
+          wind_speed_unit: "mph"
+          timezone: "America/Los_Angeles"
+        headers:
+          Accept: "application/json"
+        timeout: 15
+        verify_ssl: true
+        follow_redirects: true
+
+    - ref: extract_weather_data
+      action: core.transform.reshape
+      depends_on:
+        - get_weather
+      args:
+        value:
+          time: "${{ ACTIONS.get_weather.result.data.current.time }}"
+          location: "San Francisco, CA"
+          temperature: "${{ ACTIONS.get_weather.result.data.current.temperature_2m }}"
+          feels_like: "${{ ACTIONS.get_weather.result.data.current.apparent_temperature }}"
+          humidity: "${{ ACTIONS.get_weather.result.data.current.relative_humidity_2m }}"
+          precipitation: "${{ ACTIONS.get_weather.result.data.current.precipitation }}"
+          wind_speed: "${{ ACTIONS.get_weather.result.data.current.wind_speed_10m }}"
+          wind_direction: "${{ ACTIONS.get_weather.result.data.current.wind_direction_10m }}"
+          weather_code: "${{ ACTIONS.get_weather.result.data.current.weather_code }}"
+
+    - ref: define_weather_codes
+      action: core.transform.reshape
+      depends_on:
+        - extract_weather_data
+      args:
+        value:
+          weather_mapping:
+            "0": "Clear sky"
+            "1": "Mainly clear"
+            "2": "Partly cloudy"
+            "3": "Overcast"
+            "45": "Fog"
+            "48": "Depositing rime fog"
+            "51": "Light drizzle"
+            "53": "Moderate drizzle"
+            "55": "Dense drizzle"
+            "56": "Light freezing drizzle"
+            "57": "Dense freezing drizzle"
+            "61": "Slight rain"
+            "63": "Moderate rain"
+            "65": "Heavy rain"
+            "66": "Light freezing rain"
+            "67": "Heavy freezing rain"
+            "71": "Slight snow fall"
+            "73": "Moderate snow fall"
+            "75": "Heavy snow fall"
+            "77": "Snow grains"
+            "80": "Slight rain showers"
+            "81": "Moderate rain showers"
+            "82": "Violent rain showers"
+            "85": "Slight snow showers"
+            "86": "Heavy snow showers"
+            "95": "Thunderstorm"
+            "96": "Thunderstorm with slight hail"
+            "99": "Thunderstorm with heavy hail"
+          weather_code: "${{ ACTIONS.extract_weather_data.result.weather_code }}"
+
+    - ref: get_weather_description
+      action: core.transform.reshape
+      depends_on:
+        - define_weather_codes
+      args:
+        value:
+          code: "${{ ACTIONS.define_weather_codes.result.weather_code }}"
+          description: "${{ ACTIONS.define_weather_codes.result.weather_mapping[ACTIONS.define_weather_codes.result.weather_code] || 'Unknown weather condition' }}"
+
+    - ref: format_weather
+      action: core.transform.reshape
+      depends_on:
+        - extract_weather_data
+        - get_weather_description
+      args:
+        value:
+          time: "${{ ACTIONS.extract_weather_data.result.time }}"
+          location: "${{ ACTIONS.extract_weather_data.result.location }}"
+          temperature: "${{ ACTIONS.extract_weather_data.result.temperature }}"
+          feels_like: "${{ ACTIONS.extract_weather_data.result.feels_like }}"
+          humidity: "${{ ACTIONS.extract_weather_data.result.humidity }}"
+          precipitation: "${{ ACTIONS.extract_weather_data.result.precipitation }}"
+          wind_speed: "${{ ACTIONS.extract_weather_data.result.wind_speed }}"
+          wind_direction: "${{ ACTIONS.extract_weather_data.result.wind_direction }}"
+          weather_code: "${{ ACTIONS.extract_weather_data.result.weather_code }}"
+          weather_description: "${{ ACTIONS.get_weather_description.result.description }}"
+
+    - ref: create_message
+      action: core.transform.reshape
+      depends_on:
+        - format_weather
+      args:
+        value:
+          text: |
+            *Current Weather for ${{ ACTIONS.format_weather.result.location }}*
+            *Time:* ${{ FN.format_datetime(ACTIONS.format_weather.result.time, '%Y-%m-%d %I:%M %p') }}
+
+            *Conditions:* ${{ ACTIONS.format_weather.result.weather_description }}
+            *Temperature:* ${{ ACTIONS.format_weather.result.temperature }}°F (Feels like: ${{ ACTIONS.format_weather.result.feels_like }}°F)
+            *Humidity:* ${{ ACTIONS.format_weather.result.humidity }}%
+            *Precipitation:* ${{ ACTIONS.format_weather.result.precipitation }} mm
+            *Wind:* ${{ ACTIONS.format_weather.result.wind_speed }} mph from ${{ ACTIONS.format_weather.result.wind_direction }}°
+
+    - ref: send_to_slack
+      action: tools.slack.post_message
+      depends_on:
+        - create_message
+      args:
+        channel: "weather-alerts"
+        markdown_text: "${{ ACTIONS.create_message.result.text }}"
+
+  config:
+    timeout: 60
+  # Note: Before executing this workflow, add a Slack Bot Token to your secrets:
+  # 1. Create a secret named 'slack' in the default environment
+  # 2. Add a key 'SLACK_BOT_TOKEN' with your Slack Bot Token value
+  # The workflow will only attempt to send to Slack if this token is available
