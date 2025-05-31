@@ -8,6 +8,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 # Version configuration with defaults
+# These values come from Docker ENV variables, which are also used by the application via config.py
 DENO_VERSION="${DENO_VERSION:-2.1.4}"
 PYODIDE_VERSION="${PYODIDE_VERSION:-0.26.4}"
 # Checksum for deno - this needs to be updated when DENO_VERSION changes

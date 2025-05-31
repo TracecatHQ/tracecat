@@ -5,6 +5,7 @@ ENV HOST=0.0.0.0
 ENV PORT=8000
 
 # Version configuration
+# These versions are used during build time and also read by the application via config.py
 ENV DENO_VERSION=2.1.4
 ENV PYODIDE_VERSION=0.26.4
 ENV DENO_SHA256=3e8b6e153879b3e61ad9c8df77b07c26b95f859308cf34fe87d17ea2ba9c4b4e

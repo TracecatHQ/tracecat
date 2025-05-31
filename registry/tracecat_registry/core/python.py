@@ -9,6 +9,7 @@ from io import StringIO
 from typing import Annotated, Any, TypedDict
 import uuid
 
+from tracecat.config import TRACECAT__PYODIDE_VERSION
 from tracecat.logger import logger
 from tracecat_registry import registry
 from typing_extensions import Doc
@@ -363,11 +364,8 @@ def _create_deno_script(
     script_json = json.dumps(script)
     dependencies_json = json.dumps(dependencies or [])
 
-    # Get pyodide version from environment variable with fallback
-    pyodide_version = os.environ.get("PYODIDE_VERSION", "0.26.4")
-
     return f"""
-import {{ loadPyodide }} from "npm:pyodide@{pyodide_version}";
+import {{ loadPyodide }} from "npm:pyodide@{TRACECAT__PYODIDE_VERSION}";
 
 async function main() {{
     const pyodide = await loadPyodide();
