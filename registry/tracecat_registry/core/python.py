@@ -1,5 +1,4 @@
 import asyncio
-import ast
 import json
 import os
 import re
@@ -8,6 +7,7 @@ import sys
 import tempfile
 from io import StringIO
 from typing import Annotated, Any, TypedDict
+import uuid
 
 from tracecat.logger import logger
 from tracecat_registry import registry
@@ -81,26 +81,46 @@ def _extract_user_friendly_error(error_msg: str) -> str:
     return error_msg
 
 
-def _get_function_signature(script: str, function_name: str) -> list[str]:
+def _extract_deno_error(error_msg: str) -> str:
     """
-    Extract function parameter names from a Python function definition.
+    Extract a clean, user-friendly error message from Deno/WASM errors.
+
+    This removes technical details about WASM internals, stack traces, and file paths
+    that are not useful for end users and could be a security risk.
 
     Args:
-        script: The Python script content
-        function_name: Name of the function to analyze
+        error_msg: The raw Deno error message.
 
     Returns:
-        List of parameter names for the function
+        A clean error message suitable for end users.
     """
-    try:
-        tree = ast.parse(script)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == function_name:
-                return [arg.arg for arg in node.args.args]
-    except SyntaxError:
-        # If we can't parse the AST, fall back to no parameters
-        pass
-    return []
+    # Map technical errors to generic user-friendly messages
+    # Don't reveal specific permission types or implementation details
+
+    if any(keyword in error_msg for keyword in ["env access", "environment"]):
+        return "Script execution failed: Operation not permitted due to security restrictions."
+
+    if any(keyword in error_msg for keyword in ["read access", "Requires read"]):
+        return "Script execution failed: File access not permitted due to security restrictions."
+
+    if any(keyword in error_msg for keyword in ["write access", "Requires write"]):
+        return "Script execution failed: File access not permitted due to security restrictions."
+
+    if any(
+        keyword in error_msg for keyword in ["net access", "network", "Requires net"]
+    ):
+        return "Script execution failed: Network access not permitted. Enable network access in the action settings if needed."
+
+    if "fatal error" in error_msg.lower():
+        return "Script execution failed: An internal error occurred. Please check your script for operations that may not be supported."
+
+    if "wasm" in error_msg.lower() or "instantiation" in error_msg.lower():
+        return "Script execution failed: Unable to initialize the Python environment. Please try again."
+
+    # Generic fallback - don't reveal any specifics
+    return (
+        "Script execution failed: Operation not permitted due to security restrictions."
+    )
 
 
 def _validate_script(script: str) -> tuple[bool, str | None]:
@@ -221,31 +241,37 @@ async def run_python(
     # Determine which function to call
     target_function = "main" if "main" in functions else functions[0]
 
-    # Get function signature to determine how to call it
-    function_params = _get_function_signature(script, target_function)
-
-    # Build function call with appropriate arguments
-    if function_params and inputs:
-        # Call function with arguments from inputs
-        args = []
-        for param in function_params:
-            if param in inputs:
-                args.append(repr(inputs[param]))
-            else:
-                # If parameter not provided in inputs, pass None
-                args.append("None")
-        function_call = f"{target_function}({', '.join(args)})"
-    else:
-        # Call function with no arguments (backward compatibility)
-        function_call = f"{target_function}()"
-
-    # Add function execution code
-    execution_code = f"""
+    # For subprocess execution, we'll pass inputs through the execution code
+    # For local Pyodide, we'll set them in the namespace
+    if in_pyodide_env:
+        # For local execution, we can use a simpler approach
+        execution_code = f"""
 # Original script
 {script}
 
 # Execute the main function
-__result = {function_call}
+if __tracecat_inputs__ is not None:
+    __result = {target_function}(**__tracecat_inputs__)
+else:
+    __result = {target_function}()
+__result  # Return the result
+"""
+    else:
+        # For subprocess, embed the inputs safely
+        inputs_json = json.dumps(inputs) if inputs else "null"
+        execution_code = f"""
+# Original script
+{script}
+
+# Set up inputs safely if provided
+import json
+__tracecat_inputs__ = json.loads({json.dumps(inputs_json)})
+
+# Execute the main function
+if __tracecat_inputs__ is not None:
+    __result = {target_function}(**__tracecat_inputs__)
+else:
+    __result = {target_function}()
 __result  # Return the result
 """
 
@@ -255,7 +281,7 @@ __result  # Return the result
         stdout_capture = StringIO()
         stderr_capture = StringIO()
 
-        script_globals = {"__name__": "__main__"}
+        script_globals = {"__name__": "__main__", "__tracecat_inputs__": inputs}
 
         if dependencies:
             import micropip  # type: ignore
@@ -333,9 +359,9 @@ def _create_deno_script(
     Returns:
         The complete Deno TypeScript script as a string.
     """
-    escaped_script = (
-        script.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-    )
+    # Use JSON encoding to safely pass the script and avoid injection attacks
+    script_json = json.dumps(script)
+    dependencies_json = json.dumps(dependencies or [])
 
     return f"""
 import {{ loadPyodide }} from "npm:pyodide";
@@ -343,7 +369,7 @@ import {{ loadPyodide }} from "npm:pyodide";
 async function main() {{
     const pyodide = await loadPyodide();
 
-    const dependencies = {json.dumps(dependencies or [])};
+    const dependencies = {dependencies_json};
     if (dependencies && dependencies.length > 0) {{
         try {{
             await pyodide.loadPackage(dependencies);
@@ -363,7 +389,9 @@ async function main() {{
 
     let scriptResult = null;
     try {{
-        scriptResult = await pyodide.runPythonAsync(`{escaped_script}`);
+        // Use the safely JSON-encoded script
+        const scriptCode = {script_json};
+        scriptResult = await pyodide.runPythonAsync(scriptCode);
         if (typeof scriptResult?.toJs === 'function') {{
              scriptResult = scriptResult.toJs({{ dict_converter: Object.fromEntries }});
         }}
@@ -415,9 +443,12 @@ def _parse_subprocess_output(stdout: str) -> PythonScriptOutput:
         PythonScriptOutputError: If JSON parsing fails.
     """
     if not stdout:
-        error_msg = "No output from Pyodide Deno script."
-        logger.error(error_msg)
-        raise PythonScriptExecutionError(error_msg)
+        # Log detailed error for debugging
+        logger.error("No output from Pyodide Deno script.")
+        # Provide generic error to users
+        raise PythonScriptExecutionError(
+            "Script execution failed: No output was produced."
+        )
 
     try:
         # Handle case where package installation messages are mixed with JSON output
@@ -457,9 +488,12 @@ def _parse_subprocess_output(stdout: str) -> PythonScriptOutput:
         )
 
     except json.JSONDecodeError as jde:
-        error_msg = f"Failed to decode JSON output from Deno: {jde}. stdout: {stdout}"
-        logger.error(error_msg)
-        raise PythonScriptOutputError(error_msg) from jde
+        # Log full error for debugging but don't expose stdout to users
+        logger.error(f"Failed to decode JSON output from Deno: {jde}. stdout: {stdout}")
+        # Provide generic error to users
+        raise PythonScriptOutputError(
+            "Script execution failed: Unable to process script output."
+        ) from jde
 
 
 async def _run_python_script_subprocess(
@@ -493,35 +527,46 @@ async def _run_python_script_subprocess(
     # Check if Deno is available
     deno_path = shutil.which("deno")
     if not deno_path:
-        error_msg = "Deno executable not found in PATH. Please install Deno to run Python scripts."
-        logger.error(error_msg)
-        raise PythonScriptExecutionError(error_msg)
+        # Log detailed error for debugging
+        logger.error(
+            "Deno executable not found in PATH. Please install Deno to run Python scripts."
+        )
+        # Provide generic error to users
+        raise PythonScriptExecutionError(
+            "Script execution failed: Python runtime not available. Please contact support."
+        )
 
     deno_script = _create_deno_script(script, inputs, dependencies)
 
+    # Use a secure temporary directory to prevent race conditions
+    temp_dir = None
     temp_file_path = ""
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".ts", delete=False) as f:
+        # Create a secure temporary directory
+        temp_dir = tempfile.mkdtemp(prefix="tracecat_pyodide_")
+        temp_file_path = os.path.join(temp_dir, f"script_{uuid.uuid4().hex}.ts")
+
+        # Write the script to the temporary file
+        with open(temp_file_path, "w") as f:
             f.write(deno_script)
-            temp_file_path = f.name
 
         # Run Deno with minimal permissions for security
         # Following the pydantic-ai MCP secure implementation pattern
         deno_args = [
             deno_path,
             "run",
-            # Always allow read access to Deno cache for Pyodide WASM files
-            "--allow-read",
+            # Restrict read access to only necessary directories
+            f"--allow-read=node_modules,{temp_dir}",
+            # Always allow write to node_modules for caching (even without network)
+            "--allow-write=node_modules",
+            # Use local node_modules directory for package management
+            "--node-modules-dir=auto",
         ]
 
         # Only add network permissions if explicitly allowed
         if allow_network:
             # Network access only for downloading Pyodide and Python packages
             deno_args.append("--allow-net")
-            # Write access restricted to node_modules only for caching
-            deno_args.append("--allow-write=node_modules")
-            # Use local node_modules directory for package management
-            deno_args.append("--node-modules-dir=auto")
 
         deno_args.append(temp_file_path)
 
@@ -545,9 +590,11 @@ async def _run_python_script_subprocess(
         stderr = stderr_bytes.decode().strip()
 
         if process.returncode != 0:
-            error_msg = f"Deno process error. Stderr: {stderr}"
-            logger.error(error_msg)
-            raise PythonScriptExecutionError(error_msg)
+            # Log the full error for debugging
+            logger.error(f"Deno process error. Stderr: {stderr}")
+            # But show a clean error to the user
+            clean_error = _extract_deno_error(stderr)
+            raise PythonScriptExecutionError(clean_error)
 
         return _parse_subprocess_output(stdout)
 
@@ -563,10 +610,13 @@ async def _run_python_script_subprocess(
         logger.error(error_msg)
         raise PythonScriptExecutionError(error_msg) from e
     finally:
-        if temp_file_path:
+        # Clean up the temporary directory and all its contents
+        if temp_dir and os.path.exists(temp_dir):
             try:
-                os.unlink(temp_file_path)
-            except OSError:
-                # File cleanup failed, but this is not critical
-                logger.warning(f"Failed to clean up temporary file: {temp_file_path}")
+                shutil.rmtree(temp_dir)
+            except OSError as e:
+                # Directory cleanup failed, but this is not critical
+                logger.warning(
+                    f"Failed to clean up temporary directory: {temp_dir}, error: {e}"
+                )
                 pass
