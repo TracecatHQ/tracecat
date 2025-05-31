@@ -8,6 +8,7 @@ import time
 import uuid
 import shutil
 from typing import Any, AsyncGenerator, Generator, Union
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -26,11 +27,31 @@ SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID", "")
 MCP_SERVER_URL = "http://localhost:3001/sse"
 MCP_SERVER_PORT = 3001
 
+
+@pytest.fixture(scope="session")
+def mock_slack_secrets():
+    """Mock the secrets.get function for slack_sdk integration."""
+    slack_token = os.getenv("SLACK_BOT_TOKEN")
+    if not slack_token:
+        pytest.skip("SLACK_BOT_TOKEN not set in environment")
+    
+    with patch("tracecat_registry.integrations.slack_sdk.secrets.get") as mock_get:
+        def side_effect(key):
+            if key == "SLACK_BOT_TOKEN":
+                return slack_token
+            return None
+        mock_get.side_effect = side_effect
+        yield mock_get
+
+
 # Skip tests if Slack credentials are not available
-pytestmark = pytest.mark.skipif(
-    not SLACK_BOT_TOKEN or not SLACK_CHANNEL_ID,
-    reason="SLACK_BOT_TOKEN and SLACK_CHANNEL_ID must be set in .env file",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        not SLACK_BOT_TOKEN or not SLACK_CHANNEL_ID,
+        reason="SLACK_BOT_TOKEN and SLACK_CHANNEL_ID must be set in .env file",
+    ),
+    pytest.mark.usefixtures("mock_slack_secrets")
+]
 
 
 @pytest.fixture(scope="session")
