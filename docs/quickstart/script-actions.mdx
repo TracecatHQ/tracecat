@@ -8,6 +8,7 @@ icon: code
 
 Use the `core.script.run_python` action to execute Python code in a sandboxed WebAssembly environment using Pyodide.
 This ensures isolation from the host system while providing access to popular Python libraries.
+You can include 3rd-party Python packages in your script by adding them to the `dependencies` field.
 
 <Note>
 - Scripts must contain at least one function
@@ -17,17 +18,22 @@ This ensures isolation from the host system while providing access to popular Py
 - Network access is disabled by default for security; enable with `allow_network: true` when using dependencies
 </Note>
 
-You can include 3rd-party Python packages in your script by adding them to the `dependencies` field.
-
 ### Configuration
 
 | Field | Type | Description | Required |
 |-------|------|-------------|----------|
 | `script` | string | Python code with at least one function | ✅ |
-| `inputs` | object | Key-value pairs passed as function arguments | ❌ |
+| `inputs` | object | Dictionary mapping parameter names to values for function arguments | ❌ |
 | `dependencies` | array | List of Python packages to install | ❌ |
 | `timeout_seconds` | integer | Maximum execution time (default: 30) | ❌ |
 | `allow_network` | boolean | Enable network access for package downloads (default: false) | ❌ |
+
+<Note>
+- `inputs` are passed as function arguments into the main function
+- Keys must match the parameter names in the function signature
+- Missing parameters will receive `None`
+- Functions must have parameters to receive inputs
+</Note>
 
 ### Examples
 
@@ -86,5 +92,23 @@ The following examples show valid inputs for the `Run Python script` action.
   dependencies:
     - numpy
   allow_network: true
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python Input parameter mapping
+  script: |
+    def main(user_name, age, city, country):
+      # Parameters map directly to input keys
+      # Missing parameters get None (country not provided)
+      if country is None:
+        return f"{user_name} ({age}) lives in {city}"
+      else:
+        return f"{user_name} ({age}) lives in {city}, {country}"
+  inputs:
+    user_name: "Alice"
+    age: 30
+    city: "New York"
+    # country parameter will receive None
   ```
 </CodeGroup>

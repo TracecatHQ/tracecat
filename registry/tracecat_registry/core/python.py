@@ -146,15 +146,16 @@ async def run_python(
     inputs: Annotated[
         dict[str, Any] | None,
         Doc(
-            "Input data for the script. "
-            "Each key-value pair becomes a function argument passed to the target function."
+            "Input data passed as function arguments to the main function. "
+            "Keys must match the parameter names in the function signature. "
+            "Missing parameters will receive `None`."
         ),
     ] = None,
     dependencies: Annotated[
         list[str] | None,
         Doc(
-            "Optional list of Python package dependencies (e.g., ['numpy', 'pandas']). "
-            "Only packages available in Pyodide are supported."
+            "Optional list of Python package dependencies to install. "
+            "Requires `allow_network=True`."
         ),
     ] = None,
     timeout_seconds: Annotated[
@@ -179,12 +180,12 @@ async def run_python(
     The script must contain at least one function. If multiple functions are defined, one must be
     named 'main', which will be called. If only one function is defined, it will be called.
 
-    The input 'inputs' dictionary's items are passed as function arguments to the target function.
+    The input 'inputs' dictionary's items are passed as function arguments to the main function.
     The function's return value is the output of this operation.
 
     Args:
         script: The Python script content with at least one function definition.
-        inputs: A dictionary of input data, passed as function arguments to the target function.
+        inputs: A dictionary of input data, passed as function arguments to the main function.
         dependencies: A list of Pyodide-compatible Python package dependencies.
         timeout_seconds: Maximum allowed execution time for the script.
         allow_network: Whether to allow network access for downloading packages.
@@ -243,7 +244,7 @@ async def run_python(
 # Original script
 {script}
 
-# Execute the target function
+# Execute the main function
 __result = {function_call}
 __result  # Return the result
 """
@@ -255,9 +256,6 @@ __result  # Return the result
         stderr_capture = StringIO()
 
         script_globals = {"__name__": "__main__"}
-        # For backward compatibility, still add inputs as globals if function has no parameters
-        if not function_params and inputs:
-            script_globals.update(inputs)
 
         if dependencies:
             import micropip  # type: ignore
@@ -329,7 +327,7 @@ def _create_deno_script(
 
     Args:
         script: The Python script code to execute.
-        inputs: Dictionary of variables to inject into the script globals (for backward compatibility).
+        inputs: Dictionary of input data passed as function arguments to the main function.
         dependencies: List of Python packages to install via Pyodide.
 
     Returns:
@@ -351,13 +349,6 @@ async function main() {{
             await pyodide.loadPackage(dependencies);
         }} catch (pkgError) {{
             console.error(`Error loading dependencies: ${{pkgError.toString()}}`);
-        }}
-    }}
-
-    const scriptInputs = {json.dumps(inputs or {})};
-    if (scriptInputs) {{
-        for (const [key, value] of Object.entries(scriptInputs)) {{
-            pyodide.globals.set(key, value);
         }}
     }}
 
@@ -486,7 +477,7 @@ async def _run_python_script_subprocess(
 
     Args:
         script: The Python script code to execute.
-        inputs: Dictionary of variables to inject into the script globals.
+        inputs: Dictionary of input data passed as function arguments to the main function.
         dependencies: List of Python packages to install via Pyodide.
         timeout_seconds: Maximum execution time before timeout.
         allow_network: Whether to allow network access for downloading packages.

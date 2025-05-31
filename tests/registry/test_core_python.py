@@ -77,23 +77,6 @@ def process_data(a, b, c):
         mock_logger.info.assert_any_call("Script stdout:\na=10, b=5, c=None")
 
     @pytest.mark.anyio
-    async def test_backward_compatibility_no_params(self, mock_logger):
-        """Test backward compatibility with functions that have no parameters (global variables)."""
-        script_content = """
-def process_item():
-    print(f'Processing: {item_name}, quantity: {qty}')
-    return qty * price
-"""
-        inputs_data = {"item_name": "TestItem", "qty": 10, "price": 2.5}
-        expected_result = 25.0
-
-        result = await run_python(script=script_content, inputs=inputs_data)
-        assert result == expected_result
-        mock_logger.info.assert_any_call(
-            f"Script stdout:\nProcessing: {inputs_data['item_name']}, quantity: {inputs_data['qty']}"
-        )
-
-    @pytest.mark.anyio
     async def test_script_validation(self):
         """Test script validation."""
         # No function
@@ -612,6 +595,62 @@ def main(required_param, optional_param):
     # `inputs: dict[str, Any] | None` ensures only dict or None can be passed.
     # This is enforced by the type checker and would cause a TypeError if
     # someone tried to pass a list or other non-dict type.
+
+
+class TestSingleFunctionInputs:
+    """Test suite to verify inputs work with single functions not named 'main'."""
+
+    @pytest.mark.anyio
+    async def test_single_function_not_named_main_with_inputs(self):
+        """Test that inputs work with a single function not named 'main'."""
+        script = """
+def process_order(item_name, quantity, price_per_item):
+    total_cost = quantity * price_per_item
+    return f"Order: {quantity}x {item_name} = ${total_cost:.2f}"
+"""
+        inputs = {"item_name": "Widget", "quantity": 3, "price_per_item": 15.99}
+        result = await run_python(script=script, inputs=inputs)
+        assert result == "Order: 3x Widget = $47.97"
+
+    @pytest.mark.anyio
+    async def test_single_function_no_params_no_inputs(self):
+        """Test that a single function with no parameters works without inputs."""
+        script = """
+def calculate_pi_approximation():
+    # Simple approximation
+    return 22 / 7
+"""
+        result = await run_python(script=script)
+        assert abs(result - 3.142857142857143) < 0.000001
+
+    @pytest.mark.anyio
+    async def test_single_function_with_missing_inputs(self):
+        """Test that missing inputs get None for single functions."""
+        script = """
+def greet_user(name, title):
+    if title is None:
+        return f"Hello, {name}!"
+    else:
+        return f"Hello, {title} {name}!"
+"""
+        inputs = {"name": "Alice"}  # title is missing, should get None
+        result = await run_python(script=script, inputs=inputs)
+        assert result == "Hello, Alice!"
+
+    @pytest.mark.anyio
+    async def test_main_function_takes_precedence(self):
+        """Test that 'main' function is called even when other functions exist."""
+        script = """
+def helper_function(x):
+    return x * 2
+
+def main(value):
+    # This should be called, not helper_function
+    return helper_function(value) + 10
+"""
+        inputs = {"value": 5}
+        result = await run_python(script=script, inputs=inputs)
+        assert result == 20  # (5 * 2) + 10
 
 
 def print_deno_installation_instructions():
