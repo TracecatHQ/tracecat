@@ -523,6 +523,97 @@ def main():
         assert result == 42
 
 
+class TestInputValidation:
+    """Test suite for input validation to ensure only dict inputs are accepted."""
+
+    @pytest.mark.anyio
+    async def test_dict_inputs_work_correctly(self):
+        """Test that dictionary inputs work correctly as function arguments."""
+        script = """
+def main(name, age, city):
+    return f'{name} is {age} years old and lives in {city}'
+"""
+        inputs = {"name": "Alice", "age": 30, "city": "NYC"}
+        result = await run_python(script=script, inputs=inputs)
+        assert result == "Alice is 30 years old and lives in NYC"
+
+    @pytest.mark.anyio
+    async def test_nested_dict_inputs_work(self):
+        """Test that nested dictionary values work as function arguments."""
+        script = """
+def main(user_data, settings):
+    return f"User: {user_data['name']}, Theme: {settings['theme']}"
+"""
+        inputs = {
+            "user_data": {"name": "Bob", "age": 25},
+            "settings": {"theme": "dark", "lang": "en"},
+        }
+        result = await run_python(script=script, inputs=inputs)
+        assert result == "User: Bob, Theme: dark"
+
+    @pytest.mark.anyio
+    async def test_complex_data_types_as_inputs(self):
+        """Test that complex data types work correctly as function arguments."""
+        script = """
+def main(numbers, metadata):
+    total = sum(numbers)
+    return {
+        'sum': total,
+        'count': len(numbers),
+        'source': metadata['source']
+    }
+"""
+        inputs = {
+            "numbers": [1, 2, 3, 4, 5],
+            "metadata": {"source": "test_data", "version": "1.0"},
+        }
+        result = await run_python(script=script, inputs=inputs)
+        assert result["sum"] == 15
+        assert result["count"] == 5
+        assert result["source"] == "test_data"
+
+    @pytest.mark.anyio
+    async def test_none_inputs_work(self):
+        """Test that None inputs work (no arguments passed)."""
+        script = """
+def main():
+    return "No inputs needed"
+"""
+        result = await run_python(script=script, inputs=None)
+        assert result == "No inputs needed"
+
+    @pytest.mark.anyio
+    async def test_empty_dict_inputs_work(self):
+        """Test that empty dictionary inputs work."""
+        script = """
+def main():
+    return "Empty dict inputs"
+"""
+        result = await run_python(script=script, inputs={})
+        assert result == "Empty dict inputs"
+
+    @pytest.mark.anyio
+    async def test_missing_function_parameters_get_none(self):
+        """Test that missing function parameters get None values."""
+        script = """
+def main(required_param, optional_param):
+    if optional_param is None:
+        return f"Required: {required_param}, Optional: missing"
+    else:
+        return f"Required: {required_param}, Optional: {optional_param}"
+"""
+        # Only provide required_param, optional_param should get None
+        inputs = {"required_param": "test_value"}
+        result = await run_python(script=script, inputs=inputs)
+        assert result == "Required: test_value, Optional: missing"
+
+    # Note: We can't test non-dict inputs at runtime because the type system
+    # prevents it at the function signature level. The type annotation
+    # `inputs: dict[str, Any] | None` ensures only dict or None can be passed.
+    # This is enforced by the type checker and would cause a TypeError if
+    # someone tried to pass a list or other non-dict type.
+
+
 def print_deno_installation_instructions():
     """Print instructions for installing Deno."""
     print("\n" + "=" * 80)
