@@ -35,8 +35,8 @@ permissions:
 
 env:
   UV_SYSTEM_PYTHON: 1
-  DENO_VERSION: "2.1.4"
-  PYODIDE_VERSION: "0.26.4"
+  DENO_VERSION: "2.3.5"
+  PYODIDE_VERSION: "0.27.6"
 
 jobs:
   test-all:

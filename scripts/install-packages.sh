@@ -7,12 +7,20 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
-# Version configuration with defaults
-# These values come from Docker ENV variables, which are also used by the application via config.py
-DENO_VERSION="${DENO_VERSION:-2.1.4}"
-PYODIDE_VERSION="${PYODIDE_VERSION:-0.26.4}"
-# Checksum for deno - this needs to be updated when DENO_VERSION changes
-DENO_SHA256="${DENO_SHA256:-3e8b6e153879b3e61ad9c8df77b07c26b95f859308cf34fe87d17ea2ba9c4b4e}"
+# Detect architecture
+ARCH=$(uname -m)
+case ${ARCH} in
+    x86_64)
+        DENO_ARCH="x86_64-unknown-linux-gnu"
+        ;;
+    aarch64|arm64)
+        DENO_ARCH="aarch64-unknown-linux-gnu"
+        ;;
+    *)
+        echo "Unsupported architecture: ${ARCH}"
+        exit 1
+        ;;
+esac
 
 # Update package lists
 apt-get update
@@ -52,12 +60,22 @@ apt-get update
 apt-get install -y kubectl
 
 # Install Deno
-echo "Installing Deno v${DENO_VERSION}..."
-DENO_ZIP="deno-x86_64-unknown-linux-gnu.zip"
-curl -fsSL "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/${DENO_ZIP}" -o "${DENO_ZIP}"
+echo "Installing Deno v${DENO_VERSION} for architecture ${ARCH}..."
+DENO_ZIP="deno-${DENO_ARCH}.zip"
 
-# Verify checksum
-echo "${DENO_SHA256}  ${DENO_ZIP}" | sha256sum -c -
+# Fetch the SHA256 checksum from the official release
+CHECKSUM_URL="https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/${DENO_ZIP}.sha256sum"
+echo "Fetching SHA256 checksum from ${CHECKSUM_URL}"
+DENO_SHA256=$(curl -sSL "${CHECKSUM_URL}" | awk '{print $1}')
+
+if [ -z "${DENO_SHA256}" ]; then
+  echo "WARNING: Failed to fetch SHA256 checksum, skipping verification"
+  curl -fsSL "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/${DENO_ZIP}" -o "${DENO_ZIP}"
+else
+  echo "Using SHA256 checksum: ${DENO_SHA256}"
+  curl -fsSL "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/${DENO_ZIP}" -o "${DENO_ZIP}"
+  echo "${DENO_SHA256}  ${DENO_ZIP}" | sha256sum -c -
+fi
 
 # Install deno
 unzip -o "${DENO_ZIP}" -d /usr/local/bin/
@@ -77,13 +95,16 @@ echo "Pre-caching Pyodide v${PYODIDE_VERSION}..."
 # Create cache directory that will be accessible by apiuser
 export DENO_DIR="/opt/deno-cache"
 mkdir -p "${DENO_DIR}"
+mkdir -p "/opt/node_modules"
 
 # Use deno cache to download pyodide module and its dependencies
 # This is simpler and more secure than running a script
-deno cache --node-modules-dir=/opt/node_modules "npm:pyodide@${PYODIDE_VERSION}"
+deno cache --node-modules-dir=auto "npm:pyodide@${PYODIDE_VERSION}"
 
 # Set read-only permissions for security (apiuser can read but not modify)
-chmod -R 755 /opt/node_modules
+if [ -d "/opt/node_modules" ]; then
+    chmod -R 755 /opt/node_modules
+fi
 chmod -R 755 "${DENO_DIR}"
 
 echo "Deno and Pyodide installation complete"

@@ -172,7 +172,7 @@ TRACECAT__LOCAL_REPOSITORY_PATH = os.getenv("TRACECAT__LOCAL_REPOSITORY_PATH")
 TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH = "/app/local_registry"
 
 # === Python Script Execution === #
-TRACECAT__PYODIDE_VERSION = os.environ.get("PYODIDE_VERSION", "0.26.4")
+TRACECAT__PYODIDE_VERSION = os.environ.get("PYODIDE_VERSION")
 """Version of Pyodide to use for Python script execution in WebAssembly sandbox."""
 
 # === Rate Limiting === #
