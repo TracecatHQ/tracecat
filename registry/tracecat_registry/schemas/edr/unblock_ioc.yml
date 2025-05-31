@@ -1,0 +1,3 @@
+ioc_value:
+  type: str
+  description: The IOC value to block.

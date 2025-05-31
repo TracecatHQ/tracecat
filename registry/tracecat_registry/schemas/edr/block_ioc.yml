@@ -1,0 +1,9 @@
+ioc_value:
+  type: str
+  description: The IOC value to block.
+
+scope:
+  type: str
+  description: Scope of the IOC block.
+  enum: ["global", "site", "group", "agent"]
+  default: "global"
