@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from pydantic_ai import Agent
+from pydantic_ai import Agent, Tool
 from pydantic_ai.agent import AgentRunResult
 import orjson
 from pydantic_ai.messages import (
@@ -163,6 +163,7 @@ def build_agent(
     output_type: str | dict[str, Any] | None = None,
     model_settings: dict[str, Any] | None = None,
     mcp_servers: list[MCPServerHTTP] | None = None,
+    tools: list[Tool] | None = None,
     retries: Annotated[int, Doc("Number of retries")] = 3,
     deps_type: type[AgentDepsT] | None = None,
 ) -> Agent[AgentDepsT, Any]:
@@ -238,6 +239,7 @@ def build_agent(
         "output_type": response_format,
         "model_settings": ModelSettings(**model_settings) if model_settings else None,
         "mcp_servers": mcp_servers,
+        "tools": tools,
         "retries": retries,
     }
 
