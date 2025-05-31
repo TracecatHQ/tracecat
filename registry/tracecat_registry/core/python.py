@@ -161,6 +161,13 @@ async def run_python(
         int,
         Doc("Maximum execution time in seconds. Default is 30 seconds."),
     ] = 30,
+    allow_network: Annotated[
+        bool,
+        Doc(
+            "Whether to allow network access for downloading packages. "
+            "Default is False."
+        ),
+    ] = False,
 ) -> Any:
     """
     Executes a Python script in a secure, sandboxed WebAssembly environment using Pyodide.
@@ -180,6 +187,7 @@ async def run_python(
         inputs: A dictionary of input data, passed as function arguments to the target function.
         dependencies: A list of Pyodide-compatible Python package dependencies.
         timeout_seconds: Maximum allowed execution time for the script.
+        allow_network: Whether to allow network access for downloading packages.
 
     Returns:
         The result of the function call.
@@ -297,7 +305,7 @@ __result  # Return the result
             sys.stderr = old_stderr
     else:
         internal_output = await _run_python_script_subprocess(
-            execution_code, inputs, dependencies, timeout_seconds
+            execution_code, inputs, dependencies, timeout_seconds, allow_network
         )
 
     if internal_output["stdout"]:
@@ -468,6 +476,7 @@ async def _run_python_script_subprocess(
     inputs: dict[str, Any] | None,
     dependencies: list[str] | None,
     timeout_seconds: int,
+    allow_network: bool,
 ) -> PythonScriptOutput:
     """
     Execute Python script via Deno subprocess using Pyodide.
@@ -480,6 +489,7 @@ async def _run_python_script_subprocess(
         inputs: Dictionary of variables to inject into the script globals.
         dependencies: List of Python packages to install via Pyodide.
         timeout_seconds: Maximum execution time before timeout.
+        allow_network: Whether to allow network access for downloading packages.
 
     Returns:
         PythonScriptOutput containing the execution results.
@@ -506,18 +516,26 @@ async def _run_python_script_subprocess(
 
         # Run Deno with minimal permissions for security
         # Following the pydantic-ai MCP secure implementation pattern
-        process = await asyncio.create_subprocess_exec(
+        deno_args = [
             deno_path,
             "run",
+            # Always allow read access to Deno cache for Pyodide WASM files
+            "--allow-read",
+        ]
+
+        # Only add network permissions if explicitly allowed
+        if allow_network:
             # Network access only for downloading Pyodide and Python packages
-            "--allow-net",
-            # Read access restricted to node_modules only
-            "--allow-read=node_modules",
+            deno_args.append("--allow-net")
             # Write access restricted to node_modules only for caching
-            "--allow-write=node_modules",
+            deno_args.append("--allow-write=node_modules")
             # Use local node_modules directory for package management
-            "--node-modules-dir=auto",
-            temp_file_path,
+            deno_args.append("--node-modules-dir=auto")
+
+        deno_args.append(temp_file_path)
+
+        process = await asyncio.create_subprocess_exec(
+            *deno_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=os.getcwd(),

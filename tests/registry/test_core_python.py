@@ -149,6 +149,7 @@ def main():
             script=script_content,
             dependencies=["numpy"],
             timeout_seconds=60,  # Give more time for package installation
+            allow_network=True,  # Enable network access for package installation
         )
         assert result == 6
 
@@ -252,6 +253,7 @@ def main(array_a, array_b):
                 script=script_with_numpy_error,
                 inputs={"array_a": [1, 2, 3], "array_b": [[1, 2], [3, 4]]},
                 dependencies=["numpy"],
+                allow_network=True,  # Enable network access for package installation
             )
         error_msg = str(exc_info.value)
         assert "ValueError" in error_msg
@@ -284,6 +286,7 @@ def main(sales_data):
             script=pandas_script,
             inputs={"sales_data": sales_data},
             dependencies=["pandas"],
+            allow_network=True,  # Enable network access for package installation
         )
         assert result["shape"] == [3, 3]
         assert result["columns"] == ["name", "age", "city"]
@@ -307,6 +310,7 @@ def main(html_content):
             script=bs_script,
             inputs={"html_content": html_content},
             dependencies=["beautifulsoup4"],
+            allow_network=True,  # Enable network access for package installation
         )
         assert "Hello World" in result["text"]
         assert result["p_count"] == 2
@@ -330,6 +334,7 @@ def main(data):
                 script=pandas_error_script,
                 inputs={"data": data},
                 dependencies=["pandas"],
+                allow_network=True,  # Enable network access for package installation
             )
         error_msg = str(exc_info.value)
         assert "KeyError" in error_msg
@@ -351,6 +356,7 @@ def main(html_content):
                 script=bs_error_script,
                 inputs={"html_content": html_content},
                 dependencies=["beautifulsoup4"],
+                allow_network=True,  # Enable network access for package installation
             )
         error_msg = str(exc_info.value)
         assert "AttributeError" in error_msg
@@ -414,8 +420,107 @@ def main():
     return result.tolist()
 """
         dependencies = ["numpy"]
-        result = await run_python(script=script, dependencies=dependencies)
+        result = await run_python(
+            script=script,
+            dependencies=dependencies,
+            allow_network=True,  # Enable network access for package installation
+        )
         assert result == [1, 2, 3]
+
+
+class TestNetworkSecurity:
+    """Test suite for network access security controls."""
+
+    @pytest.mark.anyio
+    async def test_network_disabled_by_default(self):
+        """Test that network access is disabled by default when using dependencies."""
+        script = """
+def main():
+    import numpy as np
+    return np.array([1, 2, 3]).sum()
+"""
+        # Should fail because numpy can't be downloaded without network access
+        with pytest.raises(PythonScriptExecutionError) as exc_info:
+            await run_python(script=script, dependencies=["numpy"])
+
+        error_msg = str(exc_info.value)
+        assert "ModuleNotFoundError" in error_msg
+        assert "numpy" in error_msg
+
+    @pytest.mark.anyio
+    async def test_basic_scripts_work_without_network(self):
+        """Test that basic scripts work fine without network access."""
+        script = """
+def main(x, y):
+    # Basic operations that don't require external packages
+    result = x * y + 10
+    return result
+"""
+        # Should work fine without network access
+        result = await run_python(script=script, inputs={"x": 5, "y": 3})
+        assert result == 25
+
+    @pytest.mark.anyio
+    async def test_builtin_modules_work_without_network(self):
+        """Test that Python builtin modules work without network access."""
+        script = """
+def main():
+    import json
+    import math
+    import datetime
+
+    data = {"value": math.pi, "timestamp": str(datetime.datetime.now())}
+    return json.dumps(data)
+"""
+        # Should work fine with builtin modules
+        result = await run_python(script=script)
+        assert isinstance(result, str)
+        # Should be valid JSON
+        import json
+
+        parsed = json.loads(result)
+        assert "value" in parsed
+        assert "timestamp" in parsed
+
+    @pytest.mark.anyio
+    @pytest.mark.skip(reason="Network test - may be slow and requires internet access")
+    async def test_network_enabled_allows_dependencies(self):
+        """Test that dependencies work when network access is explicitly enabled."""
+        script = """
+def main():
+    import numpy as np
+    return np.array([1, 2, 3]).sum()
+"""
+        # Should work when network access is enabled
+        result = await run_python(
+            script=script,
+            dependencies=["numpy"],
+            allow_network=True,
+            timeout_seconds=60,  # Give more time for package download
+        )
+        assert result == 6
+
+    @pytest.mark.anyio
+    async def test_empty_dependencies_work_without_network(self):
+        """Test that empty dependencies list works without network access."""
+        script = """
+def main():
+    return "Hello, World!"
+"""
+        # Should work fine with empty dependencies
+        result = await run_python(script=script, dependencies=[])
+        assert result == "Hello, World!"
+
+    @pytest.mark.anyio
+    async def test_none_dependencies_work_without_network(self):
+        """Test that None dependencies work without network access."""
+        script = """
+def main():
+    return 42
+"""
+        # Should work fine with None dependencies
+        result = await run_python(script=script, dependencies=None)
+        assert result == 42
 
 
 def print_deno_installation_instructions():

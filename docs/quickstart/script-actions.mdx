@@ -14,6 +14,7 @@ This ensures isolation from the host system while providing access to popular Py
 - If multiple functions exist, one must be named `main`
 - The function's return value becomes the action output
 - The output must be JSON serializable (e.g. str, int, float, bool, list, dict)
+- Network access is disabled by default for security; enable with `allow_network: true` when using dependencies
 </Note>
 
 You can include 3rd-party Python packages in your script by adding them to the `dependencies` field.
@@ -26,6 +27,7 @@ You can include 3rd-party Python packages in your script by adding them to the `
 | `inputs` | object | Key-value pairs passed as function arguments | ❌ |
 | `dependencies` | array | List of Python packages to install | ❌ |
 | `timeout_seconds` | integer | Maximum execution time (default: 30) | ❌ |
+| `allow_network` | boolean | Enable network access for package downloads (default: false) | ❌ |
 
 ### Examples
 
@@ -79,5 +81,6 @@ The following examples show valid inputs for the `Run Python script` action.
       return result.tolist()
   dependencies:
     - numpy
+  allow_network: true
   ```
 </CodeGroup>
