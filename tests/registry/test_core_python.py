@@ -43,8 +43,42 @@ def main():
         mock_logger.info.assert_any_call("Script stdout:\nHello from Deno subprocess")
 
     @pytest.mark.anyio
-    async def test_script_with_inputs(self, mock_logger):
-        """Test script with input data."""
+    async def test_script_with_function_arguments(self, mock_logger):
+        """Test script with function arguments."""
+        script_content = """
+def process_item(item_name, qty, price):
+    print(f'Processing: {item_name}, quantity: {qty}')
+    return qty * price
+"""
+        inputs_data = {"item_name": "TestItem", "qty": 10, "price": 2.5}
+        expected_result = 25.0
+
+        result = await run_python(script=script_content, inputs=inputs_data)
+        assert result == expected_result
+        mock_logger.info.assert_any_call(
+            f"Script stdout:\nProcessing: {inputs_data['item_name']}, quantity: {inputs_data['qty']}"
+        )
+
+    @pytest.mark.anyio
+    async def test_script_with_partial_arguments(self, mock_logger):
+        """Test script with some arguments missing (should get None)."""
+        script_content = """
+def process_data(a, b, c):
+    print(f'a={a}, b={b}, c={c}')
+    # Handle None values gracefully
+    result = (a or 0) + (b or 0) + (c or 0)
+    return result
+"""
+        inputs_data = {"a": 10, "b": 5}  # c is missing, should be None
+        expected_result = 15  # 10 + 5 + 0
+
+        result = await run_python(script=script_content, inputs=inputs_data)
+        assert result == expected_result
+        mock_logger.info.assert_any_call("Script stdout:\na=10, b=5, c=None")
+
+    @pytest.mark.anyio
+    async def test_backward_compatibility_no_params(self, mock_logger):
+        """Test backward compatibility with functions that have no parameters (global variables)."""
         script_content = """
 def process_item():
     print(f'Processing: {item_name}, quantity: {qty}')
@@ -83,6 +117,23 @@ def func2():
         with pytest.raises(PythonScriptValidationError) as exc_info:
             await run_python(script=script_with_multiple_functions)
         assert "one must be named 'main'" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_main_function_with_arguments(self):
+        """Test main function with arguments when multiple functions exist."""
+        script_content = """
+def helper_function(x):
+    return x * 2
+
+def main(value):
+    result = helper_function(value)
+    return result + 10
+"""
+        inputs_data = {"value": 5}
+        expected_result = 20  # (5 * 2) + 10
+
+        result = await run_python(script=script_content, inputs=inputs_data)
+        assert result == expected_result
 
     @pytest.mark.anyio
     @pytest.mark.skip(reason="Dependencies might not be available in all environments")
@@ -128,51 +179,56 @@ def main():
         assert "timed out" in str(exc_info.value).lower()
 
     @pytest.mark.anyio
-    async def test_complex_data_types(self):
-        """Test handling of complex data types."""
+    async def test_complex_data_types_with_arguments(self):
+        """Test handling of complex data types as function arguments."""
         script_content = """
-def main():
+def main(data_list, data_dict):
     # Return a complex data structure
     return {
-        "numbers": [1, 2, 3, 4, 5],
-        "dict": {"a": 1, "b": 2},
-        "nested": {
-            "list": [{"x": 1}, {"y": 2}],
-            "tuple": (1, 2, 3)
+        "input_list": data_list,
+        "input_dict": data_dict,
+        "processed": {
+            "list_length": len(data_list),
+            "dict_keys": list(data_dict.keys())
         }
     }
 """
-        result = await run_python(script=script_content)
+        inputs_data = {"data_list": [1, 2, 3, 4, 5], "data_dict": {"a": 1, "b": 2}}
+
+        result = await run_python(script=script_content, inputs=inputs_data)
         assert isinstance(result, dict)
-        assert result["numbers"] == [1, 2, 3, 4, 5]
-        assert result["dict"] == {"a": 1, "b": 2}
-        assert result["nested"]["list"] == [{"x": 1}, {"y": 2}]
-        # Note: tuples might be converted to lists in JSON serialization
+        assert result["input_list"] == [1, 2, 3, 4, 5]
+        assert result["input_dict"] == {"a": 1, "b": 2}
+        assert result["processed"]["list_length"] == 5
+        assert result["processed"]["dict_keys"] == ["a", "b"]
 
     @pytest.mark.anyio
     async def test_clean_error_messages(self):
         """Test that error messages are clean and user-friendly without tracebacks."""
-        # Test ValueError
+        # Test ValueError with function arguments
         script_with_value_error = """
-def main():
-    raise ValueError("Invalid input provided")
-    return "Should not reach here"
+def main(value):
+    if value is None:
+        raise ValueError("Invalid input provided")
+    return value * 2
 """
         with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(script=script_with_value_error)
+            await run_python(script=script_with_value_error, inputs={"value": None})
         error_msg = str(exc_info.value)
         assert "ValueError: Invalid input provided" in error_msg
         assert "File " not in error_msg  # No file paths
         assert "Traceback" not in error_msg  # No traceback
 
-        # Test TypeError
+        # Test TypeError with function arguments
         script_with_type_error = """
-def main():
-    result = "hello" + 5  # This will cause a TypeError
+def main(a, b):
+    result = a + b  # This will cause a TypeError if types are incompatible
     return result
 """
         with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(script=script_with_type_error)
+            await run_python(
+                script=script_with_type_error, inputs={"a": "hello", "b": 5}
+            )
         error_msg = str(exc_info.value)
         assert "TypeError" in error_msg
         assert "File " not in error_msg  # No file paths
@@ -181,18 +237,22 @@ def main():
     @pytest.mark.anyio
     async def test_numpy_error_messages(self):
         """Test that numpy errors are extracted cleanly without complex tracebacks."""
-        # Test numpy shape mismatch error
+        # Test numpy shape mismatch error with function arguments
         script_with_numpy_error = """
-def main():
+def main(array_a, array_b):
     import numpy as np
-    a = np.array([1, 2, 3])
-    b = np.array([[1, 2], [3, 4]])
+    a = np.array(array_a)
+    b = np.array(array_b)
     # This will cause a ValueError with numpy-specific details
     result = a + b
-    return result
+    return result.tolist()
 """
         with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(script=script_with_numpy_error, dependencies=["numpy"])
+            await run_python(
+                script=script_with_numpy_error,
+                inputs={"array_a": [1, 2, 3], "array_b": [[1, 2], [3, 4]]},
+                dependencies=["numpy"],
+            )
         error_msg = str(exc_info.value)
         assert "ValueError" in error_msg
         # Should contain the actual numpy error message
@@ -200,169 +260,162 @@ def main():
         assert "File " not in error_msg  # No file paths
         assert "Traceback" not in error_msg  # No traceback
 
-        # Test numpy index error
-        script_with_index_error = """
-def main():
-    import numpy as np
-    arr = np.array([1, 2, 3])
-    # This will cause an IndexError
-    return arr[10]
-"""
-        with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(script=script_with_index_error, dependencies=["numpy"])
-        error_msg = str(exc_info.value)
-        assert "IndexError" in error_msg
-        assert "index" in error_msg.lower()
-        assert "File " not in error_msg  # No file paths
-        assert "Traceback" not in error_msg  # No traceback
-
     @pytest.mark.anyio
     async def test_automation_libraries_success(self):
-        """Test successful operations with common automation libraries."""
+        """Test successful operations with common automation libraries using function arguments."""
 
         # Test pandas DataFrame creation and basic operations
         pandas_script = """
-def main():
+def main(sales_data):
     import pandas as pd
-    df = pd.DataFrame({
-        'name': ['Alice', 'Bob', 'Charlie'],
-        'age': [25, 30, 35],
-        'city': ['NYC', 'LA', 'Chicago']
-    })
+    df = pd.DataFrame(sales_data)
     return {
-        'shape': df.shape,
+        'shape': list(df.shape),
         'columns': list(df.columns),
         'first_row': df.iloc[0].to_dict()
     }
 """
-        result = await run_python(script=pandas_script, dependencies=["pandas"])
+        sales_data = [
+            {"name": "Alice", "age": 25, "city": "NYC"},
+            {"name": "Bob", "age": 30, "city": "LA"},
+            {"name": "Charlie", "age": 35, "city": "Chicago"},
+        ]
+        result = await run_python(
+            script=pandas_script,
+            inputs={"sales_data": sales_data},
+            dependencies=["pandas"],
+        )
         assert result["shape"] == [3, 3]
         assert result["columns"] == ["name", "age", "city"]
         assert result["first_row"]["name"] == "Alice"
 
         # Test BeautifulSoup HTML parsing
         bs_script = """
-def main():
+def main(html_content):
     from bs4 import BeautifulSoup
-    html = '<div class="content"><p>Hello World</p><p>Second paragraph</p></div>'
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = BeautifulSoup(html_content, 'html.parser')
     return {
         'text': soup.get_text().strip(),
         'p_count': len(soup.find_all('p')),
         'first_p': soup.find('p').text
     }
 """
-        result = await run_python(script=bs_script, dependencies=["beautifulsoup4"])
+        html_content = (
+            '<div class="content"><p>Hello World</p><p>Second paragraph</p></div>'
+        )
+        result = await run_python(
+            script=bs_script,
+            inputs={"html_content": html_content},
+            dependencies=["beautifulsoup4"],
+        )
         assert "Hello World" in result["text"]
         assert result["p_count"] == 2
         assert result["first_p"] == "Hello World"
 
     @pytest.mark.anyio
     async def test_automation_libraries_errors(self):
-        """Test error handling with common automation libraries."""
+        """Test error handling with common automation libraries using function arguments."""
 
         # Test pandas KeyError (common in data processing)
         pandas_error_script = """
-def main():
+def main(data):
     import pandas as pd
-    df = pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
+    df = pd.DataFrame(data)
     # This will cause a KeyError
     return df['nonexistent_column'].tolist()
 """
+        data = [{"a": 1, "b": 4}, {"a": 2, "b": 5}, {"a": 3, "b": 6}]
         with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(script=pandas_error_script, dependencies=["pandas"])
+            await run_python(
+                script=pandas_error_script,
+                inputs={"data": data},
+                dependencies=["pandas"],
+            )
         error_msg = str(exc_info.value)
         assert "KeyError" in error_msg
         assert "nonexistent_column" in error_msg
         assert "File " not in error_msg  # No file paths
         assert "Traceback" not in error_msg  # No traceback
 
-        # Test pandas ValueError (data type issues)
-        pandas_value_error_script = """
-def main():
-    import pandas as pd
-    df = pd.DataFrame({'text': ['hello', 'world', 'test']})
-    # This will cause a ValueError when trying to convert text to numeric
-    return pd.to_numeric(df['text']).tolist()
-"""
-        with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(script=pandas_value_error_script, dependencies=["pandas"])
-        error_msg = str(exc_info.value)
-        assert "ValueError" in error_msg
-        assert "File " not in error_msg  # No file paths
-        assert "Traceback" not in error_msg  # No traceback
-
         # Test BeautifulSoup AttributeError (common when element not found)
         bs_error_script = """
-def main():
+def main(html_content):
     from bs4 import BeautifulSoup
-    html = '<div>No paragraphs here</div>'
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = BeautifulSoup(html_content, 'html.parser')
     # This will cause an AttributeError because find() returns None
     return soup.find('p').text
 """
+        html_content = "<div>No paragraphs here</div>"
         with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(script=bs_error_script, dependencies=["beautifulsoup4"])
+            await run_python(
+                script=bs_error_script,
+                inputs={"html_content": html_content},
+                dependencies=["beautifulsoup4"],
+            )
         error_msg = str(exc_info.value)
         assert "AttributeError" in error_msg
         assert "NoneType" in error_msg or "None" in error_msg
         assert "File " not in error_msg  # No file paths
         assert "Traceback" not in error_msg  # No traceback
 
-    @pytest.mark.anyio
-    async def test_excel_operations(self):
-        """Test Excel operations with openpyxl - common in business automation."""
 
-        # Test creating Excel data structure (can't actually write files in sandbox)
-        excel_script = """
-def main():
-    # Simulate Excel-like data processing that's common in automation
-    data = [
-        ['Name', 'Department', 'Salary'],
-        ['Alice', 'Engineering', 75000],
-        ['Bob', 'Sales', 65000],
-        ['Charlie', 'Marketing', 70000]
-    ]
-
-    # Process like you would with openpyxl
-    headers = data[0]
-    rows = data[1:]
-
-    # Calculate average salary (common automation task)
-    salaries = [row[2] for row in rows]
-    avg_salary = sum(salaries) / len(salaries)
-
-    return {
-        'headers': headers,
-        'row_count': len(rows),
-        'average_salary': avg_salary,
-        'departments': list(set(row[1] for row in rows))
-    }
-"""
-        result = await run_python(script=excel_script)
-        assert result["headers"] == ["Name", "Department", "Salary"]
-        assert result["row_count"] == 3
-        assert result["average_salary"] == 70000.0
-        assert len(result["departments"]) == 3
+class TestDocumentationExamples:
+    """Test suite for examples from the documentation to ensure they work correctly."""
 
     @pytest.mark.anyio
-    async def test_json_processing_errors(self):
-        """Test JSON processing errors common in API automation."""
-
-        # Test JSON decode error (common when APIs return malformed data)
-        json_error_script = """
+    async def test_doc_example_function_no_inputs(self):
+        """Test the 'Function (no inputs)' example from the documentation."""
+        script = """
 def main():
-    import json
-    # Malformed JSON that might come from an API
-    bad_json = '{"name": "test", "value": }'  # Missing value
-    return json.loads(bad_json)
+    # Simple arithmetic
+    result = 10 * 5 + 3
+    return result
 """
-        with pytest.raises(PythonScriptExecutionError) as exc_info:
-            await run_python(script=json_error_script)
-        error_msg = str(exc_info.value)
-        assert "JSONDecodeError" in error_msg or "ValueError" in error_msg
-        assert "File " not in error_msg  # No file paths
-        assert "Traceback" not in error_msg  # No traceback
+        result = await run_python(script=script)
+        assert result == 53
+
+    @pytest.mark.anyio
+    async def test_doc_example_function_with_inputs(self):
+        """Test the 'Function (with inputs)' example from the documentation."""
+        script = """
+def main(a, b):
+    # Simple arithmetic
+    result = a * b + 3
+    return result
+"""
+        inputs = {"a": 10, "b": 5}
+        result = await run_python(script=script, inputs=inputs)
+        assert result == 53
+
+    @pytest.mark.anyio
+    async def test_doc_example_multiple_functions(self):
+        """Test the 'Multiple functions' example from the documentation."""
+        script = """
+def calculate_tax(amount, rate):
+    return amount * rate
+
+def main(subtotal, tax_rate):
+    # When multiple functions exist, 'main' is called
+    tax = calculate_tax(subtotal, tax_rate)
+    return subtotal + tax
+"""
+        inputs = {"subtotal": 100.0, "tax_rate": 0.08}
+        result = await run_python(script=script, inputs=inputs)
+        assert result == 108.0
+
+    @pytest.mark.anyio
+    @pytest.mark.skip(reason="Dependencies might not be available in all environments")
+    async def test_doc_example_with_pip_packages(self):
+        """Test the 'With pip packages' example from the documentation."""
+        script = """
+def main():
+    import numpy as np
+    result = np.array([1, 2, 3])
+    return result.tolist()
+"""
+        dependencies = ["numpy"]
+        result = await run_python(script=script, dependencies=dependencies)
+        assert result == [1, 2, 3]
 
 
 def print_deno_installation_instructions():

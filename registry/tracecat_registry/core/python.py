@@ -1,4 +1,5 @@
 import asyncio
+import ast
 import json
 import os
 import re
@@ -80,6 +81,28 @@ def _extract_user_friendly_error(error_msg: str) -> str:
     return error_msg
 
 
+def _get_function_signature(script: str, function_name: str) -> list[str]:
+    """
+    Extract function parameter names from a Python function definition.
+
+    Args:
+        script: The Python script content
+        function_name: Name of the function to analyze
+
+    Returns:
+        List of parameter names for the function
+    """
+    try:
+        tree = ast.parse(script)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == function_name:
+                return [arg.arg for arg in node.args.args]
+    except SyntaxError:
+        # If we can't parse the AST, fall back to no parameters
+        pass
+    return []
+
+
 def _validate_script(script: str) -> tuple[bool, str | None]:
     """
     Validates that the script contains at least one function, and if there are multiple functions,
@@ -124,7 +147,7 @@ async def run_python(
         dict[str, Any] | None,
         Doc(
             "Input data for the script. "
-            "Each key-value pair becomes a global variable in the script."
+            "Each key-value pair becomes a function argument passed to the target function."
         ),
     ] = None,
     dependencies: Annotated[
@@ -149,12 +172,12 @@ async def run_python(
     The script must contain at least one function. If multiple functions are defined, one must be
     named 'main', which will be called. If only one function is defined, it will be called.
 
-    The input 'inputs' dictionary's items are injected as global variables into the script.
+    The input 'inputs' dictionary's items are passed as function arguments to the target function.
     The function's return value is the output of this operation.
 
     Args:
         script: The Python script content with at least one function definition.
-        inputs: A dictionary of input data, made available as global variables to the script.
+        inputs: A dictionary of input data, passed as function arguments to the target function.
         dependencies: A list of Pyodide-compatible Python package dependencies.
         timeout_seconds: Maximum allowed execution time for the script.
 
@@ -189,13 +212,31 @@ async def run_python(
     # Determine which function to call
     target_function = "main" if "main" in functions else functions[0]
 
+    # Get function signature to determine how to call it
+    function_params = _get_function_signature(script, target_function)
+
+    # Build function call with appropriate arguments
+    if function_params and inputs:
+        # Call function with arguments from inputs
+        args = []
+        for param in function_params:
+            if param in inputs:
+                args.append(repr(inputs[param]))
+            else:
+                # If parameter not provided in inputs, pass None
+                args.append("None")
+        function_call = f"{target_function}({', '.join(args)})"
+    else:
+        # Call function with no arguments (backward compatibility)
+        function_call = f"{target_function}()"
+
     # Add function execution code
     execution_code = f"""
 # Original script
 {script}
 
 # Execute the target function
-__result = {target_function}()
+__result = {function_call}
 __result  # Return the result
 """
 
@@ -206,7 +247,8 @@ __result  # Return the result
         stderr_capture = StringIO()
 
         script_globals = {"__name__": "__main__"}
-        if inputs:
+        # For backward compatibility, still add inputs as globals if function has no parameters
+        if not function_params and inputs:
             script_globals.update(inputs)
 
         if dependencies:
@@ -279,7 +321,7 @@ def _create_deno_script(
 
     Args:
         script: The Python script code to execute.
-        inputs: Dictionary of variables to inject into the script globals.
+        inputs: Dictionary of variables to inject into the script globals (for backward compatibility).
         dependencies: List of Python packages to install via Pyodide.
 
     Returns:

@@ -23,7 +23,7 @@ You can include 3rd-party Python packages in your script by adding them to the `
 | Field | Type | Description | Required |
 |-------|------|-------------|----------|
 | `script` | string | Python code with at least one function | ✅ |
-| `inputs` | object | Key-value pairs injected as global variables | ❌ |
+| `inputs` | object | Key-value pairs passed as function arguments | ❌ |
 | `dependencies` | array | List of Python packages to install | ❌ |
 | `timeout_seconds` | integer | Maximum execution time (default: 30) | ❌ |
 
@@ -44,7 +44,7 @@ The following examples show valid inputs for the `Run Python script` action.
 <CodeGroup>
   ```python Function (with inputs)
   script: |
-    def main(a: int, b: int):
+    def main(a, b):
       # Simple arithmetic
       result = a * b + 3
       return result
@@ -57,18 +57,16 @@ The following examples show valid inputs for the `Run Python script` action.
 <CodeGroup>
   ```python Multiple functions
   script: |
-    def calculate_tax(amount: float, rate: float):
+    def calculate_tax(amount, rate):
       return amount * rate
 
-    def main(percentage: float):
+    def main(subtotal, tax_rate):
       # When multiple functions exist, 'main' is called
-      subtotal = 100.0
-      tax = calculate_tax(subtotal, percentage)
+      tax = calculate_tax(subtotal, tax_rate)
       return subtotal + tax
   inputs:
-    amount: 100.0
-    rate: 0.08
-    percentage: 0.08
+    subtotal: 100.0
+    tax_rate: 0.08
   ```
 </CodeGroup>
 
@@ -78,8 +76,8 @@ The following examples show valid inputs for the `Run Python script` action.
     def main():
       import numpy as np
       result = np.array([1, 2, 3])
-      return result
+      return result.tolist()
   dependencies:
-    - numpy==2.2.6.
+    - numpy
   ```
 </CodeGroup>
