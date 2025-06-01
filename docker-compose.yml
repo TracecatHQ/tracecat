@@ -62,10 +62,17 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Blob Storage
+      TRACECAT__BLOB_STORAGE_PROTOCOL: ${TRACECAT__BLOB_STORAGE_PROTOCOL:-minio}
+      TRACECAT__BLOB_STORAGE_BUCKET: ${TRACECAT__BLOB_STORAGE_BUCKET:-tracecat}
+      TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
       - temporal
+      - minio
 
   worker:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.37.2}
@@ -212,9 +219,23 @@ services:
     depends_on:
       - temporal
 
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    networks:
+      - core
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+
 volumes:
   core-db:
   temporal-db:
+  minio-data:
 
 networks:
   core:
