@@ -126,9 +126,7 @@ This user owns the organization and has admin rights to every workspace in the T
 To proceed, sign up and create an account with a strong and secure password.
 Check out the [admin tutorial](/quickstart/admin) for more information.
 
-## Troubleshooting
-
-### Networking
+## Networking
 
 The following env variables are used to configure **external facing** network settings for Tracecat:
 
@@ -146,27 +144,21 @@ Within the docker network, the following env variables are used to configure net
 - `INTERNAL_EXECUTOR_URL` - Tracecat executor URL (defaults to `http://executor:8000`)
 - `NEXT_SERVER_API_URL` - Tracecat API URL (defaults to `INTERNAL_API_URL`)
 
+## Troubleshooting
 
-### "Network error" or "Failed to fetch" in the sign-in page
+### "Network error" / "Failed to fetch" sign-in page
 
-Your browser cannot connect to the API service.
-This happens when the frontend sends API requests to an incorrect or unreachable address.
+This error occurs when your browser cannot connect to Tracecat API via `PUBLIC_APP_URL`.
+Please check the following:
 
-**Fix IP address issues:**
 - Do not set `PUBLIC_APP_URL` to `0.0.0.0`. Browsers cannot connect to this address. Use `localhost`, `127.0.0.1`, or your machine's actual IP address instead.
 - WSL users: Do not use `127.0.0.1`. Run `ip addr` to find your WSL IP address (usually `172.x.x.x`) and use that instead.
-- Docker Desktop users: Use `host.docker.internal` or the Docker VM's IP address instead of localhost.
-
-**Fix environment variables:**
-- Set `NEXT_PUBLIC_API_URL` to an address your browser can reach.
-- Ensure `PUBLIC_API_URL` matches what your browser can access.
-
-**Check service health:**
+- If you frontend is running on a different machine than the API, set `NEXT_PUBLIC_API_URL` to an address your browser can reach.
 - Run `docker compose ps` to verify all services are running.
-- Check the temporal service is healthy - worker connectivity issues affect login.
+- Check the temporal service is healthy. Worker connectivity issues can sometimes affect login.
 - View container logs: `docker compose logs api` and `docker compose logs temporal`.
 
-**General fixes:**
+### General fixes:
 - Rebuild after changing `.env`: `docker compose build --no-cache` then `docker compose up`.
 - Clear browser cache or use incognito mode.
 - Test API directly at `http://<your-ip>:<port>/api` to verify it's running.
