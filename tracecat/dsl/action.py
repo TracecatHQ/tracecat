@@ -121,7 +121,7 @@ class DSLActivities:
             ):
                 with attempt_manager:
                     log.info(
-                        "Tenacity retrying",
+                        "Begin action attempt",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
                     client = ExecutorClient(role=role)
