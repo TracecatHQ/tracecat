@@ -999,17 +999,17 @@ class File(Resource, table=True):
         index=True,
         description="SHA256 hash for content-addressable storage and deduplication",
     )
-    original_filename: str = Field(
+    name: str = Field(
         ...,
         max_length=255,
         description="Original filename when uploaded",
     )
-    mime_type: str = Field(
+    content_type: str = Field(
         ...,
         max_length=100,
         description="MIME type of the file",
     )
-    size_bytes: int = Field(
+    size: int = Field(
         ...,
         description="File size in bytes",
     )
@@ -1018,12 +1018,10 @@ class File(Resource, table=True):
         sa_type=TIMESTAMP(timezone=True),  # type: ignore
         description="Timestamp for soft deletion",
     )
-    virus_scan_status: str = Field(
-        default="pending",
-        max_length=20,
-        description="Virus scan status: pending, clean, infected",
-    )
     # Relationships
+    creator: User | None = Relationship(
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
+    )
     attachments: list["CaseAttachment"] = Relationship(
         back_populates="file",
         sa_relationship_kwargs={
@@ -1037,12 +1035,6 @@ class File(Resource, table=True):
     def is_deleted(self) -> bool:
         """Check if file is soft deleted."""
         return self.deleted_at is not None
-
-    @computed_field
-    @property
-    def blob_path(self) -> str:
-        """Generate the blob storage path."""
-        return f"blob/{self.sha256}"
 
 
 class CaseAttachment(SQLModel, TimestampMixin, table=True):
@@ -1077,3 +1069,9 @@ class CaseAttachment(SQLModel, TimestampMixin, table=True):
     # Relationships
     case: Case = Relationship(back_populates="attachments")
     file: File = Relationship(back_populates="attachments")
+
+    @computed_field
+    @property
+    def storage_path(self) -> str:
+        """Generate the storage path for case attachments."""
+        return f"attachments/{self.file.sha256}"

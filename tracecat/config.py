@@ -209,6 +209,22 @@ TRACECAT__ALLOWED_GIT_DOMAINS = set(
     ).split(",")
 )
 
+# === Blob Storage Config === #
+TRACECAT__BLOB_STORAGE_PROTOCOL = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_PROTOCOL", "minio"
+)
+"""Blob storage protocol: 's3' for AWS S3, 'minio' for Minio."""
+
+TRACECAT__BLOB_STORAGE_BUCKET = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET", "tracecat"
+)
+"""The name of the blob storage bucket."""
+
+TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_ENDPOINT", "http://minio:9000"
+)
+"""Endpoint URL for Minio. Ignored when protocol is 's3'."""
+
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
     "TRACECAT__LOCAL_REPOSITORY_ENABLED", "0"
