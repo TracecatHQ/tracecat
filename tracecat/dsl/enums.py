@@ -50,3 +50,9 @@ class EdgeMarker(StrEnum):
 class EdgeType(StrEnum):
     SUCCESS = "success"
     ERROR = "error"
+
+
+class Sentinel(StrEnum):
+    """Sentinel values for implode operations."""
+
+    IMPLODE_UNSET = "<|IMPLODE_UNSET|>"

@@ -21,6 +21,7 @@ from tracecat.dsl.enums import (
     EdgeType,
     JoinStrategy,
     PlatformAction,
+    Sentinel,
     SkipStrategy,
 )
 from tracecat.dsl.models import (
@@ -741,7 +742,7 @@ class DSLScheduler:
             # We need to initialize the result with the cardinality of the explode
             # This is the number of execution streams that will be synchronized by this implode
             size = len(self.task_scopes[parent_ex_task])
-            result = [None for _ in range(size)]
+            result = [Sentinel.IMPLODE_UNSET for _ in range(size)]
             parent_action_context[im_ref] = TaskResult(
                 result=result,
                 result_typename=type(result).__name__,
