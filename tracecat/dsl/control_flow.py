@@ -18,10 +18,6 @@ class ImplodeArgs(BaseModel):
     drop_nulls: bool = Field(
         default=False, description="Whether to drop null values from the final result"
     )
-    drop_unset: bool = Field(
-        default=False,
-        description="Whether to drop unset values (Sentinel.IMPLODE_UNSET) from the final result",
-    )
 
 
 @dataclass(slots=True)

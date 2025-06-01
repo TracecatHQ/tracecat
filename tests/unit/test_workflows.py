@@ -39,7 +39,7 @@ from tracecat.dsl.common import (
     DSLRunArgs,
 )
 from tracecat.dsl.control_flow import ExplodeArgs, ImplodeArgs
-from tracecat.dsl.enums import LoopStrategy, Sentinel, WaitStrategy
+from tracecat.dsl.enums import LoopStrategy, WaitStrategy
 from tracecat.dsl.models import (
     ActionStatement,
     DSLConfig,
@@ -3215,7 +3215,7 @@ async def test_workflow_detached_child_workflow(
                         action="core.transform.implode",
                         depends_on=["reshape"],
                         args=ImplodeArgs(
-                            items="${{ ACTIONS.reshape.result }}"
+                            items="${{ ACTIONS.reshape.result }}",
                         ).model_dump(),
                     ),
                 ],
@@ -3482,16 +3482,9 @@ async def test_workflow_detached_child_workflow(
             {
                 "ACTIONS": {
                     # Only even numbers: 2, 4, 6 -> 20, 40, 60
-                    # Everything else is kept as None
+                    # Unset values are automatically removed
                     "implode": {
-                        "result": [
-                            Sentinel.IMPLODE_UNSET,
-                            20,
-                            Sentinel.IMPLODE_UNSET,
-                            40,
-                            Sentinel.IMPLODE_UNSET,
-                            60,
-                        ],
+                        "result": [20, 40, 60],
                         "result_typename": "list",
                     }
                 },
@@ -3500,11 +3493,11 @@ async def test_workflow_detached_child_workflow(
             },
             id="explode-reshape-even-implode",
         ),
-        # 6. Explode -> reshape (run_if even) -> implode with drop_nulls and drop_unset
+        # 6. Explode -> reshape (run_if even) -> implode with drop_nulls
         pytest.param(
             DSLInput(
-                title="Explode-reshape (even only) then implode with drop_nulls and drop_unset",
-                description="Test explode, reshape only if even, then implode with drop_nulls and drop_unset",
+                title="Explode-reshape (even only) then implode with drop_nulls",
+                description="Test explode, reshape only if even, then implode with drop_nulls",
                 entrypoint=DSLEntrypoint(ref="explode"),
                 actions=[
                     ActionStatement(
@@ -3529,7 +3522,6 @@ async def test_workflow_detached_child_workflow(
                         args=ImplodeArgs(
                             items="${{ ACTIONS.reshape.result }}",
                             drop_nulls=True,
-                            drop_unset=True,
                         ).model_dump(),
                     ),
                 ],
@@ -3546,7 +3538,7 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="explode-reshape-even-implode-drop-nulls-unset",
+            id="explode-reshape-even-implode-drop-nulls",
         ),
         pytest.param(
             DSLInput(

@@ -802,10 +802,6 @@ class DSLScheduler:
 
         if self.open_scopes_counter[parent_ex_task] == 0:
             # NOTE: This block is executed by the last execution scope.
-            # NOTE: The implode isn't being visited when we propagate skips
-            # which is why we see that when run_if is evaluated, this branch
-            # is not being hit. We need to run any implode nodes even though
-            # run_if is being propagated.
             self.logger.warning(
                 "FINALIZING IMPLODE",
                 task=task,
@@ -816,26 +812,25 @@ class DSLScheduler:
             # Apply filtering if requested
 
             # Inline filter for implode operation.
-            # Keeps items unless drop_nulls is True and item is None,
-            # or drop_unset is True and item is Sentinel.IMPLODE_UNSET.
-            if args.drop_nulls or args.drop_unset:
-                final_result = [
-                    item
-                    for item in cast(list[Any], parent_action_context[im_ref]["result"])
-                    if not (
-                        (args.drop_nulls and item is None)
-                        or (args.drop_unset and item == Sentinel.IMPLODE_UNSET)
-                    )
-                ]
-                logger.warning(
-                    "IMPLODE FILTERED RESULT",
-                    task=task,
-                    final_result=final_result,
-                    args=args,
+            # Keeps items unless drop_nulls is True and item is None.
+            # Automatically remove unset values (Sentinel.IMPLODE_UNSET).
+            final_result = [
+                item
+                for item in cast(list[Any], parent_action_context[im_ref]["result"])
+                if not (
+                    (item == Sentinel.IMPLODE_UNSET)
+                    or (args.drop_nulls and item is None)
                 )
+            ]
+            logger.warning(
+                "IMPLODE FILTERED RESULT",
+                task=task,
+                final_result=final_result,
+                args=args,
+            )
 
-                # Update the result with the filtered version
-                parent_action_context[im_ref].update(result=final_result)
+            # Update the result with the filtered version
+            parent_action_context[im_ref].update(result=final_result)
 
             self.logger.warning(
                 "Implode complete. Go back up to parent scope",
