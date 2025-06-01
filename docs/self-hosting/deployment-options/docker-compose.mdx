@@ -126,8 +126,57 @@ This user owns the organization and has admin rights to every workspace in the T
 To proceed, sign up and create an account with a strong and secure password.
 Check out the [admin tutorial](/quickstart/admin) for more information.
 
-## Next Steps
+## Troubleshooting
 
+### Networking
+
+The following env variables are used to configure **external facing** network settings for Tracecat:
+
+- `PUBLIC_APP_URL` - Tracecat frontend URL.
+- `PUBLIC_APP_PORT` - Tracecat frontend port.
+- `PUBLIC_API_URL` - Tracecat API URL.
+- `NEXT_PUBLIC_APP_URL` - Browser client will use this URL to access the Tracecat frontend.
+- `NEXT_PUBLIC_API_URL` - Browser client will use this URL to access the Tracecat API.
+- `BASE_DOMAIN` - Caddy will use this domain to reverse proxy the Tracecat frontend and API. Defaults to `:{PUBLIC_APP_PORT}`
+- `ADDRESS` - Caddy will use this address to bind to the network. Defaults to `0.0.0.0`
+
+Within the docker network, the following env variables are used to configure network settings **within the docker network** for Tracecat:
+
+- `INTERNAL_API_URL` - Tracecat API URL (defaults to `http://api:8000`)
+- `INTERNAL_EXECUTOR_URL` - Tracecat executor URL (defaults to `http://executor:8000`)
+- `NEXT_SERVER_API_URL` - Tracecat API URL (defaults to `INTERNAL_API_URL`)
+
+
+### "Network error" or "Failed to fetch" in the sign-in page
+
+Your browser cannot connect to the API service.
+This happens when the frontend sends API requests to an incorrect or unreachable address.
+
+**Fix IP address issues:**
+- Do not set `PUBLIC_APP_URL` to `0.0.0.0`. Browsers cannot connect to this address. Use `localhost`, `127.0.0.1`, or your machine's actual IP address instead.
+- WSL users: Do not use `127.0.0.1`. Run `ip addr` to find your WSL IP address (usually `172.x.x.x`) and use that instead.
+- Docker Desktop users: Use `host.docker.internal` or the Docker VM's IP address instead of localhost.
+
+**Fix environment variables:**
+- Set `NEXT_PUBLIC_API_URL` to an address your browser can reach.
+- Ensure `PUBLIC_API_URL` matches what your browser can access.
+
+**Check service health:**
+- Run `docker compose ps` to verify all services are running.
+- Check the temporal service is healthy - worker connectivity issues affect login.
+- View container logs: `docker compose logs api` and `docker compose logs temporal`.
+
+**General fixes:**
+- Rebuild after changing `.env`: `docker compose build --no-cache` then `docker compose up`.
+- Clear browser cache or use incognito mode.
+- Test API directly at `http://<your-ip>:<port>/api` to verify it's running.
+- Check firewall and port forwarding if using a reverse proxy.
+
+<Note>
+  Related issues: [#1166](https://github.com/TracecatHQ/tracecat/issues/1166), [#887](https://github.com/TracecatHQ/tracecat/issues/887), [#867](https://github.com/TracecatHQ/tracecat/issues/867), [#779](https://github.com/TracecatHQ/tracecat/issues/779)
+</Note>
+
+## Next Steps
 - Log into Tracecat and build your first playbook. [View quickstart](/quickstart).
 - Tracecat comes with basic (email + password) authentication. Find out how to configure other authentication methods. [View docs](/self-hosting/authentication/overview).
 - Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://github.com/TracecatHQ/tracecat/blob/0.35.3/.env.example).
