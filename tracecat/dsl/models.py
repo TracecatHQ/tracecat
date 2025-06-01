@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NotRequired, Required, TypedDict
 
 from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
@@ -26,16 +26,16 @@ ExecutionContext = dict[ExprContext, Any]
 """Workflow execution context."""
 
 
-class TaskResult(TypedDict, total=False):
+class TaskResult(TypedDict):
     """Result of executing a DSL node."""
 
-    result: Any
-    result_typename: str
-    error: Any | None
-    error_typename: str | None
-    interaction: Any | None
-    interaction_id: str | None
-    interaction_type: str | None
+    result: Required[Any]
+    result_typename: Required[str]
+    error: NotRequired[Any]
+    error_typename: NotRequired[str]
+    interaction: NotRequired[Any]
+    interaction_id: NotRequired[str]
+    interaction_type: NotRequired[str]
 
 
 @dataclass(frozen=True)
