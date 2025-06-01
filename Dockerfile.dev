@@ -11,6 +11,10 @@ RUN chmod +x install-packages.sh && \
     ./install-packages.sh && \
     rm install-packages.sh
 
+# Set deno environment variables to use pre-cached modules
+ENV DENO_DIR="/root/.deno"
+ENV NODE_MODULES_DIR="/opt/node_modules"
+
 # Set the working directory inside the container
 WORKDIR /app
 
@@ -29,6 +33,10 @@ RUN chmod +x /app/entrypoint.sh
 # Install package and registry in editable mode
 RUN uv pip install -e .
 RUN uv pip install -e ./registry
+
+# Create deno cache directory and link pre-cached modules
+RUN mkdir -p /root/.deno && \
+    ln -s /opt/deno-cache/* /root/.deno/ 2>/dev/null || true
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 
