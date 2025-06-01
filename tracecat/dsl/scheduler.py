@@ -400,23 +400,21 @@ class DSLScheduler:
     async def _schedule_task(self, task: Task) -> None:
         """Schedule a task for execution."""
         ref = task.ref
-        task_defn = self.tasks[ref]
+        stmt = self.tasks[ref]
         self.logger.warning("Scheduling task", task=task)
         try:
             # 1) Skip propagation (force-skip) takes highest precedence over reachability
-            if self._skip_should_propagate(task):
+            if self._skip_should_propagate(task, stmt):
                 self.logger.info("Task should be force-skipped, propagating", task=task)
                 return await self._handle_skip_path(task)
 
-            # 2) Then we check if the task is reachable - i.e. do we have
-            # enough successful paths to reach this task?
-            if not self._is_reachable(task):
+            # 2) Then we check if the task is reachable
+            if not self._is_reachable(task, stmt):
                 self.logger.info("Task cannot proceed, unreachable", task=task)
                 raise TaskUnreachable(f"Task {task} is unreachable")
 
-            # 3) At this point the task is reachable and not force-skipped.
-            # Check if the task should self-skip based on its `run_if` condition
-            if self._task_should_skip(task_defn):
+            # 3) Check if the task should self-skip based on its `run_if` condition
+            if self._task_should_skip(task, stmt):
                 self.logger.info("Task should self-skip", ref=ref)
                 return await self._handle_skip_path(task)
 
@@ -424,13 +422,13 @@ class DSLScheduler:
 
             # -- If this is a control flow action (explode/implode), we need to
             # handle it differently.
-            if task_defn.action == PlatformAction.TRANSFORM_EXPLODE:
+            if stmt.action == PlatformAction.TRANSFORM_EXPLODE:
                 # Handle explode with proper scope creation
-                return await self._handle_explode(task)
+                return await self._handle_explode(task, stmt)
 
-            if task_defn.action == PlatformAction.TRANSFORM_IMPLODE:
+            if stmt.action == PlatformAction.TRANSFORM_IMPLODE:
                 # Handle implode with synchronization
-                return await self._handle_implode(task)
+                return await self._handle_implode(task, stmt)
 
             # -- Otherwise, time to execute the task!
             # NOTE: If an exception is thrown from this coroutine, it signals that
@@ -438,7 +436,7 @@ class DSLScheduler:
             # exceptions set will cause the workflow to fail.
             token = ctx_scope_id.set(task.scope_id)
             try:
-                await self.executor(task_defn)
+                await self.executor(stmt)
             finally:
                 ctx_scope_id.reset(token)
             # NOTE: Moved this here to handle single success path
@@ -519,7 +517,7 @@ class DSLScheduler:
         )
         return None
 
-    def _is_reachable(self, task: Task) -> bool:
+    def _is_reachable(self, task: Task, stmt: ActionStatement) -> bool:
         """Check whether a task is reachable based on its dependencies' outcomes.
 
         Args:
@@ -533,8 +531,7 @@ class DSLScheduler:
         """
 
         logger.debug("Check task reachability", task=task, marked_edges=self.edges)
-        defn = self.tasks[task.ref]
-        n_deps = len(defn.depends_on)
+        n_deps = len(stmt.depends_on)
         if n_deps == 0:
             # Root nodes are always reachable
             return True
@@ -542,7 +539,7 @@ class DSLScheduler:
             logger.debug("Task has only 1 dependency", task=task)
             # If there's only 1 dependency, the node is reachable only if the
             # dependency was successful ignoring the join strategy.
-            dep_ref = defn.depends_on[0]
+            dep_ref = stmt.depends_on[0]
             return self._edge_has_marker(
                 dep_ref, task.ref, EdgeMarker.VISITED, task.scope_id
             )
@@ -553,13 +550,13 @@ class DSLScheduler:
                 self._edge_has_marker(
                     dep_ref, task.ref, EdgeMarker.VISITED, task.scope_id
                 )
-                for dep_ref in defn.depends_on
+                for dep_ref in stmt.depends_on
             )
-            if defn.join_strategy == JoinStrategy.ANY:
+            if stmt.join_strategy == JoinStrategy.ANY:
                 return n_success_paths > 0
-            if defn.join_strategy == JoinStrategy.ALL:
+            if stmt.join_strategy == JoinStrategy.ALL:
                 return n_success_paths == n_deps
-            raise ValueError(f"Invalid join strategy: {defn.join_strategy}")
+            raise ValueError(f"Invalid join strategy: {stmt.join_strategy}")
 
     def _edge_has_marker(
         self,
@@ -593,18 +590,9 @@ class DSLScheduler:
         logger.debug("Marking edge", edge=edge, marker=marker)
         self.edges[edge] = marker
 
-    def _skip_should_propagate(self, task: Task) -> bool:
-        """Check if a task's skip should propagate to its dependents.
-
-        Args:
-            task: The task to check
-
-        Returns:
-            bool: True if the task's skip should propagate, False otherwise
-        """
-        # If all of a task's dependencies are skipped, then the task should be skipped
-        # regardless of its `run_if` condition.
-        deps = self.tasks[task.ref].depends_on
+    def _skip_should_propagate(self, task: Task, stmt: ActionStatement) -> bool:
+        """Check if a task's skip should propagate to its dependents."""
+        deps = stmt.depends_on
         if not deps:
             return False
         return all(
@@ -612,26 +600,19 @@ class DSLScheduler:
             for dep_ref in deps
         )
 
-    def _task_should_skip(self, task: ActionStatement) -> bool:
-        """Check if a task should be skipped based on its `run_if` condition.
-
-        Args:
-            task: The task to check
-
-        Returns:
-            bool: True if the task should be skipped, False otherwise
-        """
-        # Evaluate the `run_if` condition
-        if task.run_if is not None:
-            # TODO: WE NEED TO HANDLE SCOPE-AWARE EXPRESSIONS HERE
-            expr = TemplateExpression(task.run_if, operand=self.context)
-            self.logger.debug("`run_if` condition", task_run_if=task.run_if)
+    def _task_should_skip(self, task: Task, stmt: ActionStatement) -> bool:
+        """Check if a task should be skipped based on its `run_if` condition."""
+        run_if = stmt.run_if
+        if run_if is not None:
+            context = self.get_context(task.scope_id)
+            expr = TemplateExpression(run_if, operand=context)
+            self.logger.debug("`run_if` condition", run_if=run_if)
             if not bool(expr.result()):
                 self.logger.info("Task `run_if` condition was not met, skipped")
                 return True
         return False
 
-    async def _handle_explode(self, task: Task) -> None:
+    async def _handle_explode(self, task: Task, stmt: ActionStatement) -> None:
         """
         Handle explode action with proper scope creation.
 
@@ -643,11 +624,10 @@ class DSLScheduler:
         The tasks in each scope are executed in the order of the collection.
 
         """
-        defn = self.tasks[task.ref]
         curr_scope_id = task.scope_id
         self.logger.info("EXPLODE", task=task)
 
-        args = ExplodeArgs(**defn.args)
+        args = ExplodeArgs(**stmt.args)
         context = self.get_context(curr_scope_id)
         collection = TemplateExpression(args.collection, operand=context).result()
 
@@ -718,7 +698,7 @@ class DSLScheduler:
             return self.context
         return self.scopes[scope_id]
 
-    async def _handle_implode(self, task: Task) -> None:
+    async def _handle_implode(self, task: Task, stmt: ActionStatement) -> None:
         """Handle implode with proper synchronization.
 
         Think of this as a synchronization barrier for a collection of execution streams.
@@ -739,7 +719,6 @@ class DSLScheduler:
         # We are inside an execution stream. Use implode to synchronize with the other execution streams.
 
         im_ref = task.ref
-        stmt = self.tasks[im_ref]
         args = ImplodeArgs(**stmt.args)
         current_context = self.get_context(scope_id)
         items = TemplateExpression(args.items, operand=current_context).result()
