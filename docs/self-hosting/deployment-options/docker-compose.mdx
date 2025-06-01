@@ -157,11 +157,6 @@ Please check the following:
 - Run `docker compose ps` to verify all services are running.
 - Check the temporal service is healthy. Worker connectivity issues can sometimes affect login.
 - View container logs: `docker compose logs api` and `docker compose logs temporal`.
-
-### General fixes:
-- Rebuild after changing `.env`: `docker compose build --no-cache` then `docker compose up`.
-- Clear browser cache or use incognito mode.
-- Test API directly at `http://<your-ip>:<port>/api` to verify it's running.
 - Check firewall and port forwarding if using a reverse proxy.
 
 <Note>
