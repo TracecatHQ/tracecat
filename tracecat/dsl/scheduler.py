@@ -3,14 +3,14 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, cast
 
 from pydantic_core import to_json
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
 from tracecat.concurrency import cooperative
-from tracecat.contexts import ctx_logger, ctx_scope_id
+from tracecat.contexts import ctx_scope_id
 from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
 from tracecat.dsl.control_flow import (
     ExplodeArgs,
@@ -126,7 +126,8 @@ class DSLScheduler:
         self.context = context
         self.executor = executor
         self.skip_strategy = skip_strategy
-        self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
+        # self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
+        self.logger = logger
         self.tasks: dict[str, ActionStatement] = {}
         """Task definitions"""
         self.adj: dict[str, set[AdjDst]] = defaultdict(set)
@@ -404,9 +405,19 @@ class DSLScheduler:
         stmt = self.tasks[ref]
         self.logger.warning("Scheduling task", task=task)
         try:
-            # 1) Skip propagation (force-skip) takes highest precedence over reachability
+            # 1) Skip propagation (force-skip) takes highest precedence over everything else
             if self._skip_should_propagate(task, stmt):
                 self.logger.info("Task should be force-skipped, propagating", task=task)
+                if stmt.action == PlatformAction.TRANSFORM_IMPLODE:
+                    # If we encounter an implode and we're in an execution stream,
+                    # we need to close the stream.
+                    self.logger.warning(
+                        "Implode in execution stream, skipping", task=task
+                    )
+                    # We reached the end of the execution stream, so we can return
+                    # None to indicate that the stream is complete.
+                    # We do not need to queue any downstream tasks.
+                    return await self._handle_implode(task, stmt, is_skipping=True)
                 return await self._handle_skip_path(task)
 
             # 2) Then we check if the task is reachable
@@ -416,19 +427,19 @@ class DSLScheduler:
 
             # 3) Check if the task should self-skip based on its `run_if` condition
             if self._task_should_skip(task, stmt):
-                self.logger.info("Task should self-skip", ref=ref)
+                self.logger.info("Task should self-skip", task=task)
                 return await self._handle_skip_path(task)
 
             # 4) If we made it here, the task is reachable and not force-skipped.
 
-            # -- If this is a control flow action (explode/implode), we need to
+            # -- If this is a control flow action (explode), we need to
             # handle it differently.
             if stmt.action == PlatformAction.TRANSFORM_EXPLODE:
                 # Handle explode with proper scope creation
                 return await self._handle_explode(task, stmt)
-
+            # 0) Always handle implode first - its a synchronization barrier that needs
+            # to run regardless of dependency skip states
             if stmt.action == PlatformAction.TRANSFORM_IMPLODE:
-                # Handle implode with synchronization
                 return await self._handle_implode(task, stmt)
 
             # -- Otherwise, time to execute the task!
@@ -592,10 +603,24 @@ class DSLScheduler:
         self.edges[edge] = marker
 
     def _skip_should_propagate(self, task: Task, stmt: ActionStatement) -> bool:
-        """Check if a task's skip should propagate to its dependents."""
+        """
+        Check if a task's skip should propagate to its dependents.
+
+        This function determines whether all dependencies of the given task have been marked as SKIPPED.
+        If so, the skip should propagate to this task, causing it to be skipped as well.
+
+        Args:
+            task: The Task object being evaluated.
+            stmt: The ActionStatement associated with the task.
+
+        Returns:
+            True if all dependencies are marked as SKIPPED, False otherwise.
+        """
         deps = stmt.depends_on
+        # If there are no dependencies, skip propagation does not apply.
         if not deps:
             return False
+        # Check if every dependency edge is marked as SKIPPED in the current scope.
         return all(
             self._edge_has_marker(dep_ref, task.ref, EdgeMarker.SKIPPED, task.scope_id)
             for dep_ref in deps
@@ -696,10 +721,14 @@ class DSLScheduler:
 
     def get_context(self, scope_id: ScopeID | None = None) -> ExecutionContext:
         if scope_id is None:
+            self.logger.warning("Getting global context", context=self.context)
             return self.context
+        self.logger.warning("Getting scoped context", scope_id=scope_id)
         return self.scopes[scope_id]
 
-    async def _handle_implode(self, task: Task, stmt: ActionStatement) -> None:
+    async def _handle_implode(
+        self, task: Task, stmt: ActionStatement, *, is_skipping: bool = False
+    ) -> None:
         """Handle implode with proper synchronization.
 
         Think of this as a synchronization barrier for a collection of execution streams.
@@ -708,37 +737,51 @@ class DSLScheduler:
         - Implode is given a jsonpath. Get the item from the current scope. This will be returned to the parent scope.
         - We need to know the cardinality of the exploded collection so that we can reconstruct the collection in the parent scope.
 
-
-        Gotchas:
-        - Implode must not be used in the global scope.
+        Edge cases:
+        - If used in the global scope (no matching explode), implode does nothing and returns early.
+          This allows implodes to be safely scheduled even when their corresponding explode was skipped.
         """
         scope_id = task.scope_id
         if scope_id is None:
-            raise ApplicationError(
-                "Implode must not be used in the global scope", non_retryable=True
-            )
+            # Implode in global scope means no corresponding explode ran (likely skipped).
+            # This is safe to ignore - we just mark the task as completed and continue.
+            self.logger.debug("Implode in global scope, doing nothing", task=task)
+            return
         # We are inside an execution stream. Use implode to synchronize with the other execution streams.
+        self.logger.info("Handling implode in execution scope", task=task)
 
-        im_ref = task.ref
+        # This operation should return the top level scope
+        ex_ref, scope_index = scope_id.leaf_scope
+        parent_scope_id = self.scope_hierarchy[scope_id]
+        parent_ex_task = Task(ex_ref, parent_scope_id)
+
+        # Close the scope regardless of whether we skipped our way to this point.
+        self.open_scopes_counter[parent_ex_task] -= 1
+        if is_skipping:
+            self.logger.warning("Skipped implode in execution scope", task=task)
+            return
+
+        # Here onwards, we are not skipping.
+        # This means we must compute a return value for the implode.
+        # We should only compute the items to store if we aren't skipping
         args = ImplodeArgs(**stmt.args)
         current_context = self.get_context(scope_id)
         items = TemplateExpression(args.items, operand=current_context).result()
-        self.logger.info("IMPLODE", task=task, args=args, items=items)
 
         # Once we have the item, we go down 1 level in the scope hierarchy
         # and set the item as the result of the action in that scope
         # We do this for each item in the collection
-        parent_scope_id = self.scope_hierarchy[scope_id]
         parent_context = self.get_context(parent_scope_id)
-        parent_action_context = parent_context[ExprContext.ACTIONS]
+        parent_action_context = cast(
+            dict[str, TaskResult], parent_context[ExprContext.ACTIONS]
+        )
 
         # We set the item as the result of the action in that scope
         # We should actually be placing this in parent.result[i]
 
-        # This operation should return the top level scope
-        ex_ref, scope_index = scope_id.leaf_scope
-        parent_ex_task = Task(ex_ref, parent_scope_id)
+        im_ref = task.ref
         if im_ref not in parent_action_context:
+            # NOTE: This block is executed by the first execution scope.
             # We need to initialize the result with the cardinality of the explode
             # This is the number of execution streams that will be synchronized by this implode
             size = len(self.task_scopes[parent_ex_task])
@@ -748,8 +791,8 @@ class DSLScheduler:
                 result_typename=type(result).__name__,
             )
 
+        # Only add  if we didn't skip
         parent_action_context[im_ref]["result"][scope_index] = items
-        self.open_scopes_counter[parent_ex_task] -= 1
         self.logger.info(
             "Set item as result",
             task=task,
@@ -758,9 +801,47 @@ class DSLScheduler:
         )
 
         if self.open_scopes_counter[parent_ex_task] == 0:
+            # NOTE: This block is executed by the last execution scope.
+            # NOTE: The implode isn't being visited when we propagate skips
+            # which is why we see that when run_if is evaluated, this branch
+            # is not being hit. We need to run any implode nodes even though
+            # run_if is being propagated.
+            self.logger.warning(
+                "FINALIZING IMPLODE",
+                task=task,
+                parent_action_context=parent_action_context,
+                args=args,
+            )
             # We have closed all execution streams for this explode. The implode is now complete.
-            # We now continue the workflow in the parent scope.
-            self.logger.info("Implode complete", task=task)
+            # Apply filtering if requested
+
+            # Inline filter for implode operation.
+            # Keeps items unless drop_nulls is True and item is None,
+            # or drop_unset is True and item is Sentinel.IMPLODE_UNSET.
+            if args.drop_nulls or args.drop_unset:
+                final_result = [
+                    item
+                    for item in cast(list[Any], parent_action_context[im_ref]["result"])
+                    if not (
+                        (args.drop_nulls and item is None)
+                        or (args.drop_unset and item == Sentinel.IMPLODE_UNSET)
+                    )
+                ]
+                logger.warning(
+                    "IMPLODE FILTERED RESULT",
+                    task=task,
+                    final_result=final_result,
+                    args=args,
+                )
+
+                # Update the result with the filtered version
+                parent_action_context[im_ref].update(result=final_result)
+
+            self.logger.warning(
+                "Implode complete. Go back up to parent scope",
+                task=task,
+                parent_scope_id=parent_scope_id,
+            )
             # TODO: Handle unreachable tasks??
             await self._queue_tasks(Task(im_ref, parent_scope_id), unreachable=None)
         else:

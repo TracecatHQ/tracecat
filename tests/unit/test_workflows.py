@@ -39,7 +39,7 @@ from tracecat.dsl.common import (
     DSLRunArgs,
 )
 from tracecat.dsl.control_flow import ExplodeArgs, ImplodeArgs
-from tracecat.dsl.enums import LoopStrategy, WaitStrategy
+from tracecat.dsl.enums import LoopStrategy, Sentinel, WaitStrategy
 from tracecat.dsl.models import (
     ActionStatement,
     DSLConfig,
@@ -3229,6 +3229,57 @@ async def test_workflow_detached_child_workflow(
             },
             id="basic-for-loop",
         ),
+        pytest.param(
+            DSLInput(
+                title="Single explode-implode with surrounding actions",
+                description="Test single explode-implode with surrounding actions",
+                entrypoint=DSLEntrypoint(ref="a"),
+                actions=[
+                    # This doesn't output any result
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        args={"value": [1, 2, 3]},
+                    ),
+                    ActionStatement(
+                        ref="explode",
+                        action="core.transform.explode",
+                        depends_on=["a"],
+                        args=ExplodeArgs(
+                            collection="${{ ACTIONS.a.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["explode"],
+                        args={"value": "${{ FN.add(ACTIONS.explode.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="implode",
+                        action="core.transform.implode",
+                        depends_on=["b"],
+                        args=ImplodeArgs(items="${{ ACTIONS.b.result }}").model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="c",
+                        action="core.transform.reshape",
+                        depends_on=["implode"],
+                        args={"value": "${{ ACTIONS.implode.result }}"},
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "a": {"result": [1, 2, 3], "result_typename": "list"},
+                    "implode": {"result": [2, 3, 4], "result_typename": "list"},
+                    "c": {"result": [2, 3, 4], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="explode-implode-with-surrounding-actions",
+        ),
         # 2. Nested explode-implode (original)
         pytest.param(
             DSLInput(
@@ -3433,7 +3484,14 @@ async def test_workflow_detached_child_workflow(
                     # Only even numbers: 2, 4, 6 -> 20, 40, 60
                     # Everything else is kept as None
                     "implode": {
-                        "result": [None, 20, None, 40, None, 60],
+                        "result": [
+                            Sentinel.IMPLODE_UNSET,
+                            20,
+                            Sentinel.IMPLODE_UNSET,
+                            40,
+                            Sentinel.IMPLODE_UNSET,
+                            60,
+                        ],
                         "result_typename": "list",
                     }
                 },
@@ -3441,6 +3499,155 @@ async def test_workflow_detached_child_workflow(
                 "TRIGGER": {},
             },
             id="explode-reshape-even-implode",
+        ),
+        # 6. Explode -> reshape (run_if even) -> implode with drop_nulls and drop_unset
+        pytest.param(
+            DSLInput(
+                title="Explode-reshape (even only) then implode with drop_nulls and drop_unset",
+                description="Test explode, reshape only if even, then implode with drop_nulls and drop_unset",
+                entrypoint=DSLEntrypoint(ref="explode"),
+                actions=[
+                    ActionStatement(
+                        ref="explode",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(
+                            collection="${{ [1, 2, 3, 4, 5, 6] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["explode"],
+                        # Only run reshape if the value is even
+                        run_if="${{ FN.mod(ACTIONS.explode.result, 2) == 0 }}",
+                        args={"value": "${{ FN.mul(ACTIONS.explode.result, 10) }}"},
+                    ),
+                    ActionStatement(
+                        ref="implode",
+                        action="core.transform.implode",
+                        depends_on=["reshape"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.reshape.result }}",
+                            drop_nulls=True,
+                            drop_unset=True,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # Only even numbers: 2, 4, 6 -> 20, 40, 60
+                    # Everything else is dropped
+                    "implode": {
+                        "result": [20, 40, 60],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="explode-reshape-even-implode-drop-nulls-unset",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Explode-reshape (even only) with Nones, then implode with drop_nulls",
+                description="Test explode with Nones, reshape only if even, then implode with drop_nulls only",
+                entrypoint=DSLEntrypoint(ref="explode"),
+                actions=[
+                    ActionStatement(
+                        ref="explode",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(
+                            # Data with Nones in the collection
+                            collection="${{ [1, None, None, 2, 3, None, 4, 5, 6, None] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["explode"],
+                        args={"value": "${{ ACTIONS.explode.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="implode",
+                        action="core.transform.implode",
+                        depends_on=["reshape"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.reshape.result }}",
+                            drop_nulls=True,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # Skip all nulls
+                    "implode": {
+                        "result": [1, 2, 3, 4, 5, 6],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="explode-reshape-even-implode-drop-nulls-with-nones",
+        ),
+        # New test: A -> explode -> B -> implode -> C, all reshapes, skip explode, expect only A to run
+        pytest.param(
+            DSLInput(
+                title="a->explode->b->implode->c, skip explode, only a runs",
+                description="Test that if explode is skipped, only a runs and downstream tasks are not executed.",
+                entrypoint=DSLEntrypoint(ref="a"),
+                actions=[
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        args={"value": "${{ 42 }}"},
+                    ),
+                    ActionStatement(
+                        ref="explode",
+                        action="core.transform.explode",
+                        depends_on=["a"],
+                        # Always skip explode
+                        run_if="${{ False }}",
+                        args=ExplodeArgs(
+                            collection="${{ [1, 2, 3] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["explode"],
+                        args={"value": "${{ ACTIONS.explode.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="implode",
+                        action="core.transform.implode",
+                        depends_on=["b"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.b.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="c",
+                        action="core.transform.reshape",
+                        depends_on=["implode"],
+                        args={"value": "${{ ACTIONS.implode.result }}"},
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "a": {
+                        "result": 42,
+                        "result_typename": "int",
+                    }
+                    # No other actions should have run
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="a-explode-b-implode-c-skip-explode-only-a",
         ),
     ],
 )
