@@ -718,10 +718,25 @@ class CaseAttachmentService(BaseWorkspaceService):
         """
         from tracecat import storage
 
-        # Security validations
-        storage.validate_content_type(params.content_type)
-        storage.validate_file_size(params.size)
-        sanitized_filename = storage.sanitize_filename(params.file_name)
+        # Comprehensive security validation using the new validator
+        validator = storage.FileSecurityValidator()
+        try:
+            validation_result = validator.validate_file(
+                content=params.content,
+                filename=params.file_name,
+                declared_content_type=params.content_type,
+            )
+            validated_filename = validation_result["filename"]
+            validated_content_type = validation_result["content_type"]
+        except ValueError as e:
+            logger.warning(
+                "File validation failed",
+                filename=params.file_name,
+                content_type=params.content_type,
+                size=params.size,
+                error=str(e),
+            )
+            raise
 
         # Compute content hash for deduplication and integrity
         sha256 = storage.compute_sha256(params.content)
@@ -737,8 +752,8 @@ class CaseAttachmentService(BaseWorkspaceService):
             file = File(
                 owner_id=self.workspace_id,
                 sha256=sha256,
-                name=sanitized_filename,
-                content_type=params.content_type,
+                name=validated_filename,
+                content_type=validated_content_type,
                 size=params.size,
                 creator_id=self.role.user_id,
             )
@@ -751,7 +766,7 @@ class CaseAttachmentService(BaseWorkspaceService):
                 await storage.upload_file(
                     content=params.content,
                     key=storage_key,
-                    content_type=params.content_type,
+                    content_type=validated_content_type,
                 )
             except Exception as e:
                 # Rollback the database transaction if storage fails
