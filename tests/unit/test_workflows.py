@@ -20,7 +20,6 @@ from typing import Any, Literal
 import pytest
 import yaml
 from pydantic import SecretStr
-from pydantic_core import to_json
 from temporalio.api.enums.v1.workflow_pb2 import ParentClosePolicy
 from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -3187,72 +3186,273 @@ async def test_workflow_detached_child_workflow(
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_workflow_explode(test_role: Role, temporal_client: Client):
+@pytest.mark.parametrize(
+    "dsl,expected",
+    [
+        # 1. Single explode-reshape-implode (original)
+        pytest.param(
+            DSLInput(
+                title="Single explode-implode",
+                description="Test single explode-implode",
+                entrypoint=DSLEntrypoint(ref="explode"),
+                actions=[
+                    # This doesn't output any result
+                    ActionStatement(
+                        ref="explode",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(
+                            collection="${{ [1,2, 3] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["explode"],
+                        args={"value": "${{ FN.add(ACTIONS.explode.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="implode",
+                        action="core.transform.implode",
+                        depends_on=["reshape"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.reshape.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "implode": {"result": [2, 3, 4], "result_typename": "list"}
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-for-loop",
+        ),
+        # 2. Nested explode-implode (original)
+        pytest.param(
+            DSLInput(
+                title="Nested explode-implode",
+                description="Test nested explode-implode",
+                entrypoint=DSLEntrypoint(ref="explode"),
+                actions=[
+                    # This doesn't output any result
+                    ActionStatement(
+                        ref="explode",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(
+                            collection="${{ [[1,2], [3,4]] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="explode2",
+                        action="core.transform.explode",
+                        depends_on=["explode"],
+                        args=ExplodeArgs(
+                            collection="${{ ACTIONS.explode.result }}",
+                        ).model_dump(),
+                    ),
+                    # Go parallel
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["explode2"],
+                        args={"value": "${{ FN.add(ACTIONS.explode2.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["explode2"],
+                        args={"value": "${{ FN.add(ACTIONS.explode2.result, 2) }}"},
+                    ),
+                    # How do we now handle the parallel execution streams?
+                    ActionStatement(
+                        ref="implode",
+                        action="core.transform.implode",
+                        depends_on=["reshape", "reshape2"],
+                        args=ImplodeArgs(
+                            # When an execution stream hits an implode matching
+                            # the current
+                            # This will grab the result of the reshape action
+                            # in its execution scope
+                            items="${{ ACTIONS.reshape.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="implode2",
+                        action="core.transform.implode",
+                        depends_on=["implode"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.implode.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "implode2": {"result": [[2, 3], [4, 5]], "result_typename": "list"}
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-for-loop",
+        ),
+        # 3. Explode-Implode followed by Explode-Implode (original)
+        pytest.param(
+            DSLInput(
+                title="Explode-Implode followed by Explode-Implode",
+                description="Test two sequential explode-implode blocks",
+                entrypoint=DSLEntrypoint(ref="explode1"),
+                actions=[
+                    # First explode-implode block
+                    ActionStatement(
+                        ref="explode1",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(
+                            collection="${{ [10, 20] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape1",
+                        action="core.transform.reshape",
+                        depends_on=["explode1"],
+                        args={"value": "${{ FN.add(ACTIONS.explode1.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="implode1",
+                        action="core.transform.implode",
+                        depends_on=["reshape1"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.reshape1.result }}"
+                        ).model_dump(),
+                    ),
+                    # Second explode-implode block, using result of first
+                    ActionStatement(
+                        ref="explode2",
+                        action="core.transform.explode",
+                        depends_on=["implode1"],
+                        args=ExplodeArgs(
+                            collection="${{ ACTIONS.implode1.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["explode2"],
+                        args={"value": "${{ FN.add(ACTIONS.explode2.result, 100) }}"},
+                    ),
+                    ActionStatement(
+                        ref="implode2",
+                        action="core.transform.implode",
+                        depends_on=["reshape2"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.reshape2.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # First block: [10, 20] -> [11, 21]
+                    # Second block: [11, 21] -> [111, 121]
+                    "implode1": {"result": [11, 21], "result_typename": "list"},
+                    "implode2": {"result": [111, 121], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="sequential-explode-implode",
+        ),
+        # 4. Explode followed by implode directly (no action in between)
+        pytest.param(
+            DSLInput(
+                title="Explode then Implode (no intermediate action)",
+                description="Test explode followed by implode directly",
+                entrypoint=DSLEntrypoint(ref="explode"),
+                actions=[
+                    ActionStatement(
+                        ref="explode",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(
+                            collection="${{ [5, 6, 7] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="implode",
+                        action="core.transform.implode",
+                        depends_on=["explode"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.explode.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "implode": {"result": [5, 6, 7], "result_typename": "list"}
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="explode-implode-direct",
+        ),
+        # 5. Explode -> reshape (run_if even) -> implode
+        pytest.param(
+            DSLInput(
+                title="Explode-reshape (even only) then implode",
+                description="Test explode, reshape only if even, then implode",
+                entrypoint=DSLEntrypoint(ref="explode"),
+                actions=[
+                    ActionStatement(
+                        ref="explode",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(
+                            collection="${{ [1, 2, 3, 4, 5, 6] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["explode"],
+                        # Only run reshape if the value is even
+                        run_if="${{ FN.mod(ACTIONS.explode.result, 2) == 0 }}",
+                        args={"value": "${{ FN.mul(ACTIONS.explode.result, 10) }}"},
+                    ),
+                    ActionStatement(
+                        ref="implode",
+                        action="core.transform.implode",
+                        depends_on=["reshape"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.reshape.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # Only even numbers: 2, 4, 6 -> 20, 40, 60
+                    # Everything else is kept as None
+                    "implode": {
+                        "result": [None, 20, None, 40, None, 60],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="explode-reshape-even-implode",
+        ),
+    ],
+)
+async def test_workflow_explode_implode(
+    test_role: Role, temporal_client: Client, dsl: DSLInput, expected: ExecutionContext
+):
     """
     Test that a workflow can explode a collection.
     """
-    test_name = f"{test_workflow_explode.__name__}"
+    test_name = f"{test_workflow_explode_implode.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
-    dsl = DSLInput(
-        title="Parent",
-        description="Test parent workflow can call child correctly",
-        entrypoint=DSLEntrypoint(ref="parent"),
-        actions=[
-            # This doesn't output any result
-            ActionStatement(
-                ref="explode",
-                action="core.transform.explode",
-                args=ExplodeArgs(
-                    collection="${{ [[1,2], [3,4]] }}",
-                ).model_dump(),
-            ),
-            ActionStatement(
-                ref="explode2",
-                action="core.transform.explode",
-                depends_on=["explode"],
-                args=ExplodeArgs(
-                    collection="${{ ACTIONS.explode.result }}",
-                ).model_dump(),
-            ),
-            # Go parallel
-            ActionStatement(
-                ref="reshape",
-                action="core.transform.reshape",
-                depends_on=["explode2"],
-                args={"value": "${{ FN.add(ACTIONS.explode2.result, 1) }}"},
-            ),
-            # ActionStatement(
-            #     ref="reshape2",
-            #     action="core.transform.reshape",
-            #     depends_on=["explode2"],
-            #     args={"value": "${{ FN.add(ACTIONS.explode2.result, 2) }}"},
-            # ),
-            # How do we now handle the parallel execution streams?
-            ActionStatement(
-                ref="implode",
-                action="core.transform.implode",
-                depends_on=["reshape"],
-                args=ImplodeArgs(
-                    # When an execution stream hits an implode matching
-                    # the current
-                    # This will grab the result of the reshape action
-                    # in its execution scope
-                    items="${{ ACTIONS.reshape.result }}",
-                ).model_dump(),
-            ),
-            ActionStatement(
-                ref="implode2",
-                action="core.transform.implode",
-                depends_on=["implode"],
-                args=ImplodeArgs(items="${{ ACTIONS.implode.result }}").model_dump(),
-            ),
-        ],
-    )
-    run_args = DSLRunArgs(
-        dsl=dsl,
-        role=test_role,
-        wf_id=TEST_WF_ID,
-    )
+    run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
 
     async with Worker(
@@ -3270,5 +3470,4 @@ async def test_workflow_explode(test_role: Role, temporal_client: Client):
             retry_policy=retry_policies["workflow:fail_fast"],
         )
         assert result is not None
-
-    logger.info(f"result: {to_json(result, indent=2).decode()}")
+        assert result == expected
