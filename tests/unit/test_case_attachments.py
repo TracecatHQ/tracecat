@@ -330,14 +330,14 @@ class TestFileSecurityValidator:
     @pytest.mark.anyio
     async def test_polyfile_script_in_binary_detection(self):
         """Test detection of script signatures in binary files."""
-        # Image with embedded JavaScript
-        image_with_js = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01javascript:alert('xss')"
+        # Image with embedded script tag (more realistic attack)
+        image_with_script = b"\xff\xd8\xff\xe0\x00\x10JFIF<script>alert('xss')</script>"
 
         with pytest.raises(
             ValueError, match="potentially dangerous embedded content|script signature"
         ):
             self.validator.validate_file(
-                content=image_with_js,
+                content=image_with_script,
                 filename="malicious.jpg",
                 declared_content_type="image/jpeg",
             )
