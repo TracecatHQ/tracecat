@@ -103,61 +103,107 @@ The following examples show common use-cases and inputs for the `Reshape` action
 
 ## HTTP Request
 
-The `core.http_request` action supports `GET`, `POST`, `PUT`, `PATCH`, and `DELETE` requests.
+Perform an HTTP request to a given URL.
 
-- To make a `GET` request with query parameters, specify the `params` field.
-- To make a `POST`, `PUT`, or `PATCH` request with:
-  - JSON encoded body, specify the `payload` field.
-  - Form-encoded data, specify the `form_data` field.
-- To make a request with a custom HTTP headers, specify the `headers` field.
+**Parameters**
 
-**Examples**
+- `url` (HttpUrl, required): The destination of the HTTP request.
+- `method` (Literal["GET", "POST", "PUT", "PATCH", "DELETE"], required): HTTP request method.
+- `headers` (dict[str, str], optional): HTTP request headers.
+- `params` (dict[str, Any], optional): URL query parameters.
+- `payload` (dict[str, Any] | list[Any], optional): JSON serializable data in request body (POST, PUT, and PATCH).
+- `form_data` (dict[str, Any], optional): Form encoded data in request body (POST, PUT, and PATCH).
+- `files` (dict[str, str | FileUploadData], optional): Files to upload using multipart/form-data.
+    - The dictionary key is the **form field name** for the file (e.g., `"file"`, `"attachment1"`).
+    - The value can be:
+        1.  A simple **base64 encoded string** representing the file content. In this case, the `form_field_name` will also be used as the filename in the `Content-Disposition` header.
+        2.  A **dictionary (`FileUploadData`)** with the following keys:
++            - `filename` (str): The actual filename to be sent in the `Content-Disposition` header (e.g., `"mydocument.pdf"`). If not provided or empty, the `form_field_name` will be used.
+            - `content_base64` (str, required): The base64 encoded string of the file content.
+            - `content_type` (str, optional): The MIME type of the file (e.g., `"application/pdf"`, `"image/png"`). If not provided, `httpx` will attempt to guess it.
+- `auth` (dict[str, str], optional): Basic auth credentials with `username` and `password` keys.
+- `timeout` (float, optional, default: 10.0): Timeout in seconds.
+- `follow_redirects` (bool, optional, default: False): Follow HTTP redirects.
+- `max_redirects` (int, optional, default: 20): Maximum number of redirects.
+- `verify_ssl` (bool, optional, default: True): Verify SSL certificates.
 
-<CodeGroup>
-  ```yaml GET
-  url: https://api.open-meteo.com/v1/forecast
-  method: GET
-  params:
-    latitude: 37.773972
-    longitude: -122.431297
-    current: temperature_2m,precipitation_probability
-  ```
+**File Upload Examples (`files` parameter):**
 
-  ```yaml POST
-  url: https://api.urlscan.io/v1/scan
-  method: POST
-  headers:
-    API-Key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
-    Content-Type: application/json
-  payload:
-    url: https://example.com
-    visibility: private
-  ```
-</CodeGroup>
+1.  **Simple Base64 Upload (filename defaults to form field name):**
+
+    ```yaml
+    actions:
+      - name: Upload Text File
+        provider: core
+        action: http_request
+        params:
+          url: https://httpbin.org/post
+          method: POST
+          files: {"my_text_file.txt": "{{ FN.to_base64(\"Hello, this is the file content!\") }}"}
+    ```
+
+2.  **Upload with Custom Filename and Content Type (using `FileUploadData` dict):**
+
+    ```yaml
+    actions:
+      - name: Upload PDF Document
+        provider: core
+        action: http_request
+        params:
+          url: https://httpbin.org/post
+          method: POST
+          files: {
+            "document_field":
+              filename: "Annual Report.pdf"
+              content_base64: "{{ FN.to_base64(ACTIONS.file_content.result.data) }}"
+              content_type: "application/pdf"
+          }
+    ```
+
+3.  **Multiple File Uploads (mixed simple and detailed):**
+
+    ```yaml
+    actions:
+      - name: Upload Multiple Attachments
+        provider: core
+        action: http_request
+        params:
+          url: https://httpbin.org/post
+          method: POST
+          form_data: # Can be combined with files
+            user_id: "user123"
+          files: {
+            "main_image.png": "{{ FN.to_base64(ACTIONS.file_content.result.data) }}"
+            "additional_notes": # Detailed
+              filename: "notes.txt"
+              content_base64: "{{ FN.to_base64(\"Some notes here.\") }}"
+              content_type: "text/plain"
+          }
+    ```
+
+**Returns**
+
+`HTTPResponse` (dict):
+
+- `status_code` (int)
+- `headers` (dict)
+- `data` (str | dict | list | None)
 
 ## HTTP Polling
 
-Tracecat makes it easy to poll APIs with long-running operations using the `core.http_poll` action.
-To configure the `core.http_poll` action, you'll need to specify one of the following inputs:
+Perform an HTTP request to a given URL with polling.
 
-- `poll_retry_codes`: List of status codes on which the action will retry.
-- `poll_condition`: A Python lambda function string that determines whether to retry.
+**Parameters**
 
-If the operation doesn't poll on a status code, `poll_condition` is required.
-It is a Python lambda function string that determines whether to retry based on:
-- `headers`: The HTTP headers of the response.
-- `data`: The JSON decoded response body.
+- Accepts all parameters from `core.http_request` **except for the `files` parameter.** `core.http_poll` does not support file uploads.
+- `poll_retry_codes` (int | list[int], optional): Status codes on which the action will retry. If not specified, `poll_condition` must be provided.
+- `poll_interval` (float, optional): Interval in seconds between polling attempts. If not specified, defaults to polling with exponential wait.
+- `poll_max_attempts` (int, optional, default: 10): Maximum number of polling attempts. If set to 0, the action will poll indefinitely (until timeout).
+- `poll_condition` (str, optional): User defined condition that determines whether to retry. The condition is a Python lambda function string. If not specified, `poll_retry_codes` must be provided.
 
-For example, to poll on a response body containing `"status"` until it equals `"complete"`, you can specify the following:
+**Returns**
 
-```yaml
-poll_condition: "lambda x: x['data']['status'] == 'complete'"
-```
-
-You can further configure the polling behavior via the optional inputs:
-
-- `poll_interval`: Seconds between polling attempts. Defaults to exponential wait.
-- `poll_max_attempts`: Maximum number of polling attempts. Defaults to 10.
+`HTTPResponse` (dict) - same as `core.http_request`.
 
 ## Tutorial: URLScan
 
