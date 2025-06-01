@@ -1013,6 +1013,11 @@ class File(Resource, table=True):
         ...,
         description="File size in bytes",
     )
+    creator_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(UUID, ForeignKey("user.id", ondelete="SET NULL")),
+        description="ID of the user who uploaded the file",
+    )
     deleted_at: datetime | None = Field(
         default=None,
         sa_type=TIMESTAMP(timezone=True),  # type: ignore
@@ -1020,7 +1025,7 @@ class File(Resource, table=True):
     )
     # Relationships
     creator: User | None = Relationship(
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
     attachments: list["CaseAttachment"] = Relationship(
         back_populates="file",
