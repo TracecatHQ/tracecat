@@ -4,11 +4,6 @@ ENV UV_SYSTEM_PYTHON=1
 ENV HOST=0.0.0.0
 ENV PORT=8000
 
-# Version configuration
-# These versions are used during build time and also read by the application via config.py
-ENV DENO_VERSION=2.3.5
-ENV PYODIDE_VERSION=0.27.6
-
 # Install required apt packages
 COPY scripts/install-packages.sh .
 RUN chmod +x install-packages.sh && \
