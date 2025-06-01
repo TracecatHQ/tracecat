@@ -602,6 +602,24 @@ def main(required_param, optional_param=None):
         result = await run_python(script=script, inputs=inputs)
         assert result == "Required: test_value, Optional: missing"
 
+    @pytest.mark.anyio
+    async def test_extra_input_fields_raise_type_error(self):
+        """Test that extra input fields not matching function parameters raise TypeError."""
+        script = """
+def main(name, age):
+    return f"{name} is {age} years old"
+"""
+        inputs = {
+            "name": "Alice",
+            "age": 30,
+            "city": "NYC",  # Extra field
+            "country": "USA",  # Extra field
+            "occupation": "Engineer",  # Extra field
+        }
+        with pytest.raises(PythonScriptExecutionError) as exc_info:
+            await run_python(script=script, inputs=inputs)
+        assert "main() got an unexpected keyword argument 'city'" in str(exc_info.value)
+
     # Note: We can't test non-dict inputs at runtime because the type system
     # prevents it at the function signature level. The type annotation
     # `inputs: dict[str, Any] | None` ensures only dict or None can be passed.
@@ -665,8 +683,8 @@ def main(value):
         assert result == 20  # (5 * 2) + 10
 
     @pytest.mark.anyio
-    async def test_extra_input_fields_are_ignored(self):
-        """Test that extra input fields not matching function parameters are silently ignored."""
+    async def test_extra_input_fields_raise_type_error(self):
+        """Test that extra input fields not matching function parameters raise TypeError."""
         script = """
 def main(name, age):
     return f"{name} is {age} years old"
@@ -674,12 +692,13 @@ def main(name, age):
         inputs = {
             "name": "Alice",
             "age": 30,
-            "city": "NYC",  # This extra field should be ignored
-            "country": "USA",  # This extra field should be ignored
-            "occupation": "Engineer",  # This extra field should be ignored
+            "city": "NYC",  # Extra field
+            "country": "USA",  # Extra field
+            "occupation": "Engineer",  # Extra field
         }
-        result = await run_python(script=script, inputs=inputs)
-        assert result == "Alice is 30 years old"
+        with pytest.raises(PythonScriptExecutionError) as exc_info:
+            await run_python(script=script, inputs=inputs)
+        assert "main() got an unexpected keyword argument 'city'" in str(exc_info.value)
 
 
 class TestSecurityVulnerabilities:
