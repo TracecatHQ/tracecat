@@ -8,7 +8,7 @@ import binascii
 import os.path
 import tempfile
 from json import JSONDecodeError
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, Required, TypedDict
 
 import httpx
 from pydantic import BaseModel, ConfigDict, HttpUrl
@@ -38,12 +38,12 @@ RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
 
 
-class FileUploadData(TypedDict, total=False):
+class FileUploadData(TypedDict):
     """Detailed file upload data structure."""
 
-    filename: str  # Filename sent in Content-Disposition header
-    content_base64: str  # Base64 encoded file content
-    content_type: str | None  # Optional MIME type (e.g., "image/png")
+    filename: NotRequired[str]  # Filename sent in Content-Disposition header
+    content_base64: Required[str]  # Base64 encoded file content
+    content_type: NotRequired[str | None]  # Optional MIME type (e.g., "image/png")
 
 
 class ParsedFileInput(BaseModel):
