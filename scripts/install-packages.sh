@@ -7,6 +7,7 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 export DENO_VERSION=2.3.5
+export PYODIDE_VERSION=0.27.6
 
 # Detect architecture
 ARCH=$(uname -m)
