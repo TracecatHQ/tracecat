@@ -552,32 +552,13 @@ async def _run_python_script_subprocess(
             f.write(deno_script)
 
         # Run Deno with minimal permissions for security
-        # Following the pydantic-ai MCP secure implementation pattern
-        node_modules_dir = os.environ.get("NODE_MODULES_DIR", "auto")
-
         deno_args = [
             deno_path,
             "run",
+            f"--allow-read=node_modules,{temp_dir}",
+            "--allow-write=node_modules",
+            "--node-modules-dir=auto",
         ]
-
-        # Set read permissions based on whether we're using pre-cached modules
-        if node_modules_dir != "auto":
-            # Using pre-cached modules, allow read access to them
-            deno_args.extend(
-                [
-                    f"--allow-read={node_modules_dir},{temp_dir}",
-                    f"--node-modules-dir={node_modules_dir}",
-                ]
-            )
-        else:
-            # Using auto mode, need write access for downloading
-            deno_args.extend(
-                [
-                    f"--allow-read=node_modules,{temp_dir}",
-                    "--allow-write=node_modules",
-                    "--node-modules-dir=auto",
-                ]
-            )
 
         # Only add network permissions if explicitly allowed
         if allow_network:
