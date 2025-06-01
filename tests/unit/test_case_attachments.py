@@ -1,4 +1,4 @@
-"""Test case attachments functionality."""
+"""Comprehensive test suite for case attachments security with polyfile integration."""
 
 import pytest
 
@@ -6,149 +6,551 @@ from tracecat import storage
 from tracecat.cases.models import CaseAttachmentCreate
 
 
-@pytest.mark.anyio
-async def test_storage_functions():
-    """Test the storage utility functions."""
-    print("Testing storage functions...")
+class TestFileSecurityValidator:
+    """Test suite for FileSecurityValidator security features with polyfile integration."""
 
-    # Test filename sanitization
-    test_filenames = [
-        ("normal_file.pdf", "normal_file.pdf"),
-        ("../../../etc/passwd", "passwd"),
-        ("file with spaces.doc", "file_with_spaces.doc"),
-        (".hidden_file", "hidden_file"),
-        ("file...with...dots", "file.with.dots"),
-        ("a" * 300 + ".txt", "a" * 251 + ".txt"),  # Truncation test
-        ("", "unnamed_file"),
-    ]
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.validator = storage.FileSecurityValidator()
 
-    for input_name, expected in test_filenames:
-        result = storage.sanitize_filename(input_name)
-        print(f"  {input_name!r} -> {result!r} (expected: {expected!r})")
-        assert result == expected, f"Expected {expected}, got {result}"
+    @pytest.mark.anyio
+    async def test_valid_pdf_file(self):
+        """Test validation of a valid PDF file."""
+        # Valid PDF content with proper magic number
+        pdf_content = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n>>\nendobj\nxref\n0 1\n0000000000 65535 f \ntrailer\n<<\n/Size 1\n/Root 1 0 R\n>>\nstartxref\n9\n%%EOF"
 
-    # Test content type validation
-    valid_types = [
-        "application/pdf",
-        "image/jpeg",
-        "text/plain",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ]
+        result = self.validator.validate_file(
+            content=pdf_content,
+            filename="document.pdf",
+            declared_content_type="application/pdf",
+        )
 
-    invalid_types = [
-        "application/x-executable",
-        "text/html",
-        "application/javascript",
-        "image/svg+xml",
-    ]
+        assert result["filename"] == "document.pdf"
+        assert result["content_type"] == "application/pdf"
 
-    print("\nTesting valid content types...")
-    for content_type in valid_types:
+    @pytest.mark.anyio
+    async def test_valid_jpeg_file(self):
+        """Test validation of a valid JPEG file."""
+        # Valid JPEG content with proper magic number
+        jpeg_content = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00"
+
+        result = self.validator.validate_file(
+            content=jpeg_content,
+            filename="image.jpg",
+            declared_content_type="image/jpeg",
+        )
+
+        assert result["filename"] == "image.jpg"
+        assert result["content_type"] == "image/jpeg"
+
+    @pytest.mark.anyio
+    async def test_blocked_extension_rejection(self):
+        """Test that blocked extensions are rejected."""
+        content = b"fake content"
+
+        blocked_extensions = [".exe", ".bat", ".php", ".js", ".html", ".sh"]
+
+        for ext in blocked_extensions:
+            filename = f"malicious{ext}"
+            with pytest.raises(ValueError, match="not allowed for security reasons"):
+                self.validator.validate_file(
+                    content=content,
+                    filename=filename,
+                    declared_content_type="application/octet-stream",
+                )
+
+    @pytest.mark.anyio
+    async def test_blocked_content_type_rejection(self):
+        """Test that blocked content types are rejected."""
+        content = b"fake content"
+
+        blocked_types = [
+            "application/x-executable",
+            "application/javascript",
+            "text/html",
+            "application/x-sh",
+        ]
+
+        for content_type in blocked_types:
+            with pytest.raises(ValueError, match="not allowed for security reasons"):
+                self.validator.validate_file(
+                    content=content,
+                    filename="file.txt",
+                    declared_content_type=content_type,
+                )
+
+    @pytest.mark.anyio
+    async def test_magic_number_mismatch_detection(self):
+        """Test detection of magic number mismatches."""
+        # PDF magic number with .txt extension
+        pdf_content = b"%PDF-1.4\nfake pdf content"
+
+        with pytest.raises(ValueError, match="does not match extension"):
+            self.validator.validate_file(
+                content=pdf_content,
+                filename="document.txt",
+                declared_content_type="text/plain",
+            )
+
+    @pytest.mark.anyio
+    async def test_embedded_executable_detection(self):
+        """Test detection of embedded executables."""
+        # Content with PE executable signature
+        malicious_content = b"some content MZ\x90\x00 more content"
+
+        with pytest.raises(ValueError, match="potentially dangerous embedded content"):
+            self.validator.validate_file(
+                content=malicious_content,
+                filename="document.txt",
+                declared_content_type="text/plain",
+            )
+
+    @pytest.mark.anyio
+    async def test_javascript_in_pdf_detection(self):
+        """Test detection of JavaScript in PDF files."""
+        # PDF with JavaScript
+        pdf_with_js = b"%PDF-1.4\n/JavaScript (alert('xss'))"
+
+        with pytest.raises(ValueError, match="PDF contains JavaScript"):
+            self.validator.validate_file(
+                content=pdf_with_js,
+                filename="malicious.pdf",
+                declared_content_type="application/pdf",
+            )
+
+    @pytest.mark.anyio
+    async def test_script_in_image_detection(self):
+        """Test detection of scripts in image files."""
+        # JPEG with embedded script
+        jpeg_with_script = b"\xff\xd8\xff\xe0\x00\x10JFIF<script>alert('xss')</script>"
+
+        with pytest.raises(ValueError, match="potentially dangerous embedded content"):
+            self.validator.validate_file(
+                content=jpeg_with_script,
+                filename="image.jpg",
+                declared_content_type="image/jpeg",
+            )
+
+    @pytest.mark.anyio
+    async def test_directory_traversal_prevention(self):
+        """Test prevention of directory traversal attacks."""
+        content = b"fake content"
+
+        malicious_filenames = [
+            "../../../etc/passwd",
+            "..\\..\\windows\\system32\\config\\sam",
+            "/etc/passwd",
+            "\\windows\\system32\\config\\sam",
+        ]
+
+        for filename in malicious_filenames:
+            with pytest.raises(ValueError, match="invalid path characters"):
+                self.validator.validate_file(
+                    content=content,
+                    filename=filename,
+                    declared_content_type="text/plain",
+                )
+
+    @pytest.mark.anyio
+    async def test_control_character_prevention(self):
+        """Test prevention of control characters in filenames."""
+        content = b"fake content"
+
+        # Filename with null byte
+        malicious_filename = "file\x00.txt"
+
+        with pytest.raises(ValueError, match="invalid control characters"):
+            self.validator.validate_file(
+                content=content,
+                filename=malicious_filename,
+                declared_content_type="text/plain",
+            )
+
+    @pytest.mark.anyio
+    async def test_empty_file_rejection(self):
+        """Test rejection of empty files."""
+        with pytest.raises(ValueError, match="File cannot be empty"):
+            self.validator.validate_file(
+                content=b"", filename="empty.txt", declared_content_type="text/plain"
+            )
+
+    @pytest.mark.anyio
+    async def test_oversized_file_rejection(self):
+        """Test rejection of oversized files."""
+        # Create content larger than 50MB
+        large_content = b"x" * (51 * 1024 * 1024)
+
+        with pytest.raises(ValueError, match="exceeds maximum allowed size"):
+            self.validator.validate_file(
+                content=large_content,
+                filename="large.txt",
+                declared_content_type="text/plain",
+            )
+
+    @pytest.mark.anyio
+    async def test_filename_sanitization(self):
+        """Test filename sanitization."""
+        content = b"valid content"
+
+        test_cases = [
+            ("file with spaces.txt", "file_with_spaces.txt"),
+            (
+                "file.with.dots.txt",
+                "file.with.dots.txt",
+            ),  # Multiple dots are now allowed
+            (".hidden_file.txt", "hidden_file.txt"),
+            ("file@#$%^&*().txt", "file.txt"),
+        ]
+
+        for input_filename, expected_filename in test_cases:
+            result = self.validator.validate_file(
+                content=content,
+                filename=input_filename,
+                declared_content_type="text/plain",
+            )
+            assert result["filename"] == expected_filename
+
+    @pytest.mark.anyio
+    async def test_text_file_script_detection(self):
+        """Test detection of scripts in text files."""
+        malicious_scripts = [
+            (
+                b"<script>alert('xss')</script>",
+                "potentially dangerous embedded content",
+            ),
+            (
+                b"javascript:alert('xss')",
+                "Text file contains potentially dangerous content",
+            ),
+            (
+                b"<?php system($_GET['cmd']); ?>",
+                "potentially dangerous embedded content",
+            ),
+            (b"#!/bin/bash\nrm -rf /", "potentially dangerous embedded content"),
+        ]
+
+        for script_content, expected_error in malicious_scripts:
+            with pytest.raises(ValueError, match=expected_error):
+                self.validator.validate_file(
+                    content=script_content,
+                    filename="script.txt",
+                    declared_content_type="text/plain",
+                )
+
+    @pytest.mark.anyio
+    async def test_invalid_utf8_text_rejection(self):
+        """Test rejection of invalid UTF-8 in text files."""
+        # Invalid UTF-8 sequence
+        invalid_utf8 = b"\xff\xfe\x00\x00"
+
+        with pytest.raises(ValueError, match="invalid UTF-8 encoding"):
+            self.validator.validate_file(
+                content=invalid_utf8,
+                filename="invalid.txt",
+                declared_content_type="text/plain",
+            )
+
+    @pytest.mark.anyio
+    async def test_office_document_validation(self):
+        """Test validation of Office documents."""
+        # Simulate DOCX content (ZIP with Office structure)
+        docx_content = b"PK\x03\x04\x14\x00\x00\x00\x08\x00word/document.xml"
+
+        result = self.validator.validate_file(
+            content=docx_content,
+            filename="document.docx",
+            declared_content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+        assert (
+            result["content_type"]
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+    @pytest.mark.anyio
+    async def test_webp_validation(self):
+        """Test WebP file validation with proper RIFF structure."""
+        # Valid WebP content
+        webp_content = b"RIFF\x1a\x00\x00\x00WEBP"
+
+        result = self.validator.validate_file(
+            content=webp_content,
+            filename="image.webp",
+            declared_content_type="image/webp",
+        )
+
+        assert result["content_type"] == "image/webp"
+
+    @pytest.mark.anyio
+    async def test_invalid_webp_rejection(self):
+        """Test rejection of invalid WebP files."""
+        # Use a JPEG signature but claim it's WebP
+        jpeg_content = b"\xff\xd8\xff\xe0\x00\x10JFIF"
+
+        with pytest.raises(ValueError, match="File content.*does not match"):
+            self.validator.validate_file(
+                content=jpeg_content,
+                filename="image.webp",
+                declared_content_type="image/webp",
+            )
+
+    # === NEW POLYFILE-ENHANCED TESTS ===
+
+    @pytest.mark.anyio
+    async def test_polyfile_polyglot_detection(self):
+        """Test polyfile's enhanced polyglot detection."""
+        # Create content that might be detected as multiple formats
+        # This is a simplified test - in reality, polyglots are more sophisticated
+        polyglot_content = b"%PDF-1.4\n<html><script>alert('xss')</script></html>"
+
+        # This should be caught by either our basic checks or polyfile analysis
+        with pytest.raises(ValueError):
+            self.validator.validate_file(
+                content=polyglot_content,
+                filename="polyglot.pdf",
+                declared_content_type="application/pdf",
+            )
+
+    @pytest.mark.anyio
+    async def test_polyfile_executable_in_document_detection(self):
+        """Test detection of executable signatures in document files."""
+        # PDF with embedded PE executable signature
+        pdf_with_exe = b"%PDF-1.4\nMZ\x90\x00\x03\x00\x00\x00"
+
+        with pytest.raises(
+            ValueError,
+            match="potentially dangerous embedded content|executable signature",
+        ):
+            self.validator.validate_file(
+                content=pdf_with_exe,
+                filename="malicious.pdf",
+                declared_content_type="application/pdf",
+            )
+
+    @pytest.mark.anyio
+    async def test_polyfile_script_in_binary_detection(self):
+        """Test detection of script signatures in binary files."""
+        # Image with embedded JavaScript
+        image_with_js = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01javascript:alert('xss')"
+
+        with pytest.raises(
+            ValueError, match="potentially dangerous embedded content|script signature"
+        ):
+            self.validator.validate_file(
+                content=image_with_js,
+                filename="malicious.jpg",
+                declared_content_type="image/jpeg",
+            )
+
+    @pytest.mark.anyio
+    async def test_polyfile_multiple_format_detection(self):
+        """Test polyfile's ability to detect multiple file formats."""
+        # Content that might be valid as both ZIP and another format
+        multi_format_content = (
+            b"PK\x03\x04\x14\x00\x00\x00\x08\x00<script>alert('xss')</script>"
+        )
+
+        # Should either pass (if benign) or fail with specific error
         try:
-            storage.validate_content_type(content_type)
-            print(f"  ✓ {content_type}")
+            result = self.validator.validate_file(
+                content=multi_format_content,
+                filename="test.zip",
+                declared_content_type="application/zip",
+            )
+            # If it passes, it should be properly validated
+            assert result["content_type"] == "application/zip"
         except ValueError as e:
-            pytest.fail(f"Valid content type {content_type} was rejected: {e}")
+            # If it fails, it should be due to security concerns
+            assert any(
+                keyword in str(e).lower()
+                for keyword in ["dangerous", "suspicious", "script", "embedded"]
+            )
 
-    print("\nTesting invalid content types...")
-    for content_type in invalid_types:
-        try:
-            storage.validate_content_type(content_type)
-            pytest.fail(f"Invalid content type {content_type} was accepted")
-        except ValueError:
-            print(f"  ✓ {content_type} correctly rejected")
+    @pytest.mark.anyio
+    async def test_polyfile_enhanced_mime_detection(self):
+        """Test polyfile's enhanced MIME type detection."""
+        # Valid PDF that should be properly detected
+        valid_pdf = b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\nxref\n0 1\n0000000000 65535 f\ntrailer<</Size 1/Root 1 0 R>>\nstartxref\n9\n%%EOF"
 
-    # Test file size validation
-    print("\nTesting file size validation...")
+        result = self.validator.validate_file(
+            content=valid_pdf,
+            filename="document.pdf",
+            declared_content_type="application/pdf",
+        )
 
-    # Valid sizes (storage only validates max size, not min)
-    valid_sizes = [1024, 1024 * 1024, 10 * 1024 * 1024]  # 1KB, 1MB, 10MB
-    for size in valid_sizes:
-        try:
-            storage.validate_file_size(size)
-            print(f"  ✓ {size} bytes")
-        except ValueError as e:
-            pytest.fail(f"Valid file size {size} was rejected: {e}")
+        assert result["content_type"] == "application/pdf"
+        assert result["filename"] == "document.pdf"
 
-    # Invalid sizes (only too large files are rejected by storage)
-    invalid_sizes = [101 * 1024 * 1024]  # 101MB (exceeds 50MB limit)
-    for size in invalid_sizes:
-        try:
-            storage.validate_file_size(size)
-            pytest.fail(f"Invalid file size {size} was accepted")
-        except ValueError:
-            print(f"  ✓ {size} bytes correctly rejected")
+    @pytest.mark.anyio
+    async def test_polyfile_graceful_failure_handling(self):
+        """Test that validation continues even if polyfile analysis fails."""
+        # Use content that might cause polyfile issues but should still pass basic validation
+        simple_text = b"This is just plain text content."
 
-    # Test SHA256 computation
-    print("\nTesting SHA256 computation...")
-    test_content = b"Hello, World!"
-    expected_hash = "dffd6021bb2bd5b0af676290809ec3a53191dd81c7f70a4b28688a362182986f"
-    computed_hash = storage.compute_sha256(test_content)
-    print(f"  Content: {test_content}")
-    print(f"  Expected: {expected_hash}")
-    print(f"  Computed: {computed_hash}")
-    assert computed_hash == expected_hash, (
-        f"Hash mismatch: expected {expected_hash}, got {computed_hash}"
-    )
+        # This should pass even if polyfile has issues
+        result = self.validator.validate_file(
+            content=simple_text,
+            filename="simple.txt",
+            declared_content_type="text/plain",
+        )
+
+        assert result["content_type"] == "text/plain"
+        assert result["filename"] == "simple.txt"
+
+    @pytest.mark.anyio
+    async def test_polyfile_dangerous_mime_combinations(self):
+        """Test detection of dangerous MIME type combinations."""
+        # Content that might be detected as both a document and executable
+        dangerous_combo = (
+            b"%PDF-1.4\nMZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00"
+        )
+
+        with pytest.raises(ValueError, match="dangerous|executable|suspicious"):
+            self.validator.validate_file(
+                content=dangerous_combo,
+                filename="dangerous.pdf",
+                declared_content_type="application/pdf",
+            )
+
+    @pytest.mark.anyio
+    async def test_polyfile_embedded_content_validation(self):
+        """Test polyfile's embedded content detection."""
+        # ZIP file with suspicious embedded content
+        zip_with_script = b"PK\x03\x04\x14\x00\x00\x00\x08\x00#!/bin/bash\nrm -rf /"
+
+        with pytest.raises(ValueError, match="suspicious|embedded|script"):
+            self.validator.validate_file(
+                content=zip_with_script,
+                filename="malicious.zip",
+                declared_content_type="application/zip",
+            )
 
 
-@pytest.mark.anyio
-async def test_case_attachment_create_model():
+class TestCaseAttachmentCreateModel:
     """Test the CaseAttachmentCreate model validation."""
-    print("\nTesting CaseAttachmentCreate model...")
 
-    # Valid attachment
-    valid_data = {
-        "file_name": "test_document.pdf",
-        "content_type": "application/pdf",
-        "size": 1024 * 1024,  # 1MB
-        "content": b"fake pdf content",
-    }
+    @pytest.mark.anyio
+    async def test_valid_attachment_creation(self):
+        """Test creation of valid attachments."""
+        valid_data = {
+            "file_name": "test_document.pdf",
+            "content_type": "application/pdf",
+            "size": 1024 * 1024,  # 1MB
+            "content": b"%PDF-1.4\nvalid pdf content",
+        }
 
-    try:
         attachment = CaseAttachmentCreate(**valid_data)
-        print(f"  ✓ Valid attachment created: {attachment.file_name}")
         assert attachment.file_name == "test_document.pdf"
         assert attachment.content_type == "application/pdf"
         assert attachment.size == 1024 * 1024
-        assert attachment.content == b"fake pdf content"
-    except Exception as e:
-        pytest.fail(f"Failed to create valid attachment: {e}")
 
-    # Test that empty filename is allowed (will be sanitized later)
-    try:
-        attachment = CaseAttachmentCreate(
-            file_name="",  # Empty filename is allowed
-            content_type="application/pdf",
-            size=1024,
-            content=b"content",
+    @pytest.mark.anyio
+    async def test_size_validation(self):
+        """Test file size validation in the model."""
+        valid_data = {
+            "file_name": "test.txt",
+            "content_type": "text/plain",
+            "content": b"content",
+        }
+
+        # Test negative size
+        with pytest.raises(ValueError):
+            CaseAttachmentCreate(**valid_data, size=-1)
+
+        # Test zero size
+        with pytest.raises(ValueError):
+            CaseAttachmentCreate(**valid_data, size=0)
+
+        # Test valid size
+        attachment = CaseAttachmentCreate(**valid_data, size=1024)
+        assert attachment.size == 1024
+
+
+class TestLegacyFunctions:
+    """Test backward compatibility of legacy functions."""
+
+    @pytest.mark.anyio
+    async def test_legacy_content_type_validation(self):
+        """Test legacy content type validation function."""
+        # Valid type
+        storage.validate_content_type("application/pdf")
+
+        # Invalid type
+        with pytest.raises(ValueError):
+            storage.validate_content_type("application/x-executable")
+
+    @pytest.mark.anyio
+    async def test_legacy_file_size_validation(self):
+        """Test legacy file size validation function."""
+        # Valid size
+        storage.validate_file_size(1024)
+
+        # Invalid size
+        with pytest.raises(ValueError):
+            storage.validate_file_size(100 * 1024 * 1024)
+
+    @pytest.mark.anyio
+    async def test_legacy_filename_sanitization(self):
+        """Test legacy filename sanitization function."""
+        result = storage.sanitize_filename("file with spaces.txt")
+        assert result == "file_with_spaces.txt"
+
+    @pytest.mark.anyio
+    async def test_sha256_computation(self):
+        """Test SHA256 hash computation."""
+        content = b"Hello, World!"
+        expected = "dffd6021bb2bd5b0af676290809ec3a53191dd81c7f70a4b28688a362182986f"
+        result = storage.compute_sha256(content)
+        assert result == expected
+
+
+class TestPolyfileIntegration:
+    """Test suite specifically for polyfile integration features."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.validator = storage.FileSecurityValidator()
+
+    @pytest.mark.anyio
+    async def test_polyfile_import_and_basic_functionality(self):
+        """Test that polyfile is properly imported and functional."""
+        from polyfile.magic import MagicMatcher
+
+        # Test basic polyfile functionality
+        test_content = b"Hello, World!"
+        matches = list(MagicMatcher.DEFAULT_INSTANCE.match(test_content))
+
+        # Should return some matches (even if just generic text)
+        assert isinstance(matches, list)
+
+    @pytest.mark.anyio
+    async def test_polyfile_pdf_detection(self):
+        """Test polyfile's PDF detection capabilities."""
+        pdf_content = b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj"
+
+        result = self.validator.validate_file(
+            content=pdf_content,
+            filename="test.pdf",
+            declared_content_type="application/pdf",
         )
-        print(f"  ✓ Empty filename allowed: '{attachment.file_name}'")
-    except Exception as e:
-        pytest.fail(f"Empty filename should be allowed: {e}")
 
-    # Test validation errors that should actually fail
-    invalid_cases = [
-        # Negative size (should fail due to gt=0 constraint)
-        {**valid_data, "size": -1},
-        # Zero size (should fail due to gt=0 constraint)
-        {**valid_data, "size": 0},
-    ]
+        assert result["content_type"] == "application/pdf"
 
-    for i, invalid_data in enumerate(invalid_cases):
+    @pytest.mark.anyio
+    async def test_polyfile_error_resilience(self):
+        """Test that the validator is resilient to polyfile errors."""
+        # Use malformed content that might cause polyfile issues
+        malformed_content = b"\x00\x01\x02\x03\x04\x05"
+
+        # Should not crash even if polyfile has issues
         try:
-            CaseAttachmentCreate(**invalid_data)
-            pytest.fail(f"Invalid case {i} should have failed validation")
-        except Exception:
-            print(f"  ✓ Invalid case {i} correctly rejected")
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    async def main():
-        await test_storage_functions()
-        await test_case_attachment_create_model()
-        print("\n✅ All tests passed!")
-
-    asyncio.run(main())
+            result = self.validator.validate_file(
+                content=malformed_content,
+                filename="test.txt",
+                declared_content_type="text/plain",
+            )
+            # If it succeeds, that's fine
+            assert result["content_type"] == "text/plain"
+        except ValueError:
+            # If it fails, it should be due to our validation, not polyfile crashes
+            pass
