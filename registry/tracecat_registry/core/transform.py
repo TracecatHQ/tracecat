@@ -199,31 +199,38 @@ def compact(
 
 @registry.register(
     default_title="Scatter",
-    description="Scatter a list into a list of lists. This is used to iterate over a list of items.",
+    description=(
+        "Transform a collection of items into parallel execution streams, "
+        "where each item is processed independently."
+    ),
     display_group="Data Transform",
     namespace="core.transform",
 )
 def scatter(
     collection: Annotated[
-        Any,
+        str | list[Any],
         Doc(
-            "The collection to scatter. This will create execution streams for each item in the collection."
+            "The collection to scatter. Each item in the collection will be"
+            " processed independently in its own execution stream. This should"
+            " be a JSONPath expression to a collection or a list of items."
         ),
     ],
-) -> list[list[Any]]:
+) -> Any:
     raise ActionIsInterfaceError()
 
 
 @registry.register(
     default_title="Gather",
-    description="Gather a list of lists into a list. This is used to collect the results of a list of iterators.",
+    description="Collect the results of a list of execution streams into a single list.",
     display_group="Data Transform",
     namespace="core.transform",
 )
 def gather(
     items: Annotated[
         str,
-        Doc("The JSONPath expression to select items from."),
+        Doc(
+            "The JSONPath expression referencing the item to gather in the current execution stream."
+        ),
     ],
     drop_nulls: Annotated[
         bool,
