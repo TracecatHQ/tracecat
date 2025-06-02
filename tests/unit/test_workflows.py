@@ -39,7 +39,7 @@ from tracecat.dsl.common import (
     DSLRunArgs,
 )
 from tracecat.dsl.control_flow import ExplodeArgs, ImplodeArgs
-from tracecat.dsl.enums import LoopStrategy, WaitStrategy
+from tracecat.dsl.enums import JoinStrategy, LoopStrategy, WaitStrategy
 from tracecat.dsl.models import (
     ActionStatement,
     DSLConfig,
@@ -3813,6 +3813,160 @@ async def test_workflow_detached_child_workflow(
                 "TRIGGER": {},
             },
             id="nested-explode-empty-collection-inside",
+        ),
+        pytest.param(
+            DSLInput(
+                title="2D explode with DAG inside",
+                description=(
+                    "Test correct handling of a DAG inside an explode. "
+                    "The workflow first explodes a non-empty collection ([1, 2, 3]) at the top level (explode1). "
+                    "For each item, it attempts a second-level explode (explode2) with an empty collection. "
+                    "Since explode2's collection is empty, all downstream actions (reshape, implode2) in that branch "
+                    "should be skipped for every item."
+                ),
+                entrypoint=DSLEntrypoint(ref="explode"),
+                actions=[
+                    ActionStatement(
+                        ref="explode1",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(
+                            collection=[
+                                [1, 2],
+                                [3, 4],
+                            ]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="explode2",
+                        action="core.transform.explode",
+                        depends_on=["explode1"],
+                        args=ExplodeArgs(
+                            collection="${{ ACTIONS.explode1.result }}"
+                        ).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    # ======= Block 1 =======
+                    ActionStatement(
+                        ref="is_one",
+                        action="core.transform.reshape",
+                        depends_on=["explode2"],
+                        run_if="${{ ACTIONS.explode2.result == 1 }}",
+                        args={"value": "${{ ACTIONS.explode2.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="is_two",
+                        action="core.transform.reshape",
+                        depends_on=["explode2"],
+                        run_if="${{ ACTIONS.explode2.result == 2 }}",
+                        args={"value": "${{ ACTIONS.explode2.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="is_three",
+                        action="core.transform.reshape",
+                        depends_on=["explode2"],
+                        run_if="${{ ACTIONS.explode2.result == 3 }}",
+                        args={"value": "${{ ACTIONS.explode2.result }}"},
+                    ),
+                    # ======= End Block 1 =======
+                    # Block 1 only allows 1, 2, 3 past.
+                    # We can apply join_strategy like how we would in global streams.
+                    ActionStatement(
+                        ref="implode2",
+                        action="core.transform.implode",
+                        depends_on=["is_one", "is_two", "is_three"],
+                        join_strategy=JoinStrategy.ANY,
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.is_one.result || ACTIONS.is_two.result || ACTIONS.is_three.result }}"
+                        ).model_dump(),
+                    ),
+                    # This implode collects the results from the outer explode1.
+                    ActionStatement(
+                        ref="implode1",
+                        action="core.transform.implode",
+                        depends_on=["implode2"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.implode2.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "implode1": {
+                        "result": [[1, 2], [3]],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="2d-explode-dag-inside",
+        ),
+        # 1D version: single-level explode with DAG inside, all downstream actions should be skipped if explode2 is empty
+        pytest.param(
+            DSLInput(
+                title="1D explode with multiple parallel conditions",
+                description=(
+                    "Test correct handling of a DAG inside a single-level explode. "
+                    "The workflow explodes a non-empty collection ([1, 2, 3]) at the top level (explode1). "
+                    "For each item, it attempts a second-level explode (explode2) with an empty collection. "
+                    "Since explode2's collection is empty, all downstream actions (reshape, implode2) in that branch "
+                    "should be skipped for every item."
+                ),
+                entrypoint=DSLEntrypoint(ref="explode"),
+                actions=[
+                    ActionStatement(
+                        ref="explode1",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(collection=[1, 2, 3, 4]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="is_one",
+                        action="core.transform.reshape",
+                        depends_on=["explode1"],
+                        run_if="${{ ACTIONS.explode1.result == 1 }}",
+                        args={"value": "${{ ACTIONS.explode1.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="is_two",
+                        action="core.transform.reshape",
+                        depends_on=["explode1"],
+                        run_if="${{ ACTIONS.explode1.result == 2 }}",
+                        args={"value": "${{ ACTIONS.explode1.result }}"},
+                    ),
+                    # Join
+                    ActionStatement(
+                        ref="join",
+                        action="core.transform.reshape",
+                        depends_on=["is_one", "is_two"],
+                        join_strategy=JoinStrategy.ANY,
+                        args={
+                            "value": "${{ ACTIONS.is_one.result || ACTIONS.is_two.result }}"
+                        },
+                    ),
+                    # This implode collects the results from the outer explode1.
+                    ActionStatement(
+                        ref="implode1",
+                        action="core.transform.implode",
+                        depends_on=["join"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.join.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "implode1": {
+                        "result": [1, 2],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="1d-explode-multi-condition",
         ),
     ],
 )
