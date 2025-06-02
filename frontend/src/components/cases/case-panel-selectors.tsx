@@ -39,7 +39,7 @@ export function StatusSelect({ status, onValueChange }: StatusSelectProps) {
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {STATUSES.map((props) => (
+        {Object.values(STATUSES).map((props) => (
           <SelectItem
             key={props.value}
             value={props.value}
@@ -68,7 +68,7 @@ export function PrioritySelect({
         <SelectValue />
       </SelectTrigger>
       <SelectContent className="flex w-full">
-        {PRIORITIES.map((props) => (
+        {Object.values(PRIORITIES).map((props) => (
           <SelectItem
             key={props.value}
             value={props.value}
@@ -97,7 +97,7 @@ export function SeveritySelect({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {SEVERITIES.map((props) => (
+        {Object.values(SEVERITIES).map((props) => (
           <SelectItem
             key={props.value}
             value={props.value}

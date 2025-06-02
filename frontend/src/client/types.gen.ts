@@ -24,6 +24,11 @@ export type ActionCreate = {
   workflow_id: string
   type: string
   title: string
+  description?: string | null
+  inputs?: string
+  control_flow?: ActionControlFlow | null
+  is_interactive?: boolean | null
+  interaction?: ResponseInteraction | ApprovalInteraction | null
 }
 
 export type ActionRead = {
@@ -215,6 +220,24 @@ export type ApprovalInteraction = {
   approve_if?: string | null
 }
 
+/**
+ * Event for when a case assignee is changed.
+ */
+export type AssigneeChangedEventRead = {
+  wf_exec_id?: string | null
+  type?: "assignee_changed"
+  old: string | null
+  new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
 export type AuthSettingsRead = {
   auth_basic_enabled: boolean
   auth_require_email_verification: boolean
@@ -322,6 +345,31 @@ export type CaseCustomFieldRead = {
   default: string | null
   reserved: boolean
   value: unknown
+}
+
+/**
+ * Base read model for all event types.
+ */
+export type CaseEventRead =
+  | CreatedEventRead
+  | ClosedEventRead
+  | ReopenedEventRead
+  | UpdatedEventRead
+  | StatusChangedEventRead
+  | PriorityChangedEventRead
+  | SeverityChangedEventRead
+  | FieldChangedEventRead
+  | AssigneeChangedEventRead
+
+export type CaseEventsWithUsers = {
+  /**
+   * The events for the case.
+   */
+  events: Array<CaseEventRead>
+  /**
+   * The users for the case.
+   */
+  users: Array<UserRead>
 }
 
 /**
@@ -468,6 +516,40 @@ export type CaseUpdate = {
     [key: string]: unknown
   } | null
   assignee_id?: string | null
+}
+
+/**
+ * Event for when a case is closed.
+ */
+export type ClosedEventRead = {
+  wf_exec_id?: string | null
+  type?: "case_closed"
+  old: CaseStatus
+  new: CaseStatus
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when a case is created.
+ */
+export type CreatedEventRead = {
+  wf_exec_id?: string | null
+  type?: "case_created"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 /**
@@ -694,6 +776,29 @@ export type ExprValidationResult = {
   expression_type: ExprType
 }
 
+/**
+ * Event for when a case field is changed.
+ */
+export type FieldChangedEventRead = {
+  wf_exec_id?: string | null
+  type?: "fields_changed"
+  changes: Array<FieldDiff>
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+export type FieldDiff = {
+  field: string
+  old: unknown
+  new: unknown
+}
+
 export type FolderDirectoryItem = {
   id: string
   name: string
@@ -826,6 +931,24 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
+}
+
+/**
+ * Event for when a case priority is changed.
+ */
+export type PriorityChangedEventRead = {
+  wf_exec_id?: string | null
+  type?: "priority_changed"
+  old: CasePriority
+  new: CasePriority
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 export type ReceiveInteractionResponse = {
@@ -1169,6 +1292,24 @@ export type RegistrySecret = {
 }
 
 /**
+ * Event for when a case is reopened.
+ */
+export type ReopenedEventRead = {
+  wf_exec_id?: string | null
+  type?: "case_reopened"
+  old: CaseStatus
+  new: CaseStatus
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
  * Configuration for a response interaction.
  */
 export type ResponseInteraction = {
@@ -1475,6 +1616,24 @@ export type SessionRead = {
 }
 
 /**
+ * Event for when a case severity is changed.
+ */
+export type SeverityChangedEventRead = {
+  wf_exec_id?: string | null
+  type?: "severity_changed"
+  old: CaseSeverity
+  new: CaseSeverity
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
  * A sentinel user ID that represents the current user.
  */
 export type SpecialUserID = "current"
@@ -1491,6 +1650,24 @@ export type SqlType =
   | "TIMESTAMPTZ"
   | "JSONB"
   | "UUID"
+
+/**
+ * Event for when a case status is changed.
+ */
+export type StatusChangedEventRead = {
+  wf_exec_id?: string | null
+  type?: "status_changed"
+  old: CaseStatus
+  new: CaseStatus
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
 
 /**
  * Create model for a table column.
@@ -1760,13 +1937,31 @@ export type type3 = "schedule" | "webhook"
  */
 export type TriggerType = "manual" | "scheduled" | "webhook"
 
+/**
+ * Event for when a case is updated.
+ */
+export type UpdatedEventRead = {
+  wf_exec_id?: string | null
+  type?: "case_updated"
+  field: "summary"
+  old: string | null
+  new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
 export type UserCreate = {
   email: string
   password: string
   is_active?: boolean | null
   is_superuser?: boolean | null
   is_verified?: boolean | null
-  role?: UserRole
   first_name?: string | null
   last_name?: string | null
 }
@@ -3227,6 +3422,13 @@ export type CasesDeleteCommentData = {
 
 export type CasesDeleteCommentResponse = void
 
+export type CasesListEventsWithUsersData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListEventsWithUsersResponse = CaseEventsWithUsers
+
 export type CasesListFieldsData = {
   workspaceId: string
 }
@@ -3409,7 +3611,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3422,7 +3624,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -5022,6 +5224,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/events": {
+    get: {
+      req: CasesListEventsWithUsersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseEventsWithUsers
         /**
          * Validation Error
          */

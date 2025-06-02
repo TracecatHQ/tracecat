@@ -1,8 +1,13 @@
+# Node modules (for deno)
+node_modules/
+
 # Kubernetes
 *.kube
 
 # Tracecat-related files
 .tracecat/
+.dev/
+.llm/
 
 # UV
 uv.lock

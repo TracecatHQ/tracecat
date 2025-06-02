@@ -98,6 +98,17 @@ async def validate_workflow_definition(
         return validated_defn
 
 
+def _parse_content_type(content_type: str) -> tuple[str, dict[str, str]]:
+    """Parse Content-Type header into media type and parameters."""
+    mime_type, *params = content_type.strip().split(";")
+    metadata = {}
+    for param in params:
+        if "=" in param:
+            key, value = param.strip().split("=", 1)
+            metadata[key] = value.strip('"')
+    return mime_type.strip(), metadata
+
+
 async def parse_webhook_payload(
     request: Request,
     content_type: Annotated[str | None, Header(alias="content-type")] = None,
@@ -116,7 +127,12 @@ async def parse_webhook_payload(
     if not body:
         return None
 
-    match content_type:
+    # Parse the media type from Content-Type header
+    mime_type = ""
+    if content_type:
+        mime_type, _ = _parse_content_type(content_type)
+
+    match mime_type:
         case "application/x-ndjson" | "application/jsonlines" | "application/jsonl":
             # Newline delimited json
             try:

@@ -21,6 +21,7 @@
               "quickstart/admin",
               "quickstart/tutorial",
               "quickstart/core-actions",
+              "quickstart/script-actions",
               "quickstart/control-flow",
               "quickstart/expressions",
               "quickstart/secrets"

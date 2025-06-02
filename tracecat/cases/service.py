@@ -6,35 +6,49 @@ from typing import Any, Literal
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
 from sqlalchemy.exc import ProgrammingError
-from sqlmodel import cast, col, select
+from sqlmodel import cast, col, desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.cases.models import (
+    AssigneeChangedEvent,
     CaseCommentCreate,
     CaseCommentUpdate,
     CaseCreate,
+    CaseEventVariant,
     CaseFieldCreate,
     CaseFieldUpdate,
     CaseUpdate,
+    ClosedEvent,
+    CreatedEvent,
+    FieldDiff,
+    FieldsChangedEvent,
+    PriorityChangedEvent,
+    ReopenedEvent,
+    SeverityChangedEvent,
+    StatusChangedEvent,
+    UpdatedEvent,
 )
-from tracecat.db.schemas import Case, CaseComment, CaseFields, User
-from tracecat.service import BaseService
+from tracecat.contexts import ctx_run
+from tracecat.db.schemas import Case, CaseComment, CaseEvent, CaseFields, User
+from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TableEditorService, TablesService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
 
 
-class CasesService(BaseService):
+class CasesService(BaseWorkspaceService):
     service_name = "cases"
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
-        if self.role.workspace_id is None:
-            raise TracecatAuthorizationError("Cases service requires workspace")
-        self.workspace_id = self.role.workspace_id
         self.tables = TablesService(session=self.session, role=self.role)
         self.fields = CaseFieldsService(session=self.session, role=self.role)
+        self.events = CaseEventsService(session=self.session, role=self.role)
 
     async def list_cases(
         self,
@@ -161,6 +175,12 @@ class CasesService(BaseService):
         if params.fields:
             await self.fields.create_field_values(case, params.fields)
 
+        run_ctx = ctx_run.get()
+        await self.events.create_event(
+            case=case,
+            event=CreatedEvent(wf_exec_id=run_ctx.wf_exec_id if run_ctx else None),
+        )
+
         await self.session.commit()
         # Make sure to refresh the case to get the fields relationship loaded
         await self.session.refresh(case)
@@ -181,8 +201,57 @@ class CasesService(BaseService):
             TracecatNotFoundError: If the case has no fields when trying to update fields
         """
 
+        run_ctx = ctx_run.get()
+        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+
         # Update case parameters if provided
         set_fields = params.model_dump(exclude_unset=True)
+
+        # Check for status changes
+        if new_status := set_fields.pop("status", None):
+            old_status = case.status
+            if old_status != new_status:
+                case.status = new_status
+                # Record status change with detailed information about previous and new status
+                if new_status == CaseStatus.CLOSED:
+                    event = ClosedEvent(
+                        old=old_status, new=new_status, wf_exec_id=wf_exec_id
+                    )
+                elif old_status == CaseStatus.CLOSED:
+                    event = ReopenedEvent(
+                        old=old_status, new=new_status, wf_exec_id=wf_exec_id
+                    )
+                else:
+                    event = StatusChangedEvent(
+                        old=old_status, new=new_status, wf_exec_id=wf_exec_id
+                    )
+                await self.events.create_event(case=case, event=event)
+
+        # Check for priority changes
+        if new_priority := set_fields.pop("priority", None):
+            old_priority = case.priority
+            if old_priority != new_priority:
+                case.priority = new_priority
+                # Record priority change with detailed information
+                await self.events.create_event(
+                    case=case,
+                    event=PriorityChangedEvent(
+                        old=old_priority, new=new_priority, wf_exec_id=wf_exec_id
+                    ),
+                )
+
+        # Check for severity changes
+        if new_severity := set_fields.pop("severity", None):
+            old_severity = case.severity
+            if old_severity != new_severity:
+                case.severity = new_severity
+                # Record severity change with detailed information
+                await self.events.create_event(
+                    case=case,
+                    event=SeverityChangedEvent(
+                        old=old_severity, new=new_severity, wf_exec_id=wf_exec_id
+                    ),
+                )
 
         if fields := set_fields.pop("fields", None):
             # If fields was set, we need to update the fields row
@@ -194,15 +263,42 @@ class CasesService(BaseService):
             if case_fields := case.fields:
                 # Merge existing fields with new fields
                 existing_fields = await self.fields.get_fields(case) or {}
-                existing_fields.update(fields)
-                await self.fields.update_field_values(case_fields.id, existing_fields)
+                await self.fields.update_field_values(
+                    case_fields.id, existing_fields | fields
+                )
             else:
                 # Case has no fields row yet, create one
+                existing_fields: dict[str, Any] = {}
                 await self.fields.create_field_values(case, fields)
+            diffs = []
+            for field, value in fields.items():
+                old_value = existing_fields.get(field)
+                if old_value != value:
+                    diffs.append(FieldDiff(field=field, old=old_value, new=value))
+            await self.events.create_event(
+                case=case,
+                event=FieldsChangedEvent(changes=diffs, wf_exec_id=wf_exec_id),
+            )
 
-        # Handle the rest
+        # Handle the rest of the field updates
+        events: list[CaseEventVariant] = []
         for key, value in set_fields.items():
+            old = getattr(case, key, None)
             setattr(case, key, value)
+            if key == "assignee_id":
+                events.append(
+                    AssigneeChangedEvent(old=old, new=value, wf_exec_id=wf_exec_id)
+                )
+            elif key == "summary":
+                events.append(
+                    UpdatedEvent(
+                        field="summary", old=old, new=value, wf_exec_id=wf_exec_id
+                    )
+                )
+
+        # If there are any remaining changed fields, record a general update activity
+        for event in events:
+            await self.events.create_event(case=case, event=event)
 
         # Commit changes and refresh case
         await self.session.commit()
@@ -216,11 +312,16 @@ class CasesService(BaseService):
             case: The case object to delete
             delete_fields: Whether to also delete the associated field data
         """
+        # No need to record a delete activity - when we delete the case,
+        # all related activities will be removed too due to cascade delete.
+        # However, this activity could be useful in an audit log elsewhere
+        # if system-wide activities are implemented separately.
+
         await self.session.delete(case)
         await self.session.commit()
 
 
-class CaseFieldsService(BaseService):
+class CaseFieldsService(BaseWorkspaceService):
     """Service that manages the fields table."""
 
     service_name = "case_fields"
@@ -229,9 +330,6 @@ class CaseFieldsService(BaseService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
-        if self.role.workspace_id is None:
-            raise TracecatAuthorizationError("Case fields service requires workspace")
-        self.workspace_id = self.role.workspace_id
         self.editor = TableEditorService(
             session=self.session,
             role=self.role,
@@ -345,16 +443,10 @@ class CaseFieldsService(BaseService):
             ) from e
 
 
-class CaseCommentsService(BaseService):
+class CaseCommentsService(BaseWorkspaceService):
     """Service for managing case comments."""
 
     service_name = "case_comments"
-
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        super().__init__(session, role)
-        if self.role.workspace_id is None:
-            raise TracecatAuthorizationError("Case comments service requires workspace")
-        self.workspace_id = self.role.workspace_id
 
     async def get_comment(self, comment_id: uuid.UUID) -> CaseComment | None:
         """Get a comment by ID.
@@ -482,3 +574,33 @@ class CaseCommentsService(BaseService):
 
         await self.session.delete(comment)
         await self.session.commit()
+
+
+class CaseEventsService(BaseWorkspaceService):
+    """Service for managing case events."""
+
+    service_name = "case_events"
+
+    async def list_events(self, case: Case) -> Sequence[CaseEvent]:
+        """List all events for a case."""
+        statement = (
+            select(CaseEvent)
+            .where(CaseEvent.case_id == case.id)
+            .order_by(desc(col(CaseEvent.created_at)))
+        )
+        result = await self.session.exec(statement)
+        return result.all()
+
+    async def create_event(self, case: Case, event: CaseEventVariant) -> CaseEvent:
+        """Create a new activity record for a case with variant-specific data."""
+        db_event = CaseEvent(
+            owner_id=self.workspace_id,
+            case_id=case.id,
+            type=event.type,
+            data=event.model_dump(exclude={"type"}, mode="json"),
+            user_id=self.role.user_id,
+        )
+        self.session.add(db_event)
+        await self.session.commit()
+        await self.session.refresh(db_event)
+        return db_event

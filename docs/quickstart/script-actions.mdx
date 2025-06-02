@@ -1,0 +1,113 @@
+---
+title: Script actions
+description: Execute custom Python scripts in a sandboxed environment.
+icon: code
+---
+
+## Python Script Action
+
+Use the `core.script.run_python` action to execute Python code in a sandboxed WebAssembly environment using Pyodide.
+This ensures isolation from the host system while providing access to popular Python libraries.
+You can include 3rd-party Python packages in your script by adding them to the `dependencies` field.
+
+<Note>
+- Scripts must contain at least one function
+- If multiple functions exist, one must be named `main`
+- The function's return value becomes the action output
+- The output must be JSON serializable (e.g. str, int, float, bool, list, dict)
+- Network access is disabled by default for security; enable with `allow_network: true` when using dependencies
+</Note>
+
+### Configuration
+
+| Field | Type | Description | Required |
+|-------|------|-------------|----------|
+| `script` | string | Python code with at least one function | ✅ |
+| `inputs` | object | Dictionary mapping parameter names to values for function arguments | ❌ |
+| `dependencies` | array | List of Python packages to install | ❌ |
+| `timeout_seconds` | integer | Maximum execution time (default: 30) | ❌ |
+| `allow_network` | boolean | Enable network access for package downloads (default: false) | ❌ |
+
+<Note>
+- `inputs` are passed as function arguments into the main function
+- Keys must match the parameter names in the function signature
+- Missing parameters will receive `None`
+- Functions must have parameters to receive inputs
+- Extra input fields that don't match function parameters are ignored
+- If your function has `def main(name, age):` but inputs include `{"name": "Alice", "age": 30, "city": "NYC"}`, the `city` field will be ignored without error.
+</Note>
+
+### Examples
+
+The following examples show valid inputs for the `Run Python script` action.
+
+<CodeGroup>
+  ```python Function (no inputs)
+  script: |
+    def main():
+      # Simple arithmetic
+      result = 10 * 5 + 3
+      return result
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python Function (with inputs)
+  script: |
+    def main(a, b):
+      # Simple arithmetic
+      result = a * b + 3
+      return result
+  inputs:
+    a: 10
+    b: 5
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python Multiple functions
+  script: |
+    def calculate_tax(amount, rate):
+      return amount * rate
+
+    def add_fixed_tax(amount, add_on=10):
+      return amount + add_on
+
+    def main(subtotal, tax_rate):
+      # When multiple functions exist, 'main' is called
+      tax = calculate_tax(subtotal, tax_rate)
+      total = add_fixed_tax(subtotal, 10)
+      return total + tax
+  inputs:
+    subtotal: 100.0
+    tax_rate: 0.08
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python With pip packages
+  script: |
+    def main():
+      import numpy as np
+      result = np.array([1, 2, 3])
+      return result.tolist()
+  dependencies:
+    - numpy
+  allow_network: true
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python Input parameter mapping
+  script: |
+    def main(user_name: str, age: int, city: str, country: str = "USA"):
+      if country is None:
+        return f"{user_name} ({age}) lives in {city}"
+      else:
+        return f"{user_name} ({age}) lives in {city}, {country}"
+  inputs:
+    user_name: "Alice"
+    age: 30
+    city: "New York"
+  ```
+</CodeGroup>

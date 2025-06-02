@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Lookup email
+  description: Lookup an email address in the EmailRep database.
+  display_group: EmailRep
+  doc_url: https://docs.sublime.security/reference/emailrep-introduction
+  namespace: tools.emailrep
+  name: lookup_email
+  secrets:
+    - name: emailrep
+      keys:
+        - EMAILREP_API_KEY
+  expects:
+    email:
+      type: str
+      description: Email to lookup.
+    include_summary:
+      type: bool
+      description: Whether to include the summary of the email.
+      default: True
+  steps:
+    - ref: query_email
+      action: core.http_request
+      args:
+        url: https://emailrep.io/{{ inputs.email }}
+        method: GET
+        headers:
+          Key: ${{ SECRETS.emailrep.EMAILREP_API_KEY }}
+          User-Agent: tracecat-emailrep-lookup
+        params:
+          include_summary: ${{ inputs.include_summary }}
+  returns: ${{ steps.query_email.result.data }}

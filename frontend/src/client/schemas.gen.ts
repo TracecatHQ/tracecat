@@ -100,6 +100,72 @@ export const $ActionCreate = {
       minLength: 1,
       title: "Title",
     },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    inputs: {
+      type: "string",
+      maxLength: 300000,
+      title: "Inputs",
+      default: "",
+    },
+    control_flow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ActionControlFlow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      mode: "json",
+    },
+    is_interactive: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Is Interactive",
+    },
+    interaction: {
+      anyOf: [
+        {
+          oneOf: [
+            {
+              $ref: "#/components/schemas/ResponseInteraction",
+            },
+            {
+              $ref: "#/components/schemas/ApprovalInteraction",
+            },
+          ],
+          description: "An interaction configuration",
+          discriminator: {
+            propertyName: "type",
+            mapping: {
+              approval: "#/components/schemas/ApprovalInteraction",
+              response: "#/components/schemas/ResponseInteraction",
+            },
+          },
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Interaction",
+    },
   },
   type: "object",
   required: ["workflow_id", "type", "title"],
@@ -701,6 +767,75 @@ export const $ApprovalInteraction = {
   description: "Configuration for an approval interaction.",
 } as const
 
+export const $AssigneeChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+    },
+    type: {
+      type: "string",
+      const: "assignee_changed",
+      title: "Type",
+      default: "assignee_changed",
+    },
+    old: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old",
+    },
+    new: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "AssigneeChangedEventRead",
+  description: "Event for when a case assignee is changed.",
+} as const
+
 export const $AuthSettingsRead = {
   properties: {
     auth_basic_enabled: {
@@ -1127,6 +1262,78 @@ export const $CaseCustomFieldRead = {
   title: "CaseCustomFieldRead",
 } as const
 
+export const $CaseEventRead = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/CreatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/ClosedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/ReopenedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/UpdatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/StatusChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/PriorityChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/SeverityChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/FieldChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/AssigneeChangedEventRead",
+    },
+  ],
+  title: "CaseEventRead",
+  description: "Base read model for all event types.",
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      assignee_changed: "#/components/schemas/AssigneeChangedEventRead",
+      case_closed: "#/components/schemas/ClosedEventRead",
+      case_created: "#/components/schemas/CreatedEventRead",
+      case_reopened: "#/components/schemas/ReopenedEventRead",
+      case_updated: "#/components/schemas/UpdatedEventRead",
+      fields_changed: "#/components/schemas/FieldChangedEventRead",
+      priority_changed: "#/components/schemas/PriorityChangedEventRead",
+      severity_changed: "#/components/schemas/SeverityChangedEventRead",
+      status_changed: "#/components/schemas/StatusChangedEventRead",
+    },
+  },
+} as const
+
+export const $CaseEventsWithUsers = {
+  properties: {
+    events: {
+      items: {
+        $ref: "#/components/schemas/CaseEventRead",
+      },
+      type: "array",
+      title: "Events",
+      description: "The events for the case.",
+    },
+    users: {
+      items: {
+        $ref: "#/components/schemas/UserRead",
+      },
+      type: "array",
+      title: "Users",
+      description: "The users for the case.",
+    },
+  },
+  type: "object",
+  required: ["events", "users"],
+  title: "CaseEventsWithUsers",
+} as const
+
 export const $CaseFieldCreate = {
   properties: {
     name: {
@@ -1538,6 +1745,102 @@ export const $CaseUpdate = {
   },
   type: "object",
   title: "CaseUpdate",
+} as const
+
+export const $ClosedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+    },
+    type: {
+      type: "string",
+      const: "case_closed",
+      title: "Type",
+      default: "case_closed",
+    },
+    old: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    new: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "ClosedEventRead",
+  description: "Event for when a case is closed.",
+} as const
+
+export const $CreatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+    },
+    type: {
+      type: "string",
+      const: "case_created",
+      title: "Type",
+      default: "case_created",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["created_at"],
+  title: "CreatedEventRead",
+  description: "Event for when a case is created.",
 } as const
 
 export const $DSLConfig_Input = {
@@ -2204,6 +2507,76 @@ export const $ExprValidationResult = {
   description: "Result of visiting an expression node.",
 } as const
 
+export const $FieldChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+    },
+    type: {
+      type: "string",
+      const: "fields_changed",
+      title: "Type",
+      default: "fields_changed",
+    },
+    changes: {
+      items: {
+        $ref: "#/components/schemas/FieldDiff",
+      },
+      type: "array",
+      title: "Changes",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["changes", "created_at"],
+  title: "FieldChangedEventRead",
+  description: "Event for when a case field is changed.",
+} as const
+
+export const $FieldDiff = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    old: {
+      title: "Old",
+    },
+    new: {
+      title: "New",
+    },
+  },
+  type: "object",
+  required: ["field", "old", "new"],
+  title: "FieldDiff",
+} as const
+
 export const $FolderDirectoryItem = {
   properties: {
     id: {
@@ -2697,6 +3070,57 @@ export const $OrgMemberRead = {
     "last_login_at",
   ],
   title: "OrgMemberRead",
+} as const
+
+export const $PriorityChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+    },
+    type: {
+      type: "string",
+      const: "priority_changed",
+      title: "Type",
+      default: "priority_changed",
+    },
+    old: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    new: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "PriorityChangedEventRead",
+  description: "Event for when a case priority is changed.",
 } as const
 
 export const $ReceiveInteractionResponse = {
@@ -3664,6 +4088,57 @@ export const $RegistrySecret = {
   type: "object",
   required: ["name"],
   title: "RegistrySecret",
+} as const
+
+export const $ReopenedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+    },
+    type: {
+      type: "string",
+      const: "case_reopened",
+      title: "Type",
+      default: "case_reopened",
+    },
+    old: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    new: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "ReopenedEventRead",
+  description: "Event for when a case is reopened.",
 } as const
 
 export const $ResponseInteraction = {
@@ -4679,6 +5154,57 @@ export const $SessionRead = {
   title: "SessionRead",
 } as const
 
+export const $SeverityChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+    },
+    type: {
+      type: "string",
+      const: "severity_changed",
+      title: "Type",
+      default: "severity_changed",
+    },
+    old: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+    new: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "SeverityChangedEventRead",
+  description: "Event for when a case severity is changed.",
+} as const
+
 export const $SpecialUserID = {
   type: "string",
   enum: ["current"],
@@ -4700,6 +5226,57 @@ export const $SqlType = {
   ],
   title: "SqlType",
   description: "Supported SQL types.",
+} as const
+
+export const $StatusChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+    },
+    type: {
+      type: "string",
+      const: "status_changed",
+      title: "Type",
+      default: "status_changed",
+    },
+    old: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    new: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "StatusChangedEventRead",
+  description: "Event for when a case status is changed.",
 } as const
 
 export const $TableColumnCreate = {
@@ -5379,6 +5956,78 @@ export const $TriggerType = {
   description: "Trigger type for a workflow execution.",
 } as const
 
+export const $UpdatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+    },
+    type: {
+      type: "string",
+      const: "case_updated",
+      title: "Type",
+      default: "case_updated",
+    },
+    field: {
+      type: "string",
+      const: "summary",
+      title: "Field",
+    },
+    old: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old",
+    },
+    new: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["field", "old", "new", "created_at"],
+  title: "UpdatedEventRead",
+  description: "Event for when a case is updated.",
+} as const
+
 export const $UserCreate = {
   properties: {
     email: {
@@ -5425,10 +6074,6 @@ export const $UserCreate = {
       ],
       title: "Is Verified",
       default: false,
-    },
-    role: {
-      $ref: "#/components/schemas/UserRole",
-      default: "basic",
     },
     first_name: {
       anyOf: [

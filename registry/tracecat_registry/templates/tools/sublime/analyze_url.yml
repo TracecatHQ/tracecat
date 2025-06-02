@@ -1,0 +1,33 @@
+type: action
+definition:
+  name: analyze_url
+  namespace: tools.sublime
+  title: Analyze URL
+  description: Analyze a URL with ML link analysis in Sublime.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/docs/enrichment-functions#mllink_analysis
+  secrets:
+    - name: sublime
+      keys:
+        - SUBLIME_API_KEY
+  expects:
+    url:
+      type: str
+      description: URL to analyze.
+    base_url:
+      type: str
+      description: Base URL of the Sublime API.
+      default: https://platform.sublime.security
+  steps:
+    # https://docs.sublime.security/reference/linkanalysisevaluate-1
+    - ref: analyze_url
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/v0/enrichment/link_analysis/evaluate
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload:
+          url: ${{ inputs.url }}
+          no_logo_detect: False  # Do not skip logo detection
+  returns: ${{ steps.analyze_url.result.data }}

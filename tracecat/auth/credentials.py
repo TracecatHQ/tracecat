@@ -35,6 +35,8 @@ from tracecat.types.auth import AccessLevel, Role
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 api_key_header_scheme = APIKeyHeader(name="x-tracecat-service-key", auto_error=False)
 
+# Maximum number of memberships to cache per user to prevent memory exhaustion
+MAX_CACHED_MEMBERSHIPS = 1000
 
 CREDENTIALS_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -139,11 +141,89 @@ async def _role_dependency(
     if user and allow_user:
         if is_unprivileged(user) and workspace_id is not None:
             # Unprivileged user trying to target a workspace
-            # 1. Check if they are a member of the workspace
-            svc = MembershipService(session)
-            membership = await svc.get_membership(
-                workspace_id=workspace_id, user_id=user.id
-            )
+            # Check if we have a cache available (from middleware)
+            auth_cache = getattr(request.state, "auth_cache", None)
+
+            membership = None
+            if auth_cache:
+                # Try to get from cache first
+                cached_membership = auth_cache["memberships"].get(str(workspace_id))
+                # Validate cached membership belongs to requesting user
+                if (
+                    cached_membership is not None
+                    and cached_membership.user_id == user.id
+                ):
+                    membership = cached_membership
+                    logger.debug(
+                        "Using cached membership",
+                        user_id=user.id,
+                        workspace_id=workspace_id,
+                        cached=True,
+                    )
+                elif not auth_cache["membership_checked"]:
+                    # Load all memberships once if not already done
+                    svc = MembershipService(session)
+                    all_memberships = await svc.list_user_memberships(user_id=user.id)
+
+                    # Check cache size limit to prevent memory exhaustion
+                    if len(all_memberships) > MAX_CACHED_MEMBERSHIPS:
+                        logger.warning(
+                            "User has excessive memberships, caching disabled for security",
+                            user_id=user.id,
+                            membership_count=len(all_memberships),
+                            max_allowed=MAX_CACHED_MEMBERSHIPS,
+                        )
+                        # Find membership without caching
+                        membership = next(
+                            (
+                                m
+                                for m in all_memberships
+                                if m.workspace_id == workspace_id
+                            ),
+                            None,
+                        )
+                    else:
+                        # Cache all memberships with user context
+                        auth_cache["user_id"] = user.id
+                        auth_cache["memberships"] = {
+                            str(m.workspace_id): m for m in all_memberships
+                        }
+                        auth_cache["membership_checked"] = True
+                        auth_cache["all_memberships"] = all_memberships
+
+                        # Get the specific membership
+                        membership = auth_cache["memberships"].get(str(workspace_id))
+
+                        logger.debug(
+                            "Loaded and cached all user memberships",
+                            user_id=user.id,
+                            workspace_count=len(all_memberships),
+                            workspace_id=workspace_id,
+                            found=membership is not None,
+                        )
+                elif auth_cache.get("user_id") != user.id:
+                    # Cache belongs to different user - security fallback
+                    logger.warning(
+                        "Cache user mismatch, falling back to direct query",
+                        cache_user_id=auth_cache.get("user_id"),
+                        request_user_id=user.id,
+                    )
+                    svc = MembershipService(session)
+                    membership = await svc.get_membership(
+                        workspace_id=workspace_id, user_id=user.id
+                    )
+            else:
+                # No cache available (e.g., in tests), fall back to direct query
+                svc = MembershipService(session)
+                membership = await svc.get_membership(
+                    workspace_id=workspace_id, user_id=user.id
+                )
+                logger.debug(
+                    "No cache available, using direct query",
+                    user_id=user.id,
+                    workspace_id=workspace_id,
+                )
+
             if membership is None:
                 logger.warning(
                     "User is not a member of this workspace",

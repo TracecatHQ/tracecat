@@ -97,17 +97,17 @@ export default function CaseTable() {
         {
           column: "status",
           title: "Status",
-          options: STATUSES,
+          options: Object.values(STATUSES),
         },
         {
           column: "priority",
           title: "Priority",
-          options: PRIORITIES,
+          options: Object.values(PRIORITIES),
         },
         {
           column: "severity",
           title: "Severity",
-          options: SEVERITIES,
+          options: Object.values(SEVERITIES),
         },
         {
           column: "Assignee",

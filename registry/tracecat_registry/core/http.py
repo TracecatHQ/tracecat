@@ -1,14 +1,17 @@
 """Core HTTP actions."""
-# XXX(WARNING): Do not import __future__ annotations from typing
-# This will cause class types to be resolved as strings
+# WARNING: Do not import __future__ annotations from typing
+# Causes class types to resolve as strings, breaking TypedDict runtime behavior
 
 from collections.abc import Callable
+import base64
+import binascii
+import os.path
 import tempfile
 from json import JSONDecodeError
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, Required, TypedDict
 
 import httpx
-from pydantic import HttpUrl
+from pydantic import BaseModel, ConfigDict, HttpUrl
 from tenacity import (
     retry,
     retry_if_result,
@@ -22,11 +25,56 @@ from tracecat.expressions.common import build_safe_lambda
 from tracecat.logger import logger
 from typing_extensions import Doc
 
+from tracecat.config import (
+    TRACECAT__MAX_FILE_SIZE_BYTES,
+    TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES,
+    TRACECAT__MAX_UPLOAD_FILES_COUNT,
+)
+
 from tracecat.types.exceptions import TracecatException
 from tracecat_registry import RegistrySecret, registry, secrets
 
 RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
+
+
+class FileUploadData(TypedDict):
+    """Detailed file upload data structure."""
+
+    filename: NotRequired[str]  # Filename sent in Content-Disposition header
+    content_base64: Required[str]  # Base64 encoded file content
+    content_type: NotRequired[str | None]  # Optional MIME type (e.g., "image/png")
+
+
+class ParsedFileInput(BaseModel):
+    """Parsed file input with extracted components."""
+
+    filename: str
+    content_base64: str
+    content_type: str | None = None
+
+
+class ValidatedFile(BaseModel):
+    """Validated and processed file ready for upload."""
+
+    sanitized_filename: str
+    decoded_content: bytes
+
+    model_config = ConfigDict(
+        # Allow bytes type
+        arbitrary_types_allowed=True
+    )
+
+
+Files = Annotated[
+    dict[str, str | FileUploadData] | None,  # Form field name -> file data
+    Doc(
+        "Files to upload using multipart/form-data. "
+        "The dictionary key is the form field name. "
+        "The value can be a simple base64 encoded string (filename defaults to form field name), "
+        "or a dictionary with 'filename', 'content_base64', and optional 'content_type'."
+    ),
+]
 
 ssl_secret = RegistrySecret(
     name="ssl",
@@ -147,18 +195,18 @@ class TemporaryClientCertificate:
                 return (cert_path, key_path, self.client_key_password)
             return (cert_path, key_path)
         elif cert_path:
-            # Only cert_path is provided (e.g. a PEM file with both cert and key)
+            # Single file containing both cert and key (e.g., PEM format)
             return cert_path
 
-        # No client certificate material provided, or only key without cert (which is invalid for httpx cert tuple)
+        # No valid certificate configuration provided
         return None
 
     def __exit__(self, exc_type, exc_val, traceback):
         for temp_file in self._temp_files:
             try:
-                temp_file.close()  # Closing triggers deletion due to delete=True
+                temp_file.close()  # Triggers file deletion due to delete=True
             except Exception:
-                # Log if closing fails, but attempt to close all others.
+                # Log errors but continue cleanup for remaining files
                 logger.error(
                     f"Error closing temporary certificate file {temp_file.name}",
                     exc_info=True,
@@ -166,15 +214,15 @@ class TemporaryClientCertificate:
 
 
 def httpx_to_response(response: httpx.Response) -> HTTPResponse:
-    # Handle 204 No Content
+    # Handle 204 No Content responses
     if response.status_code == 204:
         return HTTPResponse(
             status_code=response.status_code,
             headers=dict(response.headers.items()),
-            data=None,  # No content
+            data=None,  # RFC 7231: 204 responses MUST NOT contain a body
         )
 
-    # TODO: Better parsing logic
+    # Parse response based on content type
     content_type = response.headers.get("Content-Type")
     if content_type and content_type.startswith("application/json"):
         return HTTPResponse(
@@ -250,6 +298,238 @@ def _http_status_error_to_message(e: httpx.HTTPStatusError) -> str:
         return f"HTTP request failed with status {e.response.status_code}. Details:\n\n```\n{details}\n```"
 
 
+def _sanitize_filename(filename: str, max_length: int = 255) -> str:
+    """Sanitize a filename to prevent security issues.
+
+    Based on OWASP recommendations for secure file upload handling.
+
+    Args:
+        filename: The filename to sanitize
+        max_length: Maximum allowed length (default 255 for most filesystems)
+
+    Returns:
+        Sanitized filename
+
+    Raises:
+        ValueError: If filename cannot be made safe
+    """
+    # Strip directory components to prevent path traversal
+    filename = os.path.basename(filename)
+
+    # Remove encoded directory separators
+    filename = filename.replace("/", "").replace("\\", "")
+
+    # Split and preserve file extension
+    name_parts = filename.rsplit(".", 1)
+    if len(name_parts) == 2:
+        name, ext = name_parts
+        # Only alphanumeric chars in extension, max 10 chars
+        ext = "".join(c for c in ext if c.isalnum())[:10]
+    else:
+        name = filename
+        ext = None
+
+    # Remove dangerous characters per OWASP recommendations
+    dangerous_chars = "<>:\"|?*;%$'`"
+    sanitized_name = "".join(
+        c for c in name if c not in dangerous_chars and ord(c) < 127
+    )
+
+    # Prevent path traversal via multiple dots
+    while ".." in sanitized_name:
+        sanitized_name = sanitized_name.replace("..", ".")
+
+    # Fallback for empty names after sanitization
+    if not sanitized_name or sanitized_name.strip() in (".", ""):
+        sanitized_name = "unnamed"
+
+    # Reconstruct filename
+    if ext:
+        final_filename = f"{sanitized_name}.{ext}"
+    else:
+        final_filename = sanitized_name
+
+    # Truncate to filesystem limits while preserving extension
+    if len(final_filename) > max_length:
+        if ext:
+            name_limit = max_length - len(ext) - 1
+            final_filename = f"{sanitized_name[:name_limit]}.{ext}"
+        else:
+            final_filename = final_filename[:max_length]
+
+    return final_filename
+
+
+def _parse_file_input(
+    form_field_name: str,
+    file_input: str | FileUploadData,
+) -> ParsedFileInput:
+    """Parse file input to extract filename, content, and content type.
+
+    Args:
+        form_field_name: The form field name
+        file_input: Either a base64 string or FileUploadData dict
+
+    Returns:
+        ParsedFileInput with filename, content_base64, and optional content_type
+
+    Raises:
+        TypeError: If file_input is not a valid type
+        ValueError: If required fields are missing
+    """
+    if isinstance(file_input, str):
+        # Simple upload: use form field as filename
+        return ParsedFileInput(
+            filename=form_field_name, content_base64=file_input, content_type=None
+        )
+
+    if isinstance(file_input, dict):
+        if "content_base64" not in file_input:
+            raise ValueError(
+                f"Missing 'content_base64' for form field '{form_field_name}'"
+            )
+
+        content_base64 = file_input["content_base64"]
+        # Use explicit filename or default to form field name
+        filename = file_input.get("filename") or form_field_name
+        content_type = file_input.get("content_type")
+
+        return ParsedFileInput(
+            filename=filename, content_base64=content_base64, content_type=content_type
+        )
+
+    raise TypeError(
+        f"Invalid file input type for form field '{form_field_name}'. "
+        f"Expected base64 string or dictionary, got {type(file_input).__name__}"
+    )
+
+
+def _validate_and_decode_file(
+    filename: str,
+    content_base64: str,
+    form_field_name: str,
+    action_name: str,
+) -> ValidatedFile:
+    """Validate filename and decode base64 content.
+
+    Args:
+        filename: The filename to validate and sanitize
+        content_base64: Base64 encoded content
+        form_field_name: Form field name for error context
+        action_name: Action name for error context
+
+    Returns:
+        ValidatedFile with sanitized_filename and decoded_content
+
+    Raises:
+        ValueError: If validation fails
+    """
+    # Null byte security check (used in path injection attacks)
+    if not filename or "\x00" in filename:
+        raise ValueError(
+            f"Invalid filename for form field '{form_field_name}' in {action_name}: "
+            f"cannot be empty or contain null bytes."
+        )
+
+    # Apply OWASP security sanitization
+    try:
+        sanitized_filename = _sanitize_filename(filename)
+    except Exception as e:
+        raise ValueError(
+            f"Unable to sanitize filename for form field '{form_field_name}' in {action_name}: {str(e)}"
+        ) from e
+
+    # Decode and validate base64 content
+    try:
+        decoded_content = base64.b64decode(content_base64, validate=True)
+    except binascii.Error as e:
+        raise ValueError(
+            f"Invalid base64 data for form field '{form_field_name}' in {action_name}: {str(e)}"
+        ) from e
+
+    # Enforce global file size limits
+    if len(decoded_content) > TRACECAT__MAX_FILE_SIZE_BYTES:
+        raise ValueError(
+            f"File for form field '{form_field_name}' in {action_name} exceeds maximum size limit of "
+            f"{TRACECAT__MAX_FILE_SIZE_BYTES // 1024 // 1024}MB."
+        )
+
+    return ValidatedFile(
+        sanitized_filename=sanitized_filename, decoded_content=decoded_content
+    )
+
+
+def _process_file_uploads(
+    files: Files, action_name: str = "http_action"
+) -> dict[str, tuple[str, bytes] | tuple[str, bytes, str]] | None:
+    """Processes a dictionary of files for multipart/form-data upload.
+
+    Args:
+        files: Dictionary where key is form_field_name and value is either
+               a base64 string or a FileUploadData dictionary.
+        action_name: Name of the calling action for error messages.
+
+    Returns:
+        A dictionary formatted for httpx's files parameter, or None if no files.
+    Raises:
+        ValueError: For invalid inputs, encoding errors, or size violations.
+    """
+    if not files:
+        return None
+
+    if len(files) > TRACECAT__MAX_UPLOAD_FILES_COUNT:
+        raise ValueError(
+            f"Number of files ({len(files)}) exceeds the maximum allowed limit "
+            f"of {TRACECAT__MAX_UPLOAD_FILES_COUNT} in {action_name}."
+        )
+
+    processed_httpx_files = {}
+    current_aggregate_size = 0
+
+    for form_field_name, file_input in files.items():
+        # Validate form field name (used in HTTP headers)
+        if not form_field_name or "\x00" in form_field_name:
+            raise ValueError(
+                f"Invalid form_field_name '{form_field_name}' in {action_name}: "
+                f"cannot be empty or contain null bytes."
+            )
+
+        # Extract file components using Pydantic model
+        parsed_file = _parse_file_input(form_field_name, file_input)
+
+        # Security validation and processing using Pydantic model
+        validated_file = _validate_and_decode_file(
+            parsed_file.filename,
+            parsed_file.content_base64,
+            form_field_name,
+            action_name,
+        )
+
+        current_aggregate_size += len(validated_file.decoded_content)
+        if current_aggregate_size > TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES:
+            raise ValueError(
+                f"Total size of files ({current_aggregate_size / 1024 / 1024:.2f}MB) "
+                f"exceeds the aggregate limit of "
+                f"{TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES / 1024 / 1024:.2f}MB "
+                f"in {action_name}."
+            )
+
+        # Format for httpx multipart upload
+        if parsed_file.content_type:
+            processed_httpx_files[form_field_name] = (
+                validated_file.sanitized_filename,
+                validated_file.decoded_content,
+                parsed_file.content_type,
+            )
+        else:
+            processed_httpx_files[form_field_name] = (
+                validated_file.sanitized_filename,
+                validated_file.decoded_content,
+            )
+
+    return processed_httpx_files
+
+
 @registry.register(
     namespace="core",
     description="Perform a HTTP request to a given URL.",
@@ -263,6 +543,7 @@ async def http_request(
     params: Params = None,
     payload: Payload = None,
     form_data: FormData = None,
+    files: Files = None,
     auth: Auth = None,
     timeout: Timeout = 10.0,
     follow_redirects: FollowRedirects = False,
@@ -273,11 +554,18 @@ async def http_request(
 
     basic_auth = httpx.BasicAuth(**auth) if auth else None
 
+    try:
+        # Process and validate file uploads
+        httpx_files_param = _process_file_uploads(files, action_name="http_request")
+    except (ValueError, TypeError) as e:
+        logger.error(f"File processing error in http_request: {str(e)}")
+        raise TracecatException(str(e)) from e
+
     client_cert_str = secrets.get("SSL_CLIENT_CERT")
     client_key_str = secrets.get("SSL_CLIENT_KEY")
     client_key_password = secrets.get("SSL_CLIENT_PASSWORD")
 
-    # Use the new context manager
+    # Manage SSL certificates with proper cleanup
     with TemporaryClientCertificate(
         client_cert_str=client_cert_str,
         client_key_str=client_key_str,
@@ -285,7 +573,7 @@ async def http_request(
     ) as cert_for_httpx:
         try:
             async with httpx.AsyncClient(
-                cert=cert_for_httpx,  # Pass the result from the context manager
+                cert=cert_for_httpx,  # SSL cert configuration from context manager
                 auth=basic_auth,
                 timeout=httpx.Timeout(timeout),
                 follow_redirects=follow_redirects,
@@ -299,6 +587,7 @@ async def http_request(
                     params=params,
                     json=payload,
                     data=form_data,
+                    files=httpx_files_param,
                 )
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -308,7 +597,7 @@ async def http_request(
                 status_code=e.response.status_code,
                 error_message=error_message,
             )
-            raise TracecatException(error_message)
+            raise TracecatException(error_message) from e
         except httpx.ReadTimeout as e:
             logger.error(f"HTTP request timed out after {timeout} seconds.")
             raise e
@@ -370,7 +659,6 @@ async def http_poll(
     """Perform a HTTP request to a given URL with optional polling."""
 
     basic_auth = httpx.BasicAuth(**auth) if auth else None
-    # REMOVED: cert = get_certificate() # This was not present here but good to ensure no residue
 
     retry_codes = poll_retry_codes
     if isinstance(retry_codes, int):
@@ -381,13 +669,13 @@ async def http_poll(
     if not retry_codes and not predicate:
         raise ValueError("At least one of retry_codes or predicate must be specified")
 
-    # The default predicate is to retry on the specified status codes
+    # Retry based on HTTP status codes
     def retry_status_code(response: httpx.Response) -> bool:
         if not retry_codes:
             return False
         return response.status_code in retry_codes
 
-    # We also wanna support user defined predicate as a `python_lambda`
+    # Retry based on custom lambda condition
     def user_defined_predicate(response: httpx.Response) -> bool:
         if not predicate:
             return False
@@ -407,13 +695,15 @@ async def http_poll(
         retry=(
             retry_if_result(retry_status_code) | retry_if_result(user_defined_predicate)
         ),
+        # Stop retrying immediately on critical errors (e.g., timeouts)
+        reraise=True,
     )
     async def call() -> httpx.Response:
         client_cert_str = secrets.get("SSL_CLIENT_CERT")
         client_key_str = secrets.get("SSL_CLIENT_KEY")
         client_key_password = secrets.get("SSL_CLIENT_PASSWORD")
 
-        # Use the new context manager within the call function
+        # SSL certificate management for each polling attempt
         with TemporaryClientCertificate(
             client_cert_str=client_cert_str,
             client_key_str=client_key_str,
@@ -421,7 +711,7 @@ async def http_poll(
         ) as cert_for_httpx:
             try:
                 async with httpx.AsyncClient(
-                    cert=cert_for_httpx,  # Pass the result from the context manager
+                    cert=cert_for_httpx,  # SSL cert configuration from context manager
                     auth=basic_auth,
                     timeout=httpx.Timeout(timeout),
                     follow_redirects=follow_redirects,

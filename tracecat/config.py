@@ -171,6 +171,10 @@ TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
 TRACECAT__LOCAL_REPOSITORY_PATH = os.getenv("TRACECAT__LOCAL_REPOSITORY_PATH")
 TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH = "/app/local_registry"
 
+# === Python Script Execution === #
+TRACECAT__PYODIDE_VERSION = os.environ.get("PYODIDE_VERSION", "0.27.6")
+"""Version of Pyodide to use for Python script execution in WebAssembly sandbox."""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
     os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"
@@ -204,3 +208,18 @@ TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
     os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES", 1024 * 1024)
 )
 """The maximum size of a payload in bytes the executor can return. Defaults to 1MB"""
+
+TRACECAT__MAX_FILE_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_FILE_SIZE_BYTES", 20 * 1024 * 1024)  # Default 20MB
+)
+"""The maximum size for file handling (e.g., uploads, downloads) in bytes. Defaults to 20MB."""
+
+TRACECAT__MAX_UPLOAD_FILES_COUNT = int(
+    os.environ.get("TRACECAT__MAX_UPLOAD_FILES_COUNT", 5)
+)
+"""The maximum number of files that can be uploaded at once. Defaults to 5."""
+
+TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES", 100 * 1024 * 1024)
+)
+"""The maximum size of the aggregate upload size in bytes. Defaults to 100MB."""

@@ -14,6 +14,7 @@ import {
   CaseCommentRead,
   CaseCommentUpdate,
   CaseCreate,
+  CaseEventsWithUsers,
   CaseFieldRead,
   CaseRead,
   CaseReadMinimal,
@@ -27,6 +28,7 @@ import {
   CasesListCasesData,
   casesListComments,
   CasesListCommentsData,
+  casesListEventsWithUsers,
   casesListFields,
   casesUpdateCase,
   casesUpdateComment,
@@ -2564,6 +2566,9 @@ export function useUpdateCase({
       queryClient.invalidateQueries({
         queryKey: ["case", caseId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -3072,5 +3077,29 @@ export function useGetDirectoryItems(path: string, workspaceId?: string) {
     directoryItems,
     directoryItemsIsLoading,
     directoryItemsError,
+  }
+}
+
+export function useCaseEvents({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const {
+    data: caseEvents,
+    isLoading: caseEventsIsLoading,
+    error: caseEventsError,
+  } = useQuery<CaseEventsWithUsers, TracecatApiError>({
+    queryKey: ["case-events", caseId, workspaceId],
+    queryFn: async () =>
+      await casesListEventsWithUsers({ caseId, workspaceId }),
+  })
+
+  return {
+    caseEvents,
+    caseEventsIsLoading,
+    caseEventsError,
   }
 }
