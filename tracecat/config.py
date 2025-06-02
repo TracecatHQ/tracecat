@@ -225,6 +225,12 @@ TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
 )
 """Endpoint URL for Minio. Ignored when protocol is 's3'."""
 
+# Presigned URL configuration
+TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
+    os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 3600)
+)
+"""Default expiry time for presigned URLs in seconds (default: 1 hour)."""
+
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
     "TRACECAT__LOCAL_REPOSITORY_ENABLED", "0"

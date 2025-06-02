@@ -626,12 +626,163 @@ class FileSecurityValidator:
 
 
 # Legacy functions for backward compatibility
-def get_storage_session() -> aioboto3.Session:
-    """Get an aioboto3 session for S3 operations.
+def get_storage_client():
+    """Get a configured S3 client for either AWS S3 or MinIO.
 
-    Assumes AWS Fargate with IAM roles, so no explicit credentials needed.
+    Uses environment variables for credentials:
+    - For MinIO: MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+    - For S3: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+
+    Returns:
+        Configured aioboto3 S3 client context manager
     """
-    return aioboto3.Session()
+    session = aioboto3.Session()
+
+    # Configure client based on protocol
+    if config.TRACECAT__BLOB_STORAGE_PROTOCOL == "minio":
+        # MinIO configuration - use MINIO_ROOT_USER/MINIO_ROOT_PASSWORD
+        return session.client(
+            "s3",
+            endpoint_url=config.TRACECAT__BLOB_STORAGE_ENDPOINT,
+            aws_access_key_id=os.environ.get("MINIO_ROOT_USER"),
+            aws_secret_access_key=os.environ.get("MINIO_ROOT_PASSWORD"),
+        )
+    else:
+        # AWS S3 configuration - use AWS credentials from environment or default credential chain
+        return session.client("s3")
+
+
+async def ensure_bucket_exists(bucket: str | None = None) -> None:
+    """Ensure the storage bucket exists, creating it if necessary.
+
+    Args:
+        bucket: Optional bucket name (defaults to config)
+    """
+    bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
+
+    async with get_storage_client() as s3_client:
+        try:
+            await s3_client.head_bucket(Bucket=bucket)
+            logger.debug("Bucket exists", bucket=bucket)
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            if error_code == "404":
+                # Bucket doesn't exist, create it
+                try:
+                    # For MinIO and most regions, simple create_bucket works
+                    await s3_client.create_bucket(Bucket=bucket)
+                    logger.info("Created bucket", bucket=bucket)
+                except ClientError as create_error:
+                    logger.error(
+                        "Failed to create bucket",
+                        bucket=bucket,
+                        error=str(create_error),
+                    )
+                    raise
+            else:
+                logger.error(
+                    "Failed to check bucket existence",
+                    bucket=bucket,
+                    error=str(e),
+                )
+                raise
+
+
+async def generate_presigned_download_url(
+    key: str,
+    bucket: str | None = None,
+    expiry: int | None = None,
+) -> str:
+    """Generate a presigned URL for downloading a file.
+
+    Args:
+        key: The S3 object key
+        bucket: Optional bucket name (defaults to config)
+        expiry: URL expiry time in seconds (defaults to config)
+
+    Returns:
+        Presigned URL for downloading the file
+
+    Raises:
+        ClientError: If URL generation fails
+    """
+    bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
+    expiry = expiry or config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+
+    async with get_storage_client() as s3_client:
+        try:
+            url = await s3_client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": bucket, "Key": key},
+                ExpiresIn=expiry,
+            )
+            logger.debug(
+                "Generated presigned download URL",
+                key=key,
+                bucket=bucket,
+                expiry=expiry,
+            )
+            return url
+        except ClientError as e:
+            logger.error(
+                "Failed to generate presigned download URL",
+                key=key,
+                bucket=bucket,
+                error=str(e),
+            )
+            raise
+
+
+async def generate_presigned_upload_url(
+    key: str,
+    bucket: str | None = None,
+    expiry: int | None = None,
+    content_type: str | None = None,
+) -> str:
+    """Generate a presigned URL for uploading a file.
+
+    Args:
+        key: The S3 object key
+        bucket: Optional bucket name (defaults to config)
+        expiry: URL expiry time in seconds (defaults to config)
+        content_type: Optional content type constraint
+
+    Returns:
+        Presigned URL for uploading the file
+
+    Raises:
+        ClientError: If URL generation fails
+    """
+    bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
+    expiry = expiry or config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+
+    params = {"Bucket": bucket, "Key": key}
+    if content_type:
+        params["ContentType"] = content_type
+
+    async with get_storage_client() as s3_client:
+        try:
+            url = await s3_client.generate_presigned_url(
+                "put_object",
+                Params=params,
+                ExpiresIn=expiry,
+            )
+            logger.debug(
+                "Generated presigned upload URL",
+                key=key,
+                bucket=bucket,
+                expiry=expiry,
+                content_type=content_type,
+            )
+            return url
+        except ClientError as e:
+            logger.error(
+                "Failed to generate presigned upload URL",
+                key=key,
+                bucket=bucket,
+                error=str(e),
+            )
+            raise
 
 
 def compute_sha256(content: bytes) -> str:
@@ -729,7 +880,7 @@ async def upload_file(
     content_type: str | None = None,
     bucket: str | None = None,
 ) -> None:
-    """Upload a file to S3.
+    """Upload a file to S3/MinIO.
 
     Args:
         content: The file content as bytes
@@ -741,10 +892,9 @@ async def upload_file(
         ClientError: If the upload fails
     """
     bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
-    session = get_storage_session()
 
     try:
-        async with session.client("s3") as s3_client:
+        async with get_storage_client() as s3_client:
             kwargs = {
                 "Bucket": bucket,
                 "Key": key,
@@ -771,7 +921,7 @@ async def upload_file(
 
 
 async def download_file(key: str, bucket: str | None = None) -> bytes:
-    """Download a file from S3.
+    """Download a file from S3/MinIO.
 
     Args:
         key: The S3 object key
@@ -785,10 +935,9 @@ async def download_file(key: str, bucket: str | None = None) -> bytes:
         ClientError: If the download fails
     """
     bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
-    session = get_storage_session()
 
     try:
-        async with session.client("s3") as s3_client:
+        async with get_storage_client() as s3_client:
             response = await s3_client.get_object(Bucket=bucket, Key=key)
             content = await response["Body"].read()
             logger.info(
@@ -812,7 +961,7 @@ async def download_file(key: str, bucket: str | None = None) -> bytes:
 
 
 async def delete_file(key: str, bucket: str | None = None) -> None:
-    """Delete a file from S3.
+    """Delete a file from S3/MinIO.
 
     Args:
         key: The S3 object key
@@ -822,10 +971,9 @@ async def delete_file(key: str, bucket: str | None = None) -> None:
         ClientError: If the deletion fails
     """
     bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
-    session = get_storage_session()
 
     try:
-        async with session.client("s3") as s3_client:
+        async with get_storage_client() as s3_client:
             await s3_client.delete_object(Bucket=bucket, Key=key)
             logger.info(
                 "File deleted successfully",
@@ -843,7 +991,7 @@ async def delete_file(key: str, bucket: str | None = None) -> None:
 
 
 async def file_exists(key: str, bucket: str | None = None) -> bool:
-    """Check if a file exists in S3.
+    """Check if a file exists in S3/MinIO.
 
     Args:
         key: The S3 object key
@@ -856,10 +1004,9 @@ async def file_exists(key: str, bucket: str | None = None) -> bool:
         ClientError: If the check fails (other than 404)
     """
     bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
-    session = get_storage_session()
 
     try:
-        async with session.client("s3") as s3_client:
+        async with get_storage_client() as s3_client:
             await s3_client.head_object(Bucket=bucket, Key=key)
             return True
     except ClientError as e:
