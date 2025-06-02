@@ -1,9 +1,15 @@
 """Comprehensive test suite for case attachments security with polyfile integration."""
 
-import pytest
+import uuid
 
-from tracecat import storage
-from tracecat.cases.models import CaseAttachmentCreate
+import pytest
+from polyfile.magic import MagicMatcher
+
+from tracecat import config, storage
+from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.models import CaseAttachmentCreate, CaseCreate
+from tracecat.cases.service import CasesService
+from tracecat.types.exceptions import TracecatNotFoundError
 
 
 class TestFileSecurityValidator:
@@ -514,7 +520,6 @@ class TestPolyfileIntegration:
     @pytest.mark.anyio
     async def test_polyfile_import_and_basic_functionality(self):
         """Test that polyfile is properly imported and functional."""
-        from polyfile.magic import MagicMatcher
 
         # Test basic polyfile functionality
         test_content = b"Hello, World!"
@@ -554,3 +559,321 @@ class TestPolyfileIntegration:
         except ValueError:
             # If it fails, it should be due to our validation, not polyfile crashes
             pass
+
+
+# === INTEGRATION TESTS FOR CASE ATTACHMENT ENDPOINTS ===
+
+
+class TestCaseAttachmentEndpointsIntegration:
+    """Integration tests for case attachment endpoints with MinIO storage."""
+
+    @pytest.fixture(scope="class")
+    def minio_config(self):
+        """Configuration for connecting to MinIO instance."""
+        return {
+            "protocol": "minio",
+            "endpoint": "http://localhost:9000",
+            "bucket": "test-tracecat-attachments",
+            "user": "minioadmin",
+            "password": "miniopassword",
+            "presigned_url_expiry": 300,
+        }
+
+    @pytest.fixture(autouse=True)
+    async def setup_blob_storage_config(self, monkeypatch, minio_config):
+        """Configure blob storage environment variables for testing."""
+
+        # Set environment variables
+        monkeypatch.setenv("TRACECAT__BLOB_STORAGE_PROTOCOL", minio_config["protocol"])
+        monkeypatch.setenv("TRACECAT__BLOB_STORAGE_BUCKET", minio_config["bucket"])
+        monkeypatch.setenv("TRACECAT__BLOB_STORAGE_ENDPOINT", minio_config["endpoint"])
+        monkeypatch.setenv(
+            "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY",
+            str(minio_config["presigned_url_expiry"]),
+        )
+        monkeypatch.setenv("MINIO_ROOT_USER", minio_config["user"])
+        monkeypatch.setenv("MINIO_ROOT_PASSWORD", minio_config["password"])
+
+        # Update config module attributes
+        monkeypatch.setattr(
+            config, "TRACECAT__BLOB_STORAGE_PROTOCOL", minio_config["protocol"]
+        )
+        monkeypatch.setattr(
+            config, "TRACECAT__BLOB_STORAGE_BUCKET", minio_config["bucket"]
+        )
+        monkeypatch.setattr(
+            config, "TRACECAT__BLOB_STORAGE_ENDPOINT", minio_config["endpoint"]
+        )
+        monkeypatch.setattr(
+            config,
+            "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY",
+            minio_config["presigned_url_expiry"],
+        )
+
+        # Ensure bucket exists
+        try:
+            await storage.ensure_bucket_exists(minio_config["bucket"])
+        except Exception:
+            # Skip if MinIO is not available
+            pytest.skip("MinIO not available for integration tests")
+
+    @pytest.fixture
+    async def test_case(self, async_session, test_role):
+        """Create a test case for attachment testing."""
+
+        service = CasesService(async_session, test_role)
+        case_data = CaseCreate(
+            summary="Test Case for Attachments",
+            description="A test case for testing file attachments",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.MEDIUM,
+        )
+        case = await service.create_case(case_data)
+        yield case
+
+        # Cleanup: Delete the case and its attachments
+        try:
+            await service.delete_case(case)
+        except Exception:
+            pass  # Ignore cleanup errors
+
+    @pytest.mark.anyio
+    async def test_service_level_attachment_operations(
+        self, async_session, test_role, test_case, minio_config
+    ):
+        """Test attachment operations at the service level with MinIO integration."""
+
+        service = CasesService(async_session, test_role)
+
+        # Test 1: List empty attachments
+        attachments = await service.attachments.list_attachments(test_case)
+        assert len(attachments) == 0
+
+        # Test 2: Upload valid attachment
+        pdf_content = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n>>\nendobj\nxref\n0 1\n0000000000 65535 f \ntrailer\n<<\n/Size 1\n/Root 1 0 R\n>>\nstartxref\n9\n%%EOF"
+
+        attachment_data = CaseAttachmentCreate(
+            file_name="test_document.pdf",
+            content_type="application/pdf",
+            size=len(pdf_content),
+            content=pdf_content,
+        )
+
+        attachment = await service.attachments.create_attachment(
+            test_case, attachment_data
+        )
+
+        # Verify attachment was created
+        assert attachment.file.name == "test_document.pdf"
+        assert attachment.file.content_type == "application/pdf"
+        assert attachment.file.size == len(pdf_content)
+        assert attachment.case_id == test_case.id
+
+        # Test 3: Verify file exists in MinIO
+        storage_key = f"attachments/{attachment.file.sha256}"
+        assert await storage.file_exists(storage_key, bucket=minio_config["bucket"])
+
+        # Test 4: Download attachment
+        (
+            downloaded_content,
+            filename,
+            content_type,
+        ) = await service.attachments.download_attachment(test_case, attachment.id)
+        assert downloaded_content == pdf_content
+        assert filename == "test_document.pdf"
+        assert content_type == "application/pdf"
+
+        # Test 5: List attachments (should have one)
+        attachments = await service.attachments.list_attachments(test_case)
+        assert len(attachments) == 1
+        assert attachments[0].id == attachment.id
+
+        # Test 6: Get storage usage
+        total_storage = await service.attachments.get_total_storage_used(test_case)
+        assert total_storage == len(pdf_content)
+
+        # Test 7: Delete attachment
+        await service.attachments.delete_attachment(test_case, attachment.id)
+
+        # Verify attachment is marked as deleted
+        attachments = await service.attachments.list_attachments(test_case)
+        assert len(attachments) == 0
+
+    @pytest.mark.anyio
+    async def test_service_level_invalid_file_upload(
+        self, async_session, test_role, test_case
+    ):
+        """Test that invalid files are rejected at the service level."""
+        service = CasesService(async_session, test_role)
+
+        # Test invalid file type
+        exe_content = b"MZ\x90\x00\x03\x00\x00\x00"
+        attachment_data = CaseAttachmentCreate(
+            file_name="malicious.exe",
+            content_type="application/x-executable",
+            size=len(exe_content),
+            content=exe_content,
+        )
+
+        with pytest.raises(ValueError, match="not allowed"):
+            await service.attachments.create_attachment(test_case, attachment_data)
+
+        # Test oversized file
+        large_content = b"x" * (51 * 1024 * 1024)  # 51MB
+        attachment_data = CaseAttachmentCreate(
+            file_name="large_file.txt",
+            content_type="text/plain",
+            size=len(large_content),
+            content=large_content,
+        )
+
+        with pytest.raises(ValueError, match="exceeds maximum"):
+            await service.attachments.create_attachment(test_case, attachment_data)
+
+        # Test malicious content
+        malicious_content = b"<script>alert('xss')</script>"
+        attachment_data = CaseAttachmentCreate(
+            file_name="malicious.txt",
+            content_type="text/plain",
+            size=len(malicious_content),
+            content=malicious_content,
+        )
+
+        with pytest.raises(ValueError, match="dangerous"):
+            await service.attachments.create_attachment(test_case, attachment_data)
+
+    @pytest.mark.anyio
+    async def test_service_level_file_deduplication(
+        self, async_session, test_role, test_case
+    ):
+        """Test file deduplication at the service level."""
+
+        service = CasesService(async_session, test_role)
+
+        # Upload the same content twice with different names
+        test_content = b"This content will be uploaded twice"
+
+        attachment_data1 = CaseAttachmentCreate(
+            file_name="file1.txt",
+            content_type="text/plain",
+            size=len(test_content),
+            content=test_content,
+        )
+
+        attachment1 = await service.attachments.create_attachment(
+            test_case, attachment_data1
+        )
+
+        attachment_data2 = CaseAttachmentCreate(
+            file_name="file2.txt",
+            content_type="text/plain",
+            size=len(test_content),
+            content=test_content,
+        )
+
+        attachment2 = await service.attachments.create_attachment(
+            test_case, attachment_data2
+        )
+
+        # Both should have the same SHA256 hash (deduplication)
+        assert attachment1.file.sha256 == attachment2.file.sha256
+
+        # But different attachment IDs and filenames
+        assert attachment1.id != attachment2.id
+        assert attachment1.file.name != attachment2.file.name
+
+    @pytest.mark.anyio
+    async def test_service_level_multiple_file_types(
+        self, async_session, test_role, test_case
+    ):
+        """Test uploading multiple different file types."""
+        service = CasesService(async_session, test_role)
+
+        # Upload multiple different file types
+        files_to_upload = [
+            ("document.pdf", b"%PDF-1.4\nPDF content", "application/pdf"),
+            ("text.txt", b"Plain text content", "text/plain"),
+            ("image.jpg", b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01", "image/jpeg"),
+        ]
+
+        uploaded_attachments = []
+        for filename, content, content_type in files_to_upload:
+            attachment_data = CaseAttachmentCreate(
+                file_name=filename,
+                content_type=content_type,
+                size=len(content),
+                content=content,
+            )
+            attachment = await service.attachments.create_attachment(
+                test_case, attachment_data
+            )
+            uploaded_attachments.append(attachment)
+
+        # List all attachments
+        attachments = await service.attachments.list_attachments(test_case)
+        assert len(attachments) == 3
+
+        # Verify all files are present
+        uploaded_names = {att.file.name for att in uploaded_attachments}
+        listed_names = {att.file.name for att in attachments}
+        assert uploaded_names == listed_names
+
+    @pytest.mark.anyio
+    async def test_service_level_attachment_not_found(
+        self, async_session, test_role, test_case
+    ):
+        """Test handling of non-existent attachments."""
+
+        service = CasesService(async_session, test_role)
+
+        # Try to download non-existent attachment
+        fake_attachment_id = uuid.uuid4()
+
+        with pytest.raises(TracecatNotFoundError):
+            await service.attachments.download_attachment(test_case, fake_attachment_id)
+
+        # Try to delete non-existent attachment
+        with pytest.raises(TracecatNotFoundError):
+            await service.attachments.delete_attachment(test_case, fake_attachment_id)
+
+    @pytest.mark.anyio
+    async def test_service_level_filename_sanitization(
+        self, async_session, test_role, test_case
+    ):
+        """Test filename sanitization at the service level."""
+        service = CasesService(async_session, test_role)
+
+        # Try to upload file with problematic filename
+        test_content = b"Content for filename sanitization test"
+
+        attachment_data = CaseAttachmentCreate(
+            file_name="../../../etc/passwd",
+            content_type="text/plain",
+            size=len(test_content),
+            content=test_content,
+        )
+
+        with pytest.raises(ValueError, match="invalid path characters"):
+            await service.attachments.create_attachment(test_case, attachment_data)
+
+    @pytest.mark.anyio
+    async def test_service_level_content_type_validation(
+        self, async_session, test_role, test_case
+    ):
+        """Test content type validation at the service level."""
+
+        service = CasesService(async_session, test_role)
+
+        # Upload with mismatched content type
+        pdf_content = b"%PDF-1.4\nPDF content"
+
+        attachment_data = CaseAttachmentCreate(
+            file_name="document.pdf",
+            content_type="text/plain",  # Wrong content type
+            size=len(pdf_content),
+            content=pdf_content,
+        )
+
+        with pytest.raises(ValueError, match="does not match"):
+            await service.attachments.create_attachment(test_case, attachment_data)
