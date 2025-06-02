@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Lookup agents by hostname
+  description: Find all SentinelOne agents by hostname/computer name.
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=get-agents
+  namespace: tools.sentinel_one
+  name: lookup_agent_hostname
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    hostname:
+      type: str
+      description: Hostname/computer name to search for (supports partial matches).
+    limit:
+      type: int
+      description: The maximum number of agents to return.
+      default: 100
+    base_url:
+      type: str
+      description: SentinelOne tenant URL.
+  steps:
+    - ref: query_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents
+        method: GET
+        timeout: 60
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+        params:
+          computerName__like: ${{ inputs.hostname }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.query_agents.result }}

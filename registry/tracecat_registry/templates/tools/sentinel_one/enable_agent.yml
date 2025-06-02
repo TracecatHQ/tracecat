@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Enable agent
+  description: Enable a SentinelOne agent.
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=post-agents-actions-enable-agent
+  namespace: tools.sentinel_one
+  name: enable_agent
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    agent_id:
+      type: str
+      description: ID of the agent to enable.
+    base_url:
+      type: str
+      description: SentinelOne tenant URL.
+    should_reboot:
+      type: bool
+      description: Whether the agent should reboot after enabling.
+      default: false
+  steps:
+    - ref: enable_agent
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents/actions/enable-agent
+        method: POST
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+          Content-Type: "application/json"
+        payload:
+          filter:
+            ids: ["${{ inputs.agent_id }}"]
+          data:
+            shouldReboot: ${{ inputs.should_reboot }}
+  returns: ${{ steps.enable_agent.result }}
