@@ -3414,6 +3414,82 @@ async def test_workflow_detached_child_workflow(
             },
             id="sequential-explode-implode",
         ),
+        # Parallel explode/implode blocks, then join
+        pytest.param(
+            DSLInput(
+                title="Parallel Explode-Implode blocks joined",
+                description=(
+                    "Test two explode/reshape/implode blocks running in parallel, "
+                    "then joined in a final action. The structure is: "
+                ),
+                entrypoint=DSLEntrypoint(ref="start"),
+                actions=[
+                    # Start splits into two parallel explodes
+                    ActionStatement(
+                        ref="ex1",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(
+                            collection="${{ [1, 2] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="ex2",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(
+                            collection="${{ [10, 20] }}",
+                        ).model_dump(),
+                    ),
+                    # Reshape in each branch
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        depends_on=["ex1"],
+                        args={"value": "${{ FN.mul(ACTIONS.ex1.result, 2) }}"},
+                    ),
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["ex2"],
+                        args={"value": "${{ FN.add(ACTIONS.ex2.result, 5) }}"},
+                    ),
+                    # Implode in each branch
+                    ActionStatement(
+                        ref="im1",
+                        action="core.transform.implode",
+                        depends_on=["a"],
+                        args=ImplodeArgs(items="${{ ACTIONS.a.result }}").model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="im2",
+                        action="core.transform.implode",
+                        depends_on=["b"],
+                        args=ImplodeArgs(items="${{ ACTIONS.b.result }}").model_dump(),
+                    ),
+                    # Join both results in C
+                    ActionStatement(
+                        ref="c",
+                        action="core.transform.reshape",
+                        depends_on=["im1", "im2"],
+                        args={
+                            "value": "${{ ACTIONS.im1.result + ACTIONS.im2.result }}"
+                        },
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # ex1: [1,2] -> A: [2,4] -> im1: [2,4]
+                    # ex2: [10,20] -> B: [15,25] -> im2: [15,25]
+                    # C: [2,4,15,25]
+                    "im1": {"result": [2, 4], "result_typename": "list"},
+                    "im2": {"result": [15, 25], "result_typename": "list"},
+                    "c": {"result": [2, 4, 15, 25], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="parallel-explode-implode-join",
+        ),
         # 4. Explode followed by implode directly (no action in between)
         pytest.param(
             DSLInput(
