@@ -231,19 +231,20 @@ def build_agent(
                 f"Invalid JSONSchema: {output_type}. Missing top-level `name` or `title` field."
             )
 
-    mcp_servers = mcp_servers or []
-
     agent_kwargs = {
         "model": model,
         "instructions": instructions,
         "output_type": response_format,
         "model_settings": ModelSettings(**model_settings) if model_settings else None,
-        "mcp_servers": mcp_servers,
-        "tools": tools,
         "retries": retries,
     }
 
-    # Only add deps_type if it's not None
+    if tools:
+        agent_kwargs["tools"] = tools
+
+    if mcp_servers:
+        agent_kwargs["mcp_servers"] = mcp_servers
+
     if deps_type is not None:
         agent_kwargs["deps_type"] = deps_type
 
