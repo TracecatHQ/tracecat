@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -8,7 +9,7 @@ from tracecat.expressions.validation import ExpressionStr
 
 
 class ExplodeArgs(BaseModel):
-    collection: ExpressionStr = Field(..., description="The collection to explode")
+    collection: Any = Field(..., description="The collection to explode")
 
 
 class ImplodeArgs(BaseModel):

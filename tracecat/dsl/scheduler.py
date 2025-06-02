@@ -33,6 +33,7 @@ from tracecat.dsl.models import (
 )
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import TemplateExpression
+from tracecat.expressions.eval import eval_templated_object
 from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
 
@@ -655,7 +656,7 @@ class DSLScheduler:
 
         args = ExplodeArgs(**stmt.args)
         context = self.get_context(curr_scope_id)
-        collection = TemplateExpression(args.collection, operand=context).result()
+        collection = eval_templated_object(args.collection, operand=context)
 
         if not isinstance(collection, list):
             raise ApplicationError(
