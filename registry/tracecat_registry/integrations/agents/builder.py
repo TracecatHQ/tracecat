@@ -362,12 +362,13 @@ async def agent(
     model_name: Annotated[str, Doc("Name of the model to use.")],
     model_provider: Annotated[str, Doc("Provider of the model to use.")],
     namespaces: Annotated[
-        list[str], Doc("Namespaces (e.g. 'tools.slack') to include in the agent.")
-    ],
+        list[str] | str | None,
+        Doc("Namespaces (e.g. 'tools.slack') to include in the agent."),
+    ] = None,
     actions: Annotated[
-        list[str],
+        list[str] | str | None,
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
-    ],
+    ] = None,
     instructions: Annotated[str | None, Doc("Instructions for the agent.")] = None,
     include_usage: Annotated[
         bool, Doc("Whether to include usage information in the output.")
@@ -380,6 +381,17 @@ async def agent(
         base_url=base_url,
         instructions=instructions,
     )
+
+    if not namespaces and not actions:
+        raise ValueError("Either namespaces or actions must be provided")
+
+    if isinstance(namespaces, str):
+        namespaces = [namespaces]
+    if isinstance(actions, str):
+        actions = [actions]
+
+    namespaces = namespaces or []
+    actions = actions or []
     agent = (
         await builder.with_namespace_filters(namespaces)
         .with_action_filters(actions)

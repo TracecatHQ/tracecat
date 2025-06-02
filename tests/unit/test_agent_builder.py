@@ -959,7 +959,6 @@ class TestAgentBuilderIntegration:
                 model_name="gpt-4o-mini",
                 model_provider="openai",
                 namespaces=["tools.slack"],
-                actions=[],
                 instructions="You are a helpful assistant that can post messages to Slack.",
                 include_usage=True,
             )
