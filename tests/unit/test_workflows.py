@@ -3641,6 +3641,179 @@ async def test_workflow_detached_child_workflow(
             },
             id="a-explode-b-implode-c-skip-explode-only-a",
         ),
+        # Empty collection explode
+        pytest.param(
+            DSLInput(
+                title="Explode empty collection",
+                # Improved explanation:
+                # This test verifies the correct behavior when the 'explode' action receives an empty collection.
+                # The expected behavior is:
+                # - The 'explode' action should not produce any execution streams, as there are no items to process.
+                # - The 'implode' action, which depends on 'explode', should be executed in the global context.
+                # - The result of 'implode' should be an empty list, since there were no items to aggregate.
+                # - No other actions should run, and the workflow should complete successfully.
+                description=(
+                    "Test that when an empty collection is provided to the 'explode' action, "
+                    "no execution streams are created and the dependent 'implode' action "
+                    "returns an empty list as its result. This ensures that the workflow "
+                    "handles empty collections gracefully and does not fail or produce "
+                    "unexpected results."
+                ),
+                entrypoint=DSLEntrypoint(ref="explode"),
+                actions=[
+                    ActionStatement(
+                        ref="explode",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(collection=[]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="implode",
+                        action="core.transform.implode",
+                        depends_on=["explode"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.explode.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "implode": {
+                        "result": [],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="explode-empty-collection",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Explode empty collection with actions between",
+                description="Test that an empty collection is exploded and then imploded with actions between",
+                entrypoint=DSLEntrypoint(ref="explode"),
+                actions=[
+                    ActionStatement(
+                        ref="explode",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(collection=[]).model_dump(),
+                    ),
+                    # This should skip
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["explode"],
+                        args={"value": "${{ ACTIONS.explode.result }}"},
+                    ),
+                    # This should return an empty list
+                    ActionStatement(
+                        ref="implode",
+                        action="core.transform.implode",
+                        depends_on=["reshape"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.reshape.result }}"
+                        ).model_dump(),
+                    ),
+                    # Continue with a reshape
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["implode"],
+                        args={"value": "${{ ACTIONS.implode.result }}"},
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "implode": {"result": [], "result_typename": "list"},
+                    "reshape2": {"result": [], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="explode-empty-collection-between",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Nested explode with empty collection inside",
+                description=(
+                    "Test correct handling of an empty collection in a nested explode scenario. "
+                    "The workflow first explodes a non-empty collection ([1, 2, 3]) at the top level (explode1). "
+                    "For each item, it attempts a second-level explode (explode2) with an empty collection. "
+                    "Since explode2's collection is empty, all downstream actions (reshape, implode2) in that branch "
+                    "should be skipped for every item. The test verifies that the skip logic is correctly propagated, "
+                    "and that the outer implode (implode1) collects the original items from explode1, resulting in [1, 2, 3]. "
+                    "reshape2 then operates on this result. Only actions in the main execution stream (implode1, reshape2) "
+                    "should appear in the final ACTIONS context; skipped actions (reshape, implode2) should not."
+                ),
+                entrypoint=DSLEntrypoint(ref="explode"),
+                actions=[
+                    # Level 1: Explode a non-empty collection
+                    ActionStatement(
+                        ref="explode1",
+                        action="core.transform.explode",
+                        args=ExplodeArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    # Level 2: This explode is nested and its collection is empty,
+                    # so all downstream actions in this branch should be skipped.
+                    ActionStatement(
+                        ref="explode2",
+                        action="core.transform.explode",
+                        depends_on=["explode1"],
+                        args=ExplodeArgs(collection=[]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["explode2"],
+                        args={"value": "${{ ACTIONS.explode2.result }}"},
+                    ),
+                    # This implode is downstream of the skipped explode2/reshape,
+                    # so it should also be skipped.
+                    ActionStatement(
+                        ref="implode2",
+                        action="core.transform.implode",
+                        depends_on=["reshape"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.reshape.result }}"
+                        ).model_dump(),
+                    ),
+                    # This implode collects the results from the outer explode1.
+                    ActionStatement(
+                        ref="implode1",
+                        action="core.transform.implode",
+                        depends_on=["implode2"],
+                        args=ImplodeArgs(
+                            items="${{ ACTIONS.explode1.result }}"
+                        ).model_dump(),
+                    ),
+                    # Final reshape, should operate on the result of implode1.
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["implode1"],
+                        args={"value": "${{ ACTIONS.implode1.result }}"},
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "implode1": {
+                        "result": [1, 2, 3],
+                        "result_typename": "list",
+                    },  # The outer implode collects the original items.
+                    # Only reshape2 is present because reshape (and thus implode2) are skipped.
+                    "reshape2": {
+                        "result": [1, 2, 3],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-explode-empty-collection-inside",
+        ),
     ],
 )
 async def test_workflow_explode_implode(
@@ -3670,3 +3843,24 @@ async def test_workflow_explode_implode(
         )
         assert result is not None
         assert result == expected
+
+
+# @pytest.mark.anyio
+# async def test_workflow_error_handler_itself_fails(test_role, temporal_client):
+#     """Test when the error handler workflow itself fails."""
+
+#     # Create a failing error handler
+#     failing_handler_dsl = DSLInput(
+#         title="Failing Error Handler",
+#         description="Test that an error handler workflow itself fails",
+#         entrypoint=DSLEntrypoint(ref="handler_error"),
+#         actions=[
+#             ActionStatement(
+#                 ref="handler_error",
+#                 action="core.transform.reshape",
+#                 args={"value": "${{ 1/0 }}"},
+#             )  # This will fail
+#         ],
+#     )
+
+#     # Test that we get appropriate error when error handler fails

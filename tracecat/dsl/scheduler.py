@@ -3,7 +3,7 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, ClassVar, Self, cast
+from typing import Any, ClassVar, Literal, Self, cast
 
 from pydantic_core import to_json
 from temporalio import workflow
@@ -37,33 +37,42 @@ from tracecat.expressions.eval import eval_templated_object
 from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
 
+type SkipToken = Literal["skip"]
+
 
 class StreamID(str):
     """Hierarchical stream identifier: 'explode_1:2/explode_2:0'"""
 
-    __stream_delim: ClassVar[str] = "/"
-    __idx_delim: ClassVar[str] = ":"
+    __stream_sep: ClassVar[str] = "/"
+    __idx_sep: ClassVar[str] = ":"
 
     @classmethod
-    def new(cls, ref: str, index: int, *, base_stream_id: Self | None = None) -> Self:
+    def new(
+        cls, scope: str, index: int | SkipToken, *, base_stream_id: Self | None = None
+    ) -> Self:
         """Create a stream ID for an inherited explode item"""
-        new_stream = cls(f"{ref}{cls.__idx_delim}{index}")
+        new_stream = cls(f"{scope}{cls.__idx_sep}{index}")
         if base_stream_id is None:
             return new_stream
-        return cls(f"{base_stream_id}{cls.__stream_delim}{new_stream}")
+        return cls(f"{base_stream_id}{cls.__stream_sep}{new_stream}")
+
+    @classmethod
+    def skip(cls, scope: str, *, base_stream_id: Self | None = None) -> Self:
+        """Create a stream ID for a skipped explode"""
+        return cls.new(scope, "skip", base_stream_id=base_stream_id)
 
     @cached_property
     def streams(self) -> list[str]:
-        """Get the list of scopes in the stream ID"""
-        return self.split(self.__stream_delim)
+        """Get the list of streams in the stream ID"""
+        return self.split(self.__stream_sep)
 
     @cached_property
-    def leaf(self) -> tuple[str, int]:
+    def leaf(self) -> tuple[str, int | SkipToken]:
         """Get the leaf stream ID"""
-        ref, index, *rest = self.streams[-1].split(self.__idx_delim)
+        scope, index, *rest = self.streams[-1].split(self.__idx_sep)
         if rest:
             raise ValueError(f"Invalid stream ID: {self}")
-        return ref, int(index)
+        return scope, int(index) if index != "skip" else "skip"
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +81,7 @@ class Task:
 
     ref: str
     stream_id: StreamID | None = None  # None for global stream
+    scope_id: str | None = None  # None for global scope
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +170,8 @@ class DSLScheduler:
         self.streams: dict[StreamID, ExecutionContext] = {}
         self.stream_hierarchy: dict[StreamID, StreamID | None] = {}
         """Points to the parent stream ID for each stream ID"""
+        self.scope_hierarchy: dict[str, str | None] = {}
+        """Points to the parent scope ID for each scope ID"""
         self.task_streams: defaultdict[Task, list[StreamID]] = defaultdict(list)
         self.scope_counters: defaultdict[str, Counter] = defaultdict(Counter)
         """Used to create unique stream IDs for each explode iteration"""
@@ -189,9 +201,17 @@ class DSLScheduler:
 
     async def _handle_error_path(self, task: Task, exc: Exception) -> None:
         ref = task.ref
-        self.logger.debug(
-            "Handling error path", ref=ref, type=exc.__class__.__name__, exc=exc
+        import traceback
+
+        # Log the error with traceback
+        tb_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        self.logger.error(
+            "Handling error path",
+            ref=ref,
+            type=exc.__class__.__name__,
+            exc=exc,
         )
+        self.logger.error(tb_str)
         # Prune any non-error paths and queue the rest
         non_err_edges: set[DSLEdge] = {
             DSLEdge(src=ref, dst=dst, type=edge_type, stream_id=task.stream_id)
@@ -357,7 +377,8 @@ class DSLScheduler:
         # This allows us to have diamond-shaped graphs where some branches can be skipped
         # but at the join point, if any parent was not skipped, then the child can still be executed.
         ref = task.ref
-        scope_id = task.stream_id
+        stream_id = task.stream_id
+        scope_id = task.scope_id
         next_tasks = self.adj[ref]
         self.logger.warning(
             "Queueing tasks",
@@ -366,12 +387,13 @@ class DSLScheduler:
             visited_tasks=self.completed_tasks,
             next_tasks=next_tasks,
             unreachable=unreachable,
+            SCOPE=scope_id,
         )
         async with asyncio.TaskGroup() as tg:
             for next_ref, edge_type in next_tasks:
                 self.logger.debug("Processing next task", ref=ref, next_ref=next_ref)
                 edge = DSLEdge(
-                    src=ref, dst=next_ref, type=edge_type, stream_id=scope_id
+                    src=ref, dst=next_ref, type=edge_type, stream_id=stream_id
                 )
                 if unreachable and edge in unreachable:
                     self._mark_edge(edge, EdgeMarker.SKIPPED)
@@ -379,7 +401,7 @@ class DSLScheduler:
                     self._mark_edge(edge, EdgeMarker.VISITED)
                 # Mark the edge as processed
                 # Task inherits the current stream
-                next_task = Task(next_ref, task.stream_id)
+                next_task = Task(ref=next_ref, stream_id=stream_id, scope_id=scope_id)
                 # We dynamically add the indegree of the next task to the indegrees dict
                 if next_task not in self.indegrees:
                     self.indegrees[next_task] = len(self.tasks[next_ref].depends_on)
@@ -438,7 +460,6 @@ class DSLScheduler:
             # -- If this is a control flow action (explode), we need to
             # handle it differently.
             if stmt.action == PlatformAction.TRANSFORM_EXPLODE:
-                # Handle explode with proper stream creation
                 return await self._handle_explode(task, stmt)
             # 0) Always handle implode first - its a synchronization barrier that needs
             # to run regardless of dependency skip states
@@ -472,9 +493,9 @@ class DSLScheduler:
         """Run the scheduler and return any exceptions that occurred."""
         # Instead of explicitly setting the entrypoint, we set all zero-indegree
         # tasks to the queue.
-        for task_ref, indegree in self.indegrees.items():
+        for task_instance, indegree in self.indegrees.items():
             if indegree == 0:
-                self.queue.put_nowait(task_ref)
+                self.queue.put_nowait(task_instance)
 
         pending_tasks: set[asyncio.Task[None]] = set()
 
@@ -497,8 +518,9 @@ class DSLScheduler:
             pending_tasks.difference_update(done_tasks)
 
             if not self.queue.empty():
-                task_ref = await self.queue.get()
-                task = asyncio.create_task(self._schedule_task(task_ref))
+                task_instance = await self.queue.get()
+                self.logger.warning("Scheduling task", task=task_instance)
+                task = asyncio.create_task(self._schedule_task(task_instance))
                 pending_tasks.add(task)
             elif pending_tasks:
                 # Wait for at least one pending task to complete
@@ -655,11 +677,17 @@ class DSLScheduler:
         The tasks in each stream are executed in the order of the collection.
 
         """
-        curr_scope_id = task.stream_id
+        # Our current location, before creating any new streams
+        curr_stream_id = task.stream_id
+        curr_scope_id = task.scope_id
         self.logger.info("EXPLODE", task=task)
 
+        # 1) Create a new scope (ALWAYS)
+        new_scope_id = task.ref
+        self.scope_hierarchy[new_scope_id] = curr_scope_id
+
         args = ExplodeArgs(**stmt.args)
-        context = self.get_context(curr_scope_id)
+        context = self.get_context(curr_stream_id)
         collection = eval_templated_object(args.collection, operand=context)
 
         if not isinstance(collection, list):
@@ -668,28 +696,43 @@ class DSLScheduler:
                 non_retryable=True,
             )
 
+        # ALWAYS initialize tracking structures (even for empty collections)
+        # This ensures that _handle_implode can find the explode task in tracking structures
+
+        streams: list[StreamID] = []
+        self.task_streams[task] = streams
+        # -- SKIP STREAM
         if not collection:
-            # TODO: proper handling
+            self.open_streams[task] = 0
             self.logger.warning("Empty collection for explode", task=task)
             # Handle empty collection - mark explode as completed and continue
-            # await self._handle_success_path(ref)
-            return
+            # The tracking structures are already initialized above with empty values
 
-        # New scopes
-        streams: list[StreamID] = []
+            new_stream_id = StreamID.skip(task.ref, base_stream_id=curr_stream_id)
+            self.stream_hierarchy[new_stream_id] = curr_stream_id
+            self.streams[new_stream_id] = {ExprContext.ACTIONS: {}}
+            unreachable = {
+                DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=new_stream_id)
+                for dst, edge_type in self.adj[task.ref]
+            }
+            skip_task = Task(
+                ref=task.ref, stream_id=new_stream_id, scope_id=new_scope_id
+            )
+            self.logger.warning("Queueing skip stream", skip_task=skip_task)
+            # Acknowledge the new scope
+            return await self._queue_tasks(skip_task, unreachable=unreachable)
 
-        logger.warning("Exploding collection", task=task, collection=collection)
+        # -- EXECUTION STREAM
+        self.logger.warning("Exploding collection", task=task, collection=collection)
 
         # Create stream for each collection item
         async for i, item in cooperative(enumerate(collection)):
-            stream_id = StreamID.new(task.ref, i, base_stream_id=curr_scope_id)
-            self.logger.info(
-                "Creating stream", stream_id=stream_id, item=item, task=task
-            )
-            streams.append(stream_id)
+            new_stream_id = StreamID.new(task.ref, i, base_stream_id=curr_stream_id)
+            streams.append(new_stream_id)
 
             # Initialize stream with single item
-            self.streams[stream_id] = {
+            self.stream_hierarchy[new_stream_id] = curr_stream_id
+            self.streams[new_stream_id] = {
                 ExprContext.ACTIONS: {
                     task.ref: TaskResult(
                         result=item,
@@ -697,27 +740,23 @@ class DSLScheduler:
                     ),
                 }
             }
-            self.stream_hierarchy[stream_id] = curr_scope_id
 
             # Create tasks for all tasks in this stream
-            new_scoped_task = Task(task.ref, stream_id)
+            new_scoped_task = Task(
+                ref=task.ref, stream_id=new_stream_id, scope_id=new_scope_id
+            )
+            self.logger.info(
+                "Creating stream",
+                item=item,
+                stream_id=new_stream_id,
+                task=new_scoped_task,
+            )
             # This will queue the task for execution stream
             # TODO: Handle unreachable tasks??
             coro = self._queue_tasks(new_scoped_task, unreachable=None)
             _ = asyncio.create_task(coro)
 
-        self.task_streams[task] = streams
         self.open_streams[task] = len(streams)
-        # Queue initial tasks in each stream
-        self.logger.warning(
-            "Queueing initial tasks",
-            task=task,
-            streams=streams,
-            open_streams=self.open_streams[task],
-            task_streams_size=len(self.task_streams[task]),
-            scope_counters_value=self.scope_counters[task.ref].value,
-        )
-
         # Get the next tasks to queue
         self.logger.warning(
             "Explode completed",
@@ -728,10 +767,15 @@ class DSLScheduler:
 
     def get_context(self, stream_id: StreamID | None = None) -> ExecutionContext:
         if stream_id is None:
-            self.logger.warning("Getting global context", context=self.context)
+            self.logger.warning(
+                f"Getting global context {to_json(self.context, indent=2).decode()}"
+            )
             return self.context
-        self.logger.warning("Getting scoped context", stream_id=stream_id)
-        return self.streams[stream_id]
+        context = self.streams[stream_id]
+        self.logger.warning(
+            f"Getting scoped context {stream_id} {to_json(context, indent=2).decode()}"
+        )
+        return context
 
     async def _handle_implode(
         self, task: Task, stmt: ActionStatement, *, is_skipping: bool = False
@@ -747,22 +791,131 @@ class DSLScheduler:
         Edge cases:
         - If used in the global stream (no matching explode), implode does nothing and returns early.
           This allows implodes to be safely scheduled even when their corresponding explode was skipped.
+
+        Cases:
+        - NO execution stream but has scope - means the explode was skipped because the collection was empty
+        --- Just place an empty array in the result
+        - NO execution stream but no scope - means this implode occurred without a corresponding explode
+        - Has execution stream but no scope
+        --- If we're in the global scope, this is an invalid state
+        --- If we're in a scoped context, this can only happen if the explode didn't run
+        - Has execution stream and scope - this is the normal case
+
+        IN OTHER WORDS
+        - Implode should only look at scope_id to make decisions.
+        - If implode arrives without stream, look at scope_id. In these cases we should just set the value to empty array.
         """
-        stream_id = task.stream_id
-        if stream_id is None:
-            # Implode in global stream means no corresponding explode ran (likely skipped).
-            # This is safe to ignore - we just mark the task as completed and continue.
-            self.logger.debug("Implode in global stream, doing nothing", task=task)
-            return
+        self.logger.info("Handling implode", task=task)
+        match task:
+            # Global execution stream. No scope (no explode fired)
+            case Task(stream_id=None, scope_id=None):
+                self.logger.warning(
+                    "Implode in global stream, no corresponding scope",
+                    task=task,
+                    is_skipping=is_skipping,
+                )
+                if not is_skipping:
+                    raise RuntimeError(
+                        f"Implode in global stream, no corresponding scope, but not skipping: {task}. User has probably made a mistake"
+                    )
+                return
+
+            # Global execution stream. Has scope
+            case Task(stream_id=None, scope_id=scope_id) if scope_id:
+                self.logger.warning(
+                    "Implode in global stream, doing nothing", task=task
+                )
+                # We saw the explode `scope_id` but we aren't in a scoped execution stream.
+                # This means we're in the cleanup flow.
+
+                # The result is known beforehand -- it's an empty array
+                # But in which context should we set it?
+                # Since stream_id is None, we're in the global context.
+
+                parent_action_context = self._get_action_context(None)
+                parent_action_context[task.ref] = TaskResult(
+                    result=[], result_typename="list"
+                )
+
+                # Now we can exit the scope and queue next tasks
+                parent_scope = self.scope_hierarchy[scope_id]
+                # Stream ID here is wrong. It should be the parent stream ID.
+                next_task = Task(ref=task.ref, stream_id=None, scope_id=parent_scope)
+                return await self._queue_tasks(next_task, unreachable=None)
+
+            # Has execution stream + no scope -- explode never ran
+            case Task(stream_id=stream_id, scope_id=None) if stream_id:
+                self.logger.warning(
+                    "Implode in execution stream, doing nothing", task=task
+                )
+                raise NotImplementedError(
+                    f"Implode in execution stream, no scope, but not skipping: {task}. User has probably made a mistake"
+                )
+
+            case Task(stream_id=stream_id, scope_id=scope_id) if (
+                stream_id and scope_id and stream_id.endswith(":skip")
+            ):
+                self.logger.warning(
+                    "Implode in skip stream. Perform cleanup", task=task
+                )
+
+                parent_stream = self.stream_hierarchy[stream_id]
+                parent_action_context = self._get_action_context(parent_stream)
+                parent_action_context[task.ref] = TaskResult(
+                    result=[], result_typename="list"
+                )
+
+                # Now we can exit the scope and queue next tasks
+                parent_scope = self.scope_hierarchy[scope_id]
+                next_task = Task(
+                    ref=task.ref, stream_id=parent_stream, scope_id=parent_scope
+                )
+                self.logger.warning(
+                    "Queueing next task",
+                    next_task=next_task,
+                    parent_stream=parent_stream,
+                    parent_scope=parent_scope,
+                )
+                return await self._queue_tasks(next_task, unreachable=None)
+
+            # Has execution stream + has scope: default path
+            case Task(stream_id=stream_id, scope_id=scope_id) if stream_id and scope_id:
+                self.logger.warning(
+                    "Default implode path", scope_id=scope_id, stream_id=stream_id
+                )
+                pass
+
+            case _:
+                self.logger.info("Invalid implode state", task=task)
+                raise ApplicationError("Invalid implode state")
+        # =============
+        # We only reach this point if we are in an execution stream.
+        # =============
+
         # We are inside an execution stream. Use implode to synchronize with the other execution streams.
         self.logger.info("Handling implode in execution stream", task=task)
 
-        # This operation should return the top level stream
+        # What are we doing here?
+        # We are in an execution stream. Need to close it now.
         ex_ref, stream_idx = stream_id.leaf
+        # This operation should return the parent stream
         parent_stream_id = self.stream_hierarchy[stream_id]
-        parent_ex_task = Task(ex_ref, parent_stream_id)
+        parent_scope_id = self.scope_hierarchy[scope_id]
+        parent_ex_task = Task(
+            # This is a scope mismatch?
+            ref=ex_ref,
+            stream_id=parent_stream_id,
+            scope_id=parent_scope_id,
+        )
 
         # Close the stream regardless of whether we skipped our way to this point.
+        self.logger.warning(
+            "Closing stream",
+            task=task,
+            parent_ex_task=parent_ex_task,
+            open_streams=to_json(self.open_streams, indent=2).decode(),
+        )
+        self.logger.warning(to_json(self.open_streams, indent=2).decode())
         self.open_streams[parent_ex_task] -= 1
         if is_skipping:
             self.logger.warning("Skipped implode in execution stream", task=task)
@@ -778,17 +931,16 @@ class DSLScheduler:
         # Once we have the item, we go down 1 level in the stream hierarchy
         # and set the item as the result of the action in that stream
         # We do this for each item in the collection
-        parent_context = self.get_context(parent_stream_id)
-        parent_action_context = cast(
-            dict[str, TaskResult], parent_context[ExprContext.ACTIONS]
-        )
+        parent_action_context = self._get_action_context(parent_stream_id)
 
         # We set the item as the result of the action in that stream
         # We should actually be placing this in parent.result[i]
 
         im_ref = task.ref
+
+        # Set result array if this is the first stream
         if im_ref not in parent_action_context:
-            # NOTE: This block is executed by the first execution stream.
+            # NOTE: This block is executed by the first execution stream that finishes.
             # We need to initialize the result with the cardinality of the explode
             # This is the number of execution streams that will be synchronized by this implode
             size = len(self.task_streams[parent_ex_task])
@@ -844,14 +996,23 @@ class DSLScheduler:
                 task=task,
                 parent_scope_id=parent_stream_id,
             )
+            parent_im_task = Task(
+                ref=im_ref, stream_id=parent_stream_id, scope_id=parent_scope_id
+            )
             # TODO: Handle unreachable tasks??
-            await self._queue_tasks(Task(im_ref, parent_stream_id), unreachable=None)
+            await self._queue_tasks(parent_im_task, unreachable=None)
         else:
             self.logger.info(
                 "The execution stream is complete but the implode isn't.",
                 task=task,
                 remaining_open_scopes=self.open_streams[parent_ex_task],
             )
+
+    def _get_action_context(
+        self, stream_id: StreamID | None = None
+    ) -> dict[str, TaskResult]:
+        context = self.get_context(stream_id)
+        return cast(dict[str, TaskResult], context[ExprContext.ACTIONS])
 
     def get_scope_aware_action_result(
         self, action_ref: str, scope_id: StreamID | None = None

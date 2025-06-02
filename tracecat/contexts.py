@@ -27,7 +27,7 @@ ctx_logger: ContextVar[loguru.Logger] = ContextVar("logger", default=None)  # ty
 ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
     "interaction", default=None
 )
-ctx_stream_id: ContextVar[StreamID | None] = ContextVar("stream_id", default=None)
+ctx_stream_id: ContextVar[StreamID | None] = ContextVar("stream-id", default=None)
 
 
 ctx_env: ContextVar[dict[str, str] | None] = ContextVar("env", default=None)
