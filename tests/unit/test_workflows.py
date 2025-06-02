@@ -3189,17 +3189,17 @@ async def test_workflow_detached_child_workflow(
 @pytest.mark.parametrize(
     "dsl,expected",
     [
-        # 1. Single explode-reshape-implode (original)
+        # 1. Single scatter-reshape-gather (original)
         pytest.param(
             DSLInput(
-                title="Single explode-implode",
-                description="Test single explode-implode",
-                entrypoint=DSLEntrypoint(ref="explode"),
+                title="Single scatter-gather",
+                description="Test single scatter-gather",
+                entrypoint=DSLEntrypoint(ref="scatter"),
                 actions=[
                     # This doesn't output any result
                     ActionStatement(
-                        ref="explode",
-                        action="core.transform.explode",
+                        ref="scatter",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(
                             collection="${{ [1,2, 3] }}",
                         ).model_dump(),
@@ -3207,12 +3207,12 @@ async def test_workflow_detached_child_workflow(
                     ActionStatement(
                         ref="reshape",
                         action="core.transform.reshape",
-                        depends_on=["explode"],
-                        args={"value": "${{ FN.add(ACTIONS.explode.result, 1) }}"},
+                        depends_on=["scatter"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter.result, 1) }}"},
                     ),
                     ActionStatement(
-                        ref="implode",
-                        action="core.transform.implode",
+                        ref="gather",
+                        action="core.transform.gather",
                         depends_on=["reshape"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.reshape.result }}",
@@ -3221,9 +3221,7 @@ async def test_workflow_detached_child_workflow(
                 ],
             ),
             {
-                "ACTIONS": {
-                    "implode": {"result": [2, 3, 4], "result_typename": "list"}
-                },
+                "ACTIONS": {"gather": {"result": [2, 3, 4], "result_typename": "list"}},
                 "INPUTS": {},
                 "TRIGGER": {},
             },
@@ -3231,8 +3229,8 @@ async def test_workflow_detached_child_workflow(
         ),
         pytest.param(
             DSLInput(
-                title="Single explode-implode with surrounding actions",
-                description="Test single explode-implode with surrounding actions",
+                title="Single scatter-gather with surrounding actions",
+                description="Test single scatter-gather with surrounding actions",
                 entrypoint=DSLEntrypoint(ref="a"),
                 actions=[
                     # This doesn't output any result
@@ -3242,8 +3240,8 @@ async def test_workflow_detached_child_workflow(
                         args={"value": [1, 2, 3]},
                     ),
                     ActionStatement(
-                        ref="explode",
-                        action="core.transform.explode",
+                        ref="scatter",
+                        action="core.transform.scatter",
                         depends_on=["a"],
                         args=ExplodeArgs(
                             collection="${{ ACTIONS.a.result }}",
@@ -3252,55 +3250,55 @@ async def test_workflow_detached_child_workflow(
                     ActionStatement(
                         ref="b",
                         action="core.transform.reshape",
-                        depends_on=["explode"],
-                        args={"value": "${{ FN.add(ACTIONS.explode.result, 1) }}"},
+                        depends_on=["scatter"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter.result, 1) }}"},
                     ),
                     ActionStatement(
-                        ref="implode",
-                        action="core.transform.implode",
+                        ref="gather",
+                        action="core.transform.gather",
                         depends_on=["b"],
                         args=ImplodeArgs(items="${{ ACTIONS.b.result }}").model_dump(),
                     ),
                     ActionStatement(
                         ref="c",
                         action="core.transform.reshape",
-                        depends_on=["implode"],
-                        args={"value": "${{ ACTIONS.implode.result }}"},
+                        depends_on=["gather"],
+                        args={"value": "${{ ACTIONS.gather.result }}"},
                     ),
                 ],
             ),
             {
                 "ACTIONS": {
                     "a": {"result": [1, 2, 3], "result_typename": "list"},
-                    "implode": {"result": [2, 3, 4], "result_typename": "list"},
+                    "gather": {"result": [2, 3, 4], "result_typename": "list"},
                     "c": {"result": [2, 3, 4], "result_typename": "list"},
                 },
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="explode-implode-with-surrounding-actions",
+            id="scatter-gather-with-surrounding-actions",
         ),
-        # 2. Nested explode-implode (original)
+        # 2. Nested scatter-gather (original)
         pytest.param(
             DSLInput(
-                title="Nested explode-implode",
-                description="Test nested explode-implode",
-                entrypoint=DSLEntrypoint(ref="explode"),
+                title="Nested scatter-gather",
+                description="Test nested scatter-gather",
+                entrypoint=DSLEntrypoint(ref="scatter"),
                 actions=[
                     # This doesn't output any result
                     ActionStatement(
-                        ref="explode",
-                        action="core.transform.explode",
+                        ref="scatter",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(
                             collection="${{ [[1,2], [3,4]] }}",
                         ).model_dump(),
                     ),
                     ActionStatement(
                         ref="explode2",
-                        action="core.transform.explode",
-                        depends_on=["explode"],
+                        action="core.transform.scatter",
+                        depends_on=["scatter"],
                         args=ExplodeArgs(
-                            collection="${{ ACTIONS.explode.result }}",
+                            collection="${{ ACTIONS.scatter.result }}",
                         ).model_dump(),
                     ),
                     # Go parallel
@@ -3318,11 +3316,11 @@ async def test_workflow_detached_child_workflow(
                     ),
                     # How do we now handle the parallel execution streams?
                     ActionStatement(
-                        ref="implode",
-                        action="core.transform.implode",
+                        ref="gather",
+                        action="core.transform.gather",
                         depends_on=["reshape", "reshape2"],
                         args=ImplodeArgs(
-                            # When an execution stream hits an implode matching
+                            # When an execution stream hits an gather matching
                             # the current
                             # This will grab the result of the reshape action
                             # in its execution scope
@@ -3331,10 +3329,10 @@ async def test_workflow_detached_child_workflow(
                     ),
                     ActionStatement(
                         ref="implode2",
-                        action="core.transform.implode",
-                        depends_on=["implode"],
+                        action="core.transform.gather",
+                        depends_on=["gather"],
                         args=ImplodeArgs(
-                            items="${{ ACTIONS.implode.result }}"
+                            items="${{ ACTIONS.gather.result }}"
                         ).model_dump(),
                     ),
                 ],
@@ -3348,17 +3346,17 @@ async def test_workflow_detached_child_workflow(
             },
             id="nested-for-loop",
         ),
-        # 3. Explode-Implode followed by Explode-Implode (original)
+        # 3. Scatter-Gather followed by Scatter-Gather (original)
         pytest.param(
             DSLInput(
-                title="Explode-Implode followed by Explode-Implode",
-                description="Test two sequential explode-implode blocks",
+                title="Scatter-Gather followed by Scatter-Gather",
+                description="Test two sequential scatter-gather blocks",
                 entrypoint=DSLEntrypoint(ref="explode1"),
                 actions=[
-                    # First explode-implode block
+                    # First scatter-gather block
                     ActionStatement(
                         ref="explode1",
-                        action="core.transform.explode",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(
                             collection="${{ [10, 20] }}",
                         ).model_dump(),
@@ -3371,16 +3369,16 @@ async def test_workflow_detached_child_workflow(
                     ),
                     ActionStatement(
                         ref="implode1",
-                        action="core.transform.implode",
+                        action="core.transform.gather",
                         depends_on=["reshape1"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.reshape1.result }}"
                         ).model_dump(),
                     ),
-                    # Second explode-implode block, using result of first
+                    # Second scatter-gather block, using result of first
                     ActionStatement(
                         ref="explode2",
-                        action="core.transform.explode",
+                        action="core.transform.scatter",
                         depends_on=["implode1"],
                         args=ExplodeArgs(
                             collection="${{ ACTIONS.implode1.result }}",
@@ -3394,7 +3392,7 @@ async def test_workflow_detached_child_workflow(
                     ),
                     ActionStatement(
                         ref="implode2",
-                        action="core.transform.implode",
+                        action="core.transform.gather",
                         depends_on=["reshape2"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.reshape2.result }}"
@@ -3412,14 +3410,14 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="sequential-explode-implode",
+            id="sequential-scatter-gather",
         ),
-        # Parallel explode/implode blocks, then join
+        # Parallel scatter/gather blocks, then join
         pytest.param(
             DSLInput(
-                title="Parallel Explode-Implode blocks joined",
+                title="Parallel Scatter-Gather blocks joined",
                 description=(
-                    "Test two explode/reshape/implode blocks running in parallel, "
+                    "Test two scatter/reshape/gather blocks running in parallel, "
                     "then joined in a final action. The structure is: "
                 ),
                 entrypoint=DSLEntrypoint(ref="start"),
@@ -3427,14 +3425,14 @@ async def test_workflow_detached_child_workflow(
                     # Start splits into two parallel explodes
                     ActionStatement(
                         ref="ex1",
-                        action="core.transform.explode",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(
                             collection="${{ [1, 2] }}",
                         ).model_dump(),
                     ),
                     ActionStatement(
                         ref="ex2",
-                        action="core.transform.explode",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(
                             collection="${{ [10, 20] }}",
                         ).model_dump(),
@@ -3452,16 +3450,16 @@ async def test_workflow_detached_child_workflow(
                         depends_on=["ex2"],
                         args={"value": "${{ FN.add(ACTIONS.ex2.result, 5) }}"},
                     ),
-                    # Implode in each branch
+                    # Gather in each branch
                     ActionStatement(
                         ref="im1",
-                        action="core.transform.implode",
+                        action="core.transform.gather",
                         depends_on=["a"],
                         args=ImplodeArgs(items="${{ ACTIONS.a.result }}").model_dump(),
                     ),
                     ActionStatement(
                         ref="im2",
-                        action="core.transform.implode",
+                        action="core.transform.gather",
                         depends_on=["b"],
                         args=ImplodeArgs(items="${{ ACTIONS.b.result }}").model_dump(),
                     ),
@@ -3488,51 +3486,49 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="parallel-explode-implode-join",
+            id="parallel-scatter-gather-join",
         ),
-        # 4. Explode followed by implode directly (no action in between)
+        # 4. Scatter followed by gather directly (no action in between)
         pytest.param(
             DSLInput(
-                title="Explode then Implode (no intermediate action)",
-                description="Test explode followed by implode directly",
-                entrypoint=DSLEntrypoint(ref="explode"),
+                title="Scatter then Gather (no intermediate action)",
+                description="Test scatter followed by gather directly",
+                entrypoint=DSLEntrypoint(ref="scatter"),
                 actions=[
                     ActionStatement(
-                        ref="explode",
-                        action="core.transform.explode",
+                        ref="scatter",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(
                             collection="${{ [5, 6, 7] }}",
                         ).model_dump(),
                     ),
                     ActionStatement(
-                        ref="implode",
-                        action="core.transform.implode",
-                        depends_on=["explode"],
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["scatter"],
                         args=ImplodeArgs(
-                            items="${{ ACTIONS.explode.result }}"
+                            items="${{ ACTIONS.scatter.result }}"
                         ).model_dump(),
                     ),
                 ],
             ),
             {
-                "ACTIONS": {
-                    "implode": {"result": [5, 6, 7], "result_typename": "list"}
-                },
+                "ACTIONS": {"gather": {"result": [5, 6, 7], "result_typename": "list"}},
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="explode-implode-direct",
+            id="scatter-gather-direct",
         ),
-        # 5. Explode -> reshape (run_if even) -> implode
+        # 5. Scatter -> reshape (run_if even) -> gather
         pytest.param(
             DSLInput(
-                title="Explode-reshape (even only) then implode",
-                description="Test explode, reshape only if even, then implode",
-                entrypoint=DSLEntrypoint(ref="explode"),
+                title="Scatter-reshape (even only) then gather",
+                description="Test scatter, reshape only if even, then gather",
+                entrypoint=DSLEntrypoint(ref="scatter"),
                 actions=[
                     ActionStatement(
-                        ref="explode",
-                        action="core.transform.explode",
+                        ref="scatter",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(
                             collection="${{ [1, 2, 3, 4, 5, 6] }}",
                         ).model_dump(),
@@ -3540,14 +3536,14 @@ async def test_workflow_detached_child_workflow(
                     ActionStatement(
                         ref="reshape",
                         action="core.transform.reshape",
-                        depends_on=["explode"],
+                        depends_on=["scatter"],
                         # Only run reshape if the value is even
-                        run_if="${{ FN.mod(ACTIONS.explode.result, 2) == 0 }}",
-                        args={"value": "${{ FN.mul(ACTIONS.explode.result, 10) }}"},
+                        run_if="${{ FN.mod(ACTIONS.scatter.result, 2) == 0 }}",
+                        args={"value": "${{ FN.mul(ACTIONS.scatter.result, 10) }}"},
                     ),
                     ActionStatement(
-                        ref="implode",
-                        action="core.transform.implode",
+                        ref="gather",
+                        action="core.transform.gather",
                         depends_on=["reshape"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.reshape.result }}"
@@ -3559,7 +3555,7 @@ async def test_workflow_detached_child_workflow(
                 "ACTIONS": {
                     # Only even numbers: 2, 4, 6 -> 20, 40, 60
                     # Unset values are automatically removed
-                    "implode": {
+                    "gather": {
                         "result": [20, 40, 60],
                         "result_typename": "list",
                     }
@@ -3567,18 +3563,18 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="explode-reshape-even-implode",
+            id="scatter-reshape-even-gather",
         ),
-        # 6. Explode -> reshape (run_if even) -> implode with drop_nulls
+        # 6. Scatter -> reshape (run_if even) -> gather with drop_nulls
         pytest.param(
             DSLInput(
-                title="Explode-reshape (even only) then implode with drop_nulls",
-                description="Test explode, reshape only if even, then implode with drop_nulls",
-                entrypoint=DSLEntrypoint(ref="explode"),
+                title="Scatter-reshape (even only) then gather with drop_nulls",
+                description="Test scatter, reshape only if even, then gather with drop_nulls",
+                entrypoint=DSLEntrypoint(ref="scatter"),
                 actions=[
                     ActionStatement(
-                        ref="explode",
-                        action="core.transform.explode",
+                        ref="scatter",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(
                             collection="${{ [1, 2, 3, 4, 5, 6] }}",
                         ).model_dump(),
@@ -3586,14 +3582,14 @@ async def test_workflow_detached_child_workflow(
                     ActionStatement(
                         ref="reshape",
                         action="core.transform.reshape",
-                        depends_on=["explode"],
+                        depends_on=["scatter"],
                         # Only run reshape if the value is even
-                        run_if="${{ FN.mod(ACTIONS.explode.result, 2) == 0 }}",
-                        args={"value": "${{ FN.mul(ACTIONS.explode.result, 10) }}"},
+                        run_if="${{ FN.mod(ACTIONS.scatter.result, 2) == 0 }}",
+                        args={"value": "${{ FN.mul(ACTIONS.scatter.result, 10) }}"},
                     ),
                     ActionStatement(
-                        ref="implode",
-                        action="core.transform.implode",
+                        ref="gather",
+                        action="core.transform.gather",
                         depends_on=["reshape"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.reshape.result }}",
@@ -3606,7 +3602,7 @@ async def test_workflow_detached_child_workflow(
                 "ACTIONS": {
                     # Only even numbers: 2, 4, 6 -> 20, 40, 60
                     # Everything else is dropped
-                    "implode": {
+                    "gather": {
                         "result": [20, 40, 60],
                         "result_typename": "list",
                     }
@@ -3614,17 +3610,17 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="explode-reshape-even-implode-drop-nulls",
+            id="scatter-reshape-even-gather-drop-nulls",
         ),
         pytest.param(
             DSLInput(
-                title="Explode-reshape (even only) with Nones, then implode with drop_nulls",
-                description="Test explode with Nones, reshape only if even, then implode with drop_nulls only",
-                entrypoint=DSLEntrypoint(ref="explode"),
+                title="Scatter-reshape (even only) with Nones, then gather with drop_nulls",
+                description="Test scatter with Nones, reshape only if even, then gather with drop_nulls only",
+                entrypoint=DSLEntrypoint(ref="scatter"),
                 actions=[
                     ActionStatement(
-                        ref="explode",
-                        action="core.transform.explode",
+                        ref="scatter",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(
                             # Data with Nones in the collection
                             collection="${{ [1, None, None, 2, 3, None, 4, 5, 6, None] }}",
@@ -3633,12 +3629,12 @@ async def test_workflow_detached_child_workflow(
                     ActionStatement(
                         ref="reshape",
                         action="core.transform.reshape",
-                        depends_on=["explode"],
-                        args={"value": "${{ ACTIONS.explode.result }}"},
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
                     ),
                     ActionStatement(
-                        ref="implode",
-                        action="core.transform.implode",
+                        ref="gather",
+                        action="core.transform.gather",
                         depends_on=["reshape"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.reshape.result }}",
@@ -3650,7 +3646,7 @@ async def test_workflow_detached_child_workflow(
             {
                 "ACTIONS": {
                     # Skip all nulls
-                    "implode": {
+                    "gather": {
                         "result": [1, 2, 3, 4, 5, 6],
                         "result_typename": "list",
                     }
@@ -3658,13 +3654,13 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="explode-reshape-even-implode-drop-nulls-with-nones",
+            id="scatter-reshape-even-gather-drop-nulls-with-nones",
         ),
-        # New test: A -> explode -> B -> implode -> C, all reshapes, skip explode, expect only A to run
+        # New test: A -> scatter -> B -> gather -> C, all reshapes, skip scatter, expect only A to run
         pytest.param(
             DSLInput(
-                title="a->explode->b->implode->c, skip explode, only a runs",
-                description="Test that if explode is skipped, only a runs and downstream tasks are not executed.",
+                title="a->scatter->b->gather->c, skip scatter, only a runs",
+                description="Test that if scatter is skipped, only a runs and downstream tasks are not executed.",
                 entrypoint=DSLEntrypoint(ref="a"),
                 actions=[
                     ActionStatement(
@@ -3673,10 +3669,10 @@ async def test_workflow_detached_child_workflow(
                         args={"value": "${{ 42 }}"},
                     ),
                     ActionStatement(
-                        ref="explode",
-                        action="core.transform.explode",
+                        ref="scatter",
+                        action="core.transform.scatter",
                         depends_on=["a"],
-                        # Always skip explode
+                        # Always skip scatter
                         run_if="${{ False }}",
                         args=ExplodeArgs(
                             collection="${{ [1, 2, 3] }}",
@@ -3685,12 +3681,12 @@ async def test_workflow_detached_child_workflow(
                     ActionStatement(
                         ref="b",
                         action="core.transform.reshape",
-                        depends_on=["explode"],
-                        args={"value": "${{ ACTIONS.explode.result }}"},
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
                     ),
                     ActionStatement(
-                        ref="implode",
-                        action="core.transform.implode",
+                        ref="gather",
+                        action="core.transform.gather",
                         depends_on=["b"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.b.result }}",
@@ -3699,8 +3695,8 @@ async def test_workflow_detached_child_workflow(
                     ActionStatement(
                         ref="c",
                         action="core.transform.reshape",
-                        depends_on=["implode"],
-                        args={"value": "${{ ACTIONS.implode.result }}"},
+                        depends_on=["gather"],
+                        args={"value": "${{ ACTIONS.gather.result }}"},
                     ),
                 ],
             ),
@@ -3715,46 +3711,46 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="a-explode-b-implode-c-skip-explode-only-a",
+            id="a-scatter-b-gather-c-skip-scatter-only-a",
         ),
-        # Empty collection explode
+        # Empty collection scatter
         pytest.param(
             DSLInput(
-                title="Explode empty collection",
+                title="Scatter empty collection",
                 # Improved explanation:
-                # This test verifies the correct behavior when the 'explode' action receives an empty collection.
+                # This test verifies the correct behavior when the 'scatter' action receives an empty collection.
                 # The expected behavior is:
-                # - The 'explode' action should not produce any execution streams, as there are no items to process.
-                # - The 'implode' action, which depends on 'explode', should be executed in the global context.
-                # - The result of 'implode' should be an empty list, since there were no items to aggregate.
+                # - The 'scatter' action should not produce any execution streams, as there are no items to process.
+                # - The 'gather' action, which depends on 'scatter', should be executed in the global context.
+                # - The result of 'gather' should be an empty list, since there were no items to aggregate.
                 # - No other actions should run, and the workflow should complete successfully.
                 description=(
-                    "Test that when an empty collection is provided to the 'explode' action, "
-                    "no execution streams are created and the dependent 'implode' action "
+                    "Test that when an empty collection is provided to the 'scatter' action, "
+                    "no execution streams are created and the dependent 'gather' action "
                     "returns an empty list as its result. This ensures that the workflow "
                     "handles empty collections gracefully and does not fail or produce "
                     "unexpected results."
                 ),
-                entrypoint=DSLEntrypoint(ref="explode"),
+                entrypoint=DSLEntrypoint(ref="scatter"),
                 actions=[
                     ActionStatement(
-                        ref="explode",
-                        action="core.transform.explode",
+                        ref="scatter",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(collection=[]).model_dump(),
                     ),
                     ActionStatement(
-                        ref="implode",
-                        action="core.transform.implode",
-                        depends_on=["explode"],
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["scatter"],
                         args=ImplodeArgs(
-                            items="${{ ACTIONS.explode.result }}"
+                            items="${{ ACTIONS.scatter.result }}"
                         ).model_dump(),
                     ),
                 ],
             ),
             {
                 "ACTIONS": {
-                    "implode": {
+                    "gather": {
                         "result": [],
                         "result_typename": "list",
                     }
@@ -3762,30 +3758,30 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="explode-empty-collection",
+            id="scatter-empty-collection",
         ),
         pytest.param(
             DSLInput(
-                title="Explode empty collection with actions between",
+                title="Scatter empty collection with actions between",
                 description="Test that an empty collection is exploded and then imploded with actions between",
-                entrypoint=DSLEntrypoint(ref="explode"),
+                entrypoint=DSLEntrypoint(ref="scatter"),
                 actions=[
                     ActionStatement(
-                        ref="explode",
-                        action="core.transform.explode",
+                        ref="scatter",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(collection=[]).model_dump(),
                     ),
                     # This should skip
                     ActionStatement(
                         ref="reshape",
                         action="core.transform.reshape",
-                        depends_on=["explode"],
-                        args={"value": "${{ ACTIONS.explode.result }}"},
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
                     ),
                     # This should return an empty list
                     ActionStatement(
-                        ref="implode",
-                        action="core.transform.implode",
+                        ref="gather",
+                        action="core.transform.gather",
                         depends_on=["reshape"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.reshape.result }}"
@@ -3795,47 +3791,47 @@ async def test_workflow_detached_child_workflow(
                     ActionStatement(
                         ref="reshape2",
                         action="core.transform.reshape",
-                        depends_on=["implode"],
-                        args={"value": "${{ ACTIONS.implode.result }}"},
+                        depends_on=["gather"],
+                        args={"value": "${{ ACTIONS.gather.result }}"},
                     ),
                 ],
             ),
             {
                 "ACTIONS": {
-                    "implode": {"result": [], "result_typename": "list"},
+                    "gather": {"result": [], "result_typename": "list"},
                     "reshape2": {"result": [], "result_typename": "list"},
                 },
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="explode-empty-collection-between",
+            id="scatter-empty-collection-between",
         ),
         pytest.param(
             DSLInput(
-                title="Nested explode with empty collection inside",
+                title="Nested scatter with empty collection inside",
                 description=(
-                    "Test correct handling of an empty collection in a nested explode scenario. "
+                    "Test correct handling of an empty collection in a nested scatter scenario. "
                     "The workflow first explodes a non-empty collection ([1, 2, 3]) at the top level (explode1). "
-                    "For each item, it attempts a second-level explode (explode2) with an empty collection. "
+                    "For each item, it attempts a second-level scatter (explode2) with an empty collection. "
                     "Since explode2's collection is empty, all downstream actions (reshape, implode2) in that branch "
                     "should be skipped for every item. The test verifies that the skip logic is correctly propagated, "
-                    "and that the outer implode (implode1) collects the original items from explode1, resulting in [1, 2, 3]. "
+                    "and that the outer gather (implode1) collects the original items from explode1, resulting in [1, 2, 3]. "
                     "reshape2 then operates on this result. Only actions in the main execution stream (implode1, reshape2) "
                     "should appear in the final ACTIONS context; skipped actions (reshape, implode2) should not."
                 ),
-                entrypoint=DSLEntrypoint(ref="explode"),
+                entrypoint=DSLEntrypoint(ref="scatter"),
                 actions=[
-                    # Level 1: Explode a non-empty collection
+                    # Level 1: Scatter a non-empty collection
                     ActionStatement(
                         ref="explode1",
-                        action="core.transform.explode",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(collection=[1, 2, 3]).model_dump(),
                     ),
-                    # Level 2: This explode is nested and its collection is empty,
+                    # Level 2: This scatter is nested and its collection is empty,
                     # so all downstream actions in this branch should be skipped.
                     ActionStatement(
                         ref="explode2",
-                        action="core.transform.explode",
+                        action="core.transform.scatter",
                         depends_on=["explode1"],
                         args=ExplodeArgs(collection=[]).model_dump(),
                     ),
@@ -3845,20 +3841,20 @@ async def test_workflow_detached_child_workflow(
                         depends_on=["explode2"],
                         args={"value": "${{ ACTIONS.explode2.result }}"},
                     ),
-                    # This implode is downstream of the skipped explode2/reshape,
+                    # This gather is downstream of the skipped explode2/reshape,
                     # so it should also be skipped.
                     ActionStatement(
                         ref="implode2",
-                        action="core.transform.implode",
+                        action="core.transform.gather",
                         depends_on=["reshape"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.reshape.result }}"
                         ).model_dump(),
                     ),
-                    # This implode collects the results from the outer explode1.
+                    # This gather collects the results from the outer explode1.
                     ActionStatement(
                         ref="implode1",
-                        action="core.transform.implode",
+                        action="core.transform.gather",
                         depends_on=["implode2"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.explode1.result }}"
@@ -3878,7 +3874,7 @@ async def test_workflow_detached_child_workflow(
                     "implode1": {
                         "result": [1, 2, 3],
                         "result_typename": "list",
-                    },  # The outer implode collects the original items.
+                    },  # The outer gather collects the original items.
                     # Only reshape2 is present because reshape (and thus implode2) are skipped.
                     "reshape2": {
                         "result": [1, 2, 3],
@@ -3888,23 +3884,23 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="nested-explode-empty-collection-inside",
+            id="nested-scatter-empty-collection-inside",
         ),
         pytest.param(
             DSLInput(
-                title="2D explode with DAG inside",
+                title="2D scatter with DAG inside",
                 description=(
-                    "Test correct handling of a DAG inside an explode. "
+                    "Test correct handling of a DAG inside an scatter. "
                     "The workflow first explodes a non-empty collection ([1, 2, 3]) at the top level (explode1). "
-                    "For each item, it attempts a second-level explode (explode2) with an empty collection. "
+                    "For each item, it attempts a second-level scatter (explode2) with an empty collection. "
                     "Since explode2's collection is empty, all downstream actions (reshape, implode2) in that branch "
                     "should be skipped for every item."
                 ),
-                entrypoint=DSLEntrypoint(ref="explode"),
+                entrypoint=DSLEntrypoint(ref="scatter"),
                 actions=[
                     ActionStatement(
                         ref="explode1",
-                        action="core.transform.explode",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(
                             collection=[
                                 [1, 2],
@@ -3914,7 +3910,7 @@ async def test_workflow_detached_child_workflow(
                     ),
                     ActionStatement(
                         ref="explode2",
-                        action="core.transform.explode",
+                        action="core.transform.scatter",
                         depends_on=["explode1"],
                         args=ExplodeArgs(
                             collection="${{ ACTIONS.explode1.result }}"
@@ -3948,17 +3944,17 @@ async def test_workflow_detached_child_workflow(
                     # We can apply join_strategy like how we would in global streams.
                     ActionStatement(
                         ref="implode2",
-                        action="core.transform.implode",
+                        action="core.transform.gather",
                         depends_on=["is_one", "is_two", "is_three"],
                         join_strategy=JoinStrategy.ANY,
                         args=ImplodeArgs(
                             items="${{ ACTIONS.is_one.result || ACTIONS.is_two.result || ACTIONS.is_three.result }}"
                         ).model_dump(),
                     ),
-                    # This implode collects the results from the outer explode1.
+                    # This gather collects the results from the outer explode1.
                     ActionStatement(
                         ref="implode1",
-                        action="core.transform.implode",
+                        action="core.transform.gather",
                         depends_on=["implode2"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.implode2.result }}"
@@ -3976,24 +3972,24 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="2d-explode-dag-inside",
+            id="2d-scatter-dag-inside",
         ),
-        # 1D version: single-level explode with DAG inside, all downstream actions should be skipped if explode2 is empty
+        # 1D version: single-level scatter with DAG inside, all downstream actions should be skipped if explode2 is empty
         pytest.param(
             DSLInput(
-                title="1D explode with multiple parallel conditions",
+                title="1D scatter with multiple parallel conditions",
                 description=(
-                    "Test correct handling of a DAG inside a single-level explode. "
+                    "Test correct handling of a DAG inside a single-level scatter. "
                     "The workflow explodes a non-empty collection ([1, 2, 3]) at the top level (explode1). "
-                    "For each item, it attempts a second-level explode (explode2) with an empty collection. "
+                    "For each item, it attempts a second-level scatter (explode2) with an empty collection. "
                     "Since explode2's collection is empty, all downstream actions (reshape, implode2) in that branch "
                     "should be skipped for every item."
                 ),
-                entrypoint=DSLEntrypoint(ref="explode"),
+                entrypoint=DSLEntrypoint(ref="scatter"),
                 actions=[
                     ActionStatement(
                         ref="explode1",
-                        action="core.transform.explode",
+                        action="core.transform.scatter",
                         args=ExplodeArgs(collection=[1, 2, 3, 4]).model_dump(),
                     ),
                     # DAG here, parallel condition handling
@@ -4021,10 +4017,10 @@ async def test_workflow_detached_child_workflow(
                             "value": "${{ ACTIONS.is_one.result || ACTIONS.is_two.result }}"
                         },
                     ),
-                    # This implode collects the results from the outer explode1.
+                    # This gather collects the results from the outer explode1.
                     ActionStatement(
                         ref="implode1",
-                        action="core.transform.implode",
+                        action="core.transform.gather",
                         depends_on=["join"],
                         args=ImplodeArgs(
                             items="${{ ACTIONS.join.result }}"
@@ -4042,7 +4038,7 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="1d-explode-multi-condition",
+            id="1d-scatter-multi-condition",
         ),
     ],
 )
@@ -4050,7 +4046,7 @@ async def test_workflow_explode_implode(
     test_role: Role, temporal_client: Client, dsl: DSLInput, expected: ExecutionContext
 ):
     """
-    Test that a workflow can explode a collection.
+    Test that a workflow can scatter a collection.
     """
     test_name = f"{test_workflow_explode_implode.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)

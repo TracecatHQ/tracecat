@@ -198,30 +198,32 @@ def compact(
 
 
 @registry.register(
-    default_title="Explode",
-    description="Explode a list into a list of lists. This is used to iterate over a list of items.",
+    default_title="Scatter",
+    description="Scatter a list into a list of lists. This is used to iterate over a list of items.",
     display_group="Data Transform",
     namespace="core.transform",
 )
-def explode(
+def scatter(
     collection: Annotated[
-        str,
-        Doc("JSONPath expression to the collection to explode."),
+        Any,
+        Doc(
+            "The collection to scatter. This will create execution streams for each item in the collection."
+        ),
     ],
 ) -> list[list[Any]]:
     raise ActionIsInterfaceError()
 
 
 @registry.register(
-    default_title="Implode",
-    description="Implode a list of lists into a list. This is used to collect the results of a list of iterators.",
+    default_title="Gather",
+    description="Gather a list of lists into a list. This is used to collect the results of a list of iterators.",
     display_group="Data Transform",
     namespace="core.transform",
 )
-def implode(
+def gather(
     items: Annotated[
         str,
-        Doc("The jsonpath to select items from."),
+        Doc("The JSONPath expression to select items from."),
     ],
     drop_nulls: Annotated[
         bool,

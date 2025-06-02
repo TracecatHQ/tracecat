@@ -9,11 +9,11 @@ from tracecat.expressions.validation import ExpressionStr
 
 
 class ExplodeArgs(BaseModel):
-    collection: Any = Field(..., description="The collection to explode")
+    collection: Any = Field(..., description="The collection to scatter")
 
 
 class ImplodeArgs(BaseModel):
-    """Arguments for implode operations"""
+    """Arguments for gather operations"""
 
     items: ExpressionStr = Field(..., description="The jsonpath to select items from")
     drop_nulls: bool = Field(
@@ -23,15 +23,15 @@ class ImplodeArgs(BaseModel):
 
 @dataclass(slots=True)
 class ScopeBoundary:
-    """Information about a discovered explode/implode boundary"""
+    """Information about a discovered scatter/gather boundary"""
 
     explode_ref: str
-    implode_ref: str | None  # None if no matching implode found
+    implode_ref: str | None  # None if no matching gather found
     scoped_tasks: set[str]
     """Task refs in this scope"""
 
     scope_id: str
-    """The unique scope identifier for this explode/implode pair"""
+    """The unique scope identifier for this scatter/gather pair"""
 
 
 class ScopeAwareEdgeMarker(StrEnum):
@@ -40,11 +40,11 @@ class ScopeAwareEdgeMarker(StrEnum):
     PENDING = "pending"
     VISITED = "visited"
     SKIPPED = "skipped"
-    SCOPE_BOUNDARY = "scope_boundary"  # For explode->task edges
+    SCOPE_BOUNDARY = "scope_boundary"  # For scatter->task edges
 
 
 class ScopeAnalyzer:
-    """Analyzes DSL graphs to discover explode/implode scope boundaries"""
+    """Analyzes DSL graphs to discover scatter/gather scope boundaries"""
 
     def __init__(self, dsl: DSLInput):
         self.dsl = dsl
@@ -64,7 +64,7 @@ class ScopeAnalyzer:
         return adj
 
     # def discover_scope_boundaries(self) -> dict[str, ScopeBoundary]:
-    #     """Find all explode/implode pairs and their enclosed tasks"""
+    #     """Find all scatter/gather pairs and their enclosed tasks"""
     #     implode_tasks: dict[str, str] = {}
     #     for task in self.dsl.actions:
     #         if task.action == PlatformAction.TRANSFORM_IMPLODE:
@@ -77,16 +77,16 @@ class ScopeAnalyzer:
     #         if task.action != PlatformAction.TRANSFORM_EXPLODE:
     #             continue
 
-    #         # Get explode args to find scope ID
+    #         # Get scatter args to find scope ID
     #         args = ExplodeArgs(**task.args)
-    #         # Find corresponding implode(s) that use this scope ID
+    #         # Find corresponding gather(s) that use this scope ID
     #         implode_ref = implode_tasks.get(scope_id)
 
-    #         # Find all tasks between explode and implode
+    #         # Find all tasks between scatter and gather
     #         if implode_ref:
     #             scoped_tasks = self._find_tasks_between(task.ref, implode_ref)
     #         else:
-    #             # If no implode found, include all reachable tasks from explode
+    #             # If no gather found, include all reachable tasks from scatter
     #             scoped_tasks = self._find_all_reachable_tasks(task.ref)
 
     #         scope_boundaries[task.ref] = ScopeBoundary(
@@ -99,7 +99,7 @@ class ScopeAnalyzer:
     #     return scope_boundaries
 
     def _find_tasks_between(self, explode_ref: str, implode_ref: str) -> set[str]:
-        """Find all tasks reachable from explode but not beyond implode"""
+        """Find all tasks reachable from scatter but not beyond gather"""
         visited = set()
         stack = [explode_ref]
 
@@ -115,7 +115,7 @@ class ScopeAnalyzer:
                 if child_ref not in visited:
                     stack.append(child_ref)
 
-        # Remove the explode task itself, include everything up to but not including implode
+        # Remove the scatter task itself, include everything up to but not including gather
         visited.discard(explode_ref)
         return visited
 

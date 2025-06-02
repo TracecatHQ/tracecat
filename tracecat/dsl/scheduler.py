@@ -50,7 +50,7 @@ class StreamID(str):
     def new(
         cls, scope: str, index: int | SkipToken, *, base_stream_id: Self | None = None
     ) -> Self:
-        """Create a stream ID for an inherited explode item"""
+        """Create a stream ID for an inherited scatter item"""
         new_stream = cls(f"{scope}{cls.__idx_sep}{index}")
         if base_stream_id is None:
             return new_stream
@@ -58,7 +58,7 @@ class StreamID(str):
 
     @classmethod
     def skip(cls, scope: str, *, base_stream_id: Self | None = None) -> Self:
-        """Create a stream ID for a skipped explode"""
+        """Create a stream ID for a skipped scatter"""
         return cls.new(scope, "skip", base_stream_id=base_stream_id)
 
     @cached_property
@@ -174,9 +174,9 @@ class DSLScheduler:
         """Points to the parent scope ID for each scope ID"""
         self.task_streams: defaultdict[Task, list[StreamID]] = defaultdict(list)
         self.scope_counters: defaultdict[str, Counter] = defaultdict(Counter)
-        """Used to create unique stream IDs for each explode iteration"""
+        """Used to create unique stream IDs for each scatter iteration"""
         self.open_streams: dict[Task, int] = {}
-        """Used to track the number of scopes that have been closed for an explode"""
+        """Used to track the number of scopes that have been closed for an scatter"""
 
         # # Discover stream boundaries
         # self.scope_boundaries = ScopeAnalyzer(dsl).discover_scope_boundaries()
@@ -434,10 +434,10 @@ class DSLScheduler:
             if self._skip_should_propagate(task, stmt):
                 self.logger.info("Task should be force-skipped, propagating", task=task)
                 if stmt.action == PlatformAction.TRANSFORM_IMPLODE:
-                    # If we encounter an implode and we're in an execution stream,
+                    # If we encounter an gather and we're in an execution stream,
                     # we need to close the stream.
                     self.logger.warning(
-                        "Implode in execution stream, skipping", task=task
+                        "Gather in execution stream, skipping", task=task
                     )
                     # We reached the end of the execution stream, so we can return
                     # None to indicate that the stream is complete.
@@ -457,11 +457,11 @@ class DSLScheduler:
 
             # 4) If we made it here, the task is reachable and not force-skipped.
 
-            # -- If this is a control flow action (explode), we need to
+            # -- If this is a control flow action (scatter), we need to
             # handle it differently.
             if stmt.action == PlatformAction.TRANSFORM_EXPLODE:
                 return await self._handle_explode(task, stmt)
-            # 0) Always handle implode first - its a synchronization barrier that needs
+            # 0) Always handle gather first - its a synchronization barrier that needs
             # to run regardless of dependency skip states
             if stmt.action == PlatformAction.TRANSFORM_IMPLODE:
                 return await self._handle_implode(task, stmt)
@@ -667,7 +667,7 @@ class DSLScheduler:
 
     async def _handle_explode(self, task: Task, stmt: ActionStatement) -> None:
         """
-        Handle explode action with proper stream creation.
+        Handle scatter action with proper stream creation.
 
         When exploding a collection, len(collection) scopes are created.
         Each stream has a unique stream ID and contains a single item from the collection.
@@ -697,15 +697,15 @@ class DSLScheduler:
             )
 
         # ALWAYS initialize tracking structures (even for empty collections)
-        # This ensures that _handle_implode can find the explode task in tracking structures
+        # This ensures that _handle_implode can find the scatter task in tracking structures
 
         streams: list[StreamID] = []
         self.task_streams[task] = streams
         # -- SKIP STREAM
         if not collection:
             self.open_streams[task] = 0
-            self.logger.warning("Empty collection for explode", task=task)
-            # Handle empty collection - mark explode as completed and continue
+            self.logger.warning("Empty collection for scatter", task=task)
+            # Handle empty collection - mark scatter as completed and continue
             # The tracking structures are already initialized above with empty values
 
             new_stream_id = StreamID.skip(task.ref, base_stream_id=curr_stream_id)
@@ -759,7 +759,7 @@ class DSLScheduler:
         self.open_streams[task] = len(streams)
         # Get the next tasks to queue
         self.logger.warning(
-            "Explode completed",
+            "Scatter completed",
             task=task,
             collection_size=len(collection),
             scopes_created=len(streams),
@@ -780,52 +780,50 @@ class DSLScheduler:
     async def _handle_implode(
         self, task: Task, stmt: ActionStatement, *, is_skipping: bool = False
     ) -> None:
-        """Handle implode with proper synchronization.
+        """Handle gather with proper synchronization.
 
         Think of this as a synchronization barrier for a collection of execution streams.
 
         Logic:
-        - Implode is given a jsonpath. Get the item from the current stream. This will be returned to the parent stream.
+        - Gather is given a jsonpath. Get the item from the current stream. This will be returned to the parent stream.
         - We need to know the cardinality of the exploded collection so that we can reconstruct the collection in the parent stream.
 
         Edge cases:
-        - If used in the global stream (no matching explode), implode does nothing and returns early.
-          This allows implodes to be safely scheduled even when their corresponding explode was skipped.
+        - If used in the global stream (no matching scatter), gather does nothing and returns early.
+          This allows implodes to be safely scheduled even when their corresponding scatter was skipped.
 
         Cases:
-        - NO execution stream but has scope - means the explode was skipped because the collection was empty
+        - NO execution stream but has scope - means the scatter was skipped because the collection was empty
         --- Just place an empty array in the result
-        - NO execution stream but no scope - means this implode occurred without a corresponding explode
+        - NO execution stream but no scope - means this gather occurred without a corresponding scatter
         - Has execution stream but no scope
         --- If we're in the global scope, this is an invalid state
-        --- If we're in a scoped context, this can only happen if the explode didn't run
+        --- If we're in a scoped context, this can only happen if the scatter didn't run
         - Has execution stream and scope - this is the normal case
 
         IN OTHER WORDS
-        - Implode should only look at scope_id to make decisions.
-        - If implode arrives without stream, look at scope_id. In these cases we should just set the value to empty array.
+        - Gather should only look at scope_id to make decisions.
+        - If gather arrives without stream, look at scope_id. In these cases we should just set the value to empty array.
         """
-        self.logger.info("Handling implode", task=task)
+        self.logger.info("Handling gather", task=task)
         match task:
-            # Global execution stream. No scope (no explode fired)
+            # Global execution stream. No scope (no scatter fired)
             case Task(stream_id=None, scope_id=None):
                 self.logger.warning(
-                    "Implode in global stream, no corresponding scope",
+                    "Gather in global stream, no corresponding scope",
                     task=task,
                     is_skipping=is_skipping,
                 )
                 if not is_skipping:
                     raise RuntimeError(
-                        f"Implode in global stream, no corresponding scope, but not skipping: {task}. User has probably made a mistake"
+                        f"Gather in global stream, no corresponding scope, but not skipping: {task}. User has probably made a mistake"
                     )
                 return
 
             # Global execution stream. Has scope
             case Task(stream_id=None, scope_id=scope_id) if scope_id:
-                self.logger.warning(
-                    "Implode in global stream, doing nothing", task=task
-                )
-                # We saw the explode `scope_id` but we aren't in a scoped execution stream.
+                self.logger.warning("Gather in global stream, doing nothing", task=task)
+                # We saw the scatter `scope_id` but we aren't in a scoped execution stream.
                 # This means we're in the cleanup flow.
 
                 # The result is known beforehand -- it's an empty array
@@ -843,21 +841,19 @@ class DSLScheduler:
                 next_task = Task(ref=task.ref, stream_id=None, scope_id=parent_scope)
                 return await self._queue_tasks(next_task, unreachable=None)
 
-            # Has execution stream + no scope -- explode never ran
+            # Has execution stream + no scope -- scatter never ran
             case Task(stream_id=stream_id, scope_id=None) if stream_id:
                 self.logger.warning(
-                    "Implode in execution stream, doing nothing", task=task
+                    "Gather in execution stream, doing nothing", task=task
                 )
                 raise NotImplementedError(
-                    f"Implode in execution stream, no scope, but not skipping: {task}. User has probably made a mistake"
+                    f"Gather in execution stream, no scope, but not skipping: {task}. User has probably made a mistake"
                 )
 
             case Task(stream_id=stream_id, scope_id=scope_id) if (
                 stream_id and scope_id and stream_id.endswith(":skip")
             ):
-                self.logger.warning(
-                    "Implode in skip stream. Perform cleanup", task=task
-                )
+                self.logger.warning("Gather in skip stream. Perform cleanup", task=task)
 
                 parent_stream = self.stream_hierarchy[stream_id]
                 parent_action_context = self._get_action_context(parent_stream)
@@ -881,19 +877,19 @@ class DSLScheduler:
             # Has execution stream + has scope: default path
             case Task(stream_id=stream_id, scope_id=scope_id) if stream_id and scope_id:
                 self.logger.warning(
-                    "Default implode path", scope_id=scope_id, stream_id=stream_id
+                    "Default gather path", scope_id=scope_id, stream_id=stream_id
                 )
                 pass
 
             case _:
-                self.logger.info("Invalid implode state", task=task)
-                raise ApplicationError("Invalid implode state")
+                self.logger.info("Invalid gather state", task=task)
+                raise ApplicationError("Invalid gather state")
         # =============
         # We only reach this point if we are in an execution stream.
         # =============
 
-        # We are inside an execution stream. Use implode to synchronize with the other execution streams.
-        self.logger.info("Handling implode in execution stream", task=task)
+        # We are inside an execution stream. Use gather to synchronize with the other execution streams.
+        self.logger.info("Handling gather in execution stream", task=task)
 
         # What are we doing here?
         # We are in an execution stream. Need to close it now.
@@ -918,11 +914,11 @@ class DSLScheduler:
         self.logger.warning(to_json(self.open_streams, indent=2).decode())
         self.open_streams[parent_ex_task] -= 1
         if is_skipping:
-            self.logger.warning("Skipped implode in execution stream", task=task)
+            self.logger.warning("Skipped gather in execution stream", task=task)
             return
 
         # Here onwards, we are not skipping.
-        # This means we must compute a return value for the implode.
+        # This means we must compute a return value for the gather.
         # We should only compute the items to store if we aren't skipping
         args = ImplodeArgs(**stmt.args)
         current_context = self.get_context(stream_id)
@@ -941,8 +937,8 @@ class DSLScheduler:
         # Set result array if this is the first stream
         if im_ref not in parent_action_context:
             # NOTE: This block is executed by the first execution stream that finishes.
-            # We need to initialize the result with the cardinality of the explode
-            # This is the number of execution streams that will be synchronized by this implode
+            # We need to initialize the result with the cardinality of the scatter
+            # This is the number of execution streams that will be synchronized by this gather
             size = len(self.task_streams[parent_ex_task])
             result = [Sentinel.IMPLODE_UNSET for _ in range(size)]
             parent_action_context[im_ref] = TaskResult(
@@ -967,10 +963,10 @@ class DSLScheduler:
                 parent_action_context=parent_action_context,
                 args=args,
             )
-            # We have closed all execution streams for this explode. The implode is now complete.
+            # We have closed all execution streams for this scatter. The gather is now complete.
             # Apply filtering if requested
 
-            # Inline filter for implode operation.
+            # Inline filter for gather operation.
             # Keeps items unless drop_nulls is True and item is None.
             # Automatically remove unset values (Sentinel.IMPLODE_UNSET).
             final_result = [
@@ -992,7 +988,7 @@ class DSLScheduler:
             parent_action_context[im_ref].update(result=final_result)
 
             self.logger.warning(
-                "Implode complete. Go back up to parent stream",
+                "Gather complete. Go back up to parent stream",
                 task=task,
                 parent_scope_id=parent_stream_id,
             )
@@ -1003,7 +999,7 @@ class DSLScheduler:
             await self._queue_tasks(parent_im_task, unreachable=None)
         else:
             self.logger.info(
-                "The execution stream is complete but the implode isn't.",
+                "The execution stream is complete but the gather isn't.",
                 task=task,
                 remaining_open_scopes=self.open_streams[parent_ex_task],
             )

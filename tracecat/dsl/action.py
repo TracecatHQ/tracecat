@@ -125,7 +125,9 @@ class DSLActivities:
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
                     client = ExecutorClient(role=role)
-                    return await client.run_action_memory_backend(input)
+                    result = await client.run_action_memory_backend(input)
+                    log.info("Action completed", result=result)
+                    return result
         except ExecutorClientError as e:
             # We only expect ExecutorClientError to be raised from the executor client
             kind = e.__class__.__name__

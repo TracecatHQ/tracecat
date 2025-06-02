@@ -3,8 +3,8 @@ from enum import StrEnum, auto
 
 class PlatformAction(StrEnum):
     CHILD_WORKFLOW_EXECUTE = "core.workflow.execute"
-    TRANSFORM_EXPLODE = "core.transform.explode"
-    TRANSFORM_IMPLODE = "core.transform.implode"
+    TRANSFORM_EXPLODE = "core.transform.scatter"
+    TRANSFORM_IMPLODE = "core.transform.gather"
 
 
 class FailStrategy(StrEnum):
@@ -53,6 +53,6 @@ class EdgeType(StrEnum):
 
 
 class Sentinel(StrEnum):
-    """Sentinel values for implode operations."""
+    """Sentinel values for gather operations."""
 
     IMPLODE_UNSET = "<|IMPLODE_UNSET|>"
