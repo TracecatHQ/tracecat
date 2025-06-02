@@ -1,21 +1,27 @@
 """Tests for agent builder functionality."""
 
 import inspect
+import os
 from typing import Any
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
+from dotenv import load_dotenv
 from pydantic_ai.tools import Tool
-
-from registry.tracecat_registry.integrations.agents.builder import (
+from tracecat_registry.integrations.agents.builder import (
     TracecatAgentBuilder,
     _create_function_signature,
     _extract_action_metadata,
     _generate_tool_function_name,
+    agent,
     create_tool_from_registry,
     generate_google_style_docstring,
 )
+
 from tracecat.types.exceptions import RegistryError
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 @pytest.mark.anyio
@@ -197,7 +203,7 @@ class TestCreateToolFromRegistry:
         mock_reg_action = Mock()
 
         with patch(
-            "registry.tracecat_registry.integrations.agents.builder.RegistryActionsService"
+            "tracecat_registry.integrations.agents.builder.RegistryActionsService"
         ) as mock_service_cls:
             mock_service = Mock()  # Use regular Mock, not AsyncMock for the service
             mock_service.get_action = AsyncMock(return_value=mock_reg_action)
@@ -377,15 +383,15 @@ class TestTracecatAgentBuilder:
 
         # Apply patches
         with patch(
-            "registry.tracecat_registry.integrations.agents.builder.RegistryActionsService",
+            "tracecat_registry.integrations.agents.builder.RegistryActionsService",
             mock_registry_service,
         ):
             with patch(
-                "registry.tracecat_registry.integrations.agents.builder.create_tool_from_registry",
+                "tracecat_registry.integrations.agents.builder.create_tool_from_registry",
                 mock_create_tool,
             ):
                 with patch(
-                    "registry.tracecat_registry.integrations.agents.builder.build_agent",
+                    "tracecat_registry.integrations.agents.builder.build_agent",
                     mock_build_agent,
                 ):
                     yield {
@@ -461,6 +467,18 @@ class TestTracecatAgentBuilder:
 
         mock_registry_deps["service"].list_actions.return_value = [mock_reg_action]
 
+        # Mock create_tool_from_registry to return a simple tool instead of calling the real function
+        from pydantic import BaseModel, Field
+
+        class MockArgs(BaseModel):
+            test_param: str = Field(description="Test parameter")
+
+        async def mock_tool_func(test_param: str) -> str:
+            return f"Mock result: {test_param}"
+
+        mock_tool = Tool(mock_tool_func)
+        mock_registry_deps["create_tool_from_registry"].return_value = mock_tool
+
         # Build the agent
         agent = await builder.build()
 
@@ -502,6 +520,18 @@ class TestTracecatAgentBuilder:
         mock_actions = [mock_action1, mock_action2, mock_action3]
 
         mock_registry_deps["service"].list_actions.return_value = mock_actions
+
+        # Mock create_tool_from_registry to return a simple tool
+        from pydantic import BaseModel, Field
+
+        class MockArgs(BaseModel):
+            test_param: str = Field(description="Test parameter")
+
+        async def mock_tool_func(test_param: str) -> str:
+            return f"Mock result: {test_param}"
+
+        mock_tool = Tool(mock_tool_func)
+        mock_registry_deps["create_tool_from_registry"].return_value = mock_tool
 
         await builder.build()
 
@@ -627,7 +657,7 @@ class TestAgentBuilderHelpers:
         mock_action.description = "Fallback description"
 
         with patch(
-            "registry.tracecat_registry.integrations.agents.builder.create_expectation_model"
+            "tracecat_registry.integrations.agents.builder.create_expectation_model"
         ) as mock_create:
             mock_model = Mock()
             mock_create.return_value = mock_model
@@ -652,7 +682,7 @@ class TestAgentBuilderHelpers:
         mock_action.description = "Fallback description"
 
         with patch(
-            "registry.tracecat_registry.integrations.agents.builder.create_expectation_model"
+            "tracecat_registry.integrations.agents.builder.create_expectation_model"
         ):
             description, _ = _extract_action_metadata(mock_action)
             assert description == "Fallback description"
@@ -665,3 +695,306 @@ class TestAgentBuilderHelpers:
 
         with pytest.raises(ValueError, match="Template action is not set"):
             _extract_action_metadata(mock_action)
+
+
+@pytest.mark.anyio
+class TestAgentBuilderIntegration:
+    """Integration test suite for TracecatAgentBuilder with real registry actions."""
+
+    async def test_agent_with_core_actions_integration(self, test_role):
+        """Test building and using an agent with real core actions."""
+        # Build an agent with core actions
+        builder = TracecatAgentBuilder(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            instructions="You are a helpful assistant that can make HTTP requests and transform data.",
+        )
+
+        # Filter to only core actions for this test
+        agent = await builder.with_namespace_filter("core").build()
+
+        # Verify the agent was created
+        assert agent is not None
+
+        # Verify tools were loaded
+        assert len(builder.tools) > 0
+
+        # Check that we have some expected core tools
+        tool_names = [tool.function.__name__ for tool in builder.tools]
+
+        # Should have core HTTP and transform tools
+        expected_tools = ["core_http_request", "core_reshape"]
+        found_tools = [name for name in expected_tools if name in tool_names]
+        assert len(found_tools) > 0, (
+            f"Expected to find some of {expected_tools} in {tool_names}"
+        )
+
+    async def test_agent_with_python_script_action(self, test_role):
+        """Test building an agent with the core Python script action."""
+        builder = TracecatAgentBuilder(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            instructions="You are a helpful assistant that can run Python scripts.",
+        )
+
+        # Filter to only the Python script action
+        agent = await builder.with_action_filter("core.script.run_python").build()
+
+        # Verify the agent was created
+        assert agent is not None
+
+        # Should have exactly one tool
+        assert len(builder.tools) == 1
+
+        # Verify it's the Python script tool
+        tool = builder.tools[0]
+        assert tool.function.__name__ == "script_run_python"
+
+        # Verify the tool has the expected parameters
+        sig = inspect.signature(tool.function)
+        params = list(sig.parameters.keys())
+
+        # Should have the main parameters from the Python script action
+        expected_params = [
+            "script",
+            "inputs",
+            "dependencies",
+            "timeout_seconds",
+            "allow_network",
+        ]
+        for param in expected_params:
+            assert param in params, (
+                f"Expected parameter '{param}' not found in {params}"
+            )
+
+    async def test_agent_with_template_action_integration(self, test_role):
+        """Test building an agent with a template action."""
+        builder = TracecatAgentBuilder(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            instructions="You are a helpful assistant that can post Slack messages.",
+        )
+
+        # Filter to only Slack template actions
+        agent = await builder.with_namespace_filter("tools.slack").build()
+
+        # Verify the agent was created
+        assert agent is not None
+
+        # Should have some tools
+        assert len(builder.tools) > 0
+
+        # Check for Slack-related tools
+        tool_names = [tool.function.__name__ for tool in builder.tools]
+        slack_tools = [name for name in tool_names if "slack" in name.lower()]
+        assert len(slack_tools) > 0, f"Expected to find Slack tools in {tool_names}"
+
+        # Verify at least one tool has the expected Slack parameters
+        slack_tool = None
+        for tool in builder.tools:
+            if "post_message" in tool.function.__name__:
+                slack_tool = tool
+                break
+
+        if slack_tool:
+            sig = inspect.signature(slack_tool.function)
+            params = list(sig.parameters.keys())
+
+            # Should have channel parameter for Slack message posting
+            assert "channel" in params, (
+                f"Expected 'channel' parameter in Slack tool, got {params}"
+            )
+
+    @pytest.mark.anyio
+    @pytest.mark.skipif(
+        not os.getenv("SLACK_BOT_TOKEN") or not os.getenv("SLACK_CHANNEL_ID"),
+        reason="SLACK_BOT_TOKEN and SLACK_CHANNEL_ID must be set in .env file for live test",
+    )
+    @pytest.mark.parametrize(
+        "prompt_type,prompt_template",
+        [
+            (
+                "simple",
+                "Post a message to Slack asking: 'Which programming language do you prefer? "
+                "Python 🐍 or JavaScript ⚡? Let us know in the comments!' "
+                "Post this to channel: {channel}",
+            ),
+            (
+                "medium",
+                "Post an interactive message to Slack asking people to vote between Python and JavaScript. "
+                "Include two buttons: 'Python 🐍' and 'JavaScript ⚡'. "
+                "Use simple Slack blocks format. "
+                "Post this to channel: {channel}",
+            ),
+            (
+                "complex",
+                "Post a fun interactive message to the Slack channel asking people to vote on "
+                "which is the better programming language. The message should include:\n"
+                "1. A header section with an emoji and title 'Which is the better programming language?'\n"
+                "2. Two comparison sections side by side:\n"
+                "   - Python: 'Simple, readable, has pandas' \n"
+                "   - JavaScript: 'Runs everywhere, async/await, has npm chaos'\n"
+                "3. Two action buttons: 'Python 🐍' (green/primary) and 'JavaScript ⚡' (yellow/secondary)\n"
+                "4. A context section with a fun note\n"
+                "5. Use proper Slack block kit JSON format with sections, actions, and context blocks\n"
+                "Post this to channel: {channel}",
+            ),
+        ],
+    )
+    async def test_agent_live_slack_prompts(
+        self, test_role, prompt_type, prompt_template
+    ):
+        """Live test: Agent creates Slack messages with varying complexity levels."""
+
+        # Get environment variables
+        slack_token = os.getenv("SLACK_BOT_TOKEN")
+        slack_channel = os.getenv("SLACK_CHANNEL_ID")
+
+        if not slack_token or not slack_channel:
+            pytest.skip("Slack credentials not available")
+
+        # Mock the secrets for Slack integration
+        with patch("tracecat_registry.integrations.slack_sdk.secrets.get") as mock_get:
+
+            def side_effect(key):
+                if key == "SLACK_BOT_TOKEN":
+                    return slack_token
+                return None
+
+            mock_get.side_effect = side_effect
+
+            # Build an agent with Slack capabilities
+            builder = TracecatAgentBuilder(
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                instructions=(
+                    "You are a helpful assistant that can post interactive Slack messages. "
+                    "When asked to create interactive messages, use proper Slack block kit format "
+                    "with buttons, sections, and other interactive elements. "
+                    "If complex blocks fail, try simpler alternatives."
+                ),
+            )
+
+            # Filter to Slack tools
+            agent = await builder.with_namespace_filter("tools.slack").build()
+
+            # Verify agent was created with Slack tools
+            assert agent is not None
+            assert len(builder.tools) > 0
+
+            # Format the prompt with the channel
+            prompt = prompt_template.format(channel=slack_channel)
+
+            print(f"\n🤖 Running agent with {prompt_type} Slack prompt...")
+            print(f"📝 Prompt: {prompt}")
+
+            # Run the agent
+            result = await agent.run(prompt)
+
+            print(f"\n✅ Agent execution completed for {prompt_type} prompt!")
+            print(f"📤 Result: {result}")
+
+            # Verify we got a result
+            assert result is not None
+            assert isinstance(result.output, str)
+
+            # Should mention successful posting or contain message details
+            result_lower = result.output.lower()
+            success_indicators = [
+                "posted",
+                "sent",
+                "message",
+                "slack",
+                "channel",
+                "success",
+                "python",
+                "javascript",
+                "programming",
+            ]
+
+            found_indicators = [
+                indicator
+                for indicator in success_indicators
+                if indicator in result_lower
+            ]
+            assert len(found_indicators) > 0, (
+                f"Expected success indicators in result: {result.output}"
+            )
+
+            print(
+                f"🎉 {prompt_type.title()} prompt test successful! Found indicators: {found_indicators}"
+            )
+
+    @pytest.mark.anyio
+    @pytest.mark.skipif(
+        not os.getenv("SLACK_BOT_TOKEN") or not os.getenv("SLACK_CHANNEL_ID"),
+        reason="SLACK_BOT_TOKEN and SLACK_CHANNEL_ID must be set in .env file for live test",
+    )
+    async def test_agent_function_direct(self, test_role):
+        """Live test: Test the agent registry function directly."""
+
+        # Get environment variables
+        slack_token = os.getenv("SLACK_BOT_TOKEN")
+        slack_channel = os.getenv("SLACK_CHANNEL_ID")
+
+        if not slack_token or not slack_channel:
+            pytest.skip("Slack credentials not available")
+
+        # Mock the secrets for Slack integration
+        with patch("tracecat_registry.integrations.slack_sdk.secrets.get") as mock_get:
+
+            def side_effect(key):
+                if key == "SLACK_BOT_TOKEN":
+                    return slack_token
+                return None
+
+            mock_get.side_effect = side_effect
+
+            # Call the agent function directly
+            result = await agent(
+                user_prompt=(
+                    f"Post a simple message to Slack channel {slack_channel} saying "
+                    "'Hello from the Tracecat AI agent! 🤖 This is a test message.'"
+                ),
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                namespaces=["tools.slack"],
+                actions=[],
+                instructions="You are a helpful assistant that can post messages to Slack.",
+                include_usage=True,
+            )
+
+            print(f"\n🤖 Agent function result: {result}")
+
+            # Verify the result structure
+            assert isinstance(result, dict)
+            assert "output" in result
+            assert "message_history" in result
+            assert "duration" in result
+            assert "usage" in result
+
+            # Verify the output contains success indicators
+            output = result["output"]
+            output_lower = str(output).lower()
+            success_indicators = ["posted", "message", "slack", "hello", "test"]
+            found_indicators = [
+                indicator
+                for indicator in success_indicators
+                if indicator in output_lower
+            ]
+            assert len(found_indicators) > 0, (
+                f"Expected success indicators in output: {output}"
+            )
+
+            # Verify message history exists
+            assert isinstance(result["message_history"], list)
+            assert len(result["message_history"]) > 0
+
+            # Verify usage information
+            assert isinstance(result["usage"], dict)
+
+            print(
+                f"🎉 Agent function test successful! Found indicators: {found_indicators}"
+            )
+            print(f"📊 Usage: {result['usage']}")
+            print(f"⏱️ Duration: {result['duration']:.2f}s")

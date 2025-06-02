@@ -387,9 +387,8 @@ async def agent(
     )
 
     start_time = timeit()
-    # NOTE: This is a blocking call, but it's the only way to
-    # get the agent to run as Bedrock doesn't support async agents.
-    result: AgentRunResult = agent.run_sync(user_prompt=user_prompt)
+    # Use async version since this function is already async
+    result: AgentRunResult = await agent.run(user_prompt=user_prompt)
     end_time = timeit()
 
     output = result.output
