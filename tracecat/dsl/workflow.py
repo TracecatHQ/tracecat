@@ -35,7 +35,7 @@ with workflow.unsafe.imports_passed_through():
         ctx_logger,
         ctx_role,
         ctx_run,
-        ctx_scope_id,
+        ctx_stream_id,
     )
     from tracecat.dsl.action import (
         DSLActivities,
@@ -68,7 +68,7 @@ with workflow.unsafe.imports_passed_through():
         TaskResult,
         TriggerInputs,
     )
-    from tracecat.dsl.scheduler import DSLScheduler, ScopeID
+    from tracecat.dsl.scheduler import DSLScheduler, StreamID
     from tracecat.dsl.validation import (
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
@@ -192,11 +192,11 @@ class DSLWorkflow:
         """Validate the interaction handler."""
         return self.interactions.validate_interaction(input)
 
-    def get_context(self, scope_id: ScopeID | None = None) -> ExecutionContext:
+    def get_context(self, stream_id: StreamID | None = None) -> ExecutionContext:
         """Get the current execution context."""
-        if scope_id is None:
+        if stream_id is None:
             return self.context
-        return self.scheduler.scopes[scope_id]
+        return self.scheduler.streams[stream_id]
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
@@ -538,7 +538,7 @@ class DSLWorkflow:
 
         logger.info("Begin task execution", task_ref=task.ref)
         task_result = TaskResult(result=None, result_typename=type(None).__name__)
-        scope_id = ctx_scope_id.get()
+        stream_id = ctx_stream_id.get()
 
         try:
             # Handle timing control flow logic
@@ -615,10 +615,10 @@ class DSLWorkflow:
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
             logger.trace("Setting action result", task_result=task_result)
-            context = self.get_context(scope_id)
+            context = self.get_context(stream_id)
             logger.warning(
                 "Setting action result in current context",
-                scope_id=scope_id,
+                stream_id=stream_id,
                 context=context,
             )
             context[ExprContext.ACTIONS][task.ref] = task_result
@@ -926,7 +926,7 @@ class DSLWorkflow:
     async def _run_action(self, task: ActionStatement) -> Any:
         # XXX(perf): We shouldn't pass the full execution context to the activity
         # We should only keep the contexts that are needed for the action
-        scope_id = ctx_scope_id.get()
+        scope_id = ctx_stream_id.get()
         expr_ctxs = extract_expressions(task.model_dump())
         new_action_context: dict[str, Any] = {}
         for action_ref in expr_ctxs[ExprContext.ACTIONS]:

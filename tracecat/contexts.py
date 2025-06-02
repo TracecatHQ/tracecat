@@ -10,7 +10,7 @@ from tracecat.ee.interactions.models import InteractionContext
 from tracecat.types.auth import Role
 
 if TYPE_CHECKING:
-    from tracecat.dsl.scheduler import ScopeID
+    from tracecat.dsl.scheduler import StreamID
 
 __all__ = [
     "ctx_run",
@@ -18,7 +18,7 @@ __all__ = [
     "ctx_logger",
     "ctx_interaction",
     "get_env",
-    "ctx_scope_id",
+    "ctx_stream_id",
 ]
 
 ctx_run: ContextVar[RunContext] = ContextVar("run", default=None)  # type: ignore
@@ -27,7 +27,7 @@ ctx_logger: ContextVar[loguru.Logger] = ContextVar("logger", default=None)  # ty
 ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
     "interaction", default=None
 )
-ctx_scope_id: ContextVar[ScopeID | None] = ContextVar("scope_id", default=None)
+ctx_stream_id: ContextVar[StreamID | None] = ContextVar("stream_id", default=None)
 
 
 ctx_env: ContextVar[dict[str, str] | None] = ContextVar("env", default=None)
