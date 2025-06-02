@@ -58,6 +58,8 @@ services:
       TRACECAT__BLOB_STORAGE_PROTOCOL: ${TRACECAT__BLOB_STORAGE_PROTOCOL:-minio}
       TRACECAT__BLOB_STORAGE_BUCKET: ${TRACECAT__BLOB_STORAGE_BUCKET:-tracecat}
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY: ${TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY:-3600}
+      # MinIO Credentials
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
@@ -232,7 +234,7 @@ services:
     attach: false
 
   minio:
-    image: cgr.dev/chainguard/minio:latest
+    image: minio/minio:RELEASE.2025-05-24T17-08-30Z
     container_name: minio
     restart: unless-stopped
     ports:
