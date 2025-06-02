@@ -12,10 +12,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat.concurrency import cooperative
 from tracecat.contexts import ctx_stream_id
 from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
-from tracecat.dsl.control_flow import (
-    ExplodeArgs,
-    ImplodeArgs,
-)
+from tracecat.dsl.control_flow import GatherArgs, ScatterArgs
 from tracecat.dsl.enums import (
     EdgeMarker,
     EdgeType,
@@ -41,7 +38,7 @@ type SkipToken = Literal["skip"]
 
 
 class StreamID(str):
-    """Hierarchical stream identifier: 'explode_1:2/explode_2:0'"""
+    """Hierarchical stream identifier: 'scatter_1:2/scatter_2:0'"""
 
     __stream_sep: ClassVar[str] = "/"
     __idx_sep: ClassVar[str] = ":"
@@ -442,7 +439,7 @@ class DSLScheduler:
                     # We reached the end of the execution stream, so we can return
                     # None to indicate that the stream is complete.
                     # We do not need to queue any downstream tasks.
-                    return await self._handle_implode(task, stmt, is_skipping=True)
+                    return await self._handle_gather(task, stmt, is_skipping=True)
                 return await self._handle_skip_path(task)
 
             # 2) Then we check if the task is reachable
@@ -460,11 +457,11 @@ class DSLScheduler:
             # -- If this is a control flow action (scatter), we need to
             # handle it differently.
             if stmt.action == PlatformAction.TRANSFORM_EXPLODE:
-                return await self._handle_explode(task, stmt)
+                return await self._handle_scatter(task, stmt)
             # 0) Always handle gather first - its a synchronization barrier that needs
             # to run regardless of dependency skip states
             if stmt.action == PlatformAction.TRANSFORM_IMPLODE:
-                return await self._handle_implode(task, stmt)
+                return await self._handle_gather(task, stmt)
 
             # -- Otherwise, time to execute the task!
             # NOTE: If an exception is thrown from this coroutine, it signals that
@@ -665,7 +662,7 @@ class DSLScheduler:
                 return True
         return False
 
-    async def _handle_explode(self, task: Task, stmt: ActionStatement) -> None:
+    async def _handle_scatter(self, task: Task, stmt: ActionStatement) -> None:
         """
         Handle scatter action with proper stream creation.
 
@@ -686,7 +683,7 @@ class DSLScheduler:
         new_scope_id = task.ref
         self.scope_hierarchy[new_scope_id] = curr_scope_id
 
-        args = ExplodeArgs(**stmt.args)
+        args = ScatterArgs(**stmt.args)
         context = self.get_context(curr_stream_id)
         collection = eval_templated_object(args.collection, operand=context)
 
@@ -697,7 +694,7 @@ class DSLScheduler:
             )
 
         # ALWAYS initialize tracking structures (even for empty collections)
-        # This ensures that _handle_implode can find the scatter task in tracking structures
+        # This ensures that _handle_gather can find the scatter task in tracking structures
 
         streams: list[StreamID] = []
         self.task_streams[task] = streams
@@ -777,7 +774,7 @@ class DSLScheduler:
         )
         return context
 
-    async def _handle_implode(
+    async def _handle_gather(
         self, task: Task, stmt: ActionStatement, *, is_skipping: bool = False
     ) -> None:
         """Handle gather with proper synchronization.
@@ -786,11 +783,11 @@ class DSLScheduler:
 
         Logic:
         - Gather is given a jsonpath. Get the item from the current stream. This will be returned to the parent stream.
-        - We need to know the cardinality of the exploded collection so that we can reconstruct the collection in the parent stream.
+        - We need to know the cardinality of the scatterd collection so that we can reconstruct the collection in the parent stream.
 
         Edge cases:
         - If used in the global stream (no matching scatter), gather does nothing and returns early.
-          This allows implodes to be safely scheduled even when their corresponding scatter was skipped.
+          This allows gathers to be safely scheduled even when their corresponding scatter was skipped.
 
         Cases:
         - NO execution stream but has scope - means the scatter was skipped because the collection was empty
@@ -920,7 +917,7 @@ class DSLScheduler:
         # Here onwards, we are not skipping.
         # This means we must compute a return value for the gather.
         # We should only compute the items to store if we aren't skipping
-        args = ImplodeArgs(**stmt.args)
+        args = GatherArgs(**stmt.args)
         current_context = self.get_context(stream_id)
         items = TemplateExpression(args.items, operand=current_context).result()
 

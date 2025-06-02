@@ -8,11 +8,11 @@ from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
 from tracecat.expressions.validation import ExpressionStr
 
 
-class ExplodeArgs(BaseModel):
+class ScatterArgs(BaseModel):
     collection: Any = Field(..., description="The collection to scatter")
 
 
-class ImplodeArgs(BaseModel):
+class GatherArgs(BaseModel):
     """Arguments for gather operations"""
 
     items: ExpressionStr = Field(..., description="The jsonpath to select items from")
@@ -25,8 +25,8 @@ class ImplodeArgs(BaseModel):
 class ScopeBoundary:
     """Information about a discovered scatter/gather boundary"""
 
-    explode_ref: str
-    implode_ref: str | None  # None if no matching gather found
+    scatter_ref: str
+    gather_ref: str | None  # None if no matching gather found
     scoped_tasks: set[str]
     """Task refs in this scope"""
 
@@ -65,11 +65,11 @@ class ScopeAnalyzer:
 
     # def discover_scope_boundaries(self) -> dict[str, ScopeBoundary]:
     #     """Find all scatter/gather pairs and their enclosed tasks"""
-    #     implode_tasks: dict[str, str] = {}
+    #     gather_tasks: dict[str, str] = {}
     #     for task in self.dsl.actions:
     #         if task.action == PlatformAction.TRANSFORM_IMPLODE:
-    #             args = ImplodeArgs(**task.args)
-    #             implode_tasks[args.path] = task.ref
+    #             args = GatherArgs(**task.args)
+    #             gather_tasks[args.path] = task.ref
 
     #     scope_boundaries: dict[str, ScopeBoundary] = {}
 
@@ -78,34 +78,34 @@ class ScopeAnalyzer:
     #             continue
 
     #         # Get scatter args to find scope ID
-    #         args = ExplodeArgs(**task.args)
+    #         args = ScatterArgs(**task.args)
     #         # Find corresponding gather(s) that use this scope ID
-    #         implode_ref = implode_tasks.get(scope_id)
+    #         gather_ref = gather_tasks.get(scope_id)
 
     #         # Find all tasks between scatter and gather
-    #         if implode_ref:
-    #             scoped_tasks = self._find_tasks_between(task.ref, implode_ref)
+    #         if gather_ref:
+    #             scoped_tasks = self._find_tasks_between(task.ref, gather_ref)
     #         else:
     #             # If no gather found, include all reachable tasks from scatter
     #             scoped_tasks = self._find_all_reachable_tasks(task.ref)
 
     #         scope_boundaries[task.ref] = ScopeBoundary(
-    #             explode_ref=task.ref,
-    #             implode_ref=implode_ref,
+    #             scatter_ref=task.ref,
+    #             gather_ref=gather_ref,
     #             scoped_tasks=scoped_tasks,
     #             scope_id=scope_id,
     #         )
 
     #     return scope_boundaries
 
-    def _find_tasks_between(self, explode_ref: str, implode_ref: str) -> set[str]:
+    def _find_tasks_between(self, scatter_ref: str, gather_ref: str) -> set[str]:
         """Find all tasks reachable from scatter but not beyond gather"""
         visited = set()
-        stack = [explode_ref]
+        stack = [scatter_ref]
 
         while stack:
             current = stack.pop()
-            if current in visited or current == implode_ref:
+            if current in visited or current == gather_ref:
                 continue
 
             visited.add(current)
@@ -116,7 +116,7 @@ class ScopeAnalyzer:
                     stack.append(child_ref)
 
         # Remove the scatter task itself, include everything up to but not including gather
-        visited.discard(explode_ref)
+        visited.discard(scatter_ref)
         return visited
 
     def _find_all_reachable_tasks(self, start_ref: str) -> set[str]:
