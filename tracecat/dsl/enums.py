@@ -55,4 +55,4 @@ class EdgeType(StrEnum):
 class Sentinel(StrEnum):
     """Sentinel values for gather operations."""
 
-    IMPLODE_UNSET = "<|IMPLODE_UNSET|>"
+    GATHER_UNSET = "<|GATHER_UNSET|>"

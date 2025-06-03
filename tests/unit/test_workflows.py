@@ -3668,6 +3668,8 @@ async def test_workflow_detached_child_workflow(
                         action="core.transform.reshape",
                         args={"value": "${{ 42 }}"},
                     ),
+                    # SKIPPED
+                    # ======== Block 1 ========
                     ActionStatement(
                         ref="scatter",
                         action="core.transform.scatter",
@@ -3698,6 +3700,8 @@ async def test_workflow_detached_child_workflow(
                         depends_on=["gather"],
                         args={"value": "${{ ACTIONS.gather.result }}"},
                     ),
+                    # ======== End Block 1 ========
+                    # Block 1 s houldn't run
                 ],
             ),
             {

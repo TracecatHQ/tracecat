@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, ClassVar, Literal, Self, cast
@@ -10,7 +13,6 @@ from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
 from tracecat.concurrency import cooperative
-from tracecat.contexts import ctx_stream_id
 from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
 from tracecat.dsl.control_flow import GatherArgs, ScatterArgs
 from tracecat.dsl.enums import (
@@ -72,13 +74,19 @@ class StreamID(str):
         return scope, int(index) if index != "skip" else "skip"
 
 
+_ROOT_SCOPE = "<root>"
+ROOT_STREAM = StreamID.new(_ROOT_SCOPE, 0)
+ROOT_SKIP_STREAM = StreamID.skip(_ROOT_SCOPE)
+
+CTX_STREAM_ID: ContextVar[StreamID] = ContextVar("stream-id", default=ROOT_STREAM)
+
+
 @dataclass(frozen=True, slots=True)
 class Task:
     """Task instance"""
 
     ref: str
-    stream_id: StreamID | None = None  # None for global stream
-    scope_id: str | None = None  # None for global scope
+    stream_id: StreamID
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,13 +98,11 @@ class DSLEdge:
     type: EdgeType
     """The edge type"""
 
-    stream_id: StreamID | None = None  # None for global stream
+    stream_id: StreamID
     """The stream ID of the edge"""
 
     def __repr__(self) -> str:
-        return (
-            f"{self.src}-[{self.type.value}]->{self.dst} ({self.stream_id or 'global'})"
-        )
+        return f"{self.src}-[{self.type.value}]->{self.dst} ({self.stream_id})"
 
 
 class Counter:
@@ -131,7 +137,6 @@ class DSLScheduler:
     ):
         # Static
         self.dsl = dsl
-        self.context = context
         self.executor = executor
         self.skip_strategy = skip_strategy
         # self.logger = ctx_logger.get(logger).bind(unit="dsl-scheduler")
@@ -158,17 +163,16 @@ class DSLScheduler:
         for task in dsl.actions:
             self.tasks[task.ref] = task
             # This remains the same regardless of error paths, as each error path counts as an indegree
-            self.indegrees[Task(task.ref)] = len(task.depends_on)
+            self.indegrees[Task(task.ref, ROOT_STREAM)] = len(task.depends_on)
             for dep_ref in task.depends_on:
                 src_ref, edge_type = self._get_edge_components(dep_ref)
                 self.adj[src_ref].add((task.ref, edge_type))
 
         # Scope management
-        self.streams: dict[StreamID, ExecutionContext] = {}
-        self.stream_hierarchy: dict[StreamID, StreamID | None] = {}
+        self.streams: dict[StreamID, ExecutionContext] = {ROOT_STREAM: context}
+
+        self.stream_hierarchy: dict[StreamID, StreamID | None] = {ROOT_STREAM: None}
         """Points to the parent stream ID for each stream ID"""
-        self.scope_hierarchy: dict[str, str | None] = {}
-        """Points to the parent scope ID for each scope ID"""
         self.task_streams: defaultdict[Task, list[StreamID]] = defaultdict(list)
         self.scope_counters: defaultdict[str, Counter] = defaultdict(Counter)
         """Used to create unique stream IDs for each scatter iteration"""
@@ -371,7 +375,6 @@ class DSLScheduler:
         # but at the join point, if any parent was not skipped, then the child can still be executed.
         ref = task.ref
         stream_id = task.stream_id
-        scope_id = task.scope_id
         next_tasks = self.adj[ref]
         self.logger.warning(
             "Queueing tasks",
@@ -380,7 +383,6 @@ class DSLScheduler:
             visited_tasks=self.completed_tasks,
             next_tasks=next_tasks,
             unreachable=unreachable,
-            SCOPE=scope_id,
         )
         async with asyncio.TaskGroup() as tg:
             for next_ref, edge_type in next_tasks:
@@ -394,7 +396,7 @@ class DSLScheduler:
                     self._mark_edge(edge, EdgeMarker.VISITED)
                 # Mark the edge as processed
                 # Task inherits the current stream
-                next_task = Task(ref=next_ref, stream_id=stream_id, scope_id=scope_id)
+                next_task = Task(ref=next_ref, stream_id=stream_id)
                 # We dynamically add the indegree of the next task to the indegrees dict
                 if next_task not in self.indegrees:
                     self.indegrees[next_task] = len(self.tasks[next_ref].depends_on)
@@ -463,11 +465,11 @@ class DSLScheduler:
             # NOTE: If an exception is thrown from this coroutine, it signals that
             # the task failed after all attempts. Adding the exception to the task
             # exceptions set will cause the workflow to fail.
-            token = ctx_stream_id.set(task.stream_id)
+            token = CTX_STREAM_ID.set(task.stream_id)
             try:
                 await self.executor(stmt)
             finally:
-                ctx_stream_id.reset(token)
+                CTX_STREAM_ID.reset(token)
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
@@ -593,16 +595,16 @@ class DSLScheduler:
         src_ref_path: str,
         dst_ref: str,
         marker: EdgeMarker,
-        scope_id: StreamID | None = None,
+        stream_id: StreamID,
     ) -> bool:
-        edge = self._get_edge_by_refs(src_ref_path, dst_ref, scope_id)
+        edge = self._get_edge_by_refs(src_ref_path, dst_ref, stream_id)
         return self.edges[edge] == marker
 
     def _get_edge_components(self, ref_path: str) -> AdjDst:
         return edge_components_from_dep(ref_path)
 
     def _get_edge_by_refs(
-        self, src_ref_path: str, dst_ref: str, scope_id: StreamID | None = None
+        self, src_ref_path: str, dst_ref: str, stream_id: StreamID
     ) -> DSLEdge:
         """Get an edge by its source and destination references.
 
@@ -615,7 +617,7 @@ class DSLScheduler:
         """
         base_src_ref, edge_type = self._get_edge_components(src_ref_path)
         return DSLEdge(
-            src=base_src_ref, dst=dst_ref, type=edge_type, stream_id=scope_id
+            src=base_src_ref, dst=dst_ref, type=edge_type, stream_id=stream_id
         )
 
     def _mark_edge(self, edge: DSLEdge, marker: EdgeMarker) -> None:
@@ -658,7 +660,23 @@ class DSLScheduler:
                 return True
         return False
 
-    async def _handle_scatter(self, task: Task, stmt: ActionStatement) -> None:
+    async def _queue_skip_stream(self, task: Task, stream_id: StreamID) -> None:
+        """Queue a skip stream for a task."""
+        new_stream_id = StreamID.skip(task.ref, base_stream_id=stream_id)
+        self.stream_hierarchy[new_stream_id] = stream_id
+        self.streams[new_stream_id] = {ExprContext.ACTIONS: {}}
+        unreachable = {
+            DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=new_stream_id)
+            for dst, edge_type in self.adj[task.ref]
+        }
+        skip_task = Task(ref=task.ref, stream_id=new_stream_id)
+        self.logger.warning("Queueing skip stream", skip_task=skip_task)
+        # Acknowledge the new scope
+        return await self._queue_tasks(skip_task, unreachable=unreachable)
+
+    async def _handle_scatter(
+        self, task: Task, stmt: ActionStatement, *, is_skipping: bool = False
+    ) -> None:
         """
         Handle scatter action with proper stream creation.
 
@@ -672,12 +690,22 @@ class DSLScheduler:
         """
         # Our current location, before creating any new streams
         curr_stream_id = task.stream_id
-        curr_scope_id = task.scope_id
-        self.logger.info("EXPLODE", task=task)
-
-        # 1) Create a new scope (ALWAYS)
-        new_scope_id = task.ref
-        self.scope_hierarchy[new_scope_id] = curr_scope_id
+        self.logger.info("EXPLODE", task=task, is_skipping=is_skipping)
+        if is_skipping:
+            #
+            self.logger.warning("Skipped scatter", task=task)
+            stream_id = ROOT_SKIP_STREAM
+            new_stream_id = StreamID.skip(task.ref, base_stream_id=stream_id)
+            self.stream_hierarchy[new_stream_id] = stream_id
+            self.streams[new_stream_id] = {ExprContext.ACTIONS: {}}
+            unreachable = {
+                DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=new_stream_id)
+                for dst, edge_type in self.adj[task.ref]
+            }
+            skip_task = Task(ref=task.ref, stream_id=new_stream_id)
+            self.logger.warning("Queueing skip stream", skip_task=skip_task)
+            # Acknowledge the new scope
+            return await self._queue_tasks(skip_task, unreachable=unreachable)
 
         args = ScatterArgs(**stmt.args)
         context = self.get_context(curr_stream_id)
@@ -689,6 +717,7 @@ class DSLScheduler:
                 non_retryable=True,
             )
 
+        # 1) Create a new stream (ALWAYS)
         # ALWAYS initialize tracking structures (even for empty collections)
         # This ensures that _handle_gather can find the scatter task in tracking structures
 
@@ -708,9 +737,7 @@ class DSLScheduler:
                 DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=new_stream_id)
                 for dst, edge_type in self.adj[task.ref]
             }
-            skip_task = Task(
-                ref=task.ref, stream_id=new_stream_id, scope_id=new_scope_id
-            )
+            skip_task = Task(ref=task.ref, stream_id=new_stream_id)
             self.logger.warning("Queueing skip stream", skip_task=skip_task)
             # Acknowledge the new scope
             return await self._queue_tasks(skip_task, unreachable=unreachable)
@@ -735,9 +762,7 @@ class DSLScheduler:
             }
 
             # Create tasks for all tasks in this stream
-            new_scoped_task = Task(
-                ref=task.ref, stream_id=new_stream_id, scope_id=new_scope_id
-            )
+            new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id)
             self.logger.info(
                 "Creating stream",
                 item=item,
@@ -758,15 +783,10 @@ class DSLScheduler:
             scopes_created=len(streams),
         )
 
-    def get_context(self, stream_id: StreamID | None = None) -> ExecutionContext:
-        if stream_id is None:
-            self.logger.warning(
-                f"Getting global context {to_json(self.context, indent=2).decode()}"
-            )
-            return self.context
+    def get_context(self, stream_id: StreamID) -> ExecutionContext:
         context = self.streams[stream_id]
         self.logger.warning(
-            f"Getting scoped context {stream_id} {to_json(context, indent=2).decode()}"
+            f"Getting stream context {stream_id} {to_json(context, indent=2).decode()}"
         )
         return context
 
@@ -800,79 +820,56 @@ class DSLScheduler:
         """
         self.logger.info("Handling gather", task=task)
         match task:
-            # Global execution stream. No scope (no scatter fired)
-            case Task(stream_id=None, scope_id=None):
-                self.logger.warning(
-                    "Gather in global stream, no corresponding scope",
-                    task=task,
-                    is_skipping=is_skipping,
-                )
+            # Root stream
+            case Task(stream_id=stream_id) if stream_id == ROOT_STREAM:
                 if not is_skipping:
                     raise RuntimeError(
-                        f"Gather in global stream, no corresponding scope, but not skipping: {task}. User has probably made a mistake"
+                        f"Found gather in root stream but not skipping: {task}. User has probably made a mistake"
                     )
+                self.logger.warning("Skipped gather in root stream.", task=task)
                 return
 
-            # Global execution stream. Has scope
-            case Task(stream_id=None, scope_id=scope_id) if scope_id:
-                self.logger.warning("Gather in global stream, doing nothing", task=task)
-                # We saw the scatter `scope_id` but we aren't in a scoped execution stream.
-                # This means we're in the cleanup flow.
-
-                # The result is known beforehand -- it's an empty array
-                # But in which context should we set it?
-                # Since stream_id is None, we're in the global context.
-
-                parent_action_context = self._get_action_context(None)
-                parent_action_context[task.ref] = TaskResult(
-                    result=[], result_typename="list"
-                )
-
-                # Now we can exit the scope and queue next tasks
-                parent_scope = self.scope_hierarchy[scope_id]
-                # Stream ID here is wrong. It should be the parent stream ID.
-                next_task = Task(ref=task.ref, stream_id=None, scope_id=parent_scope)
-                return await self._queue_tasks(next_task, unreachable=None)
-
-            # Has execution stream + no scope -- scatter never ran
-            case Task(stream_id=stream_id, scope_id=None) if stream_id:
-                self.logger.warning(
-                    "Gather in execution stream, doing nothing", task=task
-                )
-                raise NotImplementedError(
-                    f"Gather in execution stream, no scope, but not skipping: {task}. User has probably made a mistake"
-                )
-
-            case Task(stream_id=stream_id, scope_id=scope_id) if (
-                stream_id and scope_id and stream_id.endswith(":skip")
-            ):
+            # Skip stream
+            case Task(stream_id=stream_id) if stream_id and stream_id.endswith(":skip"):
                 self.logger.warning("Gather in skip stream. Perform cleanup", task=task)
 
                 parent_stream = self.stream_hierarchy[stream_id]
-                parent_action_context = self._get_action_context(parent_stream)
-                parent_action_context[task.ref] = TaskResult(
-                    result=[], result_typename="list"
-                )
+                if parent_stream is None:
+                    assert stream_id == ROOT_SKIP_STREAM, "Expected root skip stream"
+                    # This means we're in the root stream.
+                    # If we're in the root stream don't set the result, because naturally
+                    # there's no parent stream.
+                    # Instead, we mark all downstream tasks as unreachable.
+                    unreachable = {
+                        DSLEdge(src=task.ref, dst=dst, type=type, stream_id=stream_id)
+                        for dst, type in self.adj[task.ref]
+                    }
+                    return await self._queue_tasks(task, unreachable=unreachable)
+                else:
+                    # This is a scoped stream. We need to set the result in the parent.
+                    parent_action_context = self._get_action_context(parent_stream)
+                    parent_action_context[task.ref] = TaskResult(
+                        result=[], result_typename="list"
+                    )
 
-                # Now we can exit the scope and queue next tasks
-                parent_scope = self.scope_hierarchy[scope_id]
-                next_task = Task(
-                    ref=task.ref, stream_id=parent_stream, scope_id=parent_scope
-                )
-                self.logger.warning(
-                    "Queueing next task",
-                    next_task=next_task,
-                    parent_stream=parent_stream,
-                    parent_scope=parent_scope,
-                )
-                return await self._queue_tasks(next_task, unreachable=None)
+                    # Now we can exit the scope and queue next tasks
+                    next_task = Task(ref=task.ref, stream_id=parent_stream)
+                    self.logger.warning(
+                        "Queueing next task",
+                        next_task=next_task,
+                        parent_stream=parent_stream,
+                    )
+                    return await self._queue_tasks(next_task, unreachable=None)
 
-            # Has execution stream + has scope: default path
-            case Task(stream_id=stream_id, scope_id=scope_id) if stream_id and scope_id:
-                self.logger.warning(
-                    "Default gather path", scope_id=scope_id, stream_id=stream_id
-                )
-                pass
+            #  Scoped execution stream
+            case Task(stream_id=stream_id) if stream_id:
+                self.logger.warning("Default gather path", stream_id=stream_id)
+                parent_stream_id = self.stream_hierarchy[stream_id]
+                if parent_stream_id is None:
+                    raise RuntimeError(
+                        f"Gather in scoped stream, but no parent stream: {task}."
+                        " This means we somehow are in the root stream, but should never reach this point."
+                    )
 
             case _:
                 self.logger.info("Invalid gather state", task=task)
@@ -886,28 +883,22 @@ class DSLScheduler:
 
         # What are we doing here?
         # We are in an execution stream. Need to close it now.
-        ex_ref, stream_idx = stream_id.leaf
+        scatter_ref, stream_idx = stream_id.leaf
         # This operation should return the parent stream
-        parent_stream_id = self.stream_hierarchy[stream_id]
-        parent_scope_id = self.scope_hierarchy[scope_id]
-        parent_ex_task = Task(
-            # This is a scope mismatch?
-            ref=ex_ref,
-            stream_id=parent_stream_id,
-            scope_id=parent_scope_id,
-        )
+        parent_scatter = Task(ref=scatter_ref, stream_id=parent_stream_id)
 
         # Close the stream regardless of whether we skipped our way to this point.
         self.logger.warning(
             "Closing stream",
             task=task,
-            parent_ex_task=parent_ex_task,
+            parent_scatter=parent_scatter,
             open_streams=to_json(self.open_streams, indent=2).decode(),
         )
         self.logger.warning(to_json(self.open_streams, indent=2).decode())
-        self.open_streams[parent_ex_task] -= 1
+        self.open_streams[parent_scatter] -= 1
         if is_skipping:
             self.logger.warning("Skipped gather in execution stream", task=task)
+            # Return early to avoid setting the result as null.
             return
 
         # Here onwards, we are not skipping.
@@ -925,30 +916,29 @@ class DSLScheduler:
         # We set the item as the result of the action in that stream
         # We should actually be placing this in parent.result[i]
 
-        im_ref = task.ref
+        gather_ref = task.ref
 
         # Set result array if this is the first stream
-        if im_ref not in parent_action_context:
+        if gather_ref not in parent_action_context:
             # NOTE: This block is executed by the first execution stream that finishes.
             # We need to initialize the result with the cardinality of the scatter
             # This is the number of execution streams that will be synchronized by this gather
-            size = len(self.task_streams[parent_ex_task])
-            result = [Sentinel.IMPLODE_UNSET for _ in range(size)]
-            parent_action_context[im_ref] = TaskResult(
+            size = len(self.task_streams[parent_scatter])
+            result = [Sentinel.GATHER_UNSET for _ in range(size)]
+            parent_action_context[gather_ref] = TaskResult(
                 result=result,
                 result_typename=type(result).__name__,
             )
 
         # Only add  if we didn't skip
-        parent_action_context[im_ref]["result"][stream_idx] = items
+        parent_action_context[gather_ref]["result"][stream_idx] = items
         self.logger.info(
             "Set item as result",
             task=task,
-            scope_id=stream_id,
             parent_action_context=parent_action_context,
         )
 
-        if self.open_streams[parent_ex_task] == 0:
+        if self.open_streams[parent_scatter] == 0:
             # NOTE: This block is executed by the last execution stream.
             self.logger.warning(
                 "FINALIZING IMPLODE",
@@ -964,9 +954,9 @@ class DSLScheduler:
             # Automatically remove unset values (Sentinel.IMPLODE_UNSET).
             final_result = [
                 item
-                for item in cast(list[Any], parent_action_context[im_ref]["result"])
+                for item in cast(list[Any], parent_action_context[gather_ref]["result"])
                 if not (
-                    (item == Sentinel.IMPLODE_UNSET)
+                    (item == Sentinel.GATHER_UNSET)
                     or (args.drop_nulls and item is None)
                 )
             ]
@@ -978,33 +968,29 @@ class DSLScheduler:
             )
 
             # Update the result with the filtered version
-            parent_action_context[im_ref].update(result=final_result)
+            parent_action_context[gather_ref].update(result=final_result)
 
             self.logger.warning(
                 "Gather complete. Go back up to parent stream",
                 task=task,
-                parent_scope_id=parent_stream_id,
+                parent_stream_id=parent_stream_id,
             )
-            parent_im_task = Task(
-                ref=im_ref, stream_id=parent_stream_id, scope_id=parent_scope_id
-            )
+            parent_gather = Task(ref=gather_ref, stream_id=parent_stream_id)
             # TODO: Handle unreachable tasks??
-            await self._queue_tasks(parent_im_task, unreachable=None)
+            await self._queue_tasks(parent_gather, unreachable=None)
         else:
             self.logger.info(
                 "The execution stream is complete but the gather isn't.",
                 task=task,
-                remaining_open_scopes=self.open_streams[parent_ex_task],
+                remaining_open_streams=self.open_streams[parent_scatter],
             )
 
-    def _get_action_context(
-        self, stream_id: StreamID | None = None
-    ) -> dict[str, TaskResult]:
+    def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult]:
         context = self.get_context(stream_id)
         return cast(dict[str, TaskResult], context[ExprContext.ACTIONS])
 
-    def get_scope_aware_action_result(
-        self, action_ref: str, scope_id: StreamID | None = None
+    def get_stream_aware_action_result(
+        self, action_ref: str, stream_id: StreamID
     ) -> Any | None:
         """
         Resolve an action expression in a stream-aware manner.
@@ -1014,14 +1000,14 @@ class DSLScheduler:
 
         Args:
             action_ref: The action reference to resolve (e.g., "webhook", "transform_1")
-            scope_id: The current stream ID to start resolution from. If None, uses global stream.
+            stream_id: The current stream ID to start resolution from. If None, uses global stream.
 
         Returns:
             The action result if found, None otherwise.
 
         Example:
             # In a scoped context
-            result = scheduler.resolve_action_expression("webhook", current_scope_id)
+            result = scheduler.resolve_action_expression("webhook", current_stream_id)
 
             # In global context
             result = scheduler.resolve_action_expression("webhook")
@@ -1033,51 +1019,36 @@ class DSLScheduler:
         self.logger.debug(
             "Resolving action expression",
             action_ref=action_ref,
-            scope_id=scope_id,
-            available_scopes=list(self.streams.keys()),
+            stream_id=stream_id,
+            available_streams=list(self.streams.keys()),
         )
 
         # Start from the current stream and work upwards
-        current_scope = scope_id
+        curr_stream = stream_id
 
-        while current_scope is not None:
+        while curr_stream is not None:
             # Check if the action exists in the current stream
-            scope_context = self.streams.get(current_scope)
-            if scope_context is not None:
-                actions_context = scope_context.get(ExprContext.ACTIONS, {})
+            if stream_context := self.streams.get(curr_stream):
+                actions_context = stream_context.get(ExprContext.ACTIONS, {})
                 if action_ref in actions_context:
                     self.logger.debug(
                         "Found action in stream",
                         action_ref=action_ref,
-                        scope_id=current_scope,
+                        stream_id=curr_stream,
                         result=actions_context[action_ref],
                     )
                     return actions_context[action_ref]
 
             # Move to parent stream
-            current_scope = self.stream_hierarchy.get(current_scope)
+            curr_stream = self.stream_hierarchy.get(curr_stream)
             self.logger.trace(
                 "Moving to parent stream",
                 action_ref=action_ref,
-                parent_scope=current_scope,
+                parent_stream=curr_stream,
             )
-
-        # Finally, check the global context
-        global_actions = self.context.get(ExprContext.ACTIONS, {})
-        if action_ref in global_actions:
-            self.logger.debug(
-                "Found action in global context",
-                action_ref=action_ref,
-                result=global_actions[action_ref],
-            )
-            return global_actions[action_ref]
 
         # Action not found in any stream
         self.logger.warning(
-            "Action not found in any stream",
-            action_ref=action_ref,
-            scope_id=scope_id,
-            available_global_actions=list(global_actions.keys()),
-            available_scopes=list(self.streams.keys()),
+            "Action not found in any stream", action_ref=action_ref, stream_id=stream_id
         )
         return None
