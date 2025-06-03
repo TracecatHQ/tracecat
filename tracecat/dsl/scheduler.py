@@ -105,22 +105,6 @@ class DSLEdge:
         return f"{self.src}-[{self.type.value}]->{self.dst} ({self.stream_id})"
 
 
-class Counter:
-    __slots__ = ("value",)
-
-    def __init__(self, start: int = 0) -> None:
-        self.value = start
-
-    def next(self) -> int:
-        """Get the next value and increment the counter."""
-        current = self.value
-        self.value += 1
-        return current
-
-    def __repr__(self) -> str:
-        return f"Counter(value={self.value})"
-
-
 class DSLScheduler:
     """Manage only scheduling and control flow of tasks in a topological-like order."""
 
@@ -174,8 +158,6 @@ class DSLScheduler:
         self.stream_hierarchy: dict[StreamID, StreamID | None] = {ROOT_STREAM: None}
         """Points to the parent stream ID for each stream ID"""
         self.task_streams: defaultdict[Task, list[StreamID]] = defaultdict(list)
-        self.scope_counters: defaultdict[str, Counter] = defaultdict(Counter)
-        """Used to create unique stream IDs for each scatter iteration"""
         self.open_streams: dict[Task, int] = {}
         """Used to track the number of scopes that have been closed for an scatter"""
 
