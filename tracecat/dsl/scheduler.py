@@ -83,10 +83,12 @@ CTX_STREAM_ID: ContextVar[StreamID] = ContextVar("stream-id", default=ROOT_STREA
 
 @dataclass(frozen=True, slots=True)
 class Task:
-    """Task instance"""
+    """Stream-aware task instance"""
 
     ref: str
+    """The task action reference"""
     stream_id: StreamID
+    """The stream ID of the task"""
 
 
 @dataclass(frozen=True, slots=True)
