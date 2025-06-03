@@ -198,17 +198,13 @@ class DSLScheduler:
 
     async def _handle_error_path(self, task: Task, exc: Exception) -> None:
         ref = task.ref
-        import traceback
 
-        # Log the error with traceback
-        tb_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         self.logger.error(
             "Handling error path",
             ref=ref,
             type=exc.__class__.__name__,
             exc=exc,
         )
-        self.logger.error(tb_str)
         # Prune any non-error paths and queue the rest
         non_err_edges: set[DSLEdge] = {
             DSLEdge(src=ref, dst=dst, type=edge_type, stream_id=task.stream_id)
