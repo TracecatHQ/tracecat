@@ -265,3 +265,23 @@ TRACECAT__S3_CONCURRENCY_LIMIT = int(
     os.environ.get("TRACECAT__S3_CONCURRENCY_LIMIT", 50)
 )
 """Maximum number of concurrent S3 operations to prevent resource exhaustion. Defaults to 50."""
+# === File limits === #
+TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", 50 * 1024 * 1024)
+)
+"""The maximum size for case attachment files in bytes. Defaults to 50MB."""
+
+TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH", 255)
+)
+"""The maximum length for attachment filenames. Defaults to 255 (Django FileField standard)."""
+
+TRACECAT__MAX_CASE_STORAGE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_CASE_STORAGE_BYTES", 500 * 1024 * 1024)
+)
+"""The maximum total storage per case in bytes. Defaults to 500MB."""
+
+TRACECAT__MAX_ATTACHMENTS_PER_CASE = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENTS_PER_CASE", 100)
+)
+"""The maximum number of attachments allowed per case. Defaults to 100."""
