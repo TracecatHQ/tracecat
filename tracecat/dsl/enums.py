@@ -3,8 +3,8 @@ from enum import StrEnum, auto
 
 class PlatformAction(StrEnum):
     CHILD_WORKFLOW_EXECUTE = "core.workflow.execute"
-    TRANSFORM_EXPLODE = "core.transform.scatter"
-    TRANSFORM_IMPLODE = "core.transform.gather"
+    TRANSFORM_SCATTER = "core.transform.scatter"
+    TRANSFORM_GATHER = "core.transform.gather"
 
 
 class FailStrategy(StrEnum):

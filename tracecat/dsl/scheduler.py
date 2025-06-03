@@ -430,7 +430,7 @@ class DSLScheduler:
             # 1) Skip propagation (force-skip) takes highest precedence over everything else
             if self._skip_should_propagate(task, stmt):
                 self.logger.info("Task should be force-skipped, propagating", task=task)
-                if stmt.action == PlatformAction.TRANSFORM_IMPLODE:
+                if stmt.action == PlatformAction.TRANSFORM_GATHER:
                     # If we encounter an gather and we're in an execution stream,
                     # we need to close the stream.
                     self.logger.warning(
@@ -456,11 +456,11 @@ class DSLScheduler:
 
             # -- If this is a control flow action (scatter), we need to
             # handle it differently.
-            if stmt.action == PlatformAction.TRANSFORM_EXPLODE:
+            if stmt.action == PlatformAction.TRANSFORM_SCATTER:
                 return await self._handle_scatter(task, stmt)
             # 0) Always handle gather first - its a synchronization barrier that needs
             # to run regardless of dependency skip states
-            if stmt.action == PlatformAction.TRANSFORM_IMPLODE:
+            if stmt.action == PlatformAction.TRANSFORM_GATHER:
                 return await self._handle_gather(task, stmt)
 
             # -- Otherwise, time to execute the task!
