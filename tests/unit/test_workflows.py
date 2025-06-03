@@ -3713,6 +3713,363 @@ async def test_workflow_detached_child_workflow(
             },
             id="a-scatter-b-gather-c-skip-scatter-only-a",
         ),
+        # Mixed Collection Scenarios
+        # 1. Parallel branches with different collection sizes
+        pytest.param(
+            DSLInput(
+                title="Parallel branches with different collection sizes",
+                description="Test parallel scatter-gather with collections of different lengths",
+                entrypoint=DSLEntrypoint(ref="start"),
+                actions=[
+                    # Branch A: 3 items
+                    ActionStatement(
+                        ref="scatter_a",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_a",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_a"],
+                        args={"value": "${{ ACTIONS.scatter_a.result * 10 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_a",
+                        action="core.transform.gather",
+                        depends_on=["process_a"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_a.result }}"
+                        ).model_dump(),
+                    ),
+                    # Branch B: 2 items
+                    ActionStatement(
+                        ref="scatter_b",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[100, 200]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_b",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_b"],
+                        args={"value": "${{ ACTIONS.scatter_b.result + 5 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_b",
+                        action="core.transform.gather",
+                        depends_on=["process_b"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_b.result }}"
+                        ).model_dump(),
+                    ),
+                    # Join both branches
+                    ActionStatement(
+                        ref="join",
+                        action="core.transform.reshape",
+                        depends_on=["gather_a", "gather_b"],
+                        args={
+                            "value": "${{ ACTIONS.gather_a.result + ACTIONS.gather_b.result }}"
+                        },
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather_a": {"result": [10, 20, 30], "result_typename": "list"},
+                    "gather_b": {"result": [105, 205], "result_typename": "list"},
+                    "join": {
+                        "result": [10, 20, 30, 105, 205],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="parallel-different-sizes",
+        ),
+        # 2. Mixed data types preservation
+        pytest.param(
+            DSLInput(
+                title="Mixed data types preservation",
+                description="Test scatter-gather with different data types",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[1, "hello", {"key": "value"}, None, [1, 2]]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="identity",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["identity"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.identity.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather": {
+                        "result": [1, "hello", {"key": "value"}, None, [1, 2]],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="mixed-data-types",
+        ),
+        # 3. Variable nesting depths
+        pytest.param(
+            DSLInput(
+                title="Variable nesting depths",
+                description="Test scatter-gather with collections of inconsistent nesting",
+                entrypoint=DSLEntrypoint(ref="outer_scatter"),
+                actions=[
+                    # Outer scatter with mixed nesting
+                    ActionStatement(
+                        ref="outer_scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[
+                                [1, 2],  # 2D array
+                                [[3, 4], [5, 6]],  # 3D array
+                                7,  # scalar
+                                [],  # empty array
+                            ]
+                        ).model_dump(),
+                    ),
+                    # Process each item based on its type
+                    ActionStatement(
+                        ref="process_item",
+                        action="core.transform.reshape",
+                        depends_on=["outer_scatter"],
+                        args={"value": "${{ ACTIONS.outer_scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="outer_gather",
+                        action="core.transform.gather",
+                        depends_on=["process_item"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_item.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "outer_gather": {
+                        "result": [[1, 2], [[3, 4], [5, 6]], 7, []],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="variable-nesting-depths",
+        ),
+        # 4. Empty and non-empty collections in parallel
+        pytest.param(
+            DSLInput(
+                title="Empty and non-empty parallel branches",
+                description="Test parallel scatter-gather where one branch has empty collection",
+                entrypoint=DSLEntrypoint(ref="start"),
+                actions=[
+                    # Branch A: Non-empty collection
+                    ActionStatement(
+                        ref="scatter_nonempty",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_nonempty",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_nonempty"],
+                        args={"value": "${{ ACTIONS.scatter_nonempty.result * 2 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_nonempty",
+                        action="core.transform.gather",
+                        depends_on=["process_nonempty"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_nonempty.result }}"
+                        ).model_dump(),
+                    ),
+                    # Branch B: Empty collection
+                    ActionStatement(
+                        ref="scatter_empty",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_empty",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_empty"],
+                        args={"value": "${{ ACTIONS.scatter_empty.result + 100 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_empty",
+                        action="core.transform.gather",
+                        depends_on=["process_empty"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_empty.result }}"
+                        ).model_dump(),
+                    ),
+                    # Final merge - only non-empty branch should contribute
+                    ActionStatement(
+                        ref="final_merge",
+                        action="core.transform.reshape",
+                        depends_on=["gather_nonempty", "gather_empty"],
+                        args={
+                            "value": "${{ ACTIONS.gather_nonempty.result + ACTIONS.gather_empty.result }}"
+                        },
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather_nonempty": {"result": [2, 4, 6], "result_typename": "list"},
+                    "gather_empty": {"result": [], "result_typename": "list"},
+                    "final_merge": {"result": [2, 4, 6], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="empty-nonempty-parallel",
+        ),
+        # 5. Collections with different lengths in nested scatter
+        pytest.param(
+            DSLInput(
+                title="Nested scatter with varying inner collection sizes",
+                description="Test nested scatter where inner collections have different sizes",
+                entrypoint=DSLEntrypoint(ref="outer_scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="outer_scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[
+                                [1],  # 1 item
+                                [2, 3],  # 2 items
+                                [4, 5, 6],  # 3 items
+                            ]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="inner_scatter",
+                        action="core.transform.scatter",
+                        depends_on=["outer_scatter"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.outer_scatter.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="double_value",
+                        action="core.transform.reshape",
+                        depends_on=["inner_scatter"],
+                        args={"value": "${{ ACTIONS.inner_scatter.result * 2 }}"},
+                    ),
+                    ActionStatement(
+                        ref="inner_gather",
+                        action="core.transform.gather",
+                        depends_on=["double_value"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.double_value.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="outer_gather",
+                        action="core.transform.gather",
+                        depends_on=["inner_gather"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.inner_gather.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "outer_gather": {
+                        "result": [[2], [4, 6], [8, 10, 12]],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-varying-sizes",
+        ),
+        # 6. Mixed empty and non-empty in nested structure
+        pytest.param(
+            DSLInput(
+                title="Mixed empty/non-empty in nested scatter",
+                description="Test nested scatter with mix of empty and non-empty inner collections",
+                entrypoint=DSLEntrypoint(ref="outer_scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="outer_scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[
+                                [1, 2],  # Non-empty
+                                [],  # Empty
+                                [3],  # Non-empty
+                            ]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="inner_scatter",
+                        action="core.transform.scatter",
+                        depends_on=["outer_scatter"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.outer_scatter.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_inner",
+                        action="core.transform.reshape",
+                        depends_on=["inner_scatter"],
+                        args={"value": "${{ ACTIONS.inner_scatter.result + 10 }}"},
+                    ),
+                    ActionStatement(
+                        ref="inner_gather",
+                        action="core.transform.gather",
+                        depends_on=["process_inner"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_inner.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="outer_gather",
+                        action="core.transform.gather",
+                        depends_on=["inner_gather"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.inner_gather.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "outer_gather": {
+                        "result": [[11, 12], [], [13]],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-mixed-empty-nonempty",
+        ),
         # Empty collection scatter
         pytest.param(
             DSLInput(
