@@ -312,3 +312,23 @@ TRACECAT__MAX_ROWS_CLIENT_POSTGRES = int(
     os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES", 1000)
 )
 """Maximum number of rows that can be returned from PostgreSQL client queries. Defaults to 1,000."""
+# === File limits === #
+TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", 50 * 1024 * 1024)
+)
+"""The maximum size for case attachment files in bytes. Defaults to 50MB."""
+
+TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH", 255)
+)
+"""The maximum length for attachment filenames. Defaults to 255 (Django FileField standard)."""
+
+TRACECAT__MAX_CASE_STORAGE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_CASE_STORAGE_BYTES", 500 * 1024 * 1024)
+)
+"""The maximum total storage per case in bytes. Defaults to 500MB."""
+
+TRACECAT__MAX_ATTACHMENTS_PER_CASE = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENTS_PER_CASE", 100)
+)
+"""The maximum number of attachments allowed per case. Defaults to 100."""
