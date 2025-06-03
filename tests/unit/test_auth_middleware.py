@@ -291,8 +291,10 @@ async def test_performance_improvement(mocker):
     assert avg_basic_with_cache > avg_admin, (
         "Basic user with cache still slower than admin (has initial query)"
     )
-    assert avg_basic_with_cache < avg_basic_no_cache * 2, (
-        "Cache should provide some improvement"
+    # Make this assertion more lenient to avoid flakiness
+    # The cache should provide some improvement, but the exact ratio can vary
+    assert avg_basic_with_cache <= avg_basic_no_cache, (
+        "Cache should not make things slower"
     )
 
     # The key insight: even though our mock delays are small, we still see the pattern:
