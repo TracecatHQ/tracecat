@@ -6,7 +6,7 @@ https://ai.pydantic.dev/tools/#prepare-tools
 
 import inspect
 import textwrap
-from typing import Any, Union, Annotated
+from typing import Any, Union, Annotated, Self
 from typing_extensions import Doc
 from timeit import timeit
 
@@ -307,27 +307,17 @@ class TracecatAgentBuilder:
         self.action_filters: list[str] = []
         self.collected_secrets: set[RegistrySecret] = set()
 
-    def with_namespace_filter(self, namespace: str) -> "TracecatAgentBuilder":
-        """Add a namespace filter for tools (e.g., 'tools.slack')."""
-        self.namespace_filters.append(namespace)
-        return self
-
-    def with_namespace_filters(self, namespaces: list[str]) -> "TracecatAgentBuilder":
-        """Add a list of namespace filters for tools (e.g., ['tools.slack', 'tools.email'])."""
+    def with_namespace_filters(self, *namespaces: str) -> Self:
+        """Add namespace filters for tools (e.g., 'tools.slack', 'tools.email')."""
         self.namespace_filters.extend(namespaces)
         return self
 
-    def with_action_filter(self, action_name: str) -> "TracecatAgentBuilder":
-        """Add a specific action name filter (e.g., 'tools.slack.send_message')."""
-        self.action_filters.append(action_name)
-        return self
-
-    def with_action_filters(self, action_names: list[str]) -> "TracecatAgentBuilder":
-        """Add a list of action name filters (e.g., ['tools.slack.send_message', 'tools.email.send_email'])."""
+    def with_action_filters(self, *action_names: str) -> Self:
+        """Add action name filters (e.g., 'tools.slack.send_message', 'tools.email.send_email')."""
         self.action_filters.extend(action_names)
         return self
 
-    def with_custom_tool(self, tool: Tool) -> "TracecatAgentBuilder":
+    def with_custom_tool(self, tool: Tool) -> Self:
         """Add a custom Pydantic AI tool."""
         self.tools.append(tool)
         return self
@@ -468,8 +458,8 @@ async def agent(
     namespaces = namespaces or []
     actions = actions or []
     agent = (
-        await builder.with_namespace_filters(namespaces)
-        .with_action_filters(actions)
+        await builder.with_namespace_filters(*namespaces)
+        .with_action_filters(*actions)
         .build()
     )
 
