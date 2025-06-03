@@ -15,17 +15,26 @@ from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.tools import Tool
 from pydantic_core import PydanticUndefined, to_jsonable_python
 
+from tracecat.auth.sandbox import AuthSandbox
+from tracecat.contexts import ctx_run
 from tracecat.dsl.common import create_default_execution_context
-from tracecat.executor.service import _run_action_direct, run_template_action
+from tracecat.executor.service import (
+    _run_action_direct,
+    run_template_action,
+    flatten_secrets,
+)
+from tracecat.expressions.eval import extract_templated_secrets
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.secrets.secrets_manager import env_sandbox
 from tracecat_registry.integrations.pydantic_ai import (
     PYDANTIC_AI_REGISTRY_SECRETS,
     build_agent,
 )
 
-from tracecat_registry import registry
+from tracecat_registry import registry, RegistrySecret
 from tracecat.types.exceptions import RegistryError
 
 
@@ -69,25 +78,55 @@ def generate_google_style_docstring(description: str | None, model_cls: type) ->
 async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
     async with RegistryActionsService.with_session() as service:
         reg_action = await service.get_action(action_name)
+        action_secrets = await service.fetch_all_action_secrets(reg_action)
         bound_action = service.get_bound(reg_action, mode="execution")
 
-    # Call directly based on action type
-    if bound_action.is_template:
-        # For templates, create a minimal execution context
-        # Secrets are already in the environment, so we don't need to pass them
-        context = create_default_execution_context()
+    # Get runtime environment from context or use default
+    runtime_env = getattr(ctx_run.get(), "environment", DEFAULT_SECRETS_ENVIRONMENT)
 
-        result = await run_template_action(
-            action=bound_action,
-            args=args,
-            context=context,
-        )
-    else:
-        # UDFs can be called directly - secrets are already in the environment
-        result = await _run_action_direct(
-            action=bound_action,
-            args=args,
-        )
+    # Extract secrets from args and action
+    args_secrets = set(extract_templated_secrets(args))
+    optional_secrets = {s.name for s in action_secrets if s.optional}
+    required_secrets = {s.name for s in action_secrets if not s.optional}
+    secrets_to_fetch = required_secrets | args_secrets | optional_secrets
+
+    logger.info(
+        "Handling secrets for agent tool call",
+        action=action_name,
+        required_secrets=required_secrets,
+        optional_secrets=optional_secrets,
+        args_secrets=args_secrets,
+        secrets_to_fetch=secrets_to_fetch,
+    )
+
+    # Fetch all required secrets
+    async with AuthSandbox(
+        secrets=secrets_to_fetch,
+        environment=runtime_env,
+        optional_secrets=optional_secrets,
+    ) as sandbox:
+        secrets = sandbox.secrets.copy()
+
+    # Call action with secrets in environment
+    context = create_default_execution_context()
+    context.update(SECRETS=secrets)
+
+    flattened_secrets = flatten_secrets(secrets)
+    with env_sandbox(flattened_secrets):
+        # Call directly based on action type
+        if bound_action.is_template:
+            # For templates, pass the context with secrets
+            result = await run_template_action(
+                action=bound_action,
+                args=args,
+                context=context,
+            )
+        else:
+            # UDFs can be called directly - secrets are now in the environment
+            result = await _run_action_direct(
+                action=bound_action,
+                args=args,
+            )
     return result
 
 
@@ -266,6 +305,7 @@ class TracecatAgentBuilder:
         self.tools: list[Tool] = []
         self.namespace_filters: list[str] = []
         self.action_filters: list[str] = []
+        self.collected_secrets: set[RegistrySecret] = set()
 
     def with_namespace_filter(self, namespace: str) -> "TracecatAgentBuilder":
         """Add a namespace filter for tools (e.g., 'tools.slack')."""
@@ -315,6 +355,11 @@ class TracecatAgentBuilder:
                     continue
 
             try:
+                # Fetch all secrets for this action
+                async with RegistryActionsService.with_session() as service:
+                    action_secrets = await service.fetch_all_action_secrets(reg_action)
+                    self.collected_secrets.update(action_secrets)
+
                 tool = await create_tool_from_registry(action_name)
                 self.tools.append(tool)
             except RegistryError:
@@ -345,8 +390,38 @@ class TracecatAgentBuilder:
             model=self.model_name,
             provider=self.model_provider,
             tool_count=len(self.tools),
+            secret_count=len(self.collected_secrets),
         )
         return agent
+
+
+async def collect_secrets_for_filters(
+    namespace_filters: list[str] | None = None,
+    action_filters: list[str] | None = None,
+) -> set[RegistrySecret]:
+    """Collect all secrets required by actions matching the given filters."""
+    collected_secrets: set[RegistrySecret] = set()
+
+    async with RegistryActionsService.with_session() as service:
+        if action_filters:
+            actions = await service.get_actions(action_filters)
+        else:
+            actions = await service.list_actions(include_marked=True)
+
+    for reg_action in actions:
+        action_name = f"{reg_action.namespace}.{reg_action.name}"
+
+        # Apply namespace filtering if specified
+        if namespace_filters:
+            if not any(action_name.startswith(ns) for ns in namespace_filters):
+                continue
+
+        # Fetch all secrets for this action
+        async with RegistryActionsService.with_session() as service:
+            action_secrets = await service.fetch_all_action_secrets(reg_action)
+            collected_secrets.update(action_secrets)
+
+    return collected_secrets
 
 
 @registry.register(

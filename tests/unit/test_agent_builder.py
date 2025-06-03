@@ -8,16 +8,19 @@ from unittest.mock import AsyncMock, Mock, call, patch
 import pytest
 from dotenv import load_dotenv
 from pydantic_ai.tools import Tool
+from tracecat_registry import RegistrySecret
 from tracecat_registry.integrations.agents.builder import (
     TracecatAgentBuilder,
     _create_function_signature,
     _extract_action_metadata,
     _generate_tool_function_name,
     agent,
+    call_tracecat_action,
     create_tool_from_registry,
     generate_google_style_docstring,
 )
 
+from tracecat.registry.actions.models import BoundRegistryAction
 from tracecat.types.exceptions import RegistryError
 
 # Load environment variables from .env file
@@ -997,3 +1000,226 @@ class TestAgentBuilderIntegration:
             )
             print(f"📊 Usage: {result['usage']}")
             print(f"⏱️ Duration: {result['duration']:.2f}s")
+
+    @pytest.mark.anyio
+    async def test_agent_with_mock_action_and_secrets(self, test_role, mocker):
+        """Integration test: Agent using an action that requires secrets."""
+        # This test verifies that when an agent uses tools, the secrets are properly fetched
+
+        # Mock a simple action that uses secrets
+        async def mock_action_func(message: str) -> str:
+            # In a real action, this would use secrets from the environment
+            return f"Processed: {message}"
+
+        # Create a mock tool
+        mock_tool = Tool(mock_action_func)
+
+        # Mock the builder to return our mock tool
+        builder = TracecatAgentBuilder(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            instructions="You are a test assistant.",
+        )
+
+        # Mock create_tool_from_registry to return our mock tool
+        async def mock_create_tool(action_name: str) -> Tool:
+            return mock_tool
+
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.create_tool_from_registry",
+            side_effect=mock_create_tool,
+        )
+
+        # Mock the registry service to return a test action
+        mock_reg_action = Mock()
+        mock_reg_action.namespace = "test"
+        mock_reg_action.name = "mock_action"
+
+        mock_service = Mock()
+        mock_service.list_actions = AsyncMock(return_value=[mock_reg_action])
+        mock_service.fetch_all_action_secrets = AsyncMock(return_value=[])
+
+        mock_context = AsyncMock()
+        mock_context.__aenter__.return_value = mock_service
+
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.RegistryActionsService.with_session",
+            return_value=mock_context,
+        )
+
+        # Mock env_sandbox
+        mocker.patch("tracecat_registry.integrations.agents.builder.env_sandbox")
+
+        # Build the agent
+        await builder.with_namespace_filter("test").build()
+
+        # Verify the agent was built with the tool
+        assert len(builder.tools) == 1
+        assert builder.tools[0] == mock_tool
+
+
+@pytest.mark.anyio
+class TestCallTracecatAction:
+    """Test suite for call_tracecat_action function."""
+
+    async def test_call_tracecat_action_with_secrets(self, test_role, mocker):
+        """Test that call_tracecat_action properly fetches and sets up secrets."""
+        from unittest.mock import AsyncMock, Mock
+
+        # Mock the registry action
+        mock_reg_action = Mock()
+        mock_reg_action.namespace = "tools.test"
+        mock_reg_action.name = "test_action"
+
+        # Mock the bound action
+        mock_bound_action = Mock(spec=BoundRegistryAction)
+        mock_bound_action.is_template = False
+        mock_bound_action.namespace = "tools.test"
+        mock_bound_action.name = "test_action"
+
+        # Mock action secrets
+        test_secret = RegistrySecret(name="test_secret", keys=["TEST_KEY"])
+
+        # Mock the registry service - mix of async and sync methods
+        mock_service = Mock()
+        mock_service.get_action = AsyncMock(return_value=mock_reg_action)
+        mock_service.fetch_all_action_secrets = AsyncMock(return_value=[test_secret])
+        mock_service.get_bound = Mock(return_value=mock_bound_action)  # This is sync
+
+        # Mock the service context manager
+        mock_context = AsyncMock()
+        mock_context.__aenter__.return_value = mock_service
+
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.RegistryActionsService.with_session",
+            return_value=mock_context,
+        )
+
+        # Mock AuthSandbox to verify it's called with correct secrets
+        mock_auth_sandbox = mocker.patch(
+            "tracecat_registry.integrations.agents.builder.AuthSandbox"
+        )
+        mock_sandbox_instance = AsyncMock()
+        mock_sandbox_instance.secrets = {"test_secret": {"TEST_KEY": "test_value"}}
+        mock_sandbox_instance.__aenter__.return_value = mock_sandbox_instance
+        mock_auth_sandbox.return_value = mock_sandbox_instance
+
+        # Mock env_sandbox
+        mock_env_sandbox = mocker.patch(
+            "tracecat_registry.integrations.agents.builder.env_sandbox"
+        )
+
+        # Mock flatten_secrets
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.flatten_secrets",
+            return_value={"TEST_KEY": "test_value"},
+        )
+
+        # Mock _run_action_direct to return a result
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder._run_action_direct",
+            return_value="test_result",
+        )
+
+        # Call the function
+        result = await call_tracecat_action(
+            "tools.test.test_action", {"param": "value"}
+        )
+
+        # Verify AuthSandbox was called with correct parameters
+        mock_auth_sandbox.assert_called_once()
+        call_kwargs = mock_auth_sandbox.call_args.kwargs
+        assert "test_secret" in call_kwargs["secrets"]
+        assert call_kwargs["optional_secrets"] == set()  # No optional secrets
+
+        # Verify env_sandbox was called
+        mock_env_sandbox.assert_called_once_with({"TEST_KEY": "test_value"})
+
+        # Verify result
+        assert result == "test_result"
+
+    async def test_call_tracecat_action_with_template(self, test_role, mocker):
+        """Test that call_tracecat_action properly handles template actions with secrets."""
+        from unittest.mock import AsyncMock, Mock
+
+        from tracecat.registry.actions.models import TemplateAction
+
+        # Mock the registry action
+        mock_reg_action = Mock()
+        mock_reg_action.namespace = "tools.test"
+        mock_reg_action.name = "test_template"
+
+        # Mock template action
+        mock_template_action = Mock(spec=TemplateAction)
+
+        # Mock the bound action as a template
+        mock_bound_action = Mock(spec=BoundRegistryAction)
+        mock_bound_action.is_template = True
+        mock_bound_action.namespace = "tools.test"
+        mock_bound_action.name = "test_template"
+        mock_bound_action.template_action = mock_template_action
+
+        # Mock action secrets
+        template_secret = RegistrySecret(name="template_secret", keys=["TEMPLATE_KEY"])
+
+        # Mock the registry service - mix of async and sync methods
+        mock_service = Mock()
+        mock_service.get_action = AsyncMock(return_value=mock_reg_action)
+        mock_service.fetch_all_action_secrets = AsyncMock(
+            return_value=[template_secret]
+        )
+        mock_service.get_bound = Mock(return_value=mock_bound_action)  # This is sync
+
+        # Mock the service context manager
+        mock_context = AsyncMock()
+        mock_context.__aenter__.return_value = mock_service
+
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.RegistryActionsService.with_session",
+            return_value=mock_context,
+        )
+
+        # Mock AuthSandbox
+        mock_auth_sandbox = mocker.patch(
+            "tracecat_registry.integrations.agents.builder.AuthSandbox"
+        )
+        mock_sandbox_instance = AsyncMock()
+        mock_sandbox_instance.secrets = {
+            "template_secret": {"TEMPLATE_KEY": "template_value"}
+        }
+        mock_sandbox_instance.__aenter__.return_value = mock_sandbox_instance
+        mock_auth_sandbox.return_value = mock_sandbox_instance
+
+        # Mock env_sandbox
+        mocker.patch("tracecat_registry.integrations.agents.builder.env_sandbox")
+
+        # Mock flatten_secrets
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.flatten_secrets",
+            return_value={"TEMPLATE_KEY": "template_value"},
+        )
+
+        # Mock run_template_action to return a result
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.run_template_action",
+            return_value="template_result",
+        )
+
+        # Call the function
+        result = await call_tracecat_action(
+            "tools.test.test_template", {"param": "value"}
+        )
+
+        # Verify the context passed to run_template_action includes secrets
+        from tracecat_registry.integrations.agents.builder import run_template_action
+
+        run_template_action.assert_called_once()
+        call_kwargs = run_template_action.call_args.kwargs
+        assert "context" in call_kwargs
+        assert "SECRETS" in call_kwargs["context"]
+        assert call_kwargs["context"]["SECRETS"] == {
+            "template_secret": {"TEMPLATE_KEY": "template_value"}
+        }
+
+        # Verify result
+        assert result == "template_result"
