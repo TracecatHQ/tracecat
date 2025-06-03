@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import pytest
@@ -6,6 +7,17 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserProm
 from tracecat_registry.integrations.pydantic_ai import _parse_message_history, call
 
 load_dotenv()
+
+# Skip tests if OpenAI API key is not available
+skip_if_no_openai_api_key = pytest.mark.skipif(
+    os.environ.get("OPENAI_API_KEY") is None,
+    reason="OPENAI_API_KEY not available in environment variables",
+)
+
+# Mark all tests in this module to be skipped if no OpenAI API key is available
+pytestmark = [
+    skip_if_no_openai_api_key,
+]
 
 
 @pytest.mark.parametrize(

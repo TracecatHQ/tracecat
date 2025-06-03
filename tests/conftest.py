@@ -2,8 +2,10 @@ import asyncio
 import os
 import uuid
 from collections.abc import AsyncGenerator, Iterator
+from unittest.mock import patch
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
@@ -18,8 +20,24 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.secrets.models import SecretCreate, SecretKeyValue, SecretUpdate
+from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import AccessLevel, Role, system_role
 from tracecat.workspaces.service import WorkspaceService
+
+# Define Slack test skip markers
+skip_if_no_slack_token = pytest.mark.skipif(
+    not os.getenv("SLACK_BOT_TOKEN"),
+    reason="SLACK_BOT_TOKEN must be set as environment variable",
+)
+
+skip_if_no_slack_credentials = pytest.mark.skipif(
+    not os.getenv("SLACK_BOT_TOKEN") or not os.getenv("SLACK_CHANNEL_ID"),
+    reason="SLACK_BOT_TOKEN and SLACK_CHANNEL_ID must be set as environment variables",
+)
+
+# Define a reusable usefixture marker for slack tests
+requires_slack_mocks = pytest.mark.usefixtures("mock_slack_secrets")
 
 
 @pytest.fixture
@@ -328,3 +346,83 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
     )
+
+
+@pytest.fixture
+async def mock_slack_secrets():
+    """Mock the secrets.get function for slack_sdk integration.
+
+    This fixture is used by both the agent builder tests and MCP slackbot tests.
+    It mocks the secrets.get function for direct SDK access.
+    """
+    slack_token = os.getenv("SLACK_BOT_TOKEN")
+    if not slack_token:
+        pytest.skip("SLACK_BOT_TOKEN not set in environment")
+
+    with patch("tracecat_registry.integrations.slack_sdk.secrets.get") as mock_get:
+
+        def side_effect(key):
+            if key == "SLACK_BOT_TOKEN":
+                return slack_token
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
+
+
+@pytest.fixture
+async def slack_secret(test_role):
+    """Create a Slack secret in the Tracecat secrets manager for testing.
+
+    This fixture creates a temporary secret in the Tracecat secrets manager that
+    can be used by tests that need to access Slack via the Tracecat service.
+    """
+    slack_token = os.getenv("SLACK_BOT_TOKEN")
+    if not slack_token:
+        pytest.skip("SLACK_BOT_TOKEN not set in environment")
+
+    async with SecretsService.with_session(role=test_role) as svc:
+        # Check if slack secret already exists
+        try:
+            existing_secret = await svc.get_secret_by_name("slack")
+            if existing_secret:
+                # Update the existing secret
+                await svc.update_secret(
+                    existing_secret,
+                    SecretUpdate(
+                        keys=[
+                            SecretKeyValue(
+                                key="SLACK_BOT_TOKEN", value=SecretStr(slack_token)
+                            )
+                        ]
+                    ),
+                )
+                yield existing_secret
+                return
+        except Exception:
+            # Secret doesn't exist, create it
+            pass
+
+        # Create the slack secret
+        await svc.create_secret(
+            SecretCreate(
+                name="slack",
+                description="Slack bot token for testing",
+                environment="default",
+                keys=[
+                    SecretKeyValue(key="SLACK_BOT_TOKEN", value=SecretStr(slack_token))
+                ],
+            )
+        )
+
+        # Get the created secret to yield it
+        created_secret = await svc.get_secret_by_name("slack")
+
+        try:
+            yield created_secret
+        finally:
+            # Clean up the secret
+            try:
+                await svc.delete_secret(created_secret)
+            except Exception as e:
+                logger.warning(f"Failed to clean up slack secret: {e}")
