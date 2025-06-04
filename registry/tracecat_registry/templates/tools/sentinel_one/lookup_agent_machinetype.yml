@@ -14,10 +14,10 @@ definition:
       type: str
       description: SentinelOne console base URL (e.g., https://your-tenant.sentinelone.net)
     machine_types:
-      type: array
+      type: list[str]
       description: Machine types to include (e.g., laptop, desktop, server)
     exclude_machine_types:
-      type: array
+      type: list[str]
       description: Machine types to exclude (optional)
       default: []
     limit:

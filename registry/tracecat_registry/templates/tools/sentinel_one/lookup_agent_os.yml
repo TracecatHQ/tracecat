@@ -14,7 +14,7 @@ definition:
       type: str
       description: SentinelOne console base URL (e.g., https://your-tenant.sentinelone.net)
     os_types:
-      type: array
+      type: list[str]
       description: OS types to include (e.g., windows, linux, macos, windows_legacy)
     os_name:
       type: str
@@ -25,7 +25,7 @@ definition:
       description: OS revision filter (optional)
       default: ""
     os_version_contains:
-      type: array
+      type: list[str]
       description: Free-text filter by OS full name and version (supports multiple values)
       default: []
     limit:
