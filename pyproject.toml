@@ -30,6 +30,7 @@ dependencies = [
     "colorlog==6.8.2",
     "cryptography==44.0.1",
     "dateparser>=1.2.1,<1.3.0",
+    "defusedxml==0.7.1",
     "email-validator>=2.0.0",
     "fastapi-users[sqlalchemy,oauth]==14.0.1",
     "fastapi[standard]==0.115.12",
