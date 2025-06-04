@@ -64,6 +64,11 @@ RUN chown -R apiuser:apiuser /tmp /home/apiuser
 # Link pre-cached deno modules to user's deno directory (read-only)
 RUN ln -s /opt/deno-cache/* /home/apiuser/.deno/ 2>/dev/null || true
 
+# Create cache directory with full permissions for apiuser
+RUN mkdir -p /app/.cache && \
+    chown -R apiuser:apiuser /app/.cache && \
+    chmod -R 700 /app/.cache
+
 # Change to the non-root user
 USER apiuser
 
