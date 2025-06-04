@@ -3659,7 +3659,7 @@ async def test_workflow_detached_child_workflow(
         # New test: A -> scatter -> B -> gather -> C, all reshapes, skip scatter, expect only A to run
         pytest.param(
             DSLInput(
-                title="a->scatter->b->gather->c, skip scatter, only a runs",
+                title="Skip scatter directly, only first action (a) runs",
                 description="Test that if scatter is skipped, only a runs and downstream tasks are not executed.",
                 entrypoint=DSLEntrypoint(ref="a"),
                 actions=[
@@ -3715,7 +3715,49 @@ async def test_workflow_detached_child_workflow(
                 "INPUTS": {},
                 "TRIGGER": {},
             },
-            id="a-scatter-b-gather-c-skip-scatter-only-a",
+            id="skip-scatter-directly-only-first-runs",
+        ),
+        # --- NEW TEST CASE: scatter -> a (run_if False) -> gather, expect empty array ---
+        pytest.param(
+            DSLInput(
+                title="scatter->a(run_if False)->gather, all skipped, expect empty array",
+                description=(
+                    "Test that if all iterations of an action after scatter are skipped (run_if False), "
+                    "the gather action receives only unset values and thus returns an empty array."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        run_if="${{ False }}",
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["a"],
+                        args=GatherArgs(items="${{ ACTIONS.a.result }}").model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather": {
+                        "result": [],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="skip-all-in-scatter",
         ),
         # Mixed Collection Scenarios
         # 1. Parallel branches with different collection sizes
