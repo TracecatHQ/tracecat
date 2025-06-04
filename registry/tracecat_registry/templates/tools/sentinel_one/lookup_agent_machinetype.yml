@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Lookup agents by machine type
+  description: Find all SentinelOne agents filtered by machine type (laptop, desktop, server, etc.).
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=get-agents
+  namespace: tools.sentinel_one
+  name: lookup_agent_machinetype
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: SentinelOne console base URL (e.g., https://your-tenant.sentinelone.net)
+    machine_types:
+      type: array
+      description: Machine types to include (e.g., laptop, desktop, server)
+    exclude_machine_types:
+      type: array
+      description: Machine types to exclude (optional)
+      default: []
+    limit:
+      type: int
+      description: Maximum number of agents to return (1-1000)
+      default: 100
+  steps:
+    - ref: lookup_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents
+        method: GET
+        timeout: 60
+        headers:
+          Authorization: ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+          Content-Type: application/json
+        params:
+          machineTypes: ${{ inputs.machine_types }}
+          machineTypesNin: ${{ inputs.exclude_machine_types if inputs.exclude_machine_types else [] }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.lookup_agents.result }}
