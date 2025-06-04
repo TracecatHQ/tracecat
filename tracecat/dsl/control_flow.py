@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
+from tracecat.dsl.enums import StreamErrorHandlingStrategy
 from tracecat.expressions.validation import ExpressionStr
 
 
@@ -18,6 +19,9 @@ class GatherArgs(BaseModel):
     items: ExpressionStr = Field(..., description="The jsonpath to select items from")
     drop_nulls: bool = Field(
         default=False, description="Whether to drop null values from the final result"
+    )
+    error_handling_strategy: StreamErrorHandlingStrategy = Field(
+        default=StreamErrorHandlingStrategy.PARTITION
     )
 
 

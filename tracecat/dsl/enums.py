@@ -56,3 +56,12 @@ class Sentinel(StrEnum):
     """Sentinel values for gather operations."""
 
     GATHER_UNSET = "<|GATHER_UNSET|>"
+
+
+class StreamErrorHandlingStrategy(StrEnum):
+    PARTITION = "partition"
+    """Partition the error into a list of errors."""
+    INCLUDE = "include"
+    """Include the error in the result. This is the default behavior."""
+    DROP = "drop"
+    """Drop the error."""
