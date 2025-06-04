@@ -435,6 +435,13 @@ async def agent(
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
     ] = None,
     instructions: Annotated[str | None, Doc("Instructions for the agent.")] = None,
+    output_type: Annotated[
+        str | dict[str, Any] | None, Doc("Output type for the agent.")
+    ] = None,
+    model_settings: Annotated[
+        dict[str, Any] | None, Doc("Model settings for the agent.")
+    ] = None,
+    retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     include_usage: Annotated[
         bool, Doc("Whether to include usage information in the output.")
     ] = False,
@@ -445,6 +452,9 @@ async def agent(
         model_provider=model_provider,
         base_url=base_url,
         instructions=instructions,
+        output_type=output_type,
+        model_settings=model_settings,
+        retries=retries,
     )
 
     if not namespaces and not actions:
