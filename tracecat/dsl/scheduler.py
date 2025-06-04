@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cached_property, lru_cache
 from typing import Any, ClassVar, Literal, Self, cast
 
 from pydantic_core import to_json
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
 
+from tracecat.common import is_iterable
 from tracecat.concurrency import cooperative
 from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
 from tracecat.dsl.control_flow import GatherArgs, ScatterArgs
@@ -22,9 +23,11 @@ from tracecat.dsl.enums import (
     PlatformAction,
     Sentinel,
     SkipStrategy,
+    StreamErrorHandlingStrategy,
 )
 from tracecat.dsl.models import (
     ActionErrorInfo,
+    ActionErrorInfoAdapter,
     ActionStatement,
     ExecutionContext,
     TaskExceptionInfo,
@@ -35,6 +38,11 @@ from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
+
+
+def dump(obj: Any) -> str:
+    return to_json(obj, indent=2, fallback=str).decode()
+
 
 type SkipToken = Literal["skip"]
 
@@ -76,7 +84,6 @@ class StreamID(str):
 
 _ROOT_SCOPE = "<root>"
 ROOT_STREAM = StreamID.new(_ROOT_SCOPE, 0)
-ROOT_SKIP_STREAM = StreamID.skip(_ROOT_SCOPE)
 
 CTX_STREAM_ID: ContextVar[StreamID] = ContextVar("stream-id", default=ROOT_STREAM)
 
@@ -99,7 +106,6 @@ class DSLEdge:
     """The destination task reference"""
     type: EdgeType
     """The edge type"""
-
     stream_id: StreamID
     """The stream ID of the edge"""
 
@@ -145,6 +151,7 @@ class DSLScheduler:
         self.edges: dict[DSLEdge, EdgeMarker] = defaultdict(lambda: EdgeMarker.PENDING)
         # Mut
         self.task_exceptions: dict[str, TaskExceptionInfo] = {}
+        self.stream_exceptions: dict[StreamID, TaskExceptionInfo] = {}
 
         for task in dsl.actions:
             self.tasks[task.ref] = task
@@ -189,7 +196,7 @@ class DSLScheduler:
 
         self.logger.error(
             "Handling error path",
-            ref=ref,
+            task=task,
             type=exc.__class__.__name__,
             exc=exc,
         )
@@ -199,11 +206,10 @@ class DSLScheduler:
             for dst, edge_type in self.adj[ref]
             if edge_type != EdgeType.ERROR
         }
-        """These are outgoing edges that are not error edges."""
         if len(non_err_edges) < len(self.adj[ref]):
             await self._queue_tasks(task, unreachable=non_err_edges)
         else:
-            self.logger.info("Task failed with no error paths", ref=ref)
+            self.logger.info("Task failed with no error paths", task=task)
             # XXX: This can sometimes return null because the exception isn't an ApplicationError
             # But rather a ChildWorkflowError or CancelledError
             if isinstance(exc, ApplicationError) and exc.details:
@@ -314,9 +320,29 @@ class DSLScheduler:
                     message=message,
                     type=exc.__class__.__name__,
                 )
-            self.task_exceptions[ref] = TaskExceptionInfo(
-                exception=exc, details=details
-            )
+            if task.stream_id == ROOT_STREAM:
+                self.logger.info(
+                    "Setting task exception in root stream", task=task, details=details
+                )
+                self.task_exceptions[ref] = TaskExceptionInfo(
+                    exception=exc, details=details
+                )
+                # After this point we gracefully handle the error in the root stream which will be handled by Temporal.
+            else:
+                self.logger.info(
+                    "Setting task exception in execution stream",
+                    task=task,
+                    details=details,
+                )
+                self.stream_exceptions[task.stream_id] = TaskExceptionInfo(
+                    exception=exc, details=details
+                )
+                # To "throw" we need to trigger a skip stream
+                all_edges = {
+                    DSLEdge(src=ref, dst=dst, type=edge_type, stream_id=task.stream_id)
+                    for dst, edge_type in self.adj[ref]
+                }
+                await self._queue_tasks(task, unreachable=all_edges)
 
     async def _handle_success_path(self, task: Task) -> None:
         ref = task.ref
@@ -329,9 +355,21 @@ class DSLScheduler:
         }
         await self._queue_tasks(task, unreachable=non_ok_edges)
 
-    async def _handle_skip_path(self, task: Task) -> None:
+    async def _handle_skip_path(self, task: Task, stmt: ActionStatement) -> None:
         ref = task.ref
         self.logger.debug("Handling skip path")
+
+        if stmt.action == PlatformAction.TRANSFORM_SCATTER:
+            return await self._handle_scatter(task, stmt, is_skipping=True)
+
+        if stmt.action == PlatformAction.TRANSFORM_GATHER:
+            # If we encounter an gather and we're in an execution stream,
+            # we need to close the stream.
+            self.logger.warning("Gather in execution stream, skipping", task=task)
+            # We reached the end of the execution stream, so we can return
+            # None to indicate that the stream is complete.
+            # We do not need to queue any downstream tasks.
+            return await self._handle_gather(task, stmt, is_skipping=True)
         # If we skip a task, we need to mark all its outgoing edges as skipped
         all_edges = {
             DSLEdge(src=ref, dst=dst, type=edge_type, stream_id=task.stream_id)
@@ -412,17 +450,7 @@ class DSLScheduler:
             # 1) Skip propagation (force-skip) takes highest precedence over everything else
             if self._skip_should_propagate(task, stmt):
                 self.logger.info("Task should be force-skipped, propagating", task=task)
-                if stmt.action == PlatformAction.TRANSFORM_GATHER:
-                    # If we encounter an gather and we're in an execution stream,
-                    # we need to close the stream.
-                    self.logger.warning(
-                        "Gather in execution stream, skipping", task=task
-                    )
-                    # We reached the end of the execution stream, so we can return
-                    # None to indicate that the stream is complete.
-                    # We do not need to queue any downstream tasks.
-                    return await self._handle_gather(task, stmt, is_skipping=True)
-                return await self._handle_skip_path(task)
+                return await self._handle_skip_path(task, stmt)
 
             # 2) Then we check if the task is reachable
             if not self._is_reachable(task, stmt):
@@ -432,7 +460,7 @@ class DSLScheduler:
             # 3) Check if the task should self-skip based on its `run_if` condition
             if self._task_should_skip(task, stmt):
                 self.logger.info("Task should self-skip", task=task)
-                return await self._handle_skip_path(task)
+                return await self._handle_skip_path(task, stmt)
 
             # 4) If we made it here, the task is reachable and not force-skipped.
 
@@ -457,6 +485,10 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
+            import traceback
+
+            tb_str = traceback.format_exc()
+            self.logger.error(tb_str)
             kind = e.__class__.__name__
             non_retryable = getattr(e, "non_retryable", True)
             self.logger.warning(
@@ -658,6 +690,22 @@ class DSLScheduler:
         # Acknowledge the new scope
         return await self._queue_tasks(skip_task, unreachable=unreachable)
 
+    async def _handle_scatter_skip_stream(
+        self, task: Task, stream_id: StreamID
+    ) -> None:
+        new_stream_id = StreamID.skip(task.ref, base_stream_id=stream_id)
+        self.logger.warning("NEW STREAM ID", task=task, new_stream_id=new_stream_id)
+        self.stream_hierarchy[new_stream_id] = stream_id
+        self.streams[new_stream_id] = {ExprContext.ACTIONS: {}}
+        all_next = {
+            DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=new_stream_id)
+            for dst, edge_type in self.adj[task.ref]
+        }
+        skip_task = Task(ref=task.ref, stream_id=new_stream_id)
+        self.logger.warning("Queueing skip stream", skip_task=skip_task)
+        # Acknowledge the new scope
+        return await self._queue_tasks(skip_task, unreachable=all_next)
+
     async def _handle_scatter(
         self, task: Task, stmt: ActionStatement, *, is_skipping: bool = False
     ) -> None:
@@ -676,28 +724,16 @@ class DSLScheduler:
         curr_stream_id = task.stream_id
         self.logger.info("EXPLODE", task=task, is_skipping=is_skipping)
         if is_skipping:
-            #
             self.logger.warning("Skipped scatter", task=task)
-            stream_id = ROOT_SKIP_STREAM
-            new_stream_id = StreamID.skip(task.ref, base_stream_id=stream_id)
-            self.stream_hierarchy[new_stream_id] = stream_id
-            self.streams[new_stream_id] = {ExprContext.ACTIONS: {}}
-            unreachable = {
-                DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=new_stream_id)
-                for dst, edge_type in self.adj[task.ref]
-            }
-            skip_task = Task(ref=task.ref, stream_id=new_stream_id)
-            self.logger.warning("Queueing skip stream", skip_task=skip_task)
-            # Acknowledge the new scope
-            return await self._queue_tasks(skip_task, unreachable=unreachable)
+            return await self._handle_scatter_skip_stream(task, curr_stream_id)
 
         args = ScatterArgs(**stmt.args)
         context = self.get_context(curr_stream_id)
         collection = eval_templated_object(args.collection, operand=context)
 
-        if not isinstance(collection, list):
+        if not is_iterable(collection):
             raise ApplicationError(
-                f"Collection is not a list: {type(collection)}: {collection}",
+                f"Collection is not iterable: {type(collection)}: {collection}",
                 non_retryable=True,
             )
 
@@ -709,22 +745,10 @@ class DSLScheduler:
         self.task_streams[task] = streams
         # -- SKIP STREAM
         if not collection:
+            # Mark scatter as observed
             self.open_streams[task] = 0
             self.logger.warning("Empty collection for scatter", task=task)
-            # Handle empty collection - mark scatter as completed and continue
-            # The tracking structures are already initialized above with empty values
-
-            new_stream_id = StreamID.skip(task.ref, base_stream_id=curr_stream_id)
-            self.stream_hierarchy[new_stream_id] = curr_stream_id
-            self.streams[new_stream_id] = {ExprContext.ACTIONS: {}}
-            unreachable = {
-                DSLEdge(src=task.ref, dst=dst, type=edge_type, stream_id=new_stream_id)
-                for dst, edge_type in self.adj[task.ref]
-            }
-            skip_task = Task(ref=task.ref, stream_id=new_stream_id)
-            self.logger.warning("Queueing skip stream", skip_task=skip_task)
-            # Acknowledge the new scope
-            return await self._queue_tasks(skip_task, unreachable=unreachable)
+            return await self._handle_scatter_skip_stream(task, curr_stream_id)
 
         # -- EXECUTION STREAM
         self.logger.warning("Exploding collection", task=task, collection=collection)
@@ -754,8 +778,7 @@ class DSLScheduler:
                 task=new_scoped_task,
             )
             # This will queue the task for execution stream
-            # TODO: Handle unreachable tasks??
-            coro = self._queue_tasks(new_scoped_task, unreachable=None)
+            coro = self._queue_tasks(new_scoped_task)
             _ = asyncio.create_task(coro)
 
         self.open_streams[task] = len(streams)
@@ -769,10 +792,88 @@ class DSLScheduler:
 
     def get_context(self, stream_id: StreamID) -> ExecutionContext:
         context = self.streams[stream_id]
-        self.logger.warning(
-            f"Getting stream context {stream_id} {to_json(context, indent=2).decode()}"
-        )
+        self.logger.warning(f"Getting stream context {stream_id} {dump(context)}")
         return context
+
+    async def _handle_gather_skip_stream(
+        self, task: Task, stmt: ActionStatement, stream_id: StreamID
+    ) -> None:
+        self.logger.error("CALLED HANDLE GATHER SKIP")
+        parent_stream_id = self._get_parent_stream_id_safe(task, stream_id)
+        parent_action_context = self._get_action_context(parent_stream_id)
+
+        scatter_ref, stream_idx = stream_id.leaf
+        gather_ref = task.ref
+        parent_scatter = Task(ref=scatter_ref, stream_id=parent_stream_id)
+
+        if self._task_observed(parent_scatter):
+            self.logger.warning("SCATTER COMPLETED SUCCESSFULLY", task=task)
+            # This means the explode actually ran and we must set the result to empty array
+
+        if err_info := self.stream_exceptions.get(stream_id):
+            # We reached gather because of an irrecoverable error
+            self.logger.warning(
+                "Found matching error in skip stream", task=task, err_info=err_info
+            )
+            # Apply error handling strategy
+            # Partition - return err info as object
+
+            # Close the execution stream with error
+            # Set result array if this is the first stream
+
+            if gather_ref not in parent_action_context:
+                # NOTE: This block is executed by the first execution stream that finishes.
+                # We need to initialize the result with the cardinality of the scatter
+                # This is the number of execution streams that will be synchronized by this gather
+                size = len(self.task_streams[parent_scatter])
+                result = [Sentinel.GATHER_UNSET for _ in range(size)]
+                parent_action_context[gather_ref] = TaskResult(
+                    result=result,
+                    result_typename=type(result).__name__,
+                )
+
+            # Place an error object in the result
+            parent_action_context[gather_ref]["result"][stream_idx] = err_info.details
+            self.logger.info("Set error object as result", task=task)
+            self.logger.error(dump(parent_action_context))
+
+        else:
+            # Regular skip path
+            self.logger.warning("No matching error in skip stream", task=task)
+
+        # We still have to handle the last gather
+        if self.open_streams[parent_scatter] == 0:
+            self.logger.info("CLOSING OFF SKIP STREAM")
+            await self._handle_gather_result(
+                task,
+                parent_action_context,
+                parent_stream_id,
+                GatherArgs(**stmt.args),
+                gather_ref,
+            )
+        else:
+            self.logger.info(
+                "The execution stream is complete but the gather isn't.",
+                task=task,
+                remaining_open_streams=self.open_streams[parent_scatter],
+            )
+
+    def _get_parent_stream_id_safe(self, task: Task, stream_id: StreamID) -> StreamID:
+        parent_stream = self.stream_hierarchy[stream_id]
+        if parent_stream is None:
+            # Raise a detailed error if a gather is found in a skip stream with no parent stream.
+            raise RuntimeError(
+                f"Invalid state: Gather encountered in skip stream with no parent stream for task {task!r} "
+                f"(stream_id={stream_id!r}).\n"
+                "This indicates the gather is executing in the root stream's skip context, "
+                "which should not occur. This is likely a bug in the scheduler logic. "
+                "Please check the stream hierarchy and ensure that gathers are not scheduled "
+                "in the root skip stream."
+            )
+        return parent_stream
+
+    def _task_observed(self, task: Task) -> bool:
+        return task in self.open_streams
 
     async def _handle_gather(
         self, task: Task, stmt: ActionStatement, *, is_skipping: bool = False
@@ -811,50 +912,61 @@ class DSLScheduler:
                         f"Found gather in root stream but not skipping: {task}. User has probably made a mistake"
                     )
                 self.logger.warning("Skipped gather in root stream.", task=task)
-                return
+                # I'm not sure if we ever reach this point. We probably error out before this.
+                # Check whether we have a corresponding error
+                # await self._handle_gather_skip_stream(task, stmt, stream_id)
+                raise RuntimeError("We are skipping but we should be in a skip stream")
 
             # Skip stream
             case Task(stream_id=stream_id) if stream_id and stream_id.endswith(":skip"):
                 self.logger.warning("Gather in skip stream. Perform cleanup", task=task)
 
-                parent_stream = self.stream_hierarchy[stream_id]
-                if parent_stream is None:
-                    assert stream_id == ROOT_SKIP_STREAM, "Expected root skip stream"
-                    # This means we're in the root stream.
-                    # If we're in the root stream don't set the result, because naturally
-                    # there's no parent stream.
-                    # Instead, we mark all downstream tasks as unreachable.
+                # This shouldn't fail as all skip streams have parent streams
+                parent_stream = self._get_parent_stream_id_safe(task, stream_id)
+                scatter_ref, _ = stream_id.leaf
+                scatter_task = Task(ref=scatter_ref, stream_id=parent_stream)
+                self.logger.warning(
+                    "Checking for observed scatter",
+                    scatter_task=scatter_task,
+                    open_streams=self.open_streams,
+                )
+                if self._task_observed(scatter_task):
+                    self.logger.warning(
+                        "Observed scatter, setting result to empty list", task=task
+                    )
+                    parent_action_context = self._get_action_context(parent_stream)
+                    # We set this result if the corresponding scatter actually ran
+                    parent_action_context[task.ref] = TaskResult(
+                        result=[], result_typename="list"
+                    )
+                else:
+                    self.logger.warning(
+                        "Scatter not observed, skipping",
+                        task=task,
+                        scatter_task=scatter_task,
+                        open_streams=self.open_streams,
+                    )
+                    # If scatter wasn't observed, this means it was force-skipped
+                    # This means we need to skip all downstream tasks
                     unreachable = {
                         DSLEdge(src=task.ref, dst=dst, type=type, stream_id=stream_id)
                         for dst, type in self.adj[task.ref]
                     }
                     return await self._queue_tasks(task, unreachable=unreachable)
-                else:
-                    # This is a scoped stream. We need to set the result in the parent.
-                    parent_action_context = self._get_action_context(parent_stream)
-                    parent_action_context[task.ref] = TaskResult(
-                        result=[], result_typename="list"
-                    )
 
-                    # Now we can exit the scope and queue next tasks
-                    next_task = Task(ref=task.ref, stream_id=parent_stream)
-                    self.logger.warning(
-                        "Queueing next task",
-                        next_task=next_task,
-                        parent_stream=parent_stream,
-                    )
-                    return await self._queue_tasks(next_task, unreachable=None)
+                # Now we can exit the scope and queue next tasks
+                next_task = Task(ref=task.ref, stream_id=parent_stream)
+                self.logger.warning(
+                    "Queueing next task",
+                    next_task=next_task,
+                    parent_stream=parent_stream,
+                )
+                return await self._queue_tasks(next_task)
 
             #  Scoped execution stream
             case Task(stream_id=stream_id) if stream_id:
                 self.logger.warning("Default gather path", stream_id=stream_id)
-                parent_stream_id = self.stream_hierarchy[stream_id]
-                if parent_stream_id is None:
-                    raise RuntimeError(
-                        f"Gather in scoped stream, but no parent stream: {task}."
-                        " This means we somehow are in the root stream, but should never reach this point."
-                    )
-
+                parent_stream_id = self._get_parent_stream_id_safe(task, stream_id)
             case _:
                 self.logger.info("Invalid gather state", task=task)
                 raise ApplicationError("Invalid gather state")
@@ -876,19 +988,19 @@ class DSLScheduler:
             "Closing stream",
             task=task,
             parent_scatter=parent_scatter,
-            open_streams=to_json(self.open_streams, indent=2).decode(),
         )
-        self.logger.warning(to_json(self.open_streams, indent=2).decode())
+        self.logger.warning(dump(self.open_streams))
         self.open_streams[parent_scatter] -= 1
         if is_skipping:
             self.logger.warning("Skipped gather in execution stream", task=task)
             # Return early to avoid setting the result as null.
+            await self._handle_gather_skip_stream(task, stmt, stream_id)
             return
 
         # Here onwards, we are not skipping.
+        args = GatherArgs(**stmt.args)
         # This means we must compute a return value for the gather.
         # We should only compute the items to store if we aren't skipping
-        args = GatherArgs(**stmt.args)
         current_context = self.get_context(stream_id)
         items = TemplateExpression(args.items, operand=current_context).result()
 
@@ -923,51 +1035,98 @@ class DSLScheduler:
         )
 
         if self.open_streams[parent_scatter] == 0:
-            # NOTE: This block is executed by the last execution stream.
-            self.logger.warning(
-                "FINALIZING IMPLODE",
-                task=task,
-                parent_action_context=parent_action_context,
-                args=args,
+            await self._handle_gather_result(
+                task,
+                parent_action_context,
+                parent_stream_id,
+                args,
+                gather_ref,
             )
-            # We have closed all execution streams for this scatter. The gather is now complete.
-            # Apply filtering if requested
-
-            # Inline filter for gather operation.
-            # Keeps items unless drop_nulls is True and item is None.
-            # Automatically remove unset values (Sentinel.IMPLODE_UNSET).
-            final_result = [
-                item
-                for item in cast(list[Any], parent_action_context[gather_ref]["result"])
-                if not (
-                    (item == Sentinel.GATHER_UNSET)
-                    or (args.drop_nulls and item is None)
-                )
-            ]
-            logger.warning(
-                "IMPLODE FILTERED RESULT",
-                task=task,
-                final_result=final_result,
-                args=args,
-            )
-
-            # Update the result with the filtered version
-            parent_action_context[gather_ref].update(result=final_result)
-
-            self.logger.warning(
-                "Gather complete. Go back up to parent stream",
-                task=task,
-                parent_stream_id=parent_stream_id,
-            )
-            parent_gather = Task(ref=gather_ref, stream_id=parent_stream_id)
-            # TODO: Handle unreachable tasks??
-            await self._queue_tasks(parent_gather, unreachable=None)
         else:
             self.logger.info(
                 "The execution stream is complete but the gather isn't.",
                 task=task,
                 remaining_open_streams=self.open_streams[parent_scatter],
             )
+
+    async def _handle_gather_result(
+        self,
+        task: Task,
+        parent_action_context: dict[str, TaskResult],
+        parent_stream_id: StreamID,
+        gather_args: GatherArgs,
+        gather_ref: str,
+    ) -> None:
+        self.logger.warning(
+            "GATHER RESULT",
+            task=task,
+            parent_action_context=parent_action_context,
+            args=gather_args,
+        )
+        # We have closed all execution streams for this scatter. The gather is now complete.
+        # Apply filtering if requested
+
+        # Inline filter for gather operation.
+        # Keeps items unless drop_nulls is True and item is None.
+        # Automatically remove unset values (Sentinel.IMPLODE_UNSET).
+        task_result = cast(
+            TaskResult[list[Any], list[ActionErrorInfo]],
+            parent_action_context.setdefault(
+                gather_ref, TaskResult(result=[], result_typename=list.__name__)
+            ),
+        )
+
+        # Generator
+        filtered_items = (
+            item
+            for item in task_result["result"]
+            if not (
+                (item == Sentinel.GATHER_UNSET)
+                or (gather_args.drop_nulls and item is None)
+            )
+        )
+
+        # Error handling strategy
+        results = []
+        errors = []
+        # Consume generator here
+        match err_strategy := gather_args.error_handling_strategy:
+            # Default behavior
+            case StreamErrorHandlingStrategy.PARTITION:
+                # Filter out and place in task result error
+                for item in filtered_items:
+                    if _is_error_info(item):
+                        errors.append(item)
+                    else:
+                        results.append(item)
+            case StreamErrorHandlingStrategy.DROP:
+                results = [item for item in filtered_items if not _is_error_info(item)]
+            case StreamErrorHandlingStrategy.INCLUDE:
+                results = list(filtered_items)
+
+        logger.warning(
+            "IMPLODE FILTERED RESULT",
+            strategy=err_strategy,
+            task=task,
+            results=results,
+            errors=errors,
+            args=gather_args,
+        )
+        logger.error(dump(errors))
+
+        # Update the result with the filtered version
+        task_result.update(result=results)
+        if errors:
+            task_result.update(error=errors, error_typename=type(errors).__name__)
+
+        self.logger.warning(
+            "Gather complete. Go back up to parent stream",
+            task=task,
+            parent_stream_id=parent_stream_id,
+        )
+        parent_gather = Task(ref=gather_ref, stream_id=parent_stream_id)
+        # TODO: Handle unreachable tasks??
+        await self._queue_tasks(parent_gather, unreachable=None)
 
     def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult]:
         context = self.get_context(stream_id)
@@ -1036,3 +1195,17 @@ class DSLScheduler:
             "Action not found in any stream", action_ref=action_ref, stream_id=stream_id
         )
         return None
+
+
+@lru_cache
+def _is_error_info(detail: Any) -> bool:
+    if not isinstance(detail, Mapping):
+        return False
+    keys = {"ref", "message", "type", "expr_context", "attempt"}
+    if not all(k in keys for k in detail):
+        return False
+    try:
+        ActionErrorInfoAdapter.validate_python(detail)
+        return True
+    except Exception:
+        return False

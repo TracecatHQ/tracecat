@@ -39,7 +39,12 @@ from tracecat.dsl.common import (
     DSLRunArgs,
 )
 from tracecat.dsl.control_flow import GatherArgs, ScatterArgs
-from tracecat.dsl.enums import JoinStrategy, LoopStrategy, WaitStrategy
+from tracecat.dsl.enums import (
+    JoinStrategy,
+    LoopStrategy,
+    StreamErrorHandlingStrategy,
+    WaitStrategy,
+)
 from tracecat.dsl.models import (
     ActionStatement,
     DSLConfig,
@@ -4443,6 +4448,175 @@ async def test_workflow_detached_child_workflow(
             },
             id="1d-scatter-multi-condition",
         ),
+        pytest.param(
+            DSLInput(
+                title="Errors inside, partition",
+                description=(
+                    "Gracefully handle errors. With the default error handling,"
+                    " we apply the default error handling strategy -- which is to partition"
+                    " the results and errors into .result and .error"
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="throw",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={"value": "${{ 1/0 }}"},
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["throw"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.throw.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [],
+                        "result_typename": "list",
+                        "error": [
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                        ],
+                        "error_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-error-handling-partition",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Errors inside, drop",
+                description=(
+                    "Gracefully handle errors. With the default error handling,"
+                    " we apply the default error handling strategy -- which is to partition"
+                    " the results and errors into .result and .error"
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="throw",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={"value": "${{ 1/0 }}"},
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["throw"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.throw.result }}",
+                            error_handling_strategy=StreamErrorHandlingStrategy.DROP,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-error-handling-drop",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Errors inside, include",
+                description=(
+                    "Gracefully handle errors. With the default error handling,"
+                    " we apply the default error handling strategy -- which is to partition"
+                    " the results and errors into .result and .error"
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="throw",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={"value": "${{ 1/0 }}"},
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["throw"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.throw.result }}",
+                            error_handling_strategy=StreamErrorHandlingStrategy.INCLUDE,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                        ],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-error-handling-include",
+        ),
     ],
 )
 async def test_workflow_scatter_gather(
@@ -4470,7 +4644,6 @@ async def test_workflow_scatter_gather(
             task_queue=queue,
             retry_policy=retry_policies["workflow:fail_fast"],
         )
-        assert result is not None
         assert result == expected
 
 
