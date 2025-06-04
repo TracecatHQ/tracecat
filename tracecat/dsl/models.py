@@ -26,12 +26,12 @@ ExecutionContext = dict[ExprContext, Any]
 """Workflow execution context."""
 
 
-class TaskResult(TypedDict):
+class TaskResult[TResult: Any, TError: Any](TypedDict):
     """Result of executing a DSL node."""
 
-    result: Required[Any]
+    result: Required[TResult]
     result_typename: Required[str]
-    error: NotRequired[Any]
+    error: NotRequired[TError]
     error_typename: NotRequired[str]
     interaction: NotRequired[Any]
     interaction_id: NotRequired[str]
