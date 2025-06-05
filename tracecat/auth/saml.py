@@ -1,17 +1,18 @@
 import base64
 import secrets
-import time
 from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 import defusedxml.ElementTree as ET
-from diskcache import FanoutCache
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi_users.exceptions import UserAlreadyExists
 from pydantic import BaseModel
 from saml2 import BINDING_HTTP_POST
 from saml2.client import Saml2Client
 from saml2.config import Config as Saml2Config
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
@@ -21,17 +22,14 @@ from tracecat.config import (
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
 )
+from tracecat.db.engine import get_async_session
+from tracecat.db.schemas import SAMLRequestData
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
 
-# Store SAML request IDs for response validation
-_SAML_REQUEST_CACHE = FanoutCache(
-    directory="/tmp/tracecat_saml_cache",
-    timeout=30,
-    shards=4,
-)
+# Request timeout in seconds
 _REQUEST_TIMEOUT = 300
 
 
@@ -222,6 +220,7 @@ async def create_saml_client() -> Saml2Client:
 @router.get("/login", name=f"saml:{auth_backend.name}.login")
 async def login(
     client: Annotated[Saml2Client, Depends(create_saml_client)],
+    db_session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> SAMLDatabaseLoginResponse:
     """Initiate SAML login flow"""
 
@@ -232,14 +231,14 @@ async def login(
     req_id, info = client.prepare_for_authenticate(relay_state=relay_state)
 
     # Store the request ID and relay state for validation later
-    _SAML_REQUEST_CACHE.set(
-        req_id,
-        {
-            "relay_state": relay_state,
-            "timestamp": time.time(),
-        },
-        expire=_REQUEST_TIMEOUT,
+    expires_at = datetime.now() + timedelta(seconds=_REQUEST_TIMEOUT)
+    saml_request = SAMLRequestData(
+        id=req_id,
+        relay_state=relay_state,
+        expires_at=expires_at,
     )
+    db_session.add(saml_request)
+    await db_session.commit()
 
     logger.info(f"SAML login initiated with request ID: {req_id}")
 
@@ -265,6 +264,7 @@ async def sso_acs(
     user_manager: UserManagerDep,
     strategy: AuthBackendStrategyDep,
     client: Annotated[Saml2Client, Depends(create_saml_client)],
+    db_session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> Response:
     """Handle the SAML SSO response from the IdP post-authentication."""
 
@@ -363,23 +363,40 @@ async def sso_acs(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
         )
 
-    stored_data = _SAML_REQUEST_CACHE.get(in_response_to)
-    if not stored_data:
-        logger.error(f"Unknown SAML request ID: {in_response_to}")
+    # Retrieve stored data from the database
+    stmt = select(SAMLRequestData).where(SAMLRequestData.id == in_response_to)
+    result = await db_session.execute(stmt)
+    stored_request_data = result.scalar_one_or_none()
+
+    if not stored_request_data:
+        logger.error(f"Unknown or expired SAML request ID: {in_response_to}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
         )
 
-    stored_relay_state = (
-        stored_data["relay_state"] if isinstance(stored_data, dict) else None
-    )
+    # Check if the request has expired
+    if datetime.now() > stored_request_data.expires_at:
+        logger.error(f"Expired SAML request ID: {in_response_to}")
+        # Clean up expired entry
+        await db_session.delete(stored_request_data)
+        await db_session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
+        )
+
+    stored_relay_state = stored_request_data.relay_state
     if relay_state != stored_relay_state:
         logger.error("SAML relay state mismatch")
+        # Clean up entry even on relay state mismatch to prevent reuse
+        await db_session.delete(stored_request_data)
+        await db_session.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
         )
 
-    _SAML_REQUEST_CACHE.delete(in_response_to)
+    # Delete the used request data to prevent replay attacks
+    await db_session.delete(stored_request_data)
+    await db_session.commit()
 
     logger.info(f"SAML response validated for request: {in_response_to}")
 

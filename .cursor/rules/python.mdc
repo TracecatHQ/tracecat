@@ -9,3 +9,4 @@ globs: *.py
 - Always use python 3.11+ type hints. This means prefer using builtin types (e.g. `list`, `dict`, `set`) for type hints over the equivalent types from the `typing` module.
 - Always follow the Google Python style guide
 - Always put imports at the top of the file. Do not use scoped imports unless strictly necessary.
+- Use `uv run` and `uv pip install`

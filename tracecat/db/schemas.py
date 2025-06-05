@@ -181,6 +181,31 @@ class AccessToken(SQLModelBaseAccessToken, table=True):
     )
 
 
+class SAMLRequestData(SQLModel, table=True):
+    """Stores SAML request data for validating responses.
+
+    This replaces the disk cache to support distributed environments like Fargate.
+    """
+
+    __tablename__: str = "saml_request_data"
+
+    id: str = Field(primary_key=True, description="SAML Request ID")
+    relay_state: str = Field(nullable=False)
+    expires_at: datetime = Field(
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+        nullable=False,
+        description="Timestamp when this request data expires",
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+        sa_column_kwargs={
+            "server_default": func.now(),
+            "nullable": False,
+        },
+    )
+
+
 class BaseSecret(Resource):
     model_config: ConfigDict = ConfigDict(from_attributes=True)
     id: str = Field(
