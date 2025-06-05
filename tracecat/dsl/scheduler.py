@@ -806,10 +806,6 @@ class DSLScheduler:
         gather_ref = task.ref
         parent_scatter = Task(ref=scatter_ref, stream_id=parent_stream_id)
 
-        if self._task_observed(parent_scatter):
-            self.logger.warning("SCATTER COMPLETED SUCCESSFULLY", task=task)
-            # This means the explode actually ran and we must set the result to empty array
-
         if err_info := self.stream_exceptions.get(stream_id):
             # We reached gather because of an irrecoverable error
             self.logger.warning(
@@ -833,6 +829,7 @@ class DSLScheduler:
                 )
 
             # Place an error object in the result
+            # Do not pass the full object as some exceptions aren't serializable
             parent_action_context[gather_ref]["result"][stream_idx] = err_info.details
             self.logger.info("Set error object as result", task=task)
             self.logger.error(dump(parent_action_context))
@@ -1103,6 +1100,10 @@ class DSLScheduler:
                 results = [item for item in filtered_items if not _is_error_info(item)]
             case StreamErrorHandlingStrategy.INCLUDE:
                 results = list(filtered_items)
+            case _:
+                raise ApplicationError(
+                    f"Invalid error handling strategy: {err_strategy}"
+                )
 
         logger.warning(
             "IMPLODE FILTERED RESULT",
@@ -1199,10 +1200,9 @@ class DSLScheduler:
 
 @lru_cache
 def _is_error_info(detail: Any) -> bool:
+    if isinstance(detail, ActionErrorInfo):
+        return True
     if not isinstance(detail, Mapping):
-        return False
-    keys = {"ref", "message", "type", "expr_context", "attempt"}
-    if not all(k in keys for k in detail):
         return False
     try:
         ActionErrorInfoAdapter.validate_python(detail)
