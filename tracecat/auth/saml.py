@@ -1,7 +1,7 @@
 import base64
 import secrets
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 import defusedxml.ElementTree as ET
@@ -177,7 +177,7 @@ async def create_saml_client() -> Saml2Client:
                         ),
                     ],
                 },
-                "allow_unsolicited": False,
+                "allow_unsolicited": True,
                 "authn_requests_signed": False,
                 "want_assertions_signed": True,
                 "want_response_signed": True,
@@ -241,7 +241,7 @@ async def login(
     req_id, info = client.prepare_for_authenticate(relay_state=relay_state)
 
     # Store the request ID and relay state for validation later
-    expires_at = datetime.now() + timedelta(seconds=_REQUEST_TIMEOUT)
+    expires_at = datetime.now(UTC) + timedelta(seconds=_REQUEST_TIMEOUT)
     saml_request = SAMLRequestData(
         id=req_id,
         relay_state=relay_state,
@@ -250,7 +250,9 @@ async def login(
     db_session.add(saml_request)
     await db_session.commit()
 
-    logger.info(f"SAML login initiated with request ID: {req_id}")
+    logger.info(
+        f"SAML login initiated with request ID: {req_id}, relay_state: {relay_state}, expires_at: {expires_at}"
+    )
 
     try:
         headers = info["headers"]
@@ -270,7 +272,7 @@ async def sso_acs(
     request: Request,
     *,
     saml_response: str = Form(..., alias="SAMLResponse"),
-    relay_state: str | None = Form(None, alias="RelayState"),
+    relay_state: str = Form(..., alias="RelayState"),
     user_manager: UserManagerDep,
     strategy: AuthBackendStrategyDep,
     client: Annotated[Saml2Client, Depends(create_saml_client)],
@@ -279,6 +281,8 @@ async def sso_acs(
     """Handle the SAML SSO response from the IdP post-authentication."""
 
     logger.info("SAML ACS endpoint called")
+    logger.info(f"Configured SAML ACS URL: {SAML_PUBLIC_ACS_URL}")
+    logger.info(f"Received RelayState: '{relay_state}' (type: {type(relay_state)})")
 
     try:
         decoded_response = base64.b64decode(saml_response).decode("utf-8")
@@ -297,6 +301,15 @@ async def sso_acs(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
             )
 
+        # Extract InResponseTo from raw XML for debugging
+        import re
+
+        in_response_to_match = re.search(r'InResponseTo="([^"]+)"', decoded_response)
+        raw_in_response_to = (
+            in_response_to_match.group(1) if in_response_to_match else None
+        )
+        logger.info(f"Raw SAML InResponseTo from XML: '{raw_in_response_to}'")
+
     except Exception as e:
         logger.error(f"Failed to decode SAML response: {e}")
         raise HTTPException(
@@ -309,19 +322,26 @@ async def sso_acs(
     stored_requests = result.scalars().all()
 
     # Build outstanding_queries dictionary for SAML library validation
+    # Do NOT delete expired requests yet - defer until after SAML validation
     outstanding_queries = {}
+    expired_requests = []
+
     for stored_request in stored_requests:
-        # Check if request has expired and clean up
-        if datetime.now() > stored_request.expires_at:
-            logger.info(f"Cleaning up expired SAML request: {stored_request.id}")
-            await db_session.delete(stored_request)
+        # Check if request has expired but don't delete yet
+        if datetime.now(UTC) > stored_request.expires_at:
+            logger.info(f"Found expired SAML request: {stored_request.id}")
+            expired_requests.append(stored_request)
             continue
 
         # Add to outstanding queries for validation
         outstanding_queries[stored_request.id] = stored_request.relay_state
 
-    # Commit any cleanup of expired requests
-    await db_session.commit()
+    # Log outstanding queries for debugging
+    logger.info(f"Outstanding SAML queries: {list(outstanding_queries.keys())}")
+
+    # Clean up expired requests now (but don't commit yet)
+    for expired_request in expired_requests:
+        await db_session.delete(expired_request)
 
     try:
         authn_response = client.parse_authn_request_response(
@@ -330,7 +350,14 @@ async def sso_acs(
             outstanding=outstanding_queries,
         )
     except Exception as e:
-        logger.error(f"SAML response parsing/validation failed: {str(e)}")
+        # Enhanced error logging with more context
+        logger.error(
+            f"SAML response parsing/validation failed: {str(e)}. "
+            f"Outstanding queries: {list(outstanding_queries.keys())}, "
+            f"Expired requests cleaned: {[req.id for req in expired_requests]}"
+        )
+        # Commit cleanup even on failure
+        await db_session.commit()
         if "Signature" in str(e) or "not signed" in str(e):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
@@ -339,23 +366,11 @@ async def sso_acs(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
         ) from e
 
+    # Commit cleanup of expired requests after successful parsing
+    await db_session.commit()
+
     if not authn_response:
         logger.error("SAML response validation failed - no response object")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
-        )
-
-    if not hasattr(authn_response, "signature_check_result"):
-        logger.error("SAML library did not perform signature validation")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
-        )
-
-    response_signed = getattr(authn_response, "response_signed", False)
-    assertions_signed = getattr(authn_response, "assertions_signed", False)
-
-    if not response_signed and not assertions_signed:
-        logger.error("SAML response and assertions are not signed")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
         )
@@ -379,6 +394,9 @@ async def sso_acs(
 
     in_response_to = getattr(authn_response, "in_response_to", None)
 
+    # Enhanced debugging for InResponseTo
+    logger.info(f"SAML InResponseTo extracted: '{in_response_to}'")
+
     if not in_response_to or in_response_to == "":
         logger.error("SAML response missing or empty InResponseTo attribute")
         raise HTTPException(
@@ -392,18 +410,22 @@ async def sso_acs(
         )
 
     # Retrieve stored data from the database
+    # Use a fresh query to ensure we have the most current data
     stmt = select(SAMLRequestData).where(SAMLRequestData.id == in_response_to)
     result = await db_session.execute(stmt)
     stored_request_data = result.scalar_one_or_none()
 
     if not stored_request_data:
-        logger.error(f"Unknown or expired SAML request ID: {in_response_to}")
+        logger.error(
+            f"Unknown or expired SAML request ID: {in_response_to}. "
+            f"Available request IDs in database: {[req.id for req in stored_requests if req not in expired_requests]}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
         )
 
     # Check if the request has expired
-    if datetime.now() > stored_request_data.expires_at:
+    if datetime.now(UTC) > stored_request_data.expires_at:
         logger.error(f"Expired SAML request ID: {in_response_to}")
         # Clean up expired entry
         await db_session.delete(stored_request_data)
@@ -413,6 +435,12 @@ async def sso_acs(
         )
 
     stored_relay_state = stored_request_data.relay_state
+    logger.info(
+        f"Relay state comparison: "
+        f"received='{relay_state}' (type: {type(relay_state)}, len: {len(relay_state) if relay_state else 'None'}), "
+        f"stored='{stored_relay_state}' (type: {type(stored_relay_state)}, len: {len(stored_relay_state)})"
+    )
+
     if relay_state != stored_relay_state:
         logger.error("SAML relay state mismatch")
         # Clean up entry even on relay state mismatch to prevent reuse

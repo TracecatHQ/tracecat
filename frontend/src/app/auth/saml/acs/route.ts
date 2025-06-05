@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
   // Parse the form data from the request
   const formData = await request.formData()
   const samlResponse = formData.get("SAMLResponse")
+  const relayState = formData.get("RelayState")
 
   // Get redirect
   const resp = await fetch(buildUrl("/info"))
@@ -27,6 +28,11 @@ export async function POST(request: NextRequest) {
   const backendUrl = new URL(buildUrl("/auth/saml/acs"))
   const backendFormData = new FormData()
   backendFormData.append("SAMLResponse", samlResponse)
+
+  // Forward RelayState if present
+  if (relayState) {
+    backendFormData.append("RelayState", relayState)
+  }
 
   // Forward the request to the FastAPI backend
   const backendResponse = await fetch(backendUrl.toString(), {
