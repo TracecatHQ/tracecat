@@ -1,4 +1,3 @@
-import base64
 import secrets
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -180,7 +179,7 @@ async def create_saml_client() -> Saml2Client:
                 "allow_unsolicited": True,
                 "authn_requests_signed": False,
                 "want_assertions_signed": True,
-                "want_response_signed": True,
+                "want_response_signed": False,
                 "want_assertions_or_response_signed": True,
                 "only_use_keys_in_metadata": True,
                 "validate_certificate": False,
@@ -284,38 +283,6 @@ async def sso_acs(
     logger.info(f"Configured SAML ACS URL: {SAML_PUBLIC_ACS_URL}")
     logger.info(f"Received RelayState: '{relay_state}' (type: {type(relay_state)})")
 
-    try:
-        decoded_response = base64.b64decode(saml_response).decode("utf-8")
-        if (
-            "<ds:Signature" not in decoded_response
-            and "<Signature" not in decoded_response
-        ):
-            logger.error("SAML response does not contain a signature element")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
-            )
-
-        if "InResponseTo=" not in decoded_response:
-            logger.error("SAML response does not contain InResponseTo attribute")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
-            )
-
-        # Extract InResponseTo from raw XML for debugging
-        import re
-
-        in_response_to_match = re.search(r'InResponseTo="([^"]+)"', decoded_response)
-        raw_in_response_to = (
-            in_response_to_match.group(1) if in_response_to_match else None
-        )
-        logger.info(f"Raw SAML InResponseTo from XML: '{raw_in_response_to}'")
-
-    except Exception as e:
-        logger.error(f"Failed to decode SAML response: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
-        ) from e
-
     # Retrieve all stored SAML requests to populate outstanding_queries
     stmt = select(SAMLRequestData)
     result = await db_session.execute(stmt)
@@ -375,26 +342,7 @@ async def sso_acs(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
         )
 
-    try:
-        raw_xml = getattr(authn_response, "_xmlstr", None)
-        if raw_xml:
-            if isinstance(raw_xml, bytes):
-                raw_xml = raw_xml.decode("utf-8")
-
-            if "<ds:Signature" not in raw_xml and "<Signature" not in raw_xml:
-                logger.error("SAML response accepted by library but has no signature")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Authentication failed",
-                )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning(f"Could not perform additional signature check: {e}")
-
     in_response_to = getattr(authn_response, "in_response_to", None)
-
-    # Enhanced debugging for InResponseTo
     logger.info(f"SAML InResponseTo extracted: '{in_response_to}'")
 
     if not in_response_to or in_response_to == "":
