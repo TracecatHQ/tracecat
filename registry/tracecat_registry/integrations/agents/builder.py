@@ -10,7 +10,7 @@ from typing import Any, Union, Annotated, Self
 from typing_extensions import Doc
 from timeit import timeit
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.tools import Tool
 from pydantic_core import PydanticUndefined, to_jsonable_python
@@ -112,21 +112,24 @@ async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
     context.update(SECRETS=secrets)
 
     flattened_secrets = flatten_secrets(secrets)
-    with env_sandbox(flattened_secrets):
-        # Call directly based on action type
-        if bound_action.is_template:
-            # For templates, pass the context with secrets
-            result = await run_template_action(
-                action=bound_action,
-                args=args,
-                context=context,
-            )
-        else:
-            # UDFs can be called directly - secrets are now in the environment
-            result = await _run_action_direct(
-                action=bound_action,
-                args=args,
-            )
+    try:
+        with env_sandbox(flattened_secrets):
+            # Call directly based on action type
+            if bound_action.is_template:
+                # For templates, pass the context with secrets
+                result = await run_template_action(
+                    action=bound_action,
+                    args=args,
+                    context=context,
+                )
+            else:
+                # UDFs can be called directly - secrets are now in the environment
+                result = await _run_action_direct(
+                    action=bound_action,
+                    args=args,
+                )
+    except Exception as e:
+        raise ModelRetry(str(e))
     return result
 
 
@@ -435,6 +438,13 @@ async def agent(
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
     ] = None,
     instructions: Annotated[str | None, Doc("Instructions for the agent.")] = None,
+    output_type: Annotated[
+        str | dict[str, Any] | None, Doc("Output type for the agent.")
+    ] = None,
+    model_settings: Annotated[
+        dict[str, Any] | None, Doc("Model settings for the agent.")
+    ] = None,
+    retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     include_usage: Annotated[
         bool, Doc("Whether to include usage information in the output.")
     ] = False,
@@ -445,6 +455,9 @@ async def agent(
         model_provider=model_provider,
         base_url=base_url,
         instructions=instructions,
+        output_type=output_type,
+        model_settings=model_settings,
+        retries=retries,
     )
 
     if not namespaces and not actions:

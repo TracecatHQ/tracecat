@@ -878,6 +878,9 @@ class TestAgentBuilderIntegration:
         if not slack_token or not slack_channel:
             pytest.skip("Slack credentials not available")
 
+        # Set higher retries for complex prompts to handle flakiness
+        retries = 5 if prompt_type == "complex" else 3
+
         # Build an agent with Slack capabilities
         builder = TracecatAgentBuilder(
             model_name="gpt-4o-mini",
@@ -888,6 +891,7 @@ class TestAgentBuilderIntegration:
                 "with buttons, sections, and other interactive elements. "
                 "If complex blocks fail, try simpler alternatives."
             ),
+            retries=retries,
         )
 
         # Filter to Slack tools
@@ -903,14 +907,9 @@ class TestAgentBuilderIntegration:
         print(f"\n🤖 Running agent with {prompt_type} Slack prompt...")
         print(f"📝 Prompt: {prompt}")
 
-        # Run the agent
+        # Run the agent - don't catch exceptions, let them fail the test immediately
         result = await agent.run(prompt)
-
-        print(f"\n✅ Agent execution completed for {prompt_type} prompt!")
         print(f"📤 Result: {result}")
-
-        # Verify we got a result
-        assert result is not None
         assert isinstance(result.output, str)
 
         # Should mention successful posting or contain message details
@@ -930,12 +929,9 @@ class TestAgentBuilderIntegration:
         found_indicators = [
             indicator for indicator in success_indicators if indicator in result_lower
         ]
+
         assert len(found_indicators) > 0, (
             f"Expected success indicators in result: {result.output}"
-        )
-
-        print(
-            f"🎉 {prompt_type.title()} prompt test successful! Found indicators: {found_indicators}"
         )
 
     @skip_if_no_slack_credentials
@@ -1053,6 +1049,90 @@ class TestAgentBuilderIntegration:
         # Verify the agent was built with the tool
         assert len(builder.tools) == 1
         assert builder.tools[0] == mock_tool
+
+    @pytest.mark.anyio
+    async def test_agent_with_model_settings(self, test_role):
+        """Test building an agent with custom model settings."""
+        # Define model settings with specific temperature and tool_choice
+        model_settings = {
+            "temperature": 0.2,  # Low temperature for deterministic outputs
+            "top_p": 0.9,
+            "extra_body": {
+                "tool_choice": "auto"
+            },  # Don't force tool use since we have limited tools
+        }
+
+        # Build an agent with model settings
+        builder = TracecatAgentBuilder(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            instructions="You are a helpful assistant that can make HTTP requests.",
+            model_settings=model_settings,
+        )
+
+        # Add just core.http_request tool to avoid schema issues with other tools
+        agent = await builder.with_action_filters("core.http_request").build()
+
+        # Verify the agent was created
+        assert agent is not None
+
+        # Verify tools were loaded
+        assert len(builder.tools) == 1
+        assert builder.tools[0].function.__name__ == "core_http_request"
+
+        # We can't directly check private attributes, but we can verify the agent works
+        # Try running the agent with a simple prompt
+        result = await agent.run("Tell me a fun fact about Paris, France.")
+
+        # Verify we got a result
+        assert result is not None
+        assert isinstance(result.output, str)
+
+        # Output should contain information about Paris
+        assert "paris" in result.output.lower()
+
+        print(f"Agent result with model_settings: {result.output}")
+
+    @pytest.mark.anyio
+    async def test_agent_function_with_model_settings(self, test_role):
+        """Test the agent registry function with model settings."""
+        # Call the agent function directly with model settings
+        result = await agent(
+            user_prompt="Tell me a fun fact about Paris, France.",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            actions=[
+                "core.http_request"
+            ],  # Use just the HTTP request tool to avoid schema issues
+            instructions="You are a helpful assistant that can make HTTP requests.",
+            model_settings={
+                "temperature": 0.2,
+                "top_p": 0.9,
+                "extra_body": {"tool_choice": "auto"},  # Don't force tool use
+            },
+            include_usage=True,
+        )
+
+        print(f"\n🤖 Agent function result with model_settings: {result}")
+
+        # Verify the result structure
+        assert isinstance(result, dict)
+        assert "output" in result
+        assert "message_history" in result
+        assert "duration" in result
+        assert "usage" in result
+
+        # Output should contain information about Paris
+        output = result["output"]
+        assert isinstance(output, str)
+        assert "Paris" in output or "paris" in output.lower()
+
+        # Check that the message_history exists and has the expected structure
+        message_history = result["message_history"]
+        assert isinstance(message_history, list)
+        assert (
+            len(message_history) >= 2
+        )  # Should have at least the user message and one response
 
 
 @pytest.mark.anyio

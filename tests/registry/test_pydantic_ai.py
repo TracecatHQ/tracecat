@@ -278,3 +278,85 @@ def test_pydantic_ai_call_with_enum_output():
     # assert result["status"] == "shipped"
     # However, LLM responses can vary, so checking inclusion in the enum is safer for a live test.
     print(f"Live LLM call for enum test returned: {result}")
+
+
+def test_pydantic_ai_call_with_model_settings():
+    """Tests that model_settings are correctly passed to the model."""
+    # First call with high temperature (more random)
+    result_creative = call(
+        instructions="You are a helpful assistant.",
+        user_prompt="Write a single sentence about Paris that's creative and unusual.",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        model_settings={"temperature": 1.0, "top_p": 1.0},
+    )
+
+    # Second call with low temperature (more deterministic)
+    result_factual = call(
+        instructions="You are a helpful assistant.",
+        user_prompt="Write a single sentence about Paris that's factual and straightforward.",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        model_settings={"temperature": 0.0, "top_p": 1.0},
+    )
+
+    # Both should return a string
+    assert isinstance(result_creative, str)
+    assert isinstance(result_factual, str)
+
+    # Both should mention Paris
+    assert (
+        "Paris" in result_creative
+        or "paris" in result_creative.lower()
+        or "Eiffel Tower" in result_creative
+        or "eiffel tower" in result_creative.lower()
+        or "Seine" in result_creative
+        or "seine" in result_creative.lower()
+    )
+    assert "Paris" in result_factual or "paris" in result_factual.lower()
+
+    # Different outputs suggest the model_settings were applied
+    print(f"Creative result (temp=1.0): {result_creative}")
+    print(f"Factual result (temp=0.0): {result_factual}")
+
+
+def test_pydantic_ai_call_with_tool_choice():
+    """Tests that model_settings can include tool_choice for OpenAI."""
+
+    # Define a simple mock calculator tool
+    calculator_schema = {
+        "type": "function",
+        "function": {
+            "name": "calculator",
+            "description": "Perform a calculation",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "The mathematical expression to evaluate",
+                    }
+                },
+                "required": ["expression"],
+            },
+        },
+    }
+
+    # Call with tool_choice to force tool use
+    result = call(
+        instructions="You are a helpful calculator assistant.",
+        user_prompt="What is 123 + 456?",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        model_settings={
+            "temperature": 0.0,
+            "tools": [calculator_schema],
+            "tool_choice": {"type": "function", "function": {"name": "calculator"}},
+        },
+    )
+
+    # Result should contain the calculation result in some form
+    assert isinstance(result, str)
+    assert "579" in result or "123 + 456" in result
+
+    print(f"Tool choice result: {result}")
