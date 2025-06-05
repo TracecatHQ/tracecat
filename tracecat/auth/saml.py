@@ -303,9 +303,27 @@ async def sso_acs(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
         ) from e
 
-    try:
-        outstanding_queries = {}
+    # Retrieve all stored SAML requests to populate outstanding_queries
+    stmt = select(SAMLRequestData)
+    result = await db_session.execute(stmt)
+    stored_requests = result.scalars().all()
 
+    # Build outstanding_queries dictionary for SAML library validation
+    outstanding_queries = {}
+    for stored_request in stored_requests:
+        # Check if request has expired and clean up
+        if datetime.now() > stored_request.expires_at:
+            logger.info(f"Cleaning up expired SAML request: {stored_request.id}")
+            await db_session.delete(stored_request)
+            continue
+
+        # Add to outstanding queries for validation
+        outstanding_queries[stored_request.id] = stored_request.relay_state
+
+    # Commit any cleanup of expired requests
+    await db_session.commit()
+
+    try:
         authn_response = client.parse_authn_request_response(
             saml_response,
             BINDING_HTTP_POST,

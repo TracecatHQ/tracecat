@@ -10,3 +10,4 @@ globs: *.py
 - Always follow the Google Python style guide
 - Always put imports at the top of the file. Do not use scoped imports unless strictly necessary.
 - Use `uv run` and `uv pip install`
+- All tests under `tests/unit` are actually integration tests. Do not use mocks. Test logic as closely as production as possible.
