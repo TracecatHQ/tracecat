@@ -480,10 +480,6 @@ class DSLScheduler:
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
-            import traceback
-
-            tb_str = traceback.format_exc()
-            self.logger.error(tb_str)
             kind = e.__class__.__name__
             non_retryable = getattr(e, "non_retryable", True)
             self.logger.warning(
