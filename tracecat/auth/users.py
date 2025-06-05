@@ -103,6 +103,29 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             )
 
     async def validate_email(self, email: str) -> None:
+        # Check if this is attempting to be the first user (superadmin)
+        async with get_async_session_context_manager() as session:
+            users = await list_users(session=session)
+            if len(users) == 0:  # This would be the first user
+                # Only allow registration if this is the designated superadmin email
+                if not config.TRACECAT__AUTH_SUPERADMIN_EMAIL:
+                    self.logger.error(
+                        "No superadmin email configured, but attempting first user registration"
+                    )
+                    raise InvalidEmailException()
+                if email != config.TRACECAT__AUTH_SUPERADMIN_EMAIL:
+                    self.logger.error(
+                        "First user registration attempted with non-superadmin email",
+                        attempted_email=email,
+                        expected_email=config.TRACECAT__AUTH_SUPERADMIN_EMAIL,
+                    )
+                    raise InvalidEmailException()
+                self.logger.info(
+                    "Allowing first user registration for superadmin email", email=email
+                )
+                return
+
+        # For non-first users, apply normal domain validation
         allowed_domains = cast(
             list[str] | None,
             await get_setting("auth_allowed_email_domains", role=self.role),
@@ -173,16 +196,20 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     ) -> None:
         self.logger.info(f"User {user.id} has registered.")
 
-        # If the user is the first in the org to sign up, make them a superuser
+        # Check if this user should be promoted to superuser
         async with get_async_session_context_manager() as session:
             users = await list_users(session=session)
-            if len(users) == 1:
-                # This is the only user in the org, make them the superuser
+            superadmin_email = config.TRACECAT__AUTH_SUPERADMIN_EMAIL
+            if len(users) == 1 and superadmin_email and user.email == superadmin_email:
+                # This is the first user and matches the designated superadmin email
                 update_params = UserUpdate(is_superuser=True, role=UserRole.ADMIN)
-                # NOTE(security): Bypass safety to create superuser
+                # NOTE(security): Bypass safety to create sueradmin
                 await self.admin_update(user_update=update_params, user=user)
-                self.logger.info("Promoted user to superuser", user=user.email)
-            elif await get_setting("app_create_workspace_on_register", default=True):
+                self.logger.info("First user promoted to superadmin", email=user.email)
+
+            elif len(users) > 1 and await get_setting(
+                "app_create_workspace_on_register", default=True
+            ):
                 # Check if we should auto-create a workspace for the user
                 self.logger.info("Creating workspace for new user", user=user.email)
                 try:
@@ -252,6 +279,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         :param is_verified_by_default: If True, set is_verified flag for new users. Defaults to True.
         :return: A user.
         """
+        await self.validate_email(email)
         try:
             user = await self.get_by_email(email)
             if not associate_by_email:

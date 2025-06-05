@@ -95,6 +95,8 @@ TRACECAT__AUTH_MIN_PASSWORD_LENGTH = int(
     os.environ.get("TRACECAT__AUTH_MIN_PASSWORD_LENGTH") or 12
 )
 
+TRACECAT__AUTH_SUPERADMIN_EMAIL = os.environ.get("TRACECAT__AUTH_SUPERADMIN_EMAIL")
+"""Email address that is allowed to become the first superuser. If not set, the first user logic is disabled for security."""
 
 # OAuth Login Flow
 # Used for both Google OAuth2 and OIDC flows
