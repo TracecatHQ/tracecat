@@ -1,5 +1,4 @@
 import base64
-import os
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -672,15 +671,6 @@ class TestComprehensiveSAMLSuite:
             )
         assert exc_info.value.status_code == 400
         assert "Authentication failed" in exc_info.value.detail
-
-    @pytest.mark.anyio
-    async def test_message_confidentiality_tls_requirement(self):
-        """Test that SAML endpoints require TLS (OWASP 4.2.1)."""
-        from tracecat.config import SAML_PUBLIC_ACS_URL, TRACECAT__PUBLIC_API_URL
-
-        if "production" in os.getenv("TRACECAT__APP_ENV", "").lower():
-            assert SAML_PUBLIC_ACS_URL.startswith("https://")
-            assert TRACECAT__PUBLIC_API_URL.startswith("https://")
 
     @pytest.mark.anyio
     async def test_xml_signature_wrapping_prevention(

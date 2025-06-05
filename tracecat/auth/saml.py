@@ -19,6 +19,7 @@ from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_bac
 from tracecat.config import (
     SAML_IDP_METADATA_URL,
     SAML_PUBLIC_ACS_URL,
+    TRACECAT__APP_ENV,
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
 )
@@ -132,6 +133,15 @@ class SAMLParser:
 
 
 async def create_saml_client() -> Saml2Client:
+    # Validate HTTPS requirement in production
+    if TRACECAT__APP_ENV == "production":
+        if not SAML_PUBLIC_ACS_URL.startswith("https://"):
+            logger.error("SAML ACS URL must use HTTPS in production environment")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication service misconfigured",
+            )
+
     role = bootstrap_role()
     saml_idp_metadata_url = await get_setting(
         "saml_idp_metadata_url",
