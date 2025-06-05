@@ -5,7 +5,7 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
-from functools import cached_property, lru_cache
+from functools import cached_property
 from typing import Any, ClassVar, Literal, Self, cast
 
 from pydantic_core import to_json
@@ -1198,7 +1198,6 @@ class DSLScheduler:
         return None
 
 
-@lru_cache
 def _is_error_info(detail: Any) -> bool:
     if isinstance(detail, ActionErrorInfo):
         return True
