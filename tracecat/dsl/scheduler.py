@@ -501,12 +501,7 @@ class DSLScheduler:
 
         pending_tasks: set[asyncio.Task[None]] = set()
 
-        while not self.task_exceptions and (
-            not self.queue.empty()
-            # NOTE: I'm unsure if this will still hold, as task cardinality is no longer constant
-            # or len(self.completed_tasks) < len(self.tasks)
-            or pending_tasks
-        ):
+        while not self.task_exceptions and (not self.queue.empty() or pending_tasks):
             self.logger.trace(
                 "Waiting for tasks",
                 qsize=self.queue.qsize(),
