@@ -4617,6 +4617,63 @@ async def test_workflow_detached_child_workflow(
             },
             id="basic-error-handling-include",
         ),
+        # Test: a -> scatter -> b -> gather, where b accesses a's data
+        pytest.param(
+            DSLInput(
+                title="Hierarchical stream variable lookup: a -> scatter -> b -> gather",
+                description=(
+                    "Test that a value produced before a scatter can be accessed by a reshape inside the scatter, "
+                    "and then gathered. This validates hierarchical stream variable lookup."
+                ),
+                entrypoint=DSLEntrypoint(ref="gather1"),
+                actions=[
+                    # a: produce a value
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        args={"value": 42},
+                    ),
+                    # scatter: scatter over a collection
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        depends_on=["a"],
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    # b: inside scatter, access a's value and add to item
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={
+                            "value": "${{ ACTIONS.a.result + ACTIONS.scatter1.result }}"
+                        },
+                    ),
+                    # gather: collect results from b
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["b"],
+                        args=GatherArgs(items="${{ ACTIONS.b.result }}").model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "a": {
+                        "result": 42,
+                        "result_typename": "int",
+                    },
+                    "gather1": {
+                        "result": [43, 44, 45],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scope-shadowing-stream-lookup",
+        ),
     ],
 )
 async def test_workflow_scatter_gather(
@@ -4647,22 +4704,86 @@ async def test_workflow_scatter_gather(
         assert result == expected
 
 
-# @pytest.mark.anyio
-# async def test_workflow_error_handler_itself_fails(test_role, temporal_client):
-#     """Test when the error handler workflow itself fails."""
+@pytest.mark.anyio
+async def test_workflow_env_and_trigger_access_in_stream(
+    test_role: Role, temporal_client: Client
+) -> None:
+    """
+    Test that ENV and TRIGGER contexts are accessible from inside a stream.
+    The workflow is: scatter -> a -> gather, where 'a' is a reshape returning
+    ENV.workflow.execution_id and TRIGGER.data. TRIGGER data is passed in DSLRunArgs.
+    """
+    # Prepare test TRIGGER data and expected execution_id
+    trigger_data = {"foo": "bar", "num": 123}
+    test_name = f"{test_workflow_env_and_trigger_access_in_stream.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
 
-#     # Create a failing error handler
-#     failing_handler_dsl = DSLInput(
-#         title="Failing Error Handler",
-#         description="Test that an error handler workflow itself fails",
-#         entrypoint=DSLEntrypoint(ref="handler_error"),
-#         actions=[
-#             ActionStatement(
-#                 ref="handler_error",
-#                 action="core.transform.reshape",
-#                 args={"value": "${{ 1/0 }}"},
-#             )  # This will fail
-#         ],
-#     )
+    # Define the DSL workflow
+    dsl = DSLInput(
+        title="ENV and TRIGGER context access in stream",
+        description="Test ENV and TRIGGER context access from inside a stream",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action="core.transform.scatter",
+                args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+            ),
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                depends_on=["scatter"],
+                args={
+                    # Return both ENV.workflow.execution_id and TRIGGER.data as a dict
+                    "value": "${{ {'exec_id': ENV.workflow.execution_id, 'trigger': TRIGGER} }}"
+                },
+            ),
+            ActionStatement(
+                ref="gather",
+                action="core.transform.gather",
+                depends_on=["a"],
+                args=GatherArgs(items="${{ ACTIONS.a.result }}").model_dump(),
+            ),
+        ],
+    )
 
-#     # Test that we get appropriate error when error handler fails
+    # Prepare expected result
+    expected = {
+        "ACTIONS": {
+            "gather": {
+                "result": [
+                    {"exec_id": wf_exec_id, "trigger": trigger_data},
+                    {"exec_id": wf_exec_id, "trigger": trigger_data},
+                    {"exec_id": wf_exec_id, "trigger": trigger_data},
+                ],
+                "result_typename": "list",
+            },
+        },
+        "INPUTS": {},
+        "TRIGGER": trigger_data,
+    }
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    # Run the workflow and check the result
+    async with Worker(
+        temporal_client,
+        task_queue=queue,
+        activities=get_activities(),
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        run_args = DSLRunArgs(
+            dsl=dsl,
+            role=test_role,
+            wf_id=TEST_WF_ID,
+            trigger_inputs=trigger_data,
+        )
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=retry_policies["workflow:fail_fast"],
+        )
+        assert result == expected
