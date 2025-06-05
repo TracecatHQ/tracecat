@@ -10,7 +10,7 @@ from typing import Any, Union, Annotated, Self
 from typing_extensions import Doc
 from timeit import timeit
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.tools import Tool
 from pydantic_core import PydanticUndefined, to_jsonable_python
@@ -112,21 +112,24 @@ async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
     context.update(SECRETS=secrets)
 
     flattened_secrets = flatten_secrets(secrets)
-    with env_sandbox(flattened_secrets):
-        # Call directly based on action type
-        if bound_action.is_template:
-            # For templates, pass the context with secrets
-            result = await run_template_action(
-                action=bound_action,
-                args=args,
-                context=context,
-            )
-        else:
-            # UDFs can be called directly - secrets are now in the environment
-            result = await _run_action_direct(
-                action=bound_action,
-                args=args,
-            )
+    try:
+        with env_sandbox(flattened_secrets):
+            # Call directly based on action type
+            if bound_action.is_template:
+                # For templates, pass the context with secrets
+                result = await run_template_action(
+                    action=bound_action,
+                    args=args,
+                    context=context,
+                )
+            else:
+                # UDFs can be called directly - secrets are now in the environment
+                result = await _run_action_direct(
+                    action=bound_action,
+                    args=args,
+                )
+    except Exception as e:
+        raise ModelRetry(str(e))
     return result
 
 

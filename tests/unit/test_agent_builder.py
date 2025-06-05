@@ -878,6 +878,9 @@ class TestAgentBuilderIntegration:
         if not slack_token or not slack_channel:
             pytest.skip("Slack credentials not available")
 
+        # Set higher retries for complex prompts to handle flakiness
+        retries = 5 if prompt_type == "complex" else 3
+
         # Build an agent with Slack capabilities
         builder = TracecatAgentBuilder(
             model_name="gpt-4o-mini",
@@ -888,6 +891,7 @@ class TestAgentBuilderIntegration:
                 "with buttons, sections, and other interactive elements. "
                 "If complex blocks fail, try simpler alternatives."
             ),
+            retries=retries,
         )
 
         # Filter to Slack tools
@@ -903,90 +907,32 @@ class TestAgentBuilderIntegration:
         print(f"\n🤖 Running agent with {prompt_type} Slack prompt...")
         print(f"📝 Prompt: {prompt}")
 
-        # For complex prompts, implement retry logic to handle flakiness
-        max_attempts = 5 if prompt_type == "complex" else 1
-        success = False
-        last_result = None
+        # Run the agent - don't catch exceptions, let them fail the test immediately
+        result = await agent.run(prompt)
+        print(f"📤 Result: {result}")
+        assert isinstance(result.output, str)
 
-        for attempt in range(1, max_attempts + 1):
-            if attempt > 1:
-                print(
-                    f"\n🔄 Retry attempt {attempt}/{max_attempts} for {prompt_type} prompt..."
-                )
+        # Should mention successful posting or contain message details
+        result_lower = result.output.lower()
+        success_indicators = [
+            "posted",
+            "sent",
+            "message",
+            "slack",
+            "channel",
+            "success",
+            "python",
+            "javascript",
+            "programming",
+        ]
 
-            # Run the agent - don't catch exceptions, let them fail the test immediately
-            result = await agent.run(prompt)
-            last_result = result
+        found_indicators = [
+            indicator for indicator in success_indicators if indicator in result_lower
+        ]
 
-            print(
-                f"\n✅ Agent execution completed for {prompt_type} prompt!"
-                + (
-                    f" (attempt {attempt}/{max_attempts})"
-                    if prompt_type == "complex"
-                    else ""
-                )
-            )
-            print(f"📤 Result: {result}")
-
-            # Verify we got a result
-            assert result is not None
-            assert isinstance(result.output, str)
-
-            # Should mention successful posting or contain message details
-            result_lower = result.output.lower()
-            success_indicators = [
-                "posted",
-                "sent",
-                "message",
-                "slack",
-                "channel",
-                "success",
-                "python",
-                "javascript",
-                "programming",
-            ]
-
-            found_indicators = [
-                indicator
-                for indicator in success_indicators
-                if indicator in result_lower
-            ]
-
-            if len(found_indicators) > 0:
-                success = True
-                print(
-                    f"🎉 {prompt_type.title()} prompt test successful! Found indicators: {found_indicators}"
-                )
-                break
-            else:
-                print(f"⚠️ No success indicators found in attempt {attempt}")
-                if attempt < max_attempts:
-                    # Small delay before retry
-                    import asyncio
-
-                    await asyncio.sleep(1)
-
-        assert success, (
-            f"All {max_attempts} attempts failed to find success indicators in the response"
+        assert len(found_indicators) > 0, (
+            f"Expected success indicators in result: {result.output}"
         )
-
-        # If using the complex prompt, add extra assertions to help debug future issues
-        if prompt_type == "complex" and success and last_result is not None:
-            # Extra debugging: check for specific terms related to complex Slack blocks
-            complex_indicators = [
-                "section",
-                "button",
-                "action",
-                "block",
-                "header",
-                "context",
-            ]
-            found_complex = [
-                indicator
-                for indicator in complex_indicators
-                if indicator in last_result.output.lower()
-            ]
-            print(f"🔍 Complex block indicators found: {found_complex}")
 
     @skip_if_no_slack_credentials
     @requires_slack_mocks
@@ -1143,7 +1089,7 @@ class TestAgentBuilderIntegration:
         assert isinstance(result.output, str)
 
         # Output should contain information about Paris
-        assert "Paris" in result.output or "paris" in result.output.lower()
+        assert "paris" in result.output.lower()
 
         print(f"Agent result with model_settings: {result.output}")
 
