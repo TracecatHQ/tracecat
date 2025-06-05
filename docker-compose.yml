@@ -142,6 +142,7 @@ services:
       NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
       NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
       NODE_ENV: production
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
     depends_on:
       - api
 

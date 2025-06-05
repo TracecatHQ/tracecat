@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import bootstrap_role
+from tracecat.auth.credentials import RoleACL
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
     SAML_IDP_METADATA_URL,
@@ -26,6 +27,7 @@ from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import SAMLRequestData
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
+from tracecat.types.auth import Role
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
 
@@ -179,10 +181,9 @@ async def create_saml_client() -> Saml2Client:
                 "allow_unsolicited": True,
                 "authn_requests_signed": False,
                 "want_assertions_signed": True,
-                "want_response_signed": False,
-                "want_assertions_or_response_signed": True,
+                "want_response_signed": True,
                 "only_use_keys_in_metadata": True,
-                "validate_certificate": False,
+                "validate_certificate": True,
             },
         },
         "metadata": {
@@ -276,8 +277,21 @@ async def sso_acs(
     strategy: AuthBackendStrategyDep,
     client: Annotated[Saml2Client, Depends(create_saml_client)],
     db_session: Annotated[AsyncSession, Depends(get_async_session)],
+    role: Annotated[
+        Role, RoleACL(allow_user=False, allow_service=True, require_workspace="no")
+    ],
 ) -> Response:
     """Handle the SAML SSO response from the IdP post-authentication."""
+
+    if role.service_id != "tracecat-ui":
+        logger.warning(
+            f"SAML ACS accessed by unexpected service: '{role.service_id}'. "
+            f"Expected 'tracecat-ui' for enhanced security."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden",
+        )
 
     logger.info("SAML ACS endpoint called")
     logger.info(f"Configured SAML ACS URL: {SAML_PUBLIC_ACS_URL}")
@@ -304,7 +318,7 @@ async def sso_acs(
         outstanding_queries[stored_request.id] = stored_request.relay_state
 
     # Log outstanding queries for debugging
-    logger.info(f"Outstanding SAML queries: {list(outstanding_queries.keys())}")
+    logger.info(f"Outstanding SAML queries count: {len(outstanding_queries)}")
 
     # Clean up expired requests now (but don't commit yet)
     for expired_request in expired_requests:
@@ -317,11 +331,11 @@ async def sso_acs(
             outstanding=outstanding_queries,
         )
     except Exception as e:
-        # Enhanced error logging with more context
+        # Sanitized error logging - no internal IDs exposed
         logger.error(
-            f"SAML response parsing/validation failed: {str(e)}. "
-            f"Outstanding queries: {list(outstanding_queries.keys())}, "
-            f"Expired requests cleaned: {[req.id for req in expired_requests]}"
+            f"SAML response parsing/validation failed: authentication error. "
+            f"Outstanding queries count: {len(outstanding_queries)}, "
+            f"Expired requests cleaned count: {len(expired_requests)}"
         )
         # Commit cleanup even on failure
         await db_session.commit()
@@ -343,7 +357,7 @@ async def sso_acs(
         )
 
     in_response_to = getattr(authn_response, "in_response_to", None)
-    logger.info(f"SAML InResponseTo extracted: '{in_response_to}'")
+    logger.info("SAML InResponseTo extracted successfully")
 
     if not in_response_to or in_response_to == "":
         logger.error("SAML response missing or empty InResponseTo attribute")
@@ -352,7 +366,7 @@ async def sso_acs(
         )
 
     if in_response_to == "_" or len(in_response_to) < 10:
-        logger.error(f"SAML response has invalid InResponseTo: {in_response_to}")
+        logger.error("SAML response has invalid InResponseTo format")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
         )
@@ -364,17 +378,14 @@ async def sso_acs(
     stored_request_data = result.scalar_one_or_none()
 
     if not stored_request_data:
-        logger.error(
-            f"Unknown or expired SAML request ID: {in_response_to}. "
-            f"Available request IDs in database: {[req.id for req in stored_requests if req not in expired_requests]}"
-        )
+        logger.error("Unknown or expired SAML request ID")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Authentication failed"
         )
 
     # Check if the request has expired
     if datetime.now(UTC) > stored_request_data.expires_at:
-        logger.error(f"Expired SAML request ID: {in_response_to}")
+        logger.error("Expired SAML request ID")
         # Clean up expired entry
         await db_session.delete(stored_request_data)
         await db_session.commit()
@@ -383,11 +394,7 @@ async def sso_acs(
         )
 
     stored_relay_state = stored_request_data.relay_state
-    logger.info(
-        f"Relay state comparison: "
-        f"received='{relay_state}' (type: {type(relay_state)}, len: {len(relay_state) if relay_state else 'None'}), "
-        f"stored='{stored_relay_state}' (type: {type(stored_relay_state)}, len: {len(stored_relay_state)})"
-    )
+    logger.info("Performing relay state validation")
 
     if relay_state != stored_relay_state:
         logger.error("SAML relay state mismatch")
@@ -402,7 +409,7 @@ async def sso_acs(
     await db_session.delete(stored_request_data)
     await db_session.commit()
 
-    logger.info(f"SAML response validated for request: {in_response_to}")
+    logger.info("SAML response validated successfully")
 
     parser = SAMLParser(str(authn_response))
 
@@ -424,14 +431,14 @@ async def sso_acs(
     if not email:
         attributes = parser.attributes or {}
         logger.error(
-            f"Expected attribute 'email' in the SAML response, but got: {list(attributes.keys())}"
+            f"Expected attribute 'email' in the SAML response, but got {len(attributes)} attributes"
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",
         )
 
-    logger.info(f"SAML authentication successful for email: {email}")
+    logger.info("SAML authentication successful")
 
     try:
         user = await user_manager.saml_callback(
@@ -440,14 +447,14 @@ async def sso_acs(
             is_verified_by_default=True,
         )
     except UserAlreadyExists as e:
-        logger.error(f"User already exists: {e}")
+        logger.error("User already exists during SAML authentication")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",
         ) from e
 
     if not user.is_active:
-        logger.error(f"Inactive user attempted login: {email}")
+        logger.error("Inactive user attempted SAML login")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",

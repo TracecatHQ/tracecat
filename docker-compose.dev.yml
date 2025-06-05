@@ -141,6 +141,8 @@ services:
       - temporal
 
   ui:
+    # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.36.6}
+    # container_name: ui
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -149,7 +151,10 @@ services:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
         NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
         NODE_ENV: ${NODE_ENV}
-    container_name: ui
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/.next:/app/.next
+      - ./frontend/node_modules:/app/node_modules
     restart: unless-stopped
     ports:
       - 3000:3000
@@ -160,10 +165,7 @@ services:
       NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
       NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
       NODE_ENV: ${NODE_ENV}
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/.next:/app/.next
-      - ./frontend/node_modules:/app/node_modules
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
     attach: false
     depends_on:
       - api
