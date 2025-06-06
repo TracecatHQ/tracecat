@@ -27,7 +27,7 @@ export type ActionCreate = {
   description?: string | null
   inputs?: string
   control_flow?: ActionControlFlow | null
-  is_interactive?: boolean | null
+  is_interactive?: boolean
   interaction?: ResponseInteraction | ApprovalInteraction | null
 }
 
@@ -224,6 +224,9 @@ export type ApprovalInteraction = {
  * Event for when a case assignee is changed.
  */
 export type AssigneeChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "assignee_changed"
   old: string | null
@@ -280,6 +283,7 @@ export type Body_auth_reset_reset_password = {
 
 export type Body_auth_sso_acs = {
   saml_response: string
+  relay_state: string
 }
 
 export type Body_auth_verify_request_token = {
@@ -522,6 +526,9 @@ export type CaseUpdate = {
  * Event for when a case is closed.
  */
 export type ClosedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_closed"
   old: CaseStatus
@@ -540,6 +547,9 @@ export type ClosedEventRead = {
  * Event for when a case is created.
  */
 export type CreatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_created"
   /**
@@ -780,6 +790,9 @@ export type ExprValidationResult = {
  * Event for when a case field is changed.
  */
 export type FieldChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "fields_changed"
   changes: Array<FieldDiff>
@@ -937,6 +950,9 @@ export type OrgMemberRead = {
  * Event for when a case priority is changed.
  */
 export type PriorityChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "priority_changed"
   old: CasePriority
@@ -1295,6 +1311,9 @@ export type RegistrySecret = {
  * Event for when a case is reopened.
  */
 export type ReopenedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_reopened"
   old: CaseStatus
@@ -1353,25 +1372,27 @@ export type Role = {
   user_id?: string | null
   access_level?: AccessLevel
   service_id:
-    | "tracecat-runner"
     | "tracecat-api"
+    | "tracecat-bootstrap"
     | "tracecat-cli"
+    | "tracecat-executor"
+    | "tracecat-runner"
     | "tracecat-schedule-runner"
     | "tracecat-service"
-    | "tracecat-executor"
-    | "tracecat-bootstrap"
+    | "tracecat-ui"
 }
 
 export type type2 = "user" | "service"
 
 export type service_id =
-  | "tracecat-runner"
   | "tracecat-api"
+  | "tracecat-bootstrap"
   | "tracecat-cli"
+  | "tracecat-executor"
+  | "tracecat-runner"
   | "tracecat-schedule-runner"
   | "tracecat-service"
-  | "tracecat-executor"
-  | "tracecat-bootstrap"
+  | "tracecat-ui"
 
 /**
  * This object contains all the information needed to execute an action.
@@ -1619,6 +1640,9 @@ export type SessionRead = {
  * Event for when a case severity is changed.
  */
 export type SeverityChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "severity_changed"
   old: CaseSeverity
@@ -1655,6 +1679,9 @@ export type SqlType =
  * Event for when a case status is changed.
  */
 export type StatusChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "status_changed"
   old: CaseStatus
@@ -1941,6 +1968,9 @@ export type TriggerType = "manual" | "scheduled" | "webhook"
  * Event for when a case is updated.
  */
 export type UpdatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_updated"
   field: "summary"

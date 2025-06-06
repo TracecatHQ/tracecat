@@ -3992,6 +3992,7 @@ export const authOauthGoogleDatabaseCallback = (
 
 /**
  * Saml:Database.Login
+ * Initiate SAML login flow
  * @returns SAMLDatabaseLoginResponse Successful Response
  * @throws ApiError
  */
