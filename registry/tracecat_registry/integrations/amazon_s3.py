@@ -38,7 +38,7 @@ s3_secret = RegistrySecret(
         - `AWS_PROFILE`
     Or:
         - `AWS_ROLE_ARN`
-        - `AWS_ROLE_SESSION_NAME`
+        - `AWS_ROLE_SESSION_NAME` (optional)
 """
 
 
