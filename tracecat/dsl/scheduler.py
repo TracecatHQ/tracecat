@@ -980,7 +980,7 @@ class DSLScheduler:
         results = []
         errors = []
         # Consume generator here
-        match err_strategy := gather_args.error_handling_strategy:
+        match err_strategy := gather_args.error_strategy:
             # Default behavior
             case StreamErrorHandlingStrategy.PARTITION:
                 # Filter out and place in task result error

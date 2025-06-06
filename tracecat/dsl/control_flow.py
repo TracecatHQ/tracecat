@@ -17,6 +17,6 @@ class GatherArgs(BaseModel):
     drop_nulls: bool = Field(
         default=False, description="Whether to drop null values from the final result"
     )
-    error_handling_strategy: StreamErrorHandlingStrategy = Field(
+    error_strategy: StreamErrorHandlingStrategy = Field(
         default=StreamErrorHandlingStrategy.PARTITION
     )

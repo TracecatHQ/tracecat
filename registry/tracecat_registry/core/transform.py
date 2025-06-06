@@ -1,6 +1,6 @@
 from builtins import filter as filter_
 from builtins import map as map_
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from tracecat.expressions.common import build_safe_lambda, eval_jsonpath
 from typing_extensions import Doc
@@ -234,7 +234,18 @@ def gather(
     ],
     drop_nulls: Annotated[
         bool,
-        Doc("Whether to drop null values from the final result."),
+        Doc(
+            "Whether to drop null values from the final result. If True, any null values encountered during the gather operation will be omitted from the output list."
+        ),
     ] = False,
+    error_strategy: Annotated[
+        Literal["partition", "include", "drop"],
+        Doc(
+            "Controls how errors are handled when gathering. "
+            '"partition" puts successful results in `.result` and errors in `.error`. '
+            '"include" puts errors in `.result` as JSON objects. '
+            '"drop" removes errors from `.result`.'
+        ),
+    ] = "partition",
 ) -> list[Any]:
     raise ActionIsInterfaceError()

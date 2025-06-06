@@ -4539,7 +4539,7 @@ async def test_workflow_detached_child_workflow(
                         depends_on=["throw"],
                         args=GatherArgs(
                             items="${{ ACTIONS.throw.result }}",
-                            error_handling_strategy=StreamErrorHandlingStrategy.DROP,
+                            error_strategy=StreamErrorHandlingStrategy.DROP,
                         ).model_dump(),
                     ),
                 ],
@@ -4585,7 +4585,7 @@ async def test_workflow_detached_child_workflow(
                         depends_on=["throw"],
                         args=GatherArgs(
                             items="${{ ACTIONS.throw.result }}",
-                            error_handling_strategy=StreamErrorHandlingStrategy.INCLUDE,
+                            error_strategy=StreamErrorHandlingStrategy.INCLUDE,
                         ).model_dump(),
                     ),
                 ],
