@@ -534,9 +534,9 @@ class DSLWorkflow:
         2. Decide whether we're running a child workflow or not
         """
 
-        logger.info("Begin task execution", task_ref=task.ref)
-        task_result = TaskResult(result=None, result_typename=type(None).__name__)
         stream_id = CTX_STREAM_ID.get()
+        logger.info("Begin task execution", task_ref=task.ref, stream_id=stream_id)
+        task_result = TaskResult(result=None, result_typename=type(None).__name__)
 
         try:
             # Handle timing control flow logic
@@ -614,11 +614,6 @@ class DSLWorkflow:
         finally:
             logger.trace("Setting action result", task_result=task_result)
             context = self.get_context(stream_id)
-            logger.warning(
-                "Setting action result in current context",
-                stream_id=stream_id,
-                context=context,
-            )
             context[ExprContext.ACTIONS][task.ref] = task_result
         return task_result
 

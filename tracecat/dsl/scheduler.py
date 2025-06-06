@@ -307,7 +307,7 @@ class DSLScheduler:
                     type=exc.__class__.__name__,
                 )
             if task.stream_id == ROOT_STREAM:
-                self.logger.info(
+                self.logger.debug(
                     "Setting task exception in root stream", task=task, details=details
                 )
                 self.task_exceptions[ref] = TaskExceptionInfo(
@@ -315,7 +315,7 @@ class DSLScheduler:
                 )
                 # After this point we gracefully handle the error in the root stream which will be handled by Temporal.
             else:
-                self.logger.info(
+                self.logger.debug(
                     "Setting task exception in execution stream",
                     task=task,
                     details=details,
@@ -388,7 +388,6 @@ class DSLScheduler:
             "Queueing tasks",
             task=task,
             next_tasks=next_tasks,
-            unreachable=bool(unreachable),
         )
         async with asyncio.TaskGroup() as tg:
             for next_ref, edge_type in next_tasks:
@@ -407,11 +406,6 @@ class DSLScheduler:
                 if next_task not in self.indegrees:
                     self.indegrees[next_task] = len(self.tasks[next_ref].depends_on)
                 self.indegrees[next_task] -= 1
-                self.logger.debug(
-                    "Indegree",
-                    next_task=next_task,
-                    indegree=self.indegrees[next_task],
-                )
                 if self.indegrees[next_task] == 0:
                     # Schedule the next task
                     self.logger.debug(
@@ -530,11 +524,7 @@ class DSLScheduler:
                     self.logger.warning("Error while canceling tasks", error=e)
 
             return self.task_exceptions
-        self.logger.info(
-            "All tasks completed",
-            visited_tasks=self.completed_tasks,
-            tasks=self.tasks,
-        )
+        self.logger.info("All tasks completed", visited_tasks=self.completed_tasks)
         return None
 
     def _is_reachable(self, task: Task, stmt: ActionStatement) -> bool:
@@ -747,7 +737,7 @@ class DSLScheduler:
 
             # Create tasks for all tasks in this stream
             new_scoped_task = Task(ref=task.ref, stream_id=new_stream_id)
-            self.logger.info(
+            self.logger.debug(
                 "Creating stream",
                 item=item,
                 stream_id=new_stream_id,
@@ -785,12 +775,6 @@ class DSLScheduler:
         if err_info := self.stream_exceptions.get(stream_id):
             # We reached gather because of an irrecoverable error
             self.logger.debug("Found matching error in skip stream", task=task)
-            # Apply error handling strategy
-            # Partition - return err info as object
-
-            # Close the execution stream with error
-            # Set result array if this is the first stream
-
             if gather_ref not in parent_action_context:
                 # NOTE: This block is executed by the first execution stream that finishes.
                 # We need to initialize the result with the cardinality of the scatter
@@ -805,16 +789,14 @@ class DSLScheduler:
             # Place an error object in the result
             # Do not pass the full object as some exceptions aren't serializable
             parent_action_context[gather_ref]["result"][stream_idx] = err_info.details
-            self.logger.info("Set error object as result", task=task)
-            self.logger.trace("Set error object in parent context")
-
+            self.logger.debug("Set error object as result", task=task)
         else:
             # Regular skip path
             self.logger.debug("No matching error in skip stream", task=task)
 
         # We still have to handle the last gather
         if self.open_streams[parent_scatter] == 0:
-            self.logger.info("CLOSING OFF SKIP STREAM")
+            self.logger.debug("Closing skip stream")
             await self._handle_gather_result(
                 task,
                 parent_action_context,
@@ -874,7 +856,7 @@ class DSLScheduler:
         - Gather should only look at scope_id to make decisions.
         - If gather arrives without stream, look at scope_id. In these cases we should just set the value to empty array.
         """
-        self.logger.info("Handling gather", task=task)
+        self.logger.debug("Handling gather", task=task)
         match task:
             # Root stream
             case Task(stream_id=stream_id) if stream_id == ROOT_STREAM:
@@ -882,7 +864,7 @@ class DSLScheduler:
                     raise RuntimeError(
                         f"Found gather in root stream but not skipping: {task}. User has probably made a mistake"
                     )
-                self.logger.warning("Skipped gather in root stream.", task=task)
+                self.logger.debug("Skipped gather in root stream.", task=task)
                 # I'm not sure if we ever reach this point. We probably error out before this.
                 # Check whether we have a corresponding error
                 # await self._handle_gather_skip_stream(task, stmt, stream_id)
@@ -944,7 +926,7 @@ class DSLScheduler:
         # =============
 
         # We are inside an execution stream. Use gather to synchronize with the other execution streams.
-        self.logger.info("Handling gather in execution stream", task=task)
+        self.logger.debug("Handling gather in execution stream", task=task)
 
         # What are we doing here?
         # We are in an execution stream. Need to close it now.
@@ -953,7 +935,7 @@ class DSLScheduler:
         parent_scatter = Task(ref=scatter_ref, stream_id=parent_stream_id)
 
         # Close the stream regardless of whether we skipped our way to this point.
-        self.logger.warning(
+        self.logger.debug(
             "Closing stream",
             task=task,
             parent_scatter=parent_scatter,
@@ -1008,7 +990,7 @@ class DSLScheduler:
                 gather_ref,
             )
         else:
-            self.logger.info(
+            self.logger.debug(
                 "The execution stream is complete but the gather isn't.",
                 task=task,
                 remaining_open_streams=self.open_streams[parent_scatter],
