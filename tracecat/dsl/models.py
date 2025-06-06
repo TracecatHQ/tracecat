@@ -363,7 +363,9 @@ class Task:
 
 
 class ScatterArgs(BaseModel):
-    collection: Any = Field(..., description="The collection to scatter")
+    collection: ExpressionStr | list[Any] = Field(
+        ..., description="The collection to scatter"
+    )
 
 
 class GatherArgs(BaseModel):
