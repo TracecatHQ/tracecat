@@ -194,31 +194,6 @@ class DSLInput(BaseModel):
         scopes, scope_hierarchy = self._assign_action_scopes(adj)
         self._validate_scope_dependencies(scopes, scope_hierarchy)
 
-    def _check_action_dep_scope(
-        self,
-        action: ActionStatement,
-        action_scope: str,
-        dep: str,
-        dep_scope: str,
-        scope_hierarchy: dict[str, str | None],
-    ) -> None:
-        if action.action == PlatformAction.TRANSFORM_SCATTER:
-            if dep_scope != scope_hierarchy[action_scope]:
-                raise TracecatDSLError(
-                    f"Scatter action {action.ref!r} depends on {dep!r}, which isn't the parent scope"
-                )
-        elif action.action == PlatformAction.TRANSFORM_GATHER:
-            # Here, action_scope is the parent scope
-            if action_scope != scope_hierarchy[dep_scope]:
-                raise TracecatDSLError(
-                    f"Gather action {action.ref!r} depends on {dep!r}, which isn't the child scope"
-                )
-        else:
-            if dep_scope != action_scope:
-                raise TracecatDSLError(
-                    f"Action '{action.ref}' depends on '{dep}', which is in a different scope"
-                )
-
     def _validate_scope_dependencies(
         self, action_scopes: dict[str, str], scope_hierarchy: dict[str, str | None]
     ) -> None:
