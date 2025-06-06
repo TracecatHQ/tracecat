@@ -116,9 +116,6 @@ class DSLEdge:
 class DSLScheduler:
     """Manage only scheduling and control flow of tasks in a topological-like order."""
 
-    skip_strategy: SkipStrategy
-    """Decide how to handle tasks that are marked for skipping."""
-
     def __init__(
         self,
         *,
@@ -169,14 +166,6 @@ class DSLScheduler:
         self.task_streams: defaultdict[Task, list[StreamID]] = defaultdict(list)
         self.open_streams: dict[Task, int] = {}
         """Used to track the number of scopes that have been closed for an scatter"""
-
-        # # Discover stream boundaries
-        # self.scope_boundaries = ScopeAnalyzer(dsl).discover_scope_boundaries()
-
-        # # Pre-compute which tasks need scoping
-        # self.scoped_tasks = set()
-        # for boundary in self.scope_boundaries.values():
-        #     self.scoped_tasks.update(boundary.scoped_tasks)
 
         self.logger.debug(
             "Scheduler config",
