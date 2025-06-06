@@ -254,8 +254,7 @@ class WorkflowExecutionsService:
                 if event.loop_index is not None:
                     task2events[task].action_result = [event.action_result]
 
-        res = list(task2events.values())
-        return res
+        return list(task2events.values())
 
     async def list_workflow_execution_events(
         self,
