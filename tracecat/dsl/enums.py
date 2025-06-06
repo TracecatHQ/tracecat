@@ -55,7 +55,7 @@ class EdgeType(StrEnum):
 class Sentinel(StrEnum):
     """Sentinel values for gather operations."""
 
-    GATHER_UNSET = "<|GATHER_UNSET|>"
+    GATHER_UNSET = "__SENTINEL_GATHER_UNSET__"
 
 
 class StreamErrorHandlingStrategy(StrEnum):
