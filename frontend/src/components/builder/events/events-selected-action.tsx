@@ -8,12 +8,7 @@ import {
   WorkflowExecutionReadCompact,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
-import {
-  ArrowRightIcon,
-  ChevronRightIcon,
-  CircleDot,
-  LoaderIcon,
-} from "lucide-react"
+import { ChevronRightIcon, CircleDot, LoaderIcon } from "lucide-react"
 
 import { groupEventsByActionRef, parseStreamId } from "@/lib/event-history"
 import { Badge } from "@/components/ui/badge"
@@ -220,8 +215,8 @@ export function ActionEventDetails({
                 })
                 // Insert a ">" separator between mapped elements, but not after the last one
                 .map((part, idx, arr) => (
-                  <>
-                    <span key={part.scope} className="flex items-center gap-1">
+                  <div key={part.scope}>
+                    <span className="flex items-center gap-1">
                       <span>{part.scope}</span>
                       <InlineDotSeparator />
                       <span>{part.index}</span>
@@ -229,7 +224,7 @@ export function ActionEventDetails({
                     {idx < arr.length - 1 && (
                       <ChevronRightIcon className="size-3" />
                     )}
-                  </>
+                  </div>
                 ))}
             </div>
           )}

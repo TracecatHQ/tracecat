@@ -165,7 +165,7 @@ export function JsonViewWithControls({
               collapsed={!isExpanded}
               displaySize
               enableClipboard
-              src={source}
+              src={source ?? null}
               className="break-all text-xs"
               theme="atom"
               CopyComponent={({ onClick, className }) => (
