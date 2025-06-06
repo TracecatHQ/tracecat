@@ -38,7 +38,6 @@ from tracecat.dsl.common import (
     DSLInput,
     DSLRunArgs,
 )
-from tracecat.dsl.control_flow import GatherArgs, ScatterArgs
 from tracecat.dsl.enums import (
     JoinStrategy,
     LoopStrategy,
@@ -49,7 +48,9 @@ from tracecat.dsl.models import (
     ActionStatement,
     DSLConfig,
     ExecutionContext,
+    GatherArgs,
     RunActionInput,
+    ScatterArgs,
 )
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies

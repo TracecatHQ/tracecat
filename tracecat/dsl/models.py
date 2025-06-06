@@ -15,7 +15,7 @@ from pydantic import (
 from pydantic_core import CoreSchema, core_schema
 
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
-from tracecat.dsl.enums import JoinStrategy
+from tracecat.dsl.enums import JoinStrategy, StreamErrorHandlingStrategy
 from tracecat.ee.interactions.models import ActionInteraction, InteractionContext
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
@@ -360,3 +360,19 @@ class Task:
     """The task action reference"""
     stream_id: StreamID
     """The stream ID of the task"""
+
+
+class ScatterArgs(BaseModel):
+    collection: Any = Field(..., description="The collection to scatter")
+
+
+class GatherArgs(BaseModel):
+    """Arguments for gather operations"""
+
+    items: ExpressionStr = Field(..., description="The jsonpath to select items from")
+    drop_nulls: bool = Field(
+        default=False, description="Whether to drop null values from the final result"
+    )
+    error_strategy: StreamErrorHandlingStrategy = Field(
+        default=StreamErrorHandlingStrategy.PARTITION
+    )

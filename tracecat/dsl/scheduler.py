@@ -14,7 +14,6 @@ from tracecat.common import is_iterable
 from tracecat.concurrency import cooperative
 from tracecat.contexts import ctx_stream_id
 from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
-from tracecat.dsl.control_flow import GatherArgs, ScatterArgs
 from tracecat.dsl.enums import (
     EdgeMarker,
     EdgeType,
@@ -30,6 +29,8 @@ from tracecat.dsl.models import (
     ActionErrorInfoAdapter,
     ActionStatement,
     ExecutionContext,
+    GatherArgs,
+    ScatterArgs,
     StreamID,
     Task,
     TaskExceptionInfo,
