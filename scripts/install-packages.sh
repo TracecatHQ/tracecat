@@ -108,7 +108,7 @@ mkdir -p \
 export DENO_DIR="/home/apiuser/.cache/deno"
 
 # Use deno cache to download pyodide module and its dependencies
-deno cache --node-modules-dir=/home/apiuser/node_modules "npm:pyodide@${PYODIDE_VERSION}"
+deno cache --node-modules-dir=auto "npm:pyodide@${PYODIDE_VERSION}"
 
 # Set permissions for all directories (apiuser will be created later in Dockerfile)
 chmod -R 755 /home/apiuser/.cache /home/apiuser/.local /home/apiuser/node_modules
