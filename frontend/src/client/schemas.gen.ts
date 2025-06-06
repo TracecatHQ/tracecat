@@ -4285,6 +4285,11 @@ export const $RunActionInput = {
         },
       ],
     },
+    stream_id: {
+      type: "string",
+      title: "Stream Id",
+      default: "<root>:0",
+    },
   },
   type: "object",
   required: ["task", "exec_context", "run_context"],
@@ -7054,6 +7059,11 @@ export const $WorkflowExecutionEventCompact = {
           type: "null",
         },
       ],
+    },
+    stream_id: {
+      type: "string",
+      title: "Stream Id",
+      default: "<root>:0",
     },
     child_wf_exec_id: {
       anyOf: [
