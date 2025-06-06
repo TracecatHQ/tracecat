@@ -4,7 +4,7 @@ ENV UV_SYSTEM_PYTHON=1
 ENV HOST=0.0.0.0
 ENV PORT=8000
 
-# Install required apt packages
+# Install required apt packages (this now creates ALL cache directories)
 COPY scripts/install-packages.sh .
 RUN chmod +x install-packages.sh && \
     ./install-packages.sh && \
@@ -19,24 +19,17 @@ RUN chmod +x auto-update.sh && \
 RUN groupadd -g 1001 apiuser && \
     useradd -m -u 1001 -g apiuser apiuser
 
-# Set up directories for uv and pip
-RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.local && \
-    chown -R apiuser:apiuser /home/apiuser/.cache /home/apiuser/.local && \
-    chmod -R 755 /home/apiuser/.cache /home/apiuser/.local
-
-# Create deno cache directory for apiuser
-RUN mkdir -p /home/apiuser/.deno && \
-    chown -R apiuser:apiuser /home/apiuser/.deno && \
-    chmod -R 755 /home/apiuser/.deno
+# Just set ownership - directories already exist from install-packages.sh
+RUN chown -R apiuser:apiuser /home/apiuser /app/.scripts
 
 ENV PYTHONUSERBASE="/home/apiuser/.local"
 ENV UV_CACHE_DIR="/home/apiuser/.cache/uv"
 ENV PYTHONPATH=/home/apiuser/.local:$PYTHONPATH
 ENV PATH=/home/apiuser/.local/bin:$PATH
 
-# Set deno environment variables to use pre-cached modules
-ENV DENO_DIR="/home/apiuser/.deno"
-ENV NODE_MODULES_DIR="/opt/node_modules"
+# Set deno environment variables to use user-owned directories
+ENV DENO_DIR="/home/apiuser/.cache/deno"
+ENV NODE_MODULES_DIR="/home/apiuser/node_modules"
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -58,16 +51,8 @@ RUN chmod +x /app/entrypoint.sh
 RUN uv pip install .
 RUN uv pip install ./registry
 
-# Ensure apiuser has write permissions to necessary directories
-RUN chown -R apiuser:apiuser /tmp /home/apiuser
-
-# Link pre-cached deno modules to user's deno directory (read-only)
-RUN ln -s /opt/deno-cache/* /home/apiuser/.deno/ 2>/dev/null || true
-
-# Create cache directory with full permissions for apiuser
-RUN mkdir -p /app/.cache && \
-    chown -R apiuser:apiuser /app/.cache && \
-    chmod -R 700 /app/.cache
+# Ensure apiuser has write permissions to /tmp for fallback temp directories
+RUN chown apiuser:apiuser /tmp && chmod 755 /tmp
 
 # Change to the non-root user
 USER apiuser
@@ -76,5 +61,4 @@ EXPOSE $PORT
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Command to run the application
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT"]
