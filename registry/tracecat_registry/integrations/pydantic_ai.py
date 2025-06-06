@@ -107,19 +107,26 @@ bedrock_secret = RegistrySecret(
     optional_keys=[
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
-        "AWS_SESSION_TOKEN",
         "AWS_REGION",
+        "AWS_PROFILE",
+        "AWS_ROLE_ARN",
+        "AWS_ROLE_SESSION_NAME",
     ],
     optional=True,
 )
-"""Bedrock API key.
+"""AWS credentials.
 
 - name: `amazon_bedrock`
 - optional_keys:
-    - `AWS_ACCESS_KEY_ID`: Optional AWS access key ID.
-    - `AWS_SECRET_ACCESS_KEY`: Optional AWS secret access key.
-    - `AWS_SESSION_TOKEN`: Optional AWS session token.
-    - `AWS_REGION`: Optional AWS region.
+    Either:
+        - `AWS_ACCESS_KEY_ID`
+        - `AWS_SECRET_ACCESS_KEY`
+        - `AWS_REGION`
+    Or:
+        - `AWS_PROFILE`
+    Or:
+        - `AWS_ROLE_ARN`
+        - `AWS_ROLE_SESSION_NAME` (optional)
 """
 
 

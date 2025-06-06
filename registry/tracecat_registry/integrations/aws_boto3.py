@@ -104,7 +104,7 @@ def get_sync_temporary_credentials(
 
 
 async def get_session() -> aioboto3.Session:
-    if secrets.get("AWS_ROLE_ARN") and secrets.get("AWS_ROLE_SESSION_NAME"):
+    if secrets.get("AWS_ROLE_ARN"):
         role_arn = secrets.get("AWS_ROLE_ARN")
         role_session_name = secrets.get("AWS_ROLE_SESSION_NAME")
         creds = await get_temporary_credentials(role_arn, role_session_name)
@@ -146,7 +146,7 @@ async def get_session() -> aioboto3.Session:
 
 
 def get_sync_session() -> boto3.Session:
-    if secrets.get("AWS_ROLE_ARN") and secrets.get("AWS_ROLE_SESSION_NAME"):
+    if secrets.get("AWS_ROLE_ARN"):
         role_arn = secrets.get("AWS_ROLE_ARN")
         role_session_name = secrets.get("AWS_ROLE_SESSION_NAME")
         creds = get_sync_temporary_credentials(role_arn, role_session_name)
