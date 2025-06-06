@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections import deque
 from datetime import timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
@@ -22,7 +24,13 @@ from temporalio import workflow
 from temporalio.common import SearchAttributeKey, TypedSearchAttributes
 
 from tracecat.db.schemas import Action
-from tracecat.dsl.enums import EdgeType, FailStrategy, LoopStrategy, WaitStrategy
+from tracecat.dsl.enums import (
+    EdgeType,
+    FailStrategy,
+    LoopStrategy,
+    PlatformAction,
+    WaitStrategy,
+)
 from tracecat.dsl.models import (
     ActionStatement,
     DSLConfig,
@@ -37,6 +45,7 @@ from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDF
 from tracecat.ee.interactions.models import ActionInteractionValidator
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext
+from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
@@ -89,6 +98,28 @@ class DSLInput(BaseModel):
         default=None, description="The action ref to handle errors."
     )
 
+    @field_validator("inputs")
+    @classmethod
+    def inputs_cannot_have_expressions(cls, inputs: Any) -> dict[str, Any]:
+        try:
+            exceptions = []
+            for loc, value in traverse_leaves(inputs):
+                if not isinstance(value, str):
+                    continue
+                for match in patterns.TEMPLATE_STRING.finditer(value):
+                    template = match.group("template")
+                    exceptions.append(
+                        TracecatDSLError(
+                            "Static `INPUTS` context cannot contain expressions,"
+                            f" but found {template!r} in INPUTS.{loc}"
+                        )
+                    )
+            if exceptions:
+                raise ExceptionGroup("Static `INPUTS` validation failed", exceptions)
+            return inputs
+        except* TracecatDSLError as eg:
+            raise eg
+
     @model_validator(mode="after")
     def validate_structure(self) -> Self:
         if not self.actions:
@@ -125,29 +156,198 @@ class DSLInput(BaseModel):
                 f"Invalid depends_on refs in actions: {invalid_deps}."
                 f" Valid actions: {valid_actions}"
             )
+
+        self._validate_scatter_gather_scopes()
         return self
 
-    @field_validator("inputs")
-    @classmethod
-    def inputs_cannot_have_expressions(cls, inputs: Any) -> dict[str, Any]:
+    def _validate_scatter_gather_scopes(self) -> None:
+        """Validate scatter-gather scope boundaries.
+
+        Logic
+        -----
+        - We need to map all actions to a scope.
+        - Traverse the graph and map out the scopes
+        - Outer scope ACTIONS cannot reference inner scope ACTIONS
+        - We need to validate that no actions outside the scope reference actions inside the scope.
+        - We need to validate that no actions outside the scope reference actions inside the scope.
+        """
+        # Find scatter and gather actions
+        scatter_actions = []
+        gather_actions = []
+        for action in self.actions:
+            if action.action == PlatformAction.TRANSFORM_SCATTER:
+                scatter_actions.append(action.ref)
+            elif action.action == PlatformAction.TRANSFORM_GATHER:
+                gather_actions.append(action.ref)
+
+        if len(gather_actions) > len(scatter_actions):
+            raise TracecatDSLError(
+                "There are more gather actions than scatter actions. This is not allowed."
+            )
+
+        if not scatter_actions:
+            # TODO: Check if there are any gather actions
+            return  # No scatter actions, no scope validation needed
+
+        # Build adjacency list for graph traversal
+        adj = self._to_adjacency()
+
+        # Assign scope IDs to all actions
         try:
-            exceptions = []
-            for loc, value in traverse_leaves(inputs):
-                if not isinstance(value, str):
-                    continue
-                for match in patterns.TEMPLATE_STRING.finditer(value):
-                    template = match.group("template")
-                    exceptions.append(
-                        TracecatDSLError(
-                            "Static `INPUTS` context cannot contain expressions,"
-                            f" but found {template!r} in INPUTS.{loc}"
-                        )
+            scopes, scope_hierarchy = self._assign_action_scopes(adj)
+            logger.info(f"Action scopes: {json.dumps(scopes, indent=2)}")
+        except TracecatDSLError:
+            raise
+
+        self._validate_scope_dependencies(scopes, scope_hierarchy)
+
+    def _check_action_dep_scope(
+        self,
+        action: ActionStatement,
+        action_scope: str,
+        dep: str,
+        dep_scope: str,
+        scope_hierarchy: dict[str, str | None],
+    ) -> None:
+        if action.action == PlatformAction.TRANSFORM_SCATTER:
+            if dep_scope != scope_hierarchy[action_scope]:
+                raise TracecatDSLError(
+                    f"Scatter action {action.ref!r} depends on {dep!r}, which isn't the parent scope"
+                )
+        elif action.action == PlatformAction.TRANSFORM_GATHER:
+            # Here, action_scope is the parent scope
+            if action_scope != scope_hierarchy[dep_scope]:
+                raise TracecatDSLError(
+                    f"Gather action {action.ref!r} depends on {dep!r}, which isn't the child scope"
+                )
+        else:
+            if dep_scope != action_scope:
+                raise TracecatDSLError(
+                    f"Action '{action.ref}' depends on '{dep}', which is in a different scope"
+                )
+
+    def _validate_scope_dependencies(
+        self, action_scopes: dict[str, str], scope_hierarchy: dict[str, str | None]
+    ) -> None:
+        """Validate that actions don't reference actions in inner scopes."""
+        for action in self.actions:
+            # Logic:
+            # Scatter - must depend on an action in a parent scope
+            # Gather - must depend on an action in a child scope
+            # All other actions - must depend on an action in the same scope
+            action_scope = action_scopes[action.ref]
+
+            # Validate edge dependencies
+            for dep in action.depends_on:
+                dep_ref, _ = edge_components_from_dep(dep)
+                self._check_action_dep_scope(
+                    action=action,
+                    action_scope=action_scope,
+                    dep=dep,
+                    dep_scope=action_scopes[dep_ref],
+                    scope_hierarchy=scope_hierarchy,
+                )
+            # Validate expression dependencies
+            expr_ctxs = extract_expressions(action.model_dump())
+            dep_refs = expr_ctxs[ExprContext.ACTIONS]
+            for dep_ref in dep_refs:
+                self._check_action_dep_scope(
+                    action=action,
+                    action_scope=action_scope,
+                    dep=dep_ref,
+                    dep_scope=action_scopes[dep_ref],
+                    scope_hierarchy=scope_hierarchy,
+                )
+
+    def _assign_action_scopes(
+        self, adj: dict[str, list[str]]
+    ) -> tuple[dict[str, str], dict[str, str | None]]:
+        """Assign scope IDs to actions using topological sort.
+
+        Returns a mapping of action ref -> scope ID.
+        Raises TracecatDSLError if an action is assigned to multiple scopes.
+        """
+
+        stmts = {a.ref: a for a in self.actions}
+        scopes: dict[str, str] = {}
+
+        ROOT_SCOPE = "<root>"
+        scope_hierarchy: dict[str, str | None] = {ROOT_SCOPE: None}
+
+        # Build indegrees for topological sort
+        indegrees: dict[str, int] = {}
+        for action in self.actions:
+            indegrees[action.ref] = len(action.depends_on)
+
+        # Queue for topological sort
+        queue = deque[tuple[str, str]]()
+
+        # Add all actions with no dependencies to queue
+        for ref, indegree in indegrees.items():
+            if indegree == 0:
+                queue.append((ref, ROOT_SCOPE))
+
+        # Process actions in topological order
+        def assign_scope(action_ref: str, scope: str) -> None:
+            """Assign a scope to an action."""
+            if action_ref not in scopes:
+                scopes[action_ref] = scope
+            else:
+                if scopes[action_ref] != scope:
+                    raise TracecatDSLError(
+                        f"Action {action_ref!r} cannot belong to multiple scopes: "
+                        f"already in {scopes[action_ref]!r}, trying to assign to {scope!r}"
                     )
-            if exceptions:
-                raise ExceptionGroup("Static `INPUTS` validation failed", exceptions)
-            return inputs
-        except* TracecatDSLError as eg:
-            raise eg
+
+        n_visited = 0
+        while queue:
+            ref, curr_scope = queue.popleft()
+            n_visited += 1
+
+            # Check for conflict. If the action hasn't been assigned a scope, assign it.
+            # Otherwise, if we somehow end up in a different scope, raise an error.
+            # Handle scope transitions
+            stmt = stmts[ref]
+            if stmt.action == PlatformAction.TRANSFORM_SCATTER:
+                # Scatter actions create a new scope
+                next_scope = ref
+                assign_scope(ref, next_scope)
+                scope_hierarchy[next_scope] = curr_scope
+            elif stmt.action == PlatformAction.TRANSFORM_GATHER:
+                # Gather actions close the current scope
+                next_scope = scope_hierarchy[curr_scope]
+                if next_scope is None:
+                    raise TracecatDSLError(
+                        f"Gather action {ref!r} in the root scope. Don't allow this"
+                    )
+                assign_scope(ref, next_scope)
+            else:
+                # Everything else is a regular action
+                assign_scope(ref, curr_scope)
+                next_scope = curr_scope
+
+            # Update indegrees and queue next actions
+            for next_ref in adj.get(ref, []):
+                indegrees[next_ref] -= 1
+                if indegrees[next_ref] == 0:
+                    queue.append((next_ref, next_scope))
+
+        # Check if we have cycles
+        if n_visited != len(self.actions):
+            raise TracecatDSLError("Cycle detected in scatter-gather workflow")
+
+        return scopes, scope_hierarchy
+
+    def _to_adjacency(self) -> dict[str, list[str]]:
+        """Convert the DSLInput to an adjacency list."""
+        adj: dict[str, list[str]] = {}
+        for action in self.actions:
+            adj[action.ref] = []
+        for action in self.actions:
+            for dep in action.depends_on:
+                src_ref, _ = edge_components_from_dep(dep)
+                adj[src_ref].append(action.ref)
+        return adj
 
     @staticmethod
     def from_yaml(path: str | Path | SpooledTemporaryFile) -> DSLInput:
@@ -425,7 +625,7 @@ def get_trigger_type_from_search_attr(
         SearchAttributeKey.for_keyword(TemporalSearchAttr.TRIGGER_TYPE.value)
     )
     if trigger_type is None:
-        logger.warning(
+        logger.debug(
             "Couldn't find trigger type, using manual as fallback",
             workflow_id=temporal_workflow_id,
         )
