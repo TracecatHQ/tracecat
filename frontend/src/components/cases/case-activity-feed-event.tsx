@@ -29,10 +29,8 @@ import {
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
-import {
-  InlineDotSeparator,
-  UserHoverCard,
-} from "@/components/cases/case-panel-common"
+import { UserHoverCard } from "@/components/cases/case-panel-common"
+import { InlineDotSeparator } from "@/components/separator"
 
 export function EventIcon({
   icon: Icon,
