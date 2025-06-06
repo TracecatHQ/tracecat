@@ -185,7 +185,10 @@ export function ActionEventDetails({
       </div>
     )
   }
-  const renderEvent = (actionEvent: WorkflowExecutionEventCompact) => {
+  const renderEvent = (
+    actionEvent: WorkflowExecutionEventCompact,
+    streamIdPlaceholder?: string
+  ) => {
     if (["SCHEDULED", "STARTED"].includes(actionEvent.status)) {
       return (
         <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
@@ -203,7 +206,7 @@ export function ActionEventDetails({
               Action {actionEvent.status.toLowerCase()}
             </span>
           </Badge>
-          {actionEvent.stream_id && (
+          {actionEvent.stream_id && !streamIdPlaceholder && (
             <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
               {parseStreamId(actionEvent.stream_id)
                 .filter((part) => part.scope !== "<root>")
@@ -230,6 +233,11 @@ export function ActionEventDetails({
                 ))}
             </div>
           )}
+          {streamIdPlaceholder && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
+              <span>{streamIdPlaceholder}</span>
+            </div>
+          )}
         </div>
 
         {type === "result" && actionEvent.action_error ? (
@@ -250,7 +258,10 @@ export function ActionEventDetails({
   }
   if (type === "input") {
     // Inputs are identical for all events, so we can just render the first one
-    return renderEvent(actionEventsForRef[0])
+    return renderEvent(
+      actionEventsForRef[0],
+      "Input is the same for all events"
+    )
   }
   return actionEventsForRef.map((actionEvent) => (
     <div key={actionEvent.stream_id}>{renderEvent(actionEvent)}</div>
