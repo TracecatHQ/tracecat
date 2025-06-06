@@ -421,7 +421,7 @@ class DSLWorkflow:
             )
 
         try:
-            self.logger.info("DSL workflow completed", scheduler=self.scheduler)
+            self.logger.info("DSL workflow completed")
             return self._handle_return()
         except TracecatExpressionError as e:
             raise ApplicationError(

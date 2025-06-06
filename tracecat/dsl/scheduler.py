@@ -517,7 +517,6 @@ class DSLScheduler:
                 exceptions=self.task_exceptions,
                 n_visited=len(self.completed_tasks),
                 n_tasks=len(self.tasks),
-                scheduler=self,
             )
             # Cancel all pending tasks and wait for them to complete
             for task in pending_tasks:
