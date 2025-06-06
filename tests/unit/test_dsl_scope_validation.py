@@ -56,7 +56,7 @@ class TestScopeValidation:
         """Test that upward references (outer -> inner) are caught."""
         with pytest.raises(
             TracecatDSLError,
-            match="Action 'invalid_action_ref' depends on 'process_item', which is in a different scope",
+            match="Action 'invalid_action_ref' depends on 'process_item' which cannot be referenced from this scope",
         ):
             DSLInput(
                 title="Invalid Upward Reference",
@@ -89,6 +89,48 @@ class TestScopeValidation:
                     ),
                 ],
             )
+
+    def test_valid_reference_from_inner_to_outer(self):
+        """
+        Test that referencing an outer scope from an inner scope is allowed.
+
+        This test creates a workflow with the following structure:
+            a -> scatter -> b -> gather
+        where 'b' references 'a' in its arguments. This should pass validation.
+        """
+        dsl = DSLInput(
+            title="Valid Reference from Inner to Outer",
+            description="A workflow where an inner action references an outer action",
+            entrypoint=DSLEntrypoint(),
+            actions=[
+                ActionStatement(  # scope: root
+                    ref="a",
+                    action="core.transform.reshape",
+                    args={"value": [1, 2, 3]},
+                ),
+                ActionStatement(  # scope: scatter_items (scatter region)
+                    ref="scatter_items",
+                    action="core.transform.scatter",
+                    args={"collection": "${{ ACTIONS.a.result }}"},
+                    depends_on=["a"],
+                ),
+                ActionStatement(  # scope: scatter_items (scatter region)
+                    ref="b",
+                    action="core.transform.reshape",
+                    # b references a (outer scope) in its args
+                    args={"value": "${{ ACTIONS.a.result }}"},
+                    depends_on=["scatter_items"],
+                ),
+                ActionStatement(  # scope: root
+                    ref="gather",
+                    action="core.transform.gather",
+                    args={"items": "${{ ACTIONS.b.result }}"},
+                    depends_on=["b"],
+                ),
+            ],
+        )
+        # Should not raise any exceptions
+        assert dsl is not None
 
     def test_cross_region_dependency(self):
         """Test that cross-region dependencies are caught."""

@@ -233,24 +233,53 @@ class DSLInput(BaseModel):
             # Validate edge dependencies
             for dep in action.depends_on:
                 dep_ref, _ = edge_components_from_dep(dep)
-                self._check_action_dep_scope(
-                    action=action,
-                    action_scope=action_scope,
-                    dep=dep,
-                    dep_scope=action_scopes[dep_ref],
-                    scope_hierarchy=scope_hierarchy,
-                )
+                dep_scope = action_scopes[dep_ref]
+                if action.action == PlatformAction.TRANSFORM_SCATTER:
+                    if dep_scope != scope_hierarchy[action_scope]:
+                        raise TracecatDSLError(
+                            f"Scatter action {action.ref!r} depends on {dep!r}, which isn't the parent scope"
+                        )
+                elif action.action == PlatformAction.TRANSFORM_GATHER:
+                    # Here, action_scope is the parent scope
+                    if action_scope != scope_hierarchy[dep_scope]:
+                        raise TracecatDSLError(
+                            f"Gather action {action.ref!r} depends on {dep!r}, which isn't the child scope"
+                        )
+                else:
+                    if dep_scope != action_scope:
+                        raise TracecatDSLError(
+                            f"Action '{action.ref}' depends on '{dep}', which is in a different scope"
+                        )
+
             # Validate expression dependencies
             expr_ctxs = extract_expressions(action.model_dump())
             dep_refs = expr_ctxs[ExprContext.ACTIONS]
-            for dep_ref in dep_refs:
-                self._check_action_dep_scope(
-                    action=action,
-                    action_scope=action_scope,
-                    dep=dep_ref,
-                    dep_scope=action_scopes[dep_ref],
-                    scope_hierarchy=scope_hierarchy,
-                )
+            for dep in dep_refs:
+                dep_scope = action_scopes[dep]
+                if action.action == PlatformAction.TRANSFORM_SCATTER:
+                    if dep_scope != scope_hierarchy[action_scope]:
+                        raise TracecatDSLError(
+                            f"Scatter action {action.ref!r} depends on {dep!r}, which isn't the parent scope"
+                        )
+                elif action.action == PlatformAction.TRANSFORM_GATHER:
+                    # Here, action_scope is the parent scope
+                    if action_scope != scope_hierarchy[dep_scope]:
+                        raise TracecatDSLError(
+                            f"Gather action {action.ref!r} depends on {dep!r}, which isn't the child scope"
+                        )
+                else:
+                    # Dep scope must be the same as action_scope or an ancestor (parent, grandparent, etc.)
+                    curr_scope = action_scope
+                    is_ancestor = False
+                    while curr_scope is not None:
+                        if dep_scope == curr_scope:
+                            is_ancestor = True
+                            break
+                        curr_scope = scope_hierarchy.get(curr_scope)
+                    if not is_ancestor:
+                        raise TracecatDSLError(
+                            f"Action '{action.ref}' depends on '{dep}' which cannot be referenced from this scope"
+                        )
 
     def _assign_action_scopes(
         self, adj: dict[str, list[str]]
