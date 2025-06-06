@@ -181,7 +181,7 @@ class DSLInput(BaseModel):
 
         if len(gather_actions) > len(scatter_actions):
             raise TracecatDSLError(
-                "There are more gather actions than scatter actions. This is not allowed."
+                "There are more gather actions than scatter actions."
             )
 
         if not scatter_actions:
@@ -312,10 +312,10 @@ class DSLInput(BaseModel):
                 scope_hierarchy[next_scope] = curr_scope
             elif stmt.action == PlatformAction.TRANSFORM_GATHER:
                 # Gather actions close the current scope
-                next_scope = scope_hierarchy[curr_scope]
+                next_scope = scope_hierarchy.get(curr_scope)
                 if next_scope is None:
                     raise TracecatDSLError(
-                        f"Gather action {ref!r} in the root scope. Don't allow this"
+                        f"You cannot use a gather action {ref!r} in the root scope"
                     )
                 assign_scope(ref, next_scope)
             else:

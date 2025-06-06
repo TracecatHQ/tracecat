@@ -308,7 +308,7 @@ class TestScopeValidation:
         """
         with pytest.raises(
             TracecatDSLError,
-            match="There are more gather actions than scatter actions. This is not allowed.",
+            match="There are more gather actions than scatter actions.",
         ):
             DSLInput(
                 title="Gather Without Scatter",
