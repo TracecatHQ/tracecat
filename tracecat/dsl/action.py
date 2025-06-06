@@ -18,6 +18,7 @@ from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
 from tracecat.executor.client import ExecutorClient
+from tracecat.expressions.common import ExprContext
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
@@ -82,6 +83,12 @@ class DSLActivities:
             raise RegistryError(
                 f"Action {input.task.action!r} not found in registry",
             ) from e
+
+    @staticmethod
+    @activity.defn
+    async def noop_gather_action_activity(input: RunActionInput, role: Role) -> Any:
+        """No-op gather action activity."""
+        return input.exec_context.get(ExprContext.ACTIONS, {}).get(input.task.ref)
 
     @staticmethod
     @activity.defn

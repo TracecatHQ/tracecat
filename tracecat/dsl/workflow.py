@@ -487,6 +487,8 @@ class DSLWorkflow:
 
     async def execute_task(self, task: ActionStatement) -> Any:
         """Execute a task and manage the results."""
+        if task.action == PlatformAction.TRANSFORM_GATHER:
+            return await self._noop_gather_action(task)
         if task.retry_policy.retry_until:
             return await self._execute_task_until_condition(task)
         return await self._execute_task(task)
@@ -914,6 +916,38 @@ class DSLWorkflow:
             parent_run_context=ctx_run.get(),
             trigger_inputs=args.trigger_inputs,
             runtime_config=runtime_config,
+        )
+
+    async def _noop_gather_action(self, task: ActionStatement) -> Any:
+        # Parent stream
+        stream_id = ctx_stream_id.get()
+        new_action_context: dict[str, Any] = {}
+        action_ref = task.ref
+        self.logger.debug(
+            "Noop gather action", action_ref=action_ref, stream_id=stream_id
+        )
+        res = self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
+        new_action_context[action_ref] = res
+
+        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+
+        arg = RunActionInput(
+            task=task,
+            run_context=self.run_context,
+            exec_context=new_context,
+            interaction_context=ctx_interaction.get(),
+            stream_id=stream_id,
+        )
+
+        return await workflow.execute_activity(
+            DSLActivities.noop_gather_action_activity,
+            args=(arg, self.role),
+            start_to_close_timeout=timedelta(
+                seconds=task.start_delay + task.retry_policy.timeout
+            ),
+            retry_policy=RetryPolicy(
+                maximum_attempts=task.retry_policy.max_attempts,
+            ),
         )
 
     async def _run_action(self, task: ActionStatement) -> Any:

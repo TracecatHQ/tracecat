@@ -363,6 +363,14 @@ class DSLScheduler:
             queue_size=self.queue.qsize(),
         )
 
+    async def _execute(self, task: Task, stmt: ActionStatement) -> None:
+        """Execute a task."""
+        token = ctx_stream_id.set(task.stream_id)
+        try:
+            await self.executor(stmt)
+        finally:
+            ctx_stream_id.reset(token)
+
     async def _schedule_task(self, task: Task) -> None:
         """Schedule a task for execution."""
         ref = task.ref
@@ -399,11 +407,7 @@ class DSLScheduler:
             # NOTE: If an exception is thrown from this coroutine, it signals that
             # the task failed after all attempts. Adding the exception to the task
             # exceptions set will cause the workflow to fail.
-            token = ctx_stream_id.set(task.stream_id)
-            try:
-                await self.executor(stmt)
-            finally:
-                ctx_stream_id.reset(token)
+            await self._execute(task, stmt)
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
@@ -747,6 +751,7 @@ class DSLScheduler:
             self.logger.debug("Closing skip stream")
             await self._handle_gather_result(
                 task,
+                stmt,
                 parent_action_context,
                 parent_stream_id,
                 GatherArgs(**stmt.args),
@@ -932,6 +937,7 @@ class DSLScheduler:
         if self.open_streams[parent_scatter] == 0:
             await self._handle_gather_result(
                 task,
+                stmt,
                 parent_action_context,
                 parent_stream_id,
                 args,
@@ -947,6 +953,7 @@ class DSLScheduler:
     async def _handle_gather_result(
         self,
         task: Task,
+        stmt: ActionStatement,
         parent_action_context: dict[str, TaskResult],
         parent_stream_id: StreamID,
         gather_args: GatherArgs,
@@ -1018,7 +1025,9 @@ class DSLScheduler:
         )
         parent_gather = Task(ref=gather_ref, stream_id=parent_stream_id)
         # TODO: Handle unreachable tasks??
-        await self._queue_tasks(parent_gather, unreachable=None)
+        # Emit gather action in Temporal
+        await self._execute(parent_gather, stmt)
+        await self._queue_tasks(parent_gather)
 
     def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult]:
         context = self.get_context(stream_id)
