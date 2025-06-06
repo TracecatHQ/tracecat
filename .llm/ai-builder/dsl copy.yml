@@ -1,0 +1,13 @@
+title: Calculate 2 to the power of N
+description: A simple workflow to compute 2^N.
+entrypoint:
+  expects:
+    N:
+      type: integer
+      description: The exponent.
+actions:
+  - ref: passthrough
+    action: core.action.passthrough
+    args:
+      value: ${{ trigger.data }}
+returns: ${{ TRIGGER }}
