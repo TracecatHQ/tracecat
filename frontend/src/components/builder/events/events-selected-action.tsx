@@ -8,7 +8,12 @@ import {
   WorkflowExecutionReadCompact,
 } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
-import { CircleDot, LoaderIcon } from "lucide-react"
+import {
+  ArrowRightIcon,
+  ChevronRightIcon,
+  CircleDot,
+  LoaderIcon,
+} from "lucide-react"
 
 import { groupEventsByActionRef, parseStreamId } from "@/lib/event-history"
 import { Badge } from "@/components/ui/badge"
@@ -24,6 +29,7 @@ import { getWorkflowEventIcon } from "@/components/builder/events/events-workflo
 import { CodeBlock } from "@/components/code-block"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { AlertNotification } from "@/components/notifications"
+import { InlineDotSeparator } from "@/components/separator"
 
 export function ActionEvent({
   execution,
@@ -198,22 +204,30 @@ export function ActionEventDetails({
             </span>
           </Badge>
           {actionEvent.stream_id && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">
-                {parseStreamId(actionEvent.stream_id)
-                  .filter((part) => part.scope !== "<root>")
-                  .sort((a, b) => {
-                    if (a.scope === b.scope) {
-                      return Number(a.index) - Number(b.index)
-                    }
-                    return a.scope.localeCompare(b.scope)
-                  })
-                  .map((part) => (
-                    <span key={part.scope}>
-                      {part.scope} / {part.index}
+            <div className="flex items-center gap-1 text-xs text-muted-foreground/80">
+              {parseStreamId(actionEvent.stream_id)
+                .filter((part) => part.scope !== "<root>")
+                // Only sort if scope matches, otherwise preserve original order
+                .sort((a, b) => {
+                  if (a.scope === b.scope) {
+                    return Number(a.index) - Number(b.index)
+                  }
+                  // If scopes do not match, preserve original order (no sorting)
+                  return 0
+                })
+                // Insert a ">" separator between mapped elements, but not after the last one
+                .map((part, idx, arr) => (
+                  <>
+                    <span key={part.scope} className="flex items-center gap-1">
+                      <span>{part.scope}</span>
+                      <InlineDotSeparator />
+                      <span>{part.index}</span>
                     </span>
-                  ))}
-              </span>
+                    {idx < arr.length - 1 && (
+                      <ChevronRightIcon className="size-3" />
+                    )}
+                  </>
+                ))}
             </div>
           )}
         </div>
