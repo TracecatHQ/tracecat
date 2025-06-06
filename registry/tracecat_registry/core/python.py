@@ -549,8 +549,8 @@ async def _run_python_script_subprocess(
             deno_path,
             "run",
             "--no-prompt",
-            f"--allow-read={temp_dir},node_modules,/home/apiuser/node_modules",
-            f"--allow-write={temp_dir},node_modules,/home/apiuser/node_modules",
+            f"--allow-read={temp_dir},node_modules",
+            f"--allow-write={temp_dir},node_modules",
             "--node-modules-dir=auto",
         ]
 
