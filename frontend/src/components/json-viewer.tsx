@@ -122,13 +122,14 @@ export function JsonViewWithControls({
   )
 
   return (
-    <div className="w-full space-y-2 overflow-x-auto">
+    <div className="w-full overflow-x-auto">
       <Tabs defaultValue={defaultTab}>
         {showControls && isCollapsible && (
-          <div className="flex items-center justify-between gap-4">
-            <div>
+          <div className="flex h-7 items-center justify-between gap-4 rounded-t-md border border-b-0 bg-muted-foreground/5 pl-2">
+            <>
               <div className="flex items-center gap-2">
                 <Switch
+                  size="xs"
                   checked={isExpanded}
                   onCheckedChange={setIsExpanded}
                   className="data-[state=checked]:bg-muted-foreground"
@@ -137,10 +138,14 @@ export function JsonViewWithControls({
                   {isExpanded ? "Collapse" : "Expand"}
                 </p>
               </div>
-            </div>
-            <TabsList className="h-7 text-xs">
+            </>
+            <TabsList className="rounded-b-none border-none bg-transparent text-xs shadow-none">
               {tabItems.map(({ value, label }) => (
-                <TabsTrigger key={value} value={value} className="text-xs">
+                <TabsTrigger
+                  key={value}
+                  value={value}
+                  className="border-none bg-transparent text-xs shadow-none data-[state=active]:!bg-transparent data-[state=active]:!shadow-none"
+                >
                   {label}
                 </TabsTrigger>
               ))}
@@ -151,13 +156,16 @@ export function JsonViewWithControls({
           <TabsContent
             key={value}
             value={value}
-            className="mt-2 rounded-md border bg-muted-foreground/5 p-4"
+            className={cn(
+              "border bg-muted-foreground/5 p-4",
+              showControls ? "rounded-b-md" : "rounded-md"
+            )}
           >
             <JsonView
               collapsed={!isExpanded}
               displaySize
               enableClipboard
-              src={source}
+              src={source ?? null}
               className="break-all text-xs"
               theme="atom"
               CopyComponent={({ onClick, className }) => (

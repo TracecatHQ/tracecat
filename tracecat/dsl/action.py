@@ -18,6 +18,7 @@ from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
 from tracecat.executor.client import ExecutorClient
+from tracecat.expressions.common import ExprContext
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
@@ -85,6 +86,12 @@ class DSLActivities:
 
     @staticmethod
     @activity.defn
+    async def noop_gather_action_activity(input: RunActionInput, role: Role) -> Any:
+        """No-op gather action activity."""
+        return input.exec_context.get(ExprContext.ACTIONS, {}).get(input.task.ref)
+
+    @staticmethod
+    @activity.defn
     async def run_action_activity(input: RunActionInput, role: Role) -> Any:
         """Run an action.
         Goals:
@@ -107,8 +114,8 @@ class DSLActivities:
 
         act_info = activity.info()
         act_attempt = act_info.attempt
-        log.info(
-            "Run action activity",
+        log.debug(
+            "Action activity details",
             task=task,
             attempt=act_attempt,
             retry_policy=task.retry_policy,
@@ -121,7 +128,7 @@ class DSLActivities:
             ):
                 with attempt_manager:
                     log.info(
-                        "Tenacity retrying",
+                        "Begin action attempt",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
                     client = ExecutorClient(role=role)

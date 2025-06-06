@@ -28,10 +28,9 @@ import {
   SeverityChangedEvent,
   StatusChangedEvent,
 } from "@/components/cases/case-activity-feed-event"
-import {
-  CaseEventTimestamp,
-  InlineDotSeparator,
-} from "@/components/cases/case-panel-common"
+import { CaseEventTimestamp } from "@/components/cases/case-panel-common"
+
+import { InlineDotSeparator } from "../separator"
 
 function ActivityFeedEvent({
   event,

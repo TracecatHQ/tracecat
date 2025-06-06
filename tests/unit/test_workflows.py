@@ -38,12 +38,19 @@ from tracecat.dsl.common import (
     DSLInput,
     DSLRunArgs,
 )
-from tracecat.dsl.enums import LoopStrategy, WaitStrategy
+from tracecat.dsl.enums import (
+    JoinStrategy,
+    LoopStrategy,
+    StreamErrorHandlingStrategy,
+    WaitStrategy,
+)
 from tracecat.dsl.models import (
     ActionStatement,
     DSLConfig,
     ExecutionContext,
+    GatherArgs,
     RunActionInput,
+    ScatterArgs,
 )
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
@@ -3181,3 +3188,1619 @@ async def test_workflow_detached_child_workflow(
 
         results = tg.results()
         assert results == [1001, 1002, 1003]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "dsl,expected",
+    [
+        # 1. Single scatter-reshape-gather (original)
+        pytest.param(
+            DSLInput(
+                title="Single scatter-gather",
+                description="Test single scatter-gather",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    # This doesn't output any result
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [1,2, 3] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}",
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {"gather": {"result": [2, 3, 4], "result_typename": "list"}},
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-for-loop",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Single scatter-gather with surrounding actions",
+                description="Test single scatter-gather with surrounding actions",
+                entrypoint=DSLEntrypoint(ref="a"),
+                actions=[
+                    # This doesn't output any result
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        args={"value": [1, 2, 3]},
+                    ),
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        depends_on=["a"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.a.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["b"],
+                        args=GatherArgs(items="${{ ACTIONS.b.result }}").model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="c",
+                        action="core.transform.reshape",
+                        depends_on=["gather"],
+                        args={"value": "${{ ACTIONS.gather.result }}"},
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "a": {"result": [1, 2, 3], "result_typename": "list"},
+                    "gather": {"result": [2, 3, 4], "result_typename": "list"},
+                    "c": {"result": [2, 3, 4], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-gather-with-surrounding-actions",
+        ),
+        # 2. Nested scatter-gather (original)
+        pytest.param(
+            DSLInput(
+                title="Nested scatter-gather",
+                description="Test nested scatter-gather",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    # This doesn't output any result
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [[1,2], [3,4]] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="scatter2",
+                        action="core.transform.scatter",
+                        depends_on=["scatter"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.scatter.result }}",
+                        ).model_dump(),
+                    ),
+                    # Go parallel
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter2.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter2.result, 2) }}"},
+                    ),
+                    # How do we now handle the parallel execution streams?
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape", "reshape2"],
+                        args=GatherArgs(
+                            # When an execution stream hits an gather matching
+                            # the current
+                            # This will grab the result of the reshape action
+                            # in its execution scope
+                            items="${{ ACTIONS.reshape.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="gather2",
+                        action="core.transform.gather",
+                        depends_on=["gather"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.gather.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather2": {"result": [[2, 3], [4, 5]], "result_typename": "list"}
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-for-loop",
+        ),
+        # 3. Scatter-Gather followed by Scatter-Gather (original)
+        pytest.param(
+            DSLInput(
+                title="Scatter-Gather followed by Scatter-Gather",
+                description="Test two sequential scatter-gather blocks",
+                entrypoint=DSLEntrypoint(ref="scatter1"),
+                actions=[
+                    # First scatter-gather block
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [10, 20] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape1",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter1.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["reshape1"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape1.result }}"
+                        ).model_dump(),
+                    ),
+                    # Second scatter-gather block, using result of first
+                    ActionStatement(
+                        ref="scatter2",
+                        action="core.transform.scatter",
+                        depends_on=["gather1"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.gather1.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter2.result, 100) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather2",
+                        action="core.transform.gather",
+                        depends_on=["reshape2"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape2.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # First block: [10, 20] -> [11, 21]
+                    # Second block: [11, 21] -> [111, 121]
+                    "gather1": {"result": [11, 21], "result_typename": "list"},
+                    "gather2": {"result": [111, 121], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="sequential-scatter-gather",
+        ),
+        # Parallel scatter/gather blocks, then join
+        pytest.param(
+            DSLInput(
+                title="Parallel Scatter-Gather blocks joined",
+                description=(
+                    "Test two scatter/reshape/gather blocks running in parallel, "
+                    "then joined in a final action. The structure is: "
+                ),
+                entrypoint=DSLEntrypoint(ref="start"),
+                actions=[
+                    # Start splits into two parallel scatters
+                    ActionStatement(
+                        ref="ex1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [1, 2] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="ex2",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [10, 20] }}",
+                        ).model_dump(),
+                    ),
+                    # Reshape in each branch
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        depends_on=["ex1"],
+                        args={"value": "${{ FN.mul(ACTIONS.ex1.result, 2) }}"},
+                    ),
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["ex2"],
+                        args={"value": "${{ FN.add(ACTIONS.ex2.result, 5) }}"},
+                    ),
+                    # Gather in each branch
+                    ActionStatement(
+                        ref="im1",
+                        action="core.transform.gather",
+                        depends_on=["a"],
+                        args=GatherArgs(items="${{ ACTIONS.a.result }}").model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="im2",
+                        action="core.transform.gather",
+                        depends_on=["b"],
+                        args=GatherArgs(items="${{ ACTIONS.b.result }}").model_dump(),
+                    ),
+                    # Join both results in C
+                    ActionStatement(
+                        ref="c",
+                        action="core.transform.reshape",
+                        depends_on=["im1", "im2"],
+                        args={
+                            "value": "${{ ACTIONS.im1.result + ACTIONS.im2.result }}"
+                        },
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # ex1: [1,2] -> A: [2,4] -> im1: [2,4]
+                    # ex2: [10,20] -> B: [15,25] -> im2: [15,25]
+                    # C: [2,4,15,25]
+                    "im1": {"result": [2, 4], "result_typename": "list"},
+                    "im2": {"result": [15, 25], "result_typename": "list"},
+                    "c": {"result": [2, 4, 15, 25], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="parallel-scatter-gather-join",
+        ),
+        # 4. Scatter followed by gather directly (no action in between)
+        pytest.param(
+            DSLInput(
+                title="Scatter then Gather (no intermediate action)",
+                description="Test scatter followed by gather directly",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [5, 6, 7] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["scatter"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.scatter.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {"gather": {"result": [5, 6, 7], "result_typename": "list"}},
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-gather-direct",
+        ),
+        # 5. Scatter -> reshape (run_if even) -> gather
+        pytest.param(
+            DSLInput(
+                title="Scatter-reshape (even only) then gather",
+                description="Test scatter, reshape only if even, then gather",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [1, 2, 3, 4, 5, 6] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        # Only run reshape if the value is even
+                        run_if="${{ FN.mod(ACTIONS.scatter.result, 2) == 0 }}",
+                        args={"value": "${{ FN.mul(ACTIONS.scatter.result, 10) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # Only even numbers: 2, 4, 6 -> 20, 40, 60
+                    # Unset values are automatically removed
+                    "gather": {
+                        "result": [20, 40, 60],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-reshape-even-gather",
+        ),
+        # 6. Scatter -> reshape (run_if even) -> gather with drop_nulls
+        pytest.param(
+            DSLInput(
+                title="Scatter-reshape (even only) then gather with drop_nulls",
+                description="Test scatter, reshape only if even, then gather with drop_nulls",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [1, 2, 3, 4, 5, 6] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        # Only run reshape if the value is even
+                        run_if="${{ FN.mod(ACTIONS.scatter.result, 2) == 0 }}",
+                        args={"value": "${{ FN.mul(ACTIONS.scatter.result, 10) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}",
+                            drop_nulls=True,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # Only even numbers: 2, 4, 6 -> 20, 40, 60
+                    # Everything else is dropped
+                    "gather": {
+                        "result": [20, 40, 60],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-reshape-even-gather-drop-nulls",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Scatter-reshape (even only) with Nones, then gather with drop_nulls",
+                description="Test scatter with Nones, reshape only if even, then gather with drop_nulls only",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            # Data with Nones in the collection
+                            collection="${{ [1, None, None, 2, 3, None, 4, 5, 6, None] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}",
+                            drop_nulls=True,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # Skip all nulls
+                    "gather": {
+                        "result": [1, 2, 3, 4, 5, 6],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-reshape-even-gather-drop-nulls-with-nones",
+        ),
+        # New test: A -> scatter -> B -> gather -> C, all reshapes, skip scatter, expect only A to run
+        pytest.param(
+            DSLInput(
+                title="Skip scatter directly, only first action (a) runs",
+                description="Test that if scatter is skipped, only a runs and downstream tasks are not executed.",
+                entrypoint=DSLEntrypoint(ref="a"),
+                actions=[
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        args={"value": "${{ 42 }}"},
+                    ),
+                    # SKIPPED
+                    # ======== Block 1 ========
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        depends_on=["a"],
+                        # Always skip scatter
+                        run_if="${{ False }}",
+                        args=ScatterArgs(
+                            collection="${{ [1, 2, 3] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["b"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.b.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="c",
+                        action="core.transform.reshape",
+                        depends_on=["gather"],
+                        args={"value": "${{ ACTIONS.gather.result }}"},
+                    ),
+                    # ======== End Block 1 ========
+                    # Block 1 s houldn't run
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "a": {
+                        "result": 42,
+                        "result_typename": "int",
+                    }
+                    # No other actions should have run
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="skip-scatter-directly-only-first-runs",
+        ),
+        # --- NEW TEST CASE: scatter -> a (run_if False) -> gather, expect empty array ---
+        pytest.param(
+            DSLInput(
+                title="scatter->a(run_if False)->gather, all skipped, expect empty array",
+                description=(
+                    "Test that if all iterations of an action after scatter are skipped (run_if False), "
+                    "the gather action receives only unset values and thus returns an empty array."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        run_if="${{ False }}",
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["a"],
+                        args=GatherArgs(items="${{ ACTIONS.a.result }}").model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather": {
+                        "result": [],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="skip-all-in-scatter",
+        ),
+        # Mixed Collection Scenarios
+        # 1. Parallel branches with different collection sizes
+        pytest.param(
+            DSLInput(
+                title="Parallel branches with different collection sizes",
+                description="Test parallel scatter-gather with collections of different lengths",
+                entrypoint=DSLEntrypoint(ref="start"),
+                actions=[
+                    # Branch A: 3 items
+                    ActionStatement(
+                        ref="scatter_a",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_a",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_a"],
+                        args={"value": "${{ ACTIONS.scatter_a.result * 10 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_a",
+                        action="core.transform.gather",
+                        depends_on=["process_a"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_a.result }}"
+                        ).model_dump(),
+                    ),
+                    # Branch B: 2 items
+                    ActionStatement(
+                        ref="scatter_b",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[100, 200]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_b",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_b"],
+                        args={"value": "${{ ACTIONS.scatter_b.result + 5 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_b",
+                        action="core.transform.gather",
+                        depends_on=["process_b"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_b.result }}"
+                        ).model_dump(),
+                    ),
+                    # Join both branches
+                    ActionStatement(
+                        ref="join",
+                        action="core.transform.reshape",
+                        depends_on=["gather_a", "gather_b"],
+                        args={
+                            "value": "${{ ACTIONS.gather_a.result + ACTIONS.gather_b.result }}"
+                        },
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather_a": {"result": [10, 20, 30], "result_typename": "list"},
+                    "gather_b": {"result": [105, 205], "result_typename": "list"},
+                    "join": {
+                        "result": [10, 20, 30, 105, 205],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="parallel-different-sizes",
+        ),
+        # 2. Mixed data types preservation
+        pytest.param(
+            DSLInput(
+                title="Mixed data types preservation",
+                description="Test scatter-gather with different data types",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[1, "hello", {"key": "value"}, None, [1, 2]]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="identity",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["identity"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.identity.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather": {
+                        "result": [1, "hello", {"key": "value"}, None, [1, 2]],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="mixed-data-types",
+        ),
+        # 3. Variable nesting depths
+        pytest.param(
+            DSLInput(
+                title="Variable nesting depths",
+                description="Test scatter-gather with collections of inconsistent nesting",
+                entrypoint=DSLEntrypoint(ref="outer_scatter"),
+                actions=[
+                    # Outer scatter with mixed nesting
+                    ActionStatement(
+                        ref="outer_scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[
+                                [1, 2],  # 2D array
+                                [[3, 4], [5, 6]],  # 3D array
+                                7,  # scalar
+                                [],  # empty array
+                            ]
+                        ).model_dump(),
+                    ),
+                    # Process each item based on its type
+                    ActionStatement(
+                        ref="process_item",
+                        action="core.transform.reshape",
+                        depends_on=["outer_scatter"],
+                        args={"value": "${{ ACTIONS.outer_scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="outer_gather",
+                        action="core.transform.gather",
+                        depends_on=["process_item"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_item.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "outer_gather": {
+                        "result": [[1, 2], [[3, 4], [5, 6]], 7, []],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="variable-nesting-depths",
+        ),
+        # 4. Empty and non-empty collections in parallel
+        pytest.param(
+            DSLInput(
+                title="Empty and non-empty parallel branches",
+                description="Test parallel scatter-gather where one branch has empty collection",
+                entrypoint=DSLEntrypoint(ref="start"),
+                actions=[
+                    # Branch A: Non-empty collection
+                    ActionStatement(
+                        ref="scatter_nonempty",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_nonempty",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_nonempty"],
+                        args={"value": "${{ ACTIONS.scatter_nonempty.result * 2 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_nonempty",
+                        action="core.transform.gather",
+                        depends_on=["process_nonempty"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_nonempty.result }}"
+                        ).model_dump(),
+                    ),
+                    # Branch B: Empty collection
+                    ActionStatement(
+                        ref="scatter_empty",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_empty",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_empty"],
+                        args={"value": "${{ ACTIONS.scatter_empty.result + 100 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_empty",
+                        action="core.transform.gather",
+                        depends_on=["process_empty"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_empty.result }}"
+                        ).model_dump(),
+                    ),
+                    # Final merge - only non-empty branch should contribute
+                    ActionStatement(
+                        ref="final_merge",
+                        action="core.transform.reshape",
+                        depends_on=["gather_nonempty", "gather_empty"],
+                        args={
+                            "value": "${{ ACTIONS.gather_nonempty.result + ACTIONS.gather_empty.result }}"
+                        },
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather_nonempty": {"result": [2, 4, 6], "result_typename": "list"},
+                    "gather_empty": {"result": [], "result_typename": "list"},
+                    "final_merge": {"result": [2, 4, 6], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="empty-nonempty-parallel",
+        ),
+        # 5. Collections with different lengths in nested scatter
+        # This test case demonstrates a nested scatter-gather pattern where the outer scatter
+        # iterates over a list of lists, each with a different length. The workflow is as follows:
+        # 1. "outer_scatter" splits the input into three parallel branches: [1], [2, 3], and [4, 5, 6].
+        # 2. For each branch, "inner_scatter" further scatters the inner list, so each number is processed independently.
+        # 3. "double_value" doubles each number in the inner scatter.
+        # 4. "inner_gather" collects the doubled values for each outer branch, resulting in:
+        #    - [2] for [1]
+        #    - [4, 6] for [2, 3]
+        #    - [8, 10, 12] for [4, 5, 6]
+        # 5. "outer_gather" collects the results from all outer branches, producing a list of lists.
+        # The expected result is a nested list where each sublist contains the doubled values of the original inner list.
+        pytest.param(
+            DSLInput(
+                title="Nested scatter with varying inner collection sizes",
+                description="Test nested scatter where inner collections have different sizes",
+                entrypoint=DSLEntrypoint(ref="outer_scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="outer_scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[
+                                [1],  # 1 item
+                                [2, 3],  # 2 items
+                                [4, 5, 6],  # 3 items
+                            ]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="inner_scatter",
+                        action="core.transform.scatter",
+                        depends_on=["outer_scatter"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.outer_scatter.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="double_value",
+                        action="core.transform.reshape",
+                        depends_on=["inner_scatter"],
+                        args={"value": "${{ ACTIONS.inner_scatter.result * 2 }}"},
+                    ),
+                    ActionStatement(
+                        ref="inner_gather",
+                        action="core.transform.gather",
+                        depends_on=["double_value"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.double_value.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="outer_gather",
+                        action="core.transform.gather",
+                        depends_on=["inner_gather"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.inner_gather.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "outer_gather": {
+                        # Explanation:
+                        # - The first sublist [1] is doubled to [2]
+                        # - The second sublist [2, 3] is doubled to [4, 6]
+                        # - The third sublist [4, 5, 6] is doubled to [8, 10, 12]
+                        # The gather operation preserves the nested structure.
+                        "result": [[2], [4, 6], [8, 10, 12]],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-varying-sizes",
+        ),
+        # 6. Mixed empty and non-empty in nested structure
+        pytest.param(
+            DSLInput(
+                title="Mixed empty/non-empty in nested scatter",
+                description="Test nested scatter with mix of empty and non-empty inner collections",
+                entrypoint=DSLEntrypoint(ref="outer_scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="outer_scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[
+                                [1, 2],  # Non-empty
+                                [],  # Empty
+                                [3],  # Non-empty
+                            ]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="inner_scatter",
+                        action="core.transform.scatter",
+                        depends_on=["outer_scatter"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.outer_scatter.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_inner",
+                        action="core.transform.reshape",
+                        depends_on=["inner_scatter"],
+                        args={"value": "${{ ACTIONS.inner_scatter.result + 10 }}"},
+                    ),
+                    ActionStatement(
+                        ref="inner_gather",
+                        action="core.transform.gather",
+                        depends_on=["process_inner"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_inner.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="outer_gather",
+                        action="core.transform.gather",
+                        depends_on=["inner_gather"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.inner_gather.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "outer_gather": {
+                        "result": [[11, 12], [], [13]],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-mixed-empty-nonempty",
+        ),
+        # Empty collection scatter
+        pytest.param(
+            DSLInput(
+                title="Scatter empty collection",
+                # Improved explanation:
+                # This test verifies the correct behavior when the 'scatter' action receives an empty collection.
+                # The expected behavior is:
+                # - The 'scatter' action should not produce any execution streams, as there are no items to process.
+                # - The 'gather' action, which depends on 'scatter', should be executed in the global context.
+                # - The result of 'gather' should be an empty list, since there were no items to aggregate.
+                # - No other actions should run, and the workflow should complete successfully.
+                description=(
+                    "Test that when an empty collection is provided to the 'scatter' action, "
+                    "no execution streams are created and the dependent 'gather' action "
+                    "returns an empty list as its result. This ensures that the workflow "
+                    "handles empty collections gracefully and does not fail or produce "
+                    "unexpected results."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["scatter"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.scatter.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather": {
+                        "result": [],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-empty-collection",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Scatter empty collection with actions between",
+                description="Test that an empty collection is scatterd and then gatherd with actions between",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[]).model_dump(),
+                    ),
+                    # This should skip
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    # This should return an empty list
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}"
+                        ).model_dump(),
+                    ),
+                    # Continue with a reshape
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["gather"],
+                        args={"value": "${{ ACTIONS.gather.result }}"},
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather": {"result": [], "result_typename": "list"},
+                    "reshape2": {"result": [], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-empty-collection-between",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Nested scatter with empty collection inside",
+                description=(
+                    "Test correct handling of an empty collection in a nested scatter scenario. "
+                    "The workflow first scatters a non-empty collection ([1, 2, 3]) at the top level (scatter1). "
+                    "For each item, it attempts a second-level scatter (scatter2) with an empty collection. "
+                    "Since scatter2's collection is empty, all downstream actions (reshape, gather2) in that branch "
+                    "should be skipped for every item. The test verifies that the skip logic is correctly propagated, "
+                    "and that the outer gather (gather1) collects the original items from scatter1, resulting in [1, 2, 3]. "
+                    "reshape2 then operates on this result. Only actions in the main execution stream (gather1, reshape2) "
+                    "should appear in the final ACTIONS context; skipped actions (reshape, gather2) should not."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    # Level 1: Scatter a non-empty collection
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    # Level 2: This scatter is nested and its collection is empty,
+                    # so all downstream actions in this branch should be skipped.
+                    ActionStatement(
+                        ref="scatter2",
+                        action="core.transform.scatter",
+                        depends_on=["scatter1"],
+                        args=ScatterArgs(collection=[]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        args={"value": "${{ ACTIONS.scatter2.result }}"},
+                    ),
+                    # This gather is downstream of the skipped scatter2/reshape,
+                    # so it should also be skipped.
+                    ActionStatement(
+                        ref="gather2",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}"
+                        ).model_dump(),
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["gather2"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.scatter1.result }}"
+                        ).model_dump(),
+                    ),
+                    # Final reshape, should operate on the result of gather1.
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["gather1"],
+                        args={"value": "${{ ACTIONS.gather1.result }}"},
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [1, 2, 3],
+                        "result_typename": "list",
+                    },  # The outer gather collects the original items.
+                    # Only reshape2 is present because reshape (and thus gather2) are skipped.
+                    "reshape2": {
+                        "result": [1, 2, 3],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-scatter-empty-collection-inside",
+        ),
+        pytest.param(
+            DSLInput(
+                title="2D scatter with DAG inside",
+                description=(
+                    "Test correct handling of a DAG inside an scatter. "
+                    "The workflow first scatters a non-empty collection ([1, 2, 3]) at the top level (scatter1). "
+                    "For each item, it attempts a second-level scatter (scatter2) with an empty collection. "
+                    "Since scatter2's collection is empty, all downstream actions (reshape, gather2) in that branch "
+                    "should be skipped for every item."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[
+                                [1, 2],
+                                [3, 4],
+                            ]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="scatter2",
+                        action="core.transform.scatter",
+                        depends_on=["scatter1"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.scatter1.result }}"
+                        ).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    # ======= Block 1 =======
+                    ActionStatement(
+                        ref="is_one",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        run_if="${{ ACTIONS.scatter2.result == 1 }}",
+                        args={"value": "${{ ACTIONS.scatter2.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="is_two",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        run_if="${{ ACTIONS.scatter2.result == 2 }}",
+                        args={"value": "${{ ACTIONS.scatter2.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="is_three",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        run_if="${{ ACTIONS.scatter2.result == 3 }}",
+                        args={"value": "${{ ACTIONS.scatter2.result }}"},
+                    ),
+                    # ======= End Block 1 =======
+                    # Block 1 only allows 1, 2, 3 past.
+                    # We can apply join_strategy like how we would in global streams.
+                    ActionStatement(
+                        ref="gather2",
+                        action="core.transform.gather",
+                        depends_on=["is_one", "is_two", "is_three"],
+                        join_strategy=JoinStrategy.ANY,
+                        args=GatherArgs(
+                            items="${{ ACTIONS.is_one.result || ACTIONS.is_two.result || ACTIONS.is_three.result }}"
+                        ).model_dump(),
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["gather2"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.gather2.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [[1, 2], [3]],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="2d-scatter-dag-inside",
+        ),
+        # 1D version: single-level scatter with DAG inside, all downstream actions should be skipped if scatter2 is empty
+        pytest.param(
+            DSLInput(
+                title="1D scatter with multiple parallel conditions",
+                description=(
+                    "Test correct handling of a DAG inside a single-level scatter. "
+                    "The workflow scatters a non-empty collection ([1, 2, 3]) at the top level (scatter1). "
+                    "For each item, it attempts a second-level scatter (scatter2) with an empty collection. "
+                    "Since scatter2's collection is empty, all downstream actions (reshape, gather2) in that branch "
+                    "should be skipped for every item."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3, 4]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="is_one",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        run_if="${{ ACTIONS.scatter1.result == 1 }}",
+                        args={"value": "${{ ACTIONS.scatter1.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="is_two",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        run_if="${{ ACTIONS.scatter1.result == 2 }}",
+                        args={"value": "${{ ACTIONS.scatter1.result }}"},
+                    ),
+                    # Join
+                    ActionStatement(
+                        ref="join",
+                        action="core.transform.reshape",
+                        depends_on=["is_one", "is_two"],
+                        join_strategy=JoinStrategy.ANY,
+                        args={
+                            "value": "${{ ACTIONS.is_one.result || ACTIONS.is_two.result }}"
+                        },
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["join"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.join.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [1, 2],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="1d-scatter-multi-condition",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Errors inside, partition",
+                description=(
+                    "Gracefully handle errors. With the default error handling,"
+                    " we apply the default error handling strategy -- which is to partition"
+                    " the results and errors into .result and .error"
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="throw",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={"value": "${{ 1/0 }}"},
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["throw"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.throw.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [],
+                        "result_typename": "list",
+                        "error": [
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                        ],
+                        "error_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-error-handling-partition",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Errors inside, drop",
+                description=(
+                    "Gracefully handle errors. With the default error handling,"
+                    " we apply the default error handling strategy -- which is to partition"
+                    " the results and errors into .result and .error"
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="throw",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={"value": "${{ 1/0 }}"},
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["throw"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.throw.result }}",
+                            error_strategy=StreamErrorHandlingStrategy.DROP,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-error-handling-drop",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Errors inside, include",
+                description=(
+                    "Gracefully handle errors. With the default error handling,"
+                    " we apply the default error handling strategy -- which is to partition"
+                    " the results and errors into .result and .error"
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="throw",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={"value": "${{ 1/0 }}"},
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["throw"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.throw.result }}",
+                            error_strategy=StreamErrorHandlingStrategy.INCLUDE,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                        ],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-error-handling-include",
+        ),
+        # Test: a -> scatter -> b -> gather, where b accesses a's data
+        pytest.param(
+            DSLInput(
+                title="Hierarchical stream variable lookup: a -> scatter -> b -> gather",
+                description=(
+                    "Test that a value produced before a scatter can be accessed by a reshape inside the scatter, "
+                    "and then gathered. This validates hierarchical stream variable lookup."
+                ),
+                entrypoint=DSLEntrypoint(ref="gather1"),
+                actions=[
+                    # a: produce a value
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        args={"value": 42},
+                    ),
+                    # scatter: scatter over a collection
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        depends_on=["a"],
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    # b: inside scatter, access a's value and add to item
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={
+                            "value": "${{ ACTIONS.a.result + ACTIONS.scatter1.result }}"
+                        },
+                    ),
+                    # gather: collect results from b
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["b"],
+                        args=GatherArgs(items="${{ ACTIONS.b.result }}").model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "a": {
+                        "result": 42,
+                        "result_typename": "int",
+                    },
+                    "gather1": {
+                        "result": [43, 44, 45],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scope-shadowing-stream-lookup",
+        ),
+    ],
+)
+async def test_workflow_scatter_gather(
+    test_role: Role, temporal_client: Client, dsl: DSLInput, expected: ExecutionContext
+):
+    """
+    Test that a workflow can scatter a collection.
+    """
+    test_name = f"{test_workflow_scatter_gather.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+    run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    async with Worker(
+        temporal_client,
+        task_queue=queue,
+        activities=get_activities(),
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=retry_policies["workflow:fail_fast"],
+        )
+        assert result == expected
+
+
+@pytest.mark.anyio
+async def test_workflow_env_and_trigger_access_in_stream(
+    test_role: Role, temporal_client: Client
+) -> None:
+    """
+    Test that ENV and TRIGGER contexts are accessible from inside a stream.
+    The workflow is: scatter -> a -> gather, where 'a' is a reshape returning
+    ENV.workflow.execution_id and TRIGGER.data. TRIGGER data is passed in DSLRunArgs.
+    """
+    # Prepare test TRIGGER data and expected execution_id
+    trigger_data = {"foo": "bar", "num": 123}
+    test_name = f"{test_workflow_env_and_trigger_access_in_stream.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Define the DSL workflow
+    dsl = DSLInput(
+        title="ENV and TRIGGER context access in stream",
+        description="Test ENV and TRIGGER context access from inside a stream",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action="core.transform.scatter",
+                args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+            ),
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                depends_on=["scatter"],
+                args={
+                    # Return both ENV.workflow.execution_id and TRIGGER.data as a dict
+                    "value": "${{ {'exec_id': ENV.workflow.execution_id, 'trigger': TRIGGER} }}"
+                },
+            ),
+            ActionStatement(
+                ref="gather",
+                action="core.transform.gather",
+                depends_on=["a"],
+                args=GatherArgs(items="${{ ACTIONS.a.result }}").model_dump(),
+            ),
+        ],
+    )
+
+    # Prepare expected result
+    expected = {
+        "ACTIONS": {
+            "gather": {
+                "result": [
+                    {"exec_id": wf_exec_id, "trigger": trigger_data},
+                    {"exec_id": wf_exec_id, "trigger": trigger_data},
+                    {"exec_id": wf_exec_id, "trigger": trigger_data},
+                ],
+                "result_typename": "list",
+            },
+        },
+        "INPUTS": {},
+        "TRIGGER": trigger_data,
+    }
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    # Run the workflow and check the result
+    async with Worker(
+        temporal_client,
+        task_queue=queue,
+        activities=get_activities(),
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+    ):
+        run_args = DSLRunArgs(
+            dsl=dsl,
+            role=test_role,
+            wf_id=TEST_WF_ID,
+            trigger_inputs=trigger_data,
+        )
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=retry_policies["workflow:fail_fast"],
+        )
+        assert result == expected

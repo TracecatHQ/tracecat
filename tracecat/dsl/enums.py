@@ -3,6 +3,8 @@ from enum import StrEnum, auto
 
 class PlatformAction(StrEnum):
     CHILD_WORKFLOW_EXECUTE = "core.workflow.execute"
+    TRANSFORM_SCATTER = "core.transform.scatter"
+    TRANSFORM_GATHER = "core.transform.gather"
 
 
 class FailStrategy(StrEnum):
@@ -48,3 +50,18 @@ class EdgeMarker(StrEnum):
 class EdgeType(StrEnum):
     SUCCESS = "success"
     ERROR = "error"
+
+
+class Sentinel(StrEnum):
+    """Sentinel values for gather operations."""
+
+    GATHER_UNSET = "__SENTINEL_GATHER_UNSET__"
+
+
+class StreamErrorHandlingStrategy(StrEnum):
+    PARTITION = "partition"
+    """Partition the error into a list of errors."""
+    INCLUDE = "include"
+    """Include the error in the result. This is the default behavior."""
+    DROP = "drop"
+    """Drop the error."""
