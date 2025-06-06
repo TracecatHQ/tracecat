@@ -215,7 +215,7 @@ export function ActionEventDetails({
                 })
                 // Insert a ">" separator between mapped elements, but not after the last one
                 .map((part, idx, arr) => (
-                  <div key={part.scope}>
+                  <div key={part.scope} className="flex items-center gap-1">
                     <span className="flex items-center gap-1">
                       <span>{part.scope}</span>
                       <InlineDotSeparator />
