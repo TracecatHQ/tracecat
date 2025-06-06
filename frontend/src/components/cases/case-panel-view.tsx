@@ -212,7 +212,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
           <div className="bg-card p-4">
             <h3 className="mb-3 flex items-center text-sm font-semibold text-muted-foreground">
               <UserCircle2 className="mr-2 size-4" />
-              Assigned To
+              Assignee
             </h3>
             <div className="space-y-4">
               <AssigneeSelect
