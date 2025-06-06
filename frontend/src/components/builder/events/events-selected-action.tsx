@@ -10,6 +10,7 @@ import {
 import { useWorkflowBuilder } from "@/providers/builder"
 import { CircleDot, LoaderIcon } from "lucide-react"
 
+import { groupEventsByActionRef, parseStreamId } from "@/lib/event-history"
 import { Badge } from "@/components/ui/badge"
 import {
   Select,
@@ -45,6 +46,7 @@ export function ActionEvent({
     )
     events = events.filter((e) => interactionEvents.has(e.action_ref))
   }
+  const groupedEvents = groupEventsByActionRef(events)
   return (
     <div className="flex flex-col gap-4 p-4">
       <Select
@@ -56,13 +58,14 @@ export function ActionEvent({
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {events.map((event) => (
+            {Object.entries(groupedEvents).map(([actionRef, relatedEvents]) => (
               <SelectItem
-                key={event.action_ref}
-                value={event.action_ref}
+                key={actionRef}
+                value={actionRef}
                 className="max-h-8 py-1 text-xs"
               >
-                {event.action_ref}
+                {actionRef}
+                {relatedEvents.length !== 1 && ` (${relatedEvents.length})`}
               </SelectItem>
             ))}
           </SelectGroup>
@@ -176,48 +179,68 @@ export function ActionEventDetails({
       </div>
     )
   }
-  // More than 1, error
-  if (actionEventsForRef.length > 1) {
-    console.error(
-      `More than 1 event for action reference ${eventRef}: ${JSON.stringify(
-        actionEventsForRef
-      )}`
-    )
-  }
-  const actionEvent = actionEventsForRef[0]
-  if (["SCHEDULED", "STARTED"].includes(actionEvent.status)) {
+  const renderEvent = (actionEvent: WorkflowExecutionEventCompact) => {
+    if (["SCHEDULED", "STARTED"].includes(actionEvent.status)) {
+      return (
+        <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+          <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+          <span>Action is {actionEvent.status.toLowerCase()}...</span>
+        </div>
+      )
+    }
     return (
-      <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-        <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
-        <span>Action is {actionEvent.status.toLowerCase()}...</span>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <Badge variant="secondary" className="items-center gap-2">
+            {getWorkflowEventIcon(actionEvent.status, "size-4")}
+            <span className="text-xs font-semibold text-foreground/70">
+              Action {actionEvent.status.toLowerCase()}
+            </span>
+          </Badge>
+          {actionEvent.stream_id && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {parseStreamId(actionEvent.stream_id)
+                  .filter((part) => part.scope !== "<root>")
+                  .sort((a, b) => {
+                    if (a.scope === b.scope) {
+                      return Number(a.index) - Number(b.index)
+                    }
+                    return a.scope.localeCompare(b.scope)
+                  })
+                  .map((part) => (
+                    <span key={part.scope}>
+                      {part.scope} / {part.index}
+                    </span>
+                  ))}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {type === "result" && actionEvent.action_error ? (
+          <ErrorEvent failure={actionEvent.action_error} />
+        ) : (
+          <JsonViewWithControls
+            src={
+              type === "input"
+                ? actionEvent.action_input
+                : actionEvent.action_result
+            }
+            defaultExpanded={true}
+            copyPrefix={`ACTIONS.${eventRef}.result`}
+          />
+        )}
       </div>
     )
   }
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-start">
-        <Badge variant="secondary" className="items-center gap-2">
-          {getWorkflowEventIcon(actionEvent.status, "size-4")}
-          <span className="text-xs font-semibold text-foreground/70">
-            Action {actionEvent.status.toLowerCase()}
-          </span>
-        </Badge>
-      </div>
-      {type === "result" && actionEvent.action_error ? (
-        <ErrorEvent failure={actionEvent.action_error} />
-      ) : (
-        <JsonViewWithControls
-          src={
-            type === "input"
-              ? actionEvent.action_input
-              : actionEvent.action_result
-          }
-          defaultExpanded={true}
-          copyPrefix={`ACTIONS.${eventRef}.result`}
-        />
-      )}
-    </div>
-  )
+  if (type === "input") {
+    // Inputs are identical for all events, so we can just render the first one
+    return renderEvent(actionEventsForRef[0])
+  }
+  return actionEventsForRef.map((actionEvent) => (
+    <div key={actionEvent.stream_id}>{renderEvent(actionEvent)}</div>
+  ))
 }
 
 function ErrorEvent({ failure }: { failure: EventFailure }) {

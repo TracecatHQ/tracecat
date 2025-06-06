@@ -3,6 +3,7 @@ import {
   InteractionInput,
   RunActionInput,
   WorkflowEventType,
+  WorkflowExecutionEventCompact,
 } from "@/client"
 
 export const ERROR_EVENT_TYPES: WorkflowEventType[] = [
@@ -147,4 +148,40 @@ export function getWorkflowExecutionUrl(
   exec: string
 ) {
   return `${baseUrl}/workspaces/${encodeURIComponent(workspaceId)}/workflows/${encodeURIComponent(wf)}/executions/${encodeURIComponent(exec)}`
+}
+
+export function groupEventsByActionRef(
+  events: WorkflowExecutionEventCompact[]
+) {
+  return events.reduce(
+    (acc, event) => {
+      const ref = event.action_ref
+      if (!acc[ref]) {
+        acc[ref] = []
+      }
+      acc[ref].push(event)
+      return acc
+    },
+    {} as Record<string, WorkflowExecutionEventCompact[]>
+  )
+}
+
+export function parseStreamId(streamId: string): {
+  scope: string
+  index: string
+}[] {
+  const streamIdParts = streamId.split("/").map((part) => {
+    const [scope, index] = part.split(":")
+    return { scope, index }
+  })
+  return streamIdParts
+}
+
+export function formatStreamId(streamId: string) {
+  const streamIdParts = parseStreamId(streamId)
+  const lastPart = streamIdParts[streamIdParts.length - 1]
+  if (lastPart.scope === "<root>" && lastPart.index === "0") {
+    return "global scope"
+  }
+  return `execution stream ${lastPart.scope}[${lastPart.index}]`
 }

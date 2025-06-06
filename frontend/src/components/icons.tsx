@@ -7,6 +7,7 @@ import {
   Globe,
   ListChecks,
   Mail,
+  MergeIcon,
   MessageCircleMore,
   MessageCirclePlus,
   RefreshCcw,
@@ -14,6 +15,7 @@ import {
   ShieldAlert,
   ShieldPlus,
   Sparkles,
+  SplitIcon,
   Table,
   WandSparkles,
   WorkflowIcon,
@@ -243,6 +245,18 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "core.transform": ({ className, ...rest }) => (
       <div className={cn(basicIconsCommon, "bg-fuchsia-200/70", className)}>
         <Blend {...rest} />
+      </div>
+    ),
+    "core.transform.scatter": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-fuchsia-200/70", className)}>
+        {/* Rotate 180deg to appear upside down */}
+        <SplitIcon style={{ transform: "rotate(90deg)" }} {...rest} />
+      </div>
+    ),
+    "core.transform.gather": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-fuchsia-200/70", className)}>
+        {/* Rotate 180deg to appear upside down */}
+        <MergeIcon style={{ transform: "rotate(90deg)" }} {...rest} />
       </div>
     ),
     "core.cases": ({ className, ...rest }) => (
