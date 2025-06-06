@@ -130,15 +130,9 @@ export const $ActionCreate = {
       mode: "json",
     },
     is_interactive: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "boolean",
       title: "Is Interactive",
+      default: false,
     },
     interaction: {
       anyOf: [
@@ -779,6 +773,7 @@ export const $AssigneeChangedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -948,9 +943,13 @@ export const $Body_auth_sso_acs = {
       type: "string",
       title: "Saml Response",
     },
+    relay_state: {
+      type: "string",
+      title: "Relay State",
+    },
   },
   type: "object",
-  required: ["saml_response"],
+  required: ["saml_response", "relay_state"],
   title: "Body_auth-sso_acs",
 } as const
 
@@ -977,6 +976,19 @@ export const $Body_auth_verify_verify = {
   type: "object",
   required: ["token"],
   title: "Body_auth-verify:verify",
+} as const
+
+export const $Body_cases_create_attachment = {
+  properties: {
+    file: {
+      type: "string",
+      format: "binary",
+      title: "File",
+    },
+  },
+  type: "object",
+  required: ["file"],
+  title: "Body_cases-create_attachment",
 } as const
 
 export const $Body_tables_import_csv = {
@@ -1044,6 +1056,83 @@ export const $Body_workflows_create_workflow = {
   },
   type: "object",
   title: "Body_workflows-create_workflow",
+} as const
+
+export const $CaseAttachmentRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+    file_id: {
+      type: "string",
+      format: "uuid",
+      title: "File Id",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size: {
+      type: "integer",
+      title: "Size",
+    },
+    sha256: {
+      type: "string",
+      title: "Sha256",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    creator_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Creator Id",
+    },
+    is_deleted: {
+      type: "boolean",
+      title: "Is Deleted",
+      default: false,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "case_id",
+    "file_id",
+    "file_name",
+    "content_type",
+    "size",
+    "sha256",
+    "created_at",
+    "updated_at",
+  ],
+  title: "CaseAttachmentRead",
+  description: "Model for reading a case attachment.",
 } as const
 
 export const $CaseCommentCreate = {
@@ -1759,6 +1848,7 @@ export const $ClosedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -1810,6 +1900,7 @@ export const $CreatedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -2519,6 +2610,7 @@ export const $FieldChangedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -3084,6 +3176,7 @@ export const $PriorityChangedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -4102,6 +4195,7 @@ export const $ReopenedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -4215,13 +4309,14 @@ export const $Role = {
     service_id: {
       type: "string",
       enum: [
-        "tracecat-runner",
         "tracecat-api",
+        "tracecat-bootstrap",
         "tracecat-cli",
+        "tracecat-executor",
+        "tracecat-runner",
         "tracecat-schedule-runner",
         "tracecat-service",
-        "tracecat-executor",
-        "tracecat-bootstrap",
+        "tracecat-ui",
       ],
       title: "Service Id",
     },
@@ -5166,6 +5261,7 @@ export const $SeverityChangedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -5240,6 +5336,7 @@ export const $StatusChangedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -5968,6 +6065,7 @@ export const $UpdatedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",

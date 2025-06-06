@@ -27,7 +27,7 @@ export type ActionCreate = {
   description?: string | null
   inputs?: string
   control_flow?: ActionControlFlow | null
-  is_interactive?: boolean | null
+  is_interactive?: boolean
   interaction?: ResponseInteraction | ApprovalInteraction | null
 }
 
@@ -224,6 +224,9 @@ export type ApprovalInteraction = {
  * Event for when a case assignee is changed.
  */
 export type AssigneeChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "assignee_changed"
   old: string | null
@@ -280,6 +283,7 @@ export type Body_auth_reset_reset_password = {
 
 export type Body_auth_sso_acs = {
   saml_response: string
+  relay_state: string
 }
 
 export type Body_auth_verify_request_token = {
@@ -288,6 +292,10 @@ export type Body_auth_verify_request_token = {
 
 export type Body_auth_verify_verify = {
   token: string
+}
+
+export type Body_cases_create_attachment = {
+  file: Blob | File
 }
 
 export type Body_tables_import_csv = {
@@ -303,6 +311,23 @@ export type Body_workflows_create_workflow = {
    */
   use_workflow_id?: boolean
   file?: (Blob | File) | null
+}
+
+/**
+ * Model for reading a case attachment.
+ */
+export type CaseAttachmentRead = {
+  id: string
+  case_id: string
+  file_id: string
+  file_name: string
+  content_type: string
+  size: number
+  sha256: string
+  created_at: string
+  updated_at: string
+  creator_id?: string | null
+  is_deleted?: boolean
 }
 
 export type CaseCommentCreate = {
@@ -522,6 +547,9 @@ export type CaseUpdate = {
  * Event for when a case is closed.
  */
 export type ClosedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_closed"
   old: CaseStatus
@@ -540,6 +568,9 @@ export type ClosedEventRead = {
  * Event for when a case is created.
  */
 export type CreatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_created"
   /**
@@ -780,6 +811,9 @@ export type ExprValidationResult = {
  * Event for when a case field is changed.
  */
 export type FieldChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "fields_changed"
   changes: Array<FieldDiff>
@@ -937,6 +971,9 @@ export type OrgMemberRead = {
  * Event for when a case priority is changed.
  */
 export type PriorityChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "priority_changed"
   old: CasePriority
@@ -1295,6 +1332,9 @@ export type RegistrySecret = {
  * Event for when a case is reopened.
  */
 export type ReopenedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_reopened"
   old: CaseStatus
@@ -1353,25 +1393,27 @@ export type Role = {
   user_id?: string | null
   access_level?: AccessLevel
   service_id:
-    | "tracecat-runner"
     | "tracecat-api"
+    | "tracecat-bootstrap"
     | "tracecat-cli"
+    | "tracecat-executor"
+    | "tracecat-runner"
     | "tracecat-schedule-runner"
     | "tracecat-service"
-    | "tracecat-executor"
-    | "tracecat-bootstrap"
+    | "tracecat-ui"
 }
 
 export type type2 = "user" | "service"
 
 export type service_id =
-  | "tracecat-runner"
   | "tracecat-api"
+  | "tracecat-bootstrap"
   | "tracecat-cli"
+  | "tracecat-executor"
+  | "tracecat-runner"
   | "tracecat-schedule-runner"
   | "tracecat-service"
-  | "tracecat-executor"
-  | "tracecat-bootstrap"
+  | "tracecat-ui"
 
 /**
  * This object contains all the information needed to execute an action.
@@ -1619,6 +1661,9 @@ export type SessionRead = {
  * Event for when a case severity is changed.
  */
 export type SeverityChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "severity_changed"
   old: CaseSeverity
@@ -1655,6 +1700,9 @@ export type SqlType =
  * Event for when a case status is changed.
  */
 export type StatusChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "status_changed"
   old: CaseStatus
@@ -1941,6 +1989,9 @@ export type TriggerType = "manual" | "scheduled" | "webhook"
  * Event for when a case is updated.
  */
 export type UpdatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_updated"
   field: "summary"
@@ -3428,6 +3479,46 @@ export type CasesListEventsWithUsersData = {
 }
 
 export type CasesListEventsWithUsersResponse = CaseEventsWithUsers
+
+export type CasesListAttachmentsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListAttachmentsResponse = Array<CaseAttachmentRead>
+
+export type CasesCreateAttachmentData = {
+  caseId: string
+  formData: Body_cases_create_attachment
+  workspaceId: string
+}
+
+export type CasesCreateAttachmentResponse = CaseAttachmentRead
+
+export type CasesDownloadAttachmentData = {
+  attachmentId: string
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesDownloadAttachmentResponse = unknown
+
+export type CasesDeleteAttachmentData = {
+  attachmentId: string
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesDeleteAttachmentResponse = void
+
+export type CasesGetStorageUsageData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesGetStorageUsageResponse = {
+  [key: string]: number
+}
 
 export type CasesListFieldsData = {
   workspaceId: string
@@ -5239,6 +5330,79 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CaseEventsWithUsers
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments": {
+    get: {
+      req: CasesListAttachmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseAttachmentRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesCreateAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseAttachmentRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments/{attachment_id}": {
+    get: {
+      req: CasesDownloadAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/storage-usage": {
+    get: {
+      req: CasesGetStorageUsageData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: number
+        }
         /**
          * Validation Error
          */
