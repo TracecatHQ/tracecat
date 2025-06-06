@@ -94,20 +94,25 @@ echo "Deno installed successfully"
 # Pre-cache pyodide and dependencies using deno cache
 echo "Pre-caching Pyodide v${PYODIDE_VERSION}..."
 
-# Create cache directory that will be accessible by apiuser
-export DENO_DIR="/opt/deno-cache"
-mkdir -p "${DENO_DIR}"
-mkdir -p "/opt/node_modules"
+# Create ALL cache directories that apiuser will need
+# This consolidates directory creation in one place
+mkdir -p \
+    /home/apiuser/.cache/deno \
+    /home/apiuser/.cache/uv \
+    /home/apiuser/.cache/pyodide-packages \
+    /home/apiuser/.local \
+    /home/apiuser/node_modules \
+    /app/.scripts
+
+# Set DENO_DIR for caching
+export DENO_DIR="/home/apiuser/.cache/deno"
 
 # Use deno cache to download pyodide module and its dependencies
-# This is simpler and more secure than running a script
 deno cache --node-modules-dir=auto "npm:pyodide@${PYODIDE_VERSION}"
 
-# Set read-only permissions for security (apiuser can read but not modify)
-if [ -d "/opt/node_modules" ]; then
-    chmod -R 755 /opt/node_modules
-fi
-chmod -R 755 "${DENO_DIR}"
+# Set permissions for all directories (apiuser will be created later in Dockerfile)
+chmod -R 755 /home/apiuser/.cache /home/apiuser/.local /home/apiuser/node_modules
+chmod -R 700 /app/.scripts
 
 echo "Deno and Pyodide installation complete"
 
