@@ -86,7 +86,6 @@ export function ValidationErrorMessage({
     </React.Fragment>
   ))
 
-  const rest: ValidationResult["type"][] = ["dsl", "action_template"]
   return (
     <pre
       className={cn("overflow-auto whitespace-pre-wrap text-wrap", className)}
@@ -120,18 +119,27 @@ export function ValidationErrorMessage({
             <ValidationDetails error={error} />
           </React.Fragment>
         )}
-        {/* Handle the rest */}
-        {rest.includes(error.type) && (
+
+        {error.type === "dsl" && (
           <React.Fragment>
-            <>
-              {error.ref ? (
-                <span>
-                  In action → <strong>{error.ref}</strong>
-                </span>
-              ) : (
-                <span>Couldn&apos;t determine action</span>
-              )}
-            </>
+            {error.ref ? (
+              <span>
+                In action → <strong>{error.ref}</strong>
+              </span>
+            ) : (
+              <span>In the workflow definition</span>
+            )}
+            <span>{formattedMessage}</span>
+            <ValidationDetails error={error} />
+          </React.Fragment>
+        )}
+        {error.type === "action_template" && (
+          <React.Fragment>
+            {error.ref && (
+              <span>
+                In action → <strong>{error.ref}</strong>
+              </span>
+            )}
             <span>{formattedMessage}</span>
             <ValidationDetails error={error} />
           </React.Fragment>
