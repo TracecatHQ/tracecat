@@ -275,8 +275,8 @@ class TestStorageClientConfiguration:
                 assert client is not None
 
 
-class TestLegacyFunctions:
-    """Test suite for legacy storage functions."""
+class TestUtilityFunctions:
+    """Test suite for core storage utility functions."""
 
     @pytest.mark.anyio
     async def test_compute_sha256(self):

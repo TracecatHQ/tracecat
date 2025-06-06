@@ -472,12 +472,12 @@ class TestCaseAttachmentCreateModel:
         assert attachment.size == 1024
 
 
-class TestLegacyFunctions:
-    """Test backward compatibility of legacy functions."""
+class TestUtilityFunctions:
+    """Test core storage utility functions."""
 
     @pytest.mark.anyio
-    async def test_legacy_content_type_validation(self):
-        """Test legacy content type validation function."""
+    async def test_content_type_validation(self):
+        """Test content type validation function."""
         # Valid type
         storage.validate_content_type("application/pdf")
 
@@ -486,8 +486,8 @@ class TestLegacyFunctions:
             storage.validate_content_type("application/x-executable")
 
     @pytest.mark.anyio
-    async def test_legacy_file_size_validation(self):
-        """Test legacy file size validation function."""
+    async def test_file_size_validation(self):
+        """Test file size validation function."""
         # Valid size
         storage.validate_file_size(1024)
 
@@ -496,8 +496,8 @@ class TestLegacyFunctions:
             storage.validate_file_size(100 * 1024 * 1024)
 
     @pytest.mark.anyio
-    async def test_legacy_filename_sanitization(self):
-        """Test legacy filename sanitization function."""
+    async def test_filename_sanitization(self):
+        """Test filename sanitization function."""
         result = storage.sanitize_filename("file with spaces.txt")
         assert result == "file_with_spaces.txt"
 

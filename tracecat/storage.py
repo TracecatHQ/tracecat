@@ -625,7 +625,7 @@ class FileSecurityValidator:
         return filename
 
 
-# Legacy functions for backward compatibility
+# Core storage utility functions
 def get_storage_client():
     """Get a configured S3 client for either AWS S3 or MinIO.
 
