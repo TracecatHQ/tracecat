@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections import deque
 from datetime import timedelta
 from pathlib import Path
@@ -186,19 +185,13 @@ class DSLInput(BaseModel):
             )
 
         if not scatter_actions:
-            # TODO: Check if there are any gather actions
             return  # No scatter actions, no scope validation needed
 
         # Build adjacency list for graph traversal
         adj = self._to_adjacency()
 
         # Assign scope IDs to all actions
-        try:
-            scopes, scope_hierarchy = self._assign_action_scopes(adj)
-            logger.info(f"Action scopes: {json.dumps(scopes, indent=2)}")
-        except TracecatDSLError:
-            raise
-
+        scopes, scope_hierarchy = self._assign_action_scopes(adj)
         self._validate_scope_dependencies(scopes, scope_hierarchy)
 
     def _check_action_dep_scope(
