@@ -3999,6 +3999,17 @@ async def test_workflow_detached_child_workflow(
             id="empty-nonempty-parallel",
         ),
         # 5. Collections with different lengths in nested scatter
+        # This test case demonstrates a nested scatter-gather pattern where the outer scatter
+        # iterates over a list of lists, each with a different length. The workflow is as follows:
+        # 1. "outer_scatter" splits the input into three parallel branches: [1], [2, 3], and [4, 5, 6].
+        # 2. For each branch, "inner_scatter" further scatters the inner list, so each number is processed independently.
+        # 3. "double_value" doubles each number in the inner scatter.
+        # 4. "inner_gather" collects the doubled values for each outer branch, resulting in:
+        #    - [2] for [1]
+        #    - [4, 6] for [2, 3]
+        #    - [8, 10, 12] for [4, 5, 6]
+        # 5. "outer_gather" collects the results from all outer branches, producing a list of lists.
+        # The expected result is a nested list where each sublist contains the doubled values of the original inner list.
         pytest.param(
             DSLInput(
                 title="Nested scatter with varying inner collection sizes",
@@ -4051,6 +4062,11 @@ async def test_workflow_detached_child_workflow(
             {
                 "ACTIONS": {
                     "outer_gather": {
+                        # Explanation:
+                        # - The first sublist [1] is doubled to [2]
+                        # - The second sublist [2, 3] is doubled to [4, 6]
+                        # - The third sublist [4, 5, 6] is doubled to [8, 10, 12]
+                        # The gather operation preserves the nested structure.
                         "result": [[2], [4, 6], [8, 10, 12]],
                         "result_typename": "list",
                     }
