@@ -56,7 +56,7 @@ class TestScopeValidation:
         """Test that upward references (outer -> inner) are caught."""
         with pytest.raises(
             TracecatDSLError,
-            match="Action 'invalid_action_ref' depends on 'process_item' which cannot be referenced from this scope",
+            match="Action 'invalid_action_ref' has an expression that references 'process_item' which cannot be referenced from this scope",
         ):
             DSLInput(
                 title="Invalid Upward Reference",
@@ -136,7 +136,7 @@ class TestScopeValidation:
         """Test that cross-region dependencies are caught."""
         with pytest.raises(
             TracecatDSLError,
-            match="Action 'process_item2' depends on 'scatter_items2', which is in a different scope",
+            match="Action 'process_item2' has an edge from 'scatter_items2', which is in a different scatter-gather scope",
         ):
             DSLInput(
                 title="Cross-Region Dependency",
@@ -351,7 +351,7 @@ class TestScopeValidation:
         """
         with pytest.raises(
             TracecatDSLError,
-            match="Action 'c' depends on 'b', which is in a different scope",
+            match="Action 'c' has an edge from 'b', which is in a different scatter-gather scope",
         ):
             DSLInput(
                 title="Dependencies Cross Scopes",
