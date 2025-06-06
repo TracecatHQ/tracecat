@@ -3,10 +3,8 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Mapping
-from contextvars import ContextVar
 from dataclasses import dataclass
-from functools import cached_property
-from typing import Any, ClassVar, Literal, Self, cast
+from typing import Any, cast
 
 from pydantic_core import to_json
 from temporalio import workflow
@@ -14,6 +12,7 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.common import is_iterable
 from tracecat.concurrency import cooperative
+from tracecat.contexts import ctx_stream_id
 from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
 from tracecat.dsl.control_flow import GatherArgs, ScatterArgs
 from tracecat.dsl.enums import (
@@ -26,10 +25,13 @@ from tracecat.dsl.enums import (
     StreamErrorHandlingStrategy,
 )
 from tracecat.dsl.models import (
+    ROOT_STREAM,
     ActionErrorInfo,
     ActionErrorInfoAdapter,
     ActionStatement,
     ExecutionContext,
+    StreamID,
+    Task,
     TaskExceptionInfo,
     TaskResult,
 )
@@ -38,64 +40,6 @@ from tracecat.expressions.core import TemplateExpression
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.logger import logger
 from tracecat.types.exceptions import TaskUnreachable
-
-
-def dump(obj: Any) -> str:
-    return to_json(obj, indent=2, fallback=str).decode()
-
-
-type SkipToken = Literal["skip"]
-
-
-class StreamID(str):
-    """Hierarchical stream identifier: 'scatter_1:2/scatter_2:0'"""
-
-    __stream_sep: ClassVar[str] = "/"
-    __idx_sep: ClassVar[str] = ":"
-
-    @classmethod
-    def new(
-        cls, scope: str, index: int | SkipToken, *, base_stream_id: Self | None = None
-    ) -> Self:
-        """Create a stream ID for an inherited scatter item"""
-        new_stream = cls(f"{scope}{cls.__idx_sep}{index}")
-        if base_stream_id is None:
-            return new_stream
-        return cls(f"{base_stream_id}{cls.__stream_sep}{new_stream}")
-
-    @classmethod
-    def skip(cls, scope: str, *, base_stream_id: Self | None = None) -> Self:
-        """Create a stream ID for a skipped scatter"""
-        return cls.new(scope, "skip", base_stream_id=base_stream_id)
-
-    @cached_property
-    def streams(self) -> list[str]:
-        """Get the list of streams in the stream ID"""
-        return self.split(self.__stream_sep)
-
-    @cached_property
-    def leaf(self) -> tuple[str, int | SkipToken]:
-        """Get the leaf stream ID"""
-        scope, index, *rest = self.streams[-1].split(self.__idx_sep)
-        if rest:
-            raise ValueError(f"Invalid stream ID: {self}")
-        return scope, int(index) if index != "skip" else "skip"
-
-
-_ROOT_SCOPE = "<root>"
-ROOT_STREAM = StreamID.new(_ROOT_SCOPE, 0)
-
-CTX_STREAM_ID: ContextVar[StreamID] = ContextVar("stream-id", default=ROOT_STREAM)
-
-
-@dataclass(frozen=True, slots=True)
-class Task:
-    """Stream-aware task instance"""
-
-    ref: str
-    """The task action reference"""
-    stream_id: StreamID
-    """The stream ID of the task"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -455,11 +399,11 @@ class DSLScheduler:
             # NOTE: If an exception is thrown from this coroutine, it signals that
             # the task failed after all attempts. Adding the exception to the task
             # exceptions set will cause the workflow to fail.
-            token = CTX_STREAM_ID.set(task.stream_id)
+            token = ctx_stream_id.set(task.stream_id)
             try:
                 await self.executor(stmt)
             finally:
-                CTX_STREAM_ID.reset(token)
+                ctx_stream_id.reset(token)
             # NOTE: Moved this here to handle single success path
             await self._handle_success_path(task)
         except Exception as e:
@@ -524,7 +468,11 @@ class DSLScheduler:
                     self.logger.warning("Error while canceling tasks", error=e)
 
             return self.task_exceptions
-        self.logger.info("All tasks completed", visited_tasks=self.completed_tasks)
+        self.logger.info(
+            "All tasks completed",
+            completed_tasks=list(self.completed_tasks),
+            n_tasks=len(self.tasks),
+        )
         return None
 
     def _is_reachable(self, task: Task, stmt: ActionStatement) -> bool:

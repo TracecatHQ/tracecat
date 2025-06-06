@@ -31,12 +31,14 @@ from tracecat.dsl.enums import (
     WaitStrategy,
 )
 from tracecat.dsl.models import (
+    ROOT_STREAM,
     ActionStatement,
     DSLConfig,
     DSLEnvironment,
     DSLExecutionError,
     ExecutionContext,
     RunContext,
+    StreamID,
     Trigger,
     TriggerInputs,
 )
@@ -66,6 +68,10 @@ class DSLEntrypoint(BaseModel):
         ),
     )
     """Trigger input schema."""
+
+
+def key2loc(key: str) -> str:
+    return "inputs" if key == "args" else key
 
 
 class DSLInput(BaseModel):
@@ -137,7 +143,7 @@ class DSLInput(BaseModel):
             raise TracecatDSLError("No entrypoints found")
 
         # Validate that all the refs in depends_on are valid actions
-        valid_actions = {a.ref for a in self.actions}
+        valid_action_refs = {a.ref for a in self.actions}
         # Actions refs can now contain a path, so we need to check for that
         dependencies = set()
         for a in self.actions:
@@ -149,15 +155,27 @@ class DSLInput(BaseModel):
                         f"Invalid depends_on ref: {dep!r} in action {a.ref!r}"
                     ) from None
                 dependencies.add(src)
-        invalid_deps = dependencies - valid_actions
+        invalid_deps = dependencies - valid_action_refs
         if invalid_deps:
             raise TracecatDSLError(
                 f"Invalid depends_on refs in actions: {invalid_deps}."
-                f" Valid actions: {valid_actions}"
+                f" Valid actions: {valid_action_refs}"
             )
 
+        self._all_action_expressions_valid(valid_action_refs)
         self._validate_scatter_gather_scopes()
         return self
+
+    def _all_action_expressions_valid(self, valid_action_refs: set[str]) -> None:
+        """Validate that all action expressions are valid."""
+        for action in self.actions:
+            for key, value in action.model_dump().items():
+                expr_ctxs = extract_expressions(value)
+                for dep in expr_ctxs[ExprContext.ACTIONS]:
+                    if dep not in valid_action_refs:
+                        raise TracecatDSLError(
+                            f"Action '{action.ref}' has an expression in field '{key2loc(key)}' that references unknown action '{dep}'"
+                        )
 
     def _validate_scatter_gather_scopes(self) -> None:
         """Validate scatter-gather scope boundaries.
@@ -212,13 +230,13 @@ class DSLInput(BaseModel):
                 if action.action == PlatformAction.TRANSFORM_SCATTER:
                     if dep_scope != scope_hierarchy[action_scope]:
                         raise TracecatDSLError(
-                            f"Scatter action {action.ref!r} has an edge from {dep!r}, which isn't the parent scope"
+                            f"Scatter action '{action.ref}' has an edge from '{dep}', which isn't the parent scope"
                         )
                 elif action.action == PlatformAction.TRANSFORM_GATHER:
                     # Here, action_scope is the parent scope
                     if action_scope != scope_hierarchy[dep_scope]:
                         raise TracecatDSLError(
-                            f"Gather action {action.ref!r} has an edge from {dep!r}, which isn't the child scope"
+                            f"Gather action '{action.ref}' has an edge from '{dep}', which isn't the child scope"
                         )
                 else:
                     if dep_scope != action_scope:
@@ -227,34 +245,35 @@ class DSLInput(BaseModel):
                         )
 
             # Validate expression dependencies
-            expr_ctxs = extract_expressions(action.model_dump())
-            dep_refs = expr_ctxs[ExprContext.ACTIONS]
-            for dep in dep_refs:
-                dep_scope = action_scopes[dep]
-                if action.action == PlatformAction.TRANSFORM_SCATTER:
-                    if dep_scope != scope_hierarchy[action_scope]:
-                        raise TracecatDSLError(
-                            f"Scatter action {action.ref!r} has an expression that references {dep!r}, which isn't the parent scope"
-                        )
-                elif action.action == PlatformAction.TRANSFORM_GATHER:
-                    # Here, action_scope is the parent scope
-                    if action_scope != scope_hierarchy[dep_scope]:
-                        raise TracecatDSLError(
-                            f"Gather action {action.ref!r} has an expression that references {dep!r}, which isn't the child scope"
-                        )
-                else:
-                    # Dep scope must be the same as action_scope or an ancestor (parent, grandparent, etc.)
-                    curr_scope = action_scope
-                    is_ancestor = False
-                    while curr_scope is not None:
-                        if dep_scope == curr_scope:
-                            is_ancestor = True
-                            break
-                        curr_scope = scope_hierarchy.get(curr_scope)
-                    if not is_ancestor:
-                        raise TracecatDSLError(
-                            f"Action '{action.ref}' has an expression that references '{dep}' which cannot be referenced from this scope"
-                        )
+            for key, value in action.model_dump(exclude={"depends_on"}).items():
+                expr_ctxs = extract_expressions(value)
+                dep_refs = expr_ctxs[ExprContext.ACTIONS]
+                for dep in dep_refs:
+                    dep_scope = action_scopes[dep]
+                    if action.action == PlatformAction.TRANSFORM_SCATTER:
+                        if dep_scope != scope_hierarchy[action_scope]:
+                            raise TracecatDSLError(
+                                f"Scatter action '{action.ref}' has an expression in field '{key2loc(key)}' that references '{dep}', which isn't the parent scope"
+                            )
+                    elif action.action == PlatformAction.TRANSFORM_GATHER:
+                        # Here, action_scope is the parent scope
+                        if action_scope != scope_hierarchy[dep_scope]:
+                            raise TracecatDSLError(
+                                f"Gather action '{action.ref}' has an expression in field '{key2loc(key)}' that references '{dep}', which isn't the child scope"
+                            )
+                    else:
+                        # Dep scope must be the same as action_scope or an ancestor (parent, grandparent, etc.)
+                        curr_scope = action_scope
+                        is_ancestor = False
+                        while curr_scope is not None:
+                            if dep_scope == curr_scope:
+                                is_ancestor = True
+                                break
+                            curr_scope = scope_hierarchy.get(curr_scope)
+                        if not is_ancestor:
+                            raise TracecatDSLError(
+                                f"Action '{action.ref}' has an expression in field '{key2loc(key)}' that references '{dep}' which cannot be referenced from this scope"
+                            )
 
     def _assign_action_scopes(
         self, adj: dict[str, list[str]]
@@ -495,6 +514,10 @@ class ChildWorkflowMemo(BaseModel):
         default=WaitStrategy.WAIT,
         description="The wait strategy of the child workflow.",
     )
+    stream_id: StreamID = Field(
+        default=ROOT_STREAM,
+        description="The stream ID of the child workflow.",
+    )
 
     @staticmethod
     def from_temporal(memo: temporalio.api.common.v1.Memo) -> ChildWorkflowMemo:
@@ -514,8 +537,16 @@ class ChildWorkflowMemo(BaseModel):
         except Exception as e:
             logger.warning("Error parsing child workflow memo wait strategy", error=e)
             wait_strategy = WaitStrategy.WAIT
+        try:
+            stream_id = StreamID(orjson.loads(memo.fields["stream_id"].data))
+        except Exception as e:
+            logger.warning("Error parsing child workflow memo stream id", error=e)
+            stream_id = ROOT_STREAM
         return ChildWorkflowMemo(
-            action_ref=action_ref, loop_index=loop_index, wait_strategy=wait_strategy
+            action_ref=action_ref,
+            loop_index=loop_index,
+            wait_strategy=wait_strategy,
+            stream_id=stream_id,
         )
 
 

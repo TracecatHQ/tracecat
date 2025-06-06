@@ -34,6 +34,7 @@ with workflow.unsafe.imports_passed_through():
         ctx_logger,
         ctx_role,
         ctx_run,
+        ctx_stream_id,
     )
     from tracecat.dsl.action import (
         DSLActivities,
@@ -63,10 +64,11 @@ with workflow.unsafe.imports_passed_through():
         ExecutionContext,
         RunActionInput,
         RunContext,
+        StreamID,
         TaskResult,
         TriggerInputs,
     )
-    from tracecat.dsl.scheduler import CTX_STREAM_ID, DSLScheduler, StreamID
+    from tracecat.dsl.scheduler import DSLScheduler
     from tracecat.dsl.validation import (
         ValidateTriggerInputsActivityInputs,
         validate_trigger_inputs_activity,
@@ -192,9 +194,8 @@ class DSLWorkflow:
 
     def get_context(self, stream_id: StreamID | None = None) -> ExecutionContext:
         """Get the current execution context."""
-        if stream_id is None:
-            return self.context
-        return self.scheduler.streams[stream_id]
+        sid = stream_id or ctx_stream_id.get()
+        return self.scheduler.streams[sid]
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
@@ -533,8 +534,7 @@ class DSLWorkflow:
             - If we have both, the wait_until timer will take precedence
         2. Decide whether we're running a child workflow or not
         """
-
-        stream_id = CTX_STREAM_ID.get()
+        stream_id = ctx_stream_id.get()
         logger.info("Begin task execution", task_ref=task.ref, stream_id=stream_id)
         task_result = TaskResult(result=None, result_typename=type(None).__name__)
 
@@ -639,7 +639,7 @@ class DSLWorkflow:
             # At this point,
             # Child run args
             # Task args here refers to the args passed to the child
-            args = evaluate_templated_args(task, context=self.context)
+            args = evaluate_templated_args(task, context=self.get_context())
             self.logger.trace(
                 "Executing child workflow",
                 child_run_args=child_run_args,
@@ -919,7 +919,7 @@ class DSLWorkflow:
     async def _run_action(self, task: ActionStatement) -> Any:
         # XXX(perf): We shouldn't pass the full execution context to the activity
         # We should only keep the contexts that are needed for the action
-        stream_id = CTX_STREAM_ID.get()
+        stream_id = ctx_stream_id.get()
         expr_ctxs = extract_expressions(task.model_dump())
         new_action_context: dict[str, Any] = {}
         for action_ref in expr_ctxs[ExprContext.ACTIONS]:
@@ -933,6 +933,7 @@ class DSLWorkflow:
             run_context=self.run_context,
             exec_context=new_context,
             interaction_context=ctx_interaction.get(),
+            stream_id=stream_id,
         )
 
         return await workflow.execute_activity(
@@ -954,8 +955,12 @@ class DSLWorkflow:
         # XXX(safety): This has been validated in prepare_child_workflow
         args = ExecuteChildWorkflowArgs.model_construct(**task.args)
         # Use Temporal memo to store the action ref in the child workflow run
+        stream_id = ctx_stream_id.get()
         memo = ChildWorkflowMemo(
-            action_ref=task.ref, loop_index=loop_index, wait_strategy=args.wait_strategy
+            action_ref=task.ref,
+            loop_index=loop_index,
+            wait_strategy=args.wait_strategy,
+            stream_id=stream_id,
         ).model_dump()
         self.logger.info(
             "Running child workflow",

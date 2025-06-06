@@ -28,7 +28,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Interaction
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput, DSLRunArgs
-from tracecat.dsl.models import TriggerInputs
+from tracecat.dsl.models import Task, TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow, retry_policies
 from tracecat.ee.interactions.models import InteractionInput
@@ -221,10 +221,11 @@ class WorkflowExecutionsService:
                     source.action_error = EventFailure.from_history_event(event)
         # For the resultant values, if there are duplicate source action_refs,
         #  we should merge them into a single event.
-        finalRef2events: dict[str, WorkflowExecutionEventCompact] = {}
+        task2events: dict[Task, WorkflowExecutionEventCompact] = {}
         for event in id2event.values():
-            if event.action_ref in finalRef2events:
-                group_event = finalRef2events[event.action_ref]
+            task = Task(ref=event.action_ref, stream_id=event.stream_id)
+            if task in task2events:
+                group_event = task2events[task]
                 group_event.child_wf_count += 1
                 # Take the min start time
                 if group_event.start_time and event.start_time:
@@ -244,18 +245,17 @@ class WorkflowExecutionsService:
                 ):
                     group_event.action_result.append(event.action_result)
             else:
-                finalRef2events[event.action_ref] = event
+                task2events[task] = event
                 # There's an edge case where a direct child wf invocation and a single looped child wf invocation
                 # is ambiguous - how do we tell whether we should wrap the result in a list or not?
                 # We use Temporal memo to store the loop index, so we can detect this case
                 # If the loop index is None, it means it was a direct child wf invocation
                 # Otherwise, it was a looped child wf invocation
                 if event.loop_index is not None:
-                    finalRef2events[event.action_ref].action_result = [
-                        event.action_result
-                    ]
+                    task2events[task].action_result = [event.action_result]
 
-        return list(finalRef2events.values())
+        res = list(task2events.values())
+        return res
 
     async def list_workflow_execution_events(
         self,

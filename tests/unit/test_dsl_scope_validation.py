@@ -56,7 +56,7 @@ class TestScopeValidation:
         """Test that upward references (outer -> inner) are caught."""
         with pytest.raises(
             TracecatDSLError,
-            match="Action 'invalid_action_ref' has an expression that references 'process_item' which cannot be referenced from this scope",
+            match="Action 'invalid_action_ref' has an expression in field 'inputs' that references 'process_item' which cannot be referenced from this scope",
         ):
             DSLInput(
                 title="Invalid Upward Reference",
