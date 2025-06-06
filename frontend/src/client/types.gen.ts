@@ -336,6 +336,10 @@ export type Body_auth_verify_verify = {
   token: string
 }
 
+export type Body_cases_create_attachment = {
+  file: Blob | File
+}
+
 export type Body_tables_import_csv = {
   file: Blob | File
   column_mapping: string
@@ -349,6 +353,23 @@ export type Body_workflows_create_workflow = {
    */
   use_workflow_id?: boolean
   file?: (Blob | File) | null
+}
+
+/**
+ * Model for reading a case attachment.
+ */
+export type CaseAttachmentRead = {
+  id: string
+  case_id: string
+  file_id: string
+  file_name: string
+  content_type: string
+  size: number
+  sha256: string
+  created_at: string
+  updated_at: string
+  creator_id?: string | null
+  is_deleted?: boolean
 }
 
 export type CaseCommentCreate = {
@@ -3694,6 +3715,46 @@ export type CasesListEventsWithUsersData = {
 
 export type CasesListEventsWithUsersResponse = CaseEventsWithUsers
 
+export type CasesListAttachmentsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListAttachmentsResponse = Array<CaseAttachmentRead>
+
+export type CasesCreateAttachmentData = {
+  caseId: string
+  formData: Body_cases_create_attachment
+  workspaceId: string
+}
+
+export type CasesCreateAttachmentResponse = CaseAttachmentRead
+
+export type CasesDownloadAttachmentData = {
+  attachmentId: string
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesDownloadAttachmentResponse = unknown
+
+export type CasesDeleteAttachmentData = {
+  attachmentId: string
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesDeleteAttachmentResponse = void
+
+export type CasesGetStorageUsageData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesGetStorageUsageResponse = {
+  [key: string]: number
+}
+
 export type CasesListFieldsData = {
   workspaceId: string
 }
@@ -5529,6 +5590,79 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CaseEventsWithUsers
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments": {
+    get: {
+      req: CasesListAttachmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseAttachmentRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesCreateAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseAttachmentRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments/{attachment_id}": {
+    get: {
+      req: CasesDownloadAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/storage-usage": {
+    get: {
+      req: CasesGetStorageUsageData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: number
+        }
         /**
          * Validation Error
          */
