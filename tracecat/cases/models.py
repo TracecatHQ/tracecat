@@ -281,3 +281,46 @@ class Change[OldType: Any, NewType: Any](BaseModel):
 class CaseEventsWithUsers(BaseModel):
     events: list[CaseEventRead] = Field(..., description="The events for the case.")
     users: list[UserRead] = Field(..., description="The users for the case.")
+
+
+# Case Attachment Models
+
+
+class CaseAttachmentCreate(BaseModel):
+    """Model for creating a case attachment."""
+
+    file_name: str = Field(..., max_length=255, description="Original filename")
+    content_type: str = Field(..., max_length=100, description="MIME type of the file")
+    size: int = Field(..., gt=0, description="File size in bytes")
+    content: bytes = Field(..., description="File content")
+
+
+class CaseAttachmentRead(BaseModel):
+    """Model for reading a case attachment."""
+
+    id: uuid.UUID
+    case_id: uuid.UUID
+    file_id: uuid.UUID
+    file_name: str
+    content_type: str
+    size: int
+    sha256: str
+    created_at: datetime
+    updated_at: datetime
+    creator_id: uuid.UUID | None = None
+    is_deleted: bool = False
+
+
+class FileRead(BaseModel):
+    """Model for reading file metadata."""
+
+    id: uuid.UUID
+    sha256: str
+    name: str
+    content_type: str
+    size: int
+    creator_id: uuid.UUID | None
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None = None
+    is_deleted: bool
