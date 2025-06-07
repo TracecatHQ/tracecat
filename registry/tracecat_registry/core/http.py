@@ -5,7 +5,7 @@
 from collections.abc import Callable
 import base64
 import binascii
-import os.path
+from pathlib import Path
 import tempfile
 from json import JSONDecodeError
 from typing import Annotated, Any, Literal, NotRequired, Required, TypedDict
@@ -314,7 +314,7 @@ def _sanitize_filename(filename: str, max_length: int = 255) -> str:
         ValueError: If filename cannot be made safe
     """
     # Strip directory components to prevent path traversal
-    filename = os.path.basename(filename)
+    filename = Path(filename).name
 
     # Remove encoded directory separators
     filename = filename.replace("/", "").replace("\\", "")
