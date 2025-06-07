@@ -37,7 +37,8 @@ apt-get install -y \
   apt-transport-https \
   ca-certificates \
   gnupg \
-  unzip
+  unzip \
+  ripgrep
 
 # Verify curl is installed and in PATH
 which curl || { echo "ERROR: curl not found after installation"; exit 1; }
@@ -100,6 +101,7 @@ mkdir -p \
     /home/apiuser/.cache/deno \
     /home/apiuser/.cache/uv \
     /home/apiuser/.cache/pyodide-packages \
+    /home/apiuser/.cache/s3 \
     /home/apiuser/.local \
     /home/apiuser/node_modules \
     /app/.scripts
@@ -132,6 +134,12 @@ fi
 # Check if kubectl is installed by checking the version
 if ! kubectl version --client &> /dev/null; then
     echo "ERROR: Failed to install kubectl"
+    exit 1
+fi
+
+# Check if ripgrep is installed by checking the version
+if ! rg --version &> /dev/null; then
+    echo "ERROR: Failed to install ripgrep"
     exit 1
 fi
 
