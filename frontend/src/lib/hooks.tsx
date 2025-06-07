@@ -151,7 +151,6 @@ import {
   WorkflowDirectoryItem,
   WorkflowExecutionCreate,
   WorkflowExecutionRead,
-  WorkflowExecutionReadCompact,
   WorkflowExecutionReadMinimal,
   workflowExecutionsCreateWorkflowExecution,
   workflowExecutionsGetWorkflowExecution,
@@ -182,6 +181,7 @@ import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 
 import { getBaseUrl } from "@/lib/api"
 import { retryHandler, TracecatApiError } from "@/lib/errors"
+import { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { toast } from "@/components/ui/use-toast"
 
 interface AppInfo {

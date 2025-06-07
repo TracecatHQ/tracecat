@@ -127,8 +127,8 @@ class WorkflowExecutionRead(WorkflowExecutionBase):
     )
 
 
-class WorkflowExecutionReadCompact(WorkflowExecutionBase):
-    events: list[WorkflowExecutionEventCompact] = Field(
+class WorkflowExecutionReadCompact[TInput: Any, TResult: Any](WorkflowExecutionBase):
+    events: list[WorkflowExecutionEventCompact[TInput, TResult]] = Field(
         ..., description="Compact events in the workflow execution"
     )
     interactions: list[InteractionRead] = Field(
@@ -321,7 +321,7 @@ class WorkflowExecutionEvent(BaseModel, Generic[EventInput]):
     workflow_timeout: float | None = None
 
 
-class WorkflowExecutionEventCompact(BaseModel):
+class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
     """A compact representation of a workflow execution event."""
 
     source_event_id: int
@@ -334,8 +334,8 @@ class WorkflowExecutionEventCompact(BaseModel):
     status: WorkflowExecutionEventStatus
     action_name: str
     action_ref: str
-    action_input: Any | None = None
-    action_result: Any | None = None
+    action_input: TInput | None = None
+    action_result: TResult | None = None
     action_error: EventFailure | None = None
     stream_id: StreamID = ROOT_STREAM
     child_wf_exec_id: WorkflowExecutionID | None = None

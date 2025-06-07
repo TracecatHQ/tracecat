@@ -1,10 +1,18 @@
 import {
+  AgentOutput,
   DSLRunArgs,
   InteractionInput,
   RunActionInput,
   WorkflowEventType,
-  WorkflowExecutionEventCompact,
+  WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__,
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__,
 } from "@/client"
+
+export type WorkflowExecutionEventCompact =
+  WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__
+
+export type WorkflowExecutionReadCompact =
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
 
 export const ERROR_EVENT_TYPES: WorkflowEventType[] = [
   "WORKFLOW_EXECUTION_FAILED",
@@ -184,4 +192,15 @@ export function formatStreamId(streamId: string) {
     return "global scope"
   }
   return `execution stream ${lastPart.scope}[${lastPart.index}]`
+}
+
+export function isAgentOutput(
+  actionResult: WorkflowExecutionEventCompact["action_result"]
+): actionResult is AgentOutput {
+  return (
+    typeof actionResult === "object" &&
+    actionResult !== null &&
+    "message_history" in actionResult &&
+    Array.isArray((actionResult as AgentOutput).message_history)
+  )
 }
