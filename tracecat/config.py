@@ -1,4 +1,3 @@
-import multiprocessing
 import os
 import uuid
 from typing import Literal
@@ -239,11 +238,3 @@ TRACECAT__S3_CONCURRENCY_LIMIT = int(
     os.environ.get("TRACECAT__S3_CONCURRENCY_LIMIT", 50)
 )
 """Maximum number of concurrent S3 operations to prevent resource exhaustion. Defaults to 50."""
-
-TRACECAT__FILE_CONCURRENCY_LIMIT = int(
-    os.environ.get(
-        "TRACECAT__FILE_CONCURRENCY_LIMIT", min(multiprocessing.cpu_count() * 8, 64)
-    )
-)
-"""Maximum number of concurrent file operations (e.g., grep, file writes) to prevent resource exhaustion.
-Defaults to 8x CPU count (capped at 64) to optimize for CPU-bound operations like ripgrep."""

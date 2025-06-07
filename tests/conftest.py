@@ -484,6 +484,8 @@ def minio_server():
             ],
             check=True,
             capture_output=True,
+            # Add timeout
+            timeout=20,
         )
 
         # Wait for MinIO to be ready

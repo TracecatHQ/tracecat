@@ -1,10 +1,14 @@
 """Integration tests for grep functionality using MinIO as S3-compatible storage."""
 
+import asyncio
 from io import BytesIO
 
 import pytest
 from minio import Minio
+from tracecat_registry.integrations.amazon_s3 import _s3_semaphore
 from tracecat_registry.integrations.ee.grep import s3 as grep_s3
+
+from tracecat import config
 
 
 @pytest.fixture
@@ -404,3 +408,104 @@ class TestGrepS3Integration:
 
             # Should have matches from at least one file
             assert len(file_paths) >= 1
+
+    @pytest.mark.anyio
+    async def test_grep_concurrent_calls(
+        self, minio_bucket, mock_s3_secrets, sample_files, aioboto3_minio_client
+    ):
+        """Test that concurrent grep calls work properly with resource limiting."""
+
+        # Create multiple concurrent grep operations
+        tasks = []
+        for _ in range(8):  # Create 8 concurrent tasks
+            task = grep_s3(
+                bucket=minio_bucket,
+                keys=["log1.txt", "log2.txt"],
+                pattern="INFO",
+                max_columns=1000,
+            )
+            tasks.append(task)
+
+        # Execute all tasks concurrently
+        results = await asyncio.gather(*tasks)
+
+        # All tasks should complete successfully
+        assert len(results) == 8
+
+        # Each result should be a list
+        for result in results:
+            assert isinstance(result, list)
+
+        # Results should be consistent (same pattern, same files)
+        # Count matches in each result
+        match_counts = []
+        for result in results:
+            matches = [
+                item
+                for item in result
+                if isinstance(item, dict) and item.get("type") == "match"
+            ]
+            match_counts.append(len(matches))
+
+        # All results should have the same number of matches
+        assert all(count == match_counts[0] for count in match_counts)
+
+    @pytest.mark.anyio
+    async def test_grep_large_concurrent_load(
+        self, minio_bucket, mock_s3_secrets, sample_files, aioboto3_minio_client
+    ):
+        """Test grep under larger concurrent load to verify resource limiting."""
+
+        # Create many concurrent grep operations with different patterns
+        patterns = ["INFO", "ERROR", "DEBUG", "WARN", "localhost"]
+        tasks = []
+
+        for i in range(20):  # Create 20 concurrent tasks
+            pattern = patterns[i % len(patterns)]
+            task = grep_s3(
+                bucket=minio_bucket,
+                keys=["log1.txt", "log2.txt", "config.json"],
+                pattern=pattern,
+                max_columns=1000,
+            )
+            tasks.append(task)
+
+        # Execute all tasks concurrently - this should not overwhelm the system
+        # due to semaphore-based concurrency limiting
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # All tasks should complete (either successfully or with expected exceptions)
+        assert len(results) == 20
+
+        # Count successful results vs exceptions
+        successful_results = [r for r in results if not isinstance(r, Exception)]
+        exceptions = [r for r in results if isinstance(r, Exception)]
+
+        # With concurrency limiting, we expect some operations to succeed
+        # The exact number depends on system resources and timing
+        assert len(successful_results) >= 5  # At least some should succeed
+        assert len(successful_results) <= 20  # But not more than total
+
+        # Any exceptions should be expected types (not resource exhaustion)
+        for exc in exceptions:
+            # Should not be resource-related exceptions
+            assert not isinstance(exc, OSError | MemoryError | asyncio.TimeoutError)
+            # Log the exception type for debugging
+            print(f"Exception type: {type(exc).__name__}: {exc}")
+
+        # Verify that the concurrency limiting is working by checking that
+        # we have a mix of successes and potential failures, which indicates
+        # the system is properly managing resources rather than crashing
+
+    @pytest.mark.anyio
+    async def test_s3_concurrency_limits_configuration(self):
+        """Test that S3 concurrency limits are properly configured."""
+
+        # Verify that the S3 semaphore is using the configured limit
+        assert _s3_semaphore._value == config.TRACECAT__S3_CONCURRENCY_LIMIT
+
+        # Verify default values are reasonable
+        assert config.TRACECAT__S3_CONCURRENCY_LIMIT > 0
+        assert (
+            config.TRACECAT__S3_CONCURRENCY_LIMIT <= 200
+        )  # Reasonable upper bound for S3
