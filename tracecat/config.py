@@ -178,6 +178,11 @@ TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH = "/app/local_registry"
 TRACECAT__PYODIDE_VERSION = os.environ.get("PYODIDE_VERSION", "0.27.6")
 """Version of Pyodide to use for Python script execution in WebAssembly sandbox."""
 
+TRACECAT__NODE_MODULES_DIR = os.environ.get(
+    "NODE_MODULES_DIR", "/home/apiuser/.local/lib/node_modules"
+)
+"""Directory where Node.js modules are installed for Deno/Pyodide execution."""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
     os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"
