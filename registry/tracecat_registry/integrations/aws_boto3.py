@@ -5,6 +5,7 @@ Supports role-based authentication and session management.
 """
 
 from typing import Annotated, Any
+from typing_extensions import Doc
 
 import boto3
 import aioboto3
@@ -12,7 +13,6 @@ from types_aiobotocore_sts.type_defs import (
     CredentialsTypeDef as AsyncCredentialsTypeDef,
 )
 from types_boto3_sts.type_defs import CredentialsTypeDef
-from pydantic import Field
 
 from tracecat_registry import RegistrySecret, logger, registry, secrets
 
@@ -198,25 +198,19 @@ def get_sync_session() -> boto3.Session:
 async def call_api(
     service_name: Annotated[
         str,
-        Field(
-            ...,
-            description="AWS service name e.g. 's3', 'ec2', 'guardduty'.",
-        ),
+        Doc("AWS service name e.g. 's3', 'ec2', 'guardduty'."),
     ],
     method_name: Annotated[
         str,
-        Field(
-            ...,
-            description="Method name e.g. 'list_buckets', 'list_instances'",
-        ),
+        Doc("Method name e.g. 'list_buckets', 'list_instances'"),
     ],
     endpoint_url: Annotated[
         str | None,
-        Field(..., description="Endpoint URL for the AWS service."),
+        Doc("Endpoint URL for the AWS service."),
     ] = None,
     params: Annotated[
         dict[str, Any] | None,
-        Field(..., description="Parameters for the API method."),
+        Doc("Parameters for the API method."),
     ] = None,
 ) -> dict[str, Any]:
     params = params or {}
@@ -237,25 +231,19 @@ async def call_api(
 async def call_paginated_api(
     service_name: Annotated[
         str,
-        Field(
-            ...,
-            description="AWS service name e.g. 's3', 'ec2', 'guardduty'.",
-        ),
+        Doc("AWS service name e.g. 's3', 'ec2', 'guardduty'."),
     ],
     paginator_name: Annotated[
         str,
-        Field(
-            ...,
-            description="Paginator name e.g. 'list_objects_v2', 'describe_instances'.",
-        ),
+        Doc("Paginator name e.g. 'list_objects_v2', 'describe_instances'."),
     ],
     endpoint_url: Annotated[
         str | None,
-        Field(..., description="Endpoint URL for the AWS service."),
+        Doc("Endpoint URL for the AWS service."),
     ] = None,
     params: Annotated[
         dict[str, Any] | None,
-        Field(..., description="Parameters for the API paginator."),
+        Doc("Parameters for the API paginator."),
     ] = None,
 ) -> list[dict[str, Any]]:
     params = params or {}
