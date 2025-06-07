@@ -1,4 +1,53 @@
-"""Grep action for Tracecat."""
+"""Grep action for Tracecat.
+
+This module provides S3-based grep functionality with built-in resource management
+and concurrency limiting to prevent system overload.
+
+Concurrency Limiting
+-------------------
+To prevent resource exhaustion, this module implements two levels of concurrency control:
+
+1. **S3 Operations**: Limited by `TRACECAT__S3_CONCURRENCY_LIMIT` (default: 50)
+   - Controls concurrent S3 API calls (get_object, put_object, etc.)
+   - Prevents overwhelming S3 service and network resources
+   - Higher limit since S3 operations are network I/O bound
+   - Configured via environment variable `TRACECAT__S3_CONCURRENCY_LIMIT`
+
+2. **File Operations**: Limited by `TRACECAT__FILE_CONCURRENCY_LIMIT` (default: 8x CPU count, capped at 64)
+   - Controls concurrent file writes and ripgrep executions
+   - Prevents disk I/O bottlenecks and excessive process spawning
+   - Scales with CPU count since ripgrep is CPU-intensive
+   - For 8vCPU instance: defaults to 64 concurrent operations
+   - Configured via environment variable `TRACECAT__FILE_CONCURRENCY_LIMIT`
+
+The concurrency limits use asyncio.Semaphore to ensure that only a specified number
+of operations can run simultaneously, queuing additional requests until resources
+become available.
+
+Configuration
+------------
+Set these environment variables to adjust concurrency limits:
+
+```bash
+export TRACECAT__S3_CONCURRENCY_LIMIT=100     # Allow up to 100 concurrent S3 operations
+export TRACECAT__FILE_CONCURRENCY_LIMIT=80    # Allow up to 80 concurrent file operations
+```
+
+**Rationale for Defaults:**
+- **S3 limit (50)**: Network I/O operations can handle high concurrency without overwhelming local resources
+- **File limit (8x CPU)**: Optimized for CPU-bound ripgrep operations, scales with available processing power
+- **Cap at 64**: Prevents excessive resource usage even on high-CPU instances
+
+**Hardware Scaling:**
+- 4 vCPU: 32 concurrent file operations
+- 8 vCPU: 64 concurrent file operations (capped)
+- 16 vCPU: 64 concurrent file operations (capped)
+
+Caching
+-------
+The module also implements intelligent caching using diskcache to reduce redundant
+S3 operations and improve performance for repeated requests.
+"""
 
 import orjson
 import tempfile
@@ -6,12 +55,16 @@ from pathlib import Path
 from typing import Annotated, Any
 from typing_extensions import Doc
 import subprocess
+import asyncio
 from diskcache import FanoutCache
 
 from tracecat import config
 from tracecat_registry import registry
 from tracecat_registry.integrations.amazon_s3 import s3_secret, get_objects
 
+# Semaphore to limit concurrent file operations to prevent resource exhaustion
+# This limits the number of concurrent file writes and ripgrep operations
+_file_semaphore = asyncio.Semaphore(config.TRACECAT__FILE_CONCURRENCY_LIMIT)
 
 S3_CACHE = FanoutCache(
     directory=Path.home() / ".cache" / "s3",
@@ -98,8 +151,9 @@ async def _get_cached_objects(bucket: str, keys: list[str]) -> list[str]:
         else:
             uncached_keys.append(key)
 
-    # Fetch uncached objects in parallel
+    # Fetch uncached objects in parallel with built-in concurrency limiting
     if uncached_keys:
+        # The get_objects function already has concurrency limiting via semaphore
         new_objects = await get_objects(bucket, uncached_keys)
 
         # Cache the new objects
@@ -133,25 +187,26 @@ async def s3(
     if len(keys) > 1000:
         raise ValueError("Cannot process more than 1000 keys at once")
 
-    # Get objects (with caching)
+    # Get objects (with caching and built-in S3 concurrency limiting)
     objects = await _get_cached_objects(bucket, keys)
 
-    # Create temporary directory and files
-    with tempfile.TemporaryDirectory(prefix="tracecat_grep_") as temp_dir:
-        temp_path = Path(temp_dir)
+    # Create temporary directory and files with concurrency limiting
+    async with _file_semaphore:
+        with tempfile.TemporaryDirectory(prefix="tracecat_grep_") as temp_dir:
+            temp_path = Path(temp_dir)
 
-        # Write each object to a temporary file
-        for key, content in zip(keys, objects):
-            # Sanitize key to create valid filename
-            # Remove any path separators and special characters
-            safe_filename = "".join(
-                c if c.isalnum() or c in "._-" else "_" for c in key
-            )
-            # Ensure filename is not empty and doesn't start with a dot
-            if not safe_filename or safe_filename.startswith("."):
-                safe_filename = f"file_{hash(key)}"
+            # Write each object to a temporary file
+            for key, content in zip(keys, objects):
+                # Sanitize key to create valid filename
+                # Remove any path separators and special characters
+                safe_filename = "".join(
+                    c if c.isalnum() or c in "._-" else "_" for c in key
+                )
+                # Ensure filename is not empty and doesn't start with a dot
+                if not safe_filename or safe_filename.startswith("."):
+                    safe_filename = f"file_{hash(key)}"
 
-            file_path = temp_path / safe_filename
-            file_path.write_text(content, encoding="utf-8")
+                file_path = temp_path / safe_filename
+                file_path.write_text(content, encoding="utf-8")
 
-        return _ripgrep(pattern, Path(temp_path), max_columns)
+            return _ripgrep(pattern, Path(temp_path), max_columns)

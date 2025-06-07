@@ -15,10 +15,17 @@ from types_aiobotocore_s3.type_defs import (
 
 from tracecat_registry import RegistrySecret, registry
 from tracecat_registry.integrations.aws_boto3 import get_session
-from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES
+from tracecat.config import (
+    TRACECAT__MAX_FILE_SIZE_BYTES,
+    TRACECAT__S3_CONCURRENCY_LIMIT,
+)
 
 # Add this at the top with other constants
 BUCKET_REGEX = re.compile(r"^[a-z0-9][a-z0-9.-]*[a-z0-9]$")
+
+# Semaphore to limit concurrent S3 operations to prevent resource exhaustion
+# This limits the number of concurrent S3 API calls
+_s3_semaphore = asyncio.Semaphore(TRACECAT__S3_CONCURRENCY_LIMIT)
 
 s3_secret = RegistrySecret(
     name="amazon_s3",
@@ -127,12 +134,14 @@ async def get_objects(
     bucket: Annotated[str, Field(..., description="S3 bucket name.")],
     keys: Annotated[list[str], Field(..., description="S3 object keys.")],
 ) -> list[str]:
-    # To prevent Amazon S3 rate limits
+    # To prevent Amazon S3 rate limits and resource exhaustion
     @retry(
         stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10)
     )
     async def get_object_fn(key: str) -> str:
-        return await get_object(bucket, key)
+        # Use semaphore to limit concurrent S3 operations
+        async with _s3_semaphore:
+            return await get_object(bucket, key)
 
     return await asyncio.gather(*[get_object_fn(key) for key in keys])
 
