@@ -224,19 +224,19 @@ def _create_function_signature(
     return inspect.Signature(sig_params), annotations
 
 
-def _generate_tool_function_name(namespace: str, name: str) -> str:
+def _generate_tool_function_name(namespace: str, name: str, *, sep: str = "__") -> str:
     """Generate a function name from namespace and action name.
 
     Args:
         namespace: The action namespace (e.g., "tools.slack")
         name: The action name (e.g., "post_message")
+        sep: The separator to use between namespace and name
 
     Returns:
-        Generated function name (e.g., "slack_post_message")
+        Generated function name (e.g., "tools.slack.post_message" -> "tools__slack__post_message")
     """
     # Extract the last part of namespace after splitting by "."
-    tool_name = namespace.split(".", maxsplit=1)[-1]
-    return f"{tool_name}_{name}"
+    return f"{namespace}{sep}{name}".replace(".", sep)
 
 
 async def create_tool_from_registry(action_name: str) -> Tool:
