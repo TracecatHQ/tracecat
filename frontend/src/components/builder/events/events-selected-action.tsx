@@ -1,16 +1,16 @@
 "use client"
 
 import React from "react"
-import {
-  EventFailure,
-  InteractionRead,
-  WorkflowExecutionEventCompact,
-  WorkflowExecutionReadCompact,
-} from "@/client"
+import { EventFailure, InteractionRead } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { ChevronRightIcon, CircleDot, LoaderIcon } from "lucide-react"
 
-import { groupEventsByActionRef, parseStreamId } from "@/lib/event-history"
+import {
+  groupEventsByActionRef,
+  parseStreamId,
+  WorkflowExecutionEventCompact,
+  WorkflowExecutionReadCompact,
+} from "@/lib/event-history"
 import { Badge } from "@/components/ui/badge"
 import {
   Select,

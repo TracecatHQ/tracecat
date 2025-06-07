@@ -1,4 +1,4 @@
-import { InteractionStatus, WorkflowExecutionReadCompact } from "@/client"
+import { InteractionStatus } from "@/client"
 import {
   AlarmClockOffIcon,
   CircleCheck,
@@ -7,6 +7,7 @@ import {
   MessagesSquare,
 } from "lucide-react"
 
+import { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { cn, undoSlugify } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {

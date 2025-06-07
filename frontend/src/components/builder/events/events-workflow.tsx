@@ -1,11 +1,6 @@
 import { useCallback, useState } from "react"
 import Link from "next/link"
-import {
-  TriggerType,
-  WorkflowExecutionEventCompact,
-  WorkflowExecutionEventStatus,
-  WorkflowExecutionReadCompact,
-} from "@/client"
+import { TriggerType, WorkflowExecutionEventStatus } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -34,7 +29,12 @@ import {
   ZapIcon,
 } from "lucide-react"
 
-import { executionId, groupEventsByActionRef } from "@/lib/event-history"
+import {
+  executionId,
+  groupEventsByActionRef,
+  WorkflowExecutionEventCompact,
+  WorkflowExecutionReadCompact,
+} from "@/lib/event-history"
 import { cn, slugify, undoSlugify } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
