@@ -1,0 +1,18 @@
+start_time:
+  type: datetime
+  description: Start time for the query (inclusive).
+end_time:
+  type: datetime
+  description: End time for the query (exclusive).
+severity:
+  type: str | None
+  description: Severity to filter alerts by.
+  default: null
+query:
+  type: str | None
+  description: Query or filter to apply to alerts.
+  default: null
+limit:
+  type: int
+  description: Maximum number of alerts to return.
+  default: 100
