@@ -226,3 +226,9 @@ TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES", 100 * 1024 * 1024)
 )
 """The maximum size of the aggregate upload size in bytes. Defaults to 100MB."""
+
+# === System PATH config === #
+TRACECAT__SYSTEM_PATH = os.environ.get(
+    "TRACECAT__SYSTEM_PATH", "/usr/local/bin:/usr/bin:/bin"
+)
+"""System PATH for subprocess execution. Includes common binary locations."""
