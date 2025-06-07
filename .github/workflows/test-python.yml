@@ -134,7 +134,8 @@ jobs:
         run: |
           echo "y
           localhost
-          n" | bash env.sh
+          n
+          test@tracecat.com" | bash env.sh
 
       - name: Start core Docker services
         env:
