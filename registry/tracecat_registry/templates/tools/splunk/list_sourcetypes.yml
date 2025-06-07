@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: List sourcetypes
+  description: List all defined sourcetypes on the Splunk server.
+  display_group: Splunk
+  doc_url: https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTsearch
+  namespace: tools.splunk
+  name: list_sourcetypes
+  secrets:
+    - name: splunk
+      keys:
+        - SPLUNK_API_KEY
+  expects:
+    base_url:
+      type: str
+      description: Splunk base URL (e.g. https://localhost:8089).
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+    limit:
+      type: int
+      description: Maximum number of sourcetypes to return. Set to 0 for no limit.
+      default: 0
+  steps:
+    - ref: get_sourcetypes
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/services/saved/sourcetypes
+        method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+        params:
+          output_mode: json
+          count: ${{ inputs.limit }}
+        timeout: 30
+    - ref: format_results
+      action: core.transform.reshape
+      args:
+        value:
+          sourcetypes: >-
+            {% set result = [] %}
+            {% for st in steps.get_sourcetypes.result.data.entry %}
+              {% set sourcetype = {
+                "name": st.name,
+                "description": st.content.get("description", ""),
+                "category": st.content.get("category", "")
+              } %}
+              {% set _ = result.append(sourcetype) %}
+            {% endfor %}
+            {{ result }}
+          total_count: ${{ steps.get_sourcetypes.result.data.entry | length }}
+          limit_applied: ${{ inputs.limit }}
+  returns: ${{ steps.format_results.result }}

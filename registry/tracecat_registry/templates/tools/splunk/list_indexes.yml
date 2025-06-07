@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: List indexes
+  description: List all recognized indexes on the Splunk server with full metadata including size, event counts, and storage paths.
+  display_group: Splunk
+  doc_url: https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTdata#data.2Findexes
+  namespace: tools.splunk
+  name: list_indexes
+  secrets:
+    - name: splunk
+      keys:
+        - SPLUNK_API_KEY
+  expects:
+    base_url:
+      type: str
+      description: Splunk base URL (e.g. https://localhost:8089).
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+    datatype:
+      type: str
+      description: Filter by index data type.
+      default: "all"
+      enum: ["all", "event", "metric"]
+    include_internal:
+      type: bool
+      description: Whether to include internal indexes (_internal, _audit, etc.).
+      default: false
+  steps:
+    - ref: get_indexes
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/services/data/indexes
+        method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+        params:
+          datatype: ${{ inputs.datatype }}
+          output_mode: json
+        timeout: 30
+    - ref: filter_indexes
+      action: core.transform.filter
+      args:
+        items: ${{ steps.get_indexes.result.data.entry }}
+        python_lambda: "lambda x: True if ${{ inputs.include_internal }} else not x.get('content', {}).get('isInternal', False)"
+  returns: ${{ steps.filter_indexes.result }}

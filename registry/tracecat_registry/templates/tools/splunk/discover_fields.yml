@@ -1,0 +1,76 @@
+type: action
+definition:
+  title: Discover fields
+  description: Discover fields in Splunk data using the fieldsummary command with statistics and sample values.
+  display_group: Splunk
+  doc_url: https://docs.splunk.com/Documentation/Splunk/9.4.1/SearchReference/Fieldsummary
+  namespace: tools.splunk
+  name: discover_fields
+  secrets:
+    - name: splunk
+      keys:
+        - SPLUNK_API_KEY
+  expects:
+    base_url:
+      type: str
+      description: Splunk base URL (e.g. https://localhost:8089).
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+    index:
+      type: str
+      description: Index to search for fields. Use * for all indexes.
+      default: "*"
+    start_time:
+      type: datetime
+      description: Start time for the search.
+    end_time:
+      type: datetime
+      description: End time for the search.
+    max_values:
+      type: int
+      description: Maximum number of sample values to return per field.
+      default: 5
+    limit:
+      type: int
+      description: Maximum number of fields to return. Set to 0 for no limit.
+      default: 100
+  steps:
+    - ref: create_search
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/services/search/jobs
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+          Content-Type: application/x-www-form-urlencoded
+        payload: search=search index=${{ inputs.index }} | fieldsummary maxvals=${{ inputs.max_values }} | sort -count | head ${{ inputs.limit }}&output_mode=json&start_time=${{ inputs.start_time }}&end_time=${{ inputs.end_time }}
+        timeout: 30
+    - ref: get_results
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/services/search/jobs/${{ steps.create_search.result.data.sid }}/results
+        method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+        params:
+          output_mode: json
+          count: 0
+        timeout: 30
+    - ref: format_results
+      action: core.transform.reshape
+      args:
+        value:
+          fields: ${{ steps.get_results.result.data.results }}
+          summary:
+            total_fields: ${{ steps.get_results.result.data.results | length }}
+            index_searched: ${{ inputs.index }}
+            time_range:
+              start: ${{ inputs.start_time }}
+              end: ${{ inputs.end_time }}
+            max_values_per_field: ${{ inputs.max_values }}
+            limit_applied: ${{ inputs.limit }}
+  returns: ${{ steps.format_results.result }}

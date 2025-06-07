@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: List data models
+  description: List all data models on the Splunk server with metadata, object hierarchies, field schemas, and acceleration status.
+  display_group: Splunk
+  doc_url: https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTdata#data.2Fmodels
+  namespace: tools.splunk
+  name: list_data_models
+  secrets:
+    - name: splunk
+      keys:
+        - SPLUNK_API_KEY
+  expects:
+    base_url:
+      type: str
+      description: Splunk base URL (e.g. https://localhost:8089).
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+    app_name:
+      type: str
+      description: Specific app context to search in (optional). If not provided, searches all apps.
+      default: "-"
+    limit:
+      type: int
+      description: Maximum number of data models to return.
+      default: 100
+  steps:
+    - ref: get_data_models
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/servicesNS/-/${{ inputs.app_name }}/data/models
+        method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+        params:
+          output_mode: json
+          count: ${{ inputs.limit }}
+        timeout: 30
+  returns: ${{ steps.get_data_models.result.data.entry }}
