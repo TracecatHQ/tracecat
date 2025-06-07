@@ -4,8 +4,14 @@ import re
 from typing import Annotated
 import base64
 import binascii
+import asyncio
 
+from tenacity import retry, stop_after_attempt, wait_exponential
 from pydantic import Field
+from types_aiobotocore_s3.type_defs import (
+    ListObjectsV2OutputTypeDef,
+    DeleteObjectOutputTypeDef,
+)
 
 from tracecat_registry import RegistrySecret, registry
 from tracecat_registry.integrations.aws_boto3 import get_session
@@ -43,7 +49,7 @@ s3_secret = RegistrySecret(
 
 
 @registry.register(
-    default_title="Parse URI",
+    default_title="Parse S3 URI",
     description="Parse an S3 URI into bucket name and object key.",
     display_group="Amazon S3",
     doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3-example-download-file.html",
@@ -64,14 +70,14 @@ async def parse_uri(uri: str) -> tuple[str, str]:
 
 
 @registry.register(
-    default_title="Get object",
+    default_title="Get S3 object",
     description="Download an object from S3 and return its body as a string.",
     display_group="Amazon S3",
     doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.get_object",
     namespace="tools.amazon_s3",
     secrets=[s3_secret],
 )
-async def download_object(
+async def get_object(
     bucket: Annotated[str, Field(..., description="S3 bucket name.")],
     key: Annotated[str, Field(..., description="S3 object key.")],
 ) -> str:
@@ -87,7 +93,52 @@ async def download_object(
 
 
 @registry.register(
-    default_title="Put object",
+    default_title="List S3 objects",
+    description="List objects in an S3 bucket.",
+    display_group="Amazon S3",
+    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.list_objects_v2",
+    namespace="tools.amazon_s3",
+    secrets=[s3_secret],
+)
+async def list_objects(
+    bucket: Annotated[str, Field(..., description="S3 bucket name.")],
+    prefix: Annotated[str, Field(..., description="S3 object key prefix.")],
+    limit: Annotated[
+        int, Field(..., description="Maximum number of objects to return.")
+    ] = 1000,
+) -> ListObjectsV2OutputTypeDef:
+    session = await get_session()
+    async with session.client("s3") as s3_client:
+        response = await s3_client.list_objects_v2(
+            Bucket=bucket, Prefix=prefix, MaxKeys=limit
+        )
+    return response
+
+
+@registry.register(
+    default_title="Get S3 objects",
+    description="Download multiple S3 objects and return their bodies as strings.",
+    display_group="Amazon S3",
+    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.get_object",
+    namespace="tools.amazon_s3",
+    secrets=[s3_secret],
+)
+async def get_objects(
+    bucket: Annotated[str, Field(..., description="S3 bucket name.")],
+    keys: Annotated[list[str], Field(..., description="S3 object keys.")],
+) -> list[str]:
+    # To prevent Amazon S3 rate limits
+    @retry(
+        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10)
+    )
+    async def get_object_fn(key: str) -> str:
+        return await get_object(bucket, key)
+
+    return await asyncio.gather(*[get_object_fn(key) for key in keys])
+
+
+@registry.register(
+    default_title="Put S3 object",
     description="Put an object to S3.",
     display_group="Amazon S3",
     doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.put_object",
@@ -129,3 +180,21 @@ async def upload_object(
     session = await get_session()
     async with session.client("s3") as s3_client:
         await s3_client.put_object(Bucket=bucket, Key=key, Body=content_bytes)
+
+
+@registry.register(
+    default_title="Delete S3 object",
+    description="Delete an object from S3.",
+    display_group="Amazon S3",
+    doc_url="https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html#S3.Client.delete_object",
+    namespace="tools.amazon_s3",
+    secrets=[s3_secret],
+)
+async def delete_object(
+    bucket: Annotated[str, Field(..., description="S3 bucket name.")],
+    key: Annotated[str, Field(..., description="S3 object key.")],
+) -> DeleteObjectOutputTypeDef:
+    session = await get_session()
+    async with session.client("s3") as s3_client:
+        response = await s3_client.delete_object(Bucket=bucket, Key=key)
+    return response
