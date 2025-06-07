@@ -3,7 +3,6 @@
 from io import BytesIO
 
 import pytest
-from botocore.exceptions import ClientError
 from minio import Minio
 from tracecat_registry.integrations.ee.grep import s3 as grep_s3
 
@@ -167,11 +166,11 @@ class TestGrepS3Integration:
         self, minio_bucket, mock_s3_secrets, sample_files, aioboto3_minio_client
     ):
         """Test grepping for special characters."""
-        # Escape special regex characters
+        # @ doesn't need escaping in regex
         result = await grep_s3(
             bucket=minio_bucket,
             keys=["special_chars.txt"],
-            pattern=r"\@",  # Search for @ symbol
+            pattern="@",  # Search for @ symbol without escaping
             max_columns=1000,
         )
 
@@ -203,7 +202,9 @@ class TestGrepS3Integration:
     @pytest.mark.anyio
     async def test_grep_invalid_bucket(self, mock_s3_secrets, aioboto3_minio_client):
         """Test grep with invalid bucket name."""
-        with pytest.raises(ClientError):  # Should raise ClientError for invalid bucket
+        from tenacity import RetryError
+
+        with pytest.raises(RetryError):  # get_objects uses retry logic
             await grep_s3(
                 bucket="nonexistent-bucket",
                 keys=["test.txt"],
@@ -216,7 +217,9 @@ class TestGrepS3Integration:
         self, minio_bucket, mock_s3_secrets, sample_files, aioboto3_minio_client
     ):
         """Test grep with invalid/nonexistent keys."""
-        with pytest.raises(ClientError):  # Should raise ClientError for nonexistent key
+        from tenacity import RetryError
+
+        with pytest.raises(RetryError):  # get_objects uses retry logic
             await grep_s3(
                 bucket=minio_bucket,
                 keys=["nonexistent.txt"],
