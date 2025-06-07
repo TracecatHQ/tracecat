@@ -1,10 +1,14 @@
 import asyncio
 import os
+import subprocess
+import time
 import uuid
 from collections.abc import AsyncGenerator, Iterator
 from unittest.mock import patch
 
 import pytest
+from minio import Minio
+from minio.error import S3Error
 from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -38,6 +42,12 @@ skip_if_no_slack_credentials = pytest.mark.skipif(
 
 # Define a reusable usefixture marker for slack tests
 requires_slack_mocks = pytest.mark.usefixtures("mock_slack_secrets")
+
+# MinIO test configuration
+MINIO_ENDPOINT = "localhost:9002"
+MINIO_ACCESS_KEY = "minioadmin"
+MINIO_SECRET_KEY = "minioadmin"
+MINIO_CONTAINER_NAME = "test-minio-grep"
 
 
 @pytest.fixture
@@ -163,6 +173,12 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
     # Need this for local unit tests
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
+    # Add Homebrew path for macOS development environments
+    monkeysession.setattr(
+        config,
+        "TRACECAT__SYSTEM_PATH",
+        "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+    )
 
     monkeysession.setenv(
         "TRACECAT__DB_URI",
@@ -426,3 +442,170 @@ async def slack_secret(test_role):
                 await svc.delete_secret(created_secret)
             except Exception as e:
                 logger.warning(f"Failed to clean up slack secret: {e}")
+
+
+# MinIO and S3 testing fixtures
+@pytest.fixture(scope="session")
+def minio_server():
+    """Start MinIO server in Docker for the test session."""
+    # First, clean up any existing container
+    try:
+        subprocess.run(
+            ["docker", "stop", MINIO_CONTAINER_NAME], check=False, capture_output=True
+        )
+        subprocess.run(
+            ["docker", "rm", MINIO_CONTAINER_NAME], check=False, capture_output=True
+        )
+    except subprocess.CalledProcessError:
+        pass
+
+    # Start MinIO container with correct environment variables
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                MINIO_CONTAINER_NAME,
+                "-p",
+                "9002:9000",
+                "-p",
+                "9003:9001",
+                "-e",
+                f"MINIO_ROOT_USER={MINIO_ACCESS_KEY}",
+                "-e",
+                f"MINIO_ROOT_PASSWORD={MINIO_SECRET_KEY}",
+                "minio/minio:latest",
+                "server",
+                "/data",
+                "--console-address",
+                ":9001",
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+        # Wait for MinIO to be ready
+        max_retries = 30
+        for i in range(max_retries):
+            try:
+                client = Minio(
+                    MINIO_ENDPOINT,
+                    access_key=MINIO_ACCESS_KEY,
+                    secret_key=MINIO_SECRET_KEY,
+                    secure=False,
+                )
+                # Try to list buckets to check if MinIO is ready
+                list(client.list_buckets())
+                logger.info(f"MinIO server started in container {MINIO_CONTAINER_NAME}")
+                break
+            except Exception as e:
+                if i == max_retries - 1:
+                    logger.error(
+                        f"MinIO failed to start after {max_retries} retries: {e}"
+                    )
+                    raise RuntimeError(
+                        "MinIO server failed to start within timeout"
+                    ) from e
+                time.sleep(1)
+
+        yield
+
+    finally:
+        # Cleanup: stop and remove container
+        try:
+            subprocess.run(
+                ["docker", "stop", MINIO_CONTAINER_NAME],
+                check=False,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["docker", "rm", MINIO_CONTAINER_NAME], check=False, capture_output=True
+            )
+            logger.info(f"MinIO container {MINIO_CONTAINER_NAME} cleaned up")
+        except subprocess.CalledProcessError:
+            pass
+
+
+@pytest.fixture
+async def minio_client(minio_server) -> AsyncGenerator[Minio, None]:
+    """Create MinIO client for testing."""
+    client = Minio(
+        MINIO_ENDPOINT,
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=False,
+    )
+    yield client
+
+
+@pytest.fixture
+async def minio_bucket(minio_client: Minio) -> AsyncGenerator[str, None]:
+    """Create and cleanup a test bucket in MinIO."""
+    bucket_name = f"test-bucket-{uuid.uuid4().hex[:8]}"
+
+    # Create test bucket
+    try:
+        if not minio_client.bucket_exists(bucket_name):
+            minio_client.make_bucket(bucket_name)
+    except S3Error as e:
+        if e.code != "BucketAlreadyOwnedByYou":
+            raise
+
+    yield bucket_name
+
+    # Cleanup: remove all objects and bucket
+    try:
+        objects = minio_client.list_objects(bucket_name, recursive=True)
+        for obj in objects:
+            if obj.object_name:  # Check for None
+                minio_client.remove_object(bucket_name, obj.object_name)
+        minio_client.remove_bucket(bucket_name)
+    except S3Error:
+        pass  # Ignore cleanup errors
+
+
+@pytest.fixture
+async def mock_s3_secrets(monkeypatch):
+    """Mock S3 secrets to use MinIO credentials."""
+
+    def mock_get_secret(key: str) -> str:
+        secrets_map = {
+            "AWS_ACCESS_KEY_ID": MINIO_ACCESS_KEY,
+            "AWS_SECRET_ACCESS_KEY": MINIO_SECRET_KEY,
+            "AWS_REGION": "us-east-1",
+        }
+        return secrets_map.get(key, "")
+
+    # Mock the secrets.get function in various modules using the correct import path
+    monkeypatch.setattr("tracecat_registry.secrets.get", mock_get_secret)
+
+
+@pytest.fixture
+async def aioboto3_minio_client(monkeypatch):
+    """Fixture that mocks aioboto3 to use MinIO endpoint."""
+    import aioboto3
+    import tracecat_registry.integrations.aws_boto3 as boto3_module
+
+    # Mock get_session to return session with MinIO credentials
+    async def mock_get_session():
+        return aioboto3.Session(
+            aws_access_key_id=MINIO_ACCESS_KEY,
+            aws_secret_access_key=MINIO_SECRET_KEY,
+            region_name="us-east-1",
+        )
+
+    # Mock client creation to use MinIO endpoint
+    original_client = aioboto3.Session.client
+
+    def mock_client(self, service_name, **kwargs):
+        if service_name == "s3":
+            kwargs["endpoint_url"] = f"http://{MINIO_ENDPOINT}"
+        return original_client(self, service_name, **kwargs)
+
+    # Apply mocks using monkeypatch
+    monkeypatch.setattr(boto3_module, "get_session", mock_get_session)
+    monkeypatch.setattr(aioboto3.Session, "client", mock_client)
+
+    yield
