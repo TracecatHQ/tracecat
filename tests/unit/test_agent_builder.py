@@ -46,8 +46,8 @@ class TestCreateToolFromRegistry:
         assert isinstance(tool, Tool)
 
         # Verify the function name is set correctly based on the actual logic
-        # namespace "core" -> "core", name "http_request" -> "core_http_request"
-        assert tool.function.__name__ == "core_http_request"
+        # namespace "core" -> "core", name "http_request" -> "core__http_request"
+        assert tool.function.__name__ == "core__http_request"
 
         # Verify the function has a docstring
         assert tool.function.__doc__ is not None
@@ -103,8 +103,8 @@ class TestCreateToolFromRegistry:
         assert isinstance(tool, Tool)
 
         # Verify the function name is set correctly
-        # namespace "tools.slack" -> "slack", name "post_message" -> "slack_post_message"
-        assert tool.function.__name__ == "slack_post_message"
+        # namespace "tools.slack" -> "tools__slack", name "post_message" -> "tools__slack__post_message"
+        assert tool.function.__name__ == "tools__slack__post_message"
 
         # Verify the function has a docstring
         assert tool.function.__doc__ is not None
@@ -152,7 +152,7 @@ class TestCreateToolFromRegistry:
 
         # Verify the tool was created successfully
         assert isinstance(tool, Tool)
-        assert tool.function.__name__ == "core_http_request"
+        assert tool.function.__name__ == "core__http_request"
 
         # Verify the tool has the correct schema properties
         assert hasattr(tool, "_base_parameters_json_schema")
@@ -176,7 +176,7 @@ class TestCreateToolFromRegistry:
 
         # Verify the tool was created successfully
         assert isinstance(tool, Tool)
-        assert tool.function.__name__ == "slack_post_message"
+        assert tool.function.__name__ == "tools__slack__post_message"
 
         # Verify the tool has the correct schema properties
         assert hasattr(tool, "_base_parameters_json_schema")
@@ -236,9 +236,9 @@ class TestCreateToolFromRegistry:
     @pytest.mark.parametrize(
         "action_name,expected_func_name",
         [
-            ("core.http_request", "core_http_request"),
-            ("tools.slack.post_message", "slack_post_message"),
-            ("tools.aws_boto3.s3_list_objects", "aws_boto3_s3_list_objects"),
+            ("core.http_request", "core__http_request"),
+            ("tools.slack.post_message", "tools__slack__post_message"),
+            ("tools.aws_boto3.s3_list_objects", "tools__aws__boto3__s3_list_objects"),
         ],
         ids=[
             "core.http_request",
@@ -250,7 +250,7 @@ class TestCreateToolFromRegistry:
         self, test_role, action_name, expected_func_name
     ):
         """Test that function names are generated correctly from action names."""
-        # Based on the actual logic: namespace.split(".", maxsplit=1)[-1] + "_" + name
+        # Based on the actual logic: namespace.replace(".", "__") + "__" + name
         try:
             tool = await create_tool_from_registry(action_name)
             assert tool.function.__name__ == expected_func_name
@@ -574,23 +574,23 @@ class TestAgentBuilderHelpers:
         """Test function name generation from namespace and action name."""
         # Test simple namespace
         assert (
-            _generate_tool_function_name("core", "http_request") == "core_http_request"
+            _generate_tool_function_name("core", "http_request") == "core__http_request"
         )
 
-        # Test nested namespace - should take last part
+        # Test nested namespace - should replace all dots with separator
         assert (
             _generate_tool_function_name("tools.slack", "post_message")
-            == "slack_post_message"
+            == "tools__slack__post_message"
         )
 
         # Test deeply nested namespace
         assert (
             _generate_tool_function_name("tools.aws.boto3", "s3_list_objects")
-            == "aws.boto3_s3_list_objects"
+            == "tools__aws__boto3__s3_list_objects"
         )
 
         # Test single-word actions
-        assert _generate_tool_function_name("core", "transform") == "core_transform"
+        assert _generate_tool_function_name("core", "transform") == "core__transform"
 
     def test_create_function_signature_with_required_params(self):
         """Test function signature creation with required parameters."""
@@ -743,7 +743,7 @@ class TestAgentBuilderIntegration:
         tool_names = [tool.function.__name__ for tool in builder.tools]
 
         # Should have core HTTP and transform tools
-        expected_tools = ["core_http_request", "core_reshape"]
+        expected_tools = ["core__http_request", "core__reshape"]
         found_tools = [name for name in expected_tools if name in tool_names]
         assert len(found_tools) > 0, (
             f"Expected to find some of {expected_tools} in {tool_names}"
@@ -768,7 +768,7 @@ class TestAgentBuilderIntegration:
 
         # Verify it's the Python script tool
         tool = builder.tools[0]
-        assert tool.function.__name__ == "script_run_python"
+        assert tool.function.__name__ == "core__script__run_python"
 
         # Verify the tool has the expected parameters
         sig = inspect.signature(tool.function)
@@ -1078,7 +1078,7 @@ class TestAgentBuilderIntegration:
 
         # Verify tools were loaded
         assert len(builder.tools) == 1
-        assert builder.tools[0].function.__name__ == "core_http_request"
+        assert builder.tools[0].function.__name__ == "core__http_request"
 
         # We can't directly check private attributes, but we can verify the agent works
         # Try running the agent with a simple prompt

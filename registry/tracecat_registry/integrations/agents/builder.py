@@ -7,13 +7,16 @@ https://ai.pydantic.dev/tools/#prepare-tools
 import inspect
 import textwrap
 from typing import Any, Union, Annotated, Self
+from pydantic import BaseModel
 from typing_extensions import Doc
 from timeit import timeit
 
 from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.agent import AgentRunResult
+from pydantic_ai.messages import ModelMessage
+from pydantic_ai.usage import Usage
 from pydantic_ai.tools import Tool
-from pydantic_core import PydanticUndefined, to_jsonable_python
+from pydantic_core import PydanticUndefined
 
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.contexts import ctx_run
@@ -221,19 +224,19 @@ def _create_function_signature(
     return inspect.Signature(sig_params), annotations
 
 
-def _generate_tool_function_name(namespace: str, name: str) -> str:
+def _generate_tool_function_name(namespace: str, name: str, *, sep: str = "__") -> str:
     """Generate a function name from namespace and action name.
 
     Args:
         namespace: The action namespace (e.g., "tools.slack")
         name: The action name (e.g., "post_message")
+        sep: The separator to use between namespace and name
 
     Returns:
-        Generated function name (e.g., "slack_post_message")
+        Generated function name (e.g., "tools.slack.post_message" -> "tools__slack__post_message")
     """
     # Extract the last part of namespace after splitting by "."
-    tool_name = namespace.split(".", maxsplit=1)[-1]
-    return f"{tool_name}_{name}"
+    return f"{namespace}{sep}{name}".replace(".", sep)
 
 
 async def create_tool_from_registry(action_name: str) -> Tool:
@@ -417,6 +420,13 @@ async def collect_secrets_for_filters(
     return collected_secrets
 
 
+class AgentOutput(BaseModel):
+    output: str
+    message_history: list[ModelMessage]
+    duration: float
+    usage: Usage | None = None
+
+
 @registry.register(
     default_title="AI agent",
     description="AI agent with tool calling capabilities. Returns the output and full message history.",
@@ -481,14 +491,12 @@ async def agent(
     result: AgentRunResult = await agent.run(user_prompt=user_prompt)
     end_time = timeit()
 
-    output = result.output
-    message_history = to_jsonable_python(result.all_messages())
-    agent_output = {
-        "output": output,
-        "message_history": message_history,
-        "duration": end_time - start_time,
-    }
+    output = AgentOutput(
+        output=result.output,
+        message_history=result.all_messages(),
+        duration=end_time - start_time,
+    )
     if include_usage:
-        agent_output["usage"] = to_jsonable_python(result.usage())
+        output.usage = result.usage()
 
-    return agent_output
+    return output.model_dump(mode="json", exclude_unset=True)

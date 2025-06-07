@@ -156,6 +156,13 @@ export type ActionValidationResult = {
 
 export type status = "success" | "error"
 
+export type AgentOutput = {
+  output: string
+  message_history: Array<ModelRequest | ModelResponse>
+  duration: number
+  usage?: Usage | null
+}
+
 /**
  * Settings for the app.
  */
@@ -241,6 +248,11 @@ export type AssigneeChangedEventRead = {
   created_at: string
 }
 
+export type AudioUrl = {
+  url: string
+  kind?: "audio-url"
+}
+
 export type AuthSettingsRead = {
   auth_basic_enabled: boolean
   auth_require_email_verification: boolean
@@ -270,6 +282,27 @@ export type AuthSettingsUpdate = {
    * Session expiration time in seconds.
    */
   auth_session_expire_time_seconds?: number
+}
+
+export type BinaryContent = {
+  data: Blob | File
+  media_type:
+    | "audio/wav"
+    | "audio/mpeg"
+    | "image/jpeg"
+    | "image/png"
+    | "image/gif"
+    | "image/webp"
+    | "application/pdf"
+    | "text/plain"
+    | "text/csv"
+    | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    | "text/html"
+    | "text/markdown"
+    | "application/vnd.ms-excel"
+    | string
+  kind?: "binary"
 }
 
 export type Body_auth_reset_forgot_password = {
@@ -680,6 +713,11 @@ export type DSLValidationResult = {
   ref?: string | null
 }
 
+export type DocumentUrl = {
+  url: string
+  kind?: "document-url"
+}
+
 export type EditorActionRead = {
   type: string
   ref: string
@@ -697,6 +735,16 @@ export type EditorParamRead = {
   name: string
   type: string
   optional: boolean
+}
+
+export type ErrorDetails = {
+  type: string
+  loc: Array<number | string>
+  msg: string
+  input: unknown
+  ctx?: {
+    [key: string]: unknown
+  }
 }
 
 export type ErrorModel = {
@@ -849,6 +897,11 @@ export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
 
+export type ImageUrl = {
+  url: string
+  kind?: "image-url"
+}
+
 export type InteractionCategory = "slack"
 
 /**
@@ -912,6 +965,22 @@ export type InteractionStatus =
 export type InteractionType = "approval" | "response"
 
 export type JoinStrategy = "any" | "all"
+
+export type ModelRequest = {
+  parts: Array<
+    SystemPromptPart | UserPromptPart | ToolReturnPart | RetryPromptPart
+  >
+  instructions?: string | null
+  kind?: "request"
+}
+
+export type ModelResponse = {
+  parts: Array<TextPart | ToolCallPart>
+  usage?: Usage
+  model_name?: string | null
+  timestamp?: string
+  kind?: "response"
+}
 
 export type OAuth2AuthorizeResponse = {
   authorization_url: string
@@ -1339,6 +1408,14 @@ export type ResponseInteraction = {
   timeout?: number | null
 }
 
+export type RetryPromptPart = {
+  content: Array<ErrorDetails> | string
+  tool_name?: string | null
+  tool_call_id?: string
+  timestamp?: string
+  part_kind?: "retry-prompt"
+}
+
 /**
  * The identity and authorization of a user or service.
  *
@@ -1697,6 +1774,13 @@ export type StatusChangedEventRead = {
   created_at: string
 }
 
+export type SystemPromptPart = {
+  content: string
+  timestamp?: string
+  dynamic_ref?: string | null
+  part_kind?: "system-prompt"
+}
+
 /**
  * Create model for a table column.
  */
@@ -1950,6 +2034,30 @@ export type TemplateActionValidationErrorType =
   | "STEP_VALIDATION_ERROR"
   | "EXPRESSION_VALIDATION_ERROR"
 
+export type TextPart = {
+  content: string
+  part_kind?: "text"
+}
+
+export type ToolCallPart = {
+  tool_name: string
+  args:
+    | string
+    | {
+        [key: string]: unknown
+      }
+  tool_call_id?: string
+  part_kind?: "tool-call"
+}
+
+export type ToolReturnPart = {
+  tool_name: string
+  content: unknown
+  tool_call_id: string
+  timestamp?: string
+  part_kind?: "tool-return"
+}
+
 export type Trigger = {
   type: "schedule" | "webhook"
   ref: string
@@ -1987,6 +2095,16 @@ export type UpdatedEventRead = {
   created_at: string
 }
 
+export type Usage = {
+  requests?: number
+  request_tokens?: number | null
+  response_tokens?: number | null
+  total_tokens?: number | null
+  details?: {
+    [key: string]: number
+  } | null
+}
+
 export type UserCreate = {
   email: string
   password: string
@@ -1995,6 +2113,16 @@ export type UserCreate = {
   is_verified?: boolean | null
   first_name?: string | null
   last_name?: string | null
+}
+
+export type UserPromptPart = {
+  content:
+    | string
+    | Array<
+        string | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent
+      >
+  timestamp?: string
+  part_kind?: "user-prompt"
 }
 
 export type UserRead = {
@@ -2045,6 +2173,11 @@ export type ValidationResult =
   | ExprValidationResult
   | TemplateActionExprValidationResult
   | ActionValidationResult
+
+export type VideoUrl = {
+  url: string
+  kind?: "video-url"
+}
 
 export type WaitStrategy = "wait" | "detach"
 
@@ -2213,10 +2346,7 @@ export type WorkflowExecutionEvent = {
   workflow_timeout?: number | null
 }
 
-/**
- * A compact representation of a workflow execution event.
- */
-export type WorkflowExecutionEventCompact = {
+export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
   source_event_id: number
   schedule_time: string
   start_time?: string | null
@@ -2225,8 +2355,8 @@ export type WorkflowExecutionEventCompact = {
   status: WorkflowExecutionEventStatus
   action_name: string
   action_ref: string
-  action_input?: unknown | null
-  action_result?: unknown | null
+  action_input?: unknown
+  action_result?: AgentOutput | unknown | null
   action_error?: EventFailure | null
   stream_id?: string
   child_wf_exec_id?: string | null
@@ -2302,7 +2432,7 @@ export type status4 =
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
 
-export type WorkflowExecutionReadCompact = {
+export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
   /**
    * The ID of the workflow execution
    */
@@ -2342,7 +2472,7 @@ export type WorkflowExecutionReadCompact = {
   /**
    * Compact events in the workflow execution
    */
-  events: Array<WorkflowExecutionEventCompact>
+  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__>
   /**
    * The interactions in the workflow execution
    */
@@ -2834,7 +2964,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
-  WorkflowExecutionReadCompact
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -3643,7 +3773,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3656,7 +3786,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -4081,7 +4211,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionReadCompact
+        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
         /**
          * Validation Error
          */
