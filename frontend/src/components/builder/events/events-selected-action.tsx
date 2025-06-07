@@ -262,18 +262,20 @@ export function UserPromptPartComponent({ part }: { part: UserPromptPart }) {
 
 export function RetryPromptPartComponent({ part }: { part: RetryPromptPart }) {
   return (
-    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs shadow-sm">
+    <Card className="flex flex-col gap-2 rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs shadow-sm">
       <div className="flex items-center gap-1">
         <RefreshCw className="size-3 text-muted-foreground" />
         <span className="text-xs font-semibold text-foreground/80">
           Retry prompt
         </span>
       </div>
-      {typeof part.content === "string"
-        ? part.content
-        : part.content.map((c) => {
-            return <span key={c.msg}>{c.msg}</span>
-          })}
+      <div className="whitespace-pre-wrap">
+        {typeof part.content === "string"
+          ? part.content
+          : part.content.map((c) => {
+              return <span key={c.msg}>{c.msg}</span>
+            })}
+      </div>
     </Card>
   )
 }
