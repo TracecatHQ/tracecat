@@ -36,6 +36,6 @@ definition:
           Content-Type: application/json
         params:
           networkInterfacePhysical__contains: ${{ inputs.mac_address }}
-          networkInterfaceGatewayMacAddress__contains: ${{ inputs.mac_address if inputs.search_gateway_mac else null }}
+          networkInterfaceGatewayMacAddress__contains: ${{ inputs.mac_address if inputs.search_gateway_mac else None }}
           limit: ${{ inputs.limit }}
   returns: ${{ steps.lookup_agents.result }}

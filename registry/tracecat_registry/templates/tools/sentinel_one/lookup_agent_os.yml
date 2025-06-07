@@ -45,6 +45,6 @@ definition:
         params:
           osTypes: ${{ inputs.os_types }}
           osVersion__contains: ${{ inputs.os_version_contains if inputs.os_version_contains else [] }}
-          query: ${{ inputs.os_name if inputs.os_name else null }}
+          query: ${{ inputs.os_name if inputs.os_name else None }}
           limit: ${{ inputs.limit }}
   returns: ${{ steps.lookup_agents.result }}
