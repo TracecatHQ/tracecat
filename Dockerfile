@@ -85,6 +85,8 @@ RUN deno --version && \
     python3 -c "import os; print(f'/app/.scripts accessible: {os.access(\"/app/.scripts\", os.R_OK | os.W_OK)}')" && \
     python3 -c "import os; print(f'S3 cache accessible: {os.access(\"/home/apiuser/.cache/s3\", os.R_OK | os.W_OK)}')" && \
     python3 -c "import tempfile; print(f'Temp dir: {tempfile.gettempdir()}')" && \
+    python3 -c "import os; print(f'Entrypoint executable: {os.access(\"/app/entrypoint.sh\", os.R_OK | os.X_OK)}')" && \
+    ls -la /app/entrypoint.sh && \
     echo "User access verification complete"
 
 EXPOSE $PORT
