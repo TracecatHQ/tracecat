@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracecat-ui
+  namespace: {{ .Release.Namespace }}
+{{- if .Values.ui.deployment.annotations }}
+  annotations:
+    {{- range $key, $value := .Values.ui.deployment.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+  labels:
+    app: tracecat
+    chart: "{{ template "chart.fullname" . }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+    app.kubernetes.io/component: ui
+    app.kubernetes.io/name: "{{ .Chart.Name }}"
+    app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.ui.deployment.labels }}
+    {{- range $key, $value := .Values.ui.deployment.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+spec:
+  replicas: {{ .Values.ui.replicaCount }}
+  strategy:
+    type: {{ .Values.ui.strategyType }}
+  selector:
+    matchLabels:
+      app: tracecat
+      app.kubernetes.io/component: ui
+  template:
+    metadata:
+{{- if .Values.api.pods.annotations }}
+      annotations:
+        {{- range $key, $value := .Values.ui.pods.annotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+{{- end }}
+      labels:
+        app: tracecat
+        app.kubernetes.io/component: ui
+        app.kubernetes.io/name: "{{ .Chart.Name }}"
+        app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.ui.pods.labels }}
+        {{- range $key, $value := .Values.ui.pods.labels}}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+{{- end }}
+    spec:
+      containers:
+        - name: "tracecat-ui"
+          image: "{{ include "tracecat.image" .Values.ui }}"
+          imagePullPolicy: "{{ ((.Values.ui.image).pullPolicy) | default "Always" }}"
+{{- if .Values.ui.resources }}
+          resources:
+{{ toYaml .Values.ui.resources | indent 10 }}
+{{- end }}
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: "{{ template "tracecat.url.public_api_url" . }}"
+            - name: NEXT_PUBLIC_APP_URL
+              value: "{{ template "tracecat.url.public_app_url" . }}"
+            - name: NEXT_PUBLIC_AUTH_TYPES
+              value: "{{ template "tracecat.auth.types" . }}"
+            - name: NEXT_SERVER_API_URL
+              value: "{{ template "tracecat.url.internal_api_url" . }}"
+            - name: NODE_ENV
+              value: production
+            - name: NEXT_PUBLIC_APP_ENV
+              value: production
+          ports:
+            - containerPort: 3000
