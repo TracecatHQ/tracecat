@@ -55,6 +55,7 @@ After running `env.sh`, you'll be prompted to input the following:
 - Use production mode? - defaults to `y` (use `y` unless you are a Tracecat developer)
 - Set `PUBLIC_APP_URL` to - defaults to `localhost`
 - Require PostgreSQL SSL mode? - defaults to `n`
+- Enter email address for the first user (superadmin) - **required field**
 
 <Info>
   When installing Tracecat on a local workstation, use `localhost` or `127.0.0.1` as the IP address.
@@ -120,10 +121,13 @@ To access the Tracecat GUI, visit `http://localhost:${PUBLIC_APP_PORT}`.
   docs](/self-hosting/authentication/overview).
 </Note>
 
-For each new Tracecat deployment, the admin superuser role is assigned to the first user who logs into the Tracecat instance.
+For each new Tracecat deployment, the super admin role is assigned to the first user who logs into the Tracecat instance.
 This user owns the organization and has admin rights to every workspace in the Tracecat deployment.
 
-To proceed, sign up and create an account with a strong and secure password.
+**Important:** Only the email address you specified during the `env.sh` setup can become super admin.
+You must sign up using exactly that email address to gain super admin privileges.
+
+To proceed, sign up and create an account with a strong and secure password using the super admin email you configured.
 Check out the [admin tutorial](/quickstart/admin) for more information.
 
 ## Networking

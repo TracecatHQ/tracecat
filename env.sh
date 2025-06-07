@@ -127,6 +127,22 @@ while true; do
     esac
 done
 
+# Prompt user for superadmin email
+echo -e "${YELLOW}Setting up first user (superadmin)...${NC}"
+while true; do
+    read -p "Enter email address for the first user (superadmin): " superadmin_email
+    if [[ -z "$superadmin_email" ]]; then
+        echo -e "${RED}Email address cannot be empty. Please enter a valid email address.${NC}"
+        continue
+    fi
+    # Basic email validation
+    if [[ "$superadmin_email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+        break
+    else
+        echo -e "${RED}Please enter a valid email address.${NC}"
+    fi
+done
+
 # Update environment variables
 dotenv_replace "TRACECAT__APP_ENV" "$env_mode" "$env_file"
 dotenv_replace "NODE_ENV" "$env_mode" "$env_file"
@@ -134,9 +150,11 @@ dotenv_replace "NEXT_PUBLIC_APP_ENV" "$env_mode" "$env_file"
 dotenv_replace "PUBLIC_API_URL" "http://${new_ip}/api/" "$env_file"
 dotenv_replace "PUBLIC_APP_URL" "http://${new_ip}" "$env_file"
 dotenv_replace "TRACECAT__DB_SSLMODE" "$ssl_mode" "$env_file"
+dotenv_replace "TRACECAT__AUTH_SUPERADMIN_EMAIL" "$superadmin_email" "$env_file"
 
 # Remove duplicate entries and leading/trailing commas
 new_origins=$(echo "$new_origins" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/^,//;s/,$//')
 dotenv_replace "TRACECAT__ALLOW_ORIGINS" "$new_origins" "$env_file"
 
 echo -e "${GREEN}Environment file created successfully.${NC}"
+echo -e "${GREEN}First user (superadmin) email set to: ${superadmin_email}${NC}"
