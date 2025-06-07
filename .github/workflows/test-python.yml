@@ -105,8 +105,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Install kubectl
+      - name: Install system dependencies
         run: |
+          # Install ripgrep for grep integration tests
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+          # Install kubectl
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
@@ -146,4 +151,5 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
         run: uv run pytest tests/${{ matrix.test_group }} -ra
