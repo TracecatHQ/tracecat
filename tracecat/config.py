@@ -178,6 +178,11 @@ TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH = "/app/local_registry"
 TRACECAT__PYODIDE_VERSION = os.environ.get("PYODIDE_VERSION", "0.27.6")
 """Version of Pyodide to use for Python script execution in WebAssembly sandbox."""
 
+TRACECAT__NODE_MODULES_DIR = os.environ.get(
+    "NODE_MODULES_DIR", "/home/apiuser/.local/lib/node_modules"
+)
+"""Directory where Node.js modules are installed for Deno/Pyodide execution."""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
     os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"
@@ -226,3 +231,15 @@ TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES", 100 * 1024 * 1024)
 )
 """The maximum size of the aggregate upload size in bytes. Defaults to 100MB."""
+
+# === System PATH config === #
+TRACECAT__SYSTEM_PATH = os.environ.get(
+    "TRACECAT__SYSTEM_PATH", "/usr/local/bin:/usr/bin:/bin"
+)
+"""System PATH for subprocess execution. Includes common binary locations."""
+
+# === Concurrency Limits === #
+TRACECAT__S3_CONCURRENCY_LIMIT = int(
+    os.environ.get("TRACECAT__S3_CONCURRENCY_LIMIT", 50)
+)
+"""Maximum number of concurrent S3 operations to prevent resource exhaustion. Defaults to 50."""

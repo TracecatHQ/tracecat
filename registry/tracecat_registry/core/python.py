@@ -8,7 +8,7 @@ import tempfile
 from io import StringIO
 from typing import Annotated, Any, TypedDict
 
-from tracecat.config import TRACECAT__PYODIDE_VERSION
+from tracecat.config import TRACECAT__PYODIDE_VERSION, TRACECAT__NODE_MODULES_DIR
 from tracecat.logger import logger
 from tracecat_registry import registry
 from typing_extensions import Doc
@@ -549,8 +549,8 @@ async def _run_python_script_subprocess(
             deno_path,
             "run",
             "--no-prompt",
-            f"--allow-read={temp_dir},node_modules",
-            f"--allow-write={temp_dir},node_modules",
+            f"--allow-read={temp_dir},{TRACECAT__NODE_MODULES_DIR}",
+            f"--allow-write={temp_dir},{TRACECAT__NODE_MODULES_DIR}",
             "--node-modules-dir=auto",
         ]
 
@@ -564,7 +564,9 @@ async def _run_python_script_subprocess(
                 *deno_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=Path.cwd(),
+                cwd=str(
+                    temp_path
+                ),  # Run from temp directory to avoid permission issues
             )
 
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
