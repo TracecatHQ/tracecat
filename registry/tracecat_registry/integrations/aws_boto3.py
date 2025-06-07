@@ -210,6 +210,10 @@ async def call_api(
             description="Method name e.g. 'list_buckets', 'list_instances'",
         ),
     ],
+    endpoint_url: Annotated[
+        str | None,
+        Field(..., description="Endpoint URL for the AWS service."),
+    ] = None,
     params: Annotated[
         dict[str, Any] | None,
         Field(..., description="Parameters for the API method."),
@@ -217,7 +221,7 @@ async def call_api(
 ) -> dict[str, Any]:
     params = params or {}
     session = await get_session()
-    async with session.client(service_name) as client:  # type: ignore
+    async with session.client(service_name, endpoint_url=endpoint_url) as client:  # type: ignore
         response = await getattr(client, method_name)(**params)
         return response
 
@@ -245,6 +249,10 @@ async def call_paginated_api(
             description="Paginator name e.g. 'list_objects_v2', 'describe_instances'.",
         ),
     ],
+    endpoint_url: Annotated[
+        str | None,
+        Field(..., description="Endpoint URL for the AWS service."),
+    ] = None,
     params: Annotated[
         dict[str, Any] | None,
         Field(..., description="Parameters for the API paginator."),
@@ -252,7 +260,7 @@ async def call_paginated_api(
 ) -> list[dict[str, Any]]:
     params = params or {}
     session = await get_session()
-    async with session.client(service_name) as client:  # type: ignore
+    async with session.client(service_name, endpoint_url=endpoint_url) as client:  # type: ignore
         paginator = client.get_paginator(paginator_name)
         pages = paginator.paginate(**params)
 
