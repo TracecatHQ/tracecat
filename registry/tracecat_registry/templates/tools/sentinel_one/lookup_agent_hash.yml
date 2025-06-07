@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Lookup agents by file hash
+  description: Find all SentinelOne agents that have encountered threats with a specific file hash.
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=get-agents
+  namespace: tools.sentinel_one
+  name: lookup_agent_hash
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    file_hash:
+      type: str
+      description: File hash (MD5, SHA1, SHA256) to search for in agent threats.
+    limit:
+      type: int
+      description: The maximum number of agents to return.
+      default: 100
+    base_url:
+      type: str
+      description: SentinelOne tenant URL.
+  steps:
+    - ref: query_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents
+        method: GET
+        timeout: 60
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+        params:
+          threatContentHash: ${{ inputs.file_hash }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.query_agents.result }}
