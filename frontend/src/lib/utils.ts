@@ -96,3 +96,15 @@ export function shortTimeAgo(date: Date) {
   const diffYear = Math.floor(diffDay / 365)
   return `${diffYear}y ago`
 }
+
+/**
+ * Reconstructs the action type from a dunder-separated string.
+ *
+ * i.e. "core__transform__scatter" -> "core.transform.scatter"
+ *
+ * @param type The action type.
+ * @returns The reconstructed action type.
+ */
+export function reconstructActionType(type: string) {
+  return type.replaceAll("__", ".")
+}
