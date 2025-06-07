@@ -2,12 +2,12 @@
 
 import re
 from typing import Annotated
+from typing_extensions import Doc
 import base64
 import binascii
 import asyncio
 
 from tenacity import retry, stop_after_attempt, wait_exponential
-from pydantic import Field
 from types_aiobotocore_s3.type_defs import (
     ListObjectsV2OutputTypeDef,
     DeleteObjectOutputTypeDef,
@@ -85,11 +85,15 @@ async def parse_uri(uri: str) -> tuple[str, str]:
     secrets=[s3_secret],
 )
 async def get_object(
-    bucket: Annotated[str, Field(..., description="S3 bucket name.")],
-    key: Annotated[str, Field(..., description="S3 object key.")],
+    bucket: Annotated[str, Doc("S3 bucket name.")],
+    key: Annotated[str, Doc("S3 object key.")],
+    endpoint_url: Annotated[
+        str | None,
+        Doc("Endpoint URL for the AWS S3 service."),
+    ] = None,
 ) -> str:
     session = await get_session()
-    async with session.client("s3") as s3_client:
+    async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
         obj = await s3_client.get_object(Bucket=bucket, Key=key)
         body = await obj["Body"].read()
         # Defensively handle different types of bodies
@@ -108,14 +112,16 @@ async def get_object(
     secrets=[s3_secret],
 )
 async def list_objects(
-    bucket: Annotated[str, Field(..., description="S3 bucket name.")],
-    prefix: Annotated[str, Field(..., description="S3 object key prefix.")],
-    limit: Annotated[
-        int, Field(..., description="Maximum number of objects to return.")
-    ] = 1000,
+    bucket: Annotated[str, Doc("S3 bucket name.")],
+    prefix: Annotated[str, Doc("S3 object key prefix.")],
+    limit: Annotated[int, Doc("Maximum number of objects to return.")] = 1000,
+    endpoint_url: Annotated[
+        str | None,
+        Doc("Endpoint URL for the AWS S3 service."),
+    ] = None,
 ) -> ListObjectsV2OutputTypeDef:
     session = await get_session()
-    async with session.client("s3") as s3_client:
+    async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
         response = await s3_client.list_objects_v2(
             Bucket=bucket, Prefix=prefix, MaxKeys=limit
         )
@@ -131,8 +137,12 @@ async def list_objects(
     secrets=[s3_secret],
 )
 async def get_objects(
-    bucket: Annotated[str, Field(..., description="S3 bucket name.")],
-    keys: Annotated[list[str], Field(..., description="S3 object keys.")],
+    bucket: Annotated[str, Doc("S3 bucket name.")],
+    keys: Annotated[list[str], Doc("S3 object keys.")],
+    endpoint_url: Annotated[
+        str | None,
+        Doc("Endpoint URL for the AWS S3 service."),
+    ] = None,
 ) -> list[str]:
     # To prevent Amazon S3 rate limits and resource exhaustion
     @retry(
@@ -141,7 +151,7 @@ async def get_objects(
     async def get_object_fn(key: str) -> str:
         # Use semaphore to limit concurrent S3 operations
         async with _s3_semaphore:
-            return await get_object(bucket, key)
+            return await get_object(bucket, key, endpoint_url)
 
     return await asyncio.gather(*[get_object_fn(key) for key in keys])
 
@@ -155,11 +165,13 @@ async def get_objects(
     secrets=[s3_secret],
 )
 async def upload_object(
-    bucket: Annotated[str, Field(..., description="S3 bucket name.")],
-    key: Annotated[str, Field(..., description="S3 object key.")],
-    file_data: Annotated[
-        str, Field(..., description="Base64 encoded content of the file to upload.")
-    ],
+    bucket: Annotated[str, Doc("S3 bucket name.")],
+    key: Annotated[str, Doc("S3 object key.")],
+    file_data: Annotated[str, Doc("Base64 encoded content of the file to upload.")],
+    endpoint_url: Annotated[
+        str | None,
+        Doc("Endpoint URL for the AWS S3 service."),
+    ] = None,
 ) -> None:
     """Uploads an object to S3. The object key is validated and content decoded.
 
@@ -187,7 +199,7 @@ async def upload_object(
         )
 
     session = await get_session()
-    async with session.client("s3") as s3_client:
+    async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
         await s3_client.put_object(Bucket=bucket, Key=key, Body=content_bytes)
 
 
@@ -200,10 +212,14 @@ async def upload_object(
     secrets=[s3_secret],
 )
 async def delete_object(
-    bucket: Annotated[str, Field(..., description="S3 bucket name.")],
-    key: Annotated[str, Field(..., description="S3 object key.")],
+    bucket: Annotated[str, Doc("S3 bucket name.")],
+    key: Annotated[str, Doc("S3 object key.")],
+    endpoint_url: Annotated[
+        str | None,
+        Doc("Endpoint URL for the AWS S3 service."),
+    ] = None,
 ) -> DeleteObjectOutputTypeDef:
     session = await get_session()
-    async with session.client("s3") as s3_client:
+    async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
         response = await s3_client.delete_object(Bucket=bucket, Key=key)
     return response

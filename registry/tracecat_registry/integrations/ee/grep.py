@@ -121,7 +121,9 @@ def _ripgrep(
     return json_objects
 
 
-async def _get_cached_objects(bucket: str, keys: list[str]) -> list[str]:
+async def _get_cached_objects(
+    bucket: str, keys: list[str], endpoint_url: str | None = None
+) -> list[str]:
     """Get S3 objects with caching by bucket/key."""
     # Separate keys into cached and uncached
     cached_objects = {}
@@ -138,7 +140,7 @@ async def _get_cached_objects(bucket: str, keys: list[str]) -> list[str]:
     # Fetch uncached objects in parallel with built-in concurrency limiting
     if uncached_keys:
         # The get_objects function already has concurrency limiting via semaphore
-        new_objects = await get_objects(bucket, uncached_keys)
+        new_objects = await get_objects(bucket, uncached_keys, endpoint_url)
 
         # Cache the new objects
         for key, content in zip(uncached_keys, new_objects):
@@ -163,6 +165,10 @@ async def s3(
     keys: Annotated[list[str], Doc("S3 object keys.")],
     pattern: Annotated[str, Doc("Regex pattern to grep.")],
     max_columns: Annotated[int, Doc("Maximum number of columns to grep.")] = 10000,
+    endpoint_url: Annotated[
+        str | None,
+        Doc("Endpoint URL for the AWS S3 service."),
+    ] = None,
 ) -> str | list[str] | dict[str, Any] | list[dict[str, Any]]:
     # Validate inputs
     if not bucket or not keys:
@@ -172,7 +178,7 @@ async def s3(
         raise ValueError("Cannot process more than 1000 keys at once")
 
     # Get objects (with caching and built-in S3 concurrency limiting)
-    objects = await _get_cached_objects(bucket, keys)
+    objects = await _get_cached_objects(bucket, keys, endpoint_url)
 
     # Create temporary directory and write files synchronously
     # File I/O is typically fast for temp directories, so no concurrency limiting needed
