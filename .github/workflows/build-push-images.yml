@@ -27,7 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: blacksmith-4vcpu-ubuntu-2204
+          - runner: ubuntu-latest
             platform: linux/amd64
             platform_tag: linux-amd64
           - runner: ubuntu-arm64-latest
@@ -86,7 +86,7 @@ jobs:
 
   merge-api:
     needs: build-and-push-api
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4
@@ -135,7 +135,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: blacksmith-4vcpu-ubuntu-2204
+          - runner: ubuntu-latest
             platform: linux/amd64
             platform_tag: linux-amd64
           - runner: ubuntu-arm64-latest
@@ -207,7 +207,7 @@ jobs:
 
   merge-ui:
     needs: build-and-push-ui
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4
