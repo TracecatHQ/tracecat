@@ -136,7 +136,7 @@ jobs:
           - runner: blacksmith-4vcpu-ubuntu-2404
             platform: linux/amd64
             platform_tag: linux-amd64
-          - runner: ubuntu-arm64-latest
+          - runner: blacksmith-4vcpu-ubuntu-2404-arm
             platform: linux/arm64
             platform_tag: linux-arm64
     steps:
