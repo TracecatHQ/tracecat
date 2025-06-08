@@ -247,7 +247,7 @@ function BuilderSidebarEventsList({
           </ScrollArea>
         </div>
         <Separator />
-        <div className="size-full overflow-y-scroll">
+        <div className="size-full overflow-scroll">
           {tabItems.map((tab) => (
             <TabsContent
               key={tab.value}
