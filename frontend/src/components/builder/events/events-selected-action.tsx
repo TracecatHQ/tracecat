@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import React, { useEffect } from "react"
 import {
   AgentOutput,
   EventFailure,
@@ -8,12 +8,18 @@ import {
   ModelRequest,
   ModelResponse,
   RetryPromptPart,
+  SystemPromptPart,
+  TextPart,
   ToolCallPart,
   ToolReturnPart,
   UserPromptPart,
 } from "@/client"
 import { useAuth } from "@/providers/auth"
 import { useWorkflowBuilder } from "@/providers/builder"
+import { codeBlock } from "@blocknote/code-block"
+import { BlockNoteEditor } from "@blocknote/core"
+import { useCreateBlockNote } from "@blocknote/react"
+import { BlockNoteView } from "@blocknote/shadcn"
 import {
   ChevronRightIcon,
   CircleDot,
@@ -22,6 +28,7 @@ import {
   Undo2Icon,
 } from "lucide-react"
 
+import { SYSTEM_USER } from "@/lib/auth"
 import {
   groupEventsByActionRef,
   isAgentOutput,
@@ -30,6 +37,7 @@ import {
   WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
 import { useGetRegistryAction } from "@/lib/hooks"
+import { getSpacedBlocks } from "@/lib/rich-text-editor"
 import { cn, reconstructActionType } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -221,26 +229,22 @@ export function AgentOutputEvent({
   )
 }
 
-export function AgentRequestPart({ parts }: { parts: ModelRequest["parts"] }) {
+export function SystemPromptPartComponent({
+  part,
+}: {
+  part: SystemPromptPart
+}) {
   return (
-    <div className="space-y-2">
-      {parts.map((p, index) => (
-        <div key={index} className="whitespace-pre-wrap">
-          {p.part_kind === "system-prompt" && (
-            <div className="whitespace-pre-wrap">{p.content}</div>
-          )}
-          {p.part_kind === "user-prompt" && (
-            <UserPromptPartComponent part={p} />
-          )}
-          {p.part_kind === "tool-return" && (
-            <ToolReturnPartComponent part={p} />
-          )}
-          {p.part_kind === "retry-prompt" && (
-            <RetryPromptPartComponent part={p} />
-          )}
+    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs shadow-sm">
+      <div className="flex items-center gap-2">
+        <CaseUserAvatar user={SYSTEM_USER} size="sm" />
+        <div className="whitespace-pre-wrap">
+          {typeof part.content === "string"
+            ? part.content
+            : JSON.stringify(part.content, null, 2)}
         </div>
-      ))}
-    </div>
+      </div>
+    </Card>
   )
 }
 
@@ -343,26 +347,71 @@ export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
     </div>
   )
 }
+
+export function AgentRequestPart({ parts }: { parts: ModelRequest["parts"] }) {
+  return (
+    <div className="space-y-2">
+      {parts.map((p, index) => (
+        <div key={index} className="space-y-2 text-xs">
+          {p.part_kind === "system-prompt" && (
+            <SystemPromptPartComponent part={p} />
+          )}
+          {p.part_kind === "user-prompt" && (
+            <UserPromptPartComponent part={p} />
+          )}
+          {p.part_kind === "tool-return" && (
+            <ToolReturnPartComponent part={p} />
+          )}
+          {p.part_kind === "retry-prompt" && (
+            <RetryPromptPartComponent part={p} />
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function AgentResponsePart({
   parts,
 }: {
   parts: ModelResponse["parts"]
 }) {
   return (
-    <div className="space-y-3">
-      {parts.map((p, index) => {
-        return (
-          <div key={index} className="space-y-2 text-xs">
-            {p.part_kind === "text" && (
-              <div className="whitespace-pre-wrap">{p.content}</div>
-            )}
-            {p.part_kind === "tool-call" && (
-              <ToolCallPartComponent toolCall={p} />
-            )}
-          </div>
-        )
-      })}
+    <div className="space-y-2">
+      {parts.map((p, index) => (
+        <div key={index} className="space-y-2 text-xs">
+          {p.part_kind === "text" && <TextPartComponent text={p} />}
+          {p.part_kind === "tool-call" && (
+            <ToolCallPartComponent toolCall={p} />
+          )}
+        </div>
+      ))}
     </div>
+  )
+}
+
+export function TextPartComponent({ text }: { text: TextPart }) {
+  const editor = useCreateBlockNote({
+    animations: false,
+    codeBlock,
+  })
+  useEffect(() => {
+    loadInitialContent(editor, text.content)
+  }, [text.content, editor])
+  return (
+    <Card className="overflow-scroll whitespace-pre-wrap rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm">
+      <BlockNoteView
+        editor={editor}
+        theme="light"
+        editable={false}
+        slashMenu={false}
+        style={{
+          height: "100%",
+          width: "100%",
+          whiteSpace: "pre-wrap",
+        }}
+      />
+    </Card>
   )
 }
 
@@ -573,4 +622,10 @@ function ErrorEvent({ failure }: { failure: EventFailure }) {
       <CodeBlock title="Error Message">{failure.message}</CodeBlock>
     </div>
   )
+}
+
+async function loadInitialContent(editor: BlockNoteEditor, content: string) {
+  const blocks = await editor.tryParseMarkdownToBlocks(content)
+  const spacedBlocks = getSpacedBlocks(blocks)
+  editor.replaceBlocks(editor.document, spacedBlocks)
 }
