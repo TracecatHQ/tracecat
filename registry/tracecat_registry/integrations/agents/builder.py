@@ -8,11 +8,12 @@ import inspect
 import textwrap
 from typing import Any, Union, Annotated, Self
 from pydantic import BaseModel
+from pydantic_core import to_jsonable_python
+from pydantic_ai.agent import AgentRunResult
 from typing_extensions import Doc
 from timeit import timeit
 
 from pydantic_ai import Agent, ModelRetry
-from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.usage import Usage
 from pydantic_ai.tools import Tool
@@ -39,6 +40,7 @@ from tracecat_registry.integrations.pydantic_ai import (
 
 from tracecat_registry import registry, RegistrySecret
 from tracecat.types.exceptions import RegistryError
+from tracecat_registry.integrations.agents.exceptions import AgentRunError
 
 
 def generate_google_style_docstring(description: str | None, model_cls: type) -> str:
@@ -487,13 +489,29 @@ async def agent(
     )
 
     start_time = timeit()
+    message_history = []
     # Use async version since this function is already async
-    result: AgentRunResult = await agent.run(user_prompt=user_prompt)
+    try:
+        async with agent.iter(user_prompt=user_prompt) as run:
+            async for node in run:
+                message_history.append(to_jsonable_python(node))
+            result = run.result
+
+            if isinstance(result, AgentRunResult):
+                output = result.output
+            else:
+                raise ValueError("No output returned from agent run.")
+    except Exception as e:
+        raise AgentRunError(
+            exc_cls=type(e),
+            exc_msg=str(e),
+            message_history=message_history,
+        )
     end_time = timeit()
 
     output = AgentOutput(
-        output=result.output,
-        message_history=result.all_messages(),
+        output=output,
+        message_history=message_history,
         duration=end_time - start_time,
     )
     if include_usage:

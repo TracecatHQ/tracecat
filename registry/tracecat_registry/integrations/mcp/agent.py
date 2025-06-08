@@ -25,7 +25,7 @@ from pydantic_ai.agent import ModelRequestNode, AgentRun, CallToolsNode
 import diskcache as dc
 
 from tracecat_registry.integrations.pydantic_ai import build_agent
-from tracecat_registry.integrations.mcp.exceptions import (
+from tracecat_registry.integrations.agents.exceptions import (
     AgentRunError,
     ConversationNotFoundError,
 )
