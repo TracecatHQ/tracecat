@@ -237,7 +237,7 @@ If you have an idea or feature request, please [open an issue](https://github.co
 If you encounter an invalid Action Template, Python integration, or inline function, please [open an issue](https://github.com/TracecatHQ/tracecat/issues).
 Make sure to provide the following information:
 
-- Tracecat version (e.g. `0.36.9`)
+- Tracecat version (e.g. `0.36.10`)
 
 ## Frontend / Backend Contributions
 
