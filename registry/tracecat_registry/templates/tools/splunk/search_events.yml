@@ -35,7 +35,7 @@ definition:
       description: Whether to verify SSL certificates.
       default: true
   steps:
-    - ref: post_search_job
+    - ref: search_job
       action: core.http_request
       args:
         url: ${{ inputs.base_url }}/services/search/jobs
@@ -51,4 +51,4 @@ definition:
           exec_mode: oneshot
           output_mode: json
           max_count: ${{ inputs.limit }}
-  returns: ${{ steps.get_search_results.result }}
+  returns: ${{ steps.search_job.result }}
