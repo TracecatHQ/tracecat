@@ -489,29 +489,26 @@ async def agent(
     )
 
     start_time = timeit()
-    message_history = []
     # Use async version since this function is already async
     try:
+        message_nodes = []
         async with agent.iter(user_prompt=user_prompt) as run:
             async for node in run:
-                message_history.append(to_jsonable_python(node))
+                message_nodes.append(to_jsonable_python(node))
             result = run.result
-
-            if isinstance(result, AgentRunResult):
-                output = result.output
-            else:
+            if not isinstance(result, AgentRunResult):
                 raise ValueError("No output returned from agent run.")
     except Exception as e:
         raise AgentRunError(
             exc_cls=type(e),
             exc_msg=str(e),
-            message_history=message_history,
+            message_history=message_nodes,
         )
     end_time = timeit()
 
     output = AgentOutput(
-        output=output,
-        message_history=message_history,
+        output=result.output,
+        message_history=result.all_messages(),
         duration=end_time - start_time,
     )
     if include_usage:
