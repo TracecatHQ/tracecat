@@ -113,7 +113,7 @@ async def get_object(
 )
 async def list_objects(
     bucket: Annotated[str, Doc("S3 bucket name.")],
-    prefix: Annotated[str, Doc("S3 object key prefix.")],
+    prefix: Annotated[str | None, Doc("S3 object key prefix.")] = None,
     limit: Annotated[int, Doc("Maximum number of objects to return.")] = 1000,
     endpoint_url: Annotated[
         str | None,
@@ -122,9 +122,12 @@ async def list_objects(
 ) -> ListObjectsV2OutputTypeDef:
     session = await get_session()
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
-        response = await s3_client.list_objects_v2(
-            Bucket=bucket, Prefix=prefix, MaxKeys=limit
-        )
+        if prefix:
+            response = await s3_client.list_objects_v2(
+                Bucket=bucket, Prefix=prefix, MaxKeys=limit
+            )
+        else:
+            response = await s3_client.list_objects_v2(Bucket=bucket, MaxKeys=limit)
     return response
 
 
