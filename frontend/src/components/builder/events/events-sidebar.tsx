@@ -252,7 +252,7 @@ function BuilderSidebarEventsList({
             <TabsContent
               key={tab.value}
               value={tab.value}
-              className="m-0 size-full p-0"
+              className="m-0 size-full min-w-[200px] p-0"
             >
               {tab.content}
             </TabsContent>
