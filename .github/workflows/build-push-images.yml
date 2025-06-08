@@ -27,10 +27,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
+          - runner: blacksmith-4vcpu-ubuntu-2404
             platform: linux/amd64
             platform_tag: linux-amd64
-          - runner: ubuntu-arm64-latest
+          - runner: blacksmith-4vcpu-ubuntu-2404-arm
             platform: linux/arm64
             platform_tag: linux-arm64
     steps:
@@ -61,14 +61,12 @@ jobs:
 
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: useblacksmith/build-push-action@v1
         with:
           context: .
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=ghcr.io/tracecathq/tracecat,push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=build-${{ matrix.platform_tag }}
-          cache-to: type=gha,scope=build-${{ matrix.platform_tag }},mode=max
 
       - name: Export digest
         run: |
@@ -86,7 +84,7 @@ jobs:
 
   merge-api:
     needs: build-and-push-api
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4
@@ -135,7 +133,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
+          - runner: blacksmith-4vcpu-ubuntu-2404
             platform: linux/amd64
             platform_tag: linux-amd64
           - runner: ubuntu-arm64-latest
@@ -169,7 +167,7 @@ jobs:
 
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: useblacksmith/build-push-action@v1
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
           NEXT_PUBLIC_APP_ENV: production
@@ -188,8 +186,6 @@ jobs:
             NODE_ENV=${{ env.NODE_ENV }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=ghcr.io/tracecathq/tracecat-ui,push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=build-${{ matrix.platform_tag }}
-          cache-to: type=gha,scope=build-${{ matrix.platform_tag }},mode=max
 
       - name: Export digest
         run: |
@@ -207,7 +203,7 @@ jobs:
 
   merge-ui:
     needs: build-and-push-ui
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4
