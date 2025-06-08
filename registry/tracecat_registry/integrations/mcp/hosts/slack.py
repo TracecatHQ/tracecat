@@ -3,6 +3,7 @@ import uuid
 from typing import Any, Annotated
 from dataclasses import dataclass
 from typing_extensions import Self, Doc
+from functools import lru_cache
 
 import diskcache as dc
 import orjson
@@ -28,10 +29,13 @@ from tracecat_registry.integrations.slack_sdk import (
 from tracecat_registry.integrations.pydantic_ai import PYDANTIC_AI_REGISTRY_SECRETS
 
 
-# Global cache for Slack UI state (button interactions)
-INTERACTION_CACHE = dc.FanoutCache(
-    directory=".cache/slack_interactions", shards=8, timeout=0.05, expire=21600
-)  # key=thread_ts, stores tool call info for button interactions
+# Use lru_cache for singleton pattern - more Pythonic
+@lru_cache(maxsize=1)
+def _get_interaction_cache() -> dc.FanoutCache:
+    """Get or create the interaction cache lazily using lru_cache singleton pattern."""
+    return dc.FanoutCache(
+        directory=".cache/tmp/slack_interactions", shards=8, timeout=0.05, expire=21600
+    )  # key=thread_ts, stores tool call info for button interactions
 
 
 @dataclass
@@ -380,7 +384,7 @@ class SlackMCPHost(MCPHost[SlackMCPHostDeps]):
         tool_call_id = str(uuid.uuid4())
 
         # Cache the tool call info AND message_id for later retrieval
-        INTERACTION_CACHE.set(
+        _get_interaction_cache().set(
             deps.conversation_id,
             {
                 "tool_call_id": tool_call_id,
@@ -862,7 +866,7 @@ async def _handle_tool_approval_interaction(
 ) -> SlackHandlerResult:
     """Handle tool approval/rejection button interactions."""
     # Get cached tool call info first to retrieve the original message_id
-    cached_value = INTERACTION_CACHE.get(slack_interaction_payload.thread_ts)
+    cached_value = _get_interaction_cache().get(slack_interaction_payload.thread_ts)
     tool_call: dict[str, Any] | None = (
         cached_value if isinstance(cached_value, dict) else None
     )
@@ -919,7 +923,7 @@ async def _handle_tool_approval_interaction(
     log.info("Processing tool approval interaction")
 
     # Clear the interaction cache after processing
-    INTERACTION_CACHE.delete(slack_interaction_payload.thread_ts)
+    _get_interaction_cache().delete(slack_interaction_payload.thread_ts)
 
     # Generate appropriate user prompt based on action
     if slack_interaction_payload.action_value == "run":

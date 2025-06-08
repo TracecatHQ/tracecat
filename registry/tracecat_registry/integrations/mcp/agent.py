@@ -144,11 +144,11 @@ class MCPHost(ABC, Generic[DepsT]):
         self.memory = memory
         # Tool results cache - TODO: Make this an ABC interface in the future
         self.tool_results_cache = dc.FanoutCache(
-            directory=".cache/tool_results", shards=8, timeout=0.05, expire=21600
+            directory=".cache/tmp/tool_results", shards=8, timeout=0.05, expire=21600
         )
         # Approved tool calls cache per conversation
         self.approved_tool_calls_cache = dc.FanoutCache(
-            directory=".cache/approved_tools", shards=8, timeout=0.05, expire=21600
+            directory=".cache/tmp/approved_tools", shards=8, timeout=0.05, expire=21600
         )
 
     @abstractmethod
