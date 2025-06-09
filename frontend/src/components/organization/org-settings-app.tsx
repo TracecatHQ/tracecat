@@ -93,7 +93,7 @@ export function OrgSettingsAppForm() {
               <div className="space-y-0.5">
                 <FormLabel>Enable registry validation</FormLabel>
                 <FormDescription>
-                  Enable registry validation (alpha).
+                  Enable registry validation.
                 </FormDescription>
               </div>
               <FormControl>
@@ -139,7 +139,7 @@ export function OrgSettingsAppForm() {
               <div className="space-y-0.5">
                 <FormLabel>Enable interactions</FormLabel>
                 <FormDescription>
-                  Enable application interactions functionality (alpha).
+                  Enable application interactions functionality.
                 </FormDescription>
               </div>
               <FormControl>
