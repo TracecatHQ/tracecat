@@ -4,3 +4,4 @@ globs:
 alwaysApply: true
 ---
 - Always ask clarifying questions when you don't have full context or understanding of a task or question.
+- If you use the Linear MCP tool to create issues, you must add the label `ai-generated`to the issue.
