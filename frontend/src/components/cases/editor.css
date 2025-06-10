@@ -41,6 +41,13 @@
   font-size: var(--bn-font-size-h3);
 }
 
+.bn-block-content[data-content-type="codeBlock"] {
+  background-color: hsl(var(--foreground) / 0.85);
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  font-size: var(--bn-font-size-sm);
+}
+
 /* Ensure all other elements use the base font size */
 .bn-editor,
 .bn-block-content,
@@ -48,7 +55,7 @@
 .bn-container [data-content-type="paragraph"],
 .bn-container [data-content-type="bulletListItem"],
 .bn-container [data-content-type="numberedListItem"] {
-  font-size: var(--bn-font-size-base);
+  font-size: var(--bn-font-size-sm);
 }
 
 /* Suggestion menu font size customization */
