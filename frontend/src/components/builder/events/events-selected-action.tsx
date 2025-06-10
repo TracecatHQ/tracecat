@@ -1,5 +1,9 @@
 "use client"
 
+import "@blocknote/core/fonts/inter.css"
+import "@blocknote/shadcn/style.css"
+import "@/components/cases/editor.css"
+
 import React, { useEffect } from "react"
 import {
   AgentOutput,
@@ -24,6 +28,7 @@ import {
   ChevronRightIcon,
   CircleDot,
   LoaderIcon,
+  MessageCircle,
   RefreshCw,
   Undo2Icon,
 } from "lucide-react"
@@ -228,17 +233,16 @@ export function AgentOutputEvent({
     </div>
   )
 }
-
 export function SystemPromptPartComponent({
   part,
 }: {
   part: SystemPromptPart
 }) {
   return (
-    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs shadow-sm">
-      <div className="flex items-center gap-2">
+    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-[1.5] shadow-sm">
+      <div className="flex items-start gap-2">
         <CaseUserAvatar user={SYSTEM_USER} size="sm" />
-        <div className="whitespace-pre-wrap">
+        <div className="overflow-x-auto whitespace-pre-wrap break-words">
           {typeof part.content === "string"
             ? part.content
             : JSON.stringify(part.content, null, 2)}
@@ -251,10 +255,10 @@ export function SystemPromptPartComponent({
 export function UserPromptPartComponent({ part }: { part: UserPromptPart }) {
   const { user } = useAuth()
   return (
-    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs shadow-sm">
-      <div className="flex items-center gap-2">
+    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-[1.5] shadow-sm">
+      <div className="flex items-start gap-2">
         {user && <CaseUserAvatar user={user} size="sm" />}
-        <div className="whitespace-pre-wrap">
+        <div className="overflow-x-auto whitespace-pre-wrap break-words">
           {typeof part.content === "string"
             ? part.content
             : JSON.stringify(part.content, null, 2)}
@@ -395,11 +399,19 @@ export function TextPartComponent({ text }: { text: TextPart }) {
     animations: false,
     codeBlock,
   })
+
   useEffect(() => {
-    loadInitialContent(editor, text.content)
+    if (text.content) {
+      loadInitialContent(editor, text.content)
+    }
   }, [text.content, editor])
   return (
-    <Card className="overflow-scroll whitespace-pre-wrap rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm">
+    <div className="flex flex-col gap-2 overflow-scroll whitespace-pre-wrap rounded-md border-[0.5px] bg-muted/20 p-3 text-xs shadow-sm">
+      <div className="flex items-center gap-1">
+        <MessageCircle className="size-4" />
+        <span className="text-xs font-semibold text-foreground/80">Agent</span>
+      </div>
+
       <BlockNoteView
         editor={editor}
         theme="light"
@@ -409,9 +421,10 @@ export function TextPartComponent({ text }: { text: TextPart }) {
           height: "100%",
           width: "100%",
           whiteSpace: "pre-wrap",
+          lineHeight: "1.5",
         }}
       />
-    </Card>
+    </div>
   )
 }
 
