@@ -576,6 +576,13 @@ export type ClosedEventRead = {
   created_at: string
 }
 
+export type Code = {
+  component_id?: "code"
+  lang?: "yaml" | "python"
+}
+
+export type lang = "yaml" | "python"
+
 /**
  * Event for when a case is created.
  */
@@ -724,6 +731,18 @@ export type EditorActionRead = {
   description: string
 }
 
+export type EditorComponent =
+  | Text
+  | Code
+  | Select
+  | TextArea
+  | Slider
+  | Integer
+  | Float
+  | Toggle
+  | Yaml
+  | TagInput
+
 export type EditorFunctionRead = {
   name: string
   description: string
@@ -860,6 +879,13 @@ export type FieldDiff = {
   new: unknown
 }
 
+export type Float = {
+  component_id?: "float"
+  min_val?: number
+  max_val?: number
+  step?: number
+}
+
 export type FolderDirectoryItem = {
   id: string
   name: string
@@ -900,6 +926,13 @@ export type HTTPValidationError = {
 export type ImageUrl = {
   url: string
   kind?: "image-url"
+}
+
+export type Integer = {
+  component_id?: "integer"
+  min_val?: number
+  max_val?: number
+  step?: number
 }
 
 export type InteractionCategory = "slack"
@@ -1707,6 +1740,12 @@ export type SecretValidationResult = {
   ref?: string | null
 }
 
+export type Select = {
+  component_id?: "select"
+  options?: Array<string> | null
+  multiple?: boolean
+}
+
 export type SessionRead = {
   id: string
   created_at: string
@@ -1733,6 +1772,13 @@ export type SeverityChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type Slider = {
+  component_id?: "slider"
+  min_val?: number
+  max_val?: number
+  step?: number
 }
 
 /**
@@ -1923,6 +1969,10 @@ export type TagCreate = {
   color?: string | null
 }
 
+export type TagInput = {
+  component_id?: "tag-input"
+}
+
 /**
  * Model for reading tag data with validation.
  */
@@ -2034,9 +2084,25 @@ export type TemplateActionValidationErrorType =
   | "STEP_VALIDATION_ERROR"
   | "EXPRESSION_VALIDATION_ERROR"
 
+export type Text = {
+  component_id?: "text"
+}
+
+export type TextArea = {
+  component_id?: "text-area"
+  rows?: number
+  placeholder?: string
+}
+
 export type TextPart = {
   content: string
   part_kind?: "text"
+}
+
+export type Toggle = {
+  label_on?: string
+  label_off?: string
+  component_id?: "toggle"
 }
 
 export type ToolCallPart = {
@@ -2689,6 +2755,10 @@ export type WorkspaceUpdate = {
   } | null
 }
 
+export type Yaml = {
+  component_id?: "yaml"
+}
+
 export type login = {
   grant_type?: string | null
   username: string
@@ -3219,6 +3289,8 @@ export type EditorListActionsData = {
 }
 
 export type EditorListActionsResponse = Array<EditorActionRead>
+
+export type EditorFieldSchemaResponse = EditorComponent
 
 export type RegistryRepositoriesReloadRegistryRepositoriesResponse = void
 
@@ -3773,7 +3845,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3786,7 +3858,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -4705,6 +4777,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/editor/field-schema": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EditorComponent
       }
     }
   }
