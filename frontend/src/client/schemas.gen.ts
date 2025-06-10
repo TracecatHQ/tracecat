@@ -2323,6 +2323,9 @@ export const $EditorComponent = {
       $ref: "#/components/schemas/Yaml",
     },
     {
+      $ref: "#/components/schemas/KeyValue",
+    },
+    {
       $ref: "#/components/schemas/TagInput",
     },
   ],
@@ -2333,6 +2336,7 @@ export const $EditorComponent = {
       code: "#/components/schemas/Code",
       float: "#/components/schemas/Float",
       integer: "#/components/schemas/Integer",
+      "key-value": "#/components/schemas/KeyValue",
       select: "#/components/schemas/Select",
       slider: "#/components/schemas/Slider",
       "tag-input": "#/components/schemas/TagInput",
@@ -3050,14 +3054,26 @@ export const $Integer = {
       default: "integer",
     },
     min_val: {
-      type: "integer",
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Min Val",
-      default: 0,
     },
     max_val: {
-      type: "integer",
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Max Val",
-      default: 100,
     },
     step: {
       type: "integer",
@@ -3268,6 +3284,19 @@ export const $JoinStrategy = {
   type: "string",
   enum: ["any", "all"],
   title: "JoinStrategy",
+} as const
+
+export const $KeyValue = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "key-value",
+      title: "Component Id",
+      default: "key-value",
+    },
+  },
+  type: "object",
+  title: "KeyValue",
 } as const
 
 export const $ModelRequest = {

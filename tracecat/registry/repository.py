@@ -41,7 +41,7 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
-from tracecat.registry.fields import Component, get_default_component
+from tracecat.registry.fields import Component, get_default_component, type_drop_null
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
@@ -669,10 +669,19 @@ def generate_model_from_function(
     for name, param in sig.parameters.items():
         # Use the annotation and default value of the parameter to define the model field
         annotation = param.annotation
-        field_type = annotation.__origin__
+        field_type: type = annotation.__origin__
         field_info_kwargs = {}
         # Get the default UI for the field
-        component = get_default_component(param)
+        non_null_field_type = type_drop_null(field_type)
+        component = get_default_component(non_null_field_type)
+        logger.warning(
+            "Default component",
+            component=component,
+            name=name,
+            field_type=field_type,
+            non_null_field_type=non_null_field_type,
+            annotation=annotation,
+        )
 
         if metadata := getattr(annotation, "__metadata__", None):
             for meta in metadata:

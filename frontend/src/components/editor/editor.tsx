@@ -480,6 +480,8 @@ export function CustomEditor({
             automaticLayout: true,
             fixedOverflowWidgets: true,
             bracketPairColorization: { enabled: false },
+            lineDecorationsWidth: 3,
+            lineNumbersMinChars: 3,
             ...props.options,
           }}
           wrapperProps={{ className: "editor-wrapper" }}

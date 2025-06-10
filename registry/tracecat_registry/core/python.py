@@ -10,6 +10,7 @@ from typing import Annotated, Any, TypedDict
 
 from tracecat.config import TRACECAT__PYODIDE_VERSION, TRACECAT__NODE_MODULES_DIR
 from tracecat.logger import logger
+from tracecat.registry.fields import Code, TracecatStrEnum
 from tracecat_registry import registry
 from typing_extensions import Doc
 
@@ -146,6 +147,12 @@ def _validate_script(script: str) -> tuple[bool, str | None]:
     return True, None
 
 
+class TestEnum(TracecatStrEnum):
+    A = "a"
+    B = "b"
+    C = "c"
+
+
 @registry.register(
     default_title="Run Python script",
     description="Execute a Python script in a secure, sandboxed WebAssembly environment using Pyodide.",
@@ -162,6 +169,7 @@ async def run_python(
             "The script runs in a secure, sandboxed WebAssembly environment "
             "isolated from the host operating system."
         ),
+        Code(lang="python"),
     ],
     inputs: Annotated[
         dict[str, Any] | None,
@@ -189,6 +197,10 @@ async def run_python(
             "Default is False."
         ),
     ] = False,
+    test_enum: Annotated[
+        TestEnum,
+        Doc("Whether to test the enum values. Default is False."),
+    ] = TestEnum.A,
 ) -> Any:
     """
     Executes a Python script in a secure, sandboxed WebAssembly environment using Pyodide.

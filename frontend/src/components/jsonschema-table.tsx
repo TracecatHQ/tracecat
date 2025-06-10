@@ -1,6 +1,5 @@
-import type { JSONSchema7 } from "json-schema"
-
-import { transformJsonSchemaToTableRows } from "@/lib/jsonschema"
+import { jsonSchemaToParams } from "@/lib/jsonschema"
+import { TracecatJsonSchema } from "@/lib/schema"
 import {
   HoverCard,
   HoverCardContent,
@@ -15,8 +14,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
-  const rows = transformJsonSchemaToTableRows(schema).sort((a, b) => {
+export function JSONSchemaTable({ schema }: { schema: TracecatJsonSchema }) {
+  const params = jsonSchemaToParams(schema).sort((a, b) => {
     // Sort required fields first, then alphabetically
     if (a.required && !b.required) return -1
     if (!a.required && b.required) return 1
@@ -34,7 +33,7 @@ export function JSONSchemaTable({ schema }: { schema: JSONSchema7 }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map((row, idx) => (
+        {params.map((row, idx) => (
           <HoverCard openDelay={100} closeDelay={100} key={idx}>
             <HoverCardTrigger asChild>
               <TableRow

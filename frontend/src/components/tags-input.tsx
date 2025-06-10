@@ -22,9 +22,9 @@ export function CustomTagInput(props: CustomTagInputProps) {
       setActiveTagIndex={setActiveTagIndex}
       styleClasses={{
         input: "shadow-none",
-        inlineTagsContainer: "shadow-sm h-10 items-center border",
+        inlineTagsContainer: "shadow-sm h-9 items-center border",
         tag: {
-          body: "h-6",
+          body: "h-5",
         },
       }}
     />

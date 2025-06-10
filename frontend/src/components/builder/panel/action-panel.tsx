@@ -4,7 +4,12 @@ import "react18-json-view/src/style.css"
 
 import React, { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { ActionUpdate, ApiError, ValidationResult } from "@/client"
+import {
+  ActionUpdate,
+  ApiError,
+  EditorComponent,
+  ValidationResult,
+} from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -35,6 +40,11 @@ import { z } from "zod"
 import { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
+import {
+  isTracecatJsonSchema,
+  TRACECAT_COMPONENT_KEY,
+  TracecatJsonSchema,
+} from "@/lib/schema"
 import { cn, slugify } from "@/lib/utils"
 import {
   Accordion,
@@ -84,6 +94,19 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
+  CodeMirrorCodeField,
+  FloatField,
+  IntegerField,
+  KeyValueField,
+  SelectField,
+  SliderField,
+  TagInputField,
+  TextAreaField,
+  TextField,
+  ToggleField,
+  YamlField,
+} from "@/components/builder/panel/action-panel-fields"
+import {
   ControlFlowOptionsTooltip,
   ForEachTooltip,
   RetryPolicyTooltip,
@@ -108,10 +131,7 @@ const actionFormSchema = z.object({
     .string()
     .max(500, "Description must be less than 500 characters")
     .optional(),
-  inputs: z
-    .string()
-    .max(300000, "Inputs must be less than 300000 characters")
-    .default(""),
+  inputs: z.record(z.unknown()).default({}),
   control_flow: z.object({
     for_each: z
       .string()
@@ -204,7 +224,8 @@ export function ActionPanel({
     values: {
       title: action?.title,
       description: action?.description,
-      inputs: action?.inputs ?? "",
+      // action.inputs is a yaml string
+      inputs: parseYaml(action?.inputs ?? ""),
       control_flow: {
         for_each: stringifyYaml(for_each),
         run_if: stringifyYaml(run_if),
@@ -215,6 +236,7 @@ export function ActionPanel({
       interaction: action?.interaction ?? undefined,
     },
   })
+  console.log(methods.watch("inputs"))
 
   const [validationResults, setValidationResults] = useState<
     ValidationResult[]
@@ -264,7 +286,7 @@ export function ActionPanel({
         const params: ActionUpdate = {
           title: values.title,
           description: values.description,
-          inputs: values.inputs,
+          inputs: stringifyYaml(values.inputs),
           control_flow: {
             ...parseYaml(values.control_flow.options), // Miscellaneous options
             for_each: parseYaml(values.control_flow.for_each),
@@ -407,6 +429,21 @@ export function ActionPanel({
   const ActionIcon = actionTypeToLabel[registryAction.type].icon
   const isInteractive = methods.watch("is_interactive")
   const interactionType = methods.watch("interaction.type")
+  const required = (registryAction.interface.expects.required || []) as string[]
+  const expectedParams = {
+    ...registryAction.interface.expects,
+    properties: Object.fromEntries(
+      Object.entries(registryAction.interface.expects.properties || {}).sort(
+        ([aKey, aVal], [bKey, bVal]) => {
+          const aRequired = required.includes(aKey)
+          const bRequired = required.includes(bKey)
+          if (aRequired && !bRequired) return -1
+          if (!aRequired && bRequired) return 1
+          return aKey.localeCompare(bKey)
+        }
+      )
+    ),
+  } as TracecatJsonSchema
   return (
     <div onBlur={onPanelBlur}>
       <Tabs
@@ -831,7 +868,10 @@ export function ActionPanel({
                             Hover over each row for details.
                           </span>
                           <JSONSchemaTable
-                            schema={registryAction.interface.expects}
+                            schema={
+                              registryAction.interface
+                                .expects as TracecatJsonSchema
+                            }
                           />
                         </div>
                       </AccordionContent>
@@ -864,26 +904,143 @@ export function ActionPanel({
                           <span className="text-xs text-muted-foreground">
                             Define action inputs in YAML below.
                           </span>
-                          <FormField
-                            name="inputs"
-                            control={methods.control}
-                            render={({ field }) => (
-                              <FormItem>
-                                {/* Place form message above because it's not visible otherwise */}
-                                <FormMessage className="whitespace-pre-line" />
-                                <FormControl>
-                                  <DynamicCustomEditor
-                                    className="min-h-[40rem] w-full"
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                    defaultLanguage="yaml-extended"
-                                    workspaceId={workspaceId}
-                                    workflowId={workflowId}
+                          {Object.entries(expectedParams?.properties ?? {}).map(
+                            ([fieldName, fieldDefn]) => {
+                              const label = fieldName
+                                .replaceAll("_", " ")
+                                .replace(/^\w/, (c) => c.toUpperCase())
+                              if (!isTracecatJsonSchema(fieldDefn)) {
+                                return (
+                                  <YamlField
+                                    key={fieldName}
+                                    label={label}
+                                    fieldName={fieldName}
                                   />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
+                                )
+                              }
+                              const component = fieldDefn[
+                                TRACECAT_COMPONENT_KEY
+                              ] as EditorComponent
+                              switch (component?.component_id) {
+                                case "code":
+                                  return (
+                                    <CodeMirrorCodeField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                      fieldDefn={fieldDefn}
+                                      code={component}
+                                    />
+                                  )
+                                case "text":
+                                  return (
+                                    <TextField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                      fieldDefn={fieldDefn}
+                                    />
+                                  )
+                                case "select":
+                                  return (
+                                    <SelectField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                      fieldDefn={fieldDefn}
+                                      options={component.options ?? []}
+                                      multiple={component.multiple}
+                                    />
+                                  )
+                                case "text-area":
+                                  return (
+                                    <TextAreaField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                      fieldDefn={fieldDefn}
+                                      rows={component.rows}
+                                      placeholder={component.placeholder}
+                                    />
+                                  )
+                                case "slider":
+                                  return (
+                                    <SliderField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                      fieldDefn={fieldDefn}
+                                      minVal={component.min_val}
+                                      maxVal={component.max_val}
+                                      step={component.step}
+                                    />
+                                  )
+                                case "integer":
+                                  return (
+                                    <IntegerField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                      fieldDefn={fieldDefn}
+                                      minVal={component.min_val ?? undefined}
+                                      maxVal={component.max_val ?? undefined}
+                                      step={component.step}
+                                    />
+                                  )
+                                case "float":
+                                  return (
+                                    <FloatField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                      fieldDefn={fieldDefn}
+                                      minVal={component.min_val}
+                                      maxVal={component.max_val}
+                                      step={component.step}
+                                    />
+                                  )
+                                case "toggle":
+                                  return (
+                                    <ToggleField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                      fieldDefn={fieldDefn}
+                                      labelOn={component.label_on}
+                                      labelOff={component.label_off}
+                                    />
+                                  )
+                                case "yaml":
+                                  return (
+                                    <YamlField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                    />
+                                  )
+                                case "tag-input":
+                                  return (
+                                    <TagInputField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                      fieldDefn={fieldDefn}
+                                    />
+                                  )
+                                case "key-value":
+                                  return (
+                                    <KeyValueField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                      fieldDefn={fieldDefn}
+                                    />
+                                  )
+                                default:
+                                  return null
+                              }
+                            }
+                          )}
                         </div>
                       </AccordionContent>
                     </AccordionItem>
