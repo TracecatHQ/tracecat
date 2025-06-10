@@ -64,6 +64,7 @@ import type {
   CasesUpdateCommentResponse,
   CasesUpdateFieldData,
   CasesUpdateFieldResponse,
+  EditorFieldSchemaResponse,
   EditorListActionsData,
   EditorListActionsResponse,
   EditorListFunctionsData,
@@ -305,7 +306,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -345,7 +346,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -2095,6 +2096,19 @@ export const editorListActions = (
     },
   })
 }
+
+/**
+ * Field Schema
+ * @returns EditorComponent Successful Response
+ * @throws ApiError
+ */
+export const editorFieldSchema =
+  (): CancelablePromise<EditorFieldSchemaResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/editor/field-schema",
+    })
+  }
 
 /**
  * Reload Registry Repositories
