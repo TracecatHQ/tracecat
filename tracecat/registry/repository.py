@@ -22,6 +22,7 @@ from pydantic import (
     ValidationError,
     create_model,
 )
+from pydantic_core import to_jsonable_python
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry import RegistrySecret
 from typing_extensions import Doc
@@ -40,6 +41,7 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
+from tracecat.registry.fields import Component, get_default_component
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
@@ -666,13 +668,24 @@ def generate_model_from_function(
     fields = {}
     for name, param in sig.parameters.items():
         # Use the annotation and default value of the parameter to define the model field
-        field_type: type = param.annotation
+        annotation = param.annotation
+        field_type = annotation.__origin__
         field_info_kwargs = {}
-        if metadata := getattr(field_type, "__metadata__", None):
+        # Get the default UI for the field
+        component = get_default_component(param)
+
+        if metadata := getattr(annotation, "__metadata__", None):
             for meta in metadata:
                 match meta:
                     case Doc(documentation=doc):
                         field_info_kwargs["description"] = doc
+                    # Only set the component if no default UI is provided
+                    case Component():
+                        component = meta  # Overwrite the default component
+
+        if component:
+            jsonschema_extra = field_info_kwargs.setdefault("json_schema_extra", {})
+            jsonschema_extra["x-tracecat-component"] = to_jsonable_python(component)
 
         default = ... if param.default is param.empty else param.default
         field_info = Field(default=default, **field_info_kwargs)
@@ -680,7 +693,7 @@ def generate_model_from_function(
     # Dynamically create and return the Pydantic model class
     input_model = create_model(
         _udf_slug_camelcase(func, udf_kwargs.namespace),
-        __config__=ConfigDict(extra="forbid"),
+        __config__=ConfigDict(extra="forbid", use_enum_values=True),
         **fields,
     )
     # Capture the return type of the function

@@ -8,6 +8,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.editor.models import EditorActionRead, EditorFunctionRead, EditorParamRead
 from tracecat.expressions.functions import FUNCTION_MAPPING
 from tracecat.identifiers.workflow import AnyWorkflowIDQuery
+from tracecat.registry.fields import EditorComponent
 from tracecat.types.auth import Role
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -106,3 +107,11 @@ async def list_actions(
         )
         for action in actions
     ]
+
+
+@router.get("/field-schema", response_model=EditorComponent)
+def field_schema():
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Not implemented",
+    )
