@@ -41,7 +41,11 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
-from tracecat.registry.fields import Component, get_default_component
+from tracecat.registry.fields import (
+    Component,
+    get_components_for_union_type,
+    type_drop_null,
+)
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting
@@ -669,10 +673,12 @@ def generate_model_from_function(
     for name, param in sig.parameters.items():
         # Use the annotation and default value of the parameter to define the model field
         annotation = param.annotation
-        field_type = annotation.__origin__
+        field_type: type = annotation.__origin__
         field_info_kwargs = {}
         # Get the default UI for the field
-        component = get_default_component(param)
+        non_null_field_type = type_drop_null(field_type)
+        components = get_components_for_union_type(non_null_field_type)
+        manually_set_components: list[Component] = []
 
         if metadata := getattr(annotation, "__metadata__", None):
             for meta in metadata:
@@ -681,11 +687,14 @@ def generate_model_from_function(
                         field_info_kwargs["description"] = doc
                     # Only set the component if no default UI is provided
                     case Component():
-                        component = meta  # Overwrite the default component
+                        manually_set_components.append(meta)
 
-        if component:
+        final_components = manually_set_components or components
+        if final_components:
             jsonschema_extra = field_info_kwargs.setdefault("json_schema_extra", {})
-            jsonschema_extra["x-tracecat-component"] = to_jsonable_python(component)
+            jsonschema_extra["x-tracecat-component"] = to_jsonable_python(
+                final_components
+            )
 
         default = ... if param.default is param.empty else param.default
         field_info = Field(default=default, **field_info_kwargs)

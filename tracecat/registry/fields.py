@@ -1,13 +1,12 @@
 import inspect
+import types
 from dataclasses import dataclass
 from enum import Enum, StrEnum
-from typing import Annotated, Literal, get_origin
+from typing import Annotated, Any, Literal, Optional, Union, get_args, get_origin
 
 from pydantic import Field, GetJsonSchemaHandler, RootModel
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema
-
-from tracecat.logger import logger
 
 
 class TracecatStrEnum(StrEnum):
@@ -24,12 +23,12 @@ class ComponentID(StrEnum):
     CODE = "code"
     SELECT = "select"
     TEXT_AREA = "text-area"
-    SLIDER = "slider"
     TOGGLE = "toggle"
     TEXT = "text"
     INTEGER = "integer"
     FLOAT = "float"
     TAG_INPUT = "tag-input"
+    KEY_VALUE = "key-value"
     YAML = "yaml"
 
 
@@ -78,22 +77,12 @@ class TextArea(Component):
 
 
 @dataclass(slots=True)
-class Slider(Component):
-    """Render field as slider in UI"""
-
-    component_id: Literal[ComponentID.SLIDER] = ComponentID.SLIDER
-    min_val: float = float("-inf")
-    max_val: float = float("inf")
-    step: float = 1.0
-
-
-@dataclass(slots=True)
 class Integer(Component):
     """Render field as integer input"""
 
     component_id: Literal[ComponentID.INTEGER] = ComponentID.INTEGER
-    min_val: int = 0
-    max_val: int = 100
+    min_val: int | None = None
+    max_val: int | None = None
     step: int = 1
 
 
@@ -123,14 +112,13 @@ class Yaml(Component):
     component_id: Literal[ComponentID.YAML] = ComponentID.YAML
 
 
-DEFAULT_FIELD_BINDINGS: dict[type, type[Component]] = {
-    int: Integer,
-    float: Float,
-    bool: Toggle,
-    str: Text,
-    list: TagInput,
-    dict: Yaml,
-}
+@dataclass(slots=True)
+class KeyValue(Component):
+    """Render field as key-value editor in UI"""
+
+    component_id: Literal[ComponentID.KEY_VALUE] = ComponentID.KEY_VALUE
+    key_placeholder: str = "Key"
+    value_placeholder: str = "Value"
 
 
 def _safe_issubclass(cls: type, base: type) -> bool:
@@ -140,8 +128,86 @@ def _safe_issubclass(cls: type, base: type) -> bool:
         return False
 
 
-def get_default_component(param: inspect.Parameter) -> Component | None:
-    field_type = param.annotation.__origin__
+def type_is_union(type_hint: Any) -> bool:
+    """Determines if a type annotation is a union type."""
+    return isinstance(type_hint, types.UnionType) or get_origin(type_hint) is Union
+
+
+def type_is_nullable(type_hint: Any) -> bool:
+    """Determines if a type annotation allows None as a valid value.
+
+    A type is considered nullable if it explicitly includes None as a possible value,
+    either through the Union operator (|) or Optional type. This is distinct from
+    optional parameters which may or may not be present in a function call.
+
+    Examples:
+        >>> is_nullable(str | None)
+        True
+        >>> is_nullable(Optional[str])
+        True
+        >>> is_nullable(str)
+        False
+
+    Args:
+        typ: The type annotation to check for nullability.
+
+    Returns:
+        True if the type can be None, False otherwise.
+    """
+    if type_is_union(type_hint):
+        # Handle T | None / Optional[T]
+        return type(None) in get_args(type_hint)
+    return False
+
+
+def type_drop_null(type_hint: Any) -> Any:
+    """Remove NoneType from a union type annotation"""
+
+    # Handle Python 3.10+ union syntax (|)
+    if type_is_union(type_hint):
+        args = get_args(type_hint)
+    else:
+        # it's not a union type
+        return type_hint
+    non_none_args = sorted((arg for arg in args if arg is not type(None)), key=str)
+
+    if len(non_none_args) == 0:
+        return type(None)
+    elif len(non_none_args) == 1:
+        return non_none_args[0]
+    else:
+        # Reconstruct union
+        result, *rest = non_none_args
+        for arg in rest:
+            result = result | arg
+        return result
+
+
+def is_optional(param: inspect.Parameter) -> bool:
+    """Determines if a parameter has a default value.
+
+    A parameter is considered optional if it has a default value assigned to it in the function
+    signature. This is distinct from nullable types which may or may not be None.
+
+    Examples:
+        >>> def func(x: str = "default"): pass
+        >>> is_optional(inspect.signature(func).parameters["x"])
+        True
+        >>> def func(x: str): pass
+        >>> is_optional(inspect.signature(func).parameters["x"])
+        False
+
+    Args:
+        param: The parameter to check for optionality.
+
+    Returns:
+        True if the parameter has a default value, False otherwise.
+    """
+    return param.default is not param.empty
+
+
+def get_default_component(field_type: Any) -> Component | None:
+    # This returns T in Annotated[T, ...]
     if field_type is int:
         return Integer()
     elif field_type is float:
@@ -150,23 +216,45 @@ def get_default_component(param: inspect.Parameter) -> Component | None:
         return Toggle()
     elif field_type is str:
         return Text()
-    elif field_type is list | tuple:
+    elif _safe_issubclass(field_type, Enum):
+        member_map = field_type._member_map_
+        return Select(options=[member.value for member in member_map.values()])
+
+    # Try container types
+    origin = get_origin(field_type)
+    # Strip None from the type
+    if origin in (list, tuple):
         return TagInput()
-    elif field_type is dict:
-        return Yaml()
-    elif get_origin(field_type) is Literal:
+    elif origin is dict:
+        return KeyValue()
+    elif origin is Literal:
         if args := getattr(field_type, "__args__", None):
             return Select(options=list(args))
         else:
             raise ValueError("Couldn't get __args__ for Literal")
-    elif _safe_issubclass(field_type, Enum):
-        member_map = field_type._member_map_
-        return Select(options=[member.value for member in member_map.values()])
     else:
-        logger.warning(
-            "Cannot get default component for {field_type}", field_type=field_type
-        )
         return None
+
+
+def get_components_for_union_type(field_type: Any) -> list[Component]:
+    """Generate multiple components for union types like str | list[str]"""
+    if not type_is_union(field_type):
+        # Not a union type, return single component
+        component = get_default_component(field_type)
+        return [component] if component else []
+
+    args = get_args(field_type)
+    components = []
+
+    for arg in args:
+        if arg is type(None):
+            continue  # Skip None type
+
+        component = get_default_component(arg)
+        if component and component not in components:
+            components.append(component)
+
+    return components
 
 
 class EditorComponent(RootModel):
@@ -175,11 +263,33 @@ class EditorComponent(RootModel):
         | Code
         | Select
         | TextArea
-        | Slider
         | Integer
         | Float
         | Toggle
         | Yaml
+        | KeyValue
         | TagInput,
         Field(discriminator="component_id"),
     ]
+
+
+if __name__ == "__main__":
+    t = list[str] | None
+    y = Optional[list[str]]  # noqa: UP007
+    z = list[str]
+    print(type_is_nullable(t))
+    print(type_is_nullable(y))
+    print(type_is_nullable(z))
+
+    # Test it
+    T1 = list[str] | None
+    T2 = Union[int, str, None]  # noqa: UP007
+    T3 = str | int | None
+
+    print(type_drop_null(T1))  # list[str]
+    print(type_drop_null(T2))  # typing.Union[int, str]
+    print(type_drop_null(T3))  # str | int
+
+    t = list[str] | str
+    for a in t.__args__:
+        print(get_default_component(a))
