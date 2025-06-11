@@ -2314,9 +2314,6 @@ export const $EditorComponent = {
       $ref: "#/components/schemas/TextArea",
     },
     {
-      $ref: "#/components/schemas/Slider",
-    },
-    {
       $ref: "#/components/schemas/Integer",
     },
     {
@@ -2329,6 +2326,9 @@ export const $EditorComponent = {
       $ref: "#/components/schemas/Yaml",
     },
     {
+      $ref: "#/components/schemas/KeyValue",
+    },
+    {
       $ref: "#/components/schemas/TagInput",
     },
   ],
@@ -2339,8 +2339,8 @@ export const $EditorComponent = {
       code: "#/components/schemas/Code",
       float: "#/components/schemas/Float",
       integer: "#/components/schemas/Integer",
+      "key-value": "#/components/schemas/KeyValue",
       select: "#/components/schemas/Select",
-      slider: "#/components/schemas/Slider",
       "tag-input": "#/components/schemas/TagInput",
       text: "#/components/schemas/Text",
       "text-area": "#/components/schemas/TextArea",
@@ -3056,14 +3056,26 @@ export const $Integer = {
       default: "integer",
     },
     min_val: {
-      type: "integer",
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Min Val",
-      default: 0,
     },
     max_val: {
-      type: "integer",
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Max Val",
-      default: 100,
     },
     step: {
       type: "integer",
@@ -3274,6 +3286,29 @@ export const $JoinStrategy = {
   type: "string",
   enum: ["any", "all"],
   title: "JoinStrategy",
+} as const
+
+export const $KeyValue = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "key-value",
+      title: "Component Id",
+      default: "key-value",
+    },
+    key_placeholder: {
+      type: "string",
+      title: "Key Placeholder",
+      default: "Key",
+    },
+    value_placeholder: {
+      type: "string",
+      title: "Value Placeholder",
+      default: "Value",
+    },
+  },
+  type: "object",
+  title: "KeyValue",
 } as const
 
 export const $ModelRequest = {
@@ -5720,32 +5755,6 @@ export const $SeverityChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "SeverityChangedEventRead",
   description: "Event for when a case severity is changed.",
-} as const
-
-export const $Slider = {
-  properties: {
-    component_id: {
-      type: "string",
-      const: "slider",
-      title: "Component Id",
-      default: "slider",
-    },
-    min_val: {
-      type: "number",
-      title: "Min Val",
-    },
-    max_val: {
-      type: "number",
-      title: "Max Val",
-    },
-    step: {
-      type: "number",
-      title: "Step",
-      default: 1,
-    },
-  },
-  type: "object",
-  title: "Slider",
 } as const
 
 export const $SpecialUserID = {

@@ -737,11 +737,11 @@ export type EditorComponent =
   | Code
   | Select
   | TextArea
-  | Slider
   | Integer
   | Float
   | Toggle
   | Yaml
+  | KeyValue
   | TagInput
 
 export type EditorFunctionRead = {
@@ -931,8 +931,8 @@ export type ImageUrl = {
 
 export type Integer = {
   component_id?: "integer"
-  min_val?: number
-  max_val?: number
+  min_val?: number | null
+  max_val?: number | null
   step?: number
 }
 
@@ -999,6 +999,12 @@ export type InteractionStatus =
 export type InteractionType = "approval" | "response"
 
 export type JoinStrategy = "any" | "all"
+
+export type KeyValue = {
+  component_id?: "key-value"
+  key_placeholder?: string
+  value_placeholder?: string
+}
 
 export type ModelRequest = {
   parts: Array<
@@ -1773,13 +1779,6 @@ export type SeverityChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
-}
-
-export type Slider = {
-  component_id?: "slider"
-  min_val?: number
-  max_val?: number
-  step?: number
 }
 
 /**
@@ -3846,7 +3845,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3859,7 +3858,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
