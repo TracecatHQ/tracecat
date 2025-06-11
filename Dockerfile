@@ -19,12 +19,14 @@ RUN chmod +x auto-update.sh && \
 RUN groupadd -g 1001 apiuser && \
     useradd -m -u 1001 -g apiuser apiuser
 
-# Copy pre-cached Deno files and node_modules to correct directories and set comprehensive permissions
-RUN cp -r /opt/deno-cache/* /home/apiuser/.cache/deno/ 2>/dev/null || true && \
+# Ensure all required directories exist and copy pre-cached files
+RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/deno /home/apiuser/.cache/s3 /home/apiuser/.cache/tmp && \
+    mkdir -p /home/apiuser/.local/lib/node_modules && \
+    cp -r /opt/deno-cache/* /home/apiuser/.cache/deno/ 2>/dev/null || true && \
     cp -r /opt/node_modules/* /home/apiuser/.local/lib/node_modules/ 2>/dev/null || true && \
     chown -R apiuser:apiuser /home/apiuser /app/.scripts && \
-    chmod -R 700 /home/apiuser/.cache && \
-    chmod -R 700 /home/apiuser/.local && \
+    chmod -R 755 /home/apiuser/.cache && \
+    chmod -R 755 /home/apiuser/.local && \
     chmod -R 700 /app/.scripts && \
     rm -rf /opt/deno-cache /opt/node_modules
 
@@ -43,10 +45,7 @@ ENV TMPDIR="/home/apiuser/.cache/tmp"
 ENV TEMP="/home/apiuser/.cache/tmp"
 ENV TMP="/home/apiuser/.cache/tmp"
 
-# Create temp directory for apiuser
-RUN mkdir -p /home/apiuser/.cache/tmp && \
-    chown apiuser:apiuser /home/apiuser/.cache/tmp && \
-    chmod 700 /home/apiuser/.cache/tmp
+# Temp directory is now created above with other cache directories
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -71,6 +70,8 @@ RUN uv pip install ./registry
 # Verify permissions are correctly set before switching users
 RUN ls -la /home/apiuser/ && \
     ls -la /home/apiuser/.cache/ && \
+    ls -ld /home/apiuser/.cache/uv && \
+    echo "UV cache directory permissions: $(stat -c '%a %U:%G' /home/apiuser/.cache/uv)" && \
     echo "Permission verification complete"
 
 # Change to the non-root user
@@ -81,6 +82,7 @@ RUN deno --version && \
     rg --version && \
     python3 -c "import os; print(f'DENO_DIR accessible: {os.access(os.environ[\"DENO_DIR\"], os.R_OK | os.W_OK)}')" && \
     python3 -c "import os; print(f'UV_CACHE_DIR accessible: {os.access(os.environ[\"UV_CACHE_DIR\"], os.R_OK | os.W_OK)}')" && \
+    python3 -c "import os, tempfile; f=tempfile.NamedTemporaryFile(dir=os.environ['UV_CACHE_DIR'], delete=True); print(f'UV_CACHE_DIR write test: SUCCESS - {f.name}')" && \
     python3 -c "import os; print(f'NODE_MODULES_DIR accessible: {os.access(os.environ[\"NODE_MODULES_DIR\"], os.R_OK | os.W_OK)}')" && \
     python3 -c "import os; print(f'/app/.scripts accessible: {os.access(\"/app/.scripts\", os.R_OK | os.W_OK)}')" && \
     python3 -c "import os; print(f'S3 cache accessible: {os.access(\"/home/apiuser/.cache/s3\", os.R_OK | os.W_OK)}')" && \
