@@ -24,10 +24,6 @@ RUN mkdir -p /home/apiuser/.cache/uv /home/apiuser/.cache/deno /home/apiuser/.ca
     mkdir -p /home/apiuser/.local/lib/node_modules && \
     cp -r /opt/deno-cache/* /home/apiuser/.cache/deno/ 2>/dev/null || true && \
     cp -r /opt/node_modules/* /home/apiuser/.local/lib/node_modules/ 2>/dev/null || true && \
-    chown -R apiuser:apiuser /home/apiuser /app/.scripts && \
-    chmod -R 755 /home/apiuser/.cache && \
-    chmod -R 755 /home/apiuser/.local && \
-    chmod -R 700 /app/.scripts && \
     rm -rf /opt/deno-cache /opt/node_modules
 
 # Set environment variables for Python and package managers
@@ -66,6 +62,10 @@ RUN chmod +x /app/entrypoint.sh
 # Install package and registry as root for better caching
 RUN uv pip install .
 RUN uv pip install ./registry
+
+# Fix ownership of all apiuser directories after root operations
+# This ensures apiuser can access all necessary files and directories
+RUN chown -R apiuser:apiuser /home/apiuser /app/.scripts
 
 # Verify permissions are correctly set before switching users
 RUN ls -la /home/apiuser/ && \
