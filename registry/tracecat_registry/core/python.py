@@ -158,9 +158,7 @@ async def run_python(
         Doc(
             "Python script to execute. Must contain at least one function. "
             "If multiple functions are defined, one must be named 'main'. "
-            "The function's return value is the output of this operation. "
-            "The script runs in a secure, sandboxed WebAssembly environment "
-            "isolated from the host operating system."
+            "Returns the output of the function. "
         ),
     ],
     inputs: Annotated[
