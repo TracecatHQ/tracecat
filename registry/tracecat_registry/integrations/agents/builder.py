@@ -441,14 +441,10 @@ async def agent(
     user_prompt: Annotated[str, Doc("User prompt to the agent.")],
     model_name: Annotated[str, Doc("Name of the model to use.")],
     model_provider: Annotated[str, Doc("Provider of the model to use.")],
-    namespaces: Annotated[
-        list[str] | str | None,
-        Doc("Namespaces (e.g. 'tools.slack') to include in the agent."),
-    ] = None,
     actions: Annotated[
-        list[str] | str | None,
+        list[str] | str,
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
-    ] = None,
+    ],
     instructions: Annotated[str | None, Doc("Instructions for the agent.")] = None,
     output_type: Annotated[
         str | dict[str, Any] | None, Doc("Output type for the agent.")
@@ -472,21 +468,10 @@ async def agent(
         retries=retries,
     )
 
-    if not namespaces and not actions:
-        raise ValueError("Either namespaces or actions must be provided")
-
-    if isinstance(namespaces, str):
-        namespaces = [namespaces]
     if isinstance(actions, str):
         actions = [actions]
 
-    namespaces = namespaces or []
-    actions = actions or []
-    agent = (
-        await builder.with_namespace_filters(*namespaces)
-        .with_action_filters(*actions)
-        .build()
-    )
+    agent = await builder.with_action_filters(*actions).build()
 
     start_time = timeit()
     # Use async version since this function is already async
