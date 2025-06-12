@@ -239,7 +239,7 @@ export function SystemPromptPartComponent({
   part: SystemPromptPart
 }) {
   return (
-    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-[1.5] shadow-sm">
+    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm">
       <div className="flex items-start gap-2">
         <CaseUserAvatar user={SYSTEM_USER} size="sm" />
         <div className="overflow-x-auto whitespace-pre-wrap break-words">
@@ -255,7 +255,7 @@ export function SystemPromptPartComponent({
 export function UserPromptPartComponent({ part }: { part: UserPromptPart }) {
   const { user } = useAuth()
   return (
-    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-[1.5] shadow-sm">
+    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm">
       <div className="flex items-start gap-2">
         {user && <CaseUserAvatar user={user} size="sm" />}
         <div className="overflow-x-auto whitespace-pre-wrap break-words">
