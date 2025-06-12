@@ -92,9 +92,7 @@ export function OrgSettingsAppForm() {
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
                 <FormLabel>Enable registry validation</FormLabel>
-                <FormDescription>
-                  Enable registry validation.
-                </FormDescription>
+                <FormDescription>Enable registry validation.</FormDescription>
               </div>
               <FormControl>
                 <Switch
