@@ -749,6 +749,15 @@ class InnerContentWidget extends WidgetType {
       return
     }
 
+    // Check if tokens cover the full content to avoid missing prefixes
+    const tokensText = this.validation.tokens.map((t) => t.value).join("")
+    if (tokensText !== this.content.trim()) {
+      // Fallback to plain text if tokens don't represent the full content
+      // This prevents issues like "ACTIONS.test.result" showing as ".test.result"
+      container.textContent = this.content
+      return
+    }
+
     // Create highlighted spans based on LSP tokens
     for (const token of this.validation.tokens) {
       const tokenSpan = document.createElement("span")
