@@ -1,11 +1,12 @@
 import dateparser
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import ActionRetryPolicy
 from tracecat.ee.interactions.models import ActionInteraction
 from tracecat.identifiers.action import ActionID
+from tracecat.identifiers.action import ref as _ref
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
 
 
@@ -53,6 +54,10 @@ class ActionRead(BaseModel):
     control_flow: ActionControlFlow = Field(default_factory=ActionControlFlow)
     is_interactive: bool
     interaction: ActionInteraction | None = None
+
+    @computed_field
+    def ref(self) -> str:
+        return _ref(self.title)
 
 
 class ActionReadMinimal(BaseModel):

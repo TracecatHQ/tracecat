@@ -25,7 +25,6 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
     from pydantic import ValidationError
-    from slugify import slugify
 
     from tracecat import config, identifiers
     from tracecat.concurrency import GatheringTaskGroup
@@ -1126,7 +1125,7 @@ class DSLWorkflow:
         if args.dsl is None:
             raise ValueError("DSL is required to run error handler workflow")
         # Use Temporal memo to store the action ref in the child workflow run
-        memo = ChildWorkflowMemo(action_ref=slugify(args.dsl.title, separator="_"))
+        memo = ChildWorkflowMemo(action_ref=identifiers.action.ref(args.dsl.title))
         await workflow.execute_child_workflow(
             DSLWorkflow.run,
             args,
