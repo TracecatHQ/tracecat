@@ -3,6 +3,7 @@ import {
   BoxesIcon,
   BoxIcon,
   Building2Icon,
+  Code,
   Cpu,
   Globe,
   ListChecks,
@@ -293,6 +294,11 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "core.send_email_smtp": ({ className, ...rest }) => (
       <div className={cn(basicIconsCommon, "bg-lime-100", className)}>
         <Send {...rest} />
+      </div>
+    ),
+    "core.script": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-purple-100", className)}>
+        <Code {...rest} />
       </div>
     ),
     /* AI subnamespace */
