@@ -226,6 +226,11 @@ export const $ActionRead = {
       ],
       title: "Interaction",
     },
+    ref: {
+      type: "string",
+      title: "Ref",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -236,6 +241,7 @@ export const $ActionRead = {
     "status",
     "inputs",
     "is_interactive",
+    "ref",
   ],
   title: "ActionRead",
 } as const

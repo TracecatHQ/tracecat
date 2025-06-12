@@ -7,8 +7,8 @@ from pathlib import Path
 
 import httpx
 import yaml
-from slugify import slugify
 
+from tracecat.identifiers.action import ref
 from tracecat.identifiers.workflow import EXEC_ID_PREFIX, WorkflowUUID
 from tracecat.registry.actions.models import TemplateAction
 
@@ -25,7 +25,7 @@ TEST_WF_ID = WorkflowUUID(int=0)
 
 
 def generate_test_exec_id(name: str) -> str:
-    return TEST_WF_ID.short() + f"/{EXEC_ID_PREFIX}" + slugify(name, separator="_")
+    return TEST_WF_ID.short() + f"/{EXEC_ID_PREFIX}" + ref(name)
 
 
 def glob_file_paths(dir_path: Path, file_ext: str) -> list[Path]:

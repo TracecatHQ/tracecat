@@ -41,6 +41,7 @@ export type ActionRead = {
   control_flow?: ActionControlFlow
   is_interactive: boolean
   interaction?: ResponseInteraction | ApprovalInteraction | null
+  readonly ref: string
 }
 
 export type ActionReadMinimal = {
