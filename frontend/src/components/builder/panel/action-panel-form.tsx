@@ -98,6 +98,7 @@ import {
   RunIfTooltip,
 } from "@/components/builder/panel/action-panel-tooltips"
 import { CopyButton } from "@/components/copy-button"
+import { CodeMirrorEditor } from "@/components/editor/codemirror"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
@@ -116,8 +117,10 @@ const actionFormSchema = z.object({
     .string()
     .max(500, "Description must be less than 500 characters")
     .optional(),
-  // AI-TODO: Add validation for the inputs
-  inputs: z.record(z.string(), z.unknown()),
+  inputs: z
+    .string()
+    .max(300000, "Inputs must be less than 300000 characters")
+    .default(""),
   control_flow: z.object({
     for_each: z
       .string()
@@ -172,40 +175,6 @@ const parseYaml = (str: string | undefined) =>
   str ? YAML.parse(str) : undefined
 const stringifyYaml = (obj: unknown | undefined) =>
   obj ? YAML.stringify(obj) : ""
-
-// Helper function to reconstruct YAML preserving original structure when possible
-const reconstructYamlFromForm = (
-  originalYaml: string,
-  formChanges: Record<string, unknown>
-) => {
-  try {
-    // Parse original to get structure
-    const original = parseYaml(originalYaml) || {}
-
-    // Apply only the changed fields
-    const updated = { ...original, ...formChanges }
-
-    // Use YAML.stringify with options to preserve style
-    return YAML.stringify(updated, {
-      indent: 2,
-      lineWidth: -1, // Don't wrap lines
-    })
-  } catch (error) {
-    // Fallback to clean YAML if original is unparseable
-    return YAML.stringify(formChanges)
-  }
-}
-
-// Helper function to detect YAML features that might be lost in form mode
-const detectYamlFeatures = (yamlStr: string) => {
-  const features = []
-  if (yamlStr.includes("#")) features.push("comments")
-  if (yamlStr.includes("&") || yamlStr.includes("*"))
-    features.push("anchors/references")
-  if (yamlStr.includes("|-") || yamlStr.includes("|+"))
-    features.push("multi-line strings")
-  return features
-}
 
 type InputMode = "form" | "yaml"
 
@@ -266,18 +235,11 @@ export function ActionPanel({
   const [open, setOpen] = useState(false)
   const [inputMode, setInputMode] = useState<InputMode>("form")
 
-  // Raw YAML state for preserving original formatting
-  const [rawInputsYaml, setRawInputsYaml] = useState(() => action?.inputs || "")
-  const [yamlFeatures, setYamlFeatures] = useState<string[]>([])
-
   useEffect(() => {
     setActiveTab("inputs")
     setSaveState(SaveState.IDLE)
     setValidationResults([])
-    // Update raw YAML when action changes
-    setRawInputsYaml(action?.inputs || "")
-    setYamlFeatures(detectYamlFeatures(action?.inputs || ""))
-  }, [actionId, action?.inputs])
+  }, [actionId])
 
   // Set up the ref methods
   useEffect(() => {
@@ -311,24 +273,10 @@ export function ActionPanel({
       setValidationResults([])
 
       try {
-        // Determine inputs value based on current mode
-        let inputsYaml: string
-
-        if (inputMode === "yaml") {
-          // In YAML mode, use the raw YAML directly to preserve formatting
-          inputsYaml = rawInputsYaml || stringifyYaml(values.inputs)
-        } else {
-          // In form mode, try to preserve original YAML structure when possible
-          inputsYaml = reconstructYamlFromForm(
-            action.inputs || "",
-            values.inputs
-          )
-        }
-
         const params: ActionUpdate = {
           title: values.title,
           description: values.description,
-          inputs: inputsYaml, // Use preserved/raw YAML
+          inputs: stringifyYaml(values.inputs),
           control_flow: {
             ...parseYaml(values.control_flow.options), // Miscellaneous options
             for_each: parseYaml(values.control_flow.for_each),
@@ -387,8 +335,6 @@ export function ActionPanel({
       methods,
       setSaveState,
       setValidationResults,
-      inputMode,
-      rawInputsYaml,
     ]
   )
 
@@ -440,32 +386,6 @@ export function ActionPanel({
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
   }, [methods, onSubmit, action])
-
-  // Handle mode switching with YAML preservation
-  const handleModeChange = useCallback(
-    (newMode: InputMode) => {
-      if (inputMode === "form" && newMode === "yaml") {
-        // Switching TO yaml: generate YAML from current form state
-        const currentFormData = methods.getValues("inputs")
-        const newYaml = reconstructYamlFromForm(
-          action?.inputs || "",
-          currentFormData
-        )
-        setRawInputsYaml(newYaml)
-      } else if (inputMode === "yaml" && newMode === "form") {
-        // Switching TO form: parse current YAML and update form
-        try {
-          const parsed = parseYaml(rawInputsYaml) || {}
-          methods.setValue("inputs", parsed)
-        } catch (error) {
-          // Show error but don't prevent mode switch
-          console.warn("Invalid YAML when switching to form mode:", error)
-        }
-      }
-      setInputMode(newMode)
-    },
-    [inputMode, methods, action?.inputs, rawInputsYaml]
-  )
 
   const required = (registryAction?.interface?.expects?.required ||
     []) as string[]
@@ -982,83 +902,63 @@ export function ActionPanel({
                           )}
 
                           {/* Input Mode Toggle */}
-                          <div className="flex flex-col space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-muted-foreground">
-                                {inputMode === "form"
-                                  ? "Define action inputs using form fields below."
-                                  : "Define action inputs in YAML below."}
-                              </span>
-                              <ToggleTabs
-                                options={
-                                  [
-                                    {
-                                      value: "form",
-                                      content: (
-                                        <div className="flex items-center gap-1">
-                                          <ListIcon className="size-3" />
-                                          <span className="text-xs">Form</span>
-                                        </div>
-                                      ),
-                                      tooltip: "Use form fields",
-                                      ariaLabel: "Form mode",
-                                    },
-                                    {
-                                      value: "yaml",
-                                      content: (
-                                        <div className="flex items-center gap-1">
-                                          <CodeIcon className="size-3" />
-                                          <span className="text-xs">YAML</span>
-                                        </div>
-                                      ),
-                                      tooltip: "Use YAML editor",
-                                      ariaLabel: "YAML mode",
-                                    },
-                                  ] as ToggleTabOption<InputMode>[]
-                                }
-                                value={inputMode}
-                                onValueChange={handleModeChange}
-                                size="sm"
-                                className="w-auto"
-                              />
-                            </div>
-                            {/* Show YAML features warning when switching to form mode */}
-                            {inputMode === "form" &&
-                              yamlFeatures.length > 0 && (
-                                <div className="flex items-center space-x-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700">
-                                  <AlertTriangleIcon className="size-3" />
-                                  <span>
-                                    Original YAML contains{" "}
-                                    {yamlFeatures.join(", ")} which may not be
-                                    fully preserved in form mode.
-                                  </span>
-                                </div>
-                              )}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">
+                              {inputMode === "form"
+                                ? "Define action inputs using form fields below."
+                                : "Define action inputs in YAML below."}
+                            </span>
+                            <ToggleTabs
+                              options={
+                                [
+                                  {
+                                    value: "form",
+                                    content: (
+                                      <div className="flex items-center gap-1">
+                                        <ListIcon className="size-3" />
+                                        <span className="text-xs">Form</span>
+                                      </div>
+                                    ),
+                                    tooltip: "Use form fields",
+                                    ariaLabel: "Form mode",
+                                  },
+                                  {
+                                    value: "yaml",
+                                    content: (
+                                      <div className="flex items-center gap-1">
+                                        <CodeIcon className="size-3" />
+                                        <span className="text-xs">YAML</span>
+                                      </div>
+                                    ),
+                                    tooltip: "Use YAML editor",
+                                    ariaLabel: "YAML mode",
+                                  },
+                                ] as ToggleTabOption<InputMode>[]
+                              }
+                              value={inputMode}
+                              onValueChange={setInputMode}
+                              size="sm"
+                              className="w-auto"
+                            />
                           </div>
                           {inputMode === "yaml" && (
-                            /* YAML Mode - Preserve raw YAML */
+                            /* YAML Mode - Single editor for all inputs */
                             <FormField
                               name="inputs"
                               control={methods.control}
-                              render={() => {
-                                return (
-                                  <FormItem>
-                                    <FormMessage className="whitespace-pre-line" />
-                                    <FormControl>
-                                      <DynamicCustomEditor
-                                        className="h-64 min-h-[40rem] w-full"
-                                        value={rawInputsYaml}
-                                        onChange={(e) => {
-                                          e && setRawInputsYaml(e)
-                                        }}
-                                        defaultLanguage="yaml-extended"
-                                        workspaceId={workspaceId}
-                                        workflowId={workflowId}
-                                      />
-                                    </FormControl>
-                                  </FormItem>
-                                )
-                              }}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormMessage className="whitespace-pre-line" />
+                                  <FormControl>
+                                    <CodeMirrorEditor
+                                      value={stringifyYaml(field.value)}
+                                      onChange={field.onChange}
+                                      language="yaml"
+                                      className="h-64 min-h-[40rem] w-full"
+                                    />
+                                  </FormControl>
+                                </FormItem>
+                              )}
                             />
                           )}
                           {inputMode === "form" &&
