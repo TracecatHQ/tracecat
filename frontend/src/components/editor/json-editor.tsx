@@ -43,7 +43,6 @@ import {
   StateField,
   type Range,
 } from "@codemirror/state"
-import { oneDark } from "@codemirror/theme-one-dark"
 import {
   Decoration,
   DecorationSet,
@@ -1464,7 +1463,7 @@ export function JsonStyledEditor({
     ]
   }, [workspaceId, workflowId]) // Include workspaceId and workflowId in dependencies
 
-  const editorTheme = appTheme === "dark" ? oneDark : "light"
+  const editorTheme = "light"
 
   const onChange = React.useCallback(
     (val: string, viewUpdate: ViewUpdate) => {
