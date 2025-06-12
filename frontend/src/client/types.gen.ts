@@ -741,6 +741,7 @@ export type EditorComponent =
   | Float
   | Toggle
   | Yaml
+  | Json
   | KeyValue
   | TagInput
 
@@ -852,6 +853,16 @@ export type ExprValidationResult = {
   ref?: string | null
   expression?: string | null
   expression_type: ExprType
+}
+
+export type ExpressionValidationRequest = {
+  expression: string
+}
+
+export type ExpressionValidationResponse = {
+  is_valid: boolean
+  errors?: Array<ValidationError>
+  tokens?: Array<SyntaxToken>
 }
 
 /**
@@ -999,6 +1010,10 @@ export type InteractionStatus =
 export type InteractionType = "approval" | "response"
 
 export type JoinStrategy = "any" | "all"
+
+export type Json = {
+  component_id?: "json"
+}
 
 export type KeyValue = {
   component_id?: "key-value"
@@ -1818,6 +1833,13 @@ export type StatusChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type SyntaxToken = {
+  type: string
+  value: string
+  start: number
+  end: number
 }
 
 export type SystemPromptPart = {
@@ -3289,6 +3311,13 @@ export type EditorListActionsData = {
 }
 
 export type EditorListActionsResponse = Array<EditorActionRead>
+
+export type EditorValidateExpressionData = {
+  requestBody: ExpressionValidationRequest
+  workspaceId: string
+}
+
+export type EditorValidateExpressionResponse = ExpressionValidationResponse
 
 export type EditorFieldSchemaResponse = EditorComponent
 
@@ -4773,6 +4802,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<EditorActionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/editor/expressions/validate": {
+    post: {
+      req: EditorValidateExpressionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ExpressionValidationResponse
         /**
          * Validation Error
          */

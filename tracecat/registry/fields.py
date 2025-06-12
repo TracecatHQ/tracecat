@@ -30,6 +30,7 @@ class ComponentID(StrEnum):
     TAG_INPUT = "tag-input"
     KEY_VALUE = "key-value"
     YAML = "yaml"
+    JSON = "json"
 
 
 @dataclass(slots=True)
@@ -110,6 +111,13 @@ class Yaml(Component):
     """Render field as YAML editor in UI"""
 
     component_id: Literal[ComponentID.YAML] = ComponentID.YAML
+
+
+@dataclass(slots=True)
+class Json(Component):
+    """Render field as JSON editor in UI"""
+
+    component_id: Literal[ComponentID.JSON] = ComponentID.JSON
 
 
 @dataclass(slots=True)
@@ -267,6 +275,7 @@ class EditorComponent(RootModel):
         | Float
         | Toggle
         | Yaml
+        | Json
         | KeyValue
         | TagInput,
         Field(discriminator="component_id"),

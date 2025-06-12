@@ -69,6 +69,8 @@ import type {
   EditorListActionsResponse,
   EditorListFunctionsData,
   EditorListFunctionsResponse,
+  EditorValidateExpressionData,
+  EditorValidateExpressionResponse,
   FoldersCreateFolderData,
   FoldersCreateFolderResponse,
   FoldersDeleteFolderData,
@@ -2091,6 +2093,35 @@ export const editorListActions = (
       workspace_id: data.workspaceId,
       workflow_id: data.workflowId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Validate Expression
+ * LSP endpoint for validating template expressions using the Lark grammar.
+ *
+ * This endpoint provides syntax validation and token information for syntax highlighting
+ * of template expressions like: ACTIONS.step1.result, SECRETS.api_key, etc.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ExpressionValidationResponse Successful Response
+ * @throws ApiError
+ */
+export const editorValidateExpression = (
+  data: EditorValidateExpressionData
+): CancelablePromise<EditorValidateExpressionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/editor/expressions/validate",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

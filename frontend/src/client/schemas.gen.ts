@@ -2326,6 +2326,9 @@ export const $EditorComponent = {
       $ref: "#/components/schemas/Yaml",
     },
     {
+      $ref: "#/components/schemas/Json",
+    },
+    {
       $ref: "#/components/schemas/KeyValue",
     },
     {
@@ -2339,6 +2342,7 @@ export const $EditorComponent = {
       code: "#/components/schemas/Code",
       float: "#/components/schemas/Float",
       integer: "#/components/schemas/Integer",
+      json: "#/components/schemas/Json",
       "key-value": "#/components/schemas/KeyValue",
       select: "#/components/schemas/Select",
       "tag-input": "#/components/schemas/TagInput",
@@ -2750,6 +2754,46 @@ export const $ExprValidationResult = {
   required: ["status", "expression_type"],
   title: "ExprValidationResult",
   description: "Result of visiting an expression node.",
+} as const
+
+export const $ExpressionValidationRequest = {
+  properties: {
+    expression: {
+      type: "string",
+      title: "Expression",
+    },
+  },
+  type: "object",
+  required: ["expression"],
+  title: "ExpressionValidationRequest",
+} as const
+
+export const $ExpressionValidationResponse = {
+  properties: {
+    is_valid: {
+      type: "boolean",
+      title: "Is Valid",
+    },
+    errors: {
+      items: {
+        $ref: "#/components/schemas/ValidationError",
+      },
+      type: "array",
+      title: "Errors",
+      default: [],
+    },
+    tokens: {
+      items: {
+        $ref: "#/components/schemas/SyntaxToken",
+      },
+      type: "array",
+      title: "Tokens",
+      default: [],
+    },
+  },
+  type: "object",
+  required: ["is_valid"],
+  title: "ExpressionValidationResponse",
 } as const
 
 export const $FieldChangedEventRead = {
@@ -3286,6 +3330,19 @@ export const $JoinStrategy = {
   type: "string",
   enum: ["any", "all"],
   title: "JoinStrategy",
+} as const
+
+export const $Json = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "json",
+      title: "Component Id",
+      default: "json",
+    },
+  },
+  type: "object",
+  title: "Json",
 } as const
 
 export const $KeyValue = {
@@ -5830,6 +5887,30 @@ export const $StatusChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "StatusChangedEventRead",
   description: "Event for when a case status is changed.",
+} as const
+
+export const $SyntaxToken = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    value: {
+      type: "string",
+      title: "Value",
+    },
+    start: {
+      type: "integer",
+      title: "Start",
+    },
+    end: {
+      type: "integer",
+      title: "End",
+    },
+  },
+  type: "object",
+  required: ["type", "value", "start", "end"],
+  title: "SyntaxToken",
 } as const
 
 export const $SystemPromptPart = {
