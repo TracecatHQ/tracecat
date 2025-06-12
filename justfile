@@ -38,6 +38,7 @@ mypy path:
 	mypy --ignore-missing-imports {{path}}
 gen-client:
 	cd frontend && pnpm generate-client && cd ..
+	just lint-fix
 # Update version number. If no version is provided, increments patch version.
 update-version *after='':
 	@-./scripts/update-version.sh {{after}}
