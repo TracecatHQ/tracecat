@@ -13,6 +13,8 @@ clean-images:
 	docker images "tracecat*" -q | xargs -r docker rmi
 dev:
 	docker compose -f docker-compose.dev.yml up
+dev-ui:
+	npx @agentdeskai/browser-tools-server@1.2.0
 build-dev:
 	docker compose -f docker-compose.dev.yml build --no-cache
 up:
