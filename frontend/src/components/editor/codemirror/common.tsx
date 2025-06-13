@@ -173,7 +173,13 @@ export const editingRangeField = StateField.define<Range<Decoration> | null>({
       if (from >= to) {
         return null
       }
-      return { from, to, value: value.value }
+      value = { from, to, value: value.value }
+    }
+    if (value) {
+      const head = tr.state.selection.main.head
+      if (head < value.from || head > value.to) {
+        return null
+      }
     }
     return value
   },
