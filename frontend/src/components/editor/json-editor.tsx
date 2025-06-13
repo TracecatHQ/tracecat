@@ -22,6 +22,7 @@ import {
   autocompletion,
   closeBrackets,
   closeBracketsKeymap,
+  Completion,
   CompletionContext,
   completionKeymap,
   CompletionResult,
@@ -55,8 +56,15 @@ import {
 } from "@codemirror/view"
 import type { SyntaxNode } from "@lezer/common"
 import CodeMirror from "@uiw/react-codemirror"
-import { AlertTriangle, Code } from "lucide-react"
-import { useTheme } from "next-themes"
+import {
+  AlertTriangle,
+  AtSignIcon,
+  CircleIcon,
+  Code,
+  DollarSignIcon,
+  FunctionSquareIcon,
+  KeyIcon,
+} from "lucide-react"
 import { createRoot } from "react-dom/client"
 
 import { cn } from "@/lib/utils"
@@ -65,6 +73,51 @@ import { Button } from "@/components/ui/button"
 // Replace global TEMPLATE_REGEX with a function to create a new instance
 function createTemplateRegex() {
   return /\$\{\{\s*(.*?)\s*\}\}/g
+}
+
+// Context type detection and icon mapping
+const commonIconProps = {
+  className: "m-0 inline size-3 p-0",
+  style: {
+    verticalAlign: "middle",
+    transform: "translateY(0)",
+  },
+} as const
+
+const CONTEXT_ICONS = {
+  ACTIONS: () => <AtSignIcon {...commonIconProps} />, // Play icon for actions
+  FN: () => <FunctionSquareIcon {...commonIconProps} />, // Function icon
+  ENV: () => <DollarSignIcon {...commonIconProps} />, // Dollar sign for environment variables
+  SECRETS: () => <KeyIcon {...commonIconProps} />, // Key icon for secrets
+  var: () => <CircleIcon {...commonIconProps} />, // Circle for variables
+} as const
+
+type ContextType = keyof typeof CONTEXT_ICONS
+
+function detectContextType(content: string): ContextType | null {
+  const trimmed = content.trim()
+  for (const context of Object.keys(CONTEXT_ICONS) as ContextType[]) {
+    if (
+      trimmed.startsWith(`${context}.`) ||
+      trimmed.startsWith(`${context}(`)
+    ) {
+      return context
+    }
+  }
+  return null
+}
+
+function createContextIcon(contextType: ContextType): HTMLElement {
+  const iconComponent = CONTEXT_ICONS[contextType]()
+  const container = document.createElement("span")
+  container.className = "inline"
+  container.style.lineHeight = "1"
+
+  // Render React component to DOM element
+  const root = createRoot(container)
+  root.render(iconComponent)
+
+  return container
 }
 
 // JSX Components for tooltip content
@@ -551,7 +604,12 @@ function mentionCompletion(
       label: `@${suggestion.label}`,
       detail: suggestion.detail,
       info: suggestion.info,
-      apply: (view: EditorView, completion: any, from: number, to: number) => {
+      apply: (
+        view: EditorView,
+        completion: Completion,
+        from: number,
+        to: number
+      ) => {
         // Replace @mention with template expression pill
         const templateExpression = `\${{ ${suggestion.label} }}`
         view.dispatch({
@@ -595,7 +653,7 @@ function createFunctionCompletion(workspaceId: string) {
           },
           apply: (
             view: EditorView,
-            completion: any,
+            completion: Completion,
             from: number,
             to: number
           ) => {
@@ -650,7 +708,7 @@ function createActionCompletion(actions: ActionRead[]) {
           },
           apply: (
             view: EditorView,
-            completion: any,
+            completion: Completion,
             from: number,
             to: number
           ) => {
@@ -719,12 +777,18 @@ class InnerContentWidget extends WidgetType {
 
     span.className = `cm-template-pill ${hasErrors ? "cm-template-error" : ""}`
 
+    // Apply context styling to the main pill
+    const contextType = detectContextType(this.content)
+    if (contextType) {
+      span.classList.add(`cm-context-${contextType.toLowerCase()}`)
+    }
+
     if (this.validation?.tokens && this.validation.tokens.length > 0) {
       // Render with syntax highlighting from LSP
       this.renderHighlightedContent(span)
     } else {
-      // Fallback to plain text
-      span.textContent = this.content
+      // Fallback to context-aware rendering
+      this.renderContentWithContextStyling(span, this.content)
     }
 
     // Add error tooltip and icon if validation failed
@@ -745,7 +809,7 @@ class InnerContentWidget extends WidgetType {
 
   private renderHighlightedContent(container: HTMLElement) {
     if (!this.validation?.tokens) {
-      container.textContent = this.content
+      this.renderContentWithContextStyling(container, this.content)
       return
     }
 
@@ -754,33 +818,73 @@ class InnerContentWidget extends WidgetType {
     if (tokensText !== this.content.trim()) {
       // Fallback to plain text if tokens don't represent the full content
       // This prevents issues like "ACTIONS.test.result" showing as ".test.result"
-      container.textContent = this.content
+      this.renderContentWithContextStyling(container, this.content)
       return
     }
 
-    // Create highlighted spans based on LSP tokens
-    for (const token of this.validation.tokens) {
-      const tokenSpan = document.createElement("span")
-      tokenSpan.textContent = token.value
-      tokenSpan.className = `cm-token-${token.type.toLowerCase()}`
+    // For token-based rendering, we still need to manually parse for contexts
+    this.renderContentWithContextStyling(container, this.content)
+  }
 
-      // Add error styling if this token has validation errors
-      if (this.validation?.errors && this.validation.errors.length > 0) {
-        // Check if any error location matches this token position
-        const hasError = this.validation.errors.some((error) => {
-          if (Array.isArray(error.loc) && error.loc.length > 0) {
-            const errorPos = typeof error.loc[0] === "number" ? error.loc[0] : 0
-            return errorPos >= token.start && errorPos <= token.end
-          }
-          return false
-        })
+  private renderContentWithContextStyling(
+    container: HTMLElement,
+    content: string
+  ) {
+    // Create a regex to find all context references
+    const contextPattern = new RegExp(
+      `\\b(${Object.keys(CONTEXT_ICONS).join("|")})\\.(\\w+(?:\\.\\w+)*)`,
+      "g"
+    )
 
-        if (hasError) {
-          tokenSpan.className += " cm-token-error"
-        }
+    let lastIndex = 0
+    let match
+
+    while ((match = contextPattern.exec(content)) !== null) {
+      const [fullMatch, contextType, path] = match
+      const matchStart = match.index
+      const matchEnd = match.index + fullMatch.length
+
+      // Add any text before this match
+      if (matchStart > lastIndex) {
+        const beforeText = content.slice(lastIndex, matchStart)
+        container.appendChild(document.createTextNode(beforeText))
       }
 
-      container.appendChild(tokenSpan)
+      // Create styled span for the context reference
+      const contextSpan = document.createElement("span")
+      contextSpan.className = "inline-flex items-center gap-0.5"
+      contextSpan.style.lineHeight = "1"
+
+      // Add the React icon
+      const iconElement = createContextIcon(contextType as ContextType)
+      contextSpan.appendChild(iconElement)
+
+      // Add the path text
+      const pathSpan = document.createElement("span")
+      pathSpan.textContent = path
+      contextSpan.appendChild(pathSpan)
+
+      // Apply context-specific styling with inline styles for maximum specificity
+      const colors = {
+        ACTIONS: "#3b82f6",
+        FN: "#8b5cf6",
+        ENV: "#10b981",
+        SECRETS: "#f59e0b",
+        var: "#ef4444",
+      }
+
+      contextSpan.style.color = colors[contextType as keyof typeof colors]
+      contextSpan.style.fontWeight = "600"
+      contextSpan.classList.add(`cm-context-${contextType.toLowerCase()}`)
+
+      container.appendChild(contextSpan)
+      lastIndex = matchEnd
+    }
+
+    // Add any remaining text after the last match
+    if (lastIndex < content.length) {
+      const remainingText = content.slice(lastIndex)
+      container.appendChild(document.createTextNode(remainingText))
     }
   }
 
@@ -907,7 +1011,10 @@ function customJsonLinter(view: EditorView): Diagnostic[] {
 
   try {
     JSON.parse(content)
-  } catch (error: any) {
+  } catch (error) {
+    if (!(error instanceof Error)) {
+      return []
+    }
     let from = 0
     let to = content.length
     let message = "Invalid JSON"
@@ -1066,7 +1173,6 @@ export function JsonStyledEditor({
   value: string
   setValue: (value: string) => void
 }) {
-  const { theme: appTheme } = useTheme()
   const { workspaceId } = useWorkspace()
   const { workflowId, workflow } = useWorkflow()
   const [editorView, setEditorView] = useState<EditorView | null>(null)
@@ -1219,11 +1325,14 @@ export function JsonStyledEditor({
         ".cm-template-pill": {
           backgroundColor: "rgba(218, 165, 32, 0.2)",
           color: "#8B4513",
-          padding: "0.1em 0.4em",
+          padding: "0.05em 0.2em",
           borderRadius: "6px",
           border: "1px solid rgba(139, 69, 19, 0.3)",
           cursor: "pointer",
-          display: "inline-block",
+          display: "inline-flex",
+          alignItems: "baseline",
+          verticalAlign: "baseline",
+          lineHeight: "1",
           transition: "all 0.15s ease-in-out",
           position: "relative",
           zIndex: "1",
@@ -1318,6 +1427,48 @@ export function JsonStyledEditor({
           borderBottom: "1px wavy #ef4444",
           borderRadius: "2px",
         },
+        // Context-specific styling with higher specificity
+        ".cm-template-pill.cm-context-actions": {
+          color: "#3b82f6 !important", // Blue for actions
+          fontWeight: "600",
+        },
+        ".cm-template-pill.cm-context-fn": {
+          color: "#8b5cf6 !important", // Purple for functions
+          fontWeight: "600",
+        },
+        ".cm-template-pill.cm-context-env": {
+          color: "#10b981 !important", // Green for environment
+          fontWeight: "600",
+        },
+        ".cm-template-pill.cm-context-secrets": {
+          color: "#f59e0b !important", // Amber for secrets
+          fontWeight: "600",
+        },
+        ".cm-template-pill.cm-context-var": {
+          color: "#ef4444 !important", // Red for variables
+          fontWeight: "600",
+        },
+        // Context-specific token styling for syntax highlighted content
+        ".cm-token-keyword.cm-context-actions, .cm-token-variablename.cm-context-actions, .cm-token-propertyname.cm-context-actions":
+          {
+            color: "#3b82f6 !important",
+          },
+        ".cm-token-keyword.cm-context-fn, .cm-token-variablename.cm-context-fn, .cm-token-propertyname.cm-context-fn":
+          {
+            color: "#8b5cf6 !important",
+          },
+        ".cm-token-keyword.cm-context-env, .cm-token-variablename.cm-context-env, .cm-token-propertyname.cm-context-env":
+          {
+            color: "#10b981 !important",
+          },
+        ".cm-token-keyword.cm-context-secrets, .cm-token-variablename.cm-context-secrets, .cm-token-propertyname.cm-context-secrets":
+          {
+            color: "#f59e0b !important",
+          },
+        ".cm-token-keyword.cm-context-var, .cm-token-variablename.cm-context-var, .cm-token-propertyname.cm-context-var":
+          {
+            color: "#ef4444 !important",
+          },
         // Template expression hover tooltip styling
         ".cm-template-expression-tooltip": {
           backgroundColor: "#1f2937",
