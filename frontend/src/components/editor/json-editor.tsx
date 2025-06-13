@@ -718,10 +718,10 @@ function createActionCompletion(actions: ActionRead[]) {
             from: number,
             to: number
           ) => {
-            // Just insert the action reference
+            // Insert the action reference and .result
             view.dispatch({
-              changes: { from, to, insert: action.ref },
-              selection: { anchor: from + action.ref.length },
+              changes: { from, to, insert: `${action.ref}.result` },
+              selection: { anchor: from + action.ref.length + 7 }, // +7 for ".result"
             })
           },
         })),
