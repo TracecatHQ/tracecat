@@ -508,31 +508,31 @@ export function createTemplatePillPlugin(workspaceId: string) {
 }
 
 // Template expression suggestions
-export const templateSuggestions = [
+export const TEMPLATE_SUGGESTIONS = [
   {
-    label: "actions",
+    label: "ACTIONS",
     detail: "Previous action results",
     info: "Access results from previous workflow actions",
   },
   {
-    label: "trigger",
-    detail: "Trigger data",
+    label: "FN",
+    detail: "Built-in functions",
+    info: "Built-in functions for data processing",
+  },
+  {
+    label: "TRIGGER",
+    detail: "Trigger input data",
     info: "Data from the workflow trigger event",
   },
   {
-    label: "secrets",
+    label: "SECRETS",
     detail: "Workspace secrets",
     info: "Access configured secrets and credentials",
   },
   {
-    label: "inputs",
-    detail: "Workflow inputs",
-    info: "Input parameters passed to the workflow",
-  },
-  {
-    label: "env",
-    detail: "Environment variables",
-    info: "System environment variables",
+    label: "ENV",
+    detail: "Runtime environment variables",
+    info: "Environment variables available at runtime",
   },
   {
     label: "var",
@@ -552,7 +552,7 @@ export function createMentionCompletion(): (
 
     return {
       from: word.from,
-      options: templateSuggestions.map((suggestion) => ({
+      options: TEMPLATE_SUGGESTIONS.map((suggestion) => ({
         label: `@${suggestion.label}`,
         detail: suggestion.detail,
         info: suggestion.info,
@@ -563,9 +563,21 @@ export function createMentionCompletion(): (
           to: number
         ) => {
           const templateExpression = `\${{ ${suggestion.label} }}`
+          const templateStart = from
+          const templateEnd = from + templateExpression.length
+          const cursorPosition = from + 4 + suggestion.label.length // Position after "${{ <label>"
+
+          // Create editing mark decoration
+          const editingMark = Decoration.mark({
+            class: "cm-template-pill cm-template-editing",
+          })
+
           view.dispatch({
             changes: { from, to, insert: templateExpression },
-            selection: { anchor: from + templateExpression.length },
+            effects: setEditingRange.of(
+              editingMark.range(templateStart, templateEnd)
+            ),
+            selection: { anchor: cursorPosition },
           })
         },
       })),
