@@ -813,6 +813,7 @@ export function JsonStyledEditor({
             highlightActiveLine: true,
             rectangularSelection: true,
             lintKeymap: true,
+            defaultKeymap: false,
           }}
           className={cn(
             "rounded-md text-xs focus-visible:outline-none",
