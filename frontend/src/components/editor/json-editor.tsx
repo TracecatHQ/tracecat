@@ -8,28 +8,16 @@
  * - Arrow Left/Right: Smart cursor movement - enters pills when at boundaries
  */
 import React, { useMemo, useState } from "react"
-import {
-  ActionRead,
-  EditorActionRead,
-  EditorFunctionRead,
-  editorListFunctions,
-  editorValidateExpression,
-  ExpressionValidationResponse,
-} from "@/client"
+import { EditorActionRead, EditorFunctionRead } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import {
   autocompletion,
   closeBrackets,
   closeBracketsKeymap,
-  Completion,
-  CompletionContext,
   completionKeymap,
-  CompletionResult,
 } from "@codemirror/autocomplete"
 import {
-  cursorCharLeft,
-  cursorCharRight,
   history,
   historyKeymap,
   indentWithTab,
@@ -38,12 +26,7 @@ import {
 import { json, jsonParseLinter } from "@codemirror/lang-json"
 import { bracketMatching, indentUnit, syntaxTree } from "@codemirror/language"
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint"
-import {
-  EditorState,
-  StateEffect,
-  StateField,
-  type Range,
-} from "@codemirror/state"
+import { EditorState, type Range } from "@codemirror/state"
 import {
   Decoration,
   DecorationSet,
@@ -51,74 +34,32 @@ import {
   hoverTooltip,
   keymap,
   ViewPlugin,
-  WidgetType,
   type ViewUpdate,
 } from "@codemirror/view"
 import type { SyntaxNode } from "@lezer/common"
 import CodeMirror from "@uiw/react-codemirror"
-import {
-  AlertTriangle,
-  AtSignIcon,
-  CircleIcon,
-  Code,
-  DollarSignIcon,
-  FunctionSquareIcon,
-  KeyIcon,
-} from "lucide-react"
+import { AlertTriangle, Code } from "lucide-react"
 import { createRoot } from "react-dom/client"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 
-// Replace global TEMPLATE_REGEX with a function to create a new instance
-function createTemplateRegex() {
-  return /\$\{\{\s*(.*?)\s*\}\}/g
-}
-
-// Context type detection and icon mapping
-const commonIconStyle = {
-  className: "m-0 inline size-3 p-0",
-  style: {
-    verticalAlign: "middle",
-    transform: "translateY(0)",
-  },
-} as const
-
-const CONTEXT_ICONS = {
-  ACTIONS: () => <AtSignIcon {...commonIconStyle} />, // Play icon for actions
-  FN: () => <FunctionSquareIcon {...commonIconStyle} />, // Function icon
-  ENV: () => <DollarSignIcon {...commonIconStyle} />, // Dollar sign for environment variables
-  SECRETS: () => <KeyIcon {...commonIconStyle} />, // Key icon for secrets
-  var: () => <CircleIcon {...commonIconStyle} />, // Circle for variables
-} as const
-
-type ContextType = keyof typeof CONTEXT_ICONS
-
-function detectContextType(content: string): ContextType | null {
-  const trimmed = content.trim()
-  for (const context of Object.keys(CONTEXT_ICONS) as ContextType[]) {
-    if (
-      trimmed.startsWith(`${context}.`) ||
-      trimmed.startsWith(`${context}(`)
-    ) {
-      return context
-    }
-  }
-  return null
-}
-
-function createContextIcon(contextType: ContextType): HTMLElement {
-  const iconComponent = CONTEXT_ICONS[contextType]()
-  const container = document.createElement("span")
-  container.className = "inline"
-  container.style.lineHeight = "1"
-
-  // Render React component to DOM element
-  const root = createRoot(container)
-  root.render(iconComponent)
-
-  return container
-}
+import {
+  actionCache,
+  createActionCompletion,
+  createFunctionCompletion,
+  createMentionCompletion,
+  createPillClickHandler,
+  createTemplateRegex,
+  editingRangeField,
+  enhancedCursorLeft,
+  enhancedCursorRight,
+  functionCache,
+  InnerContentWidget,
+  TemplateExpressionValidation,
+  TemplatePillPluginView,
+  templatePillTheme,
+} from "./codemirror/common"
 
 // JSX Components for tooltip content
 interface FunctionTooltipProps {
@@ -176,264 +117,6 @@ function ActionTooltip({ action }: ActionTooltipProps) {
       ))}
     </div>
   )
-}
-// LSP client for template expression validation and highlighting
-interface TemplateExpressionValidation {
-  isValid: boolean
-  errors?: Array<{
-    loc: Array<string | number>
-    msg: string
-    type: string
-  }>
-  tokens?: Array<{
-    type: string
-    value: string
-    start: number
-    end: number
-  }>
-}
-class EditablePillPluginView {
-  decorations: DecorationSet
-  validationCache = new Map<string, TemplateExpressionValidation>()
-  pendingValidations = new Map<string, Promise<TemplateExpressionValidation>>()
-
-  constructor(
-    private view: EditorView,
-    private workspaceId: string
-  ) {
-    this.decorations = this.buildDecorations(view)
-  }
-
-  update(update: ViewUpdate): void {
-    if (
-      update.docChanged ||
-      update.viewportChanged ||
-      update.state.field(editingRangeField) !==
-        update.startState.field(editingRangeField) ||
-      update.transactions.some((tr) => tr.effects.length > 0)
-    ) {
-      this.decorations = this.buildDecorations(update.view)
-    }
-  }
-
-  async getValidation(
-    expression: string
-  ): Promise<TemplateExpressionValidation | undefined> {
-    // Check cache first
-    if (this.validationCache.has(expression)) {
-      return this.validationCache.get(expression)
-    }
-
-    // Check if validation is already pending
-    if (this.pendingValidations.has(expression)) {
-      return await this.pendingValidations.get(expression)
-    }
-
-    // Start new validation
-    const validationPromise = validateTemplateExpression(
-      expression,
-      this.workspaceId
-    )
-    this.pendingValidations.set(expression, validationPromise)
-
-    try {
-      const result = await validationPromise
-      this.validationCache.set(expression, result)
-      this.pendingValidations.delete(expression)
-      return result
-    } catch (error) {
-      this.pendingValidations.delete(expression)
-      return undefined
-    }
-  }
-
-  // Get validation for a specific position (used by hover tooltip)
-  getValidationAt(
-    pos: number,
-    view: EditorView
-  ): TemplateExpressionValidation | null {
-    let result: TemplateExpressionValidation | null = null
-
-    for (const { from, to } of view.visibleRanges) {
-      syntaxTree(view.state).iterate({
-        from,
-        to,
-        enter: (node: SyntaxNode) => {
-          if (node.type.name === "String") {
-            const stringValue = view.state.doc.sliceString(
-              node.from + 1,
-              node.to - 1
-            )
-            const regex = createTemplateRegex()
-            let match: RegExpExecArray | null
-            while ((match = regex.exec(stringValue)) !== null) {
-              const innerContent = match[1].trim()
-              const start = node.from + 1 + match.index
-              const end = start + match[0].length
-
-              // Check if position is within this template expression
-              if (pos >= start && pos <= end) {
-                result = this.validationCache.get(innerContent) || null
-                return false // Stop iteration
-              }
-            }
-          }
-        },
-      })
-      if (result) break
-    }
-    return result
-  }
-
-  buildDecorations(view: EditorView): DecorationSet {
-    const widgets: Range<Decoration>[] = []
-    const editingRange = view.state.field(editingRangeField)
-
-    for (const { from, to } of view.visibleRanges) {
-      syntaxTree(view.state).iterate({
-        from,
-        to,
-        enter: (node: SyntaxNode) => {
-          if (node.type.name === "String") {
-            const stringValue = view.state.doc.sliceString(
-              node.from + 1,
-              node.to - 1
-            )
-            const regex = createTemplateRegex()
-            let match: RegExpExecArray | null
-            while ((match = regex.exec(stringValue)) !== null) {
-              const fullMatchText = match[0]
-              const innerContent = match[1].trim()
-              const start = node.from + 1 + match.index
-              const end = start + fullMatchText.length
-
-              // Skip if this range is currently being edited
-              if (
-                editingRange &&
-                editingRange.from === start &&
-                editingRange.to === end
-              ) {
-                continue
-              }
-
-              // Get cached validation or create widget without validation
-              const validation = this.validationCache.get(innerContent)
-
-              // Create immediate validation for obvious errors (for testing)
-              let immediateValidation = validation
-              if (!validation && innerContent) {
-                // Simple client-side validation for obvious errors
-                if (
-                  innerContent.includes("..") ||
-                  innerContent.endsWith(".") ||
-                  innerContent.includes("undefined")
-                ) {
-                  immediateValidation = {
-                    isValid: false,
-                    errors: [
-                      {
-                        loc: [0],
-                        msg: "Invalid expression syntax",
-                        type: "syntax_error",
-                      },
-                    ],
-                    tokens: [],
-                  }
-                }
-              }
-
-              const widget = new InnerContentWidget(
-                innerContent,
-                immediateValidation
-              )
-
-              // Trigger async validation if not cached
-              if (!validation && innerContent) {
-                // Only validate non-empty expressions
-                if (innerContent.trim()) {
-                  this.getValidation(innerContent).then((result) => {
-                    // Trigger re-render when validation completes
-                    if (result) {
-                      // Force a decoration update by dispatching a no-op transaction
-                      view.dispatch({
-                        effects: [],
-                      })
-                    }
-                  })
-                }
-              }
-
-              // Add both mark decoration for styling and replace decoration for functionality
-              // The mark provides the pill styling that persists during tooltip display
-              widgets.push(
-                Decoration.mark({
-                  class: `cm-template-pill ${
-                    immediateValidation?.isValid === false
-                      ? "cm-template-error"
-                      : ""
-                  }`,
-                  inclusive: false,
-                }).range(start, end)
-              )
-
-              // Also add the widget for interaction (this may be hidden during tooltip)
-              widgets.push(
-                Decoration.replace({
-                  widget: widget,
-                  inclusive: false,
-                }).range(start, end)
-              )
-            }
-          }
-        },
-      })
-    }
-    return Decoration.set(widgets, true)
-  }
-}
-
-const editablePillPlugin = (workspaceId: string) => {
-  return ViewPlugin.fromClass(
-    class extends EditablePillPluginView {
-      constructor(view: EditorView) {
-        super(view, workspaceId)
-      }
-    },
-    {
-      decorations: (v) => v.decorations,
-    }
-  )
-}
-
-async function validateTemplateExpression(
-  expression: string,
-  workspaceId: string
-): Promise<TemplateExpressionValidation> {
-  try {
-    const response: ExpressionValidationResponse =
-      await editorValidateExpression({
-        workspaceId,
-        requestBody: { expression },
-      })
-
-    return {
-      isValid: response.is_valid,
-      errors: response.errors || [],
-      tokens: response.tokens || [],
-    }
-  } catch (error) {
-    console.warn("Expression validation failed:", error)
-    return {
-      isValid: false,
-      errors: [
-        {
-          loc: [0],
-          msg: "Validation service unavailable",
-          type: "service_error",
-        },
-      ],
-    }
-  }
 }
 
 interface TemplateTooltipProps {
@@ -498,512 +181,159 @@ function TemplateTooltip({
 // Helper function to render JSX to DOM element for CodeMirror tooltips
 function renderTooltipJSX(component: React.ReactElement): HTMLElement {
   try {
-    // Create a container and render the React component into it
     const container = document.createElement("div")
     const root = createRoot(container)
     root.render(component)
-
-    // Return the container itself instead of trying to access firstChild
     return container
   } catch (error) {
     throw error
   }
 }
 
-// Template expression suggestions for @ mentions
-const templateSuggestions = [
-  {
-    label: "actions",
-    detail: "Previous action results",
-    info: "Access results from previous workflow actions",
-  },
-  {
-    label: "trigger",
-    detail: "Trigger data",
-    info: "Data from the workflow trigger event",
-  },
-  {
-    label: "secrets",
-    detail: "Workspace secrets",
-    info: "Access configured secrets and credentials",
-  },
-  {
-    label: "inputs",
-    detail: "Workflow inputs",
-    info: "Input parameters passed to the workflow",
-  },
-  {
-    label: "env",
-    detail: "Environment variables",
-    info: "System environment variables",
-  },
-  {
-    label: "var",
-    detail: "Workflow variables",
-    info: "Custom variables defined in the workflow",
-  },
-  {
-    label: "actions.previous.result",
-    detail: "Previous action result",
-    info: "Result from the immediately previous action",
-  },
-  {
-    label: "trigger.webhook.body",
-    detail: "Webhook body",
-    info: "Body content from webhook trigger",
-  },
-  {
-    label: "trigger.webhook.headers",
-    detail: "Webhook headers",
-    info: "Headers from webhook trigger",
-  },
-  {
-    label: "secrets.api_key",
-    detail: "API key secret",
-    info: "Access API key from secrets",
-  },
-  {
-    label: "inputs.user_id",
-    detail: "User ID input",
-    info: "User ID parameter from workflow inputs",
-  },
-  {
-    label: "env.NODE_ENV",
-    detail: "Environment",
-    info: "Current environment (dev/prod)",
-  },
-]
+// Extended plugin view for JSON editor with syntax tree traversal
+class JsonEditablePillPluginView extends TemplatePillPluginView {
+  // Get validation for a specific position (used by hover tooltip)
+  getValidationAt(
+    pos: number,
+    view: EditorView
+  ): TemplateExpressionValidation | null {
+    let result: TemplateExpressionValidation | null = null
 
-// Function and action completion cache using existing API
-const functionCache = new Map<string, EditorFunctionRead[]>()
-const actionCache = new Map<string, EditorActionRead[]>()
+    for (const { from, to } of view.visibleRanges) {
+      syntaxTree(view.state).iterate({
+        from,
+        to,
+        enter: (node: SyntaxNode) => {
+          if (node.type.name === "String") {
+            const stringValue = view.state.doc.sliceString(
+              node.from + 1,
+              node.to - 1
+            )
+            const regex = createTemplateRegex()
+            let match: RegExpExecArray | null
+            while ((match = regex.exec(stringValue)) !== null) {
+              const innerContent = match[1].trim()
+              const start = node.from + 1 + match.index
+              const end = start + match[0].length
 
-async function fetchFunctions(
-  workspaceId: string
-): Promise<EditorFunctionRead[]> {
-  if (functionCache.has(workspaceId)) {
-    return functionCache.get(workspaceId)!
-  }
-
-  try {
-    const functions = await editorListFunctions({ workspaceId })
-    functionCache.set(workspaceId, functions)
-    return functions
-  } catch (error) {
-    console.warn("Failed to fetch functions:", error)
-    return []
-  }
-}
-
-// Mention completion function
-function mentionCompletion(
-  context: CompletionContext
-): CompletionResult | null {
-  const word = context.matchBefore(/@\w*/)
-  if (!word) return null
-
-  if (word.from === word.to && !context.explicit) return null
-
-  return {
-    from: word.from,
-    options: templateSuggestions.map((suggestion) => ({
-      label: `@${suggestion.label}`,
-      detail: suggestion.detail,
-      info: suggestion.info,
-      apply: (
-        view: EditorView,
-        completion: Completion,
-        from: number,
-        to: number
-      ) => {
-        // Replace @mention with template expression pill
-        const templateExpression = `\${{ ${suggestion.label} }}`
-        view.dispatch({
-          changes: { from, to, insert: templateExpression },
-          selection: { anchor: from + templateExpression.length },
-        })
-      },
-    })),
-  }
-}
-
-// Function completion for FN context using existing infrastructure
-function createFunctionCompletion(workspaceId: string) {
-  return async (
-    context: CompletionContext
-  ): Promise<CompletionResult | null> => {
-    // Check for FN.function_name patterns
-    const fnWord = context.matchBefore(/FN\.\w*/)
-    if (!fnWord) return null
-
-    try {
-      const functions = await fetchFunctions(workspaceId)
-
-      // Extract the partial function name after "FN."
-      const text = context.state.doc.sliceString(fnWord.from, fnWord.to)
-      const partialFunction = text.replace(/^FN\./, "")
-
-      // Filter functions based on partial match
-      const filteredFunctions = functions.filter((fn) =>
-        fn.name.toLowerCase().startsWith(partialFunction.toLowerCase())
-      )
-
-      return {
-        from: fnWord.from + 3, // Start after "FN."
-        options: filteredFunctions.map((fn) => ({
-          label: fn.name,
-          detail: fn.return_type || "unknown",
-          info: () => {
-            const dom = renderTooltipJSX(<FunctionTooltip func={fn} />)
-            return { dom }
-          },
-          apply: (
-            view: EditorView,
-            completion: Completion,
-            from: number,
-            to: number
-          ) => {
-            // Create parameter snippet similar to suggestions.ts but adapted for CodeMirror
-            const params = fn.parameters.map((p) => p.name).join(", ")
-            const insertText = `${fn.name}(${params})`
-
-            view.dispatch({
-              changes: { from, to, insert: insertText },
-              selection: {
-                anchor: from + fn.name.length + 1, // Position cursor after opening parenthesis
-                head: from + fn.name.length + 1 + params.length, // Select parameters if any
-              },
-            })
-          },
-        })),
-      }
-    } catch (error) {
-      console.warn("Failed to get function completions:", error)
-      return null
-    }
-  }
-}
-
-// Action completion for ACTIONS context using existing infrastructure
-function createActionCompletion(actions: ActionRead[]) {
-  return async (
-    context: CompletionContext
-  ): Promise<CompletionResult | null> => {
-    // Check for ACTIONS.action_ref patterns
-    const actionWord = context.matchBefore(/ACTIONS\.\w*/)
-    if (!actionWord) return null
-
-    try {
-      // Extract the partial action ref after "ACTIONS."
-      const text = context.state.doc.sliceString(actionWord.from, actionWord.to)
-      const partialAction = text.replace(/^ACTIONS\./, "")
-
-      // Filter actions based on partial match
-      const filteredActions = actions.filter((action) =>
-        action.ref.toLowerCase().startsWith(partialAction.toLowerCase())
-      )
-
-      return {
-        from: actionWord.from + 8, // Start after "ACTIONS."
-        options: filteredActions.map((action) => ({
-          label: action.ref,
-          detail: action.type || "action",
-          info: () => {
-            const dom = renderTooltipJSX(<ActionTooltip action={action} />)
-            return { dom }
-          },
-          apply: (
-            view: EditorView,
-            completion: Completion,
-            from: number,
-            to: number
-          ) => {
-            // Insert the action reference and .result
-            view.dispatch({
-              changes: { from, to, insert: `${action.ref}.result` },
-              selection: { anchor: from + action.ref.length + 7 }, // +7 for ".result"
-            })
-          },
-        })),
-      }
-    } catch (error) {
-      console.warn("Failed to get action completions:", error)
-      return null
-    }
-  }
-}
-
-// --- State Management for Editable Pill ---
-const setEditingRange = StateEffect.define<Range<Decoration> | null>()
-
-const editingRangeField = StateField.define<Range<Decoration> | null>({
-  create: () => null,
-  update(value, tr) {
-    for (const effect of tr.effects) {
-      if (effect.is(setEditingRange)) {
-        return effect.value
-      }
-    }
-    // If document changes, map the range to the new positions
-    if (value && tr.docChanged) {
-      // Manually map the 'from' and 'to' positions
-      const from = tr.changes.mapPos(value.from, 1)
-      const to = tr.changes.mapPos(value.to, -1)
-      // If the range was deleted or collapsed, clear it
-      if (from >= to) {
-        return null
-      }
-      // Return a new range with the updated positions
-      return { from, to, value: value.value }
-    }
-    return value
-  },
-  provide: (f) =>
-    EditorView.decorations.from(f, (value) => {
-      return value ? Decoration.set([value]) : Decoration.none
-    }),
-})
-
-// Enhanced widget with LSP-based syntax highlighting and error display
-class InnerContentWidget extends WidgetType {
-  constructor(
-    readonly content: string,
-    readonly validation?: TemplateExpressionValidation
-  ) {
-    super()
-  }
-
-  toDOM() {
-    const span = document.createElement("span")
-
-    // Determine if this expression has errors
-    const hasErrors =
-      this.validation?.isValid === false ||
-      (this.validation?.errors && this.validation.errors.length > 0)
-
-    span.className = `cm-template-pill ${hasErrors ? "cm-template-error" : ""}`
-
-    // Apply context styling to the main pill
-    const contextType = detectContextType(this.content)
-    if (contextType) {
-      span.classList.add(`cm-context-${contextType.toLowerCase()}`)
-    }
-
-    if (this.validation?.tokens && this.validation.tokens.length > 0) {
-      // Render with syntax highlighting from LSP
-      this.renderHighlightedContent(span)
-    } else {
-      // Fallback to context-aware rendering
-      this.renderContentWithContextStyling(span, this.content)
-    }
-
-    // Add error tooltip and icon if validation failed
-    if (hasErrors && this.validation?.errors) {
-      const errorMessages = this.validation.errors.map((e) => e.msg).join(", ")
-      span.title = `Template Expression Error: ${errorMessages}`
-
-      // Add error indicator
-      const errorIcon = document.createElement("span")
-      errorIcon.className = "cm-template-error-icon"
-      errorIcon.textContent = "⚠"
-      errorIcon.title = errorMessages
-      span.appendChild(errorIcon)
-    }
-
-    return span
-  }
-
-  private renderHighlightedContent(container: HTMLElement) {
-    if (!this.validation?.tokens) {
-      this.renderContentWithContextStyling(container, this.content)
-      return
-    }
-
-    // Check if tokens cover the full content to avoid missing prefixes
-    const tokensText = this.validation.tokens.map((t) => t.value).join("")
-    if (tokensText !== this.content.trim()) {
-      // Fallback to plain text if tokens don't represent the full content
-      // This prevents issues like "ACTIONS.test.result" showing as ".test.result"
-      this.renderContentWithContextStyling(container, this.content)
-      return
-    }
-
-    // For token-based rendering, we still need to manually parse for contexts
-    this.renderContentWithContextStyling(container, this.content)
-  }
-
-  private renderContentWithContextStyling(
-    container: HTMLElement,
-    content: string
-  ) {
-    // Create a regex to find all context references
-    const contextPattern = new RegExp(
-      `\\b(${Object.keys(CONTEXT_ICONS).join("|")})\\.(\\w+(?:\\.\\w+)*)`,
-      "g"
-    )
-
-    let lastIndex = 0
-    let match
-
-    while ((match = contextPattern.exec(content)) !== null) {
-      const [fullMatch, contextType, path] = match
-      const matchStart = match.index
-      const matchEnd = match.index + fullMatch.length
-
-      // Add any text before this match
-      if (matchStart > lastIndex) {
-        const beforeText = content.slice(lastIndex, matchStart)
-        container.appendChild(document.createTextNode(beforeText))
-      }
-
-      // Create styled span for the context reference
-      const contextSpan = document.createElement("span")
-      contextSpan.className = "inline-flex items-center gap-0.5"
-      contextSpan.style.lineHeight = "1"
-
-      // Add the React icon
-      const iconElement = createContextIcon(contextType as ContextType)
-      contextSpan.appendChild(iconElement)
-
-      // Add the path text
-      const pathSpan = document.createElement("span")
-      pathSpan.textContent = path
-      contextSpan.appendChild(pathSpan)
-
-      // Apply context-specific styling with inline styles for maximum specificity
-      const colors = {
-        ACTIONS: "#3b82f6",
-        FN: "#8b5cf6",
-        ENV: "#10b981",
-        SECRETS: "#f59e0b",
-        var: "#ef4444",
-      }
-
-      contextSpan.style.color = colors[contextType as keyof typeof colors]
-      contextSpan.style.fontWeight = "600"
-      contextSpan.classList.add(`cm-context-${contextType.toLowerCase()}`)
-
-      container.appendChild(contextSpan)
-      lastIndex = matchEnd
-    }
-
-    // Add any remaining text after the last match
-    if (lastIndex < content.length) {
-      const remainingText = content.slice(lastIndex)
-      container.appendChild(document.createTextNode(remainingText))
-    }
-  }
-
-  eq(other: InnerContentWidget) {
-    return (
-      other.content === this.content &&
-      JSON.stringify(other.validation) === JSON.stringify(this.validation)
-    )
-  }
-
-  ignoreEvent() {
-    return false // We want to handle clicks on the widget
-  }
-}
-
-// --- Helper to find template at a position ---
-function findTemplateAt(
-  state: EditorState,
-  pos: number
-): { from: number; to: number } | null {
-  const node = syntaxTree(state).resolve(pos, 1)
-  if (node.type.name !== "String") return null
-
-  const stringValue = state.doc.sliceString(node.from + 1, node.to - 1)
-  const regex = createTemplateRegex()
-  let match
-  while ((match = regex.exec(stringValue)) !== null) {
-    const from = node.from + 1 + match.index
-    const to = from + match[0].length
-    if (pos >= from && pos <= to) {
-      return { from, to }
-    }
-  }
-  return null
-}
-
-// Enhanced arrow key navigation that respects pill boundaries
-function enhancedCursorLeft(view: EditorView): boolean {
-  const editingRange = view.state.field(editingRangeField)
-  const currentPos = view.state.selection.main.head
-
-  // If we're editing a pill and at the start of the inner content
-  if (editingRange && currentPos <= editingRange.from + 3) {
-    // Exit the pill and move cursor to just before it
-    view.dispatch({
-      effects: setEditingRange.of(null),
-      selection: { anchor: editingRange.from },
-    })
-    return true
-  }
-
-  // If we're not in a pill, check if we're at the right boundary of a template
-  if (!editingRange) {
-    const templateAtPos = findTemplateAt(view.state, currentPos - 1)
-    if (templateAtPos && currentPos === templateAtPos.to) {
-      // Enter the pill in editing mode, positioned at the end
-      const editingMark = Decoration.mark({
-        class: "cm-template-pill cm-template-editing",
-      })
-
-      view.dispatch({
-        effects: setEditingRange.of(
-          editingMark.range(templateAtPos.from, templateAtPos.to)
-        ),
-        selection: {
-          anchor: templateAtPos.to - 3, // Position before " }}"
+              if (pos >= start && pos <= end) {
+                result = this.validationCache.get(innerContent) || null
+                return false
+              }
+            }
+          }
         },
       })
-      return true
+      if (result) break
     }
+    return result
   }
 
-  // Default behavior
-  return cursorCharLeft(view)
-}
+  protected buildDecorationsForContent(
+    view: EditorView,
+    widgets: Range<Decoration>[],
+    editingRange: Range<Decoration> | null
+  ): DecorationSet {
+    for (const { from, to } of view.visibleRanges) {
+      syntaxTree(view.state).iterate({
+        from,
+        to,
+        enter: (node: SyntaxNode) => {
+          if (node.type.name === "String") {
+            const stringValue = view.state.doc.sliceString(
+              node.from + 1,
+              node.to - 1
+            )
+            const regex = createTemplateRegex()
+            let match: RegExpExecArray | null
+            while ((match = regex.exec(stringValue)) !== null) {
+              const fullMatchText = match[0]
+              const innerContent = match[1].trim()
+              const start = node.from + 1 + match.index
+              const end = start + fullMatchText.length
 
-function enhancedCursorRight(view: EditorView): boolean {
-  const editingRange = view.state.field(editingRangeField)
-  const currentPos = view.state.selection.main.head
+              if (
+                editingRange &&
+                editingRange.from === start &&
+                editingRange.to === end
+              ) {
+                continue
+              }
 
-  // If we're editing a pill and at the end of the inner content
-  if (editingRange && currentPos >= editingRange.to - 3) {
-    // Exit the pill and move cursor to just after it
-    view.dispatch({
-      effects: setEditingRange.of(null),
-      selection: { anchor: editingRange.to },
-    })
-    return true
-  }
+              const validation = this.validationCache.get(innerContent)
+              let immediateValidation = validation
+              if (!validation && innerContent) {
+                if (
+                  innerContent.includes("..") ||
+                  innerContent.endsWith(".") ||
+                  innerContent.includes("undefined")
+                ) {
+                  immediateValidation = {
+                    isValid: false,
+                    errors: [
+                      {
+                        loc: [0],
+                        msg: "Invalid expression syntax",
+                        type: "syntax_error",
+                      },
+                    ],
+                    tokens: [],
+                  }
+                }
+              }
 
-  // If we're not in a pill, check if we're at the left boundary of a template
-  if (!editingRange) {
-    const templateAtPos = findTemplateAt(view.state, currentPos)
-    if (templateAtPos && currentPos === templateAtPos.from) {
-      // Enter the pill in editing mode, positioned at the start
-      const editingMark = Decoration.mark({
-        class: "cm-template-pill cm-template-editing",
-      })
+              const widget = new InnerContentWidget(
+                innerContent,
+                immediateValidation
+              )
 
-      view.dispatch({
-        effects: setEditingRange.of(
-          editingMark.range(templateAtPos.from, templateAtPos.to)
-        ),
-        selection: {
-          anchor: templateAtPos.from + 3, // Position after "${{ "
+              if (!validation && innerContent) {
+                if (innerContent.trim()) {
+                  this.getValidation(innerContent).then((result) => {
+                    if (result) {
+                      view.dispatch({ effects: [] })
+                    }
+                  })
+                }
+              }
+
+              widgets.push(
+                Decoration.mark({
+                  class: `cm-template-pill ${
+                    immediateValidation?.isValid === false
+                      ? "cm-template-error"
+                      : ""
+                  }`,
+                  inclusive: false,
+                }).range(start, end)
+              )
+
+              widgets.push(
+                Decoration.replace({
+                  widget: widget,
+                  inclusive: false,
+                }).range(start, end)
+              )
+            }
+          }
         },
       })
-      return true
     }
+    return Decoration.set(widgets, true)
   }
+}
 
-  // Default behavior
-  return cursorCharRight(view)
+function createJsonEditablePillPlugin(workspaceId: string) {
+  return ViewPlugin.fromClass(
+    class extends JsonEditablePillPluginView {
+      constructor(view: EditorView) {
+        super(view, workspaceId)
+      }
+    },
+    {
+      decorations: (v) => v.decorations,
+    }
+  )
 }
 
 // Custom JSON linter with enhanced error reporting
@@ -1012,7 +342,7 @@ function customJsonLinter(view: EditorView): Diagnostic[] {
   const content = view.state.doc.toString()
 
   if (!content.trim()) {
-    return diagnostics // Don't lint empty content
+    return diagnostics
   }
 
   try {
@@ -1025,11 +355,8 @@ function customJsonLinter(view: EditorView): Diagnostic[] {
     let to = content.length
     let message = "Invalid JSON"
 
-    // Try to extract position information from the error
     if (error.message) {
       message = error.message
-
-      // Parse position from error message (e.g., "Unexpected token } in JSON at position 123")
       const positionMatch = error.message.match(/at position (\d+)/)
       if (positionMatch) {
         const position = parseInt(positionMatch[1])
@@ -1037,7 +364,6 @@ function customJsonLinter(view: EditorView): Diagnostic[] {
         to = Math.min(content.length, position + 1)
       }
 
-      // Parse line/column from error message
       const lineMatch = error.message.match(/line (\d+) column (\d+)/)
       if (lineMatch) {
         const line = parseInt(lineMatch[1]) - 1
@@ -1064,13 +390,11 @@ function customJsonLinter(view: EditorView): Diagnostic[] {
 const templateExpressionHover = (
   workspaceId: string,
   workflowId: string | null,
-  pluginInstance: ViewPlugin<EditablePillPluginView>
+  pluginInstance: ViewPlugin<JsonEditablePillPluginView>
 ) =>
   hoverTooltip((view, pos, side) => {
-    // First find the syntax node at cursor position
     const node = syntaxTree(view.state).resolveInner(pos, -1)
 
-    // Early return if not hovering over a valid node type
     if (
       !["String", "PropertyName", "Literal", "Value", "JsonText"].includes(
         node.type.name
@@ -1079,7 +403,6 @@ const templateExpressionHover = (
       return null
     }
 
-    // Extract string value and find template expression at cursor
     const stringValue = view.state.doc.sliceString(node.from + 1, node.to - 1)
     const regex = createTemplateRegex()
     let match: RegExpExecArray | null
@@ -1095,15 +418,13 @@ const templateExpressionHover = (
       const start = node.from + 1 + match.index
       const end = start + match[0].length
 
-      // Check if hover position is within this template expression
       if (pos >= start && pos <= end) {
-        // Get validation from plugin cache
         const plugin = view.plugin(pluginInstance)
         if (plugin) {
           const validation = plugin.validationCache.get(innerContent)
           if (validation) {
             tooltipInfo = { start, end, validation, innerContent }
-            break // Found match, exit loop
+            break
           }
         }
       }
@@ -1141,7 +462,6 @@ function createTooltipContentJSX(
   let func: EditorFunctionRead | undefined
   let action: EditorActionRead | undefined
 
-  // Check if this is a function call (FN.function_name) - use cached data only
   const fnMatch = info.innerContent.match(/^FN\.(\w+)/)
   if (fnMatch) {
     const functionName = fnMatch[1]
@@ -1151,7 +471,6 @@ function createTooltipContentJSX(
     }
   }
 
-  // Check if this is an action reference (ACTIONS.action_ref) - use cached data only
   const actionMatch = info.innerContent.match(/^ACTIONS\.(\w+)/)
   if (actionMatch && workflowId) {
     const actionRef = actionMatch[1]
@@ -1185,7 +504,6 @@ export function JsonStyledEditor({
   const [hasErrors, setHasErrors] = useState(false)
   const actions = workflow?.actions || []
 
-  // Ensure value is always a string
   const editorValue =
     typeof value === "string"
       ? value
@@ -1194,11 +512,6 @@ export function JsonStyledEditor({
         : ""
 
   const extensions = useMemo(() => {
-    const editingMark = Decoration.mark({
-      class: "cm-template-pill cm-template-editing",
-    })
-
-    // Plugin to monitor lint diagnostics for errors
     const errorMonitorPlugin = ViewPlugin.fromClass(
       class {
         constructor(view: EditorView) {
@@ -1212,7 +525,6 @@ export function JsonStyledEditor({
         }
 
         checkForErrors(view: EditorView) {
-          // Check for JSON syntax errors by trying to parse
           try {
             const content = view.state.doc.toString()
             if (content.trim()) {
@@ -1226,24 +538,19 @@ export function JsonStyledEditor({
       }
     )
 
-    // Create the plugin instance once and reuse it
-    const editablePillPluginInstance = editablePillPlugin(workspaceId)
+    const editablePillPluginInstance = createJsonEditablePillPlugin(workspaceId)
     return [
-      // Standard setup extensions
       lintGutter(),
       history(),
       EditorState.allowMultipleSelections.of(true),
-      indentUnit.of("  "), // 2 spaces for indentation
-      EditorView.lineWrapping, // Enable line wrapping
+      indentUnit.of("  "),
+      EditorView.lineWrapping,
 
-      // Language and linting
       json(),
-      linter(jsonParseLinter()), // Built-in JSON linter
-      linter(customJsonLinter), // Custom enhanced JSON linter
+      linter(jsonParseLinter()),
+      linter(customJsonLinter),
 
-      // Keymaps
       keymap.of([
-        // Custom pill navigation keybinds (higher priority)
         {
           key: "ArrowLeft",
           run: enhancedCursorLeft,
@@ -1252,125 +559,42 @@ export function JsonStyledEditor({
           key: "ArrowRight",
           run: enhancedCursorRight,
         },
-        // Standard keymaps (lower priority)
         ...closeBracketsKeymap,
-        ...standardKeymap, // Includes basic editing commands
-        ...historyKeymap, // Undo/redo
-        ...completionKeymap, // Autocompletion navigation
-        indentWithTab, // Allows using Tab for indentation
+        ...standardKeymap,
+        ...historyKeymap,
+        ...completionKeymap,
+        indentWithTab,
       ]),
 
-      // Features
       bracketMatching(),
       closeBrackets(),
       autocompletion({
         override: [
-          mentionCompletion,
+          createMentionCompletion(),
           createFunctionCompletion(workspaceId),
           ...(workflowId
             ? [createActionCompletion(Object.values(actions).map((a) => a))]
             : []),
         ],
-      }), // Mention-based autocompletion for template expressions, functions, and actions
+      }),
 
-      // Custom plugins
       editingRangeField,
       editablePillPluginInstance,
       errorMonitorPlugin,
 
-      // Template expression hover tooltip (pass the plugin instance)
       templateExpressionHover(
         workspaceId,
         workflowId,
         editablePillPluginInstance
       ),
 
-      // Click handling for editable pills
       EditorView.domEventHandlers({
-        mousedown: (event, view) => {
-          const pos = view.posAtCoords(event)
-          if (!pos) return
-
-          const clickedTemplateRange = findTemplateAt(view.state, pos)
-          const currentEditingRange = view.state.field(editingRangeField)
-
-          if (
-            clickedTemplateRange &&
-            (!currentEditingRange ||
-              clickedTemplateRange.from !== currentEditingRange.from)
-          ) {
-            event.preventDefault()
-
-            // Calculate cursor position based on click position within the pill
-            const innerStart = clickedTemplateRange.from + 3 // After "${{ "
-            const innerEnd = clickedTemplateRange.to - 3 // Before " }}"
-            const clickPos = Math.max(innerStart, Math.min(innerEnd, pos))
-
-            view.dispatch({
-              effects: setEditingRange.of(
-                editingMark.range(
-                  clickedTemplateRange.from,
-                  clickedTemplateRange.to
-                )
-              ),
-              selection: {
-                anchor: clickPos, // Position cursor where user clicked
-              },
-            })
-            return true
-          }
-
-          if (!clickedTemplateRange && currentEditingRange) {
-            view.dispatch({ effects: setEditingRange.of(null) })
-          }
-        },
+        mousedown: createPillClickHandler(),
       }),
 
-      // Custom theme for template pills with LSP syntax highlighting
+      templatePillTheme,
+
       EditorView.theme({
-        ".cm-template-pill": {
-          backgroundColor: "rgba(218, 165, 32, 0.2)",
-          color: "#8B4513",
-          padding: "0.05em 0.3em",
-          borderRadius: "6px",
-          border: "1px solid rgba(139, 69, 19, 0.3)",
-          cursor: "pointer",
-          display: "inline-flex",
-          alignItems: "center",
-          verticalAlign: "baseline",
-          lineHeight: "1.2",
-          transition: "all 0.15s ease-in-out",
-          position: "relative",
-          zIndex: "1",
-          minWidth: "fit-content",
-          flexShrink: "0",
-        },
-        ".cm-template-pill:hover": {
-          backgroundColor: "rgba(218, 165, 32, 0.3)",
-          borderColor: "rgba(139, 69, 19, 0.5)",
-          boxShadow: "0 2px 4px rgba(139, 69, 19, 0.2)",
-          zIndex: "2",
-        },
-        ".cm-template-error": {
-          backgroundColor: "rgba(239, 68, 68, 0.2)",
-          border: "1px solid rgba(239, 68, 68, 0.5)",
-          color: "#dc2626",
-        },
-        ".cm-template-error-icon": {
-          color: "#ef4444",
-          fontSize: "0.8em",
-          marginLeft: "0.2em",
-          fontWeight: "bold",
-        },
-        ".cm-template-editing": {
-          padding: "0 !important",
-          border: "2px solid rgba(139, 69, 19, 0.8)",
-          boxShadow: "0 0 0 3px rgba(218, 165, 32, 0.4)",
-          backgroundColor: "rgba(218, 165, 32, 0.1)",
-          outline: "none",
-          transform: "none",
-        },
-        // Enhanced lint error styling
         ".cm-diagnostic-error": {
           borderBottom: "2px wavy #ef4444",
         },
@@ -1397,87 +621,6 @@ export function JsonStyledEditor({
         ".cm-tooltip-lint .cm-diagnostic-error": {
           color: "#fca5a5",
         },
-        // LSP token syntax highlighting
-        ".cm-token-keyword": {
-          color: "#cf222e",
-          fontWeight: "bold",
-        },
-        ".cm-token-variablename": {
-          color: "#0969da",
-        },
-        ".cm-token-propertyname": {
-          color: "#8250df",
-        },
-        ".cm-token-string": {
-          color: "#0a3069",
-        },
-        ".cm-token-number": {
-          color: "#0550ae",
-        },
-        ".cm-token-bool": {
-          color: "#8250df",
-        },
-        ".cm-token-operator": {
-          color: "#cf222e",
-        },
-        ".cm-token-function": {
-          color: "#8250df",
-        },
-        ".cm-token-punctuation": {
-          color: "#656d76",
-        },
-        ".cm-token-bracket": {
-          color: "#656d76",
-        },
-        // Template expression token errors
-        ".cm-token-error": {
-          backgroundColor: "rgba(239, 68, 68, 0.3)",
-          borderBottom: "1px wavy #ef4444",
-          borderRadius: "2px",
-        },
-        // Context-specific styling with higher specificity
-        ".cm-template-pill.cm-context-actions": {
-          color: "#3b82f6 !important", // Blue for actions
-          fontWeight: "600",
-        },
-        ".cm-template-pill.cm-context-fn": {
-          color: "#8b5cf6 !important", // Purple for functions
-          fontWeight: "600",
-        },
-        ".cm-template-pill.cm-context-env": {
-          color: "#10b981 !important", // Green for environment
-          fontWeight: "600",
-        },
-        ".cm-template-pill.cm-context-secrets": {
-          color: "#f59e0b !important", // Amber for secrets
-          fontWeight: "600",
-        },
-        ".cm-template-pill.cm-context-var": {
-          color: "#ef4444 !important", // Red for variables
-          fontWeight: "600",
-        },
-        // Context-specific token styling for syntax highlighted content
-        ".cm-token-keyword.cm-context-actions, .cm-token-variablename.cm-context-actions, .cm-token-propertyname.cm-context-actions":
-          {
-            color: "#3b82f6 !important",
-          },
-        ".cm-token-keyword.cm-context-fn, .cm-token-variablename.cm-context-fn, .cm-token-propertyname.cm-context-fn":
-          {
-            color: "#8b5cf6 !important",
-          },
-        ".cm-token-keyword.cm-context-env, .cm-token-variablename.cm-context-env, .cm-token-propertyname.cm-context-env":
-          {
-            color: "#10b981 !important",
-          },
-        ".cm-token-keyword.cm-context-secrets, .cm-token-variablename.cm-context-secrets, .cm-token-propertyname.cm-context-secrets":
-          {
-            color: "#f59e0b !important",
-          },
-        ".cm-token-keyword.cm-context-var, .cm-token-variablename.cm-context-var, .cm-token-propertyname.cm-context-var":
-          {
-            color: "#ef4444 !important",
-          },
-        // Template expression hover tooltip styling
         ".cm-template-expression-tooltip": {
           backgroundColor: "#1f2937",
           color: "#f9fafb",
@@ -1540,7 +683,6 @@ export function JsonStyledEditor({
           backgroundColor: "rgba(55, 65, 81, 0.5)",
           border: "1px solid #4b5563",
         },
-        // Function completion info styling
         ".function-completion-info": {
           backgroundColor: "#1f2937",
           color: "#f9fafb",
@@ -1576,7 +718,6 @@ export function JsonStyledEditor({
           marginBottom: "2px",
           paddingLeft: "8px",
         },
-        // Action completion info styling
         ".action-completion-info": {
           backgroundColor: "#1f2937",
           color: "#f9fafb",
@@ -1612,24 +753,9 @@ export function JsonStyledEditor({
           marginBottom: "2px",
           paddingLeft: "8px",
         },
-        // Tooltip function and action info styling
-        ".cm-tooltip-function-info": {
-          marginBottom: "8px",
-          padding: "8px",
-          backgroundColor: "rgba(34, 197, 94, 0.1)",
-          borderRadius: "4px",
-          border: "1px solid rgba(34, 197, 94, 0.3)",
-        },
-        ".cm-tooltip-action-info": {
-          marginBottom: "8px",
-          padding: "8px",
-          backgroundColor: "rgba(59, 130, 246, 0.1)",
-          borderRadius: "4px",
-          border: "1px solid rgba(59, 130, 246, 0.3)",
-        },
       }),
     ]
-  }, [workspaceId, workflowId]) // Include workspaceId and workflowId in dependencies
+  }, [workspaceId, workflowId])
 
   const editorTheme = "light"
 
@@ -1656,7 +782,6 @@ export function JsonStyledEditor({
         },
       })
     } catch (error) {
-      // If JSON is invalid, we don't format it
       console.warn("Cannot format invalid JSON:", error)
     }
   }, [editorView])
@@ -1672,7 +797,6 @@ export function JsonStyledEditor({
           theme={editorTheme}
           onCreateEditor={(view) => setEditorView(view)}
           basicSetup={{
-            // @uiw/react-codemirror specific basicSetup options
             foldGutter: true,
             dropCursor: true,
             allowMultipleSelections: true,
@@ -1691,20 +815,12 @@ export function JsonStyledEditor({
             lintKeymap: true,
           }}
           className={cn(
-            // Ensure the editor and all its tooltips/autocomplete popups are fully rounded and do not stick out
             "rounded-md text-xs focus-visible:outline-none",
-            // Editor container
             "[&_.cm-editor]:rounded-md [&_.cm-editor]:border-0 [&_.cm-focused]:outline-none",
-            // Scroller
             "[&_.cm-scroller]:rounded-md",
-            // Tooltip (e.g., hover, autocomplete)
             "[&_.cm-tooltip]:rounded-md",
-            // Autocomplete suggestion widget and its children
-            // Autocomplete tooltip styling
             "[&_.cm-tooltip-autocomplete]:rounded-sm [&_.cm-tooltip-autocomplete]:p-0.5",
-            // Autocomplete list styling
             "[&_.cm-tooltip-autocomplete>ul]:rounded-sm",
-            // Autocomplete item styling
             "[&_.cm-tooltip-autocomplete>ul>li]:flex",
             "[&_.cm-tooltip-autocomplete>ul>li]:min-h-5",
             "[&_.cm-tooltip-autocomplete>ul>li]:items-center",
@@ -1716,7 +832,6 @@ export function JsonStyledEditor({
         />
       </div>
 
-      {/* Floating toolbar - positioned outside the scrollable container */}
       <div className="absolute bottom-2 right-2 z-10 flex items-center gap-2">
         {hasErrors && (
           <div
