@@ -28,6 +28,7 @@ import {
   Decoration,
   DecorationSet,
   EditorView,
+  hoverTooltip,
   ViewPlugin,
   WidgetType,
   type ViewUpdate,
@@ -507,6 +508,345 @@ export function createTemplatePillPlugin(workspaceId: string) {
   )
 }
 
+// Create hover tooltips for individual expression nodes within template pills
+export function createExpressionNodeHover(workspaceId: string) {
+  return hoverTooltip((view, pos, side) => {
+    // Find if the position is within a template expression
+    const doc = view.state.doc
+    const line = doc.lineAt(pos)
+    const lineText = line.text
+
+    // Find all template expressions in the line
+    const templateRegex = createTemplateRegex()
+    let match
+    templateRegex.lastIndex = 0
+
+    while ((match = templateRegex.exec(lineText)) !== null) {
+      const templateStart = line.from + match.index
+      const templateEnd = templateStart + match[0].length
+
+      // Check if position is within this template expression
+      if (pos >= templateStart && pos <= templateEnd) {
+        const innerContent = match[1].trim()
+        const innerStart = templateStart + match[0].indexOf(innerContent)
+        const innerEnd = innerStart + innerContent.length
+
+        // Check if position is within the inner content
+        if (pos >= innerStart && pos <= innerEnd) {
+          const relativePos = pos - innerStart
+          return createNodeTooltipForPosition(
+            view,
+            innerContent,
+            relativePos,
+            templateStart,
+            workspaceId
+          )
+        }
+      }
+    }
+
+    return null
+  })
+}
+
+// Helper function to create tooltip for a specific position within an expression
+async function createNodeTooltipForPosition(
+  view: EditorView,
+  expression: string,
+  relativePos: number,
+  templateStart: number,
+  workspaceId: string
+) {
+  try {
+    // Get validation which includes tokens
+    const validation = await validateTemplateExpression(expression, workspaceId)
+
+    if (!validation.tokens || validation.tokens.length === 0) {
+      return null
+    }
+
+    // Find all tokens that contain the position
+    const candidateTokens = validation.tokens.filter(
+      (token) => relativePos >= token.start && relativePos <= token.end
+    )
+
+    if (candidateTokens.length === 0) {
+      return null
+    }
+
+    // Choose the most complete/longest token that contains the position
+    // This ensures we show tooltip for "ACTIONS.test.result" when hovering over "test" or "result"
+    const targetToken = candidateTokens.reduce((longest, current) => {
+      const currentLength = current.end - current.start
+      const longestLength = longest.end - longest.start
+
+      // Prefer tokens that start with context keywords (ACTIONS, FN, etc.)
+      const currentIsContextToken = current.value.match(
+        /^(ACTIONS|FN|SECRETS|ENV|TRIGGER|var)\b/
+      )
+      const longestIsContextToken = longest.value.match(
+        /^(ACTIONS|FN|SECRETS|ENV|TRIGGER|var)\b/
+      )
+
+      if (currentIsContextToken && !longestIsContextToken) {
+        return current
+      }
+      if (!currentIsContextToken && longestIsContextToken) {
+        return longest
+      }
+
+      // If both or neither are context tokens, prefer the longer one
+      return currentLength > longestLength ? current : longest
+    })
+
+    // Create tooltip based on token type
+    const tooltipContent = createNodeTooltipContent(
+      targetToken,
+      expression,
+      workspaceId
+    )
+
+    if (!tooltipContent) {
+      return null
+    }
+
+    return {
+      pos: templateStart + 3 + targetToken.start, // Account for ${{ prefix
+      end: templateStart + 3 + targetToken.end,
+      above: true,
+      create: () => ({
+        dom: tooltipContent,
+      }),
+    }
+  } catch (error) {
+    console.warn("Failed to create node tooltip:", error)
+    return null
+  }
+}
+
+// Create tooltip content for a specific token/node
+function createNodeTooltipContent(
+  token: { type: string; value: string; start: number; end: number },
+  fullExpression: string,
+  workspaceId: string
+): HTMLElement | null {
+  const container = document.createElement("div")
+  container.className = "cm-expression-node-tooltip"
+
+  // Header showing the token value and type
+  const header = document.createElement("div")
+  header.className = "cm-tooltip-header"
+  header.textContent = `${token.value} (${token.type})`
+  container.appendChild(header)
+
+  // Detect expression patterns in the token value, not just the type
+  const tokenValue = token.value
+
+  // Add type-specific information based on value patterns
+  if (tokenValue.includes("ACTIONS.")) {
+    addActionTooltipInfo(container, tokenValue, workspaceId)
+  } else if (tokenValue.includes("FN.")) {
+    addFunctionTooltipInfo(container, tokenValue, workspaceId)
+  } else if (tokenValue.includes("SECRETS.")) {
+    addSecretTooltipInfo(container, tokenValue)
+  } else if (tokenValue.includes("ENV.")) {
+    addEnvTooltipInfo(container, tokenValue)
+  } else if (tokenValue.includes("TRIGGER")) {
+    addTriggerTooltipInfo(container, tokenValue)
+  } else if (
+    token.type === "ACTIONS" ||
+    token.type === "FN" ||
+    token.type === "SECRETS" ||
+    token.type === "ENV" ||
+    token.type === "TRIGGER"
+  ) {
+    // Handle context types even without dot notation
+    if (token.type === "ACTIONS") {
+      addActionTooltipInfo(container, tokenValue, workspaceId)
+    } else if (token.type === "FN") {
+      addFunctionTooltipInfo(container, tokenValue, workspaceId)
+    } else if (token.type === "SECRETS") {
+      addSecretTooltipInfo(container, tokenValue)
+    } else if (token.type === "ENV") {
+      addEnvTooltipInfo(container, tokenValue)
+    } else if (token.type === "TRIGGER") {
+      addTriggerTooltipInfo(container, tokenValue)
+    }
+  } else {
+    // Generic token info
+    const info = document.createElement("div")
+    info.className = "cm-tooltip-generic-info"
+    info.textContent = `Token type: ${token.type}`
+    container.appendChild(info)
+  }
+
+  return container
+}
+
+// Helper functions for type-specific tooltip content
+function addActionTooltipInfo(
+  container: HTMLElement,
+  value: string,
+  workspaceId: string
+) {
+  const info = document.createElement("div")
+  info.className = "cm-tooltip-action-info"
+
+  // Enhanced regex to capture more complex action paths
+  const match = value.match(/ACTIONS\.(\w+)(?:\.(.+))?/)
+  if (match) {
+    const [, actionRef, propertyPath] = match
+    info.innerHTML = `
+      <div class="action-ref">Action: <strong>${actionRef}</strong></div>
+      ${propertyPath ? `<div class="action-prop">Property: <strong>${propertyPath}</strong></div>` : ""}
+      <div class="action-desc">References output from action step</div>
+    `
+  } else {
+    // Fallback for partial matches or just "ACTIONS"
+    const cleanValue = value.replace(/^ACTIONS\.?/, "")
+    if (cleanValue) {
+      info.innerHTML = `
+        <div class="action-ref">Action reference: <strong>${cleanValue}</strong></div>
+        <div class="action-desc">References output from action step</div>
+      `
+    } else {
+      info.innerHTML = `
+        <div class="action-ref">Action namespace</div>
+        <div class="action-desc">Used to reference outputs from workflow actions</div>
+      `
+    }
+  }
+
+  container.appendChild(info)
+}
+
+function addFunctionTooltipInfo(
+  container: HTMLElement,
+  value: string,
+  workspaceId: string
+) {
+  const info = document.createElement("div")
+  info.className = "cm-tooltip-function-info"
+
+  // Enhanced regex to capture function calls with parameters
+  const match = value.match(/FN\.(\w+)(?:\((.*)\))?/)
+  if (match) {
+    const [, functionName, params] = match
+    info.innerHTML = `
+      <div class="function-name">Function: <strong>${functionName}</strong></div>
+      ${params ? `<div class="function-params">Parameters: <code>${params}</code></div>` : ""}
+      <div class="function-desc">Built-in function for data processing</div>
+    `
+
+    // Try to get cached function info
+    const cachedFunctions = functionCache.get(workspaceId)
+    if (cachedFunctions) {
+      const func = cachedFunctions.find((f) => f.name === functionName)
+      if (func) {
+        const description = document.createElement("div")
+        description.className = "function-description"
+        description.textContent = func.description || "No description available"
+        info.appendChild(description)
+      }
+    }
+  } else {
+    // Fallback for partial matches or just "FN"
+    const cleanValue = value.replace(/^FN\.?/, "")
+    if (cleanValue) {
+      info.innerHTML = `
+        <div class="function-name">Function reference: <strong>${cleanValue}</strong></div>
+        <div class="function-desc">Built-in function for data processing</div>
+      `
+    } else {
+      info.innerHTML = `
+        <div class="function-name">Function namespace</div>
+        <div class="function-desc">Used to call built-in functions for data processing</div>
+      `
+    }
+  }
+
+  container.appendChild(info)
+}
+
+function addSecretTooltipInfo(container: HTMLElement, value: string) {
+  const info = document.createElement("div")
+  info.className = "cm-tooltip-secret-info"
+
+  const match = value.match(/SECRETS\.(\w+)(?:\.(.+))?/)
+  if (match) {
+    const [, secretName, key] = match
+    info.innerHTML = `
+      <div class="secret-name">Secret: <strong>${secretName}</strong></div>
+      ${key ? `<div class="secret-key">Key: <strong>${key}</strong></div>` : ""}
+      <div class="secret-desc">References stored secret credential</div>
+    `
+  } else {
+    // Fallback for partial matches or just "SECRETS"
+    const cleanValue = value.replace(/^SECRETS\.?/, "")
+    if (cleanValue) {
+      info.innerHTML = `
+        <div class="secret-name">Secret reference: <strong>${cleanValue}</strong></div>
+        <div class="secret-desc">References stored secret credential</div>
+      `
+    } else {
+      info.innerHTML = `
+        <div class="secret-name">Secrets namespace</div>
+        <div class="secret-desc">Used to reference stored secret credentials</div>
+      `
+    }
+  }
+
+  container.appendChild(info)
+}
+
+function addEnvTooltipInfo(container: HTMLElement, value: string) {
+  const info = document.createElement("div")
+  info.className = "cm-tooltip-env-info"
+
+  const match = value.match(/ENV\.(.+)/)
+  if (match) {
+    const [, envPath] = match
+    info.innerHTML = `
+      <div class="env-path">Path: <strong>${envPath}</strong></div>
+      <div class="env-desc">References environment variable or configuration</div>
+    `
+  } else {
+    // Fallback for partial matches or just "ENV"
+    const cleanValue = value.replace(/^ENV\.?/, "")
+    if (cleanValue) {
+      info.innerHTML = `
+        <div class="env-path">Environment variable: <strong>${cleanValue}</strong></div>
+        <div class="env-desc">References environment variable or configuration</div>
+      `
+    } else {
+      info.innerHTML = `
+        <div class="env-path">Environment namespace</div>
+        <div class="env-desc">Used to reference environment variables and configuration</div>
+      `
+    }
+  }
+
+  container.appendChild(info)
+}
+
+function addTriggerTooltipInfo(container: HTMLElement, value: string) {
+  const info = document.createElement("div")
+  info.className = "cm-tooltip-trigger-info"
+
+  const match = value.match(/TRIGGER(?:\.(.+))?/)
+  if (match) {
+    const [, triggerPath] = match
+    info.innerHTML = `
+      ${triggerPath ? `<div class="trigger-path">Path: <strong>${triggerPath}</strong></div>` : '<div class="trigger-root">Trigger data</div>'}
+      <div class="trigger-desc">References workflow trigger input data</div>
+    `
+  } else {
+    info.textContent = "Trigger reference"
+  }
+
+  container.appendChild(info)
+}
+
 // Template expression suggestions
 export const TEMPLATE_SUGGESTIONS = [
   {
@@ -851,5 +1191,111 @@ export const templatePillTheme = EditorView.theme({
   ".cm-template-pill.cm-context-var": {
     color: "#ef4444 !important",
     fontWeight: "600",
+  },
+  // Expression node tooltip styles
+  ".cm-expression-node-tooltip": {
+    backgroundColor: "#1f2937",
+    color: "#f9fafb",
+    border: "1px solid #374151",
+    borderRadius: "6px",
+    padding: "8px 12px",
+    fontSize: "12px",
+    maxWidth: "300px",
+    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+    fontFamily: "ui-sans-serif, system-ui, sans-serif",
+  },
+  ".cm-expression-node-tooltip .cm-tooltip-header": {
+    fontWeight: "600",
+    marginBottom: "6px",
+    color: "#e5e7eb",
+    borderBottom: "1px solid #374151",
+    paddingBottom: "4px",
+    fontFamily: "ui-monospace, monospace",
+  },
+  ".cm-tooltip-action-info": {
+    color: "#93c5fd",
+  },
+  ".cm-tooltip-action-info .action-ref": {
+    marginBottom: "2px",
+  },
+  ".cm-tooltip-action-info .action-prop": {
+    marginBottom: "2px",
+    color: "#ddd6fe",
+  },
+  ".cm-tooltip-action-info .action-desc": {
+    fontSize: "11px",
+    color: "#9ca3af",
+    fontStyle: "italic",
+  },
+  ".cm-tooltip-function-info": {
+    color: "#c4b5fd",
+  },
+  ".cm-tooltip-function-info .function-name": {
+    marginBottom: "2px",
+  },
+  ".cm-tooltip-function-info .function-params": {
+    marginBottom: "2px",
+    color: "#a5b4fc",
+    fontSize: "11px",
+  },
+  ".cm-tooltip-function-info .function-params code": {
+    backgroundColor: "rgba(139, 92, 246, 0.2)",
+    padding: "1px 4px",
+    borderRadius: "3px",
+    fontFamily: "ui-monospace, monospace",
+  },
+  ".cm-tooltip-function-info .function-desc": {
+    fontSize: "11px",
+    color: "#9ca3af",
+    fontStyle: "italic",
+  },
+  ".cm-tooltip-function-info .function-description": {
+    fontSize: "11px",
+    color: "#d1d5db",
+    marginTop: "4px",
+  },
+  ".cm-tooltip-secret-info": {
+    color: "#fbbf24",
+  },
+  ".cm-tooltip-secret-info .secret-name": {
+    marginBottom: "2px",
+  },
+  ".cm-tooltip-secret-info .secret-key": {
+    marginBottom: "2px",
+    color: "#fed7aa",
+  },
+  ".cm-tooltip-secret-info .secret-desc": {
+    fontSize: "11px",
+    color: "#9ca3af",
+    fontStyle: "italic",
+  },
+  ".cm-tooltip-env-info": {
+    color: "#6ee7b7",
+  },
+  ".cm-tooltip-env-info .env-path": {
+    marginBottom: "2px",
+  },
+  ".cm-tooltip-env-info .env-desc": {
+    fontSize: "11px",
+    color: "#9ca3af",
+    fontStyle: "italic",
+  },
+  ".cm-tooltip-trigger-info": {
+    color: "#f472b6",
+  },
+  ".cm-tooltip-trigger-info .trigger-path": {
+    marginBottom: "2px",
+  },
+  ".cm-tooltip-trigger-info .trigger-root": {
+    marginBottom: "2px",
+  },
+  ".cm-tooltip-trigger-info .trigger-desc": {
+    fontSize: "11px",
+    color: "#9ca3af",
+    fontStyle: "italic",
+  },
+  ".cm-tooltip-generic-info": {
+    color: "#d1d5db",
+    fontSize: "11px",
   },
 })

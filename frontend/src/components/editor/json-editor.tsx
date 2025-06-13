@@ -43,6 +43,7 @@ import { Button } from "@/components/ui/button"
 import {
   actionCache,
   createActionCompletion,
+  createExpressionNodeHover,
   createFunctionCompletion,
   createMentionCompletion,
   createPillClickHandler,
@@ -361,6 +362,7 @@ export function JsonStyledEditor({
 
       editingRangeField,
       editablePillPluginInstance,
+      createExpressionNodeHover(workspaceId),
       errorMonitorPlugin,
 
       EditorView.domEventHandlers({
