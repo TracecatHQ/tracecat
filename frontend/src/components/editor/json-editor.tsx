@@ -24,19 +24,15 @@ import {
   standardKeymap,
 } from "@codemirror/commands"
 import { json, jsonParseLinter } from "@codemirror/lang-json"
-import { bracketMatching, indentUnit, syntaxTree } from "@codemirror/language"
+import { bracketMatching, indentUnit } from "@codemirror/language"
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint"
-import { EditorState, type Range } from "@codemirror/state"
+import { EditorState } from "@codemirror/state"
 import {
-  Decoration,
-  DecorationSet,
   EditorView,
-  hoverTooltip,
   keymap,
   ViewPlugin,
   type ViewUpdate,
 } from "@codemirror/view"
-import type { SyntaxNode } from "@lezer/common"
 import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle, Code } from "lucide-react"
 import { createRoot } from "react-dom/client"
@@ -50,14 +46,12 @@ import {
   createFunctionCompletion,
   createMentionCompletion,
   createPillClickHandler,
-  createTemplateRegex,
+  createTemplatePillPlugin,
   editingRangeField,
   enhancedCursorLeft,
   enhancedCursorRight,
   functionCache,
-  InnerContentWidget,
   TemplateExpressionValidation,
-  TemplatePillPluginView,
   templatePillTheme,
 } from "./codemirror/common"
 
@@ -190,152 +184,6 @@ function renderTooltipJSX(component: React.ReactElement): HTMLElement {
   }
 }
 
-// Extended plugin view for JSON editor with syntax tree traversal
-class JsonEditablePillPluginView extends TemplatePillPluginView {
-  // Get validation for a specific position (used by hover tooltip)
-  getValidationAt(
-    pos: number,
-    view: EditorView
-  ): TemplateExpressionValidation | null {
-    let result: TemplateExpressionValidation | null = null
-
-    for (const { from, to } of view.visibleRanges) {
-      syntaxTree(view.state).iterate({
-        from,
-        to,
-        enter: (node: SyntaxNode) => {
-          if (node.type.name === "String") {
-            const stringValue = view.state.doc.sliceString(
-              node.from + 1,
-              node.to - 1
-            )
-            const regex = createTemplateRegex()
-            let match: RegExpExecArray | null
-            while ((match = regex.exec(stringValue)) !== null) {
-              const innerContent = match[1].trim()
-              const start = node.from + 1 + match.index
-              const end = start + match[0].length
-
-              if (pos >= start && pos <= end) {
-                result = this.validationCache.get(innerContent) || null
-                return false
-              }
-            }
-          }
-        },
-      })
-      if (result) break
-    }
-    return result
-  }
-
-  protected buildDecorationsForContent(
-    view: EditorView,
-    widgets: Range<Decoration>[],
-    editingRange: Range<Decoration> | null
-  ): DecorationSet {
-    for (const { from, to } of view.visibleRanges) {
-      syntaxTree(view.state).iterate({
-        from,
-        to,
-        enter: (node: SyntaxNode) => {
-          if (node.type.name === "String") {
-            const stringValue = view.state.doc.sliceString(
-              node.from + 1,
-              node.to - 1
-            )
-            const regex = createTemplateRegex()
-            let match: RegExpExecArray | null
-            while ((match = regex.exec(stringValue)) !== null) {
-              const fullMatchText = match[0]
-              const innerContent = match[1].trim()
-              const start = node.from + 1 + match.index
-              const end = start + fullMatchText.length
-
-              if (
-                editingRange &&
-                editingRange.from === start &&
-                editingRange.to === end
-              ) {
-                continue
-              }
-
-              const validation = this.validationCache.get(innerContent)
-              let immediateValidation = validation
-              if (!validation && innerContent) {
-                if (
-                  innerContent.includes("..") ||
-                  innerContent.endsWith(".") ||
-                  innerContent.includes("undefined")
-                ) {
-                  immediateValidation = {
-                    isValid: false,
-                    errors: [
-                      {
-                        loc: [0],
-                        msg: "Invalid expression syntax",
-                        type: "syntax_error",
-                      },
-                    ],
-                    tokens: [],
-                  }
-                }
-              }
-
-              const widget = new InnerContentWidget(
-                innerContent,
-                immediateValidation
-              )
-
-              if (!validation && innerContent) {
-                if (innerContent.trim()) {
-                  this.getValidation(innerContent).then((result) => {
-                    if (result) {
-                      view.dispatch({ effects: [] })
-                    }
-                  })
-                }
-              }
-
-              widgets.push(
-                Decoration.mark({
-                  class: `cm-template-pill ${
-                    immediateValidation?.isValid === false
-                      ? "cm-template-error"
-                      : ""
-                  }`,
-                  inclusive: false,
-                }).range(start, end)
-              )
-
-              widgets.push(
-                Decoration.replace({
-                  widget: widget,
-                  inclusive: false,
-                }).range(start, end)
-              )
-            }
-          }
-        },
-      })
-    }
-    return Decoration.set(widgets, true)
-  }
-}
-
-function createJsonEditablePillPlugin(workspaceId: string) {
-  return ViewPlugin.fromClass(
-    class extends JsonEditablePillPluginView {
-      constructor(view: EditorView) {
-        super(view, workspaceId)
-      }
-    },
-    {
-      decorations: (v) => v.decorations,
-    }
-  )
-}
-
 // Custom JSON linter with enhanced error reporting
 function customJsonLinter(view: EditorView): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
@@ -385,73 +233,6 @@ function customJsonLinter(view: EditorView): Diagnostic[] {
 
   return diagnostics
 }
-
-// Enhanced template expression hover tooltip with function information
-const templateExpressionHover = (
-  workspaceId: string,
-  workflowId: string | null,
-  pluginInstance: ViewPlugin<JsonEditablePillPluginView>
-) =>
-  hoverTooltip((view, pos, side) => {
-    const node = syntaxTree(view.state).resolveInner(pos, -1)
-
-    if (
-      !["String", "PropertyName", "Literal", "Value", "JsonText"].includes(
-        node.type.name
-      )
-    ) {
-      return null
-    }
-
-    const stringValue = view.state.doc.sliceString(node.from + 1, node.to - 1)
-    const regex = createTemplateRegex()
-    let match: RegExpExecArray | null
-    let tooltipInfo: {
-      start: number
-      end: number
-      validation: TemplateExpressionValidation
-      innerContent: string
-    } | null = null
-
-    while ((match = regex.exec(stringValue)) !== null) {
-      const innerContent = match[1].trim()
-      const start = node.from + 1 + match.index
-      const end = start + match[0].length
-
-      if (pos >= start && pos <= end) {
-        const plugin = view.plugin(pluginInstance)
-        if (plugin) {
-          const validation = plugin.validationCache.get(innerContent)
-          if (validation) {
-            tooltipInfo = { start, end, validation, innerContent }
-            break
-          }
-        }
-      }
-    }
-
-    if (!tooltipInfo) return null
-
-    return {
-      pos: tooltipInfo.start,
-      end: tooltipInfo.end,
-      create: () => {
-        const dom = document.createElement("div")
-        dom.className = "cm-template-expression-tooltip"
-
-        const tooltipContent = createTooltipContentJSX(
-          tooltipInfo,
-          workspaceId,
-          workflowId
-        )
-        const renderedContent = renderTooltipJSX(tooltipContent)
-
-        dom.appendChild(renderedContent)
-
-        return { dom }
-      },
-    }
-  })
 
 // Helper function to create tooltip content with function/action information using JSX
 function createTooltipContentJSX(
@@ -538,7 +319,7 @@ export function JsonStyledEditor({
       }
     )
 
-    const editablePillPluginInstance = createJsonEditablePillPlugin(workspaceId)
+    const editablePillPluginInstance = createTemplatePillPlugin(workspaceId)
     return [
       lintGutter(),
       history(),
@@ -581,12 +362,6 @@ export function JsonStyledEditor({
       editingRangeField,
       editablePillPluginInstance,
       errorMonitorPlugin,
-
-      templateExpressionHover(
-        workspaceId,
-        workflowId,
-        editablePillPluginInstance
-      ),
 
       EditorView.domEventHandlers({
         mousedown: createPillClickHandler(),
