@@ -76,7 +76,7 @@ function createTemplateRegex() {
 }
 
 // Context type detection and icon mapping
-const commonIconProps = {
+const commonIconStyle = {
   className: "m-0 inline size-3 p-0",
   style: {
     verticalAlign: "middle",
@@ -85,11 +85,11 @@ const commonIconProps = {
 } as const
 
 const CONTEXT_ICONS = {
-  ACTIONS: () => <AtSignIcon {...commonIconProps} />, // Play icon for actions
-  FN: () => <FunctionSquareIcon {...commonIconProps} />, // Function icon
-  ENV: () => <DollarSignIcon {...commonIconProps} />, // Dollar sign for environment variables
-  SECRETS: () => <KeyIcon {...commonIconProps} />, // Key icon for secrets
-  var: () => <CircleIcon {...commonIconProps} />, // Circle for variables
+  ACTIONS: () => <AtSignIcon {...commonIconStyle} />, // Play icon for actions
+  FN: () => <FunctionSquareIcon {...commonIconStyle} />, // Function icon
+  ENV: () => <DollarSignIcon {...commonIconStyle} />, // Dollar sign for environment variables
+  SECRETS: () => <KeyIcon {...commonIconStyle} />, // Key icon for secrets
+  var: () => <CircleIcon {...commonIconStyle} />, // Circle for variables
 } as const
 
 type ContextType = keyof typeof CONTEXT_ICONS
