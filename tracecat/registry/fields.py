@@ -31,6 +31,7 @@ class ComponentID(StrEnum):
     KEY_VALUE = "key-value"
     YAML = "yaml"
     JSON = "json"
+    NO_EXPR = "no-expr"
 
 
 @dataclass(slots=True)
@@ -127,6 +128,13 @@ class KeyValue(Component):
     component_id: Literal[ComponentID.KEY_VALUE] = ComponentID.KEY_VALUE
     key_placeholder: str = "Key"
     value_placeholder: str = "Value"
+
+
+@dataclass(slots=True)
+class NoExpr(Component):
+    """Component that disallows expressions in the input"""
+
+    component_id: Literal[ComponentID.NO_EXPR] = ComponentID.NO_EXPR
 
 
 def _safe_issubclass(cls: type, base: type) -> bool:
@@ -232,9 +240,13 @@ def get_default_component(field_type: Any) -> Component | None:
     origin = get_origin(field_type)
     # Strip None from the type
     if origin in (list, tuple):
-        return TagInput()
+        # Special case: list[str] should use TagInput
+        args = get_args(field_type)
+        if len(args) == 1 and args[0] is str:
+            return TagInput()
+        return Json()  # Other list[T] types use Json
     elif origin is dict:
-        return KeyValue()
+        return Json()  # Changed from KeyValue() to Json() for dict[K, V]
     elif origin is Literal:
         if args := getattr(field_type, "__args__", None):
             return Select(options=list(args))
@@ -252,6 +264,17 @@ def get_components_for_union_type(field_type: Any) -> list[Component]:
         return [component] if component else []
 
     args = get_args(field_type)
+
+    # Special rule: If union contains both str and list[str], use TagInput
+    non_none_args = [arg for arg in args if arg is not type(None)]
+    has_str = str in non_none_args
+    has_list_str = any(
+        get_origin(arg) is list and get_args(arg) == (str,) for arg in non_none_args
+    )
+
+    if has_str and has_list_str:
+        return [TagInput()]
+
     components = []
 
     for arg in args:
@@ -277,7 +300,8 @@ class EditorComponent(RootModel):
         | Yaml
         | Json
         | KeyValue
-        | TagInput,
+        | TagInput
+        | NoExpr,
         Field(discriminator="component_id"),
     ]
 
