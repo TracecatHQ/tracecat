@@ -117,13 +117,12 @@ export function ExpressionInput({
       // Single-line configuration
       EditorView.lineWrapping,
       EditorState.transactionFilter.of((tr) => {
-        // Prevent newlines in single-line input
         if (tr.newDoc.lines > 1) {
           const singleLineText = tr.newDoc.toString().replace(/\n/g, " ")
           return {
             changes: {
               from: 0,
-              to: tr.newDoc.length,
+              to: tr.startState.doc.length,
               insert: singleLineText,
             },
           }
