@@ -192,205 +192,211 @@ interface TemplateExpressionValidation {
     end: number
   }>
 }
-const editablePillPlugin = (workspaceId: string) => {
-  return ViewPlugin.fromClass(
-    class {
-      decorations: DecorationSet
-      validationCache = new Map<string, TemplateExpressionValidation>()
-      pendingValidations = new Map<
-        string,
-        Promise<TemplateExpressionValidation>
-      >()
+class EditablePillPluginView {
+  decorations: DecorationSet
+  validationCache = new Map<string, TemplateExpressionValidation>()
+  pendingValidations = new Map<string, Promise<TemplateExpressionValidation>>()
 
-      constructor(view: EditorView) {
-        this.decorations = this.buildDecorations(view)
-      }
+  constructor(
+    private view: EditorView,
+    private workspaceId: string
+  ) {
+    this.decorations = this.buildDecorations(view)
+  }
 
-      update(update: ViewUpdate) {
-        if (
-          update.docChanged ||
-          update.viewportChanged ||
-          update.state.field(editingRangeField) !==
-            update.startState.field(editingRangeField) ||
-          update.transactions.some((tr) => tr.effects.length > 0)
-        ) {
-          this.decorations = this.buildDecorations(update.view)
-        }
-      }
+  update(update: ViewUpdate): void {
+    if (
+      update.docChanged ||
+      update.viewportChanged ||
+      update.state.field(editingRangeField) !==
+        update.startState.field(editingRangeField) ||
+      update.transactions.some((tr) => tr.effects.length > 0)
+    ) {
+      this.decorations = this.buildDecorations(update.view)
+    }
+  }
 
-      async getValidation(
-        expression: string
-      ): Promise<TemplateExpressionValidation | undefined> {
-        // Check cache first
-        if (this.validationCache.has(expression)) {
-          return this.validationCache.get(expression)
-        }
+  async getValidation(
+    expression: string
+  ): Promise<TemplateExpressionValidation | undefined> {
+    // Check cache first
+    if (this.validationCache.has(expression)) {
+      return this.validationCache.get(expression)
+    }
 
-        // Check if validation is already pending
-        if (this.pendingValidations.has(expression)) {
-          return await this.pendingValidations.get(expression)
-        }
+    // Check if validation is already pending
+    if (this.pendingValidations.has(expression)) {
+      return await this.pendingValidations.get(expression)
+    }
 
-        // Start new validation
-        const validationPromise = validateTemplateExpression(
-          expression,
-          workspaceId
-        )
-        this.pendingValidations.set(expression, validationPromise)
+    // Start new validation
+    const validationPromise = validateTemplateExpression(
+      expression,
+      this.workspaceId
+    )
+    this.pendingValidations.set(expression, validationPromise)
 
-        try {
-          const result = await validationPromise
-          this.validationCache.set(expression, result)
-          this.pendingValidations.delete(expression)
-          return result
-        } catch (error) {
-          this.pendingValidations.delete(expression)
-          return undefined
-        }
-      }
+    try {
+      const result = await validationPromise
+      this.validationCache.set(expression, result)
+      this.pendingValidations.delete(expression)
+      return result
+    } catch (error) {
+      this.pendingValidations.delete(expression)
+      return undefined
+    }
+  }
 
-      // Get validation for a specific position (used by hover tooltip)
-      getValidationAt(
-        pos: number,
-        view: EditorView
-      ): TemplateExpressionValidation | null {
-        let result: TemplateExpressionValidation | null = null
+  // Get validation for a specific position (used by hover tooltip)
+  getValidationAt(
+    pos: number,
+    view: EditorView
+  ): TemplateExpressionValidation | null {
+    let result: TemplateExpressionValidation | null = null
 
-        for (const { from, to } of view.visibleRanges) {
-          syntaxTree(view.state).iterate({
-            from,
-            to,
-            enter: (node: SyntaxNode) => {
-              if (node.type.name === "String") {
-                const stringValue = view.state.doc.sliceString(
-                  node.from + 1,
-                  node.to - 1
-                )
-                const regex = createTemplateRegex()
-                let match: RegExpExecArray | null
-                while ((match = regex.exec(stringValue)) !== null) {
-                  const innerContent = match[1].trim()
-                  const start = node.from + 1 + match.index
-                  const end = start + match[0].length
+    for (const { from, to } of view.visibleRanges) {
+      syntaxTree(view.state).iterate({
+        from,
+        to,
+        enter: (node: SyntaxNode) => {
+          if (node.type.name === "String") {
+            const stringValue = view.state.doc.sliceString(
+              node.from + 1,
+              node.to - 1
+            )
+            const regex = createTemplateRegex()
+            let match: RegExpExecArray | null
+            while ((match = regex.exec(stringValue)) !== null) {
+              const innerContent = match[1].trim()
+              const start = node.from + 1 + match.index
+              const end = start + match[0].length
 
-                  // Check if position is within this template expression
-                  if (pos >= start && pos <= end) {
-                    result = this.validationCache.get(innerContent) || null
-                    return false // Stop iteration
+              // Check if position is within this template expression
+              if (pos >= start && pos <= end) {
+                result = this.validationCache.get(innerContent) || null
+                return false // Stop iteration
+              }
+            }
+          }
+        },
+      })
+      if (result) break
+    }
+    return result
+  }
+
+  buildDecorations(view: EditorView): DecorationSet {
+    const widgets: Range<Decoration>[] = []
+    const editingRange = view.state.field(editingRangeField)
+
+    for (const { from, to } of view.visibleRanges) {
+      syntaxTree(view.state).iterate({
+        from,
+        to,
+        enter: (node: SyntaxNode) => {
+          if (node.type.name === "String") {
+            const stringValue = view.state.doc.sliceString(
+              node.from + 1,
+              node.to - 1
+            )
+            const regex = createTemplateRegex()
+            let match: RegExpExecArray | null
+            while ((match = regex.exec(stringValue)) !== null) {
+              const fullMatchText = match[0]
+              const innerContent = match[1].trim()
+              const start = node.from + 1 + match.index
+              const end = start + fullMatchText.length
+
+              // Skip if this range is currently being edited
+              if (
+                editingRange &&
+                editingRange.from === start &&
+                editingRange.to === end
+              ) {
+                continue
+              }
+
+              // Get cached validation or create widget without validation
+              const validation = this.validationCache.get(innerContent)
+
+              // Create immediate validation for obvious errors (for testing)
+              let immediateValidation = validation
+              if (!validation && innerContent) {
+                // Simple client-side validation for obvious errors
+                if (
+                  innerContent.includes("..") ||
+                  innerContent.endsWith(".") ||
+                  innerContent.includes("undefined")
+                ) {
+                  immediateValidation = {
+                    isValid: false,
+                    errors: [
+                      {
+                        loc: [0],
+                        msg: "Invalid expression syntax",
+                        type: "syntax_error",
+                      },
+                    ],
+                    tokens: [],
                   }
                 }
               }
-            },
-          })
-          if (result) break
-        }
-        return result
-      }
 
-      buildDecorations(view: EditorView): DecorationSet {
-        const widgets: Range<Decoration>[] = []
-        const editingRange = view.state.field(editingRangeField)
+              const widget = new InnerContentWidget(
+                innerContent,
+                immediateValidation
+              )
 
-        for (const { from, to } of view.visibleRanges) {
-          syntaxTree(view.state).iterate({
-            from,
-            to,
-            enter: (node: SyntaxNode) => {
-              if (node.type.name === "String") {
-                const stringValue = view.state.doc.sliceString(
-                  node.from + 1,
-                  node.to - 1
-                )
-                const regex = createTemplateRegex()
-                let match: RegExpExecArray | null
-                while ((match = regex.exec(stringValue)) !== null) {
-                  const fullMatchText = match[0]
-                  const innerContent = match[1].trim()
-                  const start = node.from + 1 + match.index
-                  const end = start + fullMatchText.length
-
-                  // Skip if this range is currently being edited
-                  if (
-                    editingRange &&
-                    editingRange.from === start &&
-                    editingRange.to === end
-                  ) {
-                    continue
-                  }
-
-                  // Get cached validation or create widget without validation
-                  const validation = this.validationCache.get(innerContent)
-
-                  // Create immediate validation for obvious errors (for testing)
-                  let immediateValidation = validation
-                  if (!validation && innerContent) {
-                    // Simple client-side validation for obvious errors
-                    if (
-                      innerContent.includes("..") ||
-                      innerContent.endsWith(".") ||
-                      innerContent.includes("undefined")
-                    ) {
-                      immediateValidation = {
-                        isValid: false,
-                        errors: [
-                          {
-                            loc: [0],
-                            msg: "Invalid expression syntax",
-                            type: "syntax_error",
-                          },
-                        ],
-                        tokens: [],
-                      }
-                    }
-                  }
-
-                  const widget = new InnerContentWidget(
-                    innerContent,
-                    immediateValidation
-                  )
-
-                  // Trigger async validation if not cached
-                  if (!validation && innerContent) {
-                    // Only validate non-empty expressions
-                    if (innerContent.trim()) {
-                      this.getValidation(innerContent).then((result) => {
-                        // Trigger re-render when validation completes
-                        if (result) {
-                          // Force a decoration update by dispatching a no-op transaction
-                          view.dispatch({
-                            effects: [],
-                          })
-                        }
+              // Trigger async validation if not cached
+              if (!validation && innerContent) {
+                // Only validate non-empty expressions
+                if (innerContent.trim()) {
+                  this.getValidation(innerContent).then((result) => {
+                    // Trigger re-render when validation completes
+                    if (result) {
+                      // Force a decoration update by dispatching a no-op transaction
+                      view.dispatch({
+                        effects: [],
                       })
                     }
-                  }
-
-                  // Add both mark decoration for styling and replace decoration for functionality
-                  // The mark provides the pill styling that persists during tooltip display
-                  widgets.push(
-                    Decoration.mark({
-                      class: `cm-template-pill ${
-                        immediateValidation?.isValid === false
-                          ? "cm-template-error"
-                          : ""
-                      }`,
-                      inclusive: false,
-                    }).range(start, end)
-                  )
-
-                  // Also add the widget for interaction (this may be hidden during tooltip)
-                  widgets.push(
-                    Decoration.replace({
-                      widget: widget,
-                      inclusive: false,
-                    }).range(start, end)
-                  )
+                  })
                 }
               }
-            },
-          })
-        }
-        return Decoration.set(widgets, true)
+
+              // Add both mark decoration for styling and replace decoration for functionality
+              // The mark provides the pill styling that persists during tooltip display
+              widgets.push(
+                Decoration.mark({
+                  class: `cm-template-pill ${
+                    immediateValidation?.isValid === false
+                      ? "cm-template-error"
+                      : ""
+                  }`,
+                  inclusive: false,
+                }).range(start, end)
+              )
+
+              // Also add the widget for interaction (this may be hidden during tooltip)
+              widgets.push(
+                Decoration.replace({
+                  widget: widget,
+                  inclusive: false,
+                }).range(start, end)
+              )
+            }
+          }
+        },
+      })
+    }
+    return Decoration.set(widgets, true)
+  }
+}
+
+const editablePillPlugin = (workspaceId: string) => {
+  return ViewPlugin.fromClass(
+    class extends EditablePillPluginView {
+      constructor(view: EditorView) {
+        super(view, workspaceId)
       }
     },
     {
@@ -1058,7 +1064,7 @@ function customJsonLinter(view: EditorView): Diagnostic[] {
 const templateExpressionHover = (
   workspaceId: string,
   workflowId: string | null,
-  pluginInstance: ViewPlugin<any>
+  pluginInstance: ViewPlugin<EditablePillPluginView>
 ) =>
   hoverTooltip((view, pos, side) => {
     // First find the syntax node at cursor position
