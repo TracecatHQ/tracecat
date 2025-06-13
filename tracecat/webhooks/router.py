@@ -84,7 +84,8 @@ async def incoming_webhook(
     mime_type = parse_content_type(content_type)[0] if content_type else ""
     if mime_type in NDJSON_CONTENT_TYPES and isinstance(payload, list):
         one_response = None
-        async for p in cooperative(batched(payload, 4)):
+        # Slow release to avoid overwhelming the system
+        async for p in cooperative(batched(payload, 8), delay=2):
             one_response = service.create_workflow_execution_nowait(
                 dsl=dsl_input,
                 wf_id=workflow_id,
