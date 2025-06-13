@@ -16,6 +16,7 @@ import {
   Completion,
   CompletionContext,
   CompletionResult,
+  startCompletion,
 } from "@codemirror/autocomplete"
 import { cursorCharLeft, cursorCharRight } from "@codemirror/commands"
 import {
@@ -902,10 +903,16 @@ export function createMentionCompletion(): (
           from: number,
           to: number
         ) => {
-          const templateExpression = `\${{ ${suggestion.label} }}`
+          // For ACTIONS and FN, automatically add a dot to enable immediate property/function completion
+          const needsDot =
+            suggestion.label === "ACTIONS" || suggestion.label === "FN"
+          const labelWithDot = needsDot
+            ? `${suggestion.label}.`
+            : suggestion.label
+          const templateExpression = `\${{ ${labelWithDot} }}`
           const templateStart = from
           const templateEnd = from + templateExpression.length
-          const cursorPosition = from + 4 + suggestion.label.length // Position after "${{ <label>"
+          const cursorPosition = from + 4 + labelWithDot.length // Position after "${{ <label>." or "${{ <label>"
 
           // Create editing mark decoration
           const editingMark = Decoration.mark({
@@ -919,6 +926,13 @@ export function createMentionCompletion(): (
             ),
             selection: { anchor: cursorPosition },
           })
+
+          // For labels that need dots, trigger completion after a short delay
+          if (needsDot) {
+            setTimeout(() => {
+              startCompletion(view)
+            }, 50)
+          }
         },
       })),
     }
@@ -1165,8 +1179,7 @@ export const templatePillTheme = EditorView.theme({
   },
   ".cm-template-editing": {
     padding: "0 !important",
-    border: "2px solid rgba(139, 69, 19, 0.8)",
-    boxShadow: "0 0 0 3px rgba(218, 165, 32, 0.4)",
+    border: "1px solid rgba(139, 69, 19, 0.8)",
     backgroundColor: "rgba(218, 165, 32, 0.1)",
     outline: "none",
     transform: "none",
