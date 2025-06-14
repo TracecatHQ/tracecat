@@ -1,0 +1,159 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracecat-api
+  namespace: {{ .Release.Namespace }}
+{{- if .Values.api.deployment.annotations }}
+  annotations:
+    {{- range $key, $value := .Values.api.deployment.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+  labels:
+    app: tracecat
+    chart: "{{ template "chart.fullname" . }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+    app.kubernetes.io/component: api
+    app.kubernetes.io/name: "{{ .Chart.Name }}"
+    app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.api.deployment.labels }}
+    {{- range $key, $value := .Values.api.deployment.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  strategy:
+    type: {{ .Values.api.strategyType }}
+  selector:
+    matchLabels:
+      app: tracecat
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+{{- if .Values.api.pods.annotations }}
+      annotations:
+        {{- range $key, $value := .Values.api.pods.annotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+{{- end }}
+      labels:
+        app: tracecat
+        app.kubernetes.io/component: api
+        app.kubernetes.io/name: "{{ .Chart.Name }}"
+        app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.api.pods.labels }}
+        {{- range $key, $value := .Values.api.pods.labels}}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+{{- end }}
+    spec:
+      containers:
+        - name: "tracecat-api"
+          image: "{{ include "tracecat.image" .Values.api }}"
+          imagePullPolicy: "{{ ((.Values.api.image).pullPolicy) | default "Always" }}"
+{{- if .Values.api.resources }}
+          resources:
+{{ toYaml .Values.api.resources | indent 10 }}
+{{- end }}
+          env:
+            - name: LOG_LEVEL
+              value: "{{ .Values.global.log_level }}"
+            - name: TRACECAT__ALLOW_ORIGINS
+              value: "{{ join "," .Values.api.allowed_origins }}"
+            - name: TRACECAT__API_ROOT_PATH
+              value: "{{ .Values.api.root_path }}"
+            - name: TRACECAT__API_URL
+              value: "http://{{ template "tracecat.services.api" }}"
+            - name: TRACECAT__APP_ENV
+              value: "{{ .Values.global.app_env }}"
+            # Authentication
+            - name: TRACECAT__AUTH_ALLOWED_DOMAINS
+              value: "{{ join "," .Values.auth.allowed_domains }}"
+            - name: TRACECAT__AUTH_MIN_PASSWORD_LENGTH
+              value: "{{ .Values.auth.min_password_length }}"
+            - name: TRACECAT__AUTH_TYPES
+              value: "{{ template "tracecat.auth.types" }}"
+            - name: TRACECAT__DB_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: databaseEncryptionKey
+            - name: TRACECAT__DB_SSLMODE
+              value: "{{ .Values.database.db_sslmode }}"
+            - name: TRACECAT__DB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: databaseUri
+            - name: TRACECAT__EXECUTOR_URL
+              value: "http://{{ template "tracecat.services.executor" . }}"
+            - name: TRACECAT__PUBLIC_API_URL
+              value: "{{ template "tracecat.url.public_api_url" . }}"
+            - name: TRACECAT__PUBLIC_APP_URL
+              value: "{{ template "tracecat.url.public_app_url" . }}"
+            - name: TRACECAT__SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: serviceKey
+            - name: TRACECAT__SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: signingSecret
+            - name: TRACECAT__TRUSTED_DOCKER_IMAGES
+              value: "{{ join "," .Values.trusted_docker_images }}"
+{{- if .Values.auth.basic.enabled }}
+            - name: USER_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: userAuthSecret
+{{- end }}
+{{- if .Values.auth.google_oauth.enabled }}
+            - name: OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.auth.google_oauth.secretName }}"
+                  key: oauthClientId
+            - name: OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.auth.google_oauth.secretName }}"
+                  key: oauthClientSecret
+{{- end }}
+{{- if .Values.auth.saml.enabled }}
+            # SAML SSO
+            - name: SAML_IDP_METADATA_URL
+              value: "{{ .Values.auth.saml.idp_metadata_url }}"
+{{- if .Values.auth.saml.force_saml_enabled }}
+            - name: TRACECAT__SETTING_OVERRIDE_SAML_ENABLED
+              value: "{{ .Values.auth.saml.force_saml_enabled }}"
+{{- end }}
+{{- end }}
+            - name: RUN_MIGRATIONS
+              value: "{{ .Values.api.run_migrations }}"
+            # Temporal
+            - name: TEMPORAL__CLUSTER_URL
+              value: "{{ template "tracecat.services.temporal" . }}"
+            - name: TEMPORAL__CLUSTER_QUEUE
+              value: "{{ .Values.temporal.cluster_queue }}"
+            - name: TEMPORAL__CLUSTER_NAMESPACE
+              value: "{{ .Values.temporal.cluster_namespace }}"
+            - name: TEMPORAL__TASK_TIMEOUT
+              value: "{{ .Values.temporal.task_timeout }}"
+            # Remote registry
+            - name: TRACECAT__ALLOWED_GIT_DOMAINS
+              value: "{{ join "," .Values.remote_repository.allowed_domains }}"
+{{- if (ne .Values.remote_repository.url "") }}
+            - name: TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME
+              value: "{{ .Values.remote_repository.url }}"
+{{- end }}
+{{- if (ne .Values.remote_repository.package_name "") }}
+            - name: TRACECAT__REMOTE_REPOSITORY_URL
+              value: "{{ .Values.remote_repository.package_name }}"
+{{- end }}
+          ports:
+            - containerPort: 8000
