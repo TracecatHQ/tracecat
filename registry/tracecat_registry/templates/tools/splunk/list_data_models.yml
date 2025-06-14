@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: List data models
+  description: List all data models on the Splunk server using native Splunk search.
+  display_group: Splunk
+  namespace: tools.splunk
+  name: list_data_models
+  secrets:
+    - name: splunk
+      keys:
+        - SPLUNK_API_KEY
+  expects:
+    base_url:
+      type: str
+      description: Splunk base URL (e.g. https://localhost:8089).
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+    adhoc_search_level:
+      type: str
+      description: Adhoc search level.
+      default: fast
+  steps:
+    - ref: search_job
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/services/search/jobs
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+        form_data:
+          search: "| rest /servicesNS/-/-/data/models | table title description app"
+          adhoc_search_level: ${{ inputs.adhoc_search_level }}
+          exec_mode: oneshot
+          output_mode: json
+          max_count: 100
+  returns: ${{ steps.search_job.result }}
