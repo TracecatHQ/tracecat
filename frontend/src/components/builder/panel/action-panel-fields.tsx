@@ -15,6 +15,7 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import {
+  Controller,
   ControllerRenderProps,
   FieldValues,
   useFormContext,
@@ -45,9 +46,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { CodeMirrorEditor } from "@/components/editor/codemirror"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
+import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
-import { JsonStyledEditor } from "@/components/editor/json-editor"
+import { ExpressionInput } from "@/components/editor/expression-input"
 import { FieldTypeTab, PolyField } from "@/components/polymorphic-field"
 import { CustomTagInput } from "@/components/tags-input"
 
@@ -152,7 +154,7 @@ export function CodeMirrorCodeField({
             <FormLabelComponent label={label} description={description} />
             <FormMessage className="whitespace-pre-line" />
             <FormControl>
-              <CodeMirrorEditor
+              <CodeEditor
                 value={field.value}
                 onChange={field.onChange}
                 language={code.lang || "python"}
@@ -683,6 +685,29 @@ export function PolymorphicField({
   const componentToRender: TracecatEditorComponent =
     activeComponent ?? allComponents[0]
 
+  // if the component is yaml or json, we need to render the yaml editor
+  if (
+    componentToRender.component_id === "yaml" ||
+    componentToRender.component_id === "json"
+  ) {
+    return (
+      <Controller
+        name={`inputs.${fieldName}`}
+        control={methods.control}
+        render={({ field }) => (
+          <FormItem>
+            <FormLabelComponent label={label} description={description} />
+            <FormMessage className="whitespace-pre-line" />
+            <YamlStyledEditor
+              name={`inputs.${fieldName}`}
+              control={methods.control}
+            />
+          </FormItem>
+        )}
+      />
+    )
+  }
+
   return (
     <FormField
       name={`inputs.${fieldName}`}
@@ -980,35 +1005,31 @@ function ComponentContent({
       )
     case "code":
       return (
-        <CodeMirrorEditor
+        <CodeEditor
           value={field.value}
           onChange={field.onChange}
           language={component.lang || "python"}
           readOnly={false}
         />
       )
-    case "yaml":
-      return (
-        <DynamicCustomEditor
-          className="h-64 w-full"
-          value={field.value}
-          onChange={field.onChange}
-          defaultLanguage="yaml-extended"
-          workspaceId={workspaceId}
-          workflowId={workflowId}
-        />
-      )
     case "json":
-      return (
-        <JsonStyledEditor value={field.value || ""} setValue={field.onChange} />
-      )
+    case "yaml":
+    // return (
+    //   <YamlStyledEditor
+    //     name={`inputs.${fieldName}`}
+    //     control={methods.control}
+    //   />
+    // )
+    // return (
+    //   <JsonStyledEditor value={field.value || ""} setValue={field.onChange} />
+    // )
     case "action-type":
       return <div>Action Type</div>
     case "workflow-alias":
       return <div>Workflow Alias</div>
     case "expression":
       return (
-        <Input
+        <ExpressionInput
           value={field.value}
           onChange={field.onChange}
           placeholder="Enter an expression"

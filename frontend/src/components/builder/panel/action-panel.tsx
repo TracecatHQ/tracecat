@@ -99,6 +99,8 @@ import {
 } from "@/components/builder/panel/action-panel-tooltips"
 import { CopyButton } from "@/components/copy-button"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
+import { ExpressionInput } from "@/components/editor/expression-input"
+import { ForEachField } from "@/components/form/for-each-field"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -120,8 +122,12 @@ const actionFormSchema = z.object({
   inputs: z.record(z.string(), z.unknown()),
   control_flow: z.object({
     for_each: z
-      .string()
-      .max(1000, "For each must be less than 1000 characters")
+      .union([
+        z.string().max(1000, "For each must be less than 1000 characters"),
+        z.array(
+          z.string().max(1000, "For each must be less than 1000 characters")
+        ),
+      ])
       .optional(),
     run_if: z
       .string()
@@ -248,7 +254,7 @@ export function ActionPanel({
       description: action?.description,
       inputs: parseYaml(action?.inputs) ?? {},
       control_flow: {
-        for_each: stringifyYaml(for_each),
+        for_each: for_each || undefined,
         run_if: stringifyYaml(run_if),
         retry_policy: stringifyYaml(retry_policy),
         options: stringifyYaml(options),
@@ -331,7 +337,7 @@ export function ActionPanel({
           inputs: inputsYaml, // Use preserved/raw YAML
           control_flow: {
             ...parseYaml(values.control_flow.options), // Miscellaneous options
-            for_each: parseYaml(values.control_flow.for_each),
+            for_each: values.control_flow.for_each,
             run_if: parseYaml(values.control_flow.run_if),
             retry_policy: parseYaml(values.control_flow.retry_policy),
           },
@@ -980,7 +986,6 @@ export function ActionPanel({
                               </div>
                             </ValidationErrorView>
                           )}
-
                           {/* Input Mode Toggle */}
                           <div className="flex flex-col space-y-2">
                             <div className="flex items-center justify-between">
@@ -1022,18 +1027,6 @@ export function ActionPanel({
                                 className="w-auto"
                               />
                             </div>
-                            {/* Show YAML features warning when switching to form mode */}
-                            {inputMode === "form" &&
-                              yamlFeatures.length > 0 && (
-                                <div className="flex items-center space-x-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700">
-                                  <AlertTriangleIcon className="size-3" />
-                                  <span>
-                                    Original YAML contains{" "}
-                                    {yamlFeatures.join(", ")} which may not be
-                                    fully preserved in form mode.
-                                  </span>
-                                </div>
-                              )}
                           </div>
                           {inputMode === "yaml" && (
                             /* YAML Mode - Preserve raw YAML */
@@ -1130,16 +1123,14 @@ export function ActionPanel({
                         control={methods.control}
                         render={({ field }) => (
                           <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
                             <FormControl>
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
+                              <ExpressionInput
                                 value={field.value}
                                 onChange={field.onChange}
-                                workspaceId={workspaceId}
+                                placeholder="Enter expression..."
                               />
                             </FormControl>
-                            <FormMessage className="whitespace-pre-line" />
                           </FormItem>
                         )}
                       />
@@ -1171,24 +1162,10 @@ export function ActionPanel({
                           iterate over.
                         </span>
                       </div>
-                      <FormField
-                        name="control_flow.for_each"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormControl>
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
-                              />
-                            </FormControl>
-                            <FormMessage className="whitespace-pre-line" />
-                          </FormItem>
-                        )}
+                      <ForEachField
+                        label="For each"
+                        fieldName="control_flow.for_each"
+                        description="Define one or more loop expressions for the action to iterate over."
                       />
                     </div>
                     {/* Other options */}

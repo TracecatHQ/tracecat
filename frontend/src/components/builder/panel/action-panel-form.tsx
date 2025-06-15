@@ -98,7 +98,7 @@ import {
   RunIfTooltip,
 } from "@/components/builder/panel/action-panel-tooltips"
 import { CopyButton } from "@/components/copy-button"
-import { CodeMirrorEditor } from "@/components/editor/codemirror"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
@@ -950,7 +950,7 @@ export function ActionPanel({
                                 <FormItem>
                                   <FormMessage className="whitespace-pre-line" />
                                   <FormControl>
-                                    <CodeMirrorEditor
+                                    <CodeEditor
                                       value={stringifyYaml(field.value)}
                                       onChange={field.onChange}
                                       language="yaml"

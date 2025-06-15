@@ -5,7 +5,7 @@ import ReactCodeMirror from "@uiw/react-codemirror"
 
 import { cn } from "@/lib/utils"
 
-interface CodeMirrorEditorProps {
+interface CodeEditorProps {
   value: string
   onChange?: (value: string) => void
   language?: string
@@ -21,13 +21,13 @@ export const getLanguageExtension = (language: string) => {
   }
 }
 
-export function CodeMirrorEditor({
+export function CodeEditor({
   value,
   onChange,
   language = "python",
   readOnly = false,
   className,
-}: CodeMirrorEditorProps) {
+}: CodeEditorProps) {
   return (
     <ReactCodeMirror
       value={value}

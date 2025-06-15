@@ -137,7 +137,10 @@ export function ActionTargetHandle({
     run_if: runIf,
   } = action?.control_flow || {}
   const hasJoin = indegree && indegree > 1
-  const hasForEach = !!forEach || (Array.isArray(forEach) && forEach.length > 0)
+  // Either it's a string, or an array with at least one item
+  const hasForEach =
+    (typeof forEach === "string" && forEach.length > 0) ||
+    (Array.isArray(forEach) && forEach.length > 0)
   const hasRunIf = !!runIf
 
   // Determine if there are no effects based on the conditions - exclude forEach since it's moved

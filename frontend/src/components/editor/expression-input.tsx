@@ -32,7 +32,10 @@ import CodeMirror from "@uiw/react-codemirror"
 
 import { cn } from "@/lib/utils"
 import {
-  createEnhancedActionCompletion,
+  createActionCompletion,
+  createAtKeyCompletion,
+  createBlurHandler,
+  createEscapeKeyHandler,
   createExpressionNodeHover,
   createFunctionCompletion,
   createMentionCompletion,
@@ -153,6 +156,8 @@ export function ExpressionInput({
         ...completionKeymap,
         indentWithTab,
       ]),
+      createAtKeyCompletion(),
+      createEscapeKeyHandler(),
 
       // Features
       bracketMatching(),
@@ -161,7 +166,7 @@ export function ExpressionInput({
         override: [
           createMentionCompletion(),
           createFunctionCompletion(workspaceId),
-          createEnhancedActionCompletion(Object.values(actions).map((a) => a)),
+          createActionCompletion(Object.values(actions).map((a) => a)),
         ],
       }),
 
@@ -176,6 +181,7 @@ export function ExpressionInput({
       // Event handlers
       EditorView.domEventHandlers({
         mousedown: createPillClickHandler(),
+        blur: createBlurHandler(),
       }),
 
       // Theme

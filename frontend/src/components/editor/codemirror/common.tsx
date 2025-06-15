@@ -16,10 +16,12 @@ import {
   Completion,
   CompletionContext,
   CompletionResult,
+  snippet,
   startCompletion,
 } from "@codemirror/autocomplete"
 import { cursorCharLeft, cursorCharRight } from "@codemirror/commands"
 import {
+  EditorSelection,
   EditorState,
   StateEffect,
   StateField,
@@ -30,6 +32,7 @@ import {
   DecorationSet,
   EditorView,
   hoverTooltip,
+  keymap,
   ViewPlugin,
   WidgetType,
   type ViewUpdate,
@@ -45,7 +48,7 @@ import { createRoot } from "react-dom/client"
 
 // Template expression utilities
 export function createTemplateRegex() {
-  return /\$\{\{\s*(.*?)\s*\}\}/g
+  return /\$\{\{\s*([^}]*?)\s*\}\}/g
 }
 
 const commonIconStyle = {
@@ -202,6 +205,12 @@ export function findTemplateAt(
   while ((match = regex.exec(content)) !== null) {
     const from = match.index
     const to = from + match[0].length
+
+    // Safety check: Skip if match contains line breaks
+    if (match[0].includes("\n")) {
+      continue
+    }
+
     if (pos >= from && pos <= to) {
       return { from, to }
     }
@@ -455,6 +464,11 @@ export class TemplatePillPluginView {
       const innerContent = match[1].trim()
       const start = match.index
       const end = start + fullMatchText.length
+
+      // Safety check: Skip if match contains line breaks
+      if (fullMatchText.includes("\n")) {
+        continue
+      }
 
       if (
         editingRange &&
@@ -880,7 +894,54 @@ export const TEMPLATE_SUGGESTIONS = [
     detail: "Workflow variables",
     info: "Custom variables defined in the workflow",
   },
+  {
+    label: "foreach",
+    detail: "For each item in the array",
+    info: "For each item in the array",
+  },
 ]
+
+// Custom keymap for @ key to trigger completions
+export function createAtKeyCompletion() {
+  return keymap.of([
+    {
+      key: "@",
+      run: (view: EditorView): boolean => {
+        // Insert the @ character first
+        const pos = view.state.selection.main.head
+        view.dispatch({
+          changes: { from: pos, insert: "@" },
+          selection: { anchor: pos + 1 },
+        })
+
+        // Trigger completion after a short delay to allow the @ to be processed
+        setTimeout(() => {
+          startCompletion(view)
+        }, 10)
+
+        return true
+      },
+    },
+  ])
+}
+
+// Custom keymap for Escape key to exit editing mode
+export function createEscapeKeyHandler() {
+  return keymap.of([
+    {
+      key: "Escape",
+      run: (view: EditorView): boolean => {
+        const currentEditingRange = view.state.field(editingRangeField)
+        if (currentEditingRange) {
+          // Directly clear the editing state
+          view.dispatch({ effects: setEditingRange.of(null) })
+          return true
+        }
+        return false
+      },
+    },
+  ])
+}
 
 // Completion functions
 export function createMentionCompletion(): (
@@ -890,6 +951,11 @@ export function createMentionCompletion(): (
     const word = context.matchBefore(/@\w*/)
     if (!word) return null
     if (word.from === word.to && !context.explicit) return null
+
+    // Check if we're inside a template expression
+    const cursorPos = context.pos
+    const templateRange = findTemplateAt(context.state, cursorPos)
+    const isInsideTemplate = templateRange !== null
 
     return {
       from: word.from,
@@ -903,35 +969,79 @@ export function createMentionCompletion(): (
           from: number,
           to: number
         ) => {
+          // Special handling for foreach
+          if (suggestion.label === "foreach") {
+            const itemPlaceholder = "_item_"
+            const collectionPlaceholder = "_collection_"
+            const foreachExpression = `for var.${itemPlaceholder} in ${collectionPlaceholder}`
+
+            if (isInsideTemplate) {
+              // Inside template: just insert and select first placeholder
+              view.dispatch({
+                changes: { from, to, insert: foreachExpression },
+                selection: { anchor: from + 8, head: from + 14 }, // Select "_item_"
+              })
+            } else {
+              // Outside template: wrap with ${{ }} and select first placeholder
+              const templateExpression = `\${{ ${foreachExpression} }}`
+              const templateStart = from
+              const templateEnd = from + templateExpression.length
+
+              // Create editing mark decoration
+              const editingMark = Decoration.mark({
+                class: "cm-template-pill cm-template-editing",
+              })
+
+              view.dispatch({
+                changes: { from, to, insert: templateExpression },
+                effects: setEditingRange.of(
+                  editingMark.range(templateStart, templateEnd)
+                ),
+                selection: {
+                  anchor: from + 12, // Position at start of "_item_" (after "${{ for var.")
+                  head: from + 18, // Select "_item_"
+                },
+              })
+            }
+            return
+          }
+
           // For ACTIONS and FN, automatically add a dot to enable immediate property/function completion
           const needsDot =
             suggestion.label === "ACTIONS" || suggestion.label === "FN"
           const labelWithDot = needsDot
             ? `${suggestion.label}.`
             : suggestion.label
-          const templateExpression = `\${{ ${labelWithDot} }}`
-          const templateStart = from
-          const templateEnd = from + templateExpression.length
-          const cursorPosition = from + 4 + labelWithDot.length // Position after "${{ <label>." or "${{ <label>"
 
-          // Create editing mark decoration
-          const editingMark = Decoration.mark({
-            class: "cm-template-pill cm-template-editing",
-          })
+          if (isInsideTemplate) {
+            // Inside template: only insert the label without wrapping
+            view.dispatch({
+              changes: { from, to, insert: labelWithDot },
+              selection: { anchor: from + labelWithDot.length },
+            })
+          } else {
+            // Outside template: wrap with ${{ }} and create editing mode
+            const templateExpression = `\${{ ${labelWithDot} }}`
+            const templateStart = from
+            const templateEnd = from + templateExpression.length
+            const cursorPosition = from + 4 + labelWithDot.length // Position after "${{ <label>." or "${{ <label>"
 
-          view.dispatch({
-            changes: { from, to, insert: templateExpression },
-            effects: setEditingRange.of(
-              editingMark.range(templateStart, templateEnd)
-            ),
-            selection: { anchor: cursorPosition },
-          })
+            // Create editing mark decoration
+            const editingMark = Decoration.mark({
+              class: "cm-template-pill cm-template-editing",
+            })
 
+            view.dispatch({
+              changes: { from, to, insert: templateExpression },
+              effects: setEditingRange.of(
+                editingMark.range(templateStart, templateEnd)
+              ),
+              selection: { anchor: cursorPosition },
+            })
+          }
           // For labels that need dots, trigger completion after a short delay
           if (needsDot) {
-            setTimeout(() => {
-              startCompletion(view)
-            }, 50)
+            startCompletion(view)
           }
         },
       })),
@@ -1025,81 +1135,6 @@ export function createActionCompletion(actions: ActionRead[]) {
   }
 }
 
-// Enhanced action completion with property completion
-export function createEnhancedActionCompletion(actions: ActionRead[]) {
-  return async (
-    context: CompletionContext
-  ): Promise<CompletionResult | null> => {
-    // First check for property completion patterns (ACTIONS.actionRef.property)
-    const propertyWord = context.matchBefore(/ACTIONS\.\w+\.\w*/)
-    if (propertyWord) {
-      const text = context.state.doc.sliceString(
-        propertyWord.from,
-        propertyWord.to
-      )
-      const match = text.match(/^ACTIONS\.(\w+)\.(\w*)$/)
-      if (match) {
-        const [, actionRef, partialProperty] = match
-
-        // Check if the action exists
-        const action = actions.find((a) => a.ref === actionRef)
-        if (action) {
-          const properties = ["result", "error", "status"]
-          const filteredProperties = properties.filter((prop) =>
-            prop.toLowerCase().startsWith(partialProperty.toLowerCase())
-          )
-
-          const lastDotIndex = text.lastIndexOf(".")
-          return {
-            from: propertyWord.from + lastDotIndex + 1,
-            options: filteredProperties.map((prop) => ({
-              label: prop,
-              detail: `${prop} from ${actionRef}`,
-              info: `Access the ${prop} from this action`,
-            })),
-          }
-        }
-      }
-    }
-
-    // Fall back to action reference completion
-    const actionWord = context.matchBefore(/ACTIONS\.\w*/)
-    if (!actionWord) return null
-
-    try {
-      const text = context.state.doc.sliceString(actionWord.from, actionWord.to)
-      const partialAction = text.replace(/^ACTIONS\./, "")
-
-      const filteredActions = actions.filter((action) =>
-        action.ref.toLowerCase().startsWith(partialAction.toLowerCase())
-      )
-
-      return {
-        from: actionWord.from + 8,
-        options: filteredActions.map((action) => ({
-          label: action.ref,
-          detail: action.type || "action",
-          apply: (
-            view: EditorView,
-            completion: Completion,
-            from: number,
-            to: number
-          ) => {
-            // Add a "." after the action reference to encourage property access
-            view.dispatch({
-              changes: { from, to, insert: `${action.ref}.` },
-              selection: { anchor: from + action.ref.length + 1 },
-            })
-          },
-        })),
-      }
-    } catch (error) {
-      console.warn("Failed to get action completions:", error)
-      return null
-    }
-  }
-}
-
 // Click handler for template pills
 export function createPillClickHandler() {
   return (event: MouseEvent, view: EditorView): boolean => {
@@ -1137,6 +1172,17 @@ export function createPillClickHandler() {
       view.dispatch({ effects: setEditingRange.of(null) })
     }
 
+    return false
+  }
+}
+
+// Blur handler to clear editing state
+export function createBlurHandler() {
+  return (event: FocusEvent, view: EditorView): boolean => {
+    const currentEditingRange = view.state.field(editingRangeField)
+    if (currentEditingRange) {
+      view.dispatch({ effects: setEditingRange.of(null) })
+    }
     return false
   }
 }
