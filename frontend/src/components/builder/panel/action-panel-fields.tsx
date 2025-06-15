@@ -12,6 +12,7 @@ import {
   LucideIcon,
   PlusCircleIcon,
   TypeIcon,
+  WorkflowIcon,
 } from "lucide-react"
 import {
   ControllerRenderProps,
@@ -698,12 +699,12 @@ export function PolymorphicField({
               value={field.value}
               onChange={field.onChange}
             >
-              {renderComponentContent(
-                componentToRender,
-                field,
-                workspaceId,
-                workflowId
-              )}
+              <ComponentContent
+                component={componentToRender}
+                field={field}
+                workspaceId={workspaceId}
+                workflowId={workflowId}
+              />
             </PolyField>
           </FormControl>
         </FormItem>
@@ -820,12 +821,17 @@ function renderSingleComponent(
   }
 }
 
-function renderComponentContent(
-  component: TracecatEditorComponent,
-  field: ControllerRenderProps<FieldValues>,
-  workspaceId?: string,
+function ComponentContent({
+  component,
+  field,
+  workspaceId,
+  workflowId,
+}: {
+  component: TracecatEditorComponent
+  field: ControllerRenderProps<FieldValues>
+  workspaceId?: string
   workflowId?: string
-) {
+}) {
   switch (component.component_id) {
     case "text":
       return <Input type="text" value={field.value} onChange={field.onChange} />
@@ -996,6 +1002,10 @@ function renderComponentContent(
       return (
         <JsonStyledEditor value={field.value || ""} setValue={field.onChange} />
       )
+    case "action-type":
+      return <div>Action Type</div>
+    case "workflow-alias":
+      return <div>Workflow Alias</div>
     case "expression":
       return (
         <Input
@@ -1031,6 +1041,8 @@ const COMPONENT_LABELS: Record<TracecatComponentId, string> = {
   yaml: "YAML",
   json: "JSON",
   expression: "Expression",
+  "action-type": "Action Type",
+  "workflow-alias": "Workflow Alias",
 }
 
 const COMPONENT_ICONS: Record<TracecatComponentId, LucideIcon> = {
@@ -1046,4 +1058,6 @@ const COMPONENT_ICONS: Record<TracecatComponentId, LucideIcon> = {
   yaml: CodeIcon,
   json: CodeIcon,
   expression: BracesIcon,
+  "action-type": TypeIcon,
+  "workflow-alias": WorkflowIcon,
 }

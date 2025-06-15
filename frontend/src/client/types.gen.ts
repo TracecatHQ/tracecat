@@ -130,6 +130,10 @@ export type ActionStep = {
   }
 }
 
+export type ActionType = {
+  component_id?: "action-type"
+}
+
 export type ActionUpdate = {
   title?: string | null
   description?: string | null
@@ -744,6 +748,8 @@ export type EditorComponent =
   | Json
   | KeyValue
   | TagInput
+  | ActionType
+  | WorkflowAlias
 
 export type EditorFunctionRead = {
   name: string
@@ -2305,6 +2311,10 @@ export type WebhookUpdate = {
   status?: WebhookStatus | null
   methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
+}
+
+export type WorkflowAlias = {
+  component_id?: "workflow-alias"
 }
 
 export type WorkflowCommitResponse = {
@@ -3874,7 +3884,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3887,7 +3897,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

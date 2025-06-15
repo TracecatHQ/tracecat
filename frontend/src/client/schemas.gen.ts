@@ -471,6 +471,19 @@ export const $ActionStep = {
   title: "ActionStep",
 } as const
 
+export const $ActionType = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "action-type",
+      title: "Component Id",
+      default: "action-type",
+    },
+  },
+  type: "object",
+  title: "ActionType",
+} as const
+
 export const $ActionUpdate = {
   properties: {
     title: {
@@ -2334,11 +2347,18 @@ export const $EditorComponent = {
     {
       $ref: "#/components/schemas/TagInput",
     },
+    {
+      $ref: "#/components/schemas/ActionType",
+    },
+    {
+      $ref: "#/components/schemas/WorkflowAlias",
+    },
   ],
   title: "EditorComponent",
   discriminator: {
     propertyName: "component_id",
     mapping: {
+      "action-type": "#/components/schemas/ActionType",
       code: "#/components/schemas/Code",
       float: "#/components/schemas/Float",
       integer: "#/components/schemas/Integer",
@@ -2349,6 +2369,7 @@ export const $EditorComponent = {
       text: "#/components/schemas/Text",
       "text-area": "#/components/schemas/TextArea",
       toggle: "#/components/schemas/Toggle",
+      "workflow-alias": "#/components/schemas/WorkflowAlias",
       yaml: "#/components/schemas/Yaml",
     },
   },
@@ -7486,6 +7507,19 @@ export const $WebhookUpdate = {
   },
   type: "object",
   title: "WebhookUpdate",
+} as const
+
+export const $WorkflowAlias = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "workflow-alias",
+      title: "Component Id",
+      default: "workflow-alias",
+    },
+  },
+  type: "object",
+  title: "WorkflowAlias",
 } as const
 
 export const $WorkflowCommitResponse = {

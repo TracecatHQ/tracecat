@@ -31,7 +31,8 @@ class ComponentID(StrEnum):
     KEY_VALUE = "key-value"
     YAML = "yaml"
     JSON = "json"
-    NO_EXPR = "no-expr"
+    ACTION_TYPE = "action-type"
+    WORKFLOW_ALIAS = "workflow-alias"
 
 
 @dataclass(slots=True)
@@ -116,7 +117,7 @@ class Yaml(Component):
 
 @dataclass(slots=True)
 class Json(Component):
-    """Render field as JSON editor in UI"""
+    """Render field as JSON editor with resolvables in UI"""
 
     component_id: Literal[ComponentID.JSON] = ComponentID.JSON
 
@@ -131,10 +132,17 @@ class KeyValue(Component):
 
 
 @dataclass(slots=True)
-class NoExpr(Component):
-    """Component that disallows expressions in the input"""
+class ActionType(Component):
+    """Render field as action type dropdown in UI"""
 
-    component_id: Literal[ComponentID.NO_EXPR] = ComponentID.NO_EXPR
+    component_id: Literal[ComponentID.ACTION_TYPE] = ComponentID.ACTION_TYPE
+
+
+@dataclass(slots=True)
+class WorkflowAlias(Component):
+    """Render field as workflow alias dropdown in UI"""
+
+    component_id: Literal[ComponentID.WORKFLOW_ALIAS] = ComponentID.WORKFLOW_ALIAS
 
 
 def _safe_issubclass(cls: type, base: type) -> bool:
@@ -275,17 +283,19 @@ def get_components_for_union_type(field_type: Any) -> list[Component]:
     if has_str and has_list_str:
         return [TagInput()]
 
-    components = []
+    # Everything else is a Json
+    return [Json()]
+    # components = []
 
-    for arg in args:
-        if arg is type(None):
-            continue  # Skip None type
+    # for arg in args:
+    #     if arg is type(None):
+    #         continue  # Skip None type
 
-        component = get_default_component(arg)
-        if component and component not in components:
-            components.append(component)
+    #     component = get_default_component(arg)
+    #     if component and component not in components:
+    #         components.append(component)
 
-    return components
+    # return components
 
 
 class EditorComponent(RootModel):
@@ -301,7 +311,8 @@ class EditorComponent(RootModel):
         | Json
         | KeyValue
         | TagInput
-        | NoExpr,
+        | ActionType
+        | WorkflowAlias,
         Field(discriminator="component_id"),
     ]
 
