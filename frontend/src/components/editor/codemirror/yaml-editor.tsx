@@ -45,7 +45,6 @@ import {
   editingRangeField,
   enhancedCursorLeft,
   enhancedCursorRight,
-  setEditingRange,
   templatePillTheme,
 } from "./common"
 
@@ -65,7 +64,6 @@ export function YamlStyledEditor({
   })
   const { workspaceId } = useWorkspace()
   const { workflowId, workflow } = useWorkflow()
-  const [editorView, setEditorView] = useState<EditorView | null>(null)
   const [hasErrors, setHasErrors] = useState(false)
   const actions = workflow?.actions || []
 
@@ -187,7 +185,6 @@ export function YamlStyledEditor({
           extensions={extensions}
           onChange={handleChange}
           theme="light"
-          onCreateEditor={(view) => setEditorView(view)}
           basicSetup={{
             foldGutter: true,
             dropCursor: true,
