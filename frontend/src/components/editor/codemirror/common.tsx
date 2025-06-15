@@ -1144,11 +1144,11 @@ export function createPillClickHandler() {
 // Common theme for template pills
 export const templatePillTheme = EditorView.theme({
   ".cm-template-pill": {
-    backgroundColor: "rgba(218, 165, 32, 0.2)",
-    color: "#8B4513",
-    padding: "0.05em 0.3em",
+    backgroundColor: "rgba(59, 130, 246, 0.15)",
+    color: "#1e40af",
+    padding: "0.075em 0.3em",
     borderRadius: "0.25rem",
-    border: "0.5px solid rgba(139, 69, 19, 0.3)",
+    border: "0.5px solid rgba(59, 130, 246, 0.3)",
     cursor: "pointer",
     display: "inline-flex",
     alignItems: "center",
@@ -1162,8 +1162,8 @@ export const templatePillTheme = EditorView.theme({
     fontFamily: "ui-monospace, monospace",
   },
   ".cm-template-pill:hover": {
-    backgroundColor: "rgba(218, 165, 32, 0.3)",
-    borderColor: "rgba(139, 69, 19, 0.5)",
+    backgroundColor: "rgba(59, 130, 246, 0.25)",
+    borderColor: "rgba(59, 130, 246, 0.5)",
     zIndex: "2",
   },
   ".cm-template-error": {
@@ -1179,8 +1179,8 @@ export const templatePillTheme = EditorView.theme({
   },
   ".cm-template-editing": {
     padding: "0 !important",
-    border: "1px solid rgba(139, 69, 19, 0.8)",
-    backgroundColor: "rgba(218, 165, 32, 0.1)",
+    border: "1px solid rgba(59, 130, 246, 0.8)",
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
     outline: "none",
     transform: "none",
   },
